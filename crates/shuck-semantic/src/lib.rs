@@ -29,6 +29,7 @@ mod uninitialized;
 mod unused;
 mod value_flow;
 mod zsh_options;
+mod zsh_plugin_layouts;
 
 /// Binding types and provenance metadata discovered during semantic analysis.
 pub use binding::{
@@ -90,6 +91,11 @@ pub use shuck_parser::{OptionValue, ShellDialect, ShellProfile, ZshEmulationMode
 pub use source_ref::{SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution};
 /// Value-flow query object built over semantic bindings, call sites, CFG, and dataflow.
 pub use value_flow::SemanticValueFlow;
+/// Zsh plugin framework layout helpers.
+pub use zsh_plugin_layouts::{
+    ZshPluginLayout, layout_for_plugin_framework, zsh_plugin_framework_from_name,
+    zsh_plugin_layouts,
+};
 
 /// How an unindexed array reference behaves at a source offset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

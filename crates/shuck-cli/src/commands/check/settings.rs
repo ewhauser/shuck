@@ -16,6 +16,7 @@ use shuck_linter::{
 };
 use shuck_semantic::{
     PluginFramework, PluginRequest, PluginRequestKind, PluginResolution, PluginResolver,
+    layout_for_plugin_framework, zsh_plugin_framework_from_name, zsh_plugin_layouts,
 };
 
 use crate::args::{
@@ -583,19 +584,11 @@ impl PluginResolver for ResolvedZshPluginSettings {
         }
 
         let mut paths = Vec::new();
-        if let Some(root) = self.roots.get("oh-my-zsh")
-            && let Some(suffix) = oh_my_zsh_source_suffix(root, source_path, candidate)
-        {
-            paths.push(root.join(suffix));
-        }
-        if let Some(root) = self.roots.get("zdot")
-            && let Some(suffix) = zdot_source_suffix(root, source_path, candidate)
-        {
-            paths.push(root.join(suffix));
-        }
-        for root in zinit_roots(self) {
-            if let Some(suffix) = zinit_source_suffix(root, source_path, candidate) {
-                paths.push(root.join(suffix));
+        for layout in zsh_plugin_layouts() {
+            for root in configured_plugin_roots(self, layout.root_keys()) {
+                if let Some(suffix) = layout.resolve_source_suffix(root, source_path, candidate) {
+                    paths.push(root.join(suffix));
+                }
             }
         }
         paths
@@ -619,9 +612,6 @@ impl PluginResolver for ResolvedZshPluginSettings {
                 }
             }
             PluginRequestKind::Plugin => {
-                if matches!(request.framework, PluginFramework::Zinit) {
-                    return PluginResolution::default();
-                }
                 let Some(root) = request
                     .root_hint
                     .clone()
@@ -629,18 +619,13 @@ impl PluginResolver for ResolvedZshPluginSettings {
                 else {
                     return PluginResolution::default();
                 };
-                let path = match request.framework {
-                    PluginFramework::Prezto => {
-                        root.join("modules").join(&request.name).join("init.zsh")
-                    }
-                    PluginFramework::Zdot => root
-                        .join("modules")
-                        .join(&request.name)
-                        .join(format!("{}.zsh", request.name)),
-                    _ => root
-                        .join("plugins")
-                        .join(&request.name)
-                        .join(format!("{}.plugin.zsh", request.name)),
+                let Some(layout) = layout_for_plugin_framework(&request.framework) else {
+                    return PluginResolution::default();
+                };
+                let Some(path) =
+                    layout.resolve_entrypoint(&root, PluginRequestKind::Plugin, &request.name)
+                else {
+                    return PluginResolution::default();
                 };
                 PluginResolution {
                     entrypoints: vec![path],
@@ -648,12 +633,6 @@ impl PluginResolver for ResolvedZshPluginSettings {
                 }
             }
             PluginRequestKind::Theme => {
-                if matches!(
-                    request.framework,
-                    PluginFramework::Prezto | PluginFramework::Zdot | PluginFramework::Zinit
-                ) {
-                    return PluginResolution::default();
-                }
                 let Some(root) = request
                     .root_hint
                     .clone()
@@ -661,9 +640,14 @@ impl PluginResolver for ResolvedZshPluginSettings {
                 else {
                     return PluginResolution::default();
                 };
-                let path = root
-                    .join("themes")
-                    .join(format!("{}.zsh-theme", request.name));
+                let Some(layout) = layout_for_plugin_framework(&request.framework) else {
+                    return PluginResolution::default();
+                };
+                let Some(path) =
+                    layout.resolve_entrypoint(&root, PluginRequestKind::Theme, &request.name)
+                else {
+                    return PluginResolution::default();
+                };
                 PluginResolution {
                     entrypoints: vec![path],
                     file_entry_contracts: Vec::new(),
@@ -725,140 +709,30 @@ fn per_file_shell_absolute_match(matcher: &GlobMatcher, path: &Path) -> bool {
 }
 
 fn plugin_framework_from_name(name: &str) -> PluginFramework {
-    match name {
-        "oh-my-zsh" => PluginFramework::OhMyZsh,
-        "prezto" => PluginFramework::Prezto,
-        "zdot" => PluginFramework::Zdot,
-        "zinit" | "zi" => PluginFramework::Zinit,
-        other => PluginFramework::Other(other.to_owned()),
-    }
+    zsh_plugin_framework_from_name(name)
 }
 
 fn plugin_root_for_request(
     settings: &ResolvedZshPluginSettings,
     request: &PluginRequest,
 ) -> Option<PathBuf> {
-    let key = match &request.framework {
-        PluginFramework::OhMyZsh => "oh-my-zsh",
-        PluginFramework::Prezto => "prezto",
-        PluginFramework::Zdot => "zdot",
-        PluginFramework::Zinit => return zinit_roots(settings).next().cloned(),
-        PluginFramework::ExplicitFilesystem => return None,
-        PluginFramework::Other(other) => other.as_str(),
-    };
-    settings.roots.get(key).cloned()
-}
-
-fn zinit_roots(settings: &ResolvedZshPluginSettings) -> impl Iterator<Item = &PathBuf> {
-    ["zinit", "zi"]
-        .into_iter()
-        .filter_map(|key| settings.roots.get(key))
-}
-
-fn oh_my_zsh_source_suffix(root: &Path, source_path: &Path, candidate: &str) -> Option<PathBuf> {
-    let normalized = candidate.replace('\\', "/");
-    if normalized == "oh-my-zsh.sh" || normalized.ends_with("/oh-my-zsh.sh") {
-        return Some(PathBuf::from("oh-my-zsh.sh"));
+    if let Some(layout) = layout_for_plugin_framework(&request.framework) {
+        return configured_plugin_roots(settings, layout.root_keys())
+            .next()
+            .cloned();
     }
-
-    let source_in_framework = source_path.starts_with(root);
-    let candidate_has_framework_anchor = path_text_has_oh_my_zsh_anchor(&normalized)
-        || path_text_starts_with_path(&normalized, root);
-    if !source_in_framework && !candidate_has_framework_anchor {
-        return None;
-    }
-
-    for marker in ["/plugins/", "/themes/", "/lib/"] {
-        if let Some(index) = normalized.rfind(marker) {
-            let suffix = &normalized[index + 1..];
-            if !suffix.is_empty() {
-                return Some(PathBuf::from(suffix));
-            }
-        }
-    }
-
-    None
-}
-
-fn path_text_has_oh_my_zsh_anchor(path: &str) -> bool {
-    path.contains("/.oh-my-zsh/") || path.contains("/oh-my-zsh/")
-}
-
-fn zdot_source_suffix(root: &Path, source_path: &Path, candidate: &str) -> Option<PathBuf> {
-    let normalized = candidate.replace('\\', "/");
-    if normalized == "zdot.zsh" || normalized.ends_with("/zdot.zsh") {
-        return Some(PathBuf::from("zdot.zsh"));
-    }
-
-    let source_in_framework = source_path.starts_with(root);
-    let candidate_has_framework_anchor =
-        path_text_has_zdot_anchor(&normalized) || path_text_starts_with_path(&normalized, root);
-    if !source_in_framework && !candidate_has_framework_anchor {
-        return None;
-    }
-
-    for marker in ["/core/", "/modules/"] {
-        if let Some(index) = normalized.rfind(marker) {
-            let suffix = &normalized[index + 1..];
-            if !suffix.is_empty() {
-                return Some(PathBuf::from(suffix));
-            }
-        }
-    }
-
-    None
-}
-
-fn path_text_has_zdot_anchor(path: &str) -> bool {
-    path.contains("/.zdot/") || path.contains("/zdot/")
-}
-
-fn zinit_source_suffix(root: &Path, source_path: &Path, candidate: &str) -> Option<PathBuf> {
-    let normalized = candidate.replace('\\', "/");
-    let source_in_framework = source_path.starts_with(root);
-    let candidate_has_framework_anchor =
-        path_text_has_zinit_anchor(&normalized) || path_text_starts_with_path(&normalized, root);
-    if !source_in_framework && !candidate_has_framework_anchor && normalized != "zinit.zsh" {
-        return None;
-    }
-
-    for marker in ["/share/", "/doc/"] {
-        if let Some(index) = normalized.rfind(marker) {
-            let suffix = &normalized[index + 1..];
-            if !suffix.is_empty() {
-                return Some(PathBuf::from(suffix));
-            }
-        }
-    }
-
-    zinit_builtin_source_suffix(&normalized).map(PathBuf::from)
-}
-
-fn zinit_builtin_source_suffix(path: &str) -> Option<&'static str> {
-    let file_name = path.rsplit('/').next().unwrap_or(path);
-    match file_name {
-        "zinit.zsh" => Some("zinit.zsh"),
-        "zinit-additional.zsh" => Some("zinit-additional.zsh"),
-        "zinit-autoload.zsh" => Some("zinit-autoload.zsh"),
-        "zinit-install.zsh" => Some("zinit-install.zsh"),
-        "zinit-side.zsh" => Some("zinit-side.zsh"),
+    match &request.framework {
+        PluginFramework::Other(other) => settings.roots.get(other.as_str()).cloned(),
+        PluginFramework::ExplicitFilesystem => None,
         _ => None,
     }
 }
 
-fn path_text_has_zinit_anchor(path: &str) -> bool {
-    path.contains("/.zinit/")
-        || path.contains("/zinit/")
-        || path.contains("/.zi/")
-        || path.contains("/zi/")
-}
-
-fn path_text_starts_with_path(path: &str, root: &Path) -> bool {
-    let root_text = root.to_string_lossy().replace('\\', "/");
-    path == root_text
-        || path
-            .strip_prefix(&root_text)
-            .is_some_and(|tail| tail.starts_with('/'))
+fn configured_plugin_roots<'a>(
+    settings: &'a ResolvedZshPluginSettings,
+    keys: &'static [&'static str],
+) -> impl Iterator<Item = &'a PathBuf> {
+    keys.iter().filter_map(|key| settings.roots.get(*key))
 }
 
 fn normalize_zsh_plugin_path(project_root: &Path, value: &str) -> Result<PathBuf> {
@@ -1904,73 +1778,96 @@ mod tests {
 
     #[test]
     fn oh_my_zsh_source_suffix_rewrites_framework_paths_only() {
-        let root = Path::new("/workspace/.oh-my-zsh");
+        let settings = ResolvedZshPluginSettings::resolve(
+            PathBuf::from("/workspace"),
+            true,
+            BTreeMap::from([("oh-my-zsh".to_owned(), "/workspace/.oh-my-zsh".to_owned())]),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
 
         assert_eq!(
-            oh_my_zsh_source_suffix(
-                root,
+            settings.resolve_source_path(
                 Path::new("/workspace/.oh-my-zsh/oh-my-zsh.sh"),
                 "/opt/app/plugins/git/git.plugin.zsh",
             ),
-            Some(PathBuf::from("plugins/git/git.plugin.zsh"))
+            vec![PathBuf::from(
+                "/workspace/.oh-my-zsh/plugins/git/git.plugin.zsh"
+            )]
         );
         assert_eq!(
-            oh_my_zsh_source_suffix(
-                root,
+            settings.resolve_source_path(
                 Path::new("/workspace/script.zsh"),
                 "/tmp/.oh-my-zsh/plugins/git/git.plugin.zsh",
             ),
-            Some(PathBuf::from("plugins/git/git.plugin.zsh"))
+            vec![PathBuf::from(
+                "/workspace/.oh-my-zsh/plugins/git/git.plugin.zsh"
+            )]
         );
         assert_eq!(
-            oh_my_zsh_source_suffix(
-                root,
+            settings.resolve_source_path(
                 Path::new("/workspace/script.zsh"),
                 "/opt/app/plugins/git/git.plugin.zsh",
             ),
-            None
+            Vec::<PathBuf>::new()
         );
     }
 
     #[test]
     fn oh_my_zsh_source_suffix_still_resolves_framework_entrypoint() {
+        let settings = ResolvedZshPluginSettings::resolve(
+            PathBuf::from("/workspace"),
+            true,
+            BTreeMap::from([("oh-my-zsh".to_owned(), "/workspace/.oh-my-zsh".to_owned())]),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+
         assert_eq!(
-            oh_my_zsh_source_suffix(
-                Path::new("/workspace/.oh-my-zsh"),
+            settings.resolve_source_path(
                 Path::new("/workspace/script.zsh"),
                 "/not-installed/.oh-my-zsh/oh-my-zsh.sh",
             ),
-            Some(PathBuf::from("oh-my-zsh.sh"))
+            vec![PathBuf::from("/workspace/.oh-my-zsh/oh-my-zsh.sh")]
         );
     }
 
     #[test]
     fn zinit_source_suffix_rewrites_framework_bootstrap_paths_only() {
-        let root = Path::new("/workspace/zinit");
+        let settings = ResolvedZshPluginSettings::resolve(
+            PathBuf::from("/workspace"),
+            true,
+            BTreeMap::from([("zinit".to_owned(), "/workspace/zinit".to_owned())]),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
 
         assert_eq!(
-            zinit_source_suffix(
-                root,
+            settings.resolve_source_path(
                 Path::new("/workspace/script.zsh"),
                 "/not-installed/.zinit/bin/zinit.zsh",
             ),
-            Some(PathBuf::from("zinit.zsh"))
+            vec![PathBuf::from("/workspace/zinit/zinit.zsh")]
         );
         assert_eq!(
-            zinit_source_suffix(
-                root,
+            settings.resolve_source_path(
                 Path::new("/workspace/zinit/zinit.zsh"),
                 "/opt/app/share/zinit-autoload.zsh",
             ),
-            Some(PathBuf::from("share/zinit-autoload.zsh"))
+            vec![PathBuf::from("/workspace/zinit/share/zinit-autoload.zsh")]
         );
         assert_eq!(
-            zinit_source_suffix(
-                root,
+            settings.resolve_source_path(
                 Path::new("/workspace/script.zsh"),
                 "/opt/app/share/zinit-autoload.zsh",
             ),
-            None
+            Vec::<PathBuf>::new()
         );
     }
 
@@ -2128,31 +2025,36 @@ mod tests {
 
     #[test]
     fn zdot_source_suffix_rewrites_framework_paths_only() {
-        let root = Path::new("/workspace/zdot");
+        let settings = ResolvedZshPluginSettings::resolve(
+            PathBuf::from("/workspace"),
+            true,
+            BTreeMap::from([("zdot".to_owned(), "/workspace/zdot".to_owned())]),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
 
         assert_eq!(
-            zdot_source_suffix(
-                root,
+            settings.resolve_source_path(
                 Path::new("/workspace/zdot/zdot.zsh"),
                 "/not-installed/zdot/core/hooks.zsh",
             ),
-            Some(PathBuf::from("core/hooks.zsh"))
+            vec![PathBuf::from("/workspace/zdot/core/hooks.zsh")]
         );
         assert_eq!(
-            zdot_source_suffix(
-                root,
+            settings.resolve_source_path(
                 Path::new("/workspace/zdot/zdot.zsh"),
                 "/not-installed/zdot/modules/fzf/fzf.zsh",
             ),
-            Some(PathBuf::from("modules/fzf/fzf.zsh"))
+            vec![PathBuf::from("/workspace/zdot/modules/fzf/fzf.zsh")]
         );
         assert_eq!(
-            zdot_source_suffix(
-                root,
+            settings.resolve_source_path(
                 Path::new("/workspace/app/.zshrc"),
                 "/tmp/other/core/hooks.zsh",
             ),
-            None
+            Vec::<PathBuf>::new()
         );
     }
 
