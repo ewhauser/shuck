@@ -154,13 +154,15 @@ impl ResolvedAmbientContracts {
             }
         }
         let mut disabled = config.disabled;
-        disabled.extend(
-            config
-                .custom
-                .iter()
-                .flat_map(|contract| contract.replaces.iter().cloned()),
-        );
-        validate_well_known_selectors(&disabled)?;
+        if config.well_known {
+            disabled.extend(
+                config
+                    .custom
+                    .iter()
+                    .flat_map(|contract| contract.replaces.iter().cloned()),
+            );
+            validate_well_known_selectors(&disabled)?;
+        }
         let custom_contracts = config
             .custom
             .into_iter()

@@ -2245,6 +2245,25 @@ mod tests {
     }
 
     #[test]
+    fn custom_only_contracts_ignore_built_in_selector_validation() {
+        ResolvedAmbientContracts::resolve(
+            PathBuf::from("/workspace"),
+            AmbientContractConfig {
+                well_known: false,
+                disabled: vec!["unknown/selector".to_owned()],
+                custom: vec![AmbientContractSpec {
+                    id: "custom".to_owned(),
+                    replaces: vec!["legacy/built-in".to_owned()],
+                    when: AmbientContractActivation::Always,
+                    files: Vec::new(),
+                    effects: AmbientContractEffects::default(),
+                }],
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
     fn duplicate_custom_contract_ids_are_rejected() {
         let error = ResolvedAmbientContracts::resolve(
             PathBuf::from("/workspace"),
