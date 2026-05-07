@@ -48,15 +48,7 @@ jobs:
       - name: Smoke test host wheel
         run: |
           set -euo pipefail
-          expected_version="$(
-            python3 - <<'PY'
-from pathlib import Path
-import tomllib
-
-data = tomllib.loads(Path("python/pyproject.toml").read_text())
-print(data["project"]["version"])
-PY
-          )"
+          expected_version="$(python3 -c 'import tomllib, pathlib; print(tomllib.loads(pathlib.Path("python/pyproject.toml").read_text())["project"]["version"])')"
 
           python3 -m venv "$RUNNER_TEMP/pypi-smoke"
           source "$RUNNER_TEMP/pypi-smoke/bin/activate"
