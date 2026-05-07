@@ -351,6 +351,17 @@ fn oh_my_zsh_tools_get_prompt_color_bindings() {
 }
 
 #[test]
+fn hyphenated_oh_my_zsh_paths_get_unknown_shell_runtime_contracts() {
+    let path = Path::new("/tmp/home/.oh-my-zsh/tools/check_for_upgrade.sh");
+    let source = "print -r -- \"$fg\" \"$reset_color\"\n";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Unknown).unwrap();
+
+    assert!(has_initialized_binding(&contract, "fg"));
+    assert!(has_initialized_binding(&contract, "reset_color"));
+}
+
+#[test]
 fn zsh_runtime_contract_initializes_braced_prompt_color_arrays() {
     let path = Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh");
     let source = "\

@@ -801,6 +801,8 @@ fn zsh_project_or_dotfile_path_shape(path: &Path) -> bool {
                 | ".zlogout"
                 | "zlogout"
                 | "zdot"
+                | ".oh-my-zsh"
+                | "oh-my-zsh"
                 | "ohmyzsh"
                 | "powerlevel10k"
                 | "prezto"

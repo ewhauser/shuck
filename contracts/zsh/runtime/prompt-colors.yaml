@@ -45,6 +45,7 @@ contracts:
       - "**/themes/**"
       - "**/*.plugin.zsh"
       - "**/*.theme.zsh"
+      - "**/.oh-my-zsh/**"
       - "**/oh-my-zsh/**"
       - "**/ohmyzsh/**"
       - "**/powerlevel10k/**"
