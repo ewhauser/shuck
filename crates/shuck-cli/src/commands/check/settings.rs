@@ -588,10 +588,10 @@ impl PluginResolver for ResolvedZshPluginSettings {
         {
             paths.push(root.join(suffix));
         }
-        if let Some(root) = self.roots.get("zinit")
-            && let Some(suffix) = zinit_source_suffix(root, source_path, candidate)
-        {
-            paths.push(root.join(suffix));
+        for root in zinit_roots(self) {
+            if let Some(suffix) = zinit_source_suffix(root, source_path, candidate) {
+                paths.push(root.join(suffix));
+            }
         }
         paths
     }
@@ -723,11 +723,17 @@ fn plugin_root_for_request(
     let key = match &request.framework {
         PluginFramework::OhMyZsh => "oh-my-zsh",
         PluginFramework::Prezto => "prezto",
-        PluginFramework::Zinit => "zinit",
+        PluginFramework::Zinit => return zinit_roots(settings).next().cloned(),
         PluginFramework::ExplicitFilesystem => return None,
         PluginFramework::Other(other) => other.as_str(),
     };
     settings.roots.get(key).cloned()
+}
+
+fn zinit_roots(settings: &ResolvedZshPluginSettings) -> impl Iterator<Item = &PathBuf> {
+    ["zinit", "zi"]
+        .into_iter()
+        .filter_map(|key| settings.roots.get(key))
 }
 
 fn oh_my_zsh_source_suffix(root: &Path, source_path: &Path, candidate: &str) -> Option<PathBuf> {
@@ -1938,6 +1944,27 @@ mod tests {
                 "/not-installed/.zinit/bin/zinit.zsh",
             ),
             vec![PathBuf::from("/workspace/zinit/zinit.zsh")]
+        );
+    }
+
+    #[test]
+    fn zinit_plugin_root_resolves_zi_alias_bootstrap_source_paths() {
+        let settings = ResolvedZshPluginSettings::resolve(
+            PathBuf::from("/workspace"),
+            true,
+            BTreeMap::from([("zi".to_owned(), "/workspace/zi".to_owned())]),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            settings.resolve_source_path(
+                Path::new("/workspace/app/.zshrc"),
+                "/not-installed/.zi/bin/zinit.zsh",
+            ),
+            vec![PathBuf::from("/workspace/zi/zinit.zsh")]
         );
     }
 
