@@ -340,7 +340,26 @@ impl CompiledCustomContract {
     }
 
     fn files_match(&self, path: &Path) -> bool {
-        self.files.is_empty() || self.files.iter().any(|matcher| matcher.matches(path))
+        if self.files.is_empty() {
+            return true;
+        }
+
+        let mut saw_positive = false;
+        let mut matched_positive = false;
+
+        for matcher in &self.files {
+            if matcher.negated {
+                if matcher.path_matches(path) {
+                    return false;
+                }
+                continue;
+            }
+
+            saw_positive = true;
+            matched_positive |= matcher.path_matches(path);
+        }
+
+        if saw_positive { matched_positive } else { true }
     }
 
     fn effective_descriptor(&self) -> String {
@@ -405,16 +424,15 @@ impl CompiledPathMatcher {
         self
     }
 
-    fn matches(&self, path: &Path) -> bool {
+    fn path_matches(&self, path: &Path) -> bool {
         let relative_path = path.strip_prefix(&self.project_root).unwrap_or(path);
         let file_name = relative_path.file_name().or_else(|| path.file_name());
         let Some(file_name) = file_name else {
             return false;
         };
-        let matches = self.basename_matcher.is_match(file_name)
+        self.basename_matcher.is_match(file_name)
             || self.relative_matcher.is_match(relative_path)
-            || self.absolute_matcher.is_match(path);
-        if self.negated { !matches } else { matches }
+            || self.absolute_matcher.is_match(path)
     }
 }
 

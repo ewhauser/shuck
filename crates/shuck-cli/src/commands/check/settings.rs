@@ -629,7 +629,7 @@ impl PluginResolver for ResolvedZshPluginSettings {
 
     fn resolve_plugin_request(
         &self,
-        _source_path: &Path,
+        source_path: &Path,
         request: &PluginRequest,
     ) -> PluginResolution {
         if !self.enabled {
@@ -645,42 +645,18 @@ impl PluginResolver for ResolvedZshPluginSettings {
                     requesting_file_contract: Default::default(),
                 }
             }
-            PluginRequestKind::Plugin => {
-                let Some(root) = request
+            PluginRequestKind::Plugin | PluginRequestKind::Theme => {
+                let request_contracts = self
+                    .ambient_contracts
+                    .request_contracts_for_plugin(source_path, request);
+                let entrypoint = request
                     .root_hint
                     .clone()
                     .or_else(|| plugin_root_for_request(self, request))
-                else {
-                    return PluginResolution::default();
-                };
-                let Some(path) = resolve_zsh_plugin_entrypoint(&root, request) else {
-                    return PluginResolution::default();
-                };
-                let request_contracts = self
-                    .ambient_contracts
-                    .request_contracts_for_plugin(_source_path, request);
+                    .and_then(|root| resolve_zsh_plugin_entrypoint(&root, request));
+
                 PluginResolution {
-                    entrypoints: vec![path],
-                    file_entry_contracts: request_contracts.imported_contracts,
-                    requesting_file_contract: request_contracts.requesting_file_contract,
-                }
-            }
-            PluginRequestKind::Theme => {
-                let Some(root) = request
-                    .root_hint
-                    .clone()
-                    .or_else(|| plugin_root_for_request(self, request))
-                else {
-                    return PluginResolution::default();
-                };
-                let Some(path) = resolve_zsh_plugin_entrypoint(&root, request) else {
-                    return PluginResolution::default();
-                };
-                let request_contracts = self
-                    .ambient_contracts
-                    .request_contracts_for_plugin(_source_path, request);
-                PluginResolution {
-                    entrypoints: vec![path],
+                    entrypoints: entrypoint.into_iter().collect(),
                     file_entry_contracts: request_contracts.imported_contracts,
                     requesting_file_contract: request_contracts.requesting_file_contract,
                 }
@@ -2185,6 +2161,39 @@ mod tests {
     }
 
     #[test]
+    fn built_in_tmux_plugin_contract_applies_without_resolved_plugin_root() {
+        let settings = ResolvedZshPluginSettings::resolve(
+            PathBuf::from("/workspace"),
+            true,
+            default_ambient_contracts(),
+            BTreeMap::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        let request = PluginRequest {
+            framework: PluginFramework::OhMyZsh,
+            kind: PluginRequestKind::Plugin,
+            name: "tmux".to_owned(),
+            span: shuck_ast::Span::new(),
+            explicit: true,
+            root_hint: None,
+        };
+
+        let resolution = settings.resolve_plugin_request(Path::new("/workspace/.zshrc"), &request);
+
+        assert!(resolution.entrypoints.is_empty());
+        assert!(
+            resolution
+                .requesting_file_contract
+                .externally_consumed_binding_prefixes
+                .iter()
+                .any(|prefix| prefix.as_str() == "ZSH_TMUX_")
+        );
+    }
+
+    #[test]
     fn resolve_ambient_contracts_builds_custom_plugin_contracts_from_config() {
         let config = LintContractsConfig {
             well_known: Some(false),
@@ -2230,6 +2239,61 @@ mod tests {
                 .any(|prefix| prefix.as_str() == "LOCAL_TMUX_")
         );
         assert!(contracts.imported_contracts.is_empty());
+    }
+
+    #[test]
+    fn resolve_ambient_contracts_treats_negated_file_patterns_as_exclusions() {
+        let config = LintContractsConfig {
+            well_known: Some(false),
+            disabled: None,
+            custom: Some(vec![LintCustomContractConfig {
+                id: "custom-tmux".to_owned(),
+                replaces: None,
+                when: LintContractWhenConfig::Activation(LintContractActivationConfig {
+                    activation_type: LintContractActivationTypeConfig::ZshPlugin,
+                    framework: Some("oh-my-zsh".to_owned()),
+                    plugin: Some("tmux".to_owned()),
+                    theme: None,
+                }),
+                files: Some(vec!["**/.zshrc".to_owned(), "!vendor/**".to_owned()]),
+                reads: None,
+                consumes: Some(LintContractConsumesConfig {
+                    names: None,
+                    prefixes: Some(vec!["LOCAL_TMUX_".to_owned()]),
+                    all: None,
+                }),
+                provides: None,
+                functions: None,
+            }]),
+        };
+        let request = PluginRequest {
+            framework: PluginFramework::OhMyZsh,
+            kind: PluginRequestKind::Plugin,
+            name: "tmux".to_owned(),
+            span: shuck_ast::Span::new(),
+            explicit: true,
+            root_hint: None,
+        };
+
+        let resolved = resolve_ambient_contracts(Path::new("/workspace"), Some(&config)).unwrap();
+        let included =
+            resolved.request_contracts_for_plugin(Path::new("/workspace/config/.zshrc"), &request);
+        let excluded =
+            resolved.request_contracts_for_plugin(Path::new("/workspace/vendor/.zshrc"), &request);
+
+        assert!(
+            included
+                .requesting_file_contract
+                .externally_consumed_binding_prefixes
+                .iter()
+                .any(|prefix| prefix.as_str() == "LOCAL_TMUX_")
+        );
+        assert!(
+            excluded
+                .requesting_file_contract
+                .externally_consumed_binding_prefixes
+                .is_empty()
+        );
     }
 
     #[test]
