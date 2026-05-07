@@ -1330,8 +1330,11 @@ fn redirected_output_fd(redirect: &Redirect) -> Option<i32> {
 }
 
 fn printf_assigns_to_variable(args: &[Word], arg_index: usize, source: &str) -> bool {
-    matches!(args.first().and_then(|word| static_word_text(word, source)), Some(text) if text == "-v")
-        && arg_index >= 2
+    match args.first().and_then(|word| static_word_text(word, source)) {
+        Some(text) if text == "-v" => arg_index >= 2,
+        Some(text) if text.starts_with("-v") && text.len() > 2 => arg_index >= 1,
+        _ => false,
+    }
 }
 
 fn instructional_output_literal_body(body: &str) -> bool {

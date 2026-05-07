@@ -1972,6 +1972,12 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 let trap_action = trap_command
                     .then(|| trap_action_word_from_simple_command(command, self.source))
                     .flatten();
+                let direct_instructional_output_context = !self.nested_word_command
+                    && !matches!(
+                        self.semantic.scope_kind(self.command_scope),
+                        shuck_semantic::ScopeKind::CommandSubstitution
+                            | shuck_semantic::ScopeKind::Pipeline
+                    );
                 let variable_set_operand =
                     surface::simple_command_variable_set_operand(command, self.source);
                 let mut saw_open_double_quote = false;
@@ -2011,15 +2017,16 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                             word,
                             self.source,
                         )
-                        || single_quoted_literal_instructional_output_argument(
-                            literal_exempt_command_name,
-                            &command.args,
-                            redirects,
-                            &self.command_shell_behavior,
-                            arg_index,
-                            word,
-                            self.source,
-                        )
+                        || (direct_instructional_output_context
+                            && single_quoted_literal_instructional_output_argument(
+                                literal_exempt_command_name,
+                                &command.args,
+                                redirects,
+                                &self.command_shell_behavior,
+                                arg_index,
+                                word,
+                                self.source,
+                            ))
                     {
                         surface_context.literal_expansion_exempt()
                     } else {

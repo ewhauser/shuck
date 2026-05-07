@@ -21,13 +21,6 @@ reviewed_divergences:
     end_column: 56
     reason: "This status line tells the user what PATH and GOPATH setting to use, so the variable markers are intentional example text."
   - side: shellcheck-only
-    path_suffix: "megastep__makeself__test__run-testlinter.sh"
-    line: 21
-    end_line: 25
-    column: 35
-    end_column: 2
-    reason: "This test stores a literal shell header for string comparison, so the embedded $0 and ${THIS} references are expected text rather than intended expansions."
-  - side: shellcheck-only
     path_suffix: "moovweb__gvm__bin__gvm"
     line: 10
     end_line: 13

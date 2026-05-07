@@ -723,6 +723,27 @@ END { if (!set) exit 1 }\n\
     }
 
     #[test]
+    fn printf_v_attached_assignment_is_not_exempt() {
+        assert_eq!(
+            c005_bash("printf -vcmd 'export PATH=\"$HOME/bin:$PATH\"'\n"),
+            1
+        );
+    }
+
+    #[test]
+    fn pipeline_output_is_not_exempt() {
+        assert_eq!(c005("echo 'export PATH=\"$HOME/bin:$PATH\"' | bash\n"), 1);
+    }
+
+    #[test]
+    fn command_substitution_output_is_not_exempt() {
+        assert_eq!(
+            c005_bash("cmd=$(echo 'export PATH=\"$HOME/bin:$PATH\"')\n"),
+            1
+        );
+    }
+
+    #[test]
     fn quoted_variable_status_message_still_reports() {
         assert_eq!(c005("echo 'Your home is \"$HOME\".'\n"), 1);
     }
