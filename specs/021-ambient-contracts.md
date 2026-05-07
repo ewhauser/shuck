@@ -105,7 +105,7 @@ user-authored contracts live under `[[lint.contracts.custom]]`:
 ```toml
 [lint.contracts]
 well-known = true
-disabled = ["well-known:zsh/oh-my-zsh/plugin/tmux"]
+disabled = ["zsh/oh-my-zsh/plugin/tmux"]
 
 [[lint.contracts.custom]]
 id = "github-actions-env"
@@ -185,23 +185,24 @@ groups: &[
 ]
 ```
 
-Selectors are source-qualified:
+Selectors are bare well-known IDs or groups:
 
 ```toml
 [lint.contracts]
 disabled = [
   # Disable all built-in contracts.
-  "well-known:*",
+  "*",
   # Disable all built-in Oh My Zsh contracts.
-  "well-known:zsh/oh-my-zsh",
+  "zsh/oh-my-zsh",
   # Disable only one built-in contract.
-  "well-known:zsh/oh-my-zsh/plugin/tmux",
+  "zsh/oh-my-zsh/plugin/tmux",
 ]
 ```
 
-A selector matches if it equals the source-qualified contract ID or one of the
-source-qualified contract groups. `well-known:*` matches every built-in
-contract.
+A selector matches if it equals the contract ID or one of the contract groups.
+`*` matches every built-in contract. The selector space is intentionally scoped
+to the well-known registry: custom contracts are controlled by adding, removing,
+or editing their config entries.
 
 Custom contracts can replace built-ins without requiring a separate disabled
 entry:
@@ -209,7 +210,7 @@ entry:
 ```toml
 [[lint.contracts.custom]]
 id = "local-oh-my-zsh-tmux"
-replaces = ["well-known:zsh/oh-my-zsh/plugin/tmux"]
+replaces = ["zsh/oh-my-zsh/plugin/tmux"]
 when = { type = "zsh_plugin", framework = "oh-my-zsh", plugin = "tmux" }
 consumes = { prefixes = ["LOCAL_TMUX_"] }
 ```
@@ -352,8 +353,8 @@ That avoids:
 - spreading plugin-specific variable tables through plugin-manager code.
 
 Controls should be evaluated before `apply`, so disabling
-`well-known:zsh/oh-my-zsh` skips the whole family without constructing any
-per-contract `FileContract`s.
+`zsh/oh-my-zsh` skips the whole family without constructing any per-contract
+`FileContract`s.
 
 ### Registry Ownership
 
@@ -428,8 +429,8 @@ If implementation needs a named provider, the provider should compile to
 - custom contract `id` values are required and must be unique within the merged
   project config.
 - `files` patterns use the same matching rules as other per-file settings.
-- `disabled` selectors must be source-qualified, such as
-  `well-known:zsh/oh-my-zsh` or `well-known:*`.
+- `disabled` selectors must be valid well-known IDs, groups, or `*`, such as
+  `zsh/oh-my-zsh` or `*`.
 - `replaces` selectors follow the same syntax as `disabled`.
 - variable names must be valid shell names.
 - prefixes must be non-empty and valid shell-name prefixes.
@@ -479,7 +480,7 @@ the two cases.
 
 Rejected. A display name is not a strong enough grouping mechanism. Built-ins
 need stable IDs and groups so users can disable a single contract or a whole
-family such as `well-known:zsh/oh-my-zsh`.
+family such as `zsh/oh-my-zsh`.
 
 ### Use Verbose Internal Field Names In Config
 
