@@ -126,6 +126,146 @@ contracts:
           - __p9k_root_dir
           - __p9k_intro
 
+  - id: zsh/powerlevel10k/bootstrap/configure-state
+    groups:
+      - zsh
+      - zsh/powerlevel10k
+      - zsh/powerlevel10k/bootstrap
+    label: Powerlevel10k configure state shared with internal helpers
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        mentions-any-names:
+          - __p9k_cfg_path
+          - __p9k_cfg_path_u
+          - __p9k_zshrc
+          - __p9k_wizard_columns
+          - __p9k_zd
+    files:
+      - "**/powerlevel10k/internal/p10k.zsh"
+      - "**/powerlevel10k/internal/wizard.zsh"
+    effects:
+      provides:
+        variables:
+          - __p9k_cfg_basename
+          - __p9k_cfg_path
+          - __p9k_cfg_path_o
+          - __p9k_cfg_path_u
+          - __p9k_root_dir_u
+          - __p9k_wizard_columns
+          - __p9k_wizard_lines
+          - __p9k_zd
+          - __p9k_zd_u
+          - __p9k_zshrc
+          - __p9k_zshrc_u
+
+  - id: zsh/powerlevel10k/bootstrap/instant-prompt-state
+    groups:
+      - zsh
+      - zsh/powerlevel10k
+      - zsh/powerlevel10k/bootstrap
+    label: Powerlevel10k instant prompt bootstrap state
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        mentions-any-names:
+          - __p9k_dump_file
+          - __p9k_instant_prompt_date
+          - __p9k_instant_prompt_output
+          - __p9k_instant_prompt_param_sig
+          - __p9k_instant_prompt_sourced
+          - __p9k_instant_prompt_time
+          - __p9k_intro_locale
+          - __p9k_intro_no_locale
+          - __p9k_intro_no_reply
+    files:
+      - "**/powerlevel10k/internal/p10k.zsh"
+    effects:
+      provides:
+        variables:
+          - __p9k_dump_file
+          - __p9k_instant_prompt_date
+          - __p9k_instant_prompt_date_format
+          - __p9k_instant_prompt_output
+          - __p9k_instant_prompt_param_sig
+          - __p9k_instant_prompt_sourced
+          - __p9k_instant_prompt_time
+          - __p9k_instant_prompt_time_format
+          - __p9k_intro_locale
+          - __p9k_intro_no_locale
+          - __p9k_intro_no_reply
+
+  - id: zsh/powerlevel10k/internal/config-prefixes
+    groups:
+      - zsh
+      - zsh/powerlevel10k
+      - zsh/powerlevel10k/config
+    label: Powerlevel10k internal config namespaces
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        contains-any:
+          - POWERLEVEL9K_
+          - _POWERLEVEL9K_
+    files:
+      - "**/powerlevel10k/internal/p10k.zsh"
+      - "**/powerlevel10k/internal/configure.zsh"
+      - "**/powerlevel10k/internal/wizard.zsh"
+    effects:
+      consumes:
+        prefixes:
+          - POWERLEVEL9K_
+          - _POWERLEVEL9K_
+      provides:
+        variables:
+          - GOENV_VERSION
+          - NAME
+          - POWERLEVEL9K_BATTERY_STAGES
+          - PYENV_VERSION
+          - _POWERLEVEL9K_GOENV_PROMPT_ALWAYS_SHOW
+          - _POWERLEVEL9K_GOENV_SHOW_SYSTEM
+          - _POWERLEVEL9K_GOENV_SOURCES
+          - _POWERLEVEL9K_JENV_PROMPT_ALWAYS_SHOW
+          - _POWERLEVEL9K_JENV_SHOW_SYSTEM
+          - _POWERLEVEL9K_JENV_SOURCES
+          - _POWERLEVEL9K_PHPENV_PROMPT_ALWAYS_SHOW
+          - _POWERLEVEL9K_PHPENV_SHOW_SYSTEM
+          - _POWERLEVEL9K_PHPENV_SOURCES
+          - _POWERLEVEL9K_PLENV_PROMPT_ALWAYS_SHOW
+          - _POWERLEVEL9K_PLENV_SHOW_SYSTEM
+          - _POWERLEVEL9K_PLENV_SOURCES
+          - _POWERLEVEL9K_RBENV_PROMPT_ALWAYS_SHOW
+          - _POWERLEVEL9K_RBENV_SHOW_SYSTEM
+          - _POWERLEVEL9K_RBENV_SOURCES
+          - _POWERLEVEL9K_VCS_MAX_SYNC_LATENCY_SECONDS
+
+  - id: zsh/powerlevel10k/runtime/vcs-info-output
+    groups:
+      - zsh
+      - zsh/powerlevel10k
+      - zsh/powerlevel10k/runtime
+    label: Powerlevel10k vcs_info output state
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        mentions-all-names:
+          - vcs_info
+          - vcs_info_msg_0_
+    files:
+      - "**/powerlevel10k/internal/p10k.zsh"
+    effects:
+      provides:
+        variables:
+          - vcs_info_msg_0_
+
   - id: zsh/powerlevel10k/gitstatus/prefix
     groups:
       - zsh
