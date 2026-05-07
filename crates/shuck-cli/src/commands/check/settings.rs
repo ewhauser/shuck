@@ -620,7 +620,7 @@ impl PluginResolver for ResolvedZshPluginSettings {
                     return PluginResolution::default();
                 };
                 let Some(layout) = layout_for_plugin_framework(&request.framework) else {
-                    return PluginResolution::default();
+                    return custom_plugin_resolution(&root, request);
                 };
                 let Some(path) =
                     layout.resolve_entrypoint(&root, PluginRequestKind::Plugin, &request.name)
@@ -641,7 +641,7 @@ impl PluginResolver for ResolvedZshPluginSettings {
                     return PluginResolution::default();
                 };
                 let Some(layout) = layout_for_plugin_framework(&request.framework) else {
-                    return PluginResolution::default();
+                    return custom_plugin_resolution(&root, request);
                 };
                 let Some(path) =
                     layout.resolve_entrypoint(&root, PluginRequestKind::Theme, &request.name)
@@ -654,6 +654,23 @@ impl PluginResolver for ResolvedZshPluginSettings {
                 }
             }
         }
+    }
+}
+
+fn custom_plugin_resolution(root: &Path, request: &PluginRequest) -> PluginResolution {
+    let path = match (&request.framework, request.kind) {
+        (PluginFramework::Other(_), PluginRequestKind::Plugin) => root
+            .join("plugins")
+            .join(&request.name)
+            .join(format!("{}.plugin.zsh", request.name)),
+        (PluginFramework::Other(_), PluginRequestKind::Theme) => root
+            .join("themes")
+            .join(format!("{}.zsh-theme", request.name)),
+        _ => return PluginResolution::default(),
+    };
+    PluginResolution {
+        entrypoints: vec![path],
+        file_entry_contracts: Vec::new(),
     }
 }
 
@@ -1936,6 +1953,52 @@ mod tests {
         assert_eq!(
             settings.resolve_plugin_request(Path::new("/workspace/app/.zshrc"), &request),
             PluginResolution::default()
+        );
+    }
+
+    #[test]
+    fn custom_plugin_root_uses_default_plugin_and_theme_layouts() {
+        let settings = ResolvedZshPluginSettings::resolve(
+            PathBuf::from("/workspace"),
+            true,
+            BTreeMap::from([("custom".to_owned(), "/workspace/custom".to_owned())]),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        let plugin_request = PluginRequest {
+            framework: PluginFramework::Other("custom".to_owned()),
+            kind: PluginRequestKind::Plugin,
+            name: "prompt-tools".to_owned(),
+            span: shuck_ast::Span::new(),
+            explicit: true,
+            root_hint: None,
+        };
+        let theme_request = PluginRequest {
+            framework: PluginFramework::Other("custom".to_owned()),
+            kind: PluginRequestKind::Theme,
+            name: "minimal".to_owned(),
+            span: shuck_ast::Span::new(),
+            explicit: true,
+            root_hint: None,
+        };
+
+        assert_eq!(
+            settings.resolve_plugin_request(Path::new("/workspace/app/.zshrc"), &plugin_request),
+            PluginResolution {
+                entrypoints: vec![PathBuf::from(
+                    "/workspace/custom/plugins/prompt-tools/prompt-tools.plugin.zsh"
+                )],
+                file_entry_contracts: Vec::new(),
+            }
+        );
+        assert_eq!(
+            settings.resolve_plugin_request(Path::new("/workspace/app/.zshrc"), &theme_request),
+            PluginResolution {
+                entrypoints: vec![PathBuf::from("/workspace/custom/themes/minimal.zsh-theme")],
+                file_entry_contracts: Vec::new(),
+            }
         );
     }
 

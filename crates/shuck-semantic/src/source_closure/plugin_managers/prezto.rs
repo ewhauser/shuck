@@ -74,6 +74,9 @@ fn prezto_zstyle_module_names(command: &SimpleCommand, source: &str) -> Vec<Stri
     let Some(args) = args.as_deref() else {
         return Vec::new();
     };
+    if args.first().is_some_and(|arg| arg.starts_with('-')) {
+        return Vec::new();
+    }
     let operands = args
         .iter()
         .filter(|arg| !arg.starts_with('-'))

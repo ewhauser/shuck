@@ -9361,6 +9361,41 @@ zstyle ':prezto:load' pmodule \"$module\"
 }
 
 #[test]
+fn prezto_zstyle_query_forms_do_not_load_target_variables_as_modules() {
+    struct EmptyResolver;
+
+    impl PluginResolver for EmptyResolver {
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            _request: &PluginRequest,
+        ) -> PluginResolution {
+            panic!("Prezto zstyle query forms should not resolve plugin requests");
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("zpreztorc");
+    fs::write(
+        &main,
+        "\
+#!/bin/zsh
+QUERY_ONLY=1
+zstyle -a ':prezto:load' pmodule target_modules
+zstyle -L -a ':prezto:load' pmodule
+",
+    )
+    .unwrap();
+
+    let model = model_at_path_with_plugin_resolver(&main, &EmptyResolver);
+    let unused = reportable_unused_names(&model);
+    assert!(
+        unused.contains(&Name::from("QUERY_ONLY")),
+        "unused: {unused:?}"
+    );
+}
+
+#[test]
 fn zdot_load_module_loads_static_module_entrypoints() {
     struct ZdotResolver {
         root: PathBuf,
