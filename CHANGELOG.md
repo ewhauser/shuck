@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.38](https://github.com/ewhauser/shuck/compare/v0.0.37...v0.0.38) (2026-05-07)
+
+
+### Features
+
+* **semantic:** add zsh plugin manager adapters ([#955](https://github.com/ewhauser/shuck/issues/955)) ([d72c322](https://github.com/ewhauser/shuck/commit/d72c322d5c28b01509e86818833cdac33c5cd1fd))
+
 ## [0.0.37](https://github.com/ewhauser/shuck/compare/v0.0.36...v0.0.37) (2026-05-07)
 
 
