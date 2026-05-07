@@ -620,6 +620,14 @@ ZDOT_MODULE_NAME=prompt
 }
 
 #[test]
+fn unknown_zshrc_backup_paths_do_not_get_runtime_contracts() {
+    let path = Path::new("/tmp/project/zshrc_backup/plugins/example.zsh");
+    let source = "print -r -- \"$history\"\n";
+
+    assert!(contract_for_shell(path, source, ShellDialect::Unknown).is_none());
+}
+
+#[test]
 fn zsh_sourced_helpers_initialize_caller_scoped_array_length_targets() {
     let path = Path::new("/tmp/project/core/update_core.zsh");
     let source = "\

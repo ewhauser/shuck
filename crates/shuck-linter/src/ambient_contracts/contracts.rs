@@ -778,30 +778,39 @@ fn request_activation_matches(activation: RequestActivation, request: &PluginReq
 }
 
 fn zsh_project_or_dotfile_path_shape(path: &Path) -> bool {
-    let lower_path = path.to_string_lossy().to_ascii_lowercase();
-    [
-        "/.zshrc",
-        "/zshrc",
-        "/.zshenv",
-        "/zshenv",
-        "/.zprofile",
-        "/zprofile",
-        "/.zlogin",
-        "/zlogin",
-        "/.zlogout",
-        "/zlogout",
-        "/zdot/",
-        "/zsh/config/",
-        "/zsh/configs/",
-        "/ohmyzsh/",
-        "/powerlevel10k/",
-        "/prezto/",
-        "/zinit/",
-        "/zsh-autosuggestions/",
-        "/zsh-syntax-highlighting/",
-    ]
-    .iter()
-    .any(|pattern| lower_path.contains(pattern))
+    let lower_path = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
+    let components = lower_path
+        .split('/')
+        .filter(|component| !component.is_empty())
+        .collect::<Vec<_>>();
+
+    components.iter().any(|component| {
+        matches!(
+            *component,
+            ".zshrc"
+                | "zshrc"
+                | ".zshenv"
+                | "zshenv"
+                | ".zprofile"
+                | "zprofile"
+                | ".zlogin"
+                | "zlogin"
+                | ".zlogout"
+                | "zlogout"
+                | "zdot"
+                | "ohmyzsh"
+                | "powerlevel10k"
+                | "prezto"
+                | "zinit"
+                | "zsh-autosuggestions"
+                | "zsh-syntax-highlighting"
+        )
+    }) || components
+        .windows(2)
+        .any(|window| matches!(window, ["zsh", "config" | "configs"]))
 }
 
 fn declarative_file_activation_matches(
