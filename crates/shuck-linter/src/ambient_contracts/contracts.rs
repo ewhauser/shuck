@@ -462,10 +462,22 @@ struct WellKnownRequestContract {
 
 const WELL_KNOWN_FILE_CONTRACTS: &[WellKnownFileContract] = &[
     WellKnownFileContract {
+        id: "sourced/runtime",
+        groups: &["sourced"],
+        matches: super::sourced_runtime::matches_sourced_runtime_contract,
+        apply: super::sourced_runtime::apply_sourced_runtime_contract,
+    },
+    WellKnownFileContract {
         id: "zsh/runtime",
         groups: &["zsh"],
         matches: super::zsh_runtime::matches_zsh_ambient_runtime_contract,
         apply: super::zsh_runtime::apply_zsh_ambient_runtime_contract,
+    },
+    WellKnownFileContract {
+        id: "zsh/caller-scoped-arrays",
+        groups: &["zsh"],
+        matches: super::zsh_caller_arrays::matches_zsh_caller_scoped_array_contract,
+        apply: super::zsh_caller_arrays::apply_zsh_caller_scoped_array_contract,
     },
     WellKnownFileContract {
         id: "zsh/config",

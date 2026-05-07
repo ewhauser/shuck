@@ -43,19 +43,16 @@ pub(super) fn matches_sourced_runtime_contract(
     sourced_runtime_path_shape(collector.path_signals()) && sourced_runtime_source_shape(collector)
 }
 
-pub(super) fn build_sourced_runtime_contract(
+pub(super) fn apply_sourced_runtime_contract(
+    contract: &mut FileContract,
     collector: &AmbientContractCollector<'_>,
-    _shell: ShellDialect,
-) -> FileContract {
+) {
     let mut names = BTreeSet::new();
 
     for name in runtime_names_for_source_path(collector) {
         names.insert((*name).to_owned());
     }
 
-    let mut contract = FileContract {
-        ..FileContract::default()
-    };
     for name in names {
         contract.add_provided_binding(ProvidedBinding::new(
             Name::from(name.as_str()),
@@ -63,7 +60,6 @@ pub(super) fn build_sourced_runtime_contract(
             ContractCertainty::Definite,
         ));
     }
-    contract
 }
 
 fn sourced_runtime_path_shape(path: &PathSignals) -> bool {
