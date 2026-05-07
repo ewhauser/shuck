@@ -44,6 +44,21 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             (kind, self.current_scope())
         });
         attributes |= assignment_binding_attributes(assignment);
+        if matches!(assignment.value, AssignmentValue::Compound(_))
+            && self
+                .resolve_reference(
+                    &assignment.target.name,
+                    self.current_scope(),
+                    assignment.target.name_span.start.offset,
+                )
+                .is_some_and(|binding_id| {
+                    self.bindings[binding_id.index()]
+                        .attributes
+                        .contains(BindingAttributes::ASSOC)
+                })
+        {
+            attributes |= BindingAttributes::ARRAY | BindingAttributes::ASSOC;
+        }
         if zsh_scalar_subscript_assignment && !explicit_array_declaration {
             attributes.remove(BindingAttributes::ARRAY | BindingAttributes::ASSOC);
         }
