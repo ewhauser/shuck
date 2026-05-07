@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.0.36](https://github.com/ewhauser/shuck/compare/v0.0.35...v0.0.36) (2026-05-07)
+
+
+### Features
+
+* add PyPI-backed pre-commit support ([#949](https://github.com/ewhauser/shuck/issues/949)) ([f1b277b](https://github.com/ewhauser/shuck/commit/f1b277b23c5855b92345347cb28c79d2343bba57))
+* **zsh:** add plugin resolution support ([#944](https://github.com/ewhauser/shuck/issues/944)) ([e4c8560](https://github.com/ewhauser/shuck/commit/e4c85607ef35c01294cc33faa97a256533fddccf))
+
+
+### Bug Fixes
+
+* **cli:** add top-level version flag ([#940](https://github.com/ewhauser/shuck/issues/940)) ([4c757cf](https://github.com/ewhauser/shuck/commit/4c757cfd0a5ac6928fa240cec44532a7a0e03c46))
+* **linter:** avoid recovered command lookup panics ([#941](https://github.com/ewhauser/shuck/issues/941)) ([d473093](https://github.com/ewhauser/shuck/commit/d4730931d05386193d23508243a0f58fd3ad4217))
+* **linter:** consume zsh WORDCHARS assignments ([#929](https://github.com/ewhauser/shuck/issues/929)) ([9ec3aa2](https://github.com/ewhauser/shuck/commit/9ec3aa2757102544813b9e8f8ff22031c13b9e13))
+* **linter:** suppress zsh literal map key reads ([#916](https://github.com/ewhauser/shuck/issues/916)) ([2930bbb](https://github.com/ewhauser/shuck/commit/2930bbb3725baa534944483a613178fb11521422))
+* **parser:** handle zsh length parameter operations ([#915](https://github.com/ewhauser/shuck/issues/915)) ([549b941](https://github.com/ewhauser/shuck/commit/549b94153bd884840f62a558421dd6a92a06ffbe))
+* **run:** retry ETXTBSY during system version probes ([#947](https://github.com/ewhauser/shuck/issues/947)) ([bec5041](https://github.com/ewhauser/shuck/commit/bec5041b2b0d3f98c93423bcf17caa178857b999))
+* **semantic:** model deferred zsh plugin reads ([#948](https://github.com/ewhauser/shuck/issues/948)) ([4ead005](https://github.com/ewhauser/shuck/commit/4ead005841bc59acb6952ca02ae21bbd6f5f09c4))
+* **zsh:** model core runtime and completion outputs ([#942](https://github.com/ewhauser/shuck/issues/942)) ([011a513](https://github.com/ewhauser/shuck/commit/011a513863d493fba11bbba1c05ce651e0cd53d5))
+* **zsh:** model more core runtime parameters ([#945](https://github.com/ewhauser/shuck/issues/945)) ([c6edabe](https://github.com/ewhauser/shuck/commit/c6edabe953e3c9974adf25669f505cdc19cf7f65))
+* **zsh:** resolve plugin framework sources ([#946](https://github.com/ewhauser/shuck/issues/946)) ([e277cf0](https://github.com/ewhauser/shuck/commit/e277cf02d53c8c628decf71a17fe0076547de2e4))
+
+
+### Documentation
+
+* **specs:** add zsh plugin resolution design ([#943](https://github.com/ewhauser/shuck/issues/943)) ([2a43354](https://github.com/ewhauser/shuck/commit/2a43354efdd979155a9a2c334f43be5c98fd9aa0))
+
 ## [0.0.35](https://github.com/ewhauser/shuck/compare/v0.0.34...v0.0.35) (2026-05-06)
 
 
