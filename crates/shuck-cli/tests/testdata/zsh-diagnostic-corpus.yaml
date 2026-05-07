@@ -1543,72 +1543,6 @@ repos:
           column: 33
         classification: false_positive
       - path: "lib/theme-and-appearance.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_PREFIX` is assigned but never used"
-        start:
-          line: 8
-          column: 1
-        end:
-          line: 8
-          column: 28
-        classification: false_positive
-      - path: "lib/theme-and-appearance.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_SUFFIX` is assigned but never used"
-        start:
-          line: 9
-          column: 1
-        end:
-          line: 9
-          column: 28
-        classification: false_positive
-      - path: "lib/theme-and-appearance.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_DIRTY` is assigned but never used"
-        start:
-          line: 10
-          column: 1
-        end:
-          line: 10
-          column: 27
-        classification: false_positive
-      - path: "lib/theme-and-appearance.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_CLEAN` is assigned but never used"
-        start:
-          line: 11
-          column: 1
-        end:
-          line: 11
-          column: 27
-        classification: false_positive
-      - path: "lib/theme-and-appearance.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_RUBY_PROMPT_PREFIX` is assigned but never used"
-        start:
-          line: 12
-          column: 1
-        end:
-          line: 12
-          column: 29
-        classification: false_positive
-      - path: "lib/theme-and-appearance.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_RUBY_PROMPT_SUFFIX` is assigned but never used"
-        start:
-          line: 13
-          column: 1
-        end:
-          line: 13
-          column: 29
-        classification: false_positive
-      - path: "lib/theme-and-appearance.zsh"
         code: "C010"
         severity: "warning"
         message: "chaining `&&` and `||` makes the fallback depend on the middle command status"
@@ -6712,160 +6646,6 @@ repos:
           line: 41
           column: 8
         classification: real
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_SVN_PROMPT_PREFIX` is assigned but never used"
-        start:
-          line: 51
-          column: 1
-        end:
-          line: 51
-          column: 28
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_SVN_PROMPT_SUFFIX` is assigned but never used"
-        start:
-          line: 52
-          column: 1
-        end:
-          line: 52
-          column: 28
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_SVN_PROMPT_DIRTY` is assigned but never used"
-        start:
-          line: 53
-          column: 1
-        end:
-          line: 53
-          column: 27
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_SVN_PROMPT_CLEAN` is assigned but never used"
-        start:
-          line: 54
-          column: 1
-        end:
-          line: 54
-          column: 27
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_PREFIX` is assigned but never used"
-        start:
-          line: 57
-          column: 1
-        end:
-          line: 57
-          column: 28
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_SUFFIX` is assigned but never used"
-        start:
-          line: 58
-          column: 1
-        end:
-          line: 58
-          column: 28
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_DIRTY` is assigned but never used"
-        start:
-          line: 59
-          column: 1
-        end:
-          line: 59
-          column: 27
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_CLEAN` is assigned but never used"
-        start:
-          line: 60
-          column: 1
-        end:
-          line: 60
-          column: 27
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_ADDED` is assigned but never used"
-        start:
-          line: 61
-          column: 1
-        end:
-          line: 61
-          column: 27
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_MODIFIED` is assigned but never used"
-        start:
-          line: 62
-          column: 1
-        end:
-          line: 62
-          column: 30
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_DELETED` is assigned but never used"
-        start:
-          line: 63
-          column: 1
-        end:
-          line: 63
-          column: 29
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_RENAMED` is assigned but never used"
-        start:
-          line: 64
-          column: 1
-        end:
-          line: 64
-          column: 29
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_UNMERGED` is assigned but never used"
-        start:
-          line: 65
-          column: 1
-        end:
-          line: 65
-          column: 30
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_UNTRACKED` is assigned but never used"
-        start:
-          line: 66
-          column: 1
-        end:
-          line: 66
-          column: 31
-        classification: false_positive
       - path: "themes/emotty.zsh-theme"
         code: "C006"
         severity: "error"
@@ -7031,116 +6811,6 @@ repos:
           line: 20
           column: 11
         classification: real
-      - path: "themes/sonicradish.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_PREFIX` is assigned but never used"
-        start:
-          line: 27
-          column: 1
-        end:
-          line: 27
-          column: 28
-        classification: false_positive
-      - path: "themes/sonicradish.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_SUFFIX` is assigned but never used"
-        start:
-          line: 28
-          column: 1
-        end:
-          line: 28
-          column: 28
-        classification: false_positive
-      - path: "themes/sonicradish.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_DIRTY` is assigned but never used"
-        start:
-          line: 29
-          column: 1
-        end:
-          line: 29
-          column: 27
-        classification: false_positive
-      - path: "themes/sonicradish.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_CLEAN` is assigned but never used"
-        start:
-          line: 30
-          column: 1
-        end:
-          line: 30
-          column: 27
-        classification: false_positive
-      - path: "themes/sonicradish.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_ADDED` is assigned but never used"
-        start:
-          line: 32
-          column: 1
-        end:
-          line: 32
-          column: 27
-        classification: false_positive
-      - path: "themes/sonicradish.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_MODIFIED` is assigned but never used"
-        start:
-          line: 33
-          column: 1
-        end:
-          line: 33
-          column: 30
-        classification: false_positive
-      - path: "themes/sonicradish.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_DELETED` is assigned but never used"
-        start:
-          line: 34
-          column: 1
-        end:
-          line: 34
-          column: 29
-        classification: false_positive
-      - path: "themes/sonicradish.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_RENAMED` is assigned but never used"
-        start:
-          line: 35
-          column: 1
-        end:
-          line: 35
-          column: 29
-        classification: false_positive
-      - path: "themes/sonicradish.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_UNMERGED` is assigned but never used"
-        start:
-          line: 36
-          column: 1
-        end:
-          line: 36
-          column: 30
-        classification: false_positive
-      - path: "themes/sonicradish.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_GIT_PROMPT_UNTRACKED` is assigned but never used"
-        start:
-          line: 37
-          column: 1
-        end:
-          line: 37
-          column: 31
-        classification: false_positive
       - path: "tools/changelog.sh"
         code: "C005"
         severity: "warning"
@@ -7262,28 +6932,6 @@ repos:
           line: 273
           column: 39
         classification: real
-      - path: "tools/check_for_upgrade.sh"
-        code: "C006"
-        severity: "error"
-        message: "variable `fg` is referenced before assignment"
-        start:
-          line: 283
-          column: 21
-        end:
-          line: 283
-          column: 34
-        classification: false_positive
-      - path: "tools/check_for_upgrade.sh"
-        code: "C006"
-        severity: "error"
-        message: "variable `reset_color` is referenced before assignment"
-        start:
-          line: 283
-          column: 36
-        end:
-          line: 283
-          column: 50
-        classification: false_positive
       - path: "tools/install.sh"
         code: "C010"
         severity: "warning"
@@ -7327,28 +6975,6 @@ repos:
         end:
           line: 16
           column: 13
-        classification: false_positive
-      - path: "tools/theme_chooser.sh"
-        code: "C006"
-        severity: "error"
-        message: "variable `fg` is referenced before assignment"
-        start:
-          line: 25
-          column: 12
-        end:
-          line: 25
-          column: 15
-        classification: false_positive
-      - path: "tools/theme_chooser.sh"
-        code: "C006"
-        severity: "error"
-        message: "variable `reset_color` is referenced before assignment"
-        start:
-          line: 25
-          column: 63
-        end:
-          line: 25
-          column: 75
         classification: false_positive
       - path: "tools/theme_chooser.sh"
         code: "C002"
@@ -8322,17 +7948,6 @@ repos:
           line: 27
           column: 43
         classification: real
-      - path: "internal/icons.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `langinfo` is referenced before assignment"
-        start:
-          line: 4
-          column: 34
-        end:
-          line: 4
-          column: 54
-        classification: false_positive
       - path: "internal/p10k.zsh"
         code: "C005"
         severity: "warning"
@@ -9356,17 +8971,6 @@ repos:
           line: 1653
           column: 78
         classification: real
-      - path: "internal/p10k.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `zsh_directory_name_functions` is referenced before assignment"
-        start:
-          line: 1776
-          column: 38
-        end:
-          line: 1776
-          column: 67
-        classification: false_positive
       - path: "internal/p10k.zsh"
         code: "C086"
         severity: "warning"
@@ -12382,28 +11986,6 @@ repos:
           column: 58
         classification: real
       - path: "internal/parser.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `galiases` is referenced before assignment"
-        start:
-          line: 183
-          column: 13
-        end:
-          line: 183
-          column: 22
-        classification: false_positive
-      - path: "internal/parser.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `saliases` is referenced before assignment"
-        start:
-          line: 194
-          column: 13
-        end:
-          line: 194
-          column: 32
-        classification: false_positive
-      - path: "internal/parser.zsh"
         code: "C005"
         severity: "warning"
         message: "shell expansion inside single quotes stays literal"
@@ -13943,28 +13525,6 @@ repos:
           line: 2257
           column: 2
         classification: real
-      - path: "internal/wizard.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `langinfo` is referenced before assignment"
-        start:
-          line: 2119
-          column: 50
-        end:
-          line: 2119
-          column: 68
-        classification: false_positive
-      - path: "internal/worker.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `sysparams` is referenced before assignment"
-        start:
-          line: 94
-          column: 33
-        end:
-          line: 94
-          column: 48
-        classification: false_positive
       - path: "internal/worker.zsh"
         code: "C081"
         severity: "warning"
@@ -14068,17 +13628,6 @@ repos:
           line: 172
           column: 40
         classification: real
-      - path: "modules/autosuggestions/init.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE` is assigned but never used"
-        start:
-          line: 24
-          column: 3
-        end:
-          line: 24
-          column: 34
-        classification: false_positive
       - path: "modules/command-not-found/init.zsh"
         code: "C003"
         severity: "warning"
@@ -15121,72 +14670,6 @@ repos:
           line: 67
           column: 26
         classification: real
-      - path: "modules/autocompletion/autocompletion.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_AUTOSUGGEST_STRATEGY` is assigned but never used"
-        start:
-          line: 10
-          column: 5
-        end:
-          line: 10
-          column: 29
-        classification: false_positive
-      - path: "modules/autocompletion/autocompletion.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ABBR_AUTOLOAD` is assigned but never used"
-        start:
-          line: 13
-          column: 5
-        end:
-          line: 13
-          column: 18
-        classification: false_positive
-      - path: "modules/autocompletion/autocompletion.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ABBR_SET_EXPANSION_CURSOR` is assigned but never used"
-        start:
-          line: 14
-          column: 5
-        end:
-          line: 14
-          column: 30
-        classification: false_positive
-      - path: "modules/autocompletion/autocompletion.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ABBR_SET_LINE_CURSOR` is assigned but never used"
-        start:
-          line: 15
-          column: 5
-        end:
-          line: 15
-          column: 25
-        classification: false_positive
-      - path: "modules/autocompletion/autocompletion.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ABBR_GET_AVAILABLE_ABBREVIATION` is assigned but never used"
-        start:
-          line: 16
-          column: 5
-        end:
-          line: 16
-          column: 36
-        classification: false_positive
-      - path: "modules/autocompletion/autocompletion.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ABBR_USER_ABBREVIATIONS_FILE` is assigned but never used"
-        start:
-          line: 17
-          column: 5
-        end:
-          line: 17
-          column: 33
-        classification: false_positive
       - path: "modules/dotfiler/dotfiler.zsh"
         code: "C003"
         severity: "warning"
@@ -16137,17 +15620,6 @@ repos:
           line: 70
           column: 68
         classification: real
-      - path: "zinit-additional.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `sysparams` is referenced before assignment"
-        start:
-          line: 72
-          column: 57
-        end:
-          line: 72
-          column: 74
-        classification: false_positive
       - path: "zinit-additional.zsh"
         code: "C107"
         severity: "warning"
@@ -19039,17 +18511,6 @@ repos:
           column: 31
         classification: real
       - path: "highlighters/main/main-highlighter.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `zsyh_user_options` is referenced before assignment"
-        start:
-          line: 382
-          column: 9
-        end:
-          line: 382
-          column: 41
-        classification: false_positive
-      - path: "highlighters/main/main-highlighter.zsh"
         code: "C156"
         severity: "warning"
         message: "reference to `X_ZSH_HIGHLIGHT_DIRS_BLACKLIST` looks like it may mean `ZSH_HIGHLIGHT_DIRS_BLACKLIST`"
@@ -19313,17 +18774,6 @@ repos:
           line: 30
           column: 65
         classification: real
-      - path: "highlighters/main/test-data/backslash-continuation.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PREBUFFER` is assigned but never used"
-        start:
-          line: 30
-          column: 1
-        end:
-          line: 30
-          column: 10
-        classification: false_positive
       - path: "highlighters/main/test-data/brackets-mismatch7.zsh"
         code: "C005"
         severity: "warning"
@@ -19478,17 +18928,6 @@ repos:
           line: 30
           column: 23
         classification: real
-      - path: "highlighters/main/test-data/multiline-string.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PREBUFFER` is assigned but never used"
-        start:
-          line: 30
-          column: 1
-        end:
-          line: 30
-          column: 10
-        classification: false_positive
       - path: "highlighters/main/test-data/opt-shwordsplit1.zsh"
         code: "C001"
         severity: "warning"
@@ -19775,17 +19214,6 @@ repos:
           line: 32
           column: 12
         classification: real
-      - path: "highlighters/main/test-data/path_prefix3.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PREBUFFER` is assigned but never used"
-        start:
-          line: 33
-          column: 1
-        end:
-          line: 33
-          column: 10
-        classification: false_positive
       - path: "highlighters/main/test-data/process-substitution2.zsh"
         code: "C005"
         severity: "warning"
@@ -19830,39 +19258,6 @@ repos:
           line: 32
           column: 9
         classification: real
-      - path: "highlighters/main/test-data/vanilla-newline.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PREBUFFER` is assigned but never used"
-        start:
-          line: 30
-          column: 1
-        end:
-          line: 30
-          column: 10
-        classification: false_positive
-      - path: "highlighters/main/test-data/vi-linewise-mode.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `REGION_ACTIVE` is assigned but never used"
-        start:
-          line: 32
-          column: 1
-        end:
-          line: 32
-          column: 14
-        classification: false_positive
-      - path: "highlighters/main/test-data/vi-linewise-mode.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `MARK` is assigned but never used"
-        start:
-          line: 34
-          column: 1
-        end:
-          line: 34
-          column: 5
-        classification: false_positive
       - path: "highlighters/regexp/test-data/word-boundary.zsh"
         code: "C001"
         severity: "warning"
@@ -19890,11 +19285,11 @@ repos:
         severity: "warning"
         message: "variable `PREBUFFER` is assigned but never used"
         start:
-          line: 91
-          column: 3
+          line: 88
+          column: 9
         end:
-          line: 91
-          column: 12
+          line: 88
+          column: 18
         classification: false_positive
       - path: "tests/test-highlighting.zsh"
         code: "C003"
@@ -20072,17 +19467,6 @@ repos:
           line: 45
           column: 26
         classification: real
-      - path: "tests/test-zprof.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PREBUFFER` is assigned but never used"
-        start:
-          line: 52
-          column: 3
-        end:
-          line: 52
-          column: 12
-        classification: false_positive
       - path: "zsh-syntax-highlighting.zsh"
         code: "C005"
         severity: "warning"

@@ -20,6 +20,67 @@ contracts:
         prefixes:
           - ZSH_HIGHLIGHT_
 
+  - id: zsh/plugin/zsh-syntax-highlighting/request-config
+    groups:
+      - zsh
+      - zsh/plugin
+      - zsh/plugin/zsh-syntax-highlighting
+    label: Zsh syntax highlighting requesting-file configuration prefix
+    when:
+      type: zsh_plugin
+      framework: zsh-syntax-highlighting
+      plugin: zsh-syntax-highlighting
+    effects:
+      consumes:
+        prefixes:
+          - ZSH_HIGHLIGHT_
+
+  - id: zsh/plugin/zsh-syntax-highlighting/highlighter-user-options
+    groups:
+      - zsh
+      - zsh/plugin
+      - zsh/plugin/zsh-syntax-highlighting
+    label: Zsh syntax highlighting highlighters inherit user option state
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        mentions-any-names:
+          - zsyh_user_options
+    files:
+      - "**/zsh-syntax-highlighting/highlighters/**"
+    effects:
+      provides:
+        variables:
+          - zsyh_user_options
+
+  - id: zsh/plugin/zsh-syntax-highlighting/test-harness-state
+    groups:
+      - zsh
+      - zsh/plugin
+      - zsh/plugin/zsh-syntax-highlighting
+    label: Zsh syntax highlighting test harness state variables
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        assigns-any-names:
+          - MARK
+          - PREBUFFER
+          - REGION_ACTIVE
+    files:
+      - "**/zsh-syntax-highlighting/**/test-data/**"
+      - "**/zsh-syntax-highlighting/**/testdata/**"
+      - "**/zsh-syntax-highlighting/**/tests/**"
+    effects:
+      consumes:
+        names:
+          - MARK
+          - PREBUFFER
+          - REGION_ACTIVE
+
   - id: zsh/plugin/zsh-syntax-highlighting/expected-prefix
     groups:
       - zsh

@@ -3,8 +3,8 @@ use std::path::Path;
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
 use shuck_semantic::{
-    FileContract, FileEntryContractCollector, NoopTraversalObserver, SemanticBuildOptions,
-    build_with_observer_with_options,
+    FileContract, FileEntryContractCollector, NoopTraversalObserver, PluginFramework,
+    PluginRequest, PluginRequestKind, SemanticBuildOptions, build_with_observer_with_options,
 };
 use std::sync::Arc;
 
@@ -55,6 +55,12 @@ fn contract_for_optional_path_with_contracts(
     collector.finish()
 }
 
+fn request_contract_for(path: &Path, request: PluginRequest) -> FileContract {
+    ResolvedAmbientContracts::default()
+        .request_contracts_for_plugin(path, &request)
+        .requesting_file_contract
+}
+
 fn has_initialized_binding(contract: &FileContract, name: &str) -> bool {
     contract.provided_bindings.iter().any(|binding| {
         binding.name == name
@@ -83,6 +89,17 @@ fn has_consumed_name(contract: &FileContract, name: &str) -> bool {
         .externally_consumed_binding_names
         .iter()
         .any(|consumed_name| consumed_name.as_str() == name)
+}
+
+fn plugin_request(framework: PluginFramework, name: &str) -> PluginRequest {
+    PluginRequest {
+        framework,
+        kind: PluginRequestKind::Plugin,
+        name: name.to_owned(),
+        span: shuck_ast::Span::new(),
+        explicit: false,
+        root_hint: None,
+    }
 }
 
 #[test]
@@ -222,6 +239,31 @@ prompt=\"%{$fg_bold[blue]%}%{$reset_color%}\"
 }
 
 #[test]
+fn powerlevel10k_internal_paths_get_runtime_special_parameters() {
+    let path = Path::new("/tmp/zsh/powerlevel10k/internal/parser.zsh");
+    let source = "print -r -- \"$galiases\" \"$saliases\" \"$langinfo\" \"$sysparams\"\n";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    for name in ["galiases", "saliases", "langinfo", "sysparams"] {
+        assert!(has_initialized_binding(&contract, name), "{contract:?}");
+    }
+}
+
+#[test]
+fn powerlevel10k_internal_paths_get_hook_arrays() {
+    let path = Path::new("/tmp/zsh/powerlevel10k/internal/p10k.zsh");
+    let source = "print -r -- $zsh_directory_name_functions\n";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(has_initialized_binding(
+        &contract,
+        "zsh_directory_name_functions"
+    ));
+}
+
+#[test]
 fn standalone_zsh_scripts_do_not_get_userdirs_without_runtime_context() {
     let path = Path::new("/tmp/project/scripts/example.zsh");
     let source = "print -r -- \"$userdirs\"\n";
@@ -255,6 +297,57 @@ chpwd_functions+=(_async_prompt_chpwd)
         assert!(has_initialized_binding(&contract, name), "{contract:?}");
         assert!(has_consumed_name(&contract, name), "{contract:?}");
     }
+}
+
+#[test]
+fn oh_my_zsh_theme_and_appearance_consumes_theme_prefixes() {
+    let path = Path::new("/tmp/zsh/ohmyzsh/lib/theme-and-appearance.zsh");
+    let source = "ZSH_THEME_GIT_PROMPT_PREFIX='git:('\n";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(has_consumed_prefix(&contract, "ZSH_THEME_"));
+}
+
+#[test]
+fn oh_my_zsh_adben_theme_consumes_theme_prefixes() {
+    let path = Path::new("/tmp/zsh/ohmyzsh/themes/adben.zsh-theme");
+    let source = "ZSH_THEME_GIT_PROMPT_PREFIX='git:('\n";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(has_consumed_prefix(&contract, "ZSH_THEME_"));
+}
+
+#[test]
+fn oh_my_zsh_sonicradish_theme_consumes_theme_prefixes() {
+    let path = Path::new("/tmp/zsh/ohmyzsh/themes/sonicradish.zsh-theme");
+    let source = "ZSH_THEME_GIT_PROMPT_PREFIX='git:('\n";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(has_consumed_prefix(&contract, "ZSH_THEME_"));
+}
+
+#[test]
+fn oh_my_zsh_refined_theme_provides_vcs_info() {
+    let path = Path::new("/tmp/zsh/ohmyzsh/themes/refined.zsh-theme");
+    let source = "print -r -- \"$vcs_info_msg_0_\"\n";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(has_ambient_binding(&contract, "vcs_info_msg_0_"));
+}
+
+#[test]
+fn oh_my_zsh_tools_get_prompt_color_bindings() {
+    let path = Path::new("/tmp/zsh/ohmyzsh/tools/check_for_upgrade.sh");
+    let source = "print -r -- \"$fg\" \"$reset_color\"\n";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(has_initialized_binding(&contract, "fg"));
+    assert!(has_initialized_binding(&contract, "reset_color"));
 }
 
 #[test]
@@ -573,6 +666,71 @@ fn zsh_autosuggestion_config_namespace_is_consumed_on_project_paths() {
     let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
 
     assert!(has_consumed_prefix(&contract, "ZSH_AUTOSUGGEST_"));
+}
+
+#[test]
+fn prezto_autosuggestions_module_paths_consume_config_prefix() {
+    let path = Path::new("/tmp/zsh/prezto/modules/autosuggestions/init.zsh");
+    let source = "ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=8'\n";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(has_consumed_prefix(&contract, "ZSH_AUTOSUGGEST_"));
+}
+
+#[test]
+fn zsh_plugin_request_contracts_consume_known_framework_config_prefixes() {
+    let path = Path::new("/tmp/zdot/modules/autocompletion/autocompletion.zsh");
+
+    let autosuggest = request_contract_for(
+        path,
+        plugin_request(
+            PluginFramework::Other("zsh-autosuggestions".to_owned()),
+            "zsh-autosuggestions",
+        ),
+    );
+    assert!(has_consumed_prefix(&autosuggest, "ZSH_AUTOSUGGEST_"));
+
+    let abbr = request_contract_for(
+        path,
+        plugin_request(PluginFramework::Other("zsh-abbr".to_owned()), "zsh-abbr"),
+    );
+    assert!(has_consumed_prefix(&abbr, "ABBR_"));
+
+    let highlighting = request_contract_for(
+        path,
+        plugin_request(
+            PluginFramework::Other("zsh-syntax-highlighting".to_owned()),
+            "zsh-syntax-highlighting",
+        ),
+    );
+    assert!(has_consumed_prefix(&highlighting, "ZSH_HIGHLIGHT_"));
+}
+
+#[test]
+fn zsh_syntax_highlighting_highlighter_paths_inherit_user_options() {
+    let path = Path::new("/tmp/zsh/zsh-syntax-highlighting/highlighters/main/main-highlighter.zsh");
+    let source = "print -r -- \"$zsyh_user_options[ignorebraces]\"\n";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(has_initialized_binding(&contract, "zsyh_user_options"));
+}
+
+#[test]
+fn zsh_syntax_highlighting_test_paths_consume_harness_state() {
+    let path = Path::new("/tmp/zsh/zsh-syntax-highlighting/tests/test-highlighting.zsh");
+    let source = "\
+PREBUFFER=''
+MARK=1
+REGION_ACTIVE=2
+";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    for name in ["PREBUFFER", "MARK", "REGION_ACTIVE"] {
+        assert!(has_consumed_name(&contract, name), "{contract:?}");
+    }
 }
 
 #[test]

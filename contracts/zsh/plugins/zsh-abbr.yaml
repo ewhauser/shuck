@@ -1,0 +1,16 @@
+version: 1
+contracts:
+  - id: zsh/plugin/zsh-abbr/request-config
+    groups:
+      - zsh
+      - zsh/plugin
+      - zsh/plugin/zsh-abbr
+    label: zsh-abbr requesting-file configuration prefix
+    when:
+      type: zsh_plugin
+      framework: zsh-abbr
+      plugin: zsh-abbr
+    effects:
+      consumes:
+        prefixes:
+          - ABBR_

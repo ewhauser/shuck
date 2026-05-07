@@ -43,6 +43,11 @@ contracts:
       - "**/themes/**"
       - "**/*.plugin.zsh"
       - "**/*.theme.zsh"
+      - "**/oh-my-zsh/**"
+      - "**/ohmyzsh/**"
+      - "**/powerlevel10k/**"
+      - "**/prezto/**"
+      - "**/zinit/**"
       - "**/zsh-autosuggestions/**"
       - "**/zsh-syntax-highlighting/**"
     effects:
@@ -99,6 +104,11 @@ contracts:
       - "**/themes/**"
       - "**/*.plugin.zsh"
       - "**/*.theme.zsh"
+      - "**/oh-my-zsh/**"
+      - "**/ohmyzsh/**"
+      - "**/powerlevel10k/**"
+      - "**/prezto/**"
+      - "**/zinit/**"
       - "**/zsh-autosuggestions/**"
       - "**/zsh-syntax-highlighting/**"
     effects:

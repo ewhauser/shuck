@@ -1,0 +1,23 @@
+version: 1
+contracts:
+  - id: zsh/oh-my-zsh/theme/theme-and-appearance/prompt-prefixes
+    groups:
+      - zsh
+      - zsh/oh-my-zsh
+      - zsh/oh-my-zsh/theme
+      - zsh/oh-my-zsh/theme/theme-and-appearance
+    label: Oh My Zsh theme defaults in theme-and-appearance
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        assigns-any-prefixes:
+          - ZSH_THEME_
+    files:
+      - "**/oh-my-zsh/lib/theme-and-appearance.zsh"
+      - "**/ohmyzsh/lib/theme-and-appearance.zsh"
+    effects:
+      consumes:
+        prefixes:
+          - ZSH_THEME_
