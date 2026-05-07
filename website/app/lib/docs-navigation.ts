@@ -11,6 +11,7 @@ export const docsNavigation: NavItem[] = [
       { title: "Overview", href: "/docs/getting-started" },
       { title: "Configuration", href: "/docs/configuration" },
       { title: "Zsh Support", href: "/docs/zsh-support" },
+      { title: "Contracts", href: "/docs/contracts" },
       { title: "Managed Runtime", href: "/docs/run" },
       { title: "Editor Integration", href: "/docs/editors" },
       { title: "Suppression", href: "/docs/suppression" },

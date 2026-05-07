@@ -167,6 +167,243 @@ unfixable = ["C001"]
 
 ---
 
+### `[lint.contracts]`
+
+Ambient contract settings for runtime behavior that cannot be recovered from the source graph alone.
+
+#### `well-known`
+
+Enable or disable Shuck's built-in ambient contract registry.
+
+**Default value**: `true`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[lint.contracts]
+well-known = false
+```
+
+---
+
+#### `disabled`
+
+Disable built-in ambient contracts by exact ID, by group selector, or with `*` for every built-in contract.
+
+**Default value**: `[]`
+
+**Type**: `list[string]`
+
+**Example usage**:
+
+```toml
+[lint.contracts]
+disabled = ["zsh/oh-my-zsh", "runtime/github-actions/env"]
+```
+
+---
+
+### `[[lint.contracts.custom]]`
+
+User-authored ambient contracts layered on top of, or in place of, the built-in registry.
+
+#### `id`
+
+Stable identifier for the custom contract.
+
+**Default value**: `required`
+
+**Type**: `string`
+
+**Example usage**:
+
+```toml
+[[lint.contracts.custom]]
+id = "github-actions-env"
+```
+
+---
+
+#### `replaces`
+
+Built-in contract selectors that this custom contract replaces.
+
+**Default value**: `[]`
+
+**Type**: `list[string]`
+
+**Example usage**:
+
+```toml
+[[lint.contracts.custom]]
+replaces = ["zsh/oh-my-zsh/plugin/tmux"]
+```
+
+---
+
+#### `when`
+
+Activation for the contract, either `"always"` or an object such as `{ type = "zsh_plugin", framework = "oh-my-zsh", plugin = "tmux" }`.
+
+**Default value**: `required`
+
+**Type**: `string | table`
+
+**Example usage**:
+
+```toml
+[[lint.contracts.custom]]
+when = { type = "zsh_plugin", framework = "oh-my-zsh", plugin = "tmux" }
+```
+
+---
+
+#### `files`
+
+Optional file globs that limit where the contract applies.
+
+**Default value**: `[]`
+
+**Type**: `list[glob]`
+
+**Example usage**:
+
+```toml
+[[lint.contracts.custom]]
+files = ["**/.zshrc"]
+```
+
+---
+
+#### `reads`
+
+Ambient names the activated runtime reads from the caller environment.
+
+**Default value**: `[]`
+
+**Type**: `list[name]`
+
+**Example usage**:
+
+```toml
+[[lint.contracts.custom]]
+reads = ["GITHUB_ENV", "GITHUB_OUTPUT"]
+```
+
+---
+
+#### `functions`
+
+Provided function contracts with caller reads and caller-visible sets.
+
+**Default value**: `[]`
+
+**Type**: `list[{ name, reads?, sets? }]`
+
+**Example usage**:
+
+```toml
+[[lint.contracts.custom]]
+functions = [{ name = "helper", reads = ["CALLER_VALUE"], sets = ["REPLY"] }]
+```
+
+---
+
+### `[lint.contracts.custom.consumes]`
+
+Assignments that stay live because external runtime behavior consumes them.
+
+#### `names`
+
+Exact names consumed by external runtime behavior.
+
+**Default value**: `[]`
+
+**Type**: `list[name]`
+
+**Example usage**:
+
+```toml
+[lint.contracts.custom.consumes]
+names = ["HISTFILE", "SAVEHIST"]
+```
+
+---
+
+#### `prefixes`
+
+Name prefixes consumed by external runtime behavior.
+
+**Default value**: `[]`
+
+**Type**: `list[prefix]`
+
+**Example usage**:
+
+```toml
+[lint.contracts.custom.consumes]
+prefixes = ["ZSH_TMUX_"]
+```
+
+---
+
+#### `all`
+
+Treat every assignment in the file as externally consumed.
+
+**Default value**: `false`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[lint.contracts.custom.consumes]
+all = true
+```
+
+---
+
+### `[lint.contracts.custom.provides]`
+
+Bindings made available by the activated runtime at file entry or activation time.
+
+#### `variables`
+
+Variables provided by the contract.
+
+**Default value**: `[]`
+
+**Type**: `list[name]`
+
+**Example usage**:
+
+```toml
+[lint.contracts.custom.provides]
+variables = ["reply", "REPLY"]
+```
+
+---
+
+#### `functions`
+
+Callable function names provided by the contract.
+
+**Default value**: `[]`
+
+**Type**: `list[name]`
+
+**Example usage**:
+
+```toml
+[lint.contracts.custom.provides]
+functions = ["helper"]
+```
+
+---
+
 ### `[lint.rule-options]`
 
 Rule-specific behavior overrides for diagnostics that intentionally support more than one analysis mode.
