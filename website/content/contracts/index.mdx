@@ -1,0 +1,139 @@
+# Contracts
+
+Shuck tries to learn as much as it can from real shell source before you add
+any extra configuration.
+
+When a file `source`s another file, Shuck parses that helper and summarizes the
+functions, bindings, and reads it contributes. When zsh plugin resolution can
+find a real plugin or theme entrypoint, Shuck imports that file through the
+same source-closure pipeline. In other words, Shuck prefers concrete shell
+files over hand-authored metadata whenever it can recover the behavior directly
+from source.
+
+That automatic path covers a lot:
+
+- sourced helpers that define functions or initialize variables;
+- static zsh plugin and theme entrypoints that resolve to real files;
+- explicit plugin loads, theme loads, or raw entrypoints added through config
+  or CLI flags.
+
+Sometimes the source is still not enough.
+
+Common cases include:
+
+- runtimes or CI systems that provide names the script reads, but that are not
+  assigned anywhere in the repo;
+- plugin or framework code that consumes settings from the requesting file,
+  such as `ZSH_TMUX_*` options in `.zshrc`;
+- framework conventions where one file assigns metadata and another dispatcher
+  consumes it later;
+- dynamic loaders, `eval`, generated names, or plugin-manager DSLs that prevent
+  exact recovery from source alone.
+
+That is where Contracts come in.
+
+Contracts let you add the missing runtime or framework knowledge that Shuck
+cannot reliably recover from shell source. They enhance analysis; they do not
+replace normal source closure. Shuck still prefers real sourced files and real
+plugin entrypoints whenever those are available.
+
+## What Contracts can enhance
+
+Contracts can tell Shuck about four kinds of behavior:
+
+- `reads`: names that the activated runtime reads;
+- `consumes`: assignments that remain live because external runtime behavior
+  observes them later;
+- `provides`: variables or functions that become available when the contract
+  applies;
+- `functions`: call-scoped function effects, including reads and variables a
+  provided helper may set.
+
+In practice, that means Contracts can improve:
+
+- unused-assignment analysis for settings that are consumed outside the current
+  file;
+- uninitialized-variable analysis for names that are provided by a runtime or
+  framework;
+- function and binding visibility when a helper is known to exist even though
+  its implementation is not recoverable from source.
+
+## Built-in and custom Contracts
+
+Shuck ships with built-in Contracts for well-known behavior that is stable
+enough to model in the tool itself.
+
+You can:
+
+- leave the built-ins enabled;
+- disable specific built-ins or whole built-in groups;
+- replace a built-in contract with a repo-specific version;
+- add fully custom Contracts for project-specific behavior.
+
+All of that lives under `[lint.contracts]`:
+
+```toml
+[lint.contracts]
+well-known = true
+
+[[lint.contracts.custom]]
+id = "github-actions-env"
+when = "always"
+files = [".github/**/*.sh"]
+provides = { variables = ["GITHUB_OUTPUT", "GITHUB_ENV"] }
+
+[[lint.contracts.custom]]
+id = "oh-my-zsh-tmux"
+when = { type = "zsh_plugin", framework = "oh-my-zsh", plugin = "tmux" }
+files = ["**/.zshrc"]
+consumes = { prefixes = ["ZSH_TMUX_"] }
+```
+
+In this example:
+
+- the `github-actions-env` contract tells Shuck that matching scripts can read
+  CI-provided names without assigning them locally;
+- the `oh-my-zsh-tmux` contract tells Shuck that matching `.zshrc` files may
+  assign `ZSH_TMUX_*` settings that are consumed by the tmux plugin runtime.
+
+## Activation and scope
+
+Contracts apply either:
+
+- to matching files with `when = "always"`, or
+- at a zsh plugin or theme request with `when = { type = "zsh_plugin", ... }`
+  or `when = { type = "zsh_theme", ... }`.
+
+For request-based Contracts, `files` matches the file that requested the
+plugin or theme, not the resolved plugin entrypoint. That distinction matters
+for settings-style Contracts: a `zsh_plugin` contract that consumes
+`ZSH_TMUX_*` keeps assignments in the `.zshrc` live, not assignments inside the
+tmux plugin file.
+
+`files` uses the same glob rules as other per-file settings. In most cases you
+should keep Contracts narrowly scoped to the files where the behavior really
+applies.
+
+## How Contracts relate to plugin resolution
+
+Contracts are especially useful around plugins, but they are not limited to
+plugins.
+
+Shuck already uses plugin resolution to bring real entrypoint files into the
+analysis when it can find them. Contracts cover the behavior around those files
+that source closure cannot see directly, such as:
+
+- settings consumed by the plugin runtime from the requesting file;
+- framework-provided names that exist before the plugin entrypoint runs;
+- project-specific conventions layered on top of a built-in framework.
+
+If the behavior is recoverable from a real sourced file, prefer source closure
+or plugin resolution. If it depends on runtime conventions or "assigned here,
+consumed elsewhere" behavior, use a Contract.
+
+## Next steps
+
+Use the [Configuration](/docs/configuration) guide for config-file discovery and
+precedence, the [Zsh Support](/docs/zsh-support) guide for plugin-resolution
+setup, and the [Settings Reference](/docs/settings) for the exact
+`[lint.contracts]` keys and examples.

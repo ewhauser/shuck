@@ -188,6 +188,23 @@ Use that section when you want Shuck to resolve real zsh plugin entrypoints for 
 
 See the dedicated [Zsh Support guide](/docs/zsh-support) for the recommended setup patterns and the [Settings Reference](/docs/settings) for the generated key-by-key reference.
 
+## Contracts
+
+Shuck prefers to discover behavior from real sourced files and resolved plugin
+entrypoints first. Use `[lint.contracts]` when important runtime or framework
+behavior cannot be recovered from source alone.
+
+Typical examples include:
+
+- runtime-provided names that a script reads;
+- plugin settings assigned in `.zshrc` and consumed later by framework code;
+- metadata assigned in one file and consumed elsewhere by a dispatcher.
+
+See the dedicated [Contracts guide](/docs/contracts) for the discovery boundary,
+examples, and when to prefer Contracts over more source resolution. The
+[Settings Reference](/docs/settings) includes the exact `[lint.contracts]`
+syntax.
+
 ## Runtime settings
 
 The `[run]` section controls managed interpreter defaults for `shuck run`, `shuck install`, and `shuck shell`.
