@@ -16,6 +16,33 @@ impl ZshPluginManager for PreztoPluginManager {
     }
 }
 
+impl ZshPluginFramework for PreztoPluginManager {
+    fn framework(&self) -> PluginFramework {
+        PluginFramework::Prezto
+    }
+
+    fn root_keys(&self) -> &'static [&'static str] {
+        &["prezto"]
+    }
+
+    fn resolve_plugin_entrypoint(&self, root: &Path, name: &str) -> Option<PathBuf> {
+        Some(root.join("modules").join(name).join("init.zsh"))
+    }
+
+    fn resolve_theme_entrypoint(&self, _root: &Path, _name: &str) -> Option<PathBuf> {
+        None
+    }
+
+    fn resolve_source_suffix(
+        &self,
+        _root: &Path,
+        _source_path: &Path,
+        _candidate: &str,
+    ) -> Option<PathBuf> {
+        None
+    }
+}
+
 fn collect_prezto_plugin_requests(context: &PluginManagerContext<'_>) -> Vec<PluginRequest> {
     let mut requests = Vec::new();
     for stmt in &context.file.body.stmts {

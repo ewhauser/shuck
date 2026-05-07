@@ -16,6 +16,49 @@ impl ZshPluginManager for ZdotPluginManager {
     }
 }
 
+impl ZshPluginFramework for ZdotPluginManager {
+    fn framework(&self) -> PluginFramework {
+        PluginFramework::Zdot
+    }
+
+    fn root_keys(&self) -> &'static [&'static str] {
+        &["zdot"]
+    }
+
+    fn resolve_plugin_entrypoint(&self, root: &Path, name: &str) -> Option<PathBuf> {
+        Some(root.join("modules").join(name).join(format!("{name}.zsh")))
+    }
+
+    fn resolve_theme_entrypoint(&self, _root: &Path, _name: &str) -> Option<PathBuf> {
+        None
+    }
+
+    fn resolve_source_suffix(
+        &self,
+        root: &Path,
+        source_path: &Path,
+        candidate: &str,
+    ) -> Option<PathBuf> {
+        let normalized = candidate.replace('\\', "/");
+        if normalized == "zdot.zsh" || normalized.ends_with("/zdot.zsh") {
+            return Some(PathBuf::from("zdot.zsh"));
+        }
+
+        let source_in_framework = source_path.starts_with(root);
+        let candidate_has_framework_anchor =
+            path_text_has_zdot_anchor(&normalized) || path_text_starts_with_path(&normalized, root);
+        if !source_in_framework && !candidate_has_framework_anchor {
+            return None;
+        }
+
+        suffix_after_last_marker(&normalized, ["/core/", "/modules/"])
+    }
+}
+
+fn path_text_has_zdot_anchor(path: &str) -> bool {
+    path.contains("/.zdot/") || path.contains("/zdot/")
+}
+
 fn collect_zdot_plugin_requests(context: &PluginManagerContext<'_>) -> Vec<PluginRequest> {
     let mut requests = Vec::new();
     for stmt in &context.file.body.stmts {

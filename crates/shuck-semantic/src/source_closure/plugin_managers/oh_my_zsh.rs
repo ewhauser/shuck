@@ -16,6 +16,53 @@ impl ZshPluginManager for OhMyZshPluginManager {
     }
 }
 
+impl ZshPluginFramework for OhMyZshPluginManager {
+    fn framework(&self) -> PluginFramework {
+        PluginFramework::OhMyZsh
+    }
+
+    fn root_keys(&self) -> &'static [&'static str] {
+        &["oh-my-zsh"]
+    }
+
+    fn resolve_plugin_entrypoint(&self, root: &Path, name: &str) -> Option<PathBuf> {
+        Some(
+            root.join("plugins")
+                .join(name)
+                .join(format!("{name}.plugin.zsh")),
+        )
+    }
+
+    fn resolve_theme_entrypoint(&self, root: &Path, name: &str) -> Option<PathBuf> {
+        Some(root.join("themes").join(format!("{name}.zsh-theme")))
+    }
+
+    fn resolve_source_suffix(
+        &self,
+        root: &Path,
+        source_path: &Path,
+        candidate: &str,
+    ) -> Option<PathBuf> {
+        let normalized = candidate.replace('\\', "/");
+        if normalized == "oh-my-zsh.sh" || normalized.ends_with("/oh-my-zsh.sh") {
+            return Some(PathBuf::from("oh-my-zsh.sh"));
+        }
+
+        let source_in_framework = source_path.starts_with(root);
+        let candidate_has_framework_anchor = path_text_has_oh_my_zsh_anchor(&normalized)
+            || path_text_starts_with_path(&normalized, root);
+        if !source_in_framework && !candidate_has_framework_anchor {
+            return None;
+        }
+
+        suffix_after_last_marker(&normalized, ["/plugins/", "/themes/", "/lib/"])
+    }
+}
+
+fn path_text_has_oh_my_zsh_anchor(path: &str) -> bool {
+    path.contains("/.oh-my-zsh/") || path.contains("/oh-my-zsh/")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PluginListState {
     Unset,

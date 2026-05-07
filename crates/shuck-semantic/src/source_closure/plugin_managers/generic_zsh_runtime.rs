@@ -12,7 +12,7 @@ use crate::ReferenceKind;
 
 pub(super) struct GenericZshRuntimeManager;
 
-impl ZshPluginManager for GenericZshRuntimeManager {
+impl ZshDeferredRuntimeManager for GenericZshRuntimeManager {
     fn collect_deferred_required_reads(
         &self,
         context: &DeferredPluginRuntimeContext<'_>,

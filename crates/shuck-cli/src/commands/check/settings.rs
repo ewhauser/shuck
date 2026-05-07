@@ -16,7 +16,7 @@ use shuck_linter::{
 };
 use shuck_semantic::{
     PluginFramework, PluginRequest, PluginRequestKind, PluginResolution, PluginResolver,
-    layout_for_plugin_framework, zsh_plugin_framework_from_name, zsh_plugin_layouts,
+    layout_for_plugin_framework, zsh_plugin_framework_from_name, zsh_plugin_frameworks,
 };
 
 use crate::args::{
@@ -584,7 +584,7 @@ impl PluginResolver for ResolvedZshPluginSettings {
         }
 
         let mut paths = Vec::new();
-        for layout in zsh_plugin_layouts() {
+        for layout in zsh_plugin_frameworks() {
             for root in configured_plugin_roots(self, layout.root_keys()) {
                 if let Some(suffix) = layout.resolve_source_suffix(root, source_path, candidate) {
                     paths.push(root.join(suffix));

@@ -28,6 +28,8 @@ use crate::function_resolution::{
 };
 mod plugin_managers;
 
+pub use plugin_managers::{layout_for_plugin_framework, zsh_plugin_frameworks};
+
 use plugin_managers::{
     collect_plugin_requests, deferred_zsh_entrypoint_required_reads, sorted_dependency_paths,
 };
