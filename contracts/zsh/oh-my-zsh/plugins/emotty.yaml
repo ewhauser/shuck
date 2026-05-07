@@ -1,0 +1,29 @@
+version: 1
+contracts:
+  - id: zsh/oh-my-zsh/plugin/emotty/emoji-runtime
+    groups:
+      - zsh
+      - zsh/oh-my-zsh
+      - zsh/oh-my-zsh/plugin
+      - zsh/oh-my-zsh/plugin/emotty
+    label: Oh My Zsh emotty emoji runtime state
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        mentions-any-names:
+          - emoji
+          - emoji2
+    files:
+      - "**/.oh-my-zsh/plugins/emotty/emotty.plugin.zsh"
+      - "**/oh-my-zsh/plugins/emotty/emotty.plugin.zsh"
+      - "**/ohmyzsh/plugins/emotty/emotty.plugin.zsh"
+      - "**/.oh-my-zsh/themes/emotty.zsh-theme"
+      - "**/oh-my-zsh/themes/emotty.zsh-theme"
+      - "**/ohmyzsh/themes/emotty.zsh-theme"
+    effects:
+      provides:
+        variables:
+          - emoji
+          - emoji2

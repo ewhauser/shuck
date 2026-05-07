@@ -1,0 +1,32 @@
+version: 1
+contracts:
+  - id: zsh/oh-my-zsh/plugin/emoji/definitions
+    groups:
+      - zsh
+      - zsh/oh-my-zsh
+      - zsh/oh-my-zsh/plugin
+      - zsh/oh-my-zsh/plugin/emoji
+    label: Oh My Zsh emoji plugin definition tables
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        mentions-any-names:
+          - emoji
+          - emoji_flags
+          - emoji_groups
+          - emoji_mod
+          - emoji_skintone
+    files:
+      - "**/.oh-my-zsh/plugins/emoji/emoji.plugin.zsh"
+      - "**/oh-my-zsh/plugins/emoji/emoji.plugin.zsh"
+      - "**/ohmyzsh/plugins/emoji/emoji.plugin.zsh"
+    effects:
+      provides:
+        variables:
+          - emoji
+          - emoji_flags
+          - emoji_groups
+          - emoji_mod
+          - emoji_skintone

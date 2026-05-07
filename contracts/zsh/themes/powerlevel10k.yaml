@@ -161,6 +161,28 @@ contracts:
           - __p9k_zshrc
           - __p9k_zshrc_u
 
+  - id: zsh/powerlevel10k/bootstrap/wizard-ui-state
+    groups:
+      - zsh
+      - zsh/powerlevel10k
+      - zsh/powerlevel10k/bootstrap
+    label: Powerlevel10k wizard shared UI state
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        mentions-any-names:
+          - _p9k_term_has_href
+          - icons
+    files:
+      - "**/powerlevel10k/internal/wizard.zsh"
+    effects:
+      provides:
+        variables:
+          - _p9k_term_has_href
+          - icons
+
   - id: zsh/powerlevel10k/bootstrap/instant-prompt-state
     groups:
       - zsh

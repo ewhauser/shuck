@@ -1598,17 +1598,6 @@ repos:
           column: 9
         classification: real
       - path: "oh-my-zsh.sh"
-        code: "C006"
-        severity: "error"
-        message: "variable `plugins` is referenced before assignment"
-        start:
-          line: 90
-          column: 13
-        end:
-          line: 90
-          column: 21
-        classification: false_positive
-      - path: "oh-my-zsh.sh"
         code: "C002"
         severity: "warning"
         message: "source path is built at runtime"
@@ -2532,50 +2521,6 @@ repos:
           line: 47
           column: 18
         classification: real
-      - path: "plugins/emoji/emoji.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `emoji_groups` is referenced before assignment"
-        start:
-          line: 60
-          column: 9
-        end:
-          line: 60
-          column: 33
-        classification: false_positive
-      - path: "plugins/emoji/emoji.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `emoji_flags` is referenced before assignment"
-        start:
-          line: 67
-          column: 10
-        end:
-          line: 67
-          column: 31
-        classification: false_positive
-      - path: "plugins/emotty/emotty.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `emoji` is referenced before assignment"
-        start:
-          line: 42
-          column: 9
-        end:
-          line: 42
-          column: 36
-        classification: false_positive
-      - path: "plugins/emotty/emotty.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `emoji2` is referenced before assignment"
-        start:
-          line: 42
-          column: 36
-        end:
-          line: 42
-          column: 58
-        classification: false_positive
       - path: "plugins/emotty/emotty_emoji_set.zsh"
         code: "C006"
         severity: "error"
@@ -6647,28 +6592,6 @@ repos:
           column: 8
         classification: real
       - path: "themes/emotty.zsh-theme"
-        code: "C006"
-        severity: "error"
-        message: "variable `emoji` is referenced before assignment"
-        start:
-          line: 60
-          column: 14
-        end:
-          line: 60
-          column: 20
-        classification: false_positive
-      - path: "themes/emotty.zsh-theme"
-        code: "C006"
-        severity: "error"
-        message: "variable `emoji2` is referenced before assignment"
-        start:
-          line: 63
-          column: 61
-        end:
-          line: 63
-          column: 68
-        classification: false_positive
-      - path: "themes/emotty.zsh-theme"
         code: "C001"
         severity: "warning"
         message: "variable `cyan` is assigned but never used"
@@ -7838,28 +7761,6 @@ repos:
           line: 223
           column: 34
         classification: real
-      - path: "gitstatus/mbuild"
-        code: "C006"
-        severity: "error"
-        message: "variable `patchars` is referenced before assignment"
-        start:
-          line: 351
-          column: 17
-        end:
-          line: 351
-          column: 31
-        classification: false_positive
-      - path: "gitstatus/mbuild"
-        code: "C006"
-        severity: "error"
-        message: "variable `dis_patchars` is referenced before assignment"
-        start:
-          line: 352
-          column: 21
-        end:
-          line: 352
-          column: 39
-        classification: false_positive
       - path: "gitstatus/mbuild"
         code: "C001"
         severity: "warning"
@@ -12162,17 +12063,6 @@ repos:
           column: 73
         classification: real
       - path: "internal/wizard.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `_p9k_term_has_href` is referenced before assignment"
-        start:
-          line: 169
-          column: 9
-        end:
-          line: 169
-          column: 27
-        classification: false_positive
-      - path: "internal/wizard.zsh"
         code: "C001"
         severity: "warning"
         message: "variable `indentation` is assigned but never used"
@@ -12436,17 +12326,6 @@ repos:
           line: 875
           column: 2
         classification: real
-      - path: "internal/wizard.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `icons` is referenced before assignment"
-        start:
-          line: 838
-          column: 13
-        end:
-          line: 838
-          column: 38
-        classification: false_positive
       - path: "internal/wizard.zsh"
         code: "C124"
         severity: "warning"
