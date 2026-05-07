@@ -99,23 +99,28 @@ Examples:
 
 ### Contract Shape
 
-Use one top-level config array:
+Use one top-level contract section. Built-in controls live on the section, and
+user-authored contracts live under `[[lint.contracts.custom]]`:
 
 ```toml
-[[lint.contracts]]
-name = "github-actions-env"
+[lint.contracts]
+well-known = true
+disabled = ["well-known:zsh/oh-my-zsh/plugin/tmux"]
+
+[[lint.contracts.custom]]
+id = "github-actions-env"
 when = "always"
 files = [".github/**/*.sh"]
 provides = { variables = ["GITHUB_OUTPUT", "GITHUB_ENV"] }
 
-[[lint.contracts]]
-name = "oh-my-zsh-tmux"
+[[lint.contracts.custom]]
+id = "oh-my-zsh-tmux"
 when = { type = "zsh_plugin", framework = "oh-my-zsh", plugin = "tmux" }
 files = ["**/.zshrc"]
 consumes = { prefixes = ["ZSH_TMUX_"] }
 
-[[lint.contracts]]
-name = "zdot-module-metadata"
+[[lint.contracts.custom]]
+id = "zdot-module-metadata"
 when = "always"
 files = ["modules/**/*.zsh"]
 consumes = { names = ["ZDOT_MODULE"], prefixes = ["ZDOT_"] }
@@ -125,6 +130,10 @@ consumes = { names = ["ZDOT_MODULE"], prefixes = ["ZDOT_"] }
 applicability. Users can intentionally make a repository-wide contract with
 `when = "always"` and no `files`, but docs should recommend path filters for
 most contracts.
+
+`id` is a stable selector token, not only a display name. Config contracts must
+have an `id` so diagnostics, generated docs, replacement, and disable behavior
+can point at the same contract across runs.
 
 ### Activation Types
 
@@ -150,6 +159,64 @@ Future activation types can reuse the same contract body:
 - `command`, for framework commands that establish ambient state;
 - `shell`, for shell-specific entry contracts that are too project-specific for
   built-in ambient providers.
+
+### Identity, Groups, And Controls
+
+`id` alone is not enough for built-in controls. Well-known contracts need a
+stable exact ID plus stable grouping selectors. That lets users disable one
+contract, a whole framework family, or every well-known contract without
+depending on a human-readable label.
+
+Well-known IDs should be hierarchical:
+
+```text
+zsh/oh-my-zsh/plugin/tmux
+zsh/standalone/plugin/zsh-abbr
+runtime/github-actions/env
+```
+
+Each well-known contract also declares groups:
+
+```rust
+groups: &[
+    "zsh",
+    "zsh/oh-my-zsh",
+    "zsh/oh-my-zsh/plugin",
+]
+```
+
+Selectors are source-qualified:
+
+```toml
+[lint.contracts]
+disabled = [
+  # Disable all built-in contracts.
+  "well-known:*",
+  # Disable all built-in Oh My Zsh contracts.
+  "well-known:zsh/oh-my-zsh",
+  # Disable only one built-in contract.
+  "well-known:zsh/oh-my-zsh/plugin/tmux",
+]
+```
+
+A selector matches if it equals the source-qualified contract ID or one of the
+source-qualified contract groups. `well-known:*` matches every built-in
+contract.
+
+Custom contracts can replace built-ins without requiring a separate disabled
+entry:
+
+```toml
+[[lint.contracts.custom]]
+id = "local-oh-my-zsh-tmux"
+replaces = ["well-known:zsh/oh-my-zsh/plugin/tmux"]
+when = { type = "zsh_plugin", framework = "oh-my-zsh", plugin = "tmux" }
+consumes = { prefixes = ["LOCAL_TMUX_"] }
+```
+
+`replaces` is equivalent to adding those selectors to `disabled` and then
+adding the custom contract. It is useful when a repo wants to override the
+built-in behavior while keeping the override next to the replacement contract.
 
 ### Effects
 
@@ -191,7 +258,7 @@ Plugin repositories may expose residual contracts in a sidecar file:
 version = 1
 
 [[contracts]]
-name = "abbr-options"
+id = "abbr-options"
 consumes = { prefixes = ["ABBR_"] }
 ```
 
@@ -226,6 +293,8 @@ The registry should be Rust data and functions, not embedded TOML:
 ```rust
 pub struct WellKnownContract {
     pub id: &'static str,
+    pub groups: &'static [&'static str],
+    pub label: &'static str,
     pub activation: WellKnownActivation,
     pub matches: fn(&ContractQuery<'_>) -> bool,
     pub apply: fn(&mut FileContract),
@@ -252,9 +321,10 @@ pub struct ContractQuery<'a> {
 
 Selection is lazy:
 
-1. cheap activation check, such as exact `zsh_plugin` framework/plugin match;
-2. optional path/source predicate through `matches`;
-3. only then call `apply` to materialize names into a `FileContract`.
+1. contract controls skip disabled selectors before any materialization;
+2. cheap activation check, such as exact `zsh_plugin` framework/plugin match;
+3. optional path/source predicate through `matches`;
+4. only then call `apply` to materialize names into a `FileContract`.
 
 This mirrors the current `ambient_contracts` provider shape:
 
@@ -280,6 +350,10 @@ That avoids:
 - compiling glob patterns for contracts that can never activate;
 - allocating `Name`s or `FileContract`s for inactive contracts;
 - spreading plugin-specific variable tables through plugin-manager code.
+
+Controls should be evaluated before `apply`, so disabling
+`well-known:zsh/oh-my-zsh` skips the whole family without constructing any
+per-contract `FileContract`s.
 
 ### Registry Ownership
 
@@ -348,8 +422,15 @@ If implementation needs a named provider, the provider should compile to
 
 ### Validation Rules
 
-- `name` is optional but recommended for diagnostics and generated docs.
+- well-known contract `id` and `groups` values are stable selector API.
+- well-known contract `label` values are human-facing only and must not be used
+  for selection.
+- custom contract `id` values are required and must be unique within the merged
+  project config.
 - `files` patterns use the same matching rules as other per-file settings.
+- `disabled` selectors must be source-qualified, such as
+  `well-known:zsh/oh-my-zsh` or `well-known:*`.
+- `replaces` selectors follow the same syntax as `disabled`.
 - variable names must be valid shell names.
 - prefixes must be non-empty and valid shell-name prefixes.
 - `when = "always"` is the only string shorthand in v1.
@@ -374,7 +455,8 @@ Cache fingerprints include:
 
 Well-known registry entries are versioned with the binary and do not need
 runtime dependency fingerprints. They should participate in the normal settings
-cache key through the Shuck version and enabled contract settings.
+cache key through the Shuck version plus the enabled/disabled/replaced contract
+settings.
 
 Watch mode refreshes these targets after each run, matching the dependency
 refresh model from spec 020.
@@ -392,6 +474,12 @@ not the namespace that owns all contracts.
 Rejected. This creates duplicate names, duplicate validation, and confusing
 mental models. `always` and `zsh_plugin` activations are enough to distinguish
 the two cases.
+
+### Use `name` As The Contract Selector
+
+Rejected. A display name is not a strong enough grouping mechanism. Built-ins
+need stable IDs and groups so users can disable a single contract or a whole
+family such as `well-known:zsh/oh-my-zsh`.
 
 ### Use Verbose Internal Field Names In Config
 
@@ -424,10 +512,12 @@ not become a substitute for improving resolution and source summarization.
 
 ### Unit Tests
 
-- parse valid `[[lint.contracts]]` entries;
+- parse valid `[[lint.contracts.custom]]` entries;
 - parse `when = "always"`;
 - parse `zsh_plugin` and `zsh_theme` activations;
 - reject unknown activation types;
+- reject duplicate custom IDs;
+- parse `disabled` and `replaces` selectors;
 - reject malformed names and prefixes;
 - compile `reads`, `consumes`, `provides`, and `functions[].sets` into expected
   `FileContract` values;
@@ -435,6 +525,8 @@ not become a substitute for improving resolution and source summarization.
   schema;
 - query the well-known registry without allocating contracts when activation
   does not match;
+- query the well-known registry without allocating contracts when a disabled
+  selector matches the exact ID or a group;
 - materialize a well-known registry entry into the expected `FileContract` only
   after activation and path matching succeed;
 - deduplicate repeated names and prefixes deterministically.
