@@ -1241,20 +1241,84 @@ fn command_redirects_stdout_to_file(
     source: &str,
     shell_behavior: &ShellBehaviorAt<'_>,
 ) -> bool {
-    redirects.iter().any(|redirect| {
-        matches!(
-            redirect.kind,
+    let mut fds = FxHashMap::from_iter([(1, CommandOutputSink::Other), (2, CommandOutputSink::Other)]);
+
+    for redirect in redirects {
+        match redirect.kind {
             RedirectKind::Output
-                | RedirectKind::Clobber
-                | RedirectKind::Append
-                | RedirectKind::OutputBoth
-        ) && redirect
-            .fd
-            .unwrap_or(1)
-            == 1
-            && analyze_redirect_target(redirect, source, Some(shell_behavior))
-                .is_some_and(|analysis| analysis.is_file_target())
-    })
+            | RedirectKind::Clobber
+            | RedirectKind::Append
+            | RedirectKind::ReadWrite => {
+                let Some(fd) = redirected_output_fd(redirect) else {
+                    continue;
+                };
+                let sink = if analyze_redirect_target(redirect, source, Some(shell_behavior))
+                    .is_some_and(|analysis| analysis.is_file_target())
+                {
+                    CommandOutputSink::File
+                } else {
+                    CommandOutputSink::Other
+                };
+                fds.insert(fd, sink);
+            }
+            RedirectKind::OutputBoth => {
+                let sink = if analyze_redirect_target(redirect, source, Some(shell_behavior))
+                    .is_some_and(|analysis| analysis.is_file_target())
+                {
+                    CommandOutputSink::File
+                } else {
+                    CommandOutputSink::Other
+                };
+                fds.insert(1, sink);
+                fds.insert(2, sink);
+            }
+            RedirectKind::DupOutput => {
+                let Some(fd) = redirected_output_fd(redirect) else {
+                    continue;
+                };
+                let sink = redirect
+                    .word_target()
+                    .and_then(|_| analyze_redirect_target(redirect, source, Some(shell_behavior)))
+                    .and_then(|analysis| analysis.numeric_descriptor_target)
+                    .and_then(|target_fd| fds.get(&target_fd).copied())
+                    .unwrap_or(CommandOutputSink::Other);
+                fds.insert(fd, sink);
+            }
+            RedirectKind::Input
+            | RedirectKind::HereDoc
+            | RedirectKind::HereDocStrip
+            | RedirectKind::HereString
+            | RedirectKind::DupInput => {}
+        }
+    }
+
+    matches!(fds.get(&1), Some(CommandOutputSink::File))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CommandOutputSink {
+    File,
+    Other,
+}
+
+fn redirected_output_fd(redirect: &Redirect) -> Option<i32> {
+    if redirect.fd_var.is_some() {
+        return None;
+    }
+
+    match redirect.kind {
+        RedirectKind::Output
+        | RedirectKind::Clobber
+        | RedirectKind::Append
+        | RedirectKind::DupOutput => Some(redirect.fd.unwrap_or(1)),
+        RedirectKind::ReadWrite => redirect.fd,
+        RedirectKind::Input
+        | RedirectKind::HereDoc
+        | RedirectKind::HereDocStrip
+        | RedirectKind::HereString
+        | RedirectKind::DupInput
+        | RedirectKind::OutputBoth => None,
+    }
 }
 
 fn instructional_output_literal_body(body: &str) -> bool {

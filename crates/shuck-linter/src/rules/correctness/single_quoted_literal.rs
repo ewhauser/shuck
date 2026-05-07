@@ -699,6 +699,22 @@ END { if (!set) exit 1 }\n\
     }
 
     #[test]
+    fn generated_shell_text_duplicated_to_file_still_reports() {
+        assert_eq!(
+            c005("echo 'export PATH=\"$HOME/bin:$PATH\"' 2>> \"$HOME/.profile\" 1>&2\n"),
+            1
+        );
+    }
+
+    #[test]
+    fn instructional_text_with_brace_fd_redirect_stays_exempt() {
+        assert_eq!(
+            c005_bash("echo 'Please specify explicitly with `-c CPU`.' {log}>help.txt\n"),
+            0
+        );
+    }
+
+    #[test]
     fn quoted_variable_status_message_still_reports() {
         assert_eq!(c005("echo 'Your home is \"$HOME\".'\n"), 1);
     }
