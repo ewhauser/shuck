@@ -144,6 +144,9 @@ struct RuleMetadataRow {
     shellcheck_level: Option<ShellCheckLevel>,
 }
 
+type RuleShellCheckMapping = (String, u32);
+type LoadedRuleMetadata = (Vec<RuleShellCheckMapping>, Vec<RuleMetadataRow>);
+
 fn parse_shellcheck_code_value(raw: &str) -> Result<Option<u32>, String> {
     let raw = raw.trim().trim_matches(|ch| matches!(ch, '"' | '\''));
     if raw.is_empty() || raw.eq_ignore_ascii_case("null") || raw == "~" {
@@ -593,9 +596,7 @@ fn collect_yaml_files_recursive(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<
     Ok(())
 }
 
-fn load_rule_metadata(
-    docs_dir: &Path,
-) -> Result<(Vec<(String, u32)>, Vec<RuleMetadataRow>), String> {
+fn load_rule_metadata(docs_dir: &Path) -> Result<LoadedRuleMetadata, String> {
     let mut entries = fs::read_dir(docs_dir)
         .map_err(|err| format!("read {}: {err}", docs_dir.display()))?
         .flatten()
