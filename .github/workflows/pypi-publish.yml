@@ -27,8 +27,12 @@ jobs:
 
       - name: Install Python packaging tools
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install build setuptools wheel
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/build-tools"
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/build-tools/bin/activate"
+          python -m pip install --upgrade pip
+          python -m pip install build "setuptools>=70.1" wheel
 
       - name: Download release assets
         env:
@@ -41,7 +45,10 @@ jobs:
 
       - name: Build PyPI wheels
         run: |
-          python3 scripts/build-python-release.py build-release-wheels \
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/build-tools/bin/activate"
+          python scripts/build-python-release.py build-release-wheels \
             --assets-dir "$RUNNER_TEMP/release-assets" \
             --out-dir dist
 
