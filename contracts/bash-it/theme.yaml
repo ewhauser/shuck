@@ -1,0 +1,60 @@
+version: 1
+contracts:
+  - id: bash-it/theme/palette
+    groups:
+      - bash-it
+      - bash-it/theme
+    label: Bash-it theme runtime palette variables
+    when:
+      type: always
+    match:
+      source:
+        mentions-any-names:
+          - black
+          - red
+          - green
+          - yellow
+          - blue
+          - purple
+          - cyan
+          - white
+          - normal
+          - default
+          - reset_color
+          - bold_black
+          - bold_red
+          - bold_green
+          - bold_yellow
+          - bold_blue
+          - bold_purple
+          - bold_cyan
+          - bold_white
+          - italic
+    files:
+      - "**/bash-it/themes/**"
+      - "**/bash-it/theme/**"
+      - "**/Bash-it/themes/**"
+      - "**/Bash-it/theme/**"
+    effects:
+      provides:
+        ambient-variables:
+          - black
+          - red
+          - green
+          - yellow
+          - blue
+          - purple
+          - cyan
+          - white
+          - normal
+          - default
+          - reset_color
+          - bold_black
+          - bold_red
+          - bold_green
+          - bold_yellow
+          - bold_blue
+          - bold_purple
+          - bold_cyan
+          - bold_white
+          - italic

@@ -1,0 +1,44 @@
+version: 1
+contracts:
+  - id: zsh/plugin/zsh-syntax-highlighting/config
+    groups:
+      - zsh
+      - zsh/plugin
+      - zsh/plugin/zsh-syntax-highlighting
+    label: Zsh syntax highlighting configuration prefix
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        contains-any:
+          - ZSH_HIGHLIGHT_
+    files:
+      - "**/zsh-syntax-highlighting/**"
+    effects:
+      consumes:
+        prefixes:
+          - ZSH_HIGHLIGHT_
+
+  - id: zsh/plugin/zsh-syntax-highlighting/expected-prefix
+    groups:
+      - zsh
+      - zsh/plugin
+      - zsh/plugin/zsh-syntax-highlighting
+    label: Zsh syntax highlighting expected test variables
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        contains-any:
+          - expected_
+    files:
+      - "**/zsh-syntax-highlighting/**/test-data/**"
+      - "**/zsh-syntax-highlighting/**/testdata/**"
+      - "**/zsh-syntax-highlighting/**/fixtures/**"
+      - "**/zsh-syntax-highlighting/**/tests/**"
+    effects:
+      consumes:
+        prefixes:
+          - expected_

@@ -1,0 +1,188 @@
+version: 1
+contracts:
+  - id: zsh/runtime/special-parameters/always-zsh
+    groups:
+      - zsh
+      - zsh/runtime
+    label: Special parameters always available in zsh
+    when:
+      type: always
+    match:
+      shell: zsh
+      source:
+        mentions-any-names:
+          - parameters
+          - widgets
+    effects:
+      provides:
+        variables:
+          - parameters
+          - widgets
+
+  - id: zsh/runtime/special-parameters/project-or-dotfile
+    groups:
+      - zsh
+      - zsh/runtime
+    label: Special parameters available in shebangless zsh project files
+    when:
+      type: always
+    match:
+      shell: zsh_runtime
+      source:
+        mentions-any-names:
+          - parameters
+          - widgets
+    files:
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+      - "**/ohmyzsh/**"
+      - "**/powerlevel10k/**"
+      - "**/prezto/**"
+      - "**/zinit/**"
+      - "**/zsh-autosuggestions/**"
+      - "**/zsh-syntax-highlighting/**"
+    effects:
+      provides:
+        variables:
+          - parameters
+          - widgets
+
+  - id: zsh/runtime/special-parameters/runtime-path
+    groups:
+      - zsh
+      - zsh/runtime
+    label: Runtime path special parameters
+    when:
+      type: always
+    match:
+      shell: zsh_runtime
+      source:
+        mentions-any-names:
+          - compstate
+          - galiases
+          - history
+          - keymaps
+          - langinfo
+          - reswords
+          - saliases
+          - sysparams
+          - userdirs
+          - words
+    files:
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+      - "**/completion/**"
+      - "**/completions/**"
+      - "**/functions/**"
+      - "**/highlighters/**"
+      - "**/lib/**"
+      - "**/modules/**"
+      - "**/plugins/**"
+      - "**/plugin/**"
+      - "**/themes/**"
+      - "**/*.plugin.zsh"
+      - "**/*.theme.zsh"
+      - "**/zsh-autosuggestions/**"
+      - "**/zsh-syntax-highlighting/**"
+    effects:
+      provides:
+        variables:
+          - compstate
+          - galiases
+          - history
+          - keymaps
+          - langinfo
+          - reswords
+          - saliases
+          - sysparams
+          - userdirs
+          - words
+
+  - id: zsh/runtime/special-parameters/zmodload-parameter
+    groups:
+      - zsh
+      - zsh/runtime
+    label: zmodload zsh/parameter special parameters
+    when:
+      type: always
+    match:
+      shell: zsh
+      source:
+        mentions-any-names:
+          - galiases
+          - history
+          - keymaps
+          - reswords
+          - saliases
+          - userdirs
+        loads-zsh-modules-any:
+          - zsh/parameter
+    effects:
+      provides:
+        variables:
+          - galiases
+          - history
+          - keymaps
+          - reswords
+          - saliases
+          - userdirs
+
+  - id: zsh/runtime/special-parameters/zmodload-langinfo
+    groups:
+      - zsh
+      - zsh/runtime
+    label: zmodload zsh/langinfo special parameter
+    when:
+      type: always
+    match:
+      shell: zsh
+      source:
+        mentions-any-names:
+          - langinfo
+        loads-zsh-modules-any:
+          - zsh/langinfo
+    effects:
+      provides:
+        variables:
+          - langinfo
+
+  - id: zsh/runtime/special-parameters/zmodload-system
+    groups:
+      - zsh
+      - zsh/runtime
+    label: zmodload zsh/system special parameter
+    when:
+      type: always
+    match:
+      shell: zsh
+      source:
+        mentions-any-names:
+          - sysparams
+        loads-zsh-modules-any:
+          - zsh/system
+    effects:
+      provides:
+        variables:
+          - sysparams

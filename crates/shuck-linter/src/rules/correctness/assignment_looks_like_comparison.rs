@@ -1,6 +1,6 @@
 use rustc_hash::FxHashSet;
 use shuck_ast::{Assignment, AssignmentValue, Command, Span, static_word_text};
-use shuck_semantic::{Binding, BindingAttributes, BindingKind};
+use shuck_semantic::{Binding, BindingKind};
 
 use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext, WordQuote};
 
@@ -98,9 +98,10 @@ fn assignment_value_looks_like_comparison(
 fn binding_contributes_known_variable_name(binding: &Binding) -> bool {
     match binding.kind {
         BindingKind::FunctionDefinition => false,
-        BindingKind::Imported => !binding
-            .attributes
-            .contains(BindingAttributes::IMPORTED_FUNCTION),
+        // Imported and ambient bindings are too broad for this heuristic:
+        // they make ordinary hyphenated literals like `history-expansion`
+        // look like subtraction just because `history` exists at runtime.
+        BindingKind::Imported => false,
         BindingKind::Assignment
         | BindingKind::ParameterDefaultAssignment
         | BindingKind::AppendAssignment
@@ -119,7 +120,9 @@ fn binding_contributes_known_variable_name(binding: &Binding) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
+    use std::path::Path;
+
+    use crate::test::{test_snippet, test_snippet_at_path};
     use crate::{LinterSettings, Rule};
 
     #[test]
@@ -223,5 +226,22 @@ lang=en-us
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_ambient_runtime_names_as_prefix_candidates() {
+        let path =
+            Path::new("/tmp/zsh/zsh-syntax-highlighting/highlighters/main/main-highlighter.zsh");
+        let source = "\
+print -r -- \"$history\"
+style=history-expansion
+";
+        let diagnostics = test_snippet_at_path(
+            path,
+            source,
+            &LinterSettings::for_rule(Rule::AssignmentLooksLikeComparison),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 }

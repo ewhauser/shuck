@@ -1,0 +1,56 @@
+version: 1
+contracts:
+  - id: zsh/runtime/output-parameters/consumed
+    groups:
+      - zsh
+      - zsh/runtime
+    label: Zsh runtime output parameters
+    when:
+      type: always
+    match:
+      shell: zsh_runtime
+      source:
+        assigns-any-names:
+          - REPLY
+          - WORDCHARS
+          - compstate
+          - comppostfuncs
+          - reply
+    files:
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+      - "**/completion/**"
+      - "**/completions/**"
+      - "**/functions/**"
+      - "**/highlighters/**"
+      - "**/lib/**"
+      - "**/modules/**"
+      - "**/plugins/**"
+      - "**/plugin/**"
+      - "**/themes/**"
+      - "**/*.plugin.zsh"
+      - "**/*.theme.zsh"
+      - "**/zsh-autosuggestions/**"
+      - "**/zsh-syntax-highlighting/**"
+      - "**/test-data/**"
+      - "**/testdata/**"
+      - "**/fixtures/**"
+    effects:
+      consumes:
+        names:
+          - REPLY
+          - WORDCHARS
+          - compstate
+          - comppostfuncs
+          - reply

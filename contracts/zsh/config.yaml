@@ -1,0 +1,41 @@
+version: 1
+contracts:
+  - id: zsh/config/history
+    groups:
+      - zsh
+      - zsh/config
+    label: Zsh history configuration variables
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        assigns-any-names:
+          - HISTFILE
+          - HISTSIZE
+          - SAVEHIST
+    files:
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+      - "**/zsh/**"
+      - "**/modules/history/**"
+      - "**/config.zsh"
+      - "**/history.zsh"
+      - "**/init.zsh"
+    effects:
+      consumes:
+        names:
+          - HISTFILE
+          - HISTSIZE
+          - SAVEHIST

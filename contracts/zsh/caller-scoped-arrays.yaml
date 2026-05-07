@@ -1,0 +1,16 @@
+version: 1
+contracts:
+  - id: zsh/caller-scoped-arrays
+    groups:
+      - zsh
+    label: Caller-scoped zsh array length parameters
+    when:
+      type: always
+    match:
+      shell: zsh
+      source:
+        probable-function-definition: true
+        caller-scoped-array-length-names: true
+    effects:
+      provides:
+        caller-scoped-array-length-names: true

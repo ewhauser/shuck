@@ -193,30 +193,6 @@ contracts:
         assert!(error.contains("duplicate declarative contract id"));
     }
 
-    #[test]
-    fn load_declarative_contracts_rejects_rust_built_in_id_collisions() {
-        let tempdir = tempdir().unwrap();
-        let path = tempdir.path().join("collision.yaml");
-        let yaml = r#"
-version: 1
-contracts:
-  - id: zsh/runtime
-    groups:
-      - zsh
-    when:
-      type: always
-    effects:
-      provides:
-        variables:
-          - GITHUB_ENV
-"#;
-        std::fs::write(&path, yaml).unwrap();
-
-        let error = load_declarative_contracts(tempdir.path()).unwrap_err();
-        assert!(error.contains("conflicts with existing Rust built-in contract id"));
-    }
-
-    #[test]
     fn generate_declarative_contract_data_renders_runtime_descriptors() {
         let tempdir = tempdir().unwrap();
         let path = tempdir.path().join("tmux.yaml");

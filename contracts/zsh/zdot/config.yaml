@@ -1,0 +1,33 @@
+version: 1
+contracts:
+  - id: zsh/zdot/config/prefix
+    groups:
+      - zsh
+      - zsh/zdot
+      - zsh/zdot/config
+    label: ZDOT configuration prefix
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        contains-any:
+          - ZDOT_
+    files:
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+    effects:
+      consumes:
+        prefixes:
+          - ZDOT_

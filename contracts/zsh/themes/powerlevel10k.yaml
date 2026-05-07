@@ -1,0 +1,167 @@
+version: 1
+contracts:
+  - id: zsh/powerlevel10k/config/prompt-prefixes
+    groups:
+      - zsh
+      - zsh/powerlevel10k
+      - zsh/powerlevel10k/config
+    label: Powerlevel prompt configuration prefixes
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        contains-any:
+          - P9K_
+          - POWERLEVEL9K_
+    files:
+      - "**/.p10k.zsh"
+      - "**/p10k.zsh"
+      - "**/p10k-*.zsh"
+      - "**/powerlevel10k/config/**"
+      - "**/powerlevel10k/internal/configure.zsh"
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+    effects:
+      consumes:
+        prefixes:
+          - P9K_
+          - POWERLEVEL9K_
+
+  - id: zsh/powerlevel10k/config/iterm2-prefix
+    groups:
+      - zsh
+      - zsh/powerlevel10k
+      - zsh/powerlevel10k/config
+    label: iTerm2 configuration prefix in Powerlevel10k config
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        contains-any:
+          - ITERM2_
+    files:
+      - "**/.p10k.zsh"
+      - "**/p10k.zsh"
+      - "**/p10k-*.zsh"
+      - "**/powerlevel10k/config/**"
+      - "**/powerlevel10k/internal/configure.zsh"
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+    effects:
+      consumes:
+        prefixes:
+          - ITERM2_
+
+  - id: zsh/powerlevel10k/bootstrap/p10k
+    groups:
+      - zsh
+      - zsh/powerlevel10k
+      - zsh/powerlevel10k/bootstrap
+    label: Powerlevel10k bootstrap bindings for p10k.zsh
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        mentions-any-names:
+          - __p9k_sourced
+          - __p9k_root_dir
+          - __p9k_intro
+    files:
+      - "**/powerlevel10k/internal/p10k.zsh"
+    effects:
+      provides:
+        variables:
+          - __p9k_sourced
+          - __p9k_root_dir
+          - __p9k_intro
+
+  - id: zsh/powerlevel10k/bootstrap/internal
+    groups:
+      - zsh
+      - zsh/powerlevel10k
+      - zsh/powerlevel10k/bootstrap
+    label: Powerlevel10k bootstrap bindings for internal helpers
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        mentions-any-names:
+          - __p9k_root_dir
+          - __p9k_intro
+    files:
+      - "**/powerlevel10k/internal/configure.zsh"
+      - "**/powerlevel10k/internal/icons.zsh"
+      - "**/powerlevel10k/internal/parser.zsh"
+      - "**/powerlevel10k/internal/worker.zsh"
+      - "**/powerlevel10k/internal/wizard.zsh"
+    effects:
+      provides:
+        variables:
+          - __p9k_root_dir
+          - __p9k_intro
+
+  - id: zsh/powerlevel10k/gitstatus/prefix
+    groups:
+      - zsh
+      - zsh/powerlevel10k
+      - zsh/powerlevel10k/gitstatus
+    label: Powerlevel10k gitstatus output prefix
+    when:
+      type: always
+    match:
+      source:
+        assigns-any-prefixes:
+          - VCS_STATUS_
+    files:
+      - "**/powerlevel10k/gitstatus/gitstatus.plugin.sh"
+      - "**/powerlevel10k/gitstatus/gitstatus.plugin.zsh"
+    effects:
+      consumes:
+        prefixes:
+          - VCS_STATUS_
+
+  - id: zsh/powerlevel10k/gitstatus/intro-base
+    groups:
+      - zsh
+      - zsh/powerlevel10k
+      - zsh/powerlevel10k/gitstatus
+    label: Powerlevel10k gitstatus intro base binding
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        mentions-any-names:
+          - __p9k_intro_base
+    files:
+      - "**/powerlevel10k/gitstatus/gitstatus.plugin.zsh"
+    effects:
+      provides:
+        variables:
+          - __p9k_intro_base
