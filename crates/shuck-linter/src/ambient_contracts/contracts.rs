@@ -1,7 +1,8 @@
 //! Compiled ambient-contract configuration and well-known contract registry.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use anyhow::{Result, anyhow};
 use globset::{Glob, GlobMatcher};
@@ -146,13 +147,22 @@ impl ResolvedAmbientContracts {
         config: AmbientContractConfig,
     ) -> Result<Self> {
         let project_root = project_root.into();
+        let mut custom_ids = HashSet::new();
+        for contract in &config.custom {
+            if !custom_ids.insert(contract.id.clone()) {
+                return Err(anyhow!("duplicate ambient contract id {:?}", contract.id));
+            }
+        }
         let mut disabled = config.disabled;
-        disabled.extend(
-            config
-                .custom
-                .iter()
-                .flat_map(|contract| contract.replaces.iter().cloned()),
-        );
+        if config.well_known {
+            disabled.extend(
+                config
+                    .custom
+                    .iter()
+                    .flat_map(|contract| contract.replaces.iter().cloned()),
+            );
+            validate_well_known_selectors(&disabled)?;
+        }
         let custom_contracts = config
             .custom
             .into_iter()
@@ -222,10 +232,20 @@ impl ResolvedAmbientContracts {
         let mut matched = false;
 
         for id in &self.enabled_file_contract_ids {
-            let contract = well_known_file_contract_by_id(id).expect("known ambient contract id");
-            if (contract.matches)(collector, shell) {
+            if let Some(contract) = well_known_file_contract_by_id(id) {
+                if (contract.matches)(collector, shell) {
+                    matched = true;
+                    (contract.apply)(&mut merged, collector);
+                }
+                continue;
+            }
+
+            let contract = declarative_contract_by_id(id).expect("known ambient contract id");
+            if declarative_file_activation_matches(&contract.activation, shell)
+                && contract.file_matches(&self.project_root, path.path())
+            {
                 matched = true;
-                (contract.apply)(&mut merged, collector);
+                merge_contract(&mut merged, contract.file_entry_contract().clone());
             }
         }
 
@@ -251,21 +271,37 @@ impl ResolvedAmbientContracts {
         let lower_path = source_path.to_string_lossy().to_ascii_lowercase();
 
         for id in &self.enabled_request_contract_ids {
-            let contract =
-                well_known_request_contract_by_id(id).expect("known ambient request contract id");
-            if request_activation_matches(contract.activation, request) {
-                if let Some(file_match) = contract.file_match
-                    && !file_match(&lower_path)
-                {
-                    continue;
+            if let Some(contract) = well_known_request_contract_by_id(id) {
+                if request_activation_matches(contract.activation, request) {
+                    if let Some(file_match) = contract.file_match
+                        && !file_match(&lower_path)
+                    {
+                        continue;
+                    }
+                    let imported_contract = (contract.imported_contract)();
+                    if !contract_is_empty(&imported_contract) {
+                        resolved.imported_contracts.push(imported_contract);
+                    }
+                    merge_contract(
+                        &mut resolved.requesting_file_contract,
+                        (contract.requesting_file_contract)(),
+                    );
                 }
-                let imported_contract = (contract.imported_contract)();
+                continue;
+            }
+
+            let contract =
+                declarative_contract_by_id(id).expect("known ambient request contract id");
+            if request_activation_matches_declarative(&contract.activation, request)
+                && contract.file_matches(&self.project_root, source_path)
+            {
+                let imported_contract = contract.imported_contract().clone();
                 if !contract_is_empty(&imported_contract) {
                     resolved.imported_contracts.push(imported_contract);
                 }
                 merge_contract(
                     &mut resolved.requesting_file_contract,
-                    (contract.requesting_file_contract)(),
+                    contract.requesting_file_contract().clone(),
                 );
             }
         }
@@ -294,6 +330,7 @@ impl ResolvedAmbientContracts {
 struct CompiledCustomContract {
     id: String,
     when: AmbientContractActivation,
+    project_root: PathBuf,
     files: Vec<CompiledPathMatcher>,
     file_contract: FileContract,
     imported_contract: FileContract,
@@ -314,10 +351,8 @@ impl CompiledCustomContract {
         Ok(Self {
             id: contract.id,
             when: contract.when,
-            files: files
-                .into_iter()
-                .map(|matcher| matcher.with_project_root(project_root))
-                .collect(),
+            project_root: project_root.to_path_buf(),
+            files,
             file_contract,
             imported_contract,
             requesting_file_contract,
@@ -349,14 +384,14 @@ impl CompiledCustomContract {
 
         for matcher in &self.files {
             if matcher.negated {
-                if matcher.path_matches(path) {
+                if matcher.path_matches(&self.project_root, path) {
                     return false;
                 }
                 continue;
             }
 
             saw_positive = true;
-            matched_positive |= matcher.path_matches(path);
+            matched_positive |= matcher.path_matches(&self.project_root, path);
         }
 
         if saw_positive { matched_positive } else { true }
@@ -382,14 +417,11 @@ struct CompiledPathMatcher {
     relative_matcher: GlobMatcher,
     absolute_matcher: GlobMatcher,
     negated: bool,
-    project_root: PathBuf,
 }
 
 impl PartialEq for CompiledPathMatcher {
     fn eq(&self, other: &Self) -> bool {
-        self.pattern == other.pattern
-            && self.negated == other.negated
-            && self.project_root == other.project_root
+        self.pattern == other.pattern && self.negated == other.negated
     }
 }
 
@@ -415,17 +447,11 @@ impl CompiledPathMatcher {
                 .map_err(|err| anyhow!("invalid glob {matcher_pattern:?}: {err}"))?
                 .compile_matcher(),
             negated,
-            project_root: PathBuf::new(),
         })
     }
 
-    fn with_project_root(mut self, project_root: &Path) -> Self {
-        self.project_root = project_root.to_path_buf();
-        self
-    }
-
-    fn path_matches(&self, path: &Path) -> bool {
-        let relative_path = path.strip_prefix(&self.project_root).unwrap_or(path);
+    fn path_matches(&self, project_root: &Path, path: &Path) -> bool {
+        let relative_path = path.strip_prefix(project_root).unwrap_or(path);
         let file_name = relative_path.file_name().or_else(|| path.file_name());
         let Some(file_name) = file_name else {
             return false;
@@ -436,6 +462,49 @@ impl CompiledPathMatcher {
     }
 }
 
+struct DeclarativeContractDescriptor {
+    id: &'static str,
+    groups: &'static [&'static str],
+    #[allow(dead_code)]
+    label: Option<&'static str>,
+    activation: DeclarativeActivationDescriptor,
+    files: &'static [&'static str],
+    effects: DeclarativeEffectsDescriptor,
+    compiled_files: OnceLock<Vec<CompiledPathMatcher>>,
+    file_entry_contract: OnceLock<FileContract>,
+    imported_contract: OnceLock<FileContract>,
+    requesting_file_contract: OnceLock<FileContract>,
+}
+
+#[allow(dead_code)]
+enum DeclarativeActivationDescriptor {
+    Always,
+    ZshPlugin {
+        framework: &'static str,
+        plugin: &'static str,
+    },
+    ZshTheme {
+        framework: &'static str,
+        theme: &'static str,
+    },
+}
+
+struct DeclarativeEffectsDescriptor {
+    reads: &'static [&'static str],
+    consumes_names: &'static [&'static str],
+    consumes_prefixes: &'static [&'static str],
+    consumes_all: bool,
+    provides_variables: &'static [&'static str],
+    provides_functions: &'static [&'static str],
+    functions: &'static [DeclarativeFunctionDescriptor],
+}
+
+struct DeclarativeFunctionDescriptor {
+    name: &'static str,
+    reads: &'static [&'static str],
+    sets: &'static [&'static str],
+}
+
 struct WellKnownFileContract {
     id: &'static str,
     groups: &'static [&'static str],
@@ -443,6 +512,7 @@ struct WellKnownFileContract {
     apply: fn(&mut FileContract, &AmbientContractCollector<'_>),
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 enum RequestActivation {
     ZshPlugin {
@@ -459,6 +529,62 @@ struct WellKnownRequestContract {
     imported_contract: fn() -> FileContract,
     requesting_file_contract: fn() -> FileContract,
 }
+
+impl DeclarativeContractDescriptor {
+    fn compiled_files(&self) -> &[CompiledPathMatcher] {
+        self.compiled_files
+            .get_or_init(|| {
+                self.files
+                    .iter()
+                    .map(|pattern| {
+                        CompiledPathMatcher::new((*pattern).to_owned())
+                            .expect("generated declarative contract glob is valid")
+                    })
+                    .collect()
+            })
+            .as_slice()
+    }
+
+    fn file_matches(&self, project_root: &Path, path: &Path) -> bool {
+        if self.files.is_empty() {
+            return true;
+        }
+
+        let mut saw_positive = false;
+        let mut matched_positive = false;
+
+        for matcher in self.compiled_files() {
+            if matcher.negated {
+                if matcher.path_matches(project_root, path) {
+                    return false;
+                }
+                continue;
+            }
+
+            saw_positive = true;
+            matched_positive |= matcher.path_matches(project_root, path);
+        }
+
+        if saw_positive { matched_positive } else { true }
+    }
+
+    fn file_entry_contract(&self) -> &FileContract {
+        self.file_entry_contract
+            .get_or_init(|| file_entry_contract_from_declarative_effects(&self.effects))
+    }
+
+    fn imported_contract(&self) -> &FileContract {
+        self.imported_contract
+            .get_or_init(|| imported_contract_from_declarative_effects(&self.effects))
+    }
+
+    fn requesting_file_contract(&self) -> &FileContract {
+        self.requesting_file_contract
+            .get_or_init(|| requesting_file_contract_from_declarative_effects(&self.effects))
+    }
+}
+
+include!(concat!(env!("OUT_DIR"), "/ambient_contracts_data.rs"));
 
 const WELL_KNOWN_FILE_CONTRACTS: &[WellKnownFileContract] = &[
     WellKnownFileContract {
@@ -505,23 +631,22 @@ const WELL_KNOWN_FILE_CONTRACTS: &[WellKnownFileContract] = &[
     },
 ];
 
-const WELL_KNOWN_REQUEST_CONTRACTS: &[WellKnownRequestContract] = &[WellKnownRequestContract {
-    id: "zsh/oh-my-zsh/plugin/tmux",
-    groups: &["zsh", "zsh/oh-my-zsh", "zsh/oh-my-zsh/plugin"],
-    activation: RequestActivation::ZshPlugin {
-        framework: "oh-my-zsh",
-        plugin: "tmux",
-    },
-    file_match: None,
-    imported_contract: FileContract::default,
-    requesting_file_contract: oh_my_zsh_tmux_requesting_file_contract,
-}];
+const WELL_KNOWN_REQUEST_CONTRACTS: &[WellKnownRequestContract] = &[];
 
 fn enabled_well_known_file_contract_ids(disabled: &[String]) -> Vec<&'static str> {
     WELL_KNOWN_FILE_CONTRACTS
         .iter()
         .filter(|contract| !selector_matches(disabled, contract.id, contract.groups))
         .map(|contract| contract.id)
+        .chain(
+            DECLARATIVE_CONTRACTS
+                .iter()
+                .filter(|contract| {
+                    matches!(contract.activation, DeclarativeActivationDescriptor::Always)
+                        && !selector_matches(disabled, contract.id, contract.groups)
+                })
+                .map(|contract| contract.id),
+        )
         .collect()
 }
 
@@ -530,6 +655,15 @@ fn enabled_well_known_request_contract_ids(disabled: &[String]) -> Vec<&'static 
         .iter()
         .filter(|contract| !selector_matches(disabled, contract.id, contract.groups))
         .map(|contract| contract.id)
+        .chain(
+            DECLARATIVE_CONTRACTS
+                .iter()
+                .filter(|contract| {
+                    !matches!(contract.activation, DeclarativeActivationDescriptor::Always)
+                        && !selector_matches(disabled, contract.id, contract.groups)
+                })
+                .map(|contract| contract.id),
+        )
         .collect()
 }
 
@@ -551,12 +685,72 @@ fn well_known_request_contract_by_id(id: &str) -> Option<&'static WellKnownReque
         .find(|contract| contract.id == id)
 }
 
+fn declarative_contract_by_id(id: &str) -> Option<&'static DeclarativeContractDescriptor> {
+    DECLARATIVE_CONTRACTS
+        .iter()
+        .find(|contract| contract.id == id)
+}
+
+fn validate_well_known_selectors(selectors: &[String]) -> Result<()> {
+    for selector in selectors {
+        if selector == "*" || well_known_selector_exists(selector) {
+            continue;
+        }
+        return Err(anyhow!(
+            "unknown ambient contract selector {selector:?}; expected `*`, a built-in contract id, or a built-in contract group"
+        ));
+    }
+    Ok(())
+}
+
+fn well_known_selector_exists(selector: &str) -> bool {
+    WELL_KNOWN_FILE_CONTRACTS
+        .iter()
+        .any(|contract| selector == contract.id || contract.groups.contains(&selector))
+        || WELL_KNOWN_REQUEST_CONTRACTS
+            .iter()
+            .any(|contract| selector == contract.id || contract.groups.contains(&selector))
+        || DECLARATIVE_CONTRACTS
+            .iter()
+            .any(|contract| selector == contract.id || contract.groups.contains(&selector))
+}
+
 fn request_activation_matches(activation: RequestActivation, request: &PluginRequest) -> bool {
     match activation {
         RequestActivation::ZshPlugin { framework, plugin } => {
             request.kind == PluginRequestKind::Plugin
                 && plugin_framework_name(&request.framework) == framework
                 && request.name == plugin
+        }
+    }
+}
+
+fn declarative_file_activation_matches(
+    activation: &DeclarativeActivationDescriptor,
+    shell: ShellDialect,
+) -> bool {
+    match activation {
+        DeclarativeActivationDescriptor::Always => true,
+        DeclarativeActivationDescriptor::ZshPlugin { .. }
+        | DeclarativeActivationDescriptor::ZshTheme { .. } => shell == ShellDialect::Zsh,
+    }
+}
+
+fn request_activation_matches_declarative(
+    activation: &DeclarativeActivationDescriptor,
+    request: &PluginRequest,
+) -> bool {
+    match activation {
+        DeclarativeActivationDescriptor::Always => false,
+        DeclarativeActivationDescriptor::ZshPlugin { framework, plugin } => {
+            request.kind == PluginRequestKind::Plugin
+                && plugin_framework_name(&request.framework) == *framework
+                && request.name == *plugin
+        }
+        DeclarativeActivationDescriptor::ZshTheme { framework, theme } => {
+            request.kind == PluginRequestKind::Theme
+                && plugin_framework_name(&request.framework) == *framework
+                && request.name == *theme
         }
     }
 }
@@ -745,9 +939,68 @@ fn requesting_file_contract_from_effects(effects: &AmbientContractEffects) -> Fi
     contract
 }
 
-fn oh_my_zsh_tmux_requesting_file_contract() -> FileContract {
+fn file_entry_contract_from_declarative_effects(
+    effects: &DeclarativeEffectsDescriptor,
+) -> FileContract {
+    let mut contract = imported_contract_from_declarative_effects(effects);
+    merge_contract(
+        &mut contract,
+        requesting_file_contract_from_declarative_effects(effects),
+    );
+    contract
+}
+
+fn imported_contract_from_declarative_effects(
+    effects: &DeclarativeEffectsDescriptor,
+) -> FileContract {
     let mut contract = FileContract::default();
-    contract.add_externally_consumed_binding_prefix(Name::from("ZSH_TMUX_"));
+    for name in effects.reads {
+        contract.add_required_read(Name::from(*name));
+    }
+    for name in effects.provides_variables {
+        contract.add_provided_binding(ProvidedBinding::new_file_entry_initialized(
+            Name::from(*name),
+            ProvidedBindingKind::Variable,
+            ContractCertainty::Definite,
+        ));
+    }
+    for name in effects.provides_functions {
+        contract.add_provided_binding(ProvidedBinding::new(
+            Name::from(*name),
+            ProvidedBindingKind::Function,
+            ContractCertainty::Definite,
+        ));
+    }
+    for function in effects.functions {
+        let mut function_contract = FunctionContract::new(Name::from(function.name));
+        for name in function.reads {
+            function_contract.add_required_read(Name::from(*name));
+        }
+        for name in function.sets {
+            function_contract.add_provided_binding(ProvidedBinding::new(
+                Name::from(*name),
+                ProvidedBindingKind::Variable,
+                ContractCertainty::Definite,
+            ));
+        }
+        contract.add_provided_function(function_contract);
+    }
+    contract
+}
+
+fn requesting_file_contract_from_declarative_effects(
+    effects: &DeclarativeEffectsDescriptor,
+) -> FileContract {
+    let mut contract = FileContract {
+        externally_consumed_bindings: effects.consumes_all,
+        ..FileContract::default()
+    };
+    for name in effects.consumes_names {
+        contract.add_externally_consumed_binding_name(Name::from(*name));
+    }
+    for prefix in effects.consumes_prefixes {
+        contract.add_externally_consumed_binding_prefix(Name::from(*prefix));
+    }
     contract
 }
 

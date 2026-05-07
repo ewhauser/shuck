@@ -1,0 +1,16 @@
+version: 1
+contracts:
+  - id: zsh/oh-my-zsh/plugin/tmux
+    groups:
+      - zsh
+      - zsh/oh-my-zsh
+      - zsh/oh-my-zsh/plugin
+    label: Oh My Zsh tmux plugin
+    when:
+      type: zsh_plugin
+      framework: oh-my-zsh
+      plugin: tmux
+    effects:
+      consumes:
+        prefixes:
+          - ZSH_TMUX_

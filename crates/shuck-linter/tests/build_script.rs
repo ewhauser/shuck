@@ -1,5 +1,9 @@
 mod build_script {
+    #![allow(dead_code)]
+
     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/build.rs"));
+
+    use tempfile::tempdir;
 
     #[test]
     fn parse_shellcheck_code_value_skips_nullable_forms() {
@@ -117,5 +121,135 @@ rationale: Example rationale
         let (_, shellcheck_code, shellcheck_level) = parse_rule_metadata(yaml).unwrap();
         assert_eq!(shellcheck_code, None);
         assert_eq!(shellcheck_level, Some(ShellCheckLevel::Info));
+    }
+
+    #[test]
+    fn parse_declarative_contract_document_accepts_tmux_contract() {
+        let yaml = r#"
+version: 1
+contracts:
+  - id: zsh/oh-my-zsh/plugin/tmux
+    groups:
+      - zsh
+      - zsh/oh-my-zsh
+      - zsh/oh-my-zsh/plugin
+    when:
+      type: zsh_plugin
+      framework: oh-my-zsh
+      plugin: tmux
+    effects:
+      consumes:
+        prefixes:
+          - ZSH_TMUX_
+"#;
+
+        let document = parse_declarative_contract_document(yaml).unwrap();
+        assert_eq!(document.version, 1);
+        assert_eq!(document.contracts.len(), 1);
+        assert_eq!(document.contracts[0].id, "zsh/oh-my-zsh/plugin/tmux");
+    }
+
+    #[test]
+    fn validate_declarative_contract_document_rejects_empty_effects() {
+        let yaml = r#"
+version: 1
+contracts:
+  - id: runtime/example
+    groups:
+      - runtime
+    when:
+      type: always
+    effects: {}
+"#;
+
+        let error =
+            validate_declarative_contract_document(yaml, std::path::Path::new("/tmp/example.yaml"))
+                .unwrap_err();
+        assert!(error.contains("must define at least one effect"));
+    }
+
+    #[test]
+    fn load_declarative_contracts_rejects_duplicate_ids_across_files() {
+        let tempdir = tempdir().unwrap();
+        let first = tempdir.path().join("first.yaml");
+        let second = tempdir.path().join("second.yaml");
+        let yaml = r#"
+version: 1
+contracts:
+  - id: runtime/example
+    groups:
+      - runtime
+    when:
+      type: always
+    effects:
+      provides:
+        variables:
+          - GITHUB_ENV
+"#;
+        std::fs::write(&first, yaml).unwrap();
+        std::fs::write(&second, yaml).unwrap();
+
+        let error = load_declarative_contracts(tempdir.path()).unwrap_err();
+        assert!(error.contains("duplicate declarative contract id"));
+    }
+
+    #[test]
+    fn load_declarative_contracts_rejects_rust_built_in_id_collisions() {
+        let tempdir = tempdir().unwrap();
+        let path = tempdir.path().join("collision.yaml");
+        let yaml = r#"
+version: 1
+contracts:
+  - id: zsh/runtime
+    groups:
+      - zsh
+    when:
+      type: always
+    effects:
+      provides:
+        variables:
+          - GITHUB_ENV
+"#;
+        std::fs::write(&path, yaml).unwrap();
+
+        let error = load_declarative_contracts(tempdir.path()).unwrap_err();
+        assert!(error.contains("conflicts with existing Rust built-in contract id"));
+    }
+
+    #[test]
+    fn generate_declarative_contract_data_renders_runtime_descriptors() {
+        let tempdir = tempdir().unwrap();
+        let path = tempdir.path().join("tmux.yaml");
+        std::fs::write(
+            &path,
+            r#"
+version: 1
+contracts:
+  - id: zsh/oh-my-zsh/plugin/tmux
+    groups:
+      - zsh
+      - zsh/oh-my-zsh
+      - zsh/oh-my-zsh/plugin
+    label: Oh My Zsh tmux plugin
+    when:
+      type: zsh_plugin
+      framework: oh-my-zsh
+      plugin: tmux
+    effects:
+      consumes:
+        prefixes:
+          - ZSH_TMUX_
+"#,
+        )
+        .unwrap();
+
+        let contracts = load_declarative_contracts(tempdir.path()).unwrap();
+        let generated = generate_declarative_contract_data(&contracts);
+
+        assert!(generated.contains("static DECLARATIVE_CONTRACT_DATA"));
+        assert!(generated.contains("static DECLARATIVE_CONTRACTS"));
+        assert!(generated.contains("\"zsh/oh-my-zsh/plugin/tmux\""));
+        assert!(generated.contains("std::sync::OnceLock::new()"));
+        assert!(generated.contains("\"ZSH_TMUX_\""));
     }
 }
