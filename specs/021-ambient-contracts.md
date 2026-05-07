@@ -19,6 +19,11 @@ source closure, run the ambient collector for that file entry, and derive
 as generated code, external runtime consumption, unavailable source, or
 project-specific framework conventions.
 
+Shuck also ships a well-known contract registry for high-confidence contracts
+that should not live in user config. The registry is code-defined, not TOML, so
+Shuck can cheaply test activations and instantiate `FileContract`s only for
+contracts that actually apply.
+
 ## Motivation
 
 Spec 020 and the current zsh plugin fixtures already solve a large class of
@@ -54,6 +59,8 @@ hatches.
 - Use activation types to decide when a contract applies.
 - Treat `zsh_plugin` and future plugin/framework integrations as activation
   types over the same contract body.
+- Ship well-known contracts through a lazy Rust registry rather than parsing
+  built-in TOML.
 - Keep end-user names concise and close to the user intent.
 - Compile contracts into the existing `FileContract` type.
 - Avoid rule-local or framework-local tables of plugin variable names.
@@ -206,6 +213,100 @@ Sidecar discovery never replaces source loading. If both a source summary and a
 sidecar contract provide facts, Shuck merges them as candidate contracts and
 deduplicates repeated names.
 
+### Well-Known Registry
+
+Shuck should maintain a built-in registry for well-known contracts that are
+stable enough to ship with the project. This covers cases like known plugin
+configuration prefixes or project/runtime contracts that are too specific for
+language semantics but common enough that users should not have to rediscover
+them.
+
+The registry should be Rust data and functions, not embedded TOML:
+
+```rust
+pub struct WellKnownContract {
+    pub id: &'static str,
+    pub activation: WellKnownActivation,
+    pub matches: fn(&ContractQuery<'_>) -> bool,
+    pub apply: fn(&mut FileContract),
+}
+
+pub enum WellKnownActivation {
+    Always,
+    ZshPlugin {
+        framework: &'static str,
+        plugin: &'static str,
+    },
+    ZshTheme {
+        framework: &'static str,
+        theme: &'static str,
+    },
+}
+
+pub struct ContractQuery<'a> {
+    pub source_path: &'a Path,
+    pub shell_profile: &'a ShellProfile,
+    pub activation: ContractActivationQuery<'a>,
+}
+```
+
+Selection is lazy:
+
+1. cheap activation check, such as exact `zsh_plugin` framework/plugin match;
+2. optional path/source predicate through `matches`;
+3. only then call `apply` to materialize names into a `FileContract`.
+
+This mirrors the current `ambient_contracts` provider shape:
+
+```rust
+struct AmbientContractProvider {
+    matches: fn(&AmbientContractCollector<'_>, ShellDialect) -> bool,
+    build: fn(&AmbientContractCollector<'_>, ShellDialect) -> FileContract,
+}
+```
+
+The registry should use the same idea but make activation explicit. Simple
+contracts can use helper functions that apply static slices:
+
+```rust
+fn apply_oh_my_zsh_tmux(contract: &mut FileContract) {
+    add_consumed_prefixes(contract, &["ZSH_TMUX_"]);
+}
+```
+
+That avoids:
+
+- deserializing built-in TOML;
+- compiling glob patterns for contracts that can never activate;
+- allocating `Name`s or `FileContract`s for inactive contracts;
+- spreading plugin-specific variable tables through plugin-manager code.
+
+### Registry Ownership
+
+The well-known registry should not live in `plugin_managers`. The files under
+`crates/shuck-semantic/src/source_closure/plugin_managers` should continue to
+emit common source-closure outputs: plugin requests, dependency requests,
+layout suffixes, and bounded deferred runtime reads.
+
+The registry should also not turn `shuck-semantic/src/plugins` into a policy
+catalog. `shuck-semantic` owns `FileContract` and the resolver traits; it should
+not own the list of plugin variables that suppress linter diagnostics.
+
+Preferred ownership:
+
+- `shuck-linter` owns the well-known registry, next to
+  `ambient_contracts`, because these contracts are lint-facing ambient
+  assumptions.
+- `shuck-cli` combines user config, sidecar metadata, and the well-known
+  registry when building the concrete `PluginResolver`.
+- `shuck-semantic` receives only the resulting `FileContract`s through
+  `SemanticBuildOptions` and `PluginResolution.file_entry_contracts`.
+
+If dependency direction ever makes that awkward, the fallback is a tiny
+contract-registry crate that depends only on `shuck-ast`, `shuck-parser`, and
+`shuck-semantic`. The important boundary is that plugin managers do not become
+the registry.
+
 ### Internal Flow
 
 The existing source-closure flow remains the join point:
@@ -216,7 +317,7 @@ primary file
   -> source refs and plugin requests
   -> resolved helper/plugin entrypoints
   -> helper/plugin source summaries
-  -> activated config and sidecar contracts
+  -> activated well-known, config, and sidecar contracts
   -> merged FileContract
   -> final semantic resolution and linter facts
 ```
@@ -237,9 +338,12 @@ If implementation needs a named provider, the provider should compile to
 - `shuck-semantic` owns `FileContract`, contract merging, and semantic
   application.
 - `shuck-semantic` should not parse TOML contract metadata.
+- `shuck-semantic` should not own the well-known registry.
 - `shuck-config` owns deserializable config shapes.
-- `shuck-cli` compiles config and sidecar metadata into `FileContract`s and
-  installs them in the resolver/collector pipeline.
+- `shuck-linter` owns built-in well-known contract descriptors.
+- `shuck-cli` compiles config and sidecar metadata, queries the well-known
+  registry, and installs resulting `FileContract`s in the resolver/collector
+  pipeline.
 - `shuck-linter` consumes semantic facts and should not know contract origins.
 
 ### Validation Rules
@@ -268,6 +372,10 @@ Cache fingerprints include:
 - project config files that define contracts;
 - helper files summarized because of source closure.
 
+Well-known registry entries are versioned with the binary and do not need
+runtime dependency fingerprints. They should participate in the normal settings
+cache key through the Shuck version and enabled contract settings.
+
 Watch mode refreshes these targets after each run, matching the dependency
 refresh model from spec 020.
 
@@ -291,11 +399,20 @@ Rejected. Names like `externally-consumed-binding-prefixes` describe
 implementation details, not user intent. Config should use short terms:
 `reads`, `consumes`, `provides`, and `sets`.
 
+### Store Built-In Contracts As TOML
+
+Rejected. TOML would keep user and built-in syntax identical, but it would
+force Shuck to parse and deserialize built-in data at runtime or add a build
+step that eventually recreates a Rust registry. Code-defined descriptors give
+the same behavior with cheaper activation checks and lazy `FileContract`
+materialization.
+
 ### Hard-Code Plugin Variable Tables In Rust
 
-Rejected. It is quick for a handful of known plugins, but it puts framework and
-plugin policy into semantic layout code and repeats the false-positive
-heuristic problem that plugin loading was meant to remove.
+Rejected when the tables live in plugin managers, semantic layout code, or
+rules. A well-known registry is still Rust code, but it is intentionally
+centralized, activated through the same contract model as user config, and
+compiled into `FileContract` only after a matching activation is observed.
 
 ### Make Contracts The Primary Plugin Model
 
@@ -316,6 +433,10 @@ not become a substitute for improving resolution and source summarization.
   `FileContract` values;
 - parse `.shuck-contracts.toml` sidecar metadata through the same contract body
   schema;
+- query the well-known registry without allocating contracts when activation
+  does not match;
+- materialize a well-known registry entry into the expected `FileContract` only
+  after activation and path matching succeed;
 - deduplicate repeated names and prefixes deterministically.
 
 ### Semantic Tests
@@ -326,6 +447,8 @@ not become a substitute for improving resolution and source summarization.
   source is reachable;
 - `always` contracts apply to matching primary files and helper/plugin files;
 - `zsh_plugin` contracts apply only when the matching plugin request is loaded;
+- a well-known `zsh_plugin` contract flows through
+  `PluginResolution.file_entry_contracts`;
 - `consumes.prefixes` keeps matching C001 candidates live without creating fake
   lexical reads;
 - `reads` produces synthetic reads at the importer/load site.
