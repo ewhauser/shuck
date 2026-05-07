@@ -831,28 +831,6 @@ repos:
           column: 46
         classification: real
       - path: "update_core.zsh"
-        code: "C112"
-        severity: "warning"
-        message: "all-elements array expansions collapse inside `[[ ... ]]` tests"
-        start:
-          line: 278
-          column: 15
-        end:
-          line: 278
-          column: 25
-        classification: real
-      - path: "update_core.zsh"
-        code: "C099"
-        severity: "warning"
-        message: "all-elements array expansions collapse in scalar assignment values"
-        start:
-          line: 280
-          column: 20
-        end:
-          line: 280
-          column: 32
-        classification: real
-      - path: "update_core.zsh"
         code: "C055"
         severity: "warning"
         message: "pattern expressions should not expand variables"
@@ -15969,17 +15947,6 @@ repos:
           column: 54
         classification: real
       - path: "modules/fzf/functions/fzf_ripgrep"
-        code: "C099"
-        severity: "warning"
-        message: "all-elements array expansions collapse in scalar assignment values"
-        start:
-          line: 8
-          column: 19
-        end:
-          line: 8
-          column: 33
-        classification: real
-      - path: "modules/fzf/functions/fzf_ripgrep"
         code: "C005"
         severity: "warning"
         message: "shell expansion inside single quotes stays literal"
@@ -19216,28 +19183,6 @@ repos:
         end:
           line: 2647
           column: 82
-        classification: real
-      - path: "zinit.zsh"
-        code: "C099"
-        severity: "warning"
-        message: "all-elements array expansions collapse in scalar assignment values"
-        start:
-          line: 2673
-          column: 31
-        end:
-          line: 2673
-          column: 47
-        classification: real
-      - path: "zinit.zsh"
-        code: "C099"
-        severity: "warning"
-        message: "all-elements array expansions collapse in scalar assignment values"
-        start:
-          line: 2697
-          column: 35
-        end:
-          line: 2697
-          column: 51
         classification: real
       - path: "zinit.zsh"
         code: "C001"

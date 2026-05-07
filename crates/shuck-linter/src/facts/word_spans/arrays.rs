@@ -707,9 +707,8 @@ pub(crate) fn normalize_all_elements_array_expansion_span(
         let start = locator.position_at_offset(absolute_start)?;
         let remainder = &source[absolute_start..];
 
-        if remainder.starts_with("$@") {
-            if source_starts_with_non_at_selector_subscript(&remainder["$@".len()..], shell_dialect)
-            {
+        if let Some(after_at) = remainder.strip_prefix("$@") {
+            if source_starts_with_non_at_selector_subscript(after_at, shell_dialect) {
                 search_from = relative_start + 1;
                 continue;
             }
@@ -765,9 +764,8 @@ pub(crate) fn normalize_direct_all_elements_array_expansion_span(
         let start = locator.position_at_offset(absolute_start)?;
         let remainder = &source[absolute_start..];
 
-        if remainder.starts_with("$@") {
-            if source_starts_with_non_at_selector_subscript(&remainder["$@".len()..], shell_dialect)
-            {
+        if let Some(after_at) = remainder.strip_prefix("$@") {
+            if source_starts_with_non_at_selector_subscript(after_at, shell_dialect) {
                 search_from = relative_start + 1;
                 continue;
             }
@@ -883,9 +881,10 @@ pub(crate) fn normalize_nested_direct_all_elements_array_expansion_span(
         }
 
         let remainder = &source[absolute_start..];
-        if nested_braced_depth == 0 && remainder.starts_with("$@") {
-            if source_starts_with_non_at_selector_subscript(&remainder["$@".len()..], shell_dialect)
-            {
+        if nested_braced_depth == 0
+            && let Some(after_at) = remainder.strip_prefix("$@")
+        {
+            if source_starts_with_non_at_selector_subscript(after_at, shell_dialect) {
                 index += 1;
                 continue;
             }
@@ -1072,7 +1071,7 @@ fn strip_special_at_splat_suffix(
 ) -> Option<&str> {
     let suffix = inner.strip_prefix('@')?;
 
-    if let Some(stripped) = suffix.strip_prefix("[@]") {
+    if let Some(stripped) = strip_zsh_positional_selector_suffix(suffix) {
         return Some(stripped);
     }
 
@@ -1081,6 +1080,15 @@ fn strip_special_at_splat_suffix(
     }
 
     Some(suffix)
+}
+
+fn strip_zsh_positional_selector_suffix(suffix: &str) -> Option<&str> {
+    let rest = suffix.strip_prefix('[')?;
+    let close = rest.find(']')?;
+    match &rest[..close] {
+        "@" | "*" => Some(&rest[close + 1..]),
+        _ => None,
+    }
 }
 
 fn source_starts_with_non_at_selector_subscript(
@@ -1098,7 +1106,7 @@ fn source_starts_with_non_at_selector_subscript(
         return false;
     };
 
-    &rest[..close] != "@"
+    !matches!(&rest[..close], "@" | "*")
 }
 
 fn part_has_zsh_short_positional_subscript(
@@ -1137,6 +1145,119 @@ fn var_ref_is_zsh_indexed_positional_at(
             .subscript
             .as_deref()
             .is_some_and(|subscript| subscript.selector().is_none())
+}
+
+fn var_ref_is_zsh_ranged_positional_at(
+    reference: &VarRef,
+    source: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
+    shell_dialect == shuck_semantic::ShellDialect::Zsh
+        && reference.name.as_str() == "@"
+        && reference.subscript.as_deref().is_some_and(|subscript| {
+            subscript.selector().is_none() && subscript.syntax_text(source).contains(',')
+        })
+}
+
+fn parameter_uses_zsh_ranged_positional_at(
+    parameter: &ParameterExpansion,
+    source: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
+    let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
+        return false;
+    };
+
+    match syntax {
+        BourneParameterExpansion::Access { reference }
+        | BourneParameterExpansion::Indices { reference }
+        | BourneParameterExpansion::Slice { reference, .. } => {
+            var_ref_is_zsh_ranged_positional_at(reference, source, shell_dialect)
+        }
+        BourneParameterExpansion::Operation {
+            reference,
+            operator,
+            ..
+        } => {
+            !matches!(operator.as_ref(), ParameterOp::UseReplacement)
+                && var_ref_is_zsh_ranged_positional_at(reference, source, shell_dialect)
+        }
+        BourneParameterExpansion::Transformation { reference, .. } => {
+            var_ref_is_zsh_ranged_positional_at(reference, source, shell_dialect)
+        }
+        _ => false,
+    }
+}
+
+fn part_has_zsh_short_positional_range(
+    parts: &[WordPartNode],
+    index: usize,
+    source: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
+    shell_dialect == shuck_semantic::ShellDialect::Zsh
+        && parts.get(index).is_some_and(
+            |part| matches!(&part.kind, WordPart::Variable(name) if name.as_str() == "@"),
+        )
+        && parts.get(index + 1).is_some_and(|next| {
+            matches!(
+                &next.kind,
+                WordPart::Literal(text)
+                    if literal_starts_with_zsh_positional_range(text.as_str(source, next.span))
+            )
+        })
+}
+
+fn literal_starts_with_zsh_positional_range(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix('[') else {
+        return false;
+    };
+    let Some(close) = rest.find(']') else {
+        return false;
+    };
+
+    rest[..close].contains(',')
+}
+
+pub fn word_zsh_positional_parameter_range_spans(
+    word: &Word,
+    source: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_zsh_positional_parameter_range_spans(&word.parts, source, shell_dialect, &mut spans);
+    spans
+}
+
+fn collect_zsh_positional_parameter_range_spans(
+    parts: &[WordPartNode],
+    source: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+    spans: &mut Vec<Span>,
+) {
+    if shell_dialect != shuck_semantic::ShellDialect::Zsh {
+        return;
+    }
+
+    for (index, part) in parts.iter().enumerate() {
+        match &part.kind {
+            WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_zsh_positional_parameter_range_spans(parts, source, shell_dialect, spans);
+            }
+            WordPart::Parameter(parameter)
+                if parameter_uses_zsh_ranged_positional_at(parameter, source, shell_dialect) =>
+            {
+                spans.push(part.span);
+            }
+            WordPart::Variable(_)
+                if part_has_zsh_short_positional_range(parts, index, source, shell_dialect) =>
+            {
+                spans.push(part.span);
+            }
+            _ => {}
+        }
+    }
 }
 
 pub(crate) fn parameter_is_array_like(parameter: &ParameterExpansion) -> bool {
@@ -2278,6 +2399,41 @@ printf '%s\\n' \"\\$@\" \"\\\\$@\" \"\\${@:2}\" \"\\\\${@:2}\" \"\\${arr[@]}\" \
             source,
             ShellDialect::Zsh,
         ));
+    }
+
+    #[test]
+    fn zsh_positional_selector_subscripts_still_count_as_all_elements_splats() {
+        assert!(super::candidate_is_all_elements_array_expansion(
+            "${@[*]:-fallback}",
+            ShellDialect::Zsh,
+        ));
+        assert!(super::candidate_is_direct_all_elements_array_expansion(
+            "${@[*]:-fallback}",
+            ShellDialect::Zsh,
+        ));
+
+        let source = "print \"${@[*]}\" \"$@[*]\" \"${@[@]}\" \"$@[@]\"\n";
+        let output = Parser::with_dialect(source, shuck_parser::parser::ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let matches = command
+            .args
+            .iter()
+            .map(|word| {
+                word_has_direct_all_elements_array_expansion_in_source_with_dialect(
+                    word,
+                    source,
+                    ShellDialect::Zsh,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(matches, vec![true, true, true, true]);
     }
 
     #[test]

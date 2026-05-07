@@ -164,4 +164,26 @@ if [[ \"${@[5,-1]:-fallback}\" == fallback ]]; then :; fi
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
+
+    #[test]
+    fn reports_zsh_positional_star_selector_tests() {
+        let source = "\
+#!/bin/zsh
+set -- alpha --scope tail
+if [[ \"${@[*]}\" == \"alpha --scope tail\" ]]; then :; fi
+if [[ \"$@[*]\" == \"alpha --scope tail\" ]]; then :; fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArraySliceInComparison).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"${@[*]}\"", "\"$@[*]\""]
+        );
+    }
 }

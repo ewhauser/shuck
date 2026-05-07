@@ -536,6 +536,17 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         )
     }
 
+    pub fn zsh_positional_parameter_range_spans(self, locator: Locator<'_>) -> Vec<Span> {
+        word_spans::word_zsh_positional_parameter_range_spans(
+            self.word(),
+            locator.source(),
+            self.facts
+                .command(self.command_id())
+                .shell_behavior()
+                .shell_dialect(),
+        )
+    }
+
     pub fn has_quoted_all_elements_array_slice(self) -> bool {
         word_spans::word_has_quoted_all_elements_array_slice(self.word())
     }

@@ -13,6 +13,7 @@ impl Violation for EvalOnArray {
 }
 
 pub fn eval_on_array(checker: &mut Checker) {
+    let locator = checker.locator();
     let command_arg_facts = checker
         .facts()
         .expansion_word_facts(ExpansionContext::CommandArgument)
@@ -32,6 +33,7 @@ pub fn eval_on_array(checker: &mut Checker) {
                     fact.direct_all_elements_array_expansion_spans()
                         .iter()
                         .copied()
+                        .chain(fact.zsh_positional_parameter_range_spans(locator))
                 })
         })
         .collect::<Vec<_>>();
@@ -42,7 +44,7 @@ pub fn eval_on_array(checker: &mut Checker) {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_pyenv_style_eval_string_array_expansion() {
@@ -155,5 +157,21 @@ eval \"echo \\${1##*/} $@\"
 
         assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
         assert_eq!(diagnostics[0].span.slice(source), "$@");
+    }
+
+    #[test]
+    fn reports_zsh_positional_parameter_ranges_passed_to_eval() {
+        let source = "\
+#!/bin/zsh
+correct=0
+eval \"${@[2-correct,-1]}\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::EvalOnArray).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+        assert_eq!(diagnostics[0].span.slice(source), "${@[2-correct,-1]}");
     }
 }
