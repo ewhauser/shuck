@@ -29,20 +29,18 @@ pub(super) fn matches_zsh_config_contract(
             || !zsh_config_consumed_names(source, path).is_empty())
 }
 
-pub(super) fn build_zsh_config_contract(
+pub(super) fn apply_zsh_config_contract(
+    contract: &mut FileContract,
     collector: &AmbientContractCollector<'_>,
-    _shell: ShellDialect,
-) -> FileContract {
+) {
     let path = collector.path_signals();
     let source = collector.source_signals();
-    let mut contract = FileContract::default();
     for prefix in zsh_config_consumed_prefixes(source, path) {
         contract.add_externally_consumed_binding_prefix(Name::from(prefix));
     }
     for name in zsh_config_consumed_names(source, path) {
         contract.add_externally_consumed_binding_name(Name::from(name));
     }
-    contract
 }
 
 fn shell_matches_zsh_config_context(shell: ShellDialect, path: &PathSignals) -> bool {

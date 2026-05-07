@@ -48,6 +48,11 @@ mod violation;
 #[allow(missing_docs)]
 pub mod test;
 
+pub use ambient_contracts::{
+    AmbientContractActivation, AmbientContractConfig, AmbientContractEffects, AmbientContractSpec,
+    AmbientFunctionContractSpec, EffectiveAmbientContracts, ResolvedAmbientContracts,
+    ResolvedAmbientRequestContracts,
+};
 /// Primary checker API for walking facts and emitting diagnostics.
 pub use checker::Checker;
 /// Rule diagnostics and severity levels.
@@ -771,8 +776,10 @@ fn analyze_linter_file_at_path_with_resolver_and_shell<'a>(
     first_parse_error: Option<(usize, usize)>,
 ) -> LinterAnalysisResult<'a> {
     let mut file_entry_contract_collector =
-        ambient_contracts::AmbientContractCollector::new(source, source_path, shell);
-    let file_entry_contract_collector_factory = ambient_contracts::AmbientContractCollectorFactory;
+        settings
+            .ambient_contracts
+            .collector(source, source_path, shell);
+    let file_entry_contract_collector_factory = settings.ambient_contracts.collector_factory();
     let analyzed_paths_fallback =
         source_path.map(|path| FxHashSet::from_iter([path.to_path_buf()]));
     let analyzed_paths = settings
@@ -1076,8 +1083,10 @@ fn analyze_file_at_path_with_resolver_and_parse_result_and_directives(
     let shell = resolve_shell(settings, source, source_path);
     let locator = Locator::new(source, indexer.line_index());
     let mut file_entry_contract_collector =
-        ambient_contracts::AmbientContractCollector::new(source, source_path, shell);
-    let file_entry_contract_collector_factory = ambient_contracts::AmbientContractCollectorFactory;
+        settings
+            .ambient_contracts
+            .collector(source, source_path, shell);
+    let file_entry_contract_collector_factory = settings.ambient_contracts.collector_factory();
     let analyzed_paths_fallback =
         source_path.map(|path| FxHashSet::from_iter([path.to_path_buf()]));
     let analyzed_paths = settings
@@ -1369,7 +1378,9 @@ mod tests {
     use shuck_parser::parser::{
         ParseDiagnostic, ParseStatus, Parser, ShellDialect as ParseDialect, SyntaxFacts,
     };
-    use shuck_semantic::{PluginFramework, PluginRequest, PluginRequestKind, PluginResolution};
+    use shuck_semantic::{
+        FileContract, PluginFramework, PluginRequest, PluginRequestKind, PluginResolution,
+    };
     use std::fs;
     use std::path::{Path, PathBuf};
     use tempfile::tempdir;
@@ -1644,6 +1655,7 @@ mod tests {
                     PluginResolution {
                         entrypoints: vec![self.entrypoint.clone()],
                         file_entry_contracts: Vec::new(),
+                        requesting_file_contract: FileContract::default(),
                     }
                 } else {
                     PluginResolution::default()

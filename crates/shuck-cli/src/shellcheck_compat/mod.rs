@@ -946,6 +946,7 @@ fn lint_with_context(
         severity_overrides: Default::default(),
         shell,
         ambient_shell_options: Default::default(),
+        ambient_contracts: Default::default(),
         analyzed_paths: Some(Arc::new(explicit.into_iter().collect())),
         per_file_ignores: Default::default(),
         report_environment_style_names: options.report_environment_style_names,

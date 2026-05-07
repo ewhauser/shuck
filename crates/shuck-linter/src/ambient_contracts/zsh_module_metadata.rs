@@ -28,15 +28,13 @@ pub(super) fn matches_zsh_module_metadata_contract(
     shell == ShellDialect::Zsh && zsh_module_metadata_source_shape(collector.source_signals())
 }
 
-pub(super) fn build_zsh_module_metadata_contract(
+pub(super) fn apply_zsh_module_metadata_contract(
+    contract: &mut FileContract,
     _collector: &AmbientContractCollector<'_>,
-    _shell: ShellDialect,
-) -> FileContract {
-    let mut contract = FileContract::default();
+) {
     for name in ZSH_MODULE_METADATA_NAMES {
         contract.add_externally_consumed_binding_name(Name::from(*name));
     }
-    contract
 }
 
 const ZSH_MODULE_METADATA_NAMES: &[&str] =

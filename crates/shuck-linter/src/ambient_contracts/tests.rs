@@ -6,8 +6,9 @@ use shuck_semantic::{
     FileContract, FileEntryContractCollector, NoopTraversalObserver, SemanticBuildOptions,
     build_with_observer_with_options,
 };
+use std::sync::Arc;
 
-use super::AmbientContractCollector;
+use super::{AmbientContractCollector, ResolvedAmbientContracts};
 use crate::ShellDialect;
 
 fn contract_for(path: &Path, source: &str) -> Option<FileContract> {
@@ -26,7 +27,12 @@ fn contract_for_optional_path(
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let mut observer = NoopTraversalObserver;
-    let mut collector = AmbientContractCollector::new(source, path, shell);
+    let mut collector = AmbientContractCollector::new(
+        source,
+        path,
+        shell,
+        Arc::new(ResolvedAmbientContracts::default()),
+    );
     let _semantic = build_with_observer_with_options(
         &output.file,
         source,

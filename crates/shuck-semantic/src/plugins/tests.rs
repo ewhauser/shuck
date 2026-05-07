@@ -6,7 +6,7 @@ use shuck_indexer::Indexer;
 use shuck_parser::parser::{Parser, ShellDialect};
 
 use crate::{
-    BindingKind, PluginFramework, PluginRequest, PluginResolution, PluginResolver,
+    BindingKind, FileContract, PluginFramework, PluginRequest, PluginResolution, PluginResolver,
     SemanticBuildOptions, SemanticModel, ShellProfile, resolve_zsh_plugin_entrypoint,
 };
 
@@ -68,6 +68,7 @@ impl PluginResolver for FixtureZshPluginResolver {
         PluginResolution {
             entrypoints: vec![entrypoint],
             file_entry_contracts: Vec::new(),
+            requesting_file_contract: FileContract::default(),
         }
     }
 }

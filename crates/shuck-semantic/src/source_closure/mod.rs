@@ -43,25 +43,36 @@ use crate::{
     infer_explicit_parse_dialect_from_source,
 };
 
-#[derive(Debug, Clone)]
-struct SourceClosureContracts {
-    synthetic_reads: Vec<SyntheticRead>,
-    imported_bindings: Vec<ImportedBindingContractSite>,
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SourceClosureContracts {
+    pub(crate) synthetic_reads: Vec<SyntheticRead>,
+    pub(crate) imported_bindings: Vec<ImportedBindingContractSite>,
     imported_functions: Vec<ImportedFunctionContractSite>,
-    dependency_paths: Vec<PathBuf>,
-    source_ref_resolutions: Vec<SourceRefResolution>,
-    source_ref_explicitness: Vec<bool>,
-    source_ref_diagnostic_classes: Vec<SourceRefDiagnosticClass>,
+    pub(crate) requesting_file_contract: FileContract,
+    pub(crate) dependency_paths: Vec<PathBuf>,
+    pub(crate) source_ref_resolutions: Vec<SourceRefResolution>,
+    pub(crate) source_ref_explicitness: Vec<bool>,
+    pub(crate) source_ref_diagnostic_classes: Vec<SourceRefDiagnosticClass>,
 }
 
-type SourceClosureContractResult = (
-    Vec<SyntheticRead>,
-    Vec<ImportedBindingContractSite>,
-    Vec<PathBuf>,
-    Vec<SourceRefResolution>,
-    Vec<bool>,
-    Vec<SourceRefDiagnosticClass>,
-);
+impl SourceClosureContracts {
+    pub(crate) fn from_source_ref_metadata(
+        source_ref_resolutions: Vec<SourceRefResolution>,
+        source_ref_explicitness: Vec<bool>,
+        source_ref_diagnostic_classes: Vec<SourceRefDiagnosticClass>,
+    ) -> Self {
+        Self {
+            synthetic_reads: Vec::new(),
+            imported_bindings: Vec::new(),
+            imported_functions: Vec::new(),
+            requesting_file_contract: FileContract::default(),
+            dependency_paths: Vec::new(),
+            source_ref_resolutions,
+            source_ref_explicitness,
+            source_ref_diagnostic_classes,
+        }
+    }
+}
 
 type SourceRefMetadataResult = (
     Vec<SourceRefResolution>,
@@ -145,7 +156,7 @@ pub(crate) fn collect_source_closure_contracts(
     source: &str,
     source_path: &Path,
     config: SourceClosureResolverConfig<'_>,
-) -> SourceClosureContractResult {
+) -> SourceClosureContracts {
     let mut summaries = FxHashMap::default();
     let mut active = FxHashSet::default();
     let context = SourceClosureLookupContext {
@@ -157,7 +168,7 @@ pub(crate) fn collect_source_closure_contracts(
         resolved_helper_paths: RefCell::new(FxHashMap::default()),
         dependency_paths: RefCell::new(FxHashSet::default()),
     };
-    let contracts = collect_source_closure_contracts_with_cache(
+    collect_source_closure_contracts_with_cache(
         model,
         file,
         source,
@@ -165,14 +176,6 @@ pub(crate) fn collect_source_closure_contracts(
         &mut summaries,
         &mut active,
         &context,
-    );
-    (
-        contracts.synthetic_reads,
-        contracts.imported_bindings,
-        contracts.dependency_paths,
-        contracts.source_ref_resolutions,
-        contracts.source_ref_explicitness,
-        contracts.source_ref_diagnostic_classes,
     )
 }
 
@@ -259,6 +262,7 @@ fn collect_source_closure_contracts_with_cache(
     let mut synthetic_reads = Vec::new();
     let mut imported_bindings = Vec::new();
     let mut imported_functions = Vec::new();
+    let mut requesting_file_contract = FileContract::default();
     let mut source_ref_resolutions = Vec::new();
     let mut source_ref_explicitness = Vec::new();
     let mut source_ref_diagnostic_classes = Vec::new();
@@ -324,6 +328,10 @@ fn collect_source_closure_contracts_with_cache(
         for request in collect_plugin_requests(model, file, source, source_path, plugin_resolver) {
             let scope = model.scope_at(request.span.start.offset);
             let resolution = plugin_resolver.resolve_plugin_request(source_path, &request);
+            requesting_file_contract = FileContract::merge_candidate_contracts(&[
+                requesting_file_contract,
+                resolution.requesting_file_contract.clone(),
+            ]);
             let mut contracts = resolution.file_entry_contracts;
             for entrypoint in resolution.entrypoints {
                 contracts.push(summarize_helper(&entrypoint, summaries, active, context));
@@ -421,6 +429,7 @@ fn collect_source_closure_contracts_with_cache(
         synthetic_reads: dedup_synthetic_reads(synthetic_reads),
         imported_bindings: dedup_imported_bindings(imported_bindings),
         imported_functions,
+        requesting_file_contract,
         dependency_paths: sorted_dependency_paths(&context.dependency_paths.borrow()),
         source_ref_resolutions,
         source_ref_explicitness,
@@ -1756,14 +1765,7 @@ fn summarize_helper_uncached(
             dependency_paths: RefCell::new(FxHashSet::default()),
         },
     );
-    semantic.apply_source_contracts(
-        collected.synthetic_reads.clone(),
-        collected.imported_bindings.clone(),
-        collected.dependency_paths.clone(),
-        collected.source_ref_resolutions.clone(),
-        collected.source_ref_explicitness.clone(),
-        collected.source_ref_diagnostic_classes.clone(),
-    );
+    semantic.apply_source_contracts(collected.clone());
     let analysis = semantic.analysis();
 
     let mut contract =
