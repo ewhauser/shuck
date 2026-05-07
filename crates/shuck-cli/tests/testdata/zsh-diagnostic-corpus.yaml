@@ -15793,17 +15793,6 @@ repos:
           column: 42
         classification: real
       - path: "core/update.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `reply` is referenced before assignment"
-        start:
-          line: 52
-          column: 34
-        end:
-          line: 52
-          column: 45
-        classification: false_positive
-      - path: "core/update.zsh"
         code: "C002"
         severity: "warning"
         message: "source path is built at runtime"
@@ -15836,17 +15825,6 @@ repos:
           line: 67
           column: 26
         classification: real
-      - path: "modules/apt/apt.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `reply` is referenced before assignment"
-        start:
-          line: 15
-          column: 6
-        end:
-          line: 15
-          column: 17
-        classification: false_positive
       - path: "modules/autocompletion/autocompletion.zsh"
         code: "C001"
         severity: "warning"
@@ -15912,17 +15890,6 @@ repos:
         end:
           line: 17
           column: 33
-        classification: false_positive
-      - path: "modules/brew/brew.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `reply` is referenced before assignment"
-        start:
-          line: 29
-          column: 46
-        end:
-          line: 29
-          column: 57
         classification: false_positive
       - path: "modules/dotfiler/dotfiler.zsh"
         code: "C003"

@@ -881,6 +881,60 @@ _zdot_update_hook_unpack() {
     }
 
     #[test]
+    fn zsh_zdot_module_helpers_can_populate_reply_arrays_without_local_definitions() {
+        let source = "\
+#!/bin/zsh
+zdot_provides_tool_args ':zdot:apt' op eza
+zdot_simple_hook apt --requires env-configured \"${reply[@]}\"
+print -r -- $missing
+";
+        let path = Path::new("/tmp/project/zdot/modules/apt/apt.zsh");
+        let diagnostics = test_snippet_at_path(
+            path,
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_zdot_core_helpers_can_populate_reply_indexes_without_local_definitions() {
+        let source = "\
+#!/bin/zsh
+main() {
+  local init_parent
+  _zdot_update_get_parent_root \"$ZDOT_REPO\"
+  init_parent=${reply[1]}
+  print -r -- \"$init_parent\"
+  print -r -- $missing
+}
+
+main
+";
+        let path = Path::new("/tmp/project/zdot/core/update.zsh");
+        let diagnostics = test_snippet_at_path(
+            path,
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
     fn zsh_arguments_initializes_completion_state_in_caller_scope() {
         let source = "\
 #!/bin/zsh

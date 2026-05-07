@@ -8468,6 +8468,47 @@ set_flag() {
 }
 
 #[test]
+fn unresolved_zsh_runtime_helpers_can_export_reply_bindings_when_called() {
+    let temp = tempdir().unwrap();
+    let module_dir = temp.path().join("zdot/modules/apt");
+    fs::create_dir_all(&module_dir).unwrap();
+    let main = module_dir.join("apt.zsh");
+    fs::write(
+        &main,
+        "\
+#!/bin/zsh
+zdot_provides_tool_args ':zdot:apt' op eza
+printf '%s\\n' \"${reply[@]}\"
+",
+    )
+    .unwrap();
+
+    let model = model_at_path(&main);
+    assert!(model.analysis().uninitialized_references().is_empty());
+}
+
+#[test]
+fn unresolved_zsh_reply_helpers_do_not_seed_non_runtime_paths() {
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("script.zsh");
+    fs::write(
+        &main,
+        "\
+#!/bin/zsh
+zdot_provides_tool_args ':zdot:apt' op eza
+printf '%s\\n' \"${reply[@]}\"
+",
+    )
+    .unwrap();
+
+    let model = model_at_path(&main);
+    assert_eq!(
+        uninitialized_details(&model),
+        vec![("reply".to_owned(), UninitializedCertainty::Definite)]
+    );
+}
+
+#[test]
 fn layered_source_closure_imports_function_contracts_transitively() {
     let temp = tempdir().unwrap();
     let main = temp.path().join("main.sh");
