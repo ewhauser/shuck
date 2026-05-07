@@ -576,15 +576,21 @@ fn collect_yaml_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(paths)
 }
 
-fn collect_yaml_files_recursive(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<(), String> {
+fn read_dir_paths(dir: &Path) -> Result<Vec<PathBuf>, String> {
     let mut entries = fs::read_dir(dir)
         .map_err(|err| format!("read {}: {err}", dir.display()))?
-        .flatten()
-        .map(|entry| entry.path())
-        .collect::<Vec<_>>();
+        .map(|entry| {
+            entry
+                .map(|entry| entry.path())
+                .map_err(|err| format!("read {}: {err}", dir.display()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     entries.sort();
+    Ok(entries)
+}
 
-    for path in entries {
+fn collect_yaml_files_recursive(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<(), String> {
+    for path in read_dir_paths(dir)? {
         if path.is_dir() {
             collect_yaml_files_recursive(&path, paths)?;
             continue;
@@ -597,13 +603,10 @@ fn collect_yaml_files_recursive(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<
 }
 
 fn load_rule_metadata(docs_dir: &Path) -> Result<LoadedRuleMetadata, String> {
-    let mut entries = fs::read_dir(docs_dir)
-        .map_err(|err| format!("read {}: {err}", docs_dir.display()))?
-        .flatten()
-        .map(|entry| entry.path())
+    let entries = read_dir_paths(docs_dir)?
+        .into_iter()
         .filter(|path| path.extension().is_some_and(|ext| ext == "yaml"))
         .collect::<Vec<_>>();
-    entries.sort();
 
     let mut mappings = Vec::new();
     let mut metadata_rows = Vec::new();
