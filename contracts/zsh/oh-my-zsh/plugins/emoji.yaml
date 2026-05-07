@@ -19,6 +19,7 @@ contracts:
           - emoji_mod
           - emoji_skintone
     files:
+      - "**/.oh-my-zsh/plugins/emoji/emoji.plugin.zsh"
       - "**/oh-my-zsh/plugins/emoji/emoji.plugin.zsh"
       - "**/ohmyzsh/plugins/emoji/emoji.plugin.zsh"
     effects:

@@ -16,8 +16,10 @@ contracts:
           - emoji
           - emoji2
     files:
+      - "**/.oh-my-zsh/plugins/emotty/emotty.plugin.zsh"
       - "**/oh-my-zsh/plugins/emotty/emotty.plugin.zsh"
       - "**/ohmyzsh/plugins/emotty/emotty.plugin.zsh"
+      - "**/.oh-my-zsh/themes/emotty.zsh-theme"
       - "**/oh-my-zsh/themes/emotty.zsh-theme"
       - "**/ohmyzsh/themes/emotty.zsh-theme"
     effects:

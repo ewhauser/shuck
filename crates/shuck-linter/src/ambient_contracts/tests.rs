@@ -398,6 +398,36 @@ fn oh_my_zsh_emoji_and_emotty_paths_get_emoji_runtime_bindings() {
 }
 
 #[test]
+fn hidden_oh_my_zsh_paths_get_framework_contracts() {
+    let core_path = Path::new("/tmp/home/.oh-my-zsh/oh-my-zsh.sh");
+    let core_source = "print -r -- \"$plugins\"\n";
+    let core_contract = contract_for_shell(core_path, core_source, ShellDialect::Zsh).unwrap();
+    assert!(has_initialized_binding(&core_contract, "plugins"));
+
+    let emoji_path = Path::new("/tmp/home/.oh-my-zsh/plugins/emoji/emoji.plugin.zsh");
+    let emoji_source =
+        "print -r -- \"$emoji_groups[people]\" \"$emoji_flags[us]\" \"$emoji[rocket]\"\n";
+    let emoji_contract = contract_for_shell(emoji_path, emoji_source, ShellDialect::Zsh).unwrap();
+    for name in ["emoji", "emoji_flags", "emoji_groups"] {
+        assert!(
+            has_initialized_binding(&emoji_contract, name),
+            "{emoji_contract:?}"
+        );
+    }
+
+    let emotty_path = Path::new("/tmp/home/.oh-my-zsh/themes/emotty.zsh-theme");
+    let emotty_source = "print -r -- \"$emoji[skull]\" \"$emoji2[emoji_style]\"\n";
+    let emotty_contract =
+        contract_for_shell(emotty_path, emotty_source, ShellDialect::Zsh).unwrap();
+    for name in ["emoji", "emoji2"] {
+        assert!(
+            has_initialized_binding(&emotty_contract, name),
+            "{emotty_contract:?}"
+        );
+    }
+}
+
+#[test]
 fn oh_my_zsh_tools_get_prompt_color_bindings() {
     let path = Path::new("/tmp/zsh/ohmyzsh/tools/check_for_upgrade.sh");
     let source = "print -r -- \"$fg\" \"$reset_color\"\n";
