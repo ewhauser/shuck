@@ -1211,6 +1211,260 @@ pub(super) fn single_quoted_literal_exempt_here_string(command_name: Option<&str
     matches!(command_name, Some("sh" | "bash" | "dash" | "ksh" | "zsh"))
 }
 
+pub(super) fn single_quoted_literal_instructional_output_argument(
+    command_name: Option<&str>,
+    redirects: &[Redirect],
+    inherited_output_sinks: &FxHashMap<i32, CommandOutputSink>,
+    shell_behavior: &ShellBehaviorAt<'_>,
+    writes_to_stdout: bool,
+    word: &Word,
+    source: &str,
+) -> bool {
+    if !matches!(command_name, Some("echo" | "printf")) {
+        return false;
+    }
+
+    if !writes_to_stdout {
+        return false;
+    }
+
+    if command_redirects_stdout_to_file(
+        redirects,
+        inherited_output_sinks,
+        source,
+        shell_behavior,
+    ) {
+        return false;
+    }
+
+    let [part] = word.parts.as_slice() else {
+        return false;
+    };
+    let WordPart::SingleQuoted { value, .. } = &part.kind else {
+        return false;
+    };
+
+    instructional_output_literal_body(value.slice(source))
+}
+
+fn command_redirects_stdout_to_file(
+    redirects: &[Redirect],
+    inherited_output_sinks: &FxHashMap<i32, CommandOutputSink>,
+    source: &str,
+    shell_behavior: &ShellBehaviorAt<'_>,
+) -> bool {
+    let mut fds = inherited_output_sinks.clone();
+    apply_output_redirects(redirects, source, shell_behavior, &mut fds);
+
+    matches!(fds.get(&1), Some(CommandOutputSink::File))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CommandOutputSink {
+    File,
+    Other,
+}
+
+pub(super) fn output_sink_state_defaults() -> FxHashMap<i32, CommandOutputSink> {
+    FxHashMap::from_iter([(1, CommandOutputSink::Other), (2, CommandOutputSink::Other)])
+}
+
+pub(super) fn apply_output_redirects(
+    redirects: &[Redirect],
+    source: &str,
+    shell_behavior: &ShellBehaviorAt<'_>,
+    fds: &mut FxHashMap<i32, CommandOutputSink>,
+) {
+    for redirect in redirects {
+        match redirect.kind {
+            RedirectKind::Output
+            | RedirectKind::Clobber
+            | RedirectKind::Append
+            | RedirectKind::ReadWrite => {
+                let Some(fd) = redirected_output_fd(redirect) else {
+                    continue;
+                };
+                let sink = if analyze_redirect_target(redirect, source, Some(shell_behavior))
+                    .is_some_and(|analysis| analysis.is_file_target())
+                {
+                    CommandOutputSink::File
+                } else {
+                    CommandOutputSink::Other
+                };
+                fds.insert(fd, sink);
+            }
+            RedirectKind::OutputBoth => {
+                let sink = if analyze_redirect_target(redirect, source, Some(shell_behavior))
+                    .is_some_and(|analysis| analysis.is_file_target())
+                {
+                    CommandOutputSink::File
+                } else {
+                    CommandOutputSink::Other
+                };
+                fds.insert(1, sink);
+                fds.insert(2, sink);
+            }
+            RedirectKind::DupOutput => {
+                let Some(fd) = redirected_output_fd(redirect) else {
+                    continue;
+                };
+                let sink = redirect
+                    .word_target()
+                    .and_then(|_| analyze_redirect_target(redirect, source, Some(shell_behavior)))
+                    .and_then(|analysis| analysis.numeric_descriptor_target)
+                    .and_then(|target_fd| fds.get(&target_fd).copied())
+                    .unwrap_or(CommandOutputSink::Other);
+                fds.insert(fd, sink);
+            }
+            RedirectKind::Input
+            | RedirectKind::HereDoc
+            | RedirectKind::HereDocStrip
+            | RedirectKind::HereString
+            | RedirectKind::DupInput => {}
+        }
+    }
+}
+
+fn redirected_output_fd(redirect: &Redirect) -> Option<i32> {
+    if redirect.fd_var.is_some() {
+        return None;
+    }
+
+    match redirect.kind {
+        RedirectKind::Output
+        | RedirectKind::Clobber
+        | RedirectKind::Append
+        | RedirectKind::DupOutput => Some(redirect.fd.unwrap_or(1)),
+        RedirectKind::ReadWrite => redirect.fd,
+        RedirectKind::Input
+        | RedirectKind::HereDoc
+        | RedirectKind::HereDocStrip
+        | RedirectKind::HereString
+        | RedirectKind::DupInput
+        | RedirectKind::OutputBoth => None,
+    }
+}
+
+pub(super) fn printf_assigns_to_variable(args: &[Word], arg_index: usize, source: &str) -> bool {
+    match args.first().and_then(|word| static_word_text(word, source)) {
+        Some(text) if text == "-v" => arg_index >= 2,
+        Some(text) if text.starts_with("-v") && text.len() > 2 => arg_index >= 1,
+        _ => false,
+    }
+}
+
+fn instructional_output_literal_body(body: &str) -> bool {
+    ascii_word_count(body) >= 4
+        && (contains_inline_backtick_example(body) || contains_quoted_shell_example(body))
+}
+
+fn ascii_word_count(text: &str) -> usize {
+    text.split(|character: char| !character.is_ascii_alphabetic())
+        .filter(|word| word.len() >= 2)
+        .count()
+}
+
+fn contains_inline_backtick_example(body: &str) -> bool {
+    let mut open_index = None;
+
+    for (index, character) in body.char_indices() {
+        if character != '`' {
+            continue;
+        }
+
+        match open_index.take() {
+            Some(start) => {
+                if body[start + 1..index]
+                    .chars()
+                    .any(|inner| !inner.is_whitespace())
+                {
+                    return true;
+                }
+            }
+            None => open_index = Some(index),
+        }
+    }
+
+    false
+}
+
+fn contains_quoted_shell_example(body: &str) -> bool {
+    let mut search_start = 0usize;
+
+    while let Some(open) = find_unescaped_double_quote(body, search_start) {
+        let Some(close) = find_unescaped_double_quote(body, open + 1) else {
+            return false;
+        };
+        let inner = &body[open + 1..close];
+        if literal_contains_sc2016_trigger(inner) && quoted_shell_example_has_command_shape(inner) {
+            return true;
+        }
+        search_start = close + 1;
+    }
+
+    false
+}
+
+fn quoted_shell_example_has_command_shape(text: &str) -> bool {
+    text.contains(char::is_whitespace)
+        || text.contains("\\\"")
+        || text.contains('/')
+        || text.starts_with('-')
+}
+
+fn literal_contains_sc2016_trigger(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index + 1 < bytes.len() {
+        if bytes[index] == b'$'
+            && matches!(
+                bytes[index + 1],
+                b'{' | b'(' | b'_' | b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9'
+            )
+        {
+            return true;
+        }
+
+        if bytes[index] == b'`'
+            && bytes.get(index + 1).is_some_and(|next| *next != b'`')
+            && bytes[index + 2..].contains(&b'`')
+        {
+            return true;
+        }
+
+        index += 1;
+    }
+
+    false
+}
+
+fn find_unescaped_double_quote(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut index = start;
+
+    while index < bytes.len() {
+        if bytes[index] == b'"' && !byte_is_escaped(bytes, index) {
+            return Some(index);
+        }
+        index += 1;
+    }
+
+    None
+}
+
+fn byte_is_escaped(bytes: &[u8], index: usize) -> bool {
+    let mut backslashes = 0usize;
+    let mut cursor = index;
+
+    while cursor > 0 && bytes[cursor - 1] == b'\\' {
+        backslashes += 1;
+        cursor -= 1;
+    }
+
+    backslashes % 2 == 1
+}
+
 pub(super) fn shell_command_argument_index(args: &[Word], source: &str) -> Option<usize> {
     args.windows(2).enumerate().find_map(|(index, pair)| {
         let flag = static_word_text(&pair[0], source)?;
