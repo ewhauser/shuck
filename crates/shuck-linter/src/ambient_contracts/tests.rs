@@ -8,7 +8,7 @@ use shuck_semantic::{
 };
 use std::sync::Arc;
 
-use super::{AmbientContractCollector, ResolvedAmbientContracts};
+use super::{AmbientContractCollector, AmbientContractConfig, ResolvedAmbientContracts};
 use crate::ShellDialect;
 
 fn contract_for(path: &Path, source: &str) -> Option<FileContract> {
@@ -24,15 +24,24 @@ fn contract_for_optional_path(
     source: &str,
     shell: ShellDialect,
 ) -> Option<FileContract> {
+    contract_for_optional_path_with_contracts(
+        path,
+        source,
+        shell,
+        Arc::new(ResolvedAmbientContracts::default()),
+    )
+}
+
+fn contract_for_optional_path_with_contracts(
+    path: Option<&Path>,
+    source: &str,
+    shell: ShellDialect,
+    contracts: Arc<ResolvedAmbientContracts>,
+) -> Option<FileContract> {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let mut observer = NoopTraversalObserver;
-    let mut collector = AmbientContractCollector::new(
-        source,
-        path,
-        shell,
-        Arc::new(ResolvedAmbientContracts::default()),
-    );
+    let mut collector = AmbientContractCollector::new(source, path, shell, contracts);
     let _semantic = build_with_observer_with_options(
         &output.file,
         source,
@@ -95,6 +104,22 @@ printf '%s\\n' \"$XBPS_SRCPKGDIR\" \"$configure_args\" \"$wrksrc\"
 }
 
 #[test]
+fn effective_well_known_ids_include_registry_backed_sourced_and_zsh_array_contracts() {
+    let effective = ResolvedAmbientContracts::default().effective();
+
+    assert!(
+        effective
+            .well_known_ids
+            .contains(&"sourced/runtime".to_owned())
+    );
+    assert!(
+        effective
+            .well_known_ids
+            .contains(&"zsh/caller-scoped-arrays".to_owned())
+    );
+}
+
+#[test]
 fn bash_it_theme_paths_get_palette_ambient_contracts() {
     let path = Path::new("/tmp/Bash-it/themes/example/example.theme.bash");
     let source = "\
@@ -111,6 +136,32 @@ PROMPT_COMMAND=prompt_command
     assert!(!has_initialized_binding(&contract, "green"));
     assert!(!has_initialized_binding(&contract, "reset_color"));
     assert!(!contract.externally_consumed_bindings);
+}
+
+#[test]
+fn disabling_sourced_runtime_contract_selector_removes_palette_bindings() {
+    let path = Path::new("/tmp/Bash-it/themes/example/example.theme.bash");
+    let source = "\
+prompt_command() {
+  PS1=\"${green?} ${green} ${reset_color?}\"
+}
+PROMPT_COMMAND=prompt_command
+";
+    let contracts = Arc::new(
+        ResolvedAmbientContracts::resolve(
+            "/tmp",
+            AmbientContractConfig {
+                disabled: vec!["sourced/runtime".to_owned()],
+                ..AmbientContractConfig::default()
+            },
+        )
+        .unwrap(),
+    );
+
+    let contract =
+        contract_for_optional_path_with_contracts(Some(path), source, ShellDialect::Sh, contracts);
+
+    assert!(contract.is_none(), "{contract:?}");
 }
 
 #[test]
@@ -517,6 +568,34 @@ safe_rm() {
 
     assert!(has_initialized_binding(&contract, "dry_run"));
     assert!(!contract.externally_consumed_bindings);
+}
+
+#[test]
+fn disabling_zsh_caller_scoped_array_contract_selector_keeps_helper_array_reads_reportable() {
+    let path = Path::new("/tmp/project/core/update_core.zsh");
+    let source = "\
+#!/bin/zsh
+safe_rm() {
+  if [[ ${#dry_run[@]} -gt 0 ]]; then
+    print -r -- dry
+  fi
+}
+";
+    let contracts = Arc::new(
+        ResolvedAmbientContracts::resolve(
+            "/tmp/project",
+            AmbientContractConfig {
+                disabled: vec!["zsh/caller-scoped-arrays".to_owned()],
+                ..AmbientContractConfig::default()
+            },
+        )
+        .unwrap(),
+    );
+
+    let contract =
+        contract_for_optional_path_with_contracts(Some(path), source, ShellDialect::Zsh, contracts);
+
+    assert!(contract.is_none(), "{contract:?}");
 }
 
 #[test]

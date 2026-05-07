@@ -52,7 +52,6 @@ mod zsh_module_metadata;
 mod zsh_paths;
 mod zsh_runtime;
 
-pub(crate) use contracts::merge_contract;
 pub use contracts::{
     AmbientContractActivation, AmbientContractConfig, AmbientContractEffects, AmbientContractSpec,
     AmbientFunctionContractSpec, EffectiveAmbientContracts, ResolvedAmbientContracts,
@@ -115,26 +114,7 @@ impl<'a> AmbientContractCollector<'a> {
 
     fn file_entry_contract(&self) -> Option<FileContract> {
         self.signals.path()?;
-        let mut merged = self.contracts.file_entry_contract(self, self.shell);
-        let mut matched = merged.is_some();
-        let merged_contract = merged.get_or_insert_default();
-
-        if sourced_runtime::matches_sourced_runtime_contract(self, self.shell) {
-            matched = true;
-            merge_contract(
-                merged_contract,
-                sourced_runtime::build_sourced_runtime_contract(self, self.shell),
-            );
-        }
-        if zsh_caller_arrays::matches_zsh_caller_scoped_array_contract(self, self.shell) {
-            matched = true;
-            merge_contract(
-                merged_contract,
-                zsh_caller_arrays::build_zsh_caller_scoped_array_contract(self, self.shell),
-            );
-        }
-
-        matched.then_some(merged_contract.clone())
+        self.contracts.file_entry_contract(self, self.shell)
     }
 
     fn source_signals(&self) -> &signals::SourceSignals<'a> {

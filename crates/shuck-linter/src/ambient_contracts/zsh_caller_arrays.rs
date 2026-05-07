@@ -37,11 +37,10 @@ pub(super) fn matches_zsh_caller_scoped_array_contract(
         && !collector.caller_scoped_array_length_names.is_empty()
 }
 
-pub(super) fn build_zsh_caller_scoped_array_contract(
+pub(super) fn apply_zsh_caller_scoped_array_contract(
+    contract: &mut FileContract,
     collector: &AmbientContractCollector<'_>,
-    _shell: ShellDialect,
-) -> FileContract {
-    let mut contract = FileContract::default();
+) {
     for name in &collector.caller_scoped_array_length_names {
         contract.add_provided_binding(ProvidedBinding::new_file_entry_initialized(
             name.clone(),
@@ -49,7 +48,6 @@ pub(super) fn build_zsh_caller_scoped_array_contract(
             ContractCertainty::Definite,
         ));
     }
-    contract
 }
 
 pub(super) fn collect_caller_scoped_array_length_names(word: &Word, names: &mut BTreeSet<Name>) {
