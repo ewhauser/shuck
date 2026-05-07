@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=70.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shuck-pre-commit-placeholder"
+version = "0.0.35" # x-release-please-version
+description = "Placeholder package for installing shuck from the repository pre-commit hook"
+requires-python = ">=3.8"
+license = "MIT"
+dependencies = [
+  "shuck-cli==0.0.35", # x-release-please-version
+]
+
+[tool.setuptools]
+py-modules = []
