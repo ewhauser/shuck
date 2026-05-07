@@ -35,5 +35,6 @@ serde = { workspace = true }
 serde_yaml = { workspace = true }
 
 [build-dependencies]
+globset = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }

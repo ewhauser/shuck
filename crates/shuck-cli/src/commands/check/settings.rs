@@ -1469,8 +1469,9 @@ mod tests {
         EmbeddedFormat, EmbeddedScript, ExtractedDialect, HostLineStart, ImplicitShellFlags,
     };
     use shuck_linter::{
-        Category, LinterSettings, NamedGroup, Rule, RuleSelector, RuleSet, ShellCheckCodeMap,
-        ShellDialect,
+        AmbientContractActivation, AmbientContractConfig, AmbientContractEffects,
+        AmbientContractSpec, Category, LinterSettings, NamedGroup, Rule, RuleSelector, RuleSet,
+        ShellCheckCodeMap, ShellDialect,
     };
     use shuck_parser::parser::Parser;
     use shuck_semantic::FileContract;
@@ -2191,6 +2192,86 @@ mod tests {
                 .iter()
                 .any(|prefix| prefix.as_str() == "ZSH_TMUX_")
         );
+    }
+
+    #[test]
+    fn disabled_built_in_tmux_selector_skips_generated_contract() {
+        let contracts = ResolvedAmbientContracts::resolve(
+            PathBuf::from("/workspace"),
+            AmbientContractConfig {
+                well_known: true,
+                disabled: vec!["zsh/oh-my-zsh/plugin/tmux".to_owned()],
+                custom: Vec::new(),
+            },
+        )
+        .unwrap();
+        let request = PluginRequest {
+            framework: PluginFramework::OhMyZsh,
+            kind: PluginRequestKind::Plugin,
+            name: "tmux".to_owned(),
+            span: shuck_ast::Span::new(),
+            explicit: true,
+            root_hint: None,
+        };
+
+        let resolved =
+            contracts.request_contracts_for_plugin(Path::new("/workspace/.zshrc"), &request);
+
+        assert!(
+            resolved
+                .requesting_file_contract
+                .externally_consumed_binding_prefixes
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn invalid_built_in_contract_selector_is_rejected() {
+        let error = ResolvedAmbientContracts::resolve(
+            PathBuf::from("/workspace"),
+            AmbientContractConfig {
+                well_known: true,
+                disabled: vec!["unknown/selector".to_owned()],
+                custom: Vec::new(),
+            },
+        )
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("unknown ambient contract selector")
+        );
+    }
+
+    #[test]
+    fn duplicate_custom_contract_ids_are_rejected() {
+        let error = ResolvedAmbientContracts::resolve(
+            PathBuf::from("/workspace"),
+            AmbientContractConfig {
+                well_known: false,
+                disabled: Vec::new(),
+                custom: vec![
+                    AmbientContractSpec {
+                        id: "duplicate".to_owned(),
+                        replaces: Vec::new(),
+                        when: AmbientContractActivation::Always,
+                        files: Vec::new(),
+                        effects: AmbientContractEffects::default(),
+                    },
+                    AmbientContractSpec {
+                        id: "duplicate".to_owned(),
+                        replaces: Vec::new(),
+                        when: AmbientContractActivation::Always,
+                        files: Vec::new(),
+                        effects: AmbientContractEffects::default(),
+                    },
+                ],
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("duplicate ambient contract id"));
     }
 
     #[test]
