@@ -253,6 +253,70 @@ print -r -- \"$ordinary_missing\"
     }
 
     #[test]
+    fn oh_my_zsh_plugin_list_contract_suppresses_c006() {
+        let source = "\
+#!/bin/zsh
+for plugin ($plugins); do
+  print -r -- \"$plugin\"
+done
+print -r -- \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/oh-my-zsh.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn oh_my_zsh_emotty_dependency_contracts_suppress_c006() {
+        let plugin_source = "\
+#!/bin/zsh
+print -r -- \"${emoji[rocket]}${emoji2[emoji_style]}\"
+print -r -- \"$ordinary_missing\"
+";
+        let plugin_diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/plugins/emotty/emotty.plugin.zsh"),
+            plugin_source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+        assert_eq!(
+            plugin_diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(plugin_source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+
+        let theme_source = "\
+#!/bin/zsh
+root_prompt=\"$emoji[skull]\"
+vcs_unstaged_glyph=\"%{$emoji[circled_latin_capital_letter_m]$emoji2[emoji_style] %2G%}\"
+print -r -- \"$ordinary_missing\"
+";
+        let theme_diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/themes/emotty.zsh-theme"),
+            theme_source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+        assert_eq!(
+            theme_diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(theme_source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+    }
+
+    #[test]
     fn zsh_special_associative_parameter_keys_do_not_report_undefined() {
         let source = "\
 #!/bin/zsh

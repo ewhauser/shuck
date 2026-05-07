@@ -1,0 +1,43 @@
+version: 1
+contracts:
+  - id: zsh/oh-my-zsh/core/plugins
+    groups:
+      - zsh
+      - zsh/oh-my-zsh
+      - zsh/oh-my-zsh/core
+    label: Oh My Zsh core plugin list configuration
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        mentions-any-names:
+          - plugins
+    files:
+      - "**/oh-my-zsh/oh-my-zsh.sh"
+      - "**/ohmyzsh/oh-my-zsh.sh"
+    effects:
+      provides:
+        variables:
+          - plugins
+
+  - id: zsh/oh-my-zsh/core/vcs-hook-state
+    groups:
+      - zsh
+      - zsh/oh-my-zsh
+      - zsh/oh-my-zsh/core
+    label: Oh My Zsh vcs_info hook state
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        mentions-any-names:
+          - hook_com
+    files:
+      - "**/oh-my-zsh/lib/git.zsh"
+      - "**/ohmyzsh/lib/git.zsh"
+    effects:
+      provides:
+        ambient-variables:
+          - hook_com

@@ -139,9 +139,11 @@ contracts:
       shell: zsh
       source:
         mentions-any-names:
+          - dis_patchars
           - galiases
           - history
           - keymaps
+          - patchars
           - reswords
           - saliases
           - userdirs
@@ -150,9 +152,11 @@ contracts:
     effects:
       provides:
         variables:
+          - dis_patchars
           - galiases
           - history
           - keymaps
+          - patchars
           - reswords
           - saliases
           - userdirs
