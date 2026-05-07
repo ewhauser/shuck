@@ -45,6 +45,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         });
         attributes |= assignment_binding_attributes(assignment);
         if matches!(assignment.value, AssignmentValue::Compound(_))
+            && !explicit_array_declaration
             && self.previous_visible_binding_is_assoc(
                 &assignment.target.name,
                 assignment.target.name_span.start.offset,

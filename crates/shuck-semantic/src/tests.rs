@@ -10098,6 +10098,31 @@ print -r -- ${ZINIT[bkp-autoload]}
 }
 
 #[test]
+fn explicit_indexed_redeclaration_does_not_preserve_associative_attributes() {
+    let source = "\
+#!/bin/zsh
+typeset -A opts
+typeset -a opts=(alpha beta)
+print -r -- ${opts[$idx]}
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let unresolved = unresolved_names(&model);
+
+    assert_names_present(&["idx"], &unresolved);
+    assert!(
+        model
+            .bindings()
+            .iter()
+            .rev()
+            .find(|binding| binding.name == "opts")
+            .is_some_and(|binding| {
+                binding.attributes.contains(BindingAttributes::ARRAY)
+                    && !binding.attributes.contains(BindingAttributes::ASSOC)
+            })
+    );
+}
+
+#[test]
 fn zsh_subscript_declarations_preserve_explicit_array_flags() {
     let source = "\
 #!/bin/zsh
