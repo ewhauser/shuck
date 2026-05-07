@@ -772,6 +772,7 @@ fn analyze_linter_file_at_path_with_resolver_and_shell<'a>(
 ) -> LinterAnalysisResult<'a> {
     let mut file_entry_contract_collector =
         ambient_contracts::AmbientContractCollector::new(source, source_path, shell);
+    let file_entry_contract_collector_factory = ambient_contracts::AmbientContractCollectorFactory;
     let analyzed_paths_fallback =
         source_path.map(|path| FxHashSet::from_iter([path.to_path_buf()]));
     let analyzed_paths = settings
@@ -790,6 +791,7 @@ fn analyze_linter_file_at_path_with_resolver_and_shell<'a>(
             plugin_resolver,
             file_entry_contract: None,
             file_entry_contract_collector: Some(&mut file_entry_contract_collector),
+            file_entry_contract_collector_factory: Some(&file_entry_contract_collector_factory),
             analyzed_paths,
             shell_profile: Some(shell_profile),
             resolve_source_closure: settings.resolve_source_closure,
@@ -1075,6 +1077,7 @@ fn analyze_file_at_path_with_resolver_and_parse_result_and_directives(
     let locator = Locator::new(source, indexer.line_index());
     let mut file_entry_contract_collector =
         ambient_contracts::AmbientContractCollector::new(source, source_path, shell);
+    let file_entry_contract_collector_factory = ambient_contracts::AmbientContractCollectorFactory;
     let analyzed_paths_fallback =
         source_path.map(|path| FxHashSet::from_iter([path.to_path_buf()]));
     let analyzed_paths = settings
@@ -1091,6 +1094,7 @@ fn analyze_file_at_path_with_resolver_and_parse_result_and_directives(
             plugin_resolver,
             file_entry_contract: None,
             file_entry_contract_collector: Some(&mut file_entry_contract_collector),
+            file_entry_contract_collector_factory: Some(&file_entry_contract_collector_factory),
             analyzed_paths,
             shell_profile: Some(shell.shell_profile()),
             resolve_source_closure: settings.resolve_source_closure,
@@ -1365,8 +1369,9 @@ mod tests {
     use shuck_parser::parser::{
         ParseDiagnostic, ParseStatus, Parser, ShellDialect as ParseDialect, SyntaxFacts,
     };
+    use shuck_semantic::{PluginFramework, PluginRequest, PluginRequestKind, PluginResolution};
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use tempfile::tempdir;
 
     fn lint(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
@@ -1429,6 +1434,33 @@ mod tests {
             Some(path),
             source_path_resolver,
             None,
+        )
+    }
+
+    fn lint_path_for_rule_with_plugin_resolver(
+        path: &Path,
+        rule: Rule,
+        plugin_resolver: &(dyn PluginResolver + Send + Sync),
+    ) -> Vec<Diagnostic> {
+        let source = fs::read_to_string(path).unwrap();
+        let output = Parser::with_dialect(&source, ParseDialect::Zsh)
+            .parse()
+            .unwrap();
+        let indexer = Indexer::new(&source, &output);
+        let directives = parse_directives(
+            &source,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        lint_file_at_path_with_resolver_and_parse_result_and_directives(
+            &output,
+            &source,
+            &indexer,
+            &LinterSettings::for_rule(rule),
+            &directives,
+            Some(path),
+            None,
+            Some(plugin_resolver),
         )
     }
 
@@ -1583,6 +1615,62 @@ mod tests {
         assert!(result.diagnostics.is_empty());
         assert!(!result.semantic.scopes().is_empty());
         assert!(!result.semantic.bindings().is_empty());
+    }
+
+    #[test]
+    fn plugin_entrypoints_receive_ambient_contracts_while_summarizing() {
+        struct EntrypointResolver {
+            entrypoint: PathBuf,
+        }
+
+        impl PluginResolver for EntrypointResolver {
+            fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+                vec![PluginRequest {
+                    framework: PluginFramework::ExplicitFilesystem,
+                    kind: PluginRequestKind::Entrypoint,
+                    name: self.entrypoint.to_string_lossy().into_owned(),
+                    span: Span::new(),
+                    explicit: true,
+                    root_hint: None,
+                }]
+            }
+
+            fn resolve_plugin_request(
+                &self,
+                _source_path: &Path,
+                request: &PluginRequest,
+            ) -> PluginResolution {
+                if request.kind == PluginRequestKind::Entrypoint {
+                    PluginResolution {
+                        entrypoints: vec![self.entrypoint.clone()],
+                        file_entry_contracts: Vec::new(),
+                    }
+                } else {
+                    PluginResolution::default()
+                }
+            }
+        }
+
+        let temp = tempdir().unwrap();
+        let main = temp.path().join(".zshrc");
+        let plugin = temp
+            .path()
+            .join("zsh-autosuggestions")
+            .join("zsh-autosuggestions.plugin.zsh");
+        fs::create_dir_all(plugin.parent().unwrap()).unwrap();
+        fs::write(&main, "#!/bin/zsh\n").unwrap();
+        fs::write(&plugin, "print -r -- \"$widgets\"\n").unwrap();
+
+        let diagnostics = lint_path_for_rule_with_plugin_resolver(
+            &main,
+            Rule::UndefinedVariable,
+            &EntrypointResolver { entrypoint: plugin },
+        );
+
+        assert!(
+            diagnostics.is_empty(),
+            "plugin ambient runtime reads leaked into caller diagnostics: {diagnostics:?}"
+        );
     }
 
     #[test]

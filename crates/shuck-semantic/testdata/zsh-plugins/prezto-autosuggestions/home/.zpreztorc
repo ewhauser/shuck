@@ -1,0 +1,7 @@
+#!/bin/zsh
+
+# Prezto reads this list and loads each named module from the configured Prezto
+# root. The autosuggestions module also depends on a standalone plugin repo.
+ZSH_AUTOSUGGEST_STRATEGY=(match_prev_cmd completion)
+zstyle ':prezto:load' pmodule 'autosuggestions'
+

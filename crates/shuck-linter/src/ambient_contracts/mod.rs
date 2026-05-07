@@ -33,7 +33,8 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use shuck_ast::{Name, NormalizedCommand};
-use shuck_semantic::{FileContract, FileEntryContractCollector};
+use shuck_parser::ShellProfile;
+use shuck_semantic::{FileContract, FileEntryContractCollector, FileEntryContractCollectorFactory};
 
 use crate::ShellDialect;
 
@@ -60,6 +61,23 @@ pub(crate) struct AmbientContractCollector<'a> {
     signals: signals::AmbientSignals<'a>,
     completion_initializer_invoked: bool,
     caller_scoped_array_length_names: BTreeSet<Name>,
+}
+
+pub(crate) struct AmbientContractCollectorFactory;
+
+impl FileEntryContractCollectorFactory for AmbientContractCollectorFactory {
+    fn collector_for_file<'a>(
+        &self,
+        source: &'a str,
+        path: Option<&'a Path>,
+        shell_profile: &ShellProfile,
+    ) -> Option<Box<dyn FileEntryContractCollector + 'a>> {
+        Some(Box::new(AmbientContractCollector::new(
+            source,
+            path,
+            shell_dialect_from_profile(shell_profile),
+        )))
+    }
 }
 
 impl<'a> AmbientContractCollector<'a> {
@@ -170,5 +188,14 @@ fn merge_contract(merged: &mut FileContract, contract: FileContract) {
     }
     for prefix in contract.externally_consumed_binding_prefixes {
         merged.add_externally_consumed_binding_prefix(prefix);
+    }
+}
+
+fn shell_dialect_from_profile(profile: &ShellProfile) -> ShellDialect {
+    match profile.dialect {
+        shuck_parser::ShellDialect::Zsh => ShellDialect::Zsh,
+        shuck_parser::ShellDialect::Mksh => ShellDialect::Mksh,
+        shuck_parser::ShellDialect::Posix => ShellDialect::Sh,
+        shuck_parser::ShellDialect::Bash => ShellDialect::Bash,
     }
 }

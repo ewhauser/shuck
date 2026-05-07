@@ -55,7 +55,8 @@ pub use command_topology::{
 /// Contract and build-option types used when constructing semantic models.
 pub use contract::{
     ContractCertainty, FileContract, FileEntryBindingInitialization, FileEntryContractCollector,
-    FunctionContract, ProvidedBinding, ProvidedBindingKind, SemanticBuildOptions,
+    FileEntryContractCollectorFactory, FunctionContract, ProvidedBinding, ProvidedBindingKind,
+    SemanticBuildOptions,
 };
 /// Dataflow results surfaced by the semantic analysis layer.
 pub use dataflow::{
@@ -94,7 +95,10 @@ pub use source_ref::{SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceR
 /// Value-flow query object built over semantic bindings, call sites, CFG, and dataflow.
 pub use value_flow::SemanticValueFlow;
 /// Zsh plugin framework traits and name aliases.
-pub use zsh_plugin_framework::{ZshPluginFramework, zsh_plugin_framework_from_name};
+pub use zsh_plugin_framework::{
+    ZshPluginFramework, resolve_zsh_plugin_entrypoint, resolve_zsh_plugin_source_paths,
+    zsh_plugin_framework_from_name, zsh_plugin_root_keys,
+};
 
 /// How an unindexed array reference behaves at a source offset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2335,6 +2339,7 @@ pub fn build_with_observer_at_path_with_resolver<'a>(
             plugin_resolver: None,
             file_entry_contract: None,
             file_entry_contract_collector: None,
+            file_entry_contract_collector_factory: None,
             analyzed_paths: None,
             shell_profile: None,
             resolve_source_closure: true,
@@ -2355,6 +2360,7 @@ fn build_semantic_model<'a>(
         plugin_resolver,
         file_entry_contract,
         mut file_entry_contract_collector,
+        file_entry_contract_collector_factory,
         analyzed_paths,
         shell_profile,
         resolve_source_closure,
@@ -2393,9 +2399,12 @@ fn build_semantic_model<'a>(
                 file,
                 source,
                 source_path,
-                source_path_resolver,
-                plugin_resolver,
-                analyzed_paths,
+                source_closure::SourceClosureResolverConfig {
+                    source_path_resolver,
+                    plugin_resolver,
+                    file_entry_contract_collector_factory,
+                    analyzed_paths,
+                },
             )
         } else {
             let (source_ref_resolutions, source_ref_explicitness, source_ref_diagnostic_classes) =
@@ -2793,5 +2802,7 @@ fn indirect_target_matches(hint: &IndirectTargetHint, binding: &Binding) -> bool
     }
 }
 
+#[cfg(test)]
+mod plugins;
 #[cfg(test)]
 mod tests;

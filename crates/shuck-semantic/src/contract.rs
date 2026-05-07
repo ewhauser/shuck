@@ -218,6 +218,22 @@ pub trait FileEntryContractCollector {
     fn finish(&self) -> Option<FileContract>;
 }
 
+/// Factory for file-entry collectors used when semantic analysis opens helpers.
+///
+/// Source-closure summaries analyze sourced files and plugin entrypoints as
+/// separate file entries. Callers that derive file-entry contracts from source
+/// and path context can provide this factory so each resolved helper gets the
+/// same entry-contract treatment as the primary analyzed file.
+pub trait FileEntryContractCollectorFactory {
+    /// Creates a collector for one helper/plugin file summary.
+    fn collector_for_file<'a>(
+        &self,
+        source: &'a str,
+        path: Option<&'a Path>,
+        shell_profile: &ShellProfile,
+    ) -> Option<Box<dyn FileEntryContractCollector + 'a>>;
+}
+
 impl FileContract {
     /// Adds a required read if it has not already been recorded.
     pub fn add_required_read(&mut self, name: Name) {
@@ -364,6 +380,9 @@ pub struct SemanticBuildOptions<'a> {
     pub file_entry_contract: Option<FileContract>,
     /// Optional observer that can derive a file-entry contract during traversal.
     pub file_entry_contract_collector: Option<&'a mut dyn FileEntryContractCollector>,
+    /// Optional factory for deriving file-entry contracts while summarizing helpers.
+    pub file_entry_contract_collector_factory:
+        Option<&'a (dyn FileEntryContractCollectorFactory + Send + Sync)>,
     /// Paths already analyzed in the current source-closure walk.
     pub analyzed_paths: Option<&'a rustc_hash::FxHashSet<PathBuf>>,
     /// Explicit shell profile to use instead of inferring one from the source.
@@ -380,6 +399,7 @@ impl Default for SemanticBuildOptions<'_> {
             plugin_resolver: None,
             file_entry_contract: None,
             file_entry_contract_collector: None,
+            file_entry_contract_collector_factory: None,
             analyzed_paths: None,
             shell_profile: None,
             resolve_source_closure: true,

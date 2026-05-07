@@ -16,7 +16,8 @@ use shuck_linter::{
 };
 use shuck_semantic::{
     PluginFramework, PluginRequest, PluginRequestKind, PluginResolution, PluginResolver,
-    layout_for_plugin_framework, zsh_plugin_framework_from_name, zsh_plugin_frameworks,
+    resolve_zsh_plugin_entrypoint, resolve_zsh_plugin_source_paths, zsh_plugin_framework_from_name,
+    zsh_plugin_root_keys,
 };
 
 use crate::args::{
@@ -583,15 +584,13 @@ impl PluginResolver for ResolvedZshPluginSettings {
             return Vec::new();
         }
 
-        let mut paths = Vec::new();
-        for layout in zsh_plugin_frameworks() {
-            for root in configured_plugin_roots(self, layout.root_keys()) {
-                if let Some(suffix) = layout.resolve_source_suffix(root, source_path, candidate) {
-                    paths.push(root.join(suffix));
-                }
-            }
-        }
-        paths
+        resolve_zsh_plugin_source_paths(
+            self.roots
+                .iter()
+                .map(|(framework, root)| (framework.as_str(), root.as_path())),
+            source_path,
+            candidate,
+        )
     }
 
     fn resolve_plugin_request(
@@ -619,12 +618,7 @@ impl PluginResolver for ResolvedZshPluginSettings {
                 else {
                     return PluginResolution::default();
                 };
-                let Some(layout) = layout_for_plugin_framework(&request.framework) else {
-                    return custom_plugin_resolution(&root, request);
-                };
-                let Some(path) =
-                    layout.resolve_entrypoint(&root, PluginRequestKind::Plugin, &request.name)
-                else {
+                let Some(path) = resolve_zsh_plugin_entrypoint(&root, request) else {
                     return PluginResolution::default();
                 };
                 PluginResolution {
@@ -640,12 +634,7 @@ impl PluginResolver for ResolvedZshPluginSettings {
                 else {
                     return PluginResolution::default();
                 };
-                let Some(layout) = layout_for_plugin_framework(&request.framework) else {
-                    return custom_plugin_resolution(&root, request);
-                };
-                let Some(path) =
-                    layout.resolve_entrypoint(&root, PluginRequestKind::Theme, &request.name)
-                else {
+                let Some(path) = resolve_zsh_plugin_entrypoint(&root, request) else {
                     return PluginResolution::default();
                 };
                 PluginResolution {
@@ -654,23 +643,6 @@ impl PluginResolver for ResolvedZshPluginSettings {
                 }
             }
         }
-    }
-}
-
-fn custom_plugin_resolution(root: &Path, request: &PluginRequest) -> PluginResolution {
-    let path = match (&request.framework, request.kind) {
-        (PluginFramework::Other(_), PluginRequestKind::Plugin) => root
-            .join("plugins")
-            .join(&request.name)
-            .join(format!("{}.plugin.zsh", request.name)),
-        (PluginFramework::Other(_), PluginRequestKind::Theme) => root
-            .join("themes")
-            .join(format!("{}.zsh-theme", request.name)),
-        _ => return PluginResolution::default(),
-    };
-    PluginResolution {
-        entrypoints: vec![path],
-        file_entry_contracts: Vec::new(),
     }
 }
 
@@ -733,10 +705,8 @@ fn plugin_root_for_request(
     settings: &ResolvedZshPluginSettings,
     request: &PluginRequest,
 ) -> Option<PathBuf> {
-    if let Some(layout) = layout_for_plugin_framework(&request.framework) {
-        return configured_plugin_roots(settings, layout.root_keys())
-            .next()
-            .cloned();
+    if let Some(root_keys) = zsh_plugin_root_keys(&request.framework) {
+        return configured_plugin_roots(settings, root_keys).next().cloned();
     }
     match &request.framework {
         PluginFramework::Other(other) => settings.roots.get(other.as_str()).cloned(),
