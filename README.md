@@ -83,12 +83,12 @@ without requiring a local Rust toolchain:
 ```yaml
 repos:
   - repo: https://github.com/ewhauser/shuck
-    rev: v0.0.35
+    rev: v0.0.38
     hooks:
       - id: shuck
 ```
 
-Replace `v0.0.35` with the release you want to pin.
+Replace `v0.0.38` with the release you want to pin.
 
 If you would rather run from the checked-out Rust sources, or you are on a
 platform that does not have a published wheel yet, use the source hook instead:
@@ -96,7 +96,7 @@ platform that does not have a published wheel yet, use the source hook instead:
 ```yaml
 repos:
   - repo: https://github.com/ewhauser/shuck
-    rev: v0.0.35
+    rev: v0.0.38
     hooks:
       - id: shuck-src
 ```
