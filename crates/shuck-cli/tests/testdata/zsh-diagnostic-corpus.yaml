@@ -6812,17 +6812,6 @@ repos:
           column: 11
         classification: real
       - path: "tools/changelog.sh"
-        code: "C005"
-        severity: "warning"
-        message: "shell expansion inside single quotes stays literal"
-        start:
-          line: 310
-          column: 16
-        end:
-          line: 310
-          column: 70
-        classification: false_positive
-      - path: "tools/changelog.sh"
         code: "C001"
         severity: "warning"
         message: "variable `raw_commit` is assigned but never used"
@@ -7101,28 +7090,6 @@ repos:
           line: 471
           column: 29
         classification: real
-      - path: "gitstatus/build"
-        code: "C005"
-        severity: "warning"
-        message: "shell expansion inside single quotes stays literal"
-        start:
-          line: 563
-          column: 16
-        end:
-          line: 563
-          column: 58
-        classification: false_positive
-      - path: "gitstatus/build"
-        code: "C005"
-        severity: "warning"
-        message: "shell expansion inside single quotes stays literal"
-        start:
-          line: 597
-          column: 22
-        end:
-          line: 597
-          column: 66
-        classification: false_positive
       - path: "gitstatus/gitstatus.plugin.sh"
         code: "C086"
         severity: "warning"
@@ -7144,17 +7111,6 @@ repos:
         end:
           line: 49
           column: 74
-        classification: real
-      - path: "gitstatus/gitstatus.plugin.sh"
-        code: "C005"
-        severity: "warning"
-        message: "shell expansion inside single quotes stays literal"
-        start:
-          line: 51
-          column: 16
-        end:
-          line: 51
-          column: 103
         classification: real
       - path: "gitstatus/gitstatus.plugin.sh"
         code: "C094"

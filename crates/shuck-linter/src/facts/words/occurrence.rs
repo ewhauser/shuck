@@ -1736,7 +1736,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
 
     fn collect_command(&mut self, command: &'a Command, redirects: &'a [Redirect]) {
         self.collect_command_name_context_word(command);
-        self.collect_argument_context_words(command);
+        self.collect_argument_context_words(command, redirects);
         self.collect_expansion_assignment_value_words(command);
         let surface_context = self.surface_context();
 
@@ -1947,7 +1947,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         }
     }
 
-    fn collect_argument_context_words(&mut self, command: &'a Command) {
+    fn collect_argument_context_words(&mut self, command: &'a Command, redirects: &'a [Redirect]) {
         match command {
             Command::Simple(command) => {
                 let surface_context = self.surface_context();
@@ -2008,6 +2008,13 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                             &command.args,
                             arg_index,
                             body_arg_start,
+                            word,
+                            self.source,
+                        )
+                        || single_quoted_literal_instructional_output_argument(
+                            literal_exempt_command_name,
+                            redirects,
+                            &self.command_shell_behavior,
                             word,
                             self.source,
                         )

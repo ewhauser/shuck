@@ -1211,6 +1211,164 @@ pub(super) fn single_quoted_literal_exempt_here_string(command_name: Option<&str
     matches!(command_name, Some("sh" | "bash" | "dash" | "ksh" | "zsh"))
 }
 
+pub(super) fn single_quoted_literal_instructional_output_argument(
+    command_name: Option<&str>,
+    redirects: &[Redirect],
+    shell_behavior: &ShellBehaviorAt<'_>,
+    word: &Word,
+    source: &str,
+) -> bool {
+    if !matches!(command_name, Some("echo" | "printf")) {
+        return false;
+    }
+
+    if command_redirects_stdout_to_file(redirects, source, shell_behavior) {
+        return false;
+    }
+
+    let [part] = word.parts.as_slice() else {
+        return false;
+    };
+    let WordPart::SingleQuoted { value, .. } = &part.kind else {
+        return false;
+    };
+
+    instructional_output_literal_body(value.slice(source))
+}
+
+fn command_redirects_stdout_to_file(
+    redirects: &[Redirect],
+    source: &str,
+    shell_behavior: &ShellBehaviorAt<'_>,
+) -> bool {
+    redirects.iter().any(|redirect| {
+        matches!(
+            redirect.kind,
+            RedirectKind::Output
+                | RedirectKind::Clobber
+                | RedirectKind::Append
+                | RedirectKind::OutputBoth
+        ) && redirect
+            .fd
+            .unwrap_or(1)
+            == 1
+            && analyze_redirect_target(redirect, source, Some(shell_behavior))
+                .is_some_and(|analysis| analysis.is_file_target())
+    })
+}
+
+fn instructional_output_literal_body(body: &str) -> bool {
+    ascii_word_count(body) >= 4
+        && (contains_inline_backtick_example(body) || contains_quoted_shell_example(body))
+}
+
+fn ascii_word_count(text: &str) -> usize {
+    text.split(|character: char| !character.is_ascii_alphabetic())
+        .filter(|word| word.len() >= 2)
+        .count()
+}
+
+fn contains_inline_backtick_example(body: &str) -> bool {
+    let mut open_index = None;
+
+    for (index, character) in body.char_indices() {
+        if character != '`' {
+            continue;
+        }
+
+        match open_index.take() {
+            Some(start) => {
+                if body[start + 1..index]
+                    .chars()
+                    .any(|inner| !inner.is_whitespace())
+                {
+                    return true;
+                }
+            }
+            None => open_index = Some(index),
+        }
+    }
+
+    false
+}
+
+fn contains_quoted_shell_example(body: &str) -> bool {
+    let mut search_start = 0usize;
+
+    while let Some(open) = find_unescaped_double_quote(body, search_start) {
+        let Some(close) = find_unescaped_double_quote(body, open + 1) else {
+            return false;
+        };
+        let inner = &body[open + 1..close];
+        if literal_contains_sc2016_trigger(inner) && quoted_shell_example_has_command_shape(inner) {
+            return true;
+        }
+        search_start = close + 1;
+    }
+
+    false
+}
+
+fn quoted_shell_example_has_command_shape(text: &str) -> bool {
+    text.contains(char::is_whitespace)
+        || text.contains("\\\"")
+        || text.contains('/')
+        || text.starts_with('-')
+}
+
+fn literal_contains_sc2016_trigger(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index + 1 < bytes.len() {
+        if bytes[index] == b'$'
+            && matches!(
+                bytes[index + 1],
+                b'{' | b'(' | b'_' | b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9'
+            )
+        {
+            return true;
+        }
+
+        if bytes[index] == b'`'
+            && bytes.get(index + 1).is_some_and(|next| *next != b'`')
+            && bytes[index + 2..].contains(&b'`')
+        {
+            return true;
+        }
+
+        index += 1;
+    }
+
+    false
+}
+
+fn find_unescaped_double_quote(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut index = start;
+
+    while index < bytes.len() {
+        if bytes[index] == b'"' && !byte_is_escaped(bytes, index) {
+            return Some(index);
+        }
+        index += 1;
+    }
+
+    None
+}
+
+fn byte_is_escaped(bytes: &[u8], index: usize) -> bool {
+    let mut backslashes = 0usize;
+    let mut cursor = index;
+
+    while cursor > 0 && bytes[cursor - 1] == b'\\' {
+        backslashes += 1;
+        cursor -= 1;
+    }
+
+    backslashes % 2 == 1
+}
+
 pub(super) fn shell_command_argument_index(args: &[Word], source: &str) -> Option<usize> {
     args.windows(2).enumerate().find_map(|(index, pair)| {
         let flag = static_word_text(&pair[0], source)?;

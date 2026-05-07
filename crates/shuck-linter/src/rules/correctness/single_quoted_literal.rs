@@ -670,6 +670,40 @@ END { if (!set) exit 1 }\n\
     }
 
     #[test]
+    fn literal_instruction_text_with_backticks_is_exempt() {
+        assert_eq!(c005("echo 'Please specify explicitly with `-c CPU`.'\n"), 0);
+    }
+
+    #[test]
+    fn literal_instruction_text_with_variable_example_is_exempt() {
+        assert_eq!(
+            c005("printf '%s\\n' 'Run \"echo \\\"$BASH_VERSION\\\"\" to inspect it.'\n"),
+            0
+        );
+    }
+
+    #[test]
+    fn literal_instruction_text_redirected_to_stderr_is_exempt() {
+        assert_eq!(
+            c005(">&2 echo 'Please specify explicitly with `-c CPU`.'\n"),
+            0
+        );
+    }
+
+    #[test]
+    fn generated_shell_text_redirected_to_file_still_reports() {
+        assert_eq!(
+            c005("echo 'export PATH=\"$HOME/bin:$PATH\"' >> \"$HOME/.profile\"\n"),
+            1
+        );
+    }
+
+    #[test]
+    fn quoted_variable_status_message_still_reports() {
+        assert_eq!(c005("echo 'Your home is \"$HOME\".'\n"), 1);
+    }
+
+    #[test]
     fn diagnostic_span_covers_the_full_single_quoted_region_and_attaches_fix_metadata() {
         let diagnostics = c005_diagnostics("echo '$HOME'\n");
 

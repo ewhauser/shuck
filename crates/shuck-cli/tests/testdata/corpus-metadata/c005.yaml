@@ -1,0 +1,92 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__linknode.sh"
+    line: 16
+    end_line: 16
+    column: 7
+    end_column: 111
+    reason: "This echo prints an example command for the operator, so the embedded NW assignment and $NW usage are intentionally shown literally."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__infra__base-images__base-builder__install_go.sh"
+    line: 30
+    end_line: 30
+    column: 6
+    end_column: 50
+    reason: "This status line tells the user what PATH and GOPATH setting to use, so the variable markers are intentional example text."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__infra__base-images__base-runner__install_go.sh"
+    line: 33
+    end_line: 33
+    column: 12
+    end_column: 56
+    reason: "This status line tells the user what PATH and GOPATH setting to use, so the variable markers are intentional example text."
+  - side: shellcheck-only
+    path_suffix: "megastep__makeself__test__run-testlinter.sh"
+    line: 21
+    end_line: 25
+    column: 35
+    end_column: 2
+    reason: "This test stores a literal shell header for string comparison, so the embedded $0 and ${THIS} references are expected text rather than intended expansions."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__bin__gvm"
+    line: 10
+    end_line: 13
+    column: 7
+    end_column: 2
+    reason: "This error banner prints the exact startup line users should add to their shell profile, so the $HOME reference is intentionally literal."
+  - side: shellcheck-only
+    path_suffix: "pyenv__pyenv__libexec__pyenv-init"
+    line: 162
+    end_line: 162
+    column: 12
+    end_column: 48
+    reason: "This command prints PowerShell profile setup text for the user to copy, so the $Env variable markers are intentionally literal."
+  - side: shellcheck-only
+    path_suffix: "pyenv__pyenv__libexec__pyenv-init"
+    line: 163
+    end_line: 163
+    column: 12
+    end_column: 76
+    reason: "This command prints PowerShell profile setup text for the user to copy, so the $Env variable markers are intentionally literal."
+  - side: shellcheck-only
+    path_suffix: "pyenv__pyenv__libexec__pyenv-init"
+    line: 164
+    end_line: 164
+    column: 12
+    end_column: 59
+    reason: "This command prints PowerShell profile setup text for the user to copy, so the $Env variable markers are intentionally literal."
+  - side: shellcheck-only
+    path_suffix: "pyenv__pyenv__libexec__pyenv-init"
+    line: 178
+    end_line: 178
+    column: 12
+    end_column: 46
+    reason: "This command prints shell profile setup text for the user to copy, so the $HOME example is intentionally literal."
+  - side: shellcheck-only
+    path_suffix: "pyenv__pyenv__libexec__pyenv-init"
+    line: 179
+    end_line: 179
+    column: 12
+    end_column: 77
+    reason: "This command prints shell profile setup text for the user to copy, so the $PYENV_ROOT and $PATH examples are intentionally literal."
+  - side: shellcheck-only
+    path_suffix: "romkatv__powerlevel10k__gitstatus__build"
+    line: 563
+    end_line: 563
+    column: 16
+    end_column: 58
+    reason: "This help text shows a literal example flag placeholder for the user, so the backticked command-line fragment is intentional."
+  - side: shellcheck-only
+    path_suffix: "romkatv__powerlevel10k__gitstatus__build"
+    line: 597
+    end_line: 597
+    column: 22
+    end_column: 66
+    reason: "This help text shows a literal example flag placeholder for the user, so the backticked command-line fragment is intentional."
+  - side: shellcheck-only
+    path_suffix: "romkatv__powerlevel10k__gitstatus__gitstatus.plugin.sh"
+    line: 51
+    end_line: 51
+    column: 16
+    end_column: 103
+    reason: "This help text prints a literal example command for the user, so the backticked bash invocation is intentional."
