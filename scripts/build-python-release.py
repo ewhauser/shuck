@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "build",
+#     "setuptools>=70.1",
+#     "wheel",
+# ]
+# ///
 """Build platform-specific shuck-cli wheels from staged binaries or release assets."""
 
 from __future__ import annotations

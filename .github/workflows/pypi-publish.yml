@@ -25,10 +25,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Python packaging tools
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install build setuptools wheel
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: false
 
       - name: Download release assets
         env:
@@ -41,7 +41,7 @@ jobs:
 
       - name: Build PyPI wheels
         run: |
-          python3 scripts/build-python-release.py build-release-wheels \
+          uv run scripts/build-python-release.py build-release-wheels \
             --assets-dir "$RUNNER_TEMP/release-assets" \
             --out-dir dist
 
