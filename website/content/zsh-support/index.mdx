@@ -48,6 +48,11 @@ In that shape, Shuck resolves:
 
 Those resolved files are summarized through the normal semantic source-closure pipeline, so their functions, bindings, and reads become available to the analyzed zsh file.
 
+That still only covers what Shuck can recover from real source files. If your
+zsh setup also relies on framework conventions or settings that are consumed
+outside the current file, use [Contracts](/docs/contracts) to describe that
+extra behavior.
+
 ## When to add config
 
 The source file is still the preferred source of truth. Add config when your real zsh setup is harder to recover statically.
@@ -92,6 +97,25 @@ entrypoints = [
   { pattern = "**/.zshrc", paths = ["./vendor/prompt/prompt.plugin.zsh"] },
 ]
 ```
+
+### Contracts for framework behavior
+
+Plugin resolution tells Shuck which files to import. Contracts tell Shuck about
+the surrounding runtime behavior that those files do not fully expose.
+
+For example, an `oh-my-zsh` plugin can consume settings from `.zshrc` even when
+those settings are not read lexically in the startup file itself:
+
+```toml
+[[lint.contracts.custom]]
+id = "oh-my-zsh-tmux"
+when = { type = "zsh_plugin", framework = "oh-my-zsh", plugin = "tmux" }
+files = ["**/.zshrc"]
+consumes = { prefixes = ["ZSH_TMUX_"] }
+```
+
+See the [Contracts guide](/docs/contracts) for the broader model and the
+[Settings Reference](/docs/settings) for the exact key shape.
 
 ## CLI equivalents
 
