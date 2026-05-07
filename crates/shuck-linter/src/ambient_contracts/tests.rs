@@ -370,10 +370,14 @@ fn oh_my_zsh_core_paths_get_plugin_configuration_and_vcs_hook_state() {
 #[test]
 fn oh_my_zsh_emoji_and_emotty_paths_get_emoji_runtime_bindings() {
     let emoji_path = Path::new("/tmp/zsh/ohmyzsh/plugins/emoji/emoji.plugin.zsh");
-    let emoji_source = "print -r -- \"$emoji_groups[people]\" \"$emoji_flags[us]\" \"$emoji[rocket]\"\n";
+    let emoji_source =
+        "print -r -- \"$emoji_groups[people]\" \"$emoji_flags[us]\" \"$emoji[rocket]\"\n";
     let emoji_contract = contract_for_shell(emoji_path, emoji_source, ShellDialect::Zsh).unwrap();
     for name in ["emoji", "emoji_flags", "emoji_groups"] {
-        assert!(has_initialized_binding(&emoji_contract, name), "{emoji_contract:?}");
+        assert!(
+            has_initialized_binding(&emoji_contract, name),
+            "{emoji_contract:?}"
+        );
     }
 
     let emotty_path = Path::new("/tmp/zsh/ohmyzsh/plugins/emotty/emotty.plugin.zsh");
@@ -715,7 +719,10 @@ fn powerlevel10k_wizard_paths_get_shared_ui_state_bindings() {
     let wizard_contract =
         contract_for_shell(wizard_path, wizard_source, ShellDialect::Zsh).unwrap();
     for name in ["icons", "_p9k_term_has_href"] {
-        assert!(has_initialized_binding(&wizard_contract, name), "{wizard_contract:?}");
+        assert!(
+            has_initialized_binding(&wizard_contract, name),
+            "{wizard_contract:?}"
+        );
     }
 }
 
