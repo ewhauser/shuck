@@ -667,6 +667,17 @@ fn bash_profile_ignores_zsh_parameter_modifier_references() {
 }
 
 #[test]
+fn zsh_equals_parameter_expansion_registers_reference() {
+    let model = model_with_profile(
+        "strategies=(${=ZSH_AUTOSUGGEST_STRATEGY})\n",
+        ShellProfile::native(ShellDialect::Zsh),
+    );
+    let unresolved = unresolved_names(&model);
+
+    assert_names_present(&["ZSH_AUTOSUGGEST_STRATEGY"], &unresolved);
+}
+
+#[test]
 fn zsh_parameter_operations_walk_operand_references_conservatively() {
     let model = model_with_profile(
         "print ${(m)foo#${needle}} ${(S)foo/$pattern/$replacement} ${(m)foo:$offset:${length}}\n",
@@ -9104,6 +9115,729 @@ fn configured_zsh_plugin_entrypoint_reads_apply_after_file_assignments() {
         !unused.contains(&Name::from("flag")),
         "unused: {:?}",
         unused
+    );
+}
+
+#[test]
+fn zsh_plugin_hook_callbacks_make_function_reads_required() {
+    struct EntryResolver {
+        entrypoint: PathBuf,
+    }
+
+    impl PluginResolver for EntryResolver {
+        fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+            vec![PluginRequest {
+                framework: PluginFramework::ExplicitFilesystem,
+                kind: PluginRequestKind::Entrypoint,
+                name: self.entrypoint.to_string_lossy().into_owned(),
+                span: Span::new(),
+                explicit: true,
+                root_hint: None,
+            }]
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.kind == PluginRequestKind::Entrypoint {
+                PluginResolution {
+                    entrypoints: vec![self.entrypoint.clone()],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.zsh");
+    let plugin = temp.path().join("plugin.zsh");
+    fs::write(
+        &main,
+        "#!/bin/zsh\nZSH_AUTOSUGGEST_STRATEGY=(match_prev_cmd completion)\n",
+    )
+    .unwrap();
+    fs::write(
+        &plugin,
+        "\
+add-zsh-hook precmd _plugin_start
+_plugin_start() {
+  _plugin_fetch_suggestion
+}
+_plugin_fetch_suggestion() {
+  strategies=(${=ZSH_AUTOSUGGEST_STRATEGY})
+}
+",
+    )
+    .unwrap();
+
+    let resolver = EntryResolver { entrypoint: plugin };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    assert!(
+        model
+            .synthetic_reads
+            .iter()
+            .any(|read| read.name == "ZSH_AUTOSUGGEST_STRATEGY"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
+    let unused = reportable_unused_names(&model);
+    assert!(
+        !unused.contains(&Name::from("ZSH_AUTOSUGGEST_STRATEGY")),
+        "unused: {:?}",
+        unused
+    );
+}
+
+#[test]
+fn zsh_plugin_eval_generated_callbacks_make_function_reads_required() {
+    struct EntryResolver {
+        entrypoint: PathBuf,
+    }
+
+    impl PluginResolver for EntryResolver {
+        fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+            vec![PluginRequest {
+                framework: PluginFramework::ExplicitFilesystem,
+                kind: PluginRequestKind::Entrypoint,
+                name: self.entrypoint.to_string_lossy().into_owned(),
+                span: Span::new(),
+                explicit: true,
+                root_hint: None,
+            }]
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.kind == PluginRequestKind::Entrypoint {
+                PluginResolution {
+                    entrypoints: vec![self.entrypoint.clone()],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.zsh");
+    let plugin = temp.path().join("plugin.zsh");
+    fs::write(
+        &main,
+        "#!/bin/zsh\nZSH_AUTOSUGGEST_STRATEGY=(match_prev_cmd completion)\n",
+    )
+    .unwrap();
+    fs::write(
+        &plugin,
+        "\
+add-zsh-hook precmd _plugin_start
+_plugin_start() {
+  _plugin_bind_widget any modify
+}
+_plugin_bind_widget() {
+  local widget=$1
+  local action=$2
+  eval '_plugin_widget_$action() { _plugin_$action \"$@\" }'
+}
+_plugin_modify() {
+  _plugin_fetch
+}
+_plugin_fetch() {
+  _plugin_fetch_suggestion
+}
+_plugin_fetch_suggestion() {
+  strategies=(${=ZSH_AUTOSUGGEST_STRATEGY})
+}
+",
+    )
+    .unwrap();
+
+    let resolver = EntryResolver { entrypoint: plugin };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    assert!(
+        model
+            .synthetic_reads
+            .iter()
+            .any(|read| read.name == "ZSH_AUTOSUGGEST_STRATEGY"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
+    let unused = reportable_unused_names(&model);
+    assert!(
+        !unused.contains(&Name::from("ZSH_AUTOSUGGEST_STRATEGY")),
+        "unused: {:?}",
+        unused
+    );
+}
+
+#[test]
+fn zsh_plugin_generated_callback_inference_ignores_non_eval_text() {
+    struct EntryResolver {
+        entrypoint: PathBuf,
+    }
+
+    impl PluginResolver for EntryResolver {
+        fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+            vec![PluginRequest {
+                framework: PluginFramework::ExplicitFilesystem,
+                kind: PluginRequestKind::Entrypoint,
+                name: self.entrypoint.to_string_lossy().into_owned(),
+                span: Span::new(),
+                explicit: true,
+                root_hint: None,
+            }]
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.kind == PluginRequestKind::Entrypoint {
+                PluginResolution {
+                    entrypoints: vec![self.entrypoint.clone()],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.zsh");
+    let plugin = temp.path().join("plugin.zsh");
+    fs::write(&main, "#!/bin/zsh\nPLUGIN_ONLY=1\n").unwrap();
+    fs::write(
+        &plugin,
+        "\
+add-zsh-hook precmd _plugin_start
+_plugin_start() {
+  _plugin_bind_widget any modify
+}
+_plugin_bind_widget() {
+  local action=$2
+  print \"_plugin_$action\"
+}
+_plugin_modify() {
+  print \"$PLUGIN_ONLY\"
+}
+",
+    )
+    .unwrap();
+
+    let resolver = EntryResolver { entrypoint: plugin };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    assert!(
+        !model
+            .synthetic_reads
+            .iter()
+            .any(|read| read.name == "PLUGIN_ONLY"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
+    let unused = reportable_unused_names(&model);
+    assert!(
+        unused.contains(&Name::from("PLUGIN_ONLY")),
+        "unused: {unused:?}"
+    );
+}
+
+#[test]
+fn zsh_plugin_generated_callback_inference_ignores_commented_eval_text() {
+    struct EntryResolver {
+        entrypoint: PathBuf,
+    }
+
+    impl PluginResolver for EntryResolver {
+        fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+            vec![PluginRequest {
+                framework: PluginFramework::ExplicitFilesystem,
+                kind: PluginRequestKind::Entrypoint,
+                name: self.entrypoint.to_string_lossy().into_owned(),
+                span: Span::new(),
+                explicit: true,
+                root_hint: None,
+            }]
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.kind == PluginRequestKind::Entrypoint {
+                PluginResolution {
+                    entrypoints: vec![self.entrypoint.clone()],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.zsh");
+    let plugin = temp.path().join("plugin.zsh");
+    fs::write(&main, "#!/bin/zsh\nCOMMENT_ONLY=1\n").unwrap();
+    fs::write(
+        &plugin,
+        "\
+add-zsh-hook precmd _plugin_start
+_plugin_start() {
+  _plugin_bind_widget any modify
+}
+_plugin_bind_widget() {
+  local action=$2
+  # eval '_plugin_widget_$action() { _plugin_$action \"$@\" }'
+}
+_plugin_modify() {
+  print \"$COMMENT_ONLY\"
+}
+",
+    )
+    .unwrap();
+
+    let resolver = EntryResolver { entrypoint: plugin };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    assert!(
+        !model
+            .synthetic_reads
+            .iter()
+            .any(|read| read.name == "COMMENT_ONLY"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
+    let unused = reportable_unused_names(&model);
+    assert!(
+        unused.contains(&Name::from("COMMENT_ONLY")),
+        "unused: {unused:?}"
+    );
+}
+
+#[test]
+fn zsh_plugin_eval_generated_callbacks_handle_quoted_positional_aliases() {
+    struct EntryResolver {
+        entrypoint: PathBuf,
+    }
+
+    impl PluginResolver for EntryResolver {
+        fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+            vec![PluginRequest {
+                framework: PluginFramework::ExplicitFilesystem,
+                kind: PluginRequestKind::Entrypoint,
+                name: self.entrypoint.to_string_lossy().into_owned(),
+                span: Span::new(),
+                explicit: true,
+                root_hint: None,
+            }]
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.kind == PluginRequestKind::Entrypoint {
+                PluginResolution {
+                    entrypoints: vec![self.entrypoint.clone()],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.zsh");
+    let plugin = temp.path().join("plugin.zsh");
+    fs::write(&main, "#!/bin/zsh\nQUOTED_ALIAS=1\n").unwrap();
+    fs::write(
+        &plugin,
+        "\
+add-zsh-hook precmd _plugin_start
+_plugin_start() {
+  _plugin_bind_widget any modify
+}
+_plugin_bind_widget() {
+  local action=\"$2\"
+  eval '_plugin_widget_$action() { _plugin_$action \"$@\" }'
+}
+_plugin_modify() {
+  print \"$QUOTED_ALIAS\"
+}
+",
+    )
+    .unwrap();
+
+    let resolver = EntryResolver { entrypoint: plugin };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    assert!(
+        model
+            .synthetic_reads
+            .iter()
+            .any(|read| read.name == "QUOTED_ALIAS"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
+    let unused = reportable_unused_names(&model);
+    assert!(
+        !unused.contains(&Name::from("QUOTED_ALIAS")),
+        "unused: {unused:?}"
+    );
+}
+
+#[test]
+fn zsh_plugin_deferred_file_scope_reads_ignore_declaration_names() {
+    struct EntryResolver {
+        entrypoint: PathBuf,
+    }
+
+    impl PluginResolver for EntryResolver {
+        fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+            vec![PluginRequest {
+                framework: PluginFramework::ExplicitFilesystem,
+                kind: PluginRequestKind::Entrypoint,
+                name: self.entrypoint.to_string_lossy().into_owned(),
+                span: Span::new(),
+                explicit: true,
+                root_hint: None,
+            }]
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.kind == PluginRequestKind::Entrypoint {
+                PluginResolution {
+                    entrypoints: vec![self.entrypoint.clone()],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.zsh");
+    let plugin = temp.path().join("plugin.zsh");
+    fs::write(&main, "#!/bin/zsh\nPLUGIN_DECLARED=1\n").unwrap();
+    fs::write(
+        &plugin,
+        "\
+add-zsh-hook precmd _plugin_start
+_plugin_start() {
+  typeset -g PLUGIN_DECLARED
+}
+",
+    )
+    .unwrap();
+
+    let resolver = EntryResolver { entrypoint: plugin };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    assert!(
+        !model
+            .synthetic_reads
+            .iter()
+            .any(|read| read.name == "PLUGIN_DECLARED"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
+    let unused = reportable_unused_names(&model);
+    assert!(
+        unused.contains(&Name::from("PLUGIN_DECLARED")),
+        "unused: {unused:?}"
+    );
+}
+
+#[test]
+fn zsh_plugin_hook_listing_does_not_make_callback_reads_required() {
+    struct EntryResolver {
+        entrypoint: PathBuf,
+    }
+
+    impl PluginResolver for EntryResolver {
+        fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+            vec![PluginRequest {
+                framework: PluginFramework::ExplicitFilesystem,
+                kind: PluginRequestKind::Entrypoint,
+                name: self.entrypoint.to_string_lossy().into_owned(),
+                span: Span::new(),
+                explicit: true,
+                root_hint: None,
+            }]
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.kind == PluginRequestKind::Entrypoint {
+                PluginResolution {
+                    entrypoints: vec![self.entrypoint.clone()],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.zsh");
+    let plugin = temp.path().join("plugin.zsh");
+    fs::write(&main, "#!/bin/zsh\nLISTED_ONLY=1\n").unwrap();
+    fs::write(
+        &plugin,
+        "\
+add-zsh-hook -L precmd _plugin_listed
+_plugin_listed() {
+  print \"$LISTED_ONLY\"
+}
+",
+    )
+    .unwrap();
+
+    let resolver = EntryResolver { entrypoint: plugin };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    assert!(
+        !model
+            .synthetic_reads
+            .iter()
+            .any(|read| read.name == "LISTED_ONLY"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
+    let unused = reportable_unused_names(&model);
+    assert!(
+        unused.contains(&Name::from("LISTED_ONLY")),
+        "unused: {unused:?}"
+    );
+}
+
+#[test]
+fn zsh_plugin_hook_registration_collects_later_callbacks() {
+    struct EntryResolver {
+        entrypoint: PathBuf,
+    }
+
+    impl PluginResolver for EntryResolver {
+        fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+            vec![PluginRequest {
+                framework: PluginFramework::ExplicitFilesystem,
+                kind: PluginRequestKind::Entrypoint,
+                name: self.entrypoint.to_string_lossy().into_owned(),
+                span: Span::new(),
+                explicit: true,
+                root_hint: None,
+            }]
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.kind == PluginRequestKind::Entrypoint {
+                PluginResolution {
+                    entrypoints: vec![self.entrypoint.clone()],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.zsh");
+    let plugin = temp.path().join("plugin.zsh");
+    fs::write(&main, "#!/bin/zsh\nSECOND_CALLBACK=1\n").unwrap();
+    fs::write(
+        &plugin,
+        "\
+add-zsh-hook precmd _plugin_first _plugin_second
+_plugin_first() {
+  :
+}
+_plugin_second() {
+  print \"$SECOND_CALLBACK\"
+}
+",
+    )
+    .unwrap();
+
+    let resolver = EntryResolver { entrypoint: plugin };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    assert!(
+        model
+            .synthetic_reads
+            .iter()
+            .any(|read| read.name == "SECOND_CALLBACK"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
+    let unused = reportable_unused_names(&model);
+    assert!(
+        !unused.contains(&Name::from("SECOND_CALLBACK")),
+        "unused: {unused:?}"
+    );
+}
+
+#[test]
+fn zsh_plugin_deferred_callback_uses_latest_function_definition() {
+    struct EntryResolver {
+        entrypoint: PathBuf,
+    }
+
+    impl PluginResolver for EntryResolver {
+        fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+            vec![PluginRequest {
+                framework: PluginFramework::ExplicitFilesystem,
+                kind: PluginRequestKind::Entrypoint,
+                name: self.entrypoint.to_string_lossy().into_owned(),
+                span: Span::new(),
+                explicit: true,
+                root_hint: None,
+            }]
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.kind == PluginRequestKind::Entrypoint {
+                PluginResolution {
+                    entrypoints: vec![self.entrypoint.clone()],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.zsh");
+    let plugin = temp.path().join("plugin.zsh");
+    fs::write(&main, "#!/bin/zsh\nOLD_CALLBACK=1\nNEW_CALLBACK=1\n").unwrap();
+    fs::write(
+        &plugin,
+        "\
+add-zsh-hook precmd _plugin_callback
+_plugin_callback() {
+  print \"$OLD_CALLBACK\"
+}
+_plugin_callback() {
+  print \"$NEW_CALLBACK\"
+}
+",
+    )
+    .unwrap();
+
+    let resolver = EntryResolver { entrypoint: plugin };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    let unused = reportable_unused_names(&model);
+    assert!(
+        unused.contains(&Name::from("OLD_CALLBACK")),
+        "unused: {unused:?}"
+    );
+    assert!(
+        !unused.contains(&Name::from("NEW_CALLBACK")),
+        "unused: {unused:?}"
+    );
+}
+
+#[test]
+fn zsh_plugin_hook_registration_inside_called_setup_function_is_deferred_root() {
+    struct EntryResolver {
+        entrypoint: PathBuf,
+    }
+
+    impl PluginResolver for EntryResolver {
+        fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+            vec![PluginRequest {
+                framework: PluginFramework::ExplicitFilesystem,
+                kind: PluginRequestKind::Entrypoint,
+                name: self.entrypoint.to_string_lossy().into_owned(),
+                span: Span::new(),
+                explicit: true,
+                root_hint: None,
+            }]
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.kind == PluginRequestKind::Entrypoint {
+                PluginResolution {
+                    entrypoints: vec![self.entrypoint.clone()],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.zsh");
+    let plugin = temp.path().join("plugin.zsh");
+    fs::write(&main, "#!/bin/zsh\nSETUP_CALLBACK=1\n").unwrap();
+    fs::write(
+        &plugin,
+        "\
+_plugin_setup() {
+  add-zsh-hook precmd _plugin_callback
+}
+_plugin_setup
+_plugin_callback() {
+  print \"$SETUP_CALLBACK\"
+}
+",
+    )
+    .unwrap();
+
+    let resolver = EntryResolver { entrypoint: plugin };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    assert!(
+        model
+            .synthetic_reads
+            .iter()
+            .any(|read| read.name == "SETUP_CALLBACK"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
+    let unused = reportable_unused_names(&model);
+    assert!(
+        !unused.contains(&Name::from("SETUP_CALLBACK")),
+        "unused: {unused:?}"
     );
 }
 
