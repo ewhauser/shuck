@@ -69,8 +69,8 @@ repos:
 
 Replace `v0.0.35` with the release you want to pin.
 
-Use the source-build fallback instead when you prefer a Rust build or need an
-unsupported platform:
+Use the source fallback instead when you prefer to run from the Rust checkout or
+need an unsupported platform:
 
 ```yaml
 repos:
@@ -79,6 +79,9 @@ repos:
     hooks:
       - id: shuck-src
 ```
+
+The `shuck-src` hook requires a working Rust toolchain because it runs
+`cargo run -p shuck-cli -- check ...` from the cloned hook repository.
 
 ## Editor integration
 

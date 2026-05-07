@@ -90,8 +90,8 @@ repos:
 
 Replace `v0.0.35` with the release you want to pin.
 
-If you would rather build from source, or you are on a platform that does not
-have a published wheel yet, use the Rust hook instead:
+If you would rather run from the checked-out Rust sources, or you are on a
+platform that does not have a published wheel yet, use the source hook instead:
 
 ```yaml
 repos:
@@ -100,6 +100,9 @@ repos:
     hooks:
       - id: shuck-src
 ```
+
+The `shuck-src` hook requires a working Rust toolchain because it runs
+`cargo run -p shuck-cli -- check ...` from the cloned hook repository.
 
 ### Clean caches
 

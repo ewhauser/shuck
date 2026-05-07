@@ -212,6 +212,9 @@ echo ok
 EOF
           git add bad.sh
           hook_rev="$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
+          hook_repo="$RUNNER_TEMP/hook-repo"
+          rm -rf "$hook_repo"
+          git clone --no-local "$GITHUB_WORKSPACE" "$hook_repo" >/dev/null 2>&1
           cat > .pre-commit-config.yaml <<EOF
 repos:
   - repo: $GITHUB_WORKSPACE
@@ -234,6 +237,28 @@ EOF
           fi
 
           grep -F "warning[C001]" "$RUNNER_TEMP/pre-commit-smoke.log" >/dev/null
+
+          cat > .pre-commit-config.yaml <<EOF
+repos:
+  - repo: $hook_repo
+    rev: $hook_rev
+    hooks:
+      - id: shuck-src
+EOF
+
+          set +e
+          pre-commit run shuck-src --files bad.sh \
+            > "$RUNNER_TEMP/pre-commit-src-smoke.log" 2>&1
+          src_hook_status=$?
+          set -e
+
+          cat "$RUNNER_TEMP/pre-commit-src-smoke.log"
+          if [ "$src_hook_status" -eq 0 ]; then
+            echo "expected shuck-src pre-commit hook to report a lint failure" >&2
+            exit 1
+          fi
+
+          grep -F "warning[C001]" "$RUNNER_TEMP/pre-commit-src-smoke.log" >/dev/null
 
   cargo-test-other:
     strategy:

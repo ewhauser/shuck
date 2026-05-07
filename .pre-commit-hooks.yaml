@@ -7,7 +7,7 @@
 
 - id: shuck-src
   name: shuck
-  description: Shell script linter, build from Rust source
-  language: rust
-  entry: shuck check
+  description: Shell script linter, run from the Rust source checkout
+  language: script
+  entry: scripts/pre-commit-shuck-src
   types_or: [shell, yaml]
