@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.37](https://github.com/ewhauser/shuck/compare/v0.0.36...v0.0.37) (2026-05-07)
+
+
+### Bug Fixes
+
+* **zsh:** preserve zinit associative array semantics ([#950](https://github.com/ewhauser/shuck/issues/950)) ([481f34e](https://github.com/ewhauser/shuck/commit/481f34ea79a0f9a9dc4413b2b9a436e3682510f0))
+
 ## [0.0.36](https://github.com/ewhauser/shuck/compare/v0.0.35...v0.0.36) (2026-05-07)
 
 
