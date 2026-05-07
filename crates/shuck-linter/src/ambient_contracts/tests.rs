@@ -219,6 +219,16 @@ prompt=\"%{$fg_bold[blue]%}%{$reset_color%}\"
 }
 
 #[test]
+fn standalone_zsh_scripts_do_not_get_userdirs_without_runtime_context() {
+    let path = Path::new("/tmp/project/scripts/example.zsh");
+    let source = "print -r -- \"$userdirs\"\n";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(!has_initialized_binding(&contract, "userdirs"));
+}
+
+#[test]
 fn commented_zmodload_does_not_initialize_module_parameters() {
     let path = Path::new("/tmp/project/scripts/example.zsh");
     let source = "\
