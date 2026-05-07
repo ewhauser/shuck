@@ -615,6 +615,61 @@ fn powerlevel10k_internal_bootstrap_files_initialize_injected_bindings() {
 }
 
 #[test]
+fn powerlevel10k_internal_paths_consume_public_and_private_config_prefixes() {
+    let path = Path::new("/tmp/zsh/powerlevel10k/internal/p10k.zsh");
+    let source = "\
+print -r -- \"$POWERLEVEL9K_LEFT_PROMPT_ELEMENTS\"
+print -r -- \"$_POWERLEVEL9K_RBENV_SOURCES\"
+";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    for prefix in ["POWERLEVEL9K_", "_POWERLEVEL9K_"] {
+        assert!(has_consumed_prefix(&contract, prefix), "{contract:?}");
+    }
+}
+
+#[test]
+fn powerlevel10k_internal_paths_get_configure_state_bindings() {
+    let path = Path::new("/tmp/zsh/powerlevel10k/internal/wizard.zsh");
+    let source = "\
+print -r -- \"$__p9k_cfg_path\" \"$__p9k_cfg_path_u\" \"$__p9k_zshrc\" \"$__p9k_zd\" \"$__p9k_wizard_columns\"
+";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    for name in [
+        "__p9k_cfg_path",
+        "__p9k_cfg_path_u",
+        "__p9k_zshrc",
+        "__p9k_zd",
+        "__p9k_wizard_columns",
+    ] {
+        assert!(has_initialized_binding(&contract, name), "{contract:?}");
+    }
+}
+
+#[test]
+fn powerlevel10k_p10k_paths_get_instant_prompt_and_vcs_info_bindings() {
+    let path = Path::new("/tmp/zsh/powerlevel10k/internal/p10k.zsh");
+    let source = "\
+vcs_info
+print -r -- \"$vcs_info_msg_0_\" \"$__p9k_intro_no_locale\" \"$__p9k_dump_file\" \"$__p9k_instant_prompt_time\"
+";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    for name in [
+        "vcs_info_msg_0_",
+        "__p9k_intro_no_locale",
+        "__p9k_dump_file",
+        "__p9k_instant_prompt_time",
+    ] {
+        assert!(has_initialized_binding(&contract, name), "{contract:?}");
+    }
+}
+
+#[test]
 fn powerlevel10k_gitstatus_zsh_contract_initializes_intro_base_and_consumes_status_prefix() {
     let path = Path::new("/tmp/zsh/powerlevel10k/gitstatus/gitstatus.plugin.zsh");
     let source = "\

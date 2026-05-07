@@ -9247,17 +9247,6 @@ repos:
           column: 55
         classification: real
       - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `_POWERLEVEL9K_RBENV_SOURCES` looks like it may mean `_POWERLEVEL9K_PYENV_SOURCES`"
-        start:
-          line: 2794
-          column: 8
-        end:
-          line: 2794
-          column: 48
-        classification: false_positive
-      - path: "internal/p10k.zsh"
         code: "C081"
         severity: "warning"
         message: "quote the right-hand side so string comparisons do not turn into glob matches"
@@ -9268,28 +9257,6 @@ repos:
           line: 2802
           column: 33
         classification: real
-      - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `_POWERLEVEL9K_RBENV_PROMPT_ALWAYS_SHOW` looks like it may mean `_POWERLEVEL9K_PYENV_PROMPT_ALWAYS_SHOW`"
-        start:
-          line: 2823
-          column: 10
-        end:
-          line: 2823
-          column: 48
-        classification: false_positive
-      - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `_POWERLEVEL9K_RBENV_SHOW_SYSTEM` looks like it may mean `_POWERLEVEL9K_PYENV_SHOW_SYSTEM`"
-        start:
-          line: 2835
-          column: 10
-        end:
-          line: 2835
-          column: 41
-        classification: false_positive
       - path: "internal/p10k.zsh"
         code: "C063"
         severity: "warning"
@@ -9313,17 +9280,6 @@ repos:
           column: 33
         classification: real
       - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `_POWERLEVEL9K_PHPENV_SOURCES` looks like it may mean `_POWERLEVEL9K_PYENV_SOURCES`"
-        start:
-          line: 2915
-          column: 8
-        end:
-          line: 2915
-          column: 49
-        classification: false_positive
-      - path: "internal/p10k.zsh"
         code: "C081"
         severity: "warning"
         message: "quote the right-hand side so string comparisons do not turn into glob matches"
@@ -9334,28 +9290,6 @@ repos:
           line: 2923
           column: 33
         classification: real
-      - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `_POWERLEVEL9K_PHPENV_PROMPT_ALWAYS_SHOW` looks like it may mean `_POWERLEVEL9K_PYENV_PROMPT_ALWAYS_SHOW`"
-        start:
-          line: 2944
-          column: 10
-        end:
-          line: 2944
-          column: 49
-        classification: false_positive
-      - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `_POWERLEVEL9K_PHPENV_SHOW_SYSTEM` looks like it may mean `_POWERLEVEL9K_PYENV_SHOW_SYSTEM`"
-        start:
-          line: 2956
-          column: 10
-        end:
-          line: 2956
-          column: 42
-        classification: false_positive
       - path: "internal/p10k.zsh"
         code: "C081"
         severity: "warning"
@@ -9368,17 +9302,6 @@ repos:
           column: 33
         classification: real
       - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `_POWERLEVEL9K_JENV_SOURCES` looks like it may mean `_POWERLEVEL9K_PYENV_SOURCES`"
-        start:
-          line: 3037
-          column: 8
-        end:
-          line: 3037
-          column: 47
-        classification: false_positive
-      - path: "internal/p10k.zsh"
         code: "C081"
         severity: "warning"
         message: "quote the right-hand side so string comparisons do not turn into glob matches"
@@ -9390,39 +9313,6 @@ repos:
           column: 33
         classification: real
       - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `_POWERLEVEL9K_JENV_PROMPT_ALWAYS_SHOW` looks like it may mean `_POWERLEVEL9K_PYENV_PROMPT_ALWAYS_SHOW`"
-        start:
-          line: 3066
-          column: 10
-        end:
-          line: 3066
-          column: 47
-        classification: false_positive
-      - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `_POWERLEVEL9K_JENV_SHOW_SYSTEM` looks like it may mean `_POWERLEVEL9K_PYENV_SHOW_SYSTEM`"
-        start:
-          line: 3078
-          column: 10
-        end:
-          line: 3078
-          column: 40
-        classification: false_positive
-      - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `_POWERLEVEL9K_PLENV_SOURCES` looks like it may mean `_POWERLEVEL9K_PYENV_SOURCES`"
-        start:
-          line: 3098
-          column: 8
-        end:
-          line: 3098
-          column: 48
-        classification: false_positive
-      - path: "internal/p10k.zsh"
         code: "C081"
         severity: "warning"
         message: "quote the right-hand side so string comparisons do not turn into glob matches"
@@ -9433,28 +9323,6 @@ repos:
           line: 3106
           column: 33
         classification: real
-      - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `_POWERLEVEL9K_PLENV_PROMPT_ALWAYS_SHOW` looks like it may mean `_POWERLEVEL9K_PYENV_PROMPT_ALWAYS_SHOW`"
-        start:
-          line: 3127
-          column: 10
-        end:
-          line: 3127
-          column: 48
-        classification: false_positive
-      - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `_POWERLEVEL9K_PLENV_SHOW_SYSTEM` looks like it may mean `_POWERLEVEL9K_PYENV_SHOW_SYSTEM`"
-        start:
-          line: 3139
-          column: 10
-        end:
-          line: 3139
-          column: 41
-        classification: false_positive
       - path: "internal/p10k.zsh"
         code: "C081"
         severity: "warning"
@@ -9544,17 +9412,6 @@ repos:
           column: 18
         classification: real
       - path: "internal/p10k.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_instant_prompt_time_format` is referenced before assignment"
-        start:
-          line: 3495
-          column: 51
-        end:
-          line: 3495
-          column: 84
-        classification: false_positive
-      - path: "internal/p10k.zsh"
         code: "C081"
         severity: "warning"
         message: "quote the right-hand side so string comparisons do not turn into glob matches"
@@ -9566,28 +9423,6 @@ repos:
           column: 114
         classification: real
       - path: "internal/p10k.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_instant_prompt_time` is referenced before assignment"
-        start:
-          line: 3496
-          column: 20
-        end:
-          line: 3496
-          column: 55
-        classification: false_positive
-      - path: "internal/p10k.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_instant_prompt_date_format` is referenced before assignment"
-        start:
-          line: 3543
-          column: 49
-        end:
-          line: 3543
-          column: 82
-        classification: false_positive
-      - path: "internal/p10k.zsh"
         code: "C081"
         severity: "warning"
         message: "quote the right-hand side so string comparisons do not turn into glob matches"
@@ -9598,17 +9433,6 @@ repos:
           line: 3543
           column: 112
         classification: real
-      - path: "internal/p10k.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_instant_prompt_date` is referenced before assignment"
-        start:
-          line: 3544
-          column: 18
-        end:
-          line: 3544
-          column: 53
-        classification: false_positive
       - path: "internal/p10k.zsh"
         code: "C006"
         severity: "error"
@@ -9687,17 +9511,6 @@ repos:
           column: 84
         classification: real
       - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `_POWERLEVEL9K_VCS_MAX_SYNC_LATENCY_SECONDS` looks like it may mean `POWERLEVEL9K_VCS_MAX_SYNC_LATENCY_SECONDS`"
-        start:
-          line: 4058
-          column: 21
-        end:
-          line: 4058
-          column: 63
-        classification: false_positive
-      - path: "internal/p10k.zsh"
         code: "C100"
         severity: "warning"
         message: "array references should choose an explicit element or selector"
@@ -9720,17 +9533,6 @@ repos:
           column: 41
         classification: false_positive
       - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `PYENV_VERSION` looks like it may mean `PLENV_VERSION`"
-        start:
-          line: 4364
-          column: 11
-        end:
-          line: 4364
-          column: 56
-        classification: false_positive
-      - path: "internal/p10k.zsh"
         code: "C081"
         severity: "warning"
         message: "quote the right-hand side so string comparisons do not turn into glob matches"
@@ -9742,28 +9544,6 @@ repos:
           column: 33
         classification: real
       - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `GOENV_VERSION` looks like it may mean `NODENV_VERSION`"
-        start:
-          line: 4444
-          column: 11
-        end:
-          line: 4444
-          column: 52
-        classification: false_positive
-      - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `_POWERLEVEL9K_GOENV_SOURCES` looks like it may mean `_POWERLEVEL9K_PYENV_SOURCES`"
-        start:
-          line: 4446
-          column: 8
-        end:
-          line: 4446
-          column: 48
-        classification: false_positive
-      - path: "internal/p10k.zsh"
         code: "C081"
         severity: "warning"
         message: "quote the right-hand side so string comparisons do not turn into glob matches"
@@ -9774,28 +9554,6 @@ repos:
           line: 4453
           column: 33
         classification: real
-      - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `_POWERLEVEL9K_GOENV_PROMPT_ALWAYS_SHOW` looks like it may mean `_POWERLEVEL9K_PYENV_PROMPT_ALWAYS_SHOW`"
-        start:
-          line: 4474
-          column: 10
-        end:
-          line: 4474
-          column: 48
-        classification: false_positive
-      - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `_POWERLEVEL9K_GOENV_SHOW_SYSTEM` looks like it may mean `_POWERLEVEL9K_PYENV_SHOW_SYSTEM`"
-        start:
-          line: 4486
-          column: 10
-        end:
-          line: 4486
-          column: 41
-        classification: false_positive
       - path: "internal/p10k.zsh"
         code: "C081"
         severity: "warning"
@@ -10413,17 +10171,6 @@ repos:
           column: 54
         classification: false_positive
       - path: "internal/p10k.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_dump_file` is referenced before assignment"
-        start:
-          line: 6174
-          column: 18
-        end:
-          line: 6174
-          column: 38
-        classification: false_positive
-      - path: "internal/p10k.zsh"
         code: "C005"
         severity: "warning"
         message: "shell expansion inside single quotes stays literal"
@@ -10445,17 +10192,6 @@ repos:
           line: 6199
           column: 25
         classification: real
-      - path: "internal/p10k.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_intro_no_locale` is referenced before assignment"
-        start:
-          line: 6200
-          column: 3
-        end:
-          line: 6200
-          column: 25
-        classification: false_positive
       - path: "internal/p10k.zsh"
         code: "C005"
         severity: "warning"
@@ -10666,17 +10402,6 @@ repos:
           column: 98
         classification: real
       - path: "internal/p10k.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_instant_prompt_param_sig` is referenced before assignment"
-        start:
-          line: 6672
-          column: 13
-        end:
-          line: 6672
-          column: 44
-        classification: false_positive
-      - path: "internal/p10k.zsh"
         code: "C081"
         severity: "warning"
         message: "quote the right-hand side so string comparisons do not turn into glob matches"
@@ -10721,17 +10446,6 @@ repos:
           column: 37
         classification: false_positive
       - path: "internal/p10k.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_instant_prompt_output` is referenced before assignment"
-        start:
-          line: 6692
-          column: 12
-        end:
-          line: 6692
-          column: 40
-        classification: false_positive
-      - path: "internal/p10k.zsh"
         code: "C001"
         severity: "warning"
         message: "variable `fill` is assigned but never used"
@@ -10754,17 +10468,6 @@ repos:
           column: 41
         classification: false_positive
       - path: "internal/p10k.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_instant_prompt_sourced` is referenced before assignment"
-        start:
-          line: 6701
-          column: 50
-        end:
-          line: 6701
-          column: 78
-        classification: false_positive
-      - path: "internal/p10k.zsh"
         code: "C010"
         severity: "warning"
         message: "chaining `&&` and `||` makes the fallback depend on the middle command status"
@@ -10775,17 +10478,6 @@ repos:
           line: 6838
           column: 61
         classification: real
-      - path: "internal/p10k.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_intro_locale` is referenced before assignment"
-        start:
-          line: 6873
-          column: 9
-        end:
-          line: 6873
-          column: 28
-        classification: false_positive
       - path: "internal/p10k.zsh"
         code: "C088"
         severity: "warning"
@@ -10809,17 +10501,6 @@ repos:
           column: 38
         classification: real
       - path: "internal/p10k.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_cfg_path` is referenced before assignment"
-        start:
-          line: 7036
-          column: 31
-        end:
-          line: 7036
-          column: 46
-        classification: false_positive
-      - path: "internal/p10k.zsh"
         code: "C008"
         severity: "warning"
         message: "double-quoted trap handlers expand variables when the trap is set"
@@ -10830,17 +10511,6 @@ repos:
           line: 7157
           column: 23
         classification: real
-      - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `POWERLEVEL9K_BATTERY_STAGES` looks like it may mean `_POWERLEVEL9K_BATTERY_STAGES`"
-        start:
-          line: 7518
-          column: 57
-        end:
-          line: 7518
-          column: 101
-        classification: false_positive
       - path: "internal/p10k.zsh"
         code: "C005"
         severity: "warning"
@@ -11645,17 +11315,6 @@ repos:
           column: 42
         classification: real
       - path: "internal/p10k.zsh"
-        code: "C156"
-        severity: "warning"
-        message: "reference to `NAME` looks like it may mean `name`"
-        start:
-          line: 8522
-          column: 32
-        end:
-          line: 8522
-          column: 37
-        classification: false_positive
-      - path: "internal/p10k.zsh"
         code: "C081"
         severity: "warning"
         message: "quote the right-hand side so string comparisons do not turn into glob matches"
@@ -11787,17 +11446,6 @@ repos:
           line: 9306
           column: 1
         classification: real
-      - path: "internal/p10k.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_intro_no_reply` is referenced before assignment"
-        start:
-          line: 9316
-          column: 9
-        end:
-          line: 9316
-          column: 30
-        classification: false_positive
       - path: "internal/p10k.zsh"
         code: "C005"
         severity: "warning"
@@ -12602,39 +12250,6 @@ repos:
           column: 20
         classification: real
       - path: "internal/wizard.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_zshrc_u` is referenced before assignment"
-        start:
-          line: 268
-          column: 85
-        end:
-          line: 268
-          column: 99
-        classification: false_positive
-      - path: "internal/wizard.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_wizard_columns` is referenced before assignment"
-        start:
-          line: 317
-          column: 32
-        end:
-          line: 317
-          column: 52
-        classification: false_positive
-      - path: "internal/wizard.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_wizard_lines` is referenced before assignment"
-        start:
-          line: 322
-          column: 32
-        end:
-          line: 322
-          column: 50
-        classification: false_positive
-      - path: "internal/wizard.zsh"
         code: "C001"
         severity: "warning"
         message: "variable `columns` is assigned but never used"
@@ -13207,28 +12822,6 @@ repos:
           column: 2
         classification: real
       - path: "internal/wizard.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_cfg_path` is referenced before assignment"
-        start:
-          line: 1597
-          column: 14
-        end:
-          line: 1597
-          column: 29
-        classification: false_positive
-      - path: "internal/wizard.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_cfg_path_u` is referenced before assignment"
-        start:
-          line: 1601
-          column: 47
-        end:
-          line: 1601
-          column: 75
-        classification: false_positive
-      - path: "internal/wizard.zsh"
         code: "C005"
         severity: "warning"
         message: "shell expansion inside single quotes stays literal"
@@ -13238,17 +12831,6 @@ repos:
         end:
           line: 1612
           column: 33
-        classification: false_positive
-      - path: "internal/wizard.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_cfg_basename` is referenced before assignment"
-        start:
-          line: 1618
-          column: 43
-        end:
-          line: 1618
-          column: 62
         classification: false_positive
       - path: "internal/wizard.zsh"
         code: "C124"
@@ -13261,39 +12843,6 @@ repos:
           line: 1707
           column: 2
         classification: real
-      - path: "internal/wizard.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_zd` is referenced before assignment"
-        start:
-          line: 1650
-          column: 14
-        end:
-          line: 1650
-          column: 23
-        classification: false_positive
-      - path: "internal/wizard.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_zd_u` is referenced before assignment"
-        start:
-          line: 1652
-          column: 46
-        end:
-          line: 1652
-          column: 68
-        classification: false_positive
-      - path: "internal/wizard.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_zshrc` is referenced before assignment"
-        start:
-          line: 1654
-          column: 14
-        end:
-          line: 1654
-          column: 26
-        classification: false_positive
       - path: "internal/wizard.zsh"
         code: "C005"
         severity: "warning"
@@ -13349,17 +12898,6 @@ repos:
           line: 2045
           column: 2
         classification: real
-      - path: "internal/wizard.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `__p9k_cfg_path_o` is referenced before assignment"
-        start:
-          line: 2019
-          column: 12
-        end:
-          line: 2019
-          column: 29
-        classification: false_positive
       - path: "internal/wizard.zsh"
         code: "C005"
         severity: "warning"
