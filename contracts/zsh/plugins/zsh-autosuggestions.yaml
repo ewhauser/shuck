@@ -19,3 +19,38 @@ contracts:
       consumes:
         prefixes:
           - ZSH_AUTOSUGGEST_
+
+  - id: zsh/plugin/zsh-autosuggestions/request-config
+    groups:
+      - zsh
+      - zsh/plugin
+      - zsh/plugin/zsh-autosuggestions
+    label: Zsh autosuggestions requesting-file configuration prefix
+    when:
+      type: zsh_plugin
+      framework: zsh-autosuggestions
+      plugin: zsh-autosuggestions
+    effects:
+      consumes:
+        prefixes:
+          - ZSH_AUTOSUGGEST_
+
+  - id: zsh/plugin/zsh-autosuggestions/prezto-module-config
+    groups:
+      - zsh
+      - zsh/plugin
+      - zsh/plugin/zsh-autosuggestions
+    label: Prezto autosuggestions module configuration prefix
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        contains-any:
+          - ZSH_AUTOSUGGEST_
+    files:
+      - "**/prezto/modules/autosuggestions/**"
+    effects:
+      consumes:
+        prefixes:
+          - ZSH_AUTOSUGGEST_

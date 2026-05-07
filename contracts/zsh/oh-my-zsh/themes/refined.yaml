@@ -1,0 +1,27 @@
+version: 1
+contracts:
+  - id: zsh/oh-my-zsh/theme/refined/vcs-info
+    groups:
+      - zsh
+      - zsh/oh-my-zsh
+      - zsh/oh-my-zsh/theme
+      - zsh/oh-my-zsh/theme/refined
+    label: Oh My Zsh refined theme vcs_info prompt variables
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        mentions-any-names:
+          - vcs_info_msg_0_
+          - vcs_info_msg_1_
+          - vcs_info_msg_2_
+    files:
+      - "**/oh-my-zsh/themes/refined.zsh-theme"
+      - "**/ohmyzsh/themes/refined.zsh-theme"
+    effects:
+      provides:
+        ambient-variables:
+          - vcs_info_msg_0_
+          - vcs_info_msg_1_
+          - vcs_info_msg_2_

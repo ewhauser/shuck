@@ -1,0 +1,23 @@
+version: 1
+contracts:
+  - id: zsh/oh-my-zsh/theme/adben/prompt-prefixes
+    groups:
+      - zsh
+      - zsh/oh-my-zsh
+      - zsh/oh-my-zsh/theme
+      - zsh/oh-my-zsh/theme/adben
+    label: Oh My Zsh adben theme prompt configuration prefixes
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        assigns-any-prefixes:
+          - ZSH_THEME_
+    files:
+      - "**/oh-my-zsh/themes/adben.zsh-theme"
+      - "**/ohmyzsh/themes/adben.zsh-theme"
+    effects:
+      consumes:
+        prefixes:
+          - ZSH_THEME_
