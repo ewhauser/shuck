@@ -1213,12 +1213,20 @@ pub(super) fn single_quoted_literal_exempt_here_string(command_name: Option<&str
 
 pub(super) fn single_quoted_literal_instructional_output_argument(
     command_name: Option<&str>,
+    args: &[Word],
     redirects: &[Redirect],
     shell_behavior: &ShellBehaviorAt<'_>,
+    arg_index: usize,
     word: &Word,
     source: &str,
 ) -> bool {
     if !matches!(command_name, Some("echo" | "printf")) {
+        return false;
+    }
+
+    if command_name == Some("printf")
+        && printf_assigns_to_variable(args, arg_index, source)
+    {
         return false;
     }
 
@@ -1319,6 +1327,11 @@ fn redirected_output_fd(redirect: &Redirect) -> Option<i32> {
         | RedirectKind::DupInput
         | RedirectKind::OutputBoth => None,
     }
+}
+
+fn printf_assigns_to_variable(args: &[Word], arg_index: usize, source: &str) -> bool {
+    matches!(args.first().and_then(|word| static_word_text(word, source)), Some(text) if text == "-v")
+        && arg_index >= 2
 }
 
 fn instructional_output_literal_body(body: &str) -> bool {

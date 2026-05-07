@@ -2013,8 +2013,10 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                         )
                         || single_quoted_literal_instructional_output_argument(
                             literal_exempt_command_name,
+                            &command.args,
                             redirects,
                             &self.command_shell_behavior,
+                            arg_index,
                             word,
                             self.source,
                         )

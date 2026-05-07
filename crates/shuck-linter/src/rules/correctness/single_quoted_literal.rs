@@ -715,6 +715,14 @@ END { if (!set) exit 1 }\n\
     }
 
     #[test]
+    fn printf_v_assignment_is_not_exempt() {
+        assert_eq!(
+            c005_bash("printf -v cmd 'export PATH=\"$HOME/bin:$PATH\"'\n"),
+            1
+        );
+    }
+
+    #[test]
     fn quoted_variable_status_message_still_reports() {
         assert_eq!(c005("echo 'Your home is \"$HOME\".'\n"), 1);
     }
