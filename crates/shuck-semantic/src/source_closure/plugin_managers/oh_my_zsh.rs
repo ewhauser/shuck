@@ -63,6 +63,100 @@ fn path_text_has_oh_my_zsh_anchor(path: &str) -> bool {
     path.contains("/.oh-my-zsh/") || path.contains("/oh-my-zsh/")
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn root_keys_match_config_name() {
+        assert_eq!(OhMyZshPluginManager.root_keys(), &["oh-my-zsh"]);
+    }
+
+    #[test]
+    fn resolves_plugin_and_theme_entrypoints() {
+        let root = Path::new("/workspace/.oh-my-zsh");
+
+        assert_eq!(
+            OhMyZshPluginManager.resolve_plugin_entrypoint(root, "git"),
+            Some(PathBuf::from(
+                "/workspace/.oh-my-zsh/plugins/git/git.plugin.zsh"
+            ))
+        );
+        assert_eq!(
+            OhMyZshPluginManager.resolve_entrypoint(root, PluginRequestKind::Plugin, "fzf"),
+            Some(PathBuf::from(
+                "/workspace/.oh-my-zsh/plugins/fzf/fzf.plugin.zsh"
+            ))
+        );
+        assert_eq!(
+            OhMyZshPluginManager.resolve_theme_entrypoint(root, "agnoster"),
+            Some(PathBuf::from(
+                "/workspace/.oh-my-zsh/themes/agnoster.zsh-theme"
+            ))
+        );
+        assert_eq!(
+            OhMyZshPluginManager.resolve_entrypoint(root, PluginRequestKind::Theme, "robbyrussell"),
+            Some(PathBuf::from(
+                "/workspace/.oh-my-zsh/themes/robbyrussell.zsh-theme"
+            ))
+        );
+    }
+
+    #[test]
+    fn resolves_framework_entrypoint_source_suffix() {
+        assert_eq!(
+            OhMyZshPluginManager.resolve_source_suffix(
+                Path::new("/workspace/.oh-my-zsh"),
+                Path::new("/workspace/app/.zshrc"),
+                "/not-installed/.oh-my-zsh/oh-my-zsh.sh",
+            ),
+            Some(PathBuf::from("oh-my-zsh.sh"))
+        );
+    }
+
+    #[test]
+    fn resolves_framework_relative_source_suffixes() {
+        let root = Path::new("/workspace/.oh-my-zsh");
+
+        assert_eq!(
+            OhMyZshPluginManager.resolve_source_suffix(
+                root,
+                Path::new("/workspace/.oh-my-zsh/oh-my-zsh.sh"),
+                "/opt/app/plugins/git/git.plugin.zsh",
+            ),
+            Some(PathBuf::from("plugins/git/git.plugin.zsh"))
+        );
+        assert_eq!(
+            OhMyZshPluginManager.resolve_source_suffix(
+                root,
+                Path::new("/workspace/.oh-my-zsh/oh-my-zsh.sh"),
+                "/opt/app/themes/agnoster.zsh-theme",
+            ),
+            Some(PathBuf::from("themes/agnoster.zsh-theme"))
+        );
+        assert_eq!(
+            OhMyZshPluginManager.resolve_source_suffix(
+                root,
+                Path::new("/workspace/.oh-my-zsh/oh-my-zsh.sh"),
+                "/opt/app/lib/git.zsh",
+            ),
+            Some(PathBuf::from("lib/git.zsh"))
+        );
+    }
+
+    #[test]
+    fn rejects_unanchored_source_suffixes_outside_framework() {
+        assert_eq!(
+            OhMyZshPluginManager.resolve_source_suffix(
+                Path::new("/workspace/.oh-my-zsh"),
+                Path::new("/workspace/app/.zshrc"),
+                "/opt/app/plugins/git/git.plugin.zsh",
+            ),
+            None
+        );
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PluginListState {
     Unset,

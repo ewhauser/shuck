@@ -88,3 +88,83 @@ fn collect_zdot_plugin_requests(context: &PluginManagerContext<'_>) -> Vec<Plugi
     }
     requests
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn root_keys_match_config_name() {
+        assert_eq!(ZdotPluginManager.root_keys(), &["zdot"]);
+    }
+
+    #[test]
+    fn resolves_module_entrypoint() {
+        let root = Path::new("/workspace/zdot");
+
+        assert_eq!(
+            ZdotPluginManager.resolve_plugin_entrypoint(root, "fzf"),
+            Some(PathBuf::from("/workspace/zdot/modules/fzf/fzf.zsh"))
+        );
+        assert_eq!(
+            ZdotPluginManager.resolve_entrypoint(root, PluginRequestKind::Plugin, "tmux"),
+            Some(PathBuf::from("/workspace/zdot/modules/tmux/tmux.zsh"))
+        );
+    }
+
+    #[test]
+    fn does_not_resolve_themes() {
+        let root = Path::new("/workspace/zdot");
+
+        assert_eq!(
+            ZdotPluginManager.resolve_theme_entrypoint(root, "prompt"),
+            None
+        );
+        assert_eq!(
+            ZdotPluginManager.resolve_entrypoint(root, PluginRequestKind::Theme, "prompt"),
+            None
+        );
+    }
+
+    #[test]
+    fn resolves_bootstrap_and_framework_relative_source_suffixes() {
+        let root = Path::new("/workspace/zdot");
+
+        assert_eq!(
+            ZdotPluginManager.resolve_source_suffix(
+                root,
+                Path::new("/workspace/app/.zshrc"),
+                "/not-installed/zdot/zdot.zsh",
+            ),
+            Some(PathBuf::from("zdot.zsh"))
+        );
+        assert_eq!(
+            ZdotPluginManager.resolve_source_suffix(
+                root,
+                Path::new("/workspace/zdot/zdot.zsh"),
+                "/opt/app/core/hooks.zsh",
+            ),
+            Some(PathBuf::from("core/hooks.zsh"))
+        );
+        assert_eq!(
+            ZdotPluginManager.resolve_source_suffix(
+                root,
+                Path::new("/workspace/zdot/zdot.zsh"),
+                "/opt/app/modules/fzf/fzf.zsh",
+            ),
+            Some(PathBuf::from("modules/fzf/fzf.zsh"))
+        );
+    }
+
+    #[test]
+    fn rejects_unanchored_source_suffixes_outside_framework() {
+        assert_eq!(
+            ZdotPluginManager.resolve_source_suffix(
+                Path::new("/workspace/zdot"),
+                Path::new("/workspace/app/.zshrc"),
+                "/opt/app/core/hooks.zsh",
+            ),
+            None
+        );
+    }
+}

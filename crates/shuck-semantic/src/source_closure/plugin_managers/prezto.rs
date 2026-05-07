@@ -99,3 +99,49 @@ fn prezto_pmodload_module_names(command: &SimpleCommand, source: &str) -> Vec<St
             .map(String::as_str),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn root_keys_match_config_name() {
+        assert_eq!(PreztoPluginManager.root_keys(), &["prezto"]);
+    }
+
+    #[test]
+    fn resolves_module_entrypoint() {
+        let root = Path::new("/workspace/prezto");
+
+        assert_eq!(
+            PreztoPluginManager.resolve_plugin_entrypoint(root, "editor"),
+            Some(PathBuf::from("/workspace/prezto/modules/editor/init.zsh"))
+        );
+        assert_eq!(
+            PreztoPluginManager.resolve_entrypoint(root, PluginRequestKind::Plugin, "utility"),
+            Some(PathBuf::from("/workspace/prezto/modules/utility/init.zsh"))
+        );
+    }
+
+    #[test]
+    fn does_not_resolve_themes_or_framework_sources() {
+        let root = Path::new("/workspace/prezto");
+
+        assert_eq!(
+            PreztoPluginManager.resolve_theme_entrypoint(root, "sorin"),
+            None
+        );
+        assert_eq!(
+            PreztoPluginManager.resolve_entrypoint(root, PluginRequestKind::Theme, "sorin"),
+            None
+        );
+        assert_eq!(
+            PreztoPluginManager.resolve_source_suffix(
+                root,
+                Path::new("/workspace/prezto/init.zsh"),
+                "/not-installed/prezto/modules/editor/init.zsh",
+            ),
+            None
+        );
+    }
+}
