@@ -205,7 +205,7 @@ disabled = ["zsh/oh-my-zsh", "runtime/github-actions/env"]
 
 ---
 
-### `[lint.contracts.custom]`
+### `[[lint.contracts.custom]]`
 
 User-authored ambient contracts layered on top of, or in place of, the built-in registry.
 
@@ -220,7 +220,7 @@ Stable identifier for the custom contract.
 **Example usage**:
 
 ```toml
-[lint.contracts.custom]
+[[lint.contracts.custom]]
 id = "github-actions-env"
 ```
 
@@ -237,7 +237,7 @@ Built-in contract selectors that this custom contract replaces.
 **Example usage**:
 
 ```toml
-[lint.contracts.custom]
+[[lint.contracts.custom]]
 replaces = ["zsh/oh-my-zsh/plugin/tmux"]
 ```
 
@@ -254,7 +254,7 @@ Activation for the contract, either `"always"` or an object such as `{ type = "z
 **Example usage**:
 
 ```toml
-[lint.contracts.custom]
+[[lint.contracts.custom]]
 when = { type = "zsh_plugin", framework = "oh-my-zsh", plugin = "tmux" }
 ```
 
@@ -271,7 +271,7 @@ Optional file globs that limit where the contract applies.
 **Example usage**:
 
 ```toml
-[lint.contracts.custom]
+[[lint.contracts.custom]]
 files = ["**/.zshrc"]
 ```
 
@@ -288,7 +288,7 @@ Ambient names the activated runtime reads from the caller environment.
 **Example usage**:
 
 ```toml
-[lint.contracts.custom]
+[[lint.contracts.custom]]
 reads = ["GITHUB_ENV", "GITHUB_OUTPUT"]
 ```
 
@@ -305,7 +305,7 @@ Provided function contracts with caller reads and caller-visible sets.
 **Example usage**:
 
 ```toml
-[lint.contracts.custom]
+[[lint.contracts.custom]]
 functions = [{ name = "helper", reads = ["CALLER_VALUE"], sets = ["REPLY"] }]
 ```
 
