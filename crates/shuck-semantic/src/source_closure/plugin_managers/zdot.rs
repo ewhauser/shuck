@@ -65,28 +65,67 @@ fn collect_zdot_plugin_requests(context: &PluginManagerContext<'_>) -> Vec<Plugi
         let Command::Simple(command) = &stmt.command else {
             continue;
         };
-        if static_word_text(&command.name, context.source).as_deref() != Some("zdot_load_module") {
+        let Some(command_name) = static_word_text(&command.name, context.source) else {
             continue;
-        }
+        };
         let args = static_command_args(command, context.source);
         let Some(args) = args.as_deref() else {
             continue;
         };
-        let modules = static_plugin_names(
-            args.iter()
-                .filter(|arg| !arg.starts_with('-'))
-                .map(String::as_str),
-        );
-        requests.extend(modules.into_iter().map(|module| PluginRequest {
-            framework: PluginFramework::Zdot,
-            kind: PluginRequestKind::Plugin,
-            name: module,
-            span: stmt.span,
-            explicit: false,
-            root_hint: None,
-        }));
+        match command_name.as_ref() {
+            "zdot_load_module" => {
+                let modules = static_plugin_names(
+                    args.iter()
+                        .filter(|arg| !arg.starts_with('-'))
+                        .map(String::as_str),
+                );
+                requests.extend(modules.into_iter().map(|module| PluginRequest {
+                    framework: PluginFramework::Zdot,
+                    kind: PluginRequestKind::Plugin,
+                    name: module,
+                    span: stmt.span,
+                    explicit: false,
+                    root_hint: None,
+                }));
+            }
+            "zdot_use_plugin" => {
+                if let Some(request) = zdot_plugin_request_from_spec(args, stmt.span) {
+                    requests.push(request);
+                }
+            }
+            _ => {}
+        }
     }
     requests
+}
+
+fn zdot_plugin_request_from_spec(args: &[String], span: Span) -> Option<PluginRequest> {
+    let spec = args.iter().find(|arg| !arg.starts_with('-'))?;
+    if let Some(name) = spec
+        .strip_prefix("omz:plugins/")
+        .filter(|name| !name.contains('/'))
+    {
+        return Some(PluginRequest {
+            framework: PluginFramework::OhMyZsh,
+            kind: PluginRequestKind::Plugin,
+            name: name.to_owned(),
+            span,
+            explicit: false,
+            root_hint: None,
+        });
+    }
+    let plugin = spec.rsplit('/').next()?.trim();
+    if plugin.is_empty() {
+        return None;
+    }
+    Some(PluginRequest {
+        framework: PluginFramework::Other(plugin.to_owned()),
+        kind: PluginRequestKind::Plugin,
+        name: plugin.to_owned(),
+        span,
+        explicit: false,
+        root_hint: None,
+    })
 }
 
 #[cfg(test)]
@@ -165,6 +204,43 @@ mod tests {
                 "/opt/app/core/hooks.zsh",
             ),
             None
+        );
+    }
+
+    #[test]
+    fn use_plugin_omz_specs_resolve_to_oh_my_zsh_plugins() {
+        let args = vec!["omz:plugins/zoxide".to_owned(), "defer".to_owned()];
+
+        assert_eq!(
+            zdot_plugin_request_from_spec(&args, Span::new()),
+            Some(PluginRequest {
+                framework: PluginFramework::OhMyZsh,
+                kind: PluginRequestKind::Plugin,
+                name: "zoxide".to_owned(),
+                span: Span::new(),
+                explicit: false,
+                root_hint: None,
+            })
+        );
+    }
+
+    #[test]
+    fn use_plugin_repo_specs_resolve_to_standalone_plugin_roots() {
+        let args = vec![
+            "zsh-users/zsh-autosuggestions".to_owned(),
+            "defer".to_owned(),
+        ];
+
+        assert_eq!(
+            zdot_plugin_request_from_spec(&args, Span::new()),
+            Some(PluginRequest {
+                framework: PluginFramework::Other("zsh-autosuggestions".to_owned()),
+                kind: PluginRequestKind::Plugin,
+                name: "zsh-autosuggestions".to_owned(),
+                span: Span::new(),
+                explicit: false,
+                root_hint: None,
+            })
         );
     }
 }

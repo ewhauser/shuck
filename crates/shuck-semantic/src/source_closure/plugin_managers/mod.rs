@@ -113,7 +113,50 @@ pub(super) fn collect_plugin_requests(
             requests.extend(manager.collect_plugin_requests(&context));
         }
     }
+    let mut seen = requests
+        .iter()
+        .map(plugin_request_dependency_key)
+        .collect::<FxHashSet<_>>();
+    let mut index = 0;
+    while index < requests.len() {
+        let request = requests[index].clone();
+        if let Some(manager) = manager_for_plugin_framework(&request.framework) {
+            for dependency in manager.dependent_plugin_requests(&request) {
+                if seen.insert(plugin_request_dependency_key(&dependency)) {
+                    requests.push(dependency);
+                }
+            }
+        }
+        index += 1;
+    }
     dedup_plugin_requests(requests)
+}
+
+fn plugin_request_dependency_key(
+    request: &PluginRequest,
+) -> (
+    PluginFramework,
+    PluginRequestKind,
+    String,
+    usize,
+    Option<PathBuf>,
+) {
+    (
+        request.framework.clone(),
+        request.kind,
+        request.name.clone(),
+        request.span.start.offset,
+        request.root_hint.clone(),
+    )
+}
+
+fn manager_for_plugin_framework(
+    framework: &PluginFramework,
+) -> Option<&'static dyn ZshPluginManager> {
+    ZSH_PLUGIN_MANAGERS
+        .iter()
+        .copied()
+        .find(|manager| &manager.framework() == framework)
 }
 
 pub(super) fn deferred_zsh_entrypoint_required_reads(
@@ -186,4 +229,29 @@ fn path_text_starts_with_path(path: &str, root: &Path) -> bool {
         || path
             .strip_prefix(&root_text)
             .is_some_and(|tail| tail.starts_with('/'))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dependency_dedup_key_preserves_request_anchor() {
+        let mut first = PluginRequest {
+            framework: PluginFramework::Other("zsh-autosuggestions".to_owned()),
+            kind: PluginRequestKind::Plugin,
+            name: "zsh-autosuggestions".to_owned(),
+            span: Span::new(),
+            explicit: false,
+            root_hint: None,
+        };
+        let mut second = first.clone();
+        first.span.start.offset = 10;
+        second.span.start.offset = 20;
+
+        assert_ne!(
+            plugin_request_dependency_key(&first),
+            plugin_request_dependency_key(&second)
+        );
+    }
 }

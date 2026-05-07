@@ -41,6 +41,31 @@ impl ZshPluginFramework for PreztoPluginManager {
     ) -> Option<PathBuf> {
         None
     }
+
+    fn dependent_plugin_requests(&self, request: &PluginRequest) -> Vec<PluginRequest> {
+        if request.kind != PluginRequestKind::Plugin {
+            return Vec::new();
+        }
+        let Some(framework_name) = prezto_external_module_framework(&request.name) else {
+            return Vec::new();
+        };
+        vec![PluginRequest {
+            framework: PluginFramework::Other(framework_name.to_owned()),
+            kind: PluginRequestKind::Plugin,
+            name: framework_name.to_owned(),
+            span: request.span,
+            explicit: false,
+            root_hint: None,
+        }]
+    }
+}
+
+fn prezto_external_module_framework(module: &str) -> Option<&'static str> {
+    match module {
+        "autosuggestions" => Some("zsh-autosuggestions"),
+        "syntax-highlighting" => Some("zsh-syntax-highlighting"),
+        _ => None,
+    }
 }
 
 fn collect_prezto_plugin_requests(context: &PluginManagerContext<'_>) -> Vec<PluginRequest> {
@@ -145,6 +170,30 @@ mod tests {
                 "/not-installed/prezto/modules/editor/init.zsh",
             ),
             None
+        );
+    }
+
+    #[test]
+    fn declares_external_module_dependencies() {
+        let request = PluginRequest {
+            framework: PluginFramework::Prezto,
+            kind: PluginRequestKind::Plugin,
+            name: "autosuggestions".to_owned(),
+            span: Span::new(),
+            explicit: false,
+            root_hint: None,
+        };
+
+        assert_eq!(
+            PreztoPluginManager.dependent_plugin_requests(&request),
+            vec![PluginRequest {
+                framework: PluginFramework::Other("zsh-autosuggestions".to_owned()),
+                kind: PluginRequestKind::Plugin,
+                name: "zsh-autosuggestions".to_owned(),
+                span: request.span,
+                explicit: false,
+                root_hint: None,
+            }]
         );
     }
 }

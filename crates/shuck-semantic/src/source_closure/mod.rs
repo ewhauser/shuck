@@ -35,11 +35,12 @@ use plugin_managers::{
 };
 
 use crate::{
-    Binding, BindingKind, ContractCertainty, FileContract, FunctionContract, FunctionScopeKind,
-    PluginFramework, PluginRequest, PluginRequestKind, PluginResolver, ProvidedBinding,
-    ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel, SourcePathResolver,
-    SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution, SpanKey, SyntheticRead,
-    build_semantic_model_base, infer_explicit_parse_dialect_from_source,
+    Binding, BindingKind, ContractCertainty, FileContract, FileEntryContractCollector,
+    FileEntryContractCollectorFactory, FunctionContract, FunctionScopeKind, PluginFramework,
+    PluginRequest, PluginRequestKind, PluginResolver, ProvidedBinding, ProvidedBindingKind,
+    ScopeId, ScopeKind, SemanticModel, SourcePathResolver, SourceRefDiagnosticClass, SourceRefKind,
+    SourceRefResolution, SpanKey, SyntheticRead, build_semantic_model_base,
+    infer_explicit_parse_dialect_from_source,
 };
 
 #[derive(Debug, Clone)]
@@ -72,10 +73,20 @@ type SourceRefMetadataResult = (
 struct SourceClosureLookupContext<'a> {
     source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
     plugin_resolver: Option<&'a (dyn PluginResolver + Send + Sync)>,
+    file_entry_contract_collector_factory:
+        Option<&'a (dyn FileEntryContractCollectorFactory + Send + Sync)>,
     analyzed_paths: Option<&'a FxHashSet<PathBuf>>,
     shell_profile: ShellProfile,
     resolved_helper_paths: RefCell<FxHashMap<HelperPathResolutionKey, HelperPathResolution>>,
     dependency_paths: RefCell<FxHashSet<PathBuf>>,
+}
+
+pub(crate) struct SourceClosureResolverConfig<'a> {
+    pub(crate) source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
+    pub(crate) plugin_resolver: Option<&'a (dyn PluginResolver + Send + Sync)>,
+    pub(crate) file_entry_contract_collector_factory:
+        Option<&'a (dyn FileEntryContractCollectorFactory + Send + Sync)>,
+    pub(crate) analyzed_paths: Option<&'a FxHashSet<PathBuf>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -133,16 +144,15 @@ pub(crate) fn collect_source_closure_contracts(
     file: &File,
     source: &str,
     source_path: &Path,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
-    analyzed_paths: Option<&FxHashSet<PathBuf>>,
+    config: SourceClosureResolverConfig<'_>,
 ) -> SourceClosureContractResult {
     let mut summaries = FxHashMap::default();
     let mut active = FxHashSet::default();
     let context = SourceClosureLookupContext {
-        source_path_resolver,
-        plugin_resolver,
-        analyzed_paths,
+        source_path_resolver: config.source_path_resolver,
+        plugin_resolver: config.plugin_resolver,
+        file_entry_contract_collector_factory: config.file_entry_contract_collector_factory,
+        analyzed_paths: config.analyzed_paths,
         shell_profile: model.shell_profile().clone(),
         resolved_helper_paths: RefCell::new(FxHashMap::default()),
         dependency_paths: RefCell::new(FxHashSet::default()),
@@ -181,6 +191,7 @@ pub(crate) fn collect_source_ref_metadata(
     let context = SourceClosureLookupContext {
         source_path_resolver,
         plugin_resolver: None,
+        file_entry_contract_collector_factory: None,
         analyzed_paths,
         shell_profile: model.shell_profile().clone(),
         resolved_helper_paths: RefCell::new(FxHashMap::default()),
@@ -1594,8 +1605,7 @@ fn summarize_helper(
         shell_profile,
         summaries,
         active,
-        context.source_path_resolver,
-        context.plugin_resolver,
+        context,
     );
     active.remove(&key);
     summaries.insert(key, summary.clone());
@@ -1610,8 +1620,7 @@ fn summarize_helper_uncached(
     shell_profile: ShellProfile,
     summaries: &mut FxHashMap<HelperSummaryKey, FileContract>,
     active: &mut FxHashSet<HelperSummaryKey>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
+    context: &SourceClosureLookupContext<'_>,
 ) -> FileContract {
     let output = Parser::with_profile(source, shell_profile.clone()).parse();
     if output.is_err() {
@@ -1619,6 +1628,9 @@ fn summarize_helper_uncached(
     }
     let indexer = Indexer::new(source, &output);
     let mut observer = crate::NoopTraversalObserver;
+    let mut file_entry_contract_collector = context
+        .file_entry_contract_collector_factory
+        .and_then(|factory| factory.collector_for_file(source, Some(path), &shell_profile));
     let mut semantic = build_semantic_model_base(
         &output.file,
         source,
@@ -1626,8 +1638,16 @@ fn summarize_helper_uncached(
         &mut observer,
         Some(path),
         Some(shell_profile.clone()),
-        None,
+        file_entry_contract_collector
+            .as_mut()
+            .map(|collector| &mut **collector as &mut dyn FileEntryContractCollector),
     );
+    if let Some(contract) = file_entry_contract_collector
+        .as_ref()
+        .and_then(|collector| collector.finish())
+    {
+        semantic.apply_file_entry_contract(contract, &output.file);
+    }
     let collected = collect_source_closure_contracts_with_cache(
         &semantic,
         &output.file,
@@ -1636,8 +1656,9 @@ fn summarize_helper_uncached(
         summaries,
         active,
         &SourceClosureLookupContext {
-            source_path_resolver,
-            plugin_resolver,
+            source_path_resolver: context.source_path_resolver,
+            plugin_resolver: context.plugin_resolver,
+            file_entry_contract_collector_factory: context.file_entry_contract_collector_factory,
             analyzed_paths: None,
             shell_profile,
             resolved_helper_paths: RefCell::new(FxHashMap::default()),
@@ -1963,6 +1984,7 @@ noglob source \"$3\"
         let context = SourceClosureLookupContext {
             source_path_resolver: None,
             plugin_resolver: None,
+            file_entry_contract_collector_factory: None,
             analyzed_paths: None,
             shell_profile: ShellProfile::native(ParseShellDialect::Bash),
             resolved_helper_paths: RefCell::new(FxHashMap::default()),
@@ -1998,6 +2020,7 @@ noglob source \"$3\"
         let context = SourceClosureLookupContext {
             source_path_resolver: None,
             plugin_resolver: None,
+            file_entry_contract_collector_factory: None,
             analyzed_paths: None,
             shell_profile: ShellProfile::native(ParseShellDialect::Bash),
             resolved_helper_paths: RefCell::new(FxHashMap::default()),
@@ -2083,6 +2106,7 @@ noglob source \"$3\"
         let context = SourceClosureLookupContext {
             source_path_resolver: None,
             plugin_resolver: None,
+            file_entry_contract_collector_factory: None,
             analyzed_paths: None,
             shell_profile: ShellProfile::native(ParseShellDialect::Bash),
             resolved_helper_paths: RefCell::new(FxHashMap::default()),
