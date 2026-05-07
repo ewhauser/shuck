@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.0.39](https://github.com/ewhauser/shuck/compare/v0.0.38...v0.0.39) (2026-05-07)
+
+
+### Features
+
+* **semantic:** resolve zsh plugin dependencies ([#959](https://github.com/ewhauser/shuck/issues/959)) ([5f92ac1](https://github.com/ewhauser/shuck/commit/5f92ac1f75b59eeaf18421a14a8d9e336eb0fd32))
+
+
+### Bug Fixes
+
+* **linter:** handle zsh positional parameter subscripts ([#958](https://github.com/ewhauser/shuck/issues/958)) ([07456ca](https://github.com/ewhauser/shuck/commit/07456cab418d7cde494b0a6904e299bf2db8bcef))
+* **semantic:** model unresolved zsh reply helper outputs ([#960](https://github.com/ewhauser/shuck/issues/960)) ([3b34dd7](https://github.com/ewhauser/shuck/commit/3b34dd752c4ef522bb0a914671bd1d931b222707))
+
+
+### Documentation
+
+* bump pre-commit rev pins to v0.0.38 ([#962](https://github.com/ewhauser/shuck/issues/962)) ([46bcfa0](https://github.com/ewhauser/shuck/commit/46bcfa0b44a241ee2931b9ab2a9ea652f0897b62))
+
 ## [0.0.38](https://github.com/ewhauser/shuck/compare/v0.0.37...v0.0.38) (2026-05-07)
 
 
