@@ -1171,6 +1171,51 @@ fn test_parameter_forms_preserve_selector_kinds() {
 }
 
 #[test]
+fn test_zsh_positional_parameter_subscripts_preserve_ordinary_subscripts() {
+    let input = "print ${@[_i]} ${@[2,-1]:-fallback}\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+    let command = expect_simple(&script.body[0]);
+
+    let reference = expect_array_access(&command.args[0]);
+    let subscript = expect_subscript(reference, input, "_i");
+    assert!(matches!(subscript.kind, SubscriptKind::Ordinary));
+    assert_eq!(subscript.selector(), None);
+    assert!(subscript.word_ast().is_some());
+
+    let parameter = expect_parameter(&command.args[1]);
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+        reference,
+        operator,
+        operand,
+        colon_variant,
+        ..
+    }) = &parameter.syntax
+    else {
+        panic!("expected zsh positional parameter operation");
+    };
+    assert_eq!(reference.name.as_str(), "@");
+    let subscript = reference
+        .subscript
+        .as_deref()
+        .expect("expected positional subscript");
+    assert!(matches!(subscript.kind, SubscriptKind::Ordinary));
+    assert_eq!(subscript.selector(), None);
+    assert_eq!(subscript.syntax_text(input), "2,-1");
+    assert!(matches!(operator.as_ref(), ParameterOp::UseDefault));
+    assert!(*colon_variant);
+    assert_eq!(
+        operand
+            .as_ref()
+            .expect("expected default operand")
+            .slice(input),
+        "fallback"
+    );
+}
+
+#[test]
 fn test_braced_special_parameters_parse_as_parameter_accesses() {
     let input = "echo ${#} ${$} ${!}\n";
     let script = Parser::new(input).parse().unwrap().file;

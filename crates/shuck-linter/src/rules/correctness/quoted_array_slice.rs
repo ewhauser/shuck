@@ -33,7 +33,7 @@ pub fn quoted_array_slice(checker: &mut Checker) {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_all_elements_array_expansions_in_scalar_bindings() {
@@ -124,5 +124,44 @@ if [ \"${arr[@]:1}\" = foo ]; then :; fi
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedArraySlice));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_zsh_indexed_and_sliced_positional_parameter_assignments() {
+        let source = "\
+#!/bin/zsh
+selected=\"${@[_i]}\"
+selected_short=\"$@[_i]\"
+scope=\"${@[_i]:-}\"
+initial_query=\"${@[2,-1]:-}\"
+fallback=\"${@[5,-1]:-fallback}\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedArraySlice).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_zsh_positional_star_selector_assignments() {
+        let source = "\
+#!/bin/zsh
+selected=\"${@[*]}\"
+selected_short=\"$@[*]\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedArraySlice).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"${@[*]}\"", "\"$@[*]\""]
+        );
     }
 }

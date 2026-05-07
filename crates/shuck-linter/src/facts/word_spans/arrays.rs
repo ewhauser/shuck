@@ -4,47 +4,76 @@ pub fn collect_array_expansion_part_spans(word: &Word, spans: &mut Vec<Span>) {
     collect_array_expansion_spans(&word.parts, false, false, spans);
 }
 
-pub fn all_elements_array_expansion_part_spans(word: &Word, locator: Locator<'_>) -> Vec<Span> {
+pub fn all_elements_array_expansion_part_spans(
+    word: &Word,
+    locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_all_elements_array_expansion_part_spans(word, locator, &mut spans);
+    collect_all_elements_array_expansion_part_spans(word, locator, shell_dialect, &mut spans);
     spans
 }
 
 pub fn collect_all_elements_array_expansion_part_spans(
     word: &Word,
     locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
     spans: &mut Vec<Span>,
 ) {
-    collect_all_elements_array_expansion_spans(&word.parts, locator, spans);
+    collect_all_elements_array_expansion_spans(&word.parts, locator, shell_dialect, spans);
 }
 
-pub fn word_has_all_elements_array_expansion_syntax(word: &Word) -> bool {
-    parts_have_all_elements_array_expansion_syntax(&word.parts)
+pub fn word_has_all_elements_array_expansion_syntax(
+    word: &Word,
+    source: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
+    parts_have_all_elements_array_expansion_syntax(&word.parts, source, shell_dialect)
 }
 
 pub fn direct_all_elements_array_expansion_part_spans(
     word: &Word,
     locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
 ) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_direct_all_elements_array_expansion_part_spans(word, locator, &mut spans);
+    collect_direct_all_elements_array_expansion_part_spans(
+        word,
+        locator,
+        shell_dialect,
+        &mut spans,
+    );
     spans
 }
 
 pub fn collect_direct_all_elements_array_expansion_part_spans(
     word: &Word,
     locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
     spans: &mut Vec<Span>,
 ) {
-    collect_direct_all_elements_array_expansion_spans(&word.parts, word.span, locator, spans);
+    collect_direct_all_elements_array_expansion_spans(
+        &word.parts,
+        word.span,
+        locator,
+        shell_dialect,
+        spans,
+    );
 }
 
 pub fn collect_unquoted_all_elements_array_expansion_part_spans(
     word: &Word,
     source: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
     spans: &mut Vec<Span>,
 ) {
-    collect_unquoted_all_elements_array_expansion_spans(&word.parts, false, source, spans);
+    collect_unquoted_all_elements_array_expansion_spans(
+        &word.parts,
+        false,
+        source,
+        shell_dialect,
+        spans,
+    );
 }
 
 pub fn word_quoted_all_elements_array_slice_spans(word: &Word) -> Vec<Span> {
@@ -60,8 +89,9 @@ pub fn word_has_quoted_all_elements_array_slice(word: &Word) -> bool {
 pub fn word_has_direct_all_elements_array_expansion_in_source(
     word: &Word,
     locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
 ) -> bool {
-    !direct_all_elements_array_expansion_part_spans(word, locator).is_empty()
+    !direct_all_elements_array_expansion_part_spans(word, locator, shell_dialect).is_empty()
 }
 
 pub fn word_quoted_unindexed_bash_source_span_in_source(word: &Word, source: &str) -> Option<Span> {
@@ -130,17 +160,18 @@ pub fn word_folded_positional_at_splat_span_in_source(word: &Word, source: &str)
 pub fn word_folded_all_elements_array_span_in_source(
     word: &Word,
     locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
 ) -> Option<Span> {
     let source = locator.source();
-    let spans = folded_all_elements_array_candidate_spans(word, locator)
+    let spans = folded_all_elements_array_candidate_spans(word, locator, shell_dialect)
         .into_iter()
         .filter(|span| !span_is_escaped(*span, source))
         .collect::<Vec<_>>();
     let first = spans.first().copied()?;
 
     if spans.len() == 1
-        && (word_has_single_folded_all_elements_array_part(word)
-            || all_elements_array_expansion_is_standalone(word, locator))
+        && (word_has_single_folded_all_elements_array_part_in_dialect(word, shell_dialect)
+            || all_elements_array_expansion_is_standalone(word, locator, shell_dialect))
     {
         return None;
     }
@@ -151,15 +182,22 @@ pub fn word_folded_all_elements_array_span_in_source(
 pub(crate) fn folded_all_elements_array_candidate_spans(
     word: &Word,
     locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
 ) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_folded_all_elements_array_candidate_spans(&word.parts, locator, &mut spans);
+    collect_folded_all_elements_array_candidate_spans(
+        &word.parts,
+        locator,
+        shell_dialect,
+        &mut spans,
+    );
     spans
 }
 
 pub(crate) fn collect_folded_all_elements_array_candidate_spans(
     parts: &[WordPartNode],
     locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
     spans: &mut Vec<Span>,
 ) {
     let source = locator.source();
@@ -167,28 +205,40 @@ pub(crate) fn collect_folded_all_elements_array_candidate_spans(
         match &part.kind {
             WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
-                collect_folded_all_elements_array_candidate_spans(parts, locator, spans)
+                collect_folded_all_elements_array_candidate_spans(
+                    parts,
+                    locator,
+                    shell_dialect,
+                    spans,
+                )
             }
             WordPart::Parameter(parameter)
                 if parameter_uses_replacement_all_elements_array_expansion(parameter) =>
             {
                 spans.push(part.span);
             }
-            _ if part_uses_direct_all_elements_array_expansion(&part.kind) => {
-                if let Some(span) =
-                    normalize_direct_all_elements_array_expansion_span(part.span, locator)
-                {
+            _ if part_uses_direct_all_elements_array_expansion(&part.kind, shell_dialect) => {
+                if let Some(span) = normalize_direct_all_elements_array_expansion_span(
+                    part.span,
+                    locator,
+                    shell_dialect,
+                ) {
                     spans.push(span);
                 }
             }
             WordPart::Parameter(parameter)
                 if parameter_might_use_all_elements_array_expansion(
-                    parameter, part.span, source,
+                    parameter,
+                    part.span,
+                    source,
+                    shell_dialect,
                 ) =>
             {
-                if let Some(span) =
-                    normalize_nested_direct_all_elements_array_expansion_span(part.span, locator)
-                {
+                if let Some(span) = normalize_nested_direct_all_elements_array_expansion_span(
+                    part.span,
+                    locator,
+                    shell_dialect,
+                ) {
                     spans.push(span);
                 }
             }
@@ -262,6 +312,7 @@ pub(crate) fn collect_array_expansion_spans(
 pub(crate) fn collect_all_elements_array_expansion_spans(
     parts: &[WordPartNode],
     locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
     spans: &mut Vec<Span>,
 ) {
     let source = locator.source();
@@ -269,38 +320,29 @@ pub(crate) fn collect_all_elements_array_expansion_spans(
         match &part.kind {
             WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
-                collect_all_elements_array_expansion_spans(parts, locator, spans)
+                collect_all_elements_array_expansion_spans(parts, locator, shell_dialect, spans)
             }
             WordPart::Variable(name) if name.as_str() == "@" => {
-                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, locator)
+                if let Some(span) =
+                    normalize_all_elements_array_expansion_span(part.span, locator, shell_dialect)
                 {
                     spans.push(span);
                 }
             }
             WordPart::ArrayAccess(reference)
-                if matches!(
-                    reference
-                        .subscript
-                        .as_ref()
-                        .and_then(|subscript| subscript.selector()),
-                    Some(SubscriptSelector::At)
-                ) =>
+                if var_ref_uses_all_elements_at_splat_in_dialect(reference, shell_dialect) =>
             {
-                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, locator)
+                if let Some(span) =
+                    normalize_all_elements_array_expansion_span(part.span, locator, shell_dialect)
                 {
                     spans.push(span);
                 }
             }
             WordPart::ArrayIndices(reference)
-                if matches!(
-                    reference
-                        .subscript
-                        .as_ref()
-                        .and_then(|subscript| subscript.selector()),
-                    Some(SubscriptSelector::At)
-                ) =>
+                if var_ref_uses_all_elements_at_splat_in_dialect(reference, shell_dialect) =>
             {
-                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, locator)
+                if let Some(span) =
+                    normalize_all_elements_array_expansion_span(part.span, locator, shell_dialect)
                 {
                     spans.push(span);
                 }
@@ -309,17 +351,22 @@ pub(crate) fn collect_all_elements_array_expansion_spans(
                 kind: PrefixMatchKind::At,
                 ..
             } => {
-                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, locator)
+                if let Some(span) =
+                    normalize_all_elements_array_expansion_span(part.span, locator, shell_dialect)
                 {
                     spans.push(span);
                 }
             }
             WordPart::Parameter(parameter)
                 if parameter_might_use_all_elements_array_expansion(
-                    parameter, part.span, source,
+                    parameter,
+                    part.span,
+                    source,
+                    shell_dialect,
                 ) =>
             {
-                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, locator)
+                if let Some(span) =
+                    normalize_all_elements_array_expansion_span(part.span, locator, shell_dialect)
                 {
                     spans.push(span);
                 }
@@ -330,55 +377,84 @@ pub(crate) fn collect_all_elements_array_expansion_spans(
     }
 }
 
-pub(crate) fn parts_have_all_elements_array_expansion_syntax(parts: &[WordPartNode]) -> bool {
-    parts.iter().any(|part| match &part.kind {
-        WordPart::SingleQuoted { .. } => false,
-        WordPart::DoubleQuoted { parts, .. } => {
-            parts_have_all_elements_array_expansion_syntax(parts)
+pub(crate) fn parts_have_all_elements_array_expansion_syntax(
+    parts: &[WordPartNode],
+    source: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
+    for (index, part) in parts.iter().enumerate() {
+        let has_match = match &part.kind {
+            WordPart::SingleQuoted { .. } => false,
+            WordPart::DoubleQuoted { parts, .. } => {
+                parts_have_all_elements_array_expansion_syntax(parts, source, shell_dialect)
+            }
+            WordPart::Variable(name) => {
+                name.as_str() == "@"
+                    && !part_has_zsh_short_positional_subscript(parts, index, source, shell_dialect)
+            }
+            WordPart::ArrayAccess(reference) | WordPart::ArrayIndices(reference) => {
+                var_ref_uses_all_elements_at_splat_in_dialect(reference, shell_dialect)
+            }
+            WordPart::ArraySlice { reference, .. } => {
+                var_ref_uses_all_elements_at_splat_in_dialect(reference, shell_dialect)
+            }
+            WordPart::PrefixMatch {
+                kind: PrefixMatchKind::At,
+                ..
+            } => true,
+            WordPart::PrefixMatch {
+                kind: PrefixMatchKind::Star,
+                ..
+            } => false,
+            WordPart::Parameter(parameter) => {
+                parameter_uses_unquoted_all_elements_array_expansion(parameter, shell_dialect)
+            }
+            WordPart::Literal(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::Substring { .. }
+            | WordPart::ArrayLength(_)
+            | WordPart::ZshQualifiedGlob(_) => false,
+        };
+
+        if has_match {
+            return true;
         }
-        WordPart::Variable(name) => name.as_str() == "@",
-        WordPart::ArrayAccess(reference) | WordPart::ArrayIndices(reference) => {
-            var_ref_uses_all_elements_at_splat(reference)
-        }
-        WordPart::ArraySlice { reference, .. } => var_ref_uses_all_elements_at_splat(reference),
-        WordPart::PrefixMatch {
-            kind: PrefixMatchKind::At,
-            ..
-        } => true,
-        WordPart::PrefixMatch {
-            kind: PrefixMatchKind::Star,
-            ..
-        } => false,
-        WordPart::Parameter(parameter) => {
-            parameter_uses_unquoted_all_elements_array_expansion(parameter)
-        }
-        WordPart::Literal(_)
-        | WordPart::CommandSubstitution { .. }
-        | WordPart::ArithmeticExpansion { .. }
-        | WordPart::Length(_)
-        | WordPart::ParameterExpansion { .. }
-        | WordPart::IndirectExpansion { .. }
-        | WordPart::ProcessSubstitution { .. }
-        | WordPart::Transformation { .. }
-        | WordPart::Substring { .. }
-        | WordPart::ArrayLength(_)
-        | WordPart::ZshQualifiedGlob(_) => false,
-    })
+    }
+
+    false
 }
 
 pub(crate) fn collect_unquoted_all_elements_array_expansion_spans(
     parts: &[WordPartNode],
     quoted: bool,
     _source: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
     spans: &mut Vec<Span>,
 ) {
     for part in parts {
         match &part.kind {
             WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
-                collect_unquoted_all_elements_array_expansion_spans(parts, true, _source, spans)
+                collect_unquoted_all_elements_array_expansion_spans(
+                    parts,
+                    true,
+                    _source,
+                    shell_dialect,
+                    spans,
+                )
             }
-            _ if !quoted && part_uses_unquoted_all_elements_array_expansion(&part.kind) => {
+            _ if !quoted
+                && part_uses_unquoted_all_elements_array_expansion_in_dialect(
+                    &part.kind,
+                    shell_dialect,
+                ) =>
+            {
                 spans.push(part.span)
             }
             _ => {}
@@ -410,6 +486,7 @@ pub(crate) fn collect_direct_all_elements_array_expansion_spans(
     parts: &[WordPartNode],
     word_span: Span,
     locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
     spans: &mut Vec<Span>,
 ) {
     let source = locator.source();
@@ -420,23 +497,36 @@ pub(crate) fn collect_direct_all_elements_array_expansion_spans(
         match &part.kind {
             WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
-                collect_direct_all_elements_array_expansion_spans(parts, word_span, locator, spans)
+                collect_direct_all_elements_array_expansion_spans(
+                    parts,
+                    word_span,
+                    locator,
+                    shell_dialect,
+                    spans,
+                )
             }
-            _ if part_uses_direct_all_elements_array_expansion(&part.kind) => {
-                if let Some(span) =
-                    normalize_direct_all_elements_array_expansion_span(part.span, locator)
-                {
+            _ if part_uses_direct_all_elements_array_expansion(&part.kind, shell_dialect) => {
+                if let Some(span) = normalize_direct_all_elements_array_expansion_span(
+                    part.span,
+                    locator,
+                    shell_dialect,
+                ) {
                     spans.push(span);
                 }
             }
             WordPart::Parameter(parameter)
                 if parameter_might_use_all_elements_array_expansion(
-                    parameter, part.span, source,
+                    parameter,
+                    part.span,
+                    source,
+                    shell_dialect,
                 ) =>
             {
-                if let Some(span) =
-                    normalize_nested_direct_all_elements_array_expansion_span(part.span, locator)
-                {
+                if let Some(span) = normalize_nested_direct_all_elements_array_expansion_span(
+                    part.span,
+                    locator,
+                    shell_dialect,
+                ) {
                     spans.push(span);
                 }
             }
@@ -588,11 +678,17 @@ pub(crate) fn collect_quoted_unindexed_bash_source_spans(
 pub(crate) fn normalize_all_elements_array_expansion_span(
     span: Span,
     locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
 ) -> Option<Span> {
     let source = locator.source();
     let text = span.slice(source);
+    if text == "$@"
+        && source_starts_with_non_at_selector_subscript(&source[span.end.offset..], shell_dialect)
+    {
+        return None;
+    }
     if !span_is_escaped(span, source)
-        && (text == "$@" || candidate_is_all_elements_array_expansion(text))
+        && (text == "$@" || candidate_is_all_elements_array_expansion(text, shell_dialect))
     {
         return Some(span);
     }
@@ -611,7 +707,11 @@ pub(crate) fn normalize_all_elements_array_expansion_span(
         let start = locator.position_at_offset(absolute_start)?;
         let remainder = &source[absolute_start..];
 
-        if remainder.starts_with("$@") {
+        if let Some(after_at) = remainder.strip_prefix("$@") {
+            if source_starts_with_non_at_selector_subscript(after_at, shell_dialect) {
+                search_from = relative_start + 1;
+                continue;
+            }
             let end = locator.position_at_offset(absolute_start + "$@".len())?;
             return Some(Span::from_positions(start, end));
         }
@@ -620,7 +720,7 @@ pub(crate) fn normalize_all_elements_array_expansion_span(
             && let Some(relative_end) = remainder.find('}')
         {
             let candidate = &remainder[..=relative_end];
-            if candidate_is_all_elements_array_expansion(candidate) {
+            if candidate_is_all_elements_array_expansion(candidate, shell_dialect) {
                 let end = locator.position_at_offset(absolute_start + candidate.len())?;
                 return Some(Span::from_positions(start, end));
             }
@@ -629,17 +729,23 @@ pub(crate) fn normalize_all_elements_array_expansion_span(
         search_from = relative_start + 1;
     }
 
-    widen_all_elements_array_expansion_span(span, locator)
+    widen_all_elements_array_expansion_span(span, locator, shell_dialect)
 }
 
 pub(crate) fn normalize_direct_all_elements_array_expansion_span(
     span: Span,
     locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
 ) -> Option<Span> {
     let source = locator.source();
     let text = span.slice(source);
+    if text == "$@"
+        && source_starts_with_non_at_selector_subscript(&source[span.end.offset..], shell_dialect)
+    {
+        return None;
+    }
     if !span_is_escaped(span, source)
-        && (text == "$@" || candidate_is_direct_all_elements_array_expansion(text))
+        && (text == "$@" || candidate_is_direct_all_elements_array_expansion(text, shell_dialect))
     {
         return Some(span);
     }
@@ -658,7 +764,11 @@ pub(crate) fn normalize_direct_all_elements_array_expansion_span(
         let start = locator.position_at_offset(absolute_start)?;
         let remainder = &source[absolute_start..];
 
-        if remainder.starts_with("$@") {
+        if let Some(after_at) = remainder.strip_prefix("$@") {
+            if source_starts_with_non_at_selector_subscript(after_at, shell_dialect) {
+                search_from = relative_start + 1;
+                continue;
+            }
             let end = locator.position_at_offset(absolute_start + "$@".len())?;
             return Some(Span::from_positions(start, end));
         }
@@ -667,7 +777,7 @@ pub(crate) fn normalize_direct_all_elements_array_expansion_span(
             && let Some(relative_end) = remainder.find('}')
         {
             let candidate = &remainder[..=relative_end];
-            if candidate_is_direct_all_elements_array_expansion(candidate) {
+            if candidate_is_direct_all_elements_array_expansion(candidate, shell_dialect) {
                 let end = locator.position_at_offset(absolute_start + candidate.len())?;
                 return Some(Span::from_positions(start, end));
             }
@@ -676,12 +786,13 @@ pub(crate) fn normalize_direct_all_elements_array_expansion_span(
         search_from = relative_start + 1;
     }
 
-    widen_direct_all_elements_array_expansion_span(span, locator)
+    widen_direct_all_elements_array_expansion_span(span, locator, shell_dialect)
 }
 
 pub(crate) fn normalize_nested_direct_all_elements_array_expansion_span(
     span: Span,
     locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
 ) -> Option<Span> {
     let source = locator.source();
     #[derive(Clone, Copy, PartialEq, Eq)]
@@ -770,7 +881,13 @@ pub(crate) fn normalize_nested_direct_all_elements_array_expansion_span(
         }
 
         let remainder = &source[absolute_start..];
-        if nested_braced_depth == 0 && remainder.starts_with("$@") {
+        if nested_braced_depth == 0
+            && let Some(after_at) = remainder.strip_prefix("$@")
+        {
+            if source_starts_with_non_at_selector_subscript(after_at, shell_dialect) {
+                index += 1;
+                continue;
+            }
             let start = locator.position_at_offset(absolute_start)?;
             let end = locator.position_at_offset(absolute_start + "$@".len())?;
             return Some(Span::from_positions(start, end));
@@ -781,7 +898,7 @@ pub(crate) fn normalize_nested_direct_all_elements_array_expansion_span(
                 && let Some(relative_end) = remainder.find('}')
             {
                 let candidate = &remainder[..=relative_end];
-                if candidate_is_direct_all_elements_array_expansion(candidate) {
+                if candidate_is_direct_all_elements_array_expansion(candidate, shell_dialect) {
                     let start = locator.position_at_offset(absolute_start)?;
                     let end = locator.position_at_offset(absolute_start + candidate.len())?;
                     return Some(Span::from_positions(start, end));
@@ -802,6 +919,7 @@ pub(crate) fn normalize_nested_direct_all_elements_array_expansion_span(
 pub(crate) fn widen_all_elements_array_expansion_span(
     span: Span,
     locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
 ) -> Option<Span> {
     let source = locator.source();
     let text = span.slice(source);
@@ -821,7 +939,7 @@ pub(crate) fn widen_all_elements_array_expansion_span(
     let remainder = &source[start_offset..];
     let relative_end = remainder.find('}')?;
     let candidate = &remainder[..=relative_end];
-    if !candidate_is_all_elements_array_expansion(candidate) {
+    if !candidate_is_all_elements_array_expansion(candidate, shell_dialect) {
         return None;
     }
 
@@ -832,6 +950,7 @@ pub(crate) fn widen_all_elements_array_expansion_span(
 pub(crate) fn widen_direct_all_elements_array_expansion_span(
     span: Span,
     locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
 ) -> Option<Span> {
     let source = locator.source();
     let text = span.slice(source);
@@ -851,7 +970,7 @@ pub(crate) fn widen_direct_all_elements_array_expansion_span(
     let remainder = &source[start_offset..];
     let relative_end = remainder.find('}')?;
     let candidate = &remainder[..=relative_end];
-    if !candidate_is_direct_all_elements_array_expansion(candidate) {
+    if !candidate_is_direct_all_elements_array_expansion(candidate, shell_dialect) {
         return None;
     }
 
@@ -859,7 +978,10 @@ pub(crate) fn widen_direct_all_elements_array_expansion_span(
     Some(Span::from_positions(start, end))
 }
 
-pub(crate) fn candidate_is_all_elements_array_expansion(candidate: &str) -> bool {
+pub(crate) fn candidate_is_all_elements_array_expansion(
+    candidate: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
     let Some(inner) = candidate
         .strip_prefix("${")
         .and_then(|text| text.strip_suffix('}'))
@@ -876,7 +998,7 @@ pub(crate) fn candidate_is_all_elements_array_expansion(candidate: &str) -> bool
     };
 
     if first == b'@' {
-        return !indirect_like;
+        return !indirect_like && strip_special_at_splat_suffix(inner, shell_dialect).is_some();
     }
 
     if !is_name_start(first) {
@@ -896,7 +1018,10 @@ pub(crate) fn candidate_is_all_elements_array_expansion(candidate: &str) -> bool
     indirect_like && inner[index..].starts_with('@')
 }
 
-pub(crate) fn candidate_is_direct_all_elements_array_expansion(candidate: &str) -> bool {
+pub(crate) fn candidate_is_direct_all_elements_array_expansion(
+    candidate: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
     let Some(mut inner) = candidate
         .strip_prefix("${")
         .and_then(|text| text.strip_suffix('}'))
@@ -908,7 +1033,10 @@ pub(crate) fn candidate_is_direct_all_elements_array_expansion(candidate: &str) 
         inner = stripped;
     }
 
-    let suffix = if let Some(stripped) = inner.strip_prefix('@') {
+    let suffix = if inner.starts_with('@') {
+        let Some(stripped) = strip_special_at_splat_suffix(inner, shell_dialect) else {
+            return false;
+        };
         stripped
     } else {
         let Some(first) = inner.as_bytes().first().copied() else {
@@ -935,6 +1063,201 @@ pub(crate) fn candidate_is_direct_all_elements_array_expansion(candidate: &str) 
     }
 
     true
+}
+
+fn strip_special_at_splat_suffix(
+    inner: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> Option<&str> {
+    let suffix = inner.strip_prefix('@')?;
+
+    if let Some(stripped) = strip_zsh_positional_selector_suffix(suffix) {
+        return Some(stripped);
+    }
+
+    if shell_dialect == shuck_semantic::ShellDialect::Zsh && suffix.starts_with('[') {
+        return None;
+    }
+
+    Some(suffix)
+}
+
+fn strip_zsh_positional_selector_suffix(suffix: &str) -> Option<&str> {
+    let rest = suffix.strip_prefix('[')?;
+    let close = rest.find(']')?;
+    match &rest[..close] {
+        "@" | "*" => Some(&rest[close + 1..]),
+        _ => None,
+    }
+}
+
+fn source_starts_with_non_at_selector_subscript(
+    text: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
+    if shell_dialect != shuck_semantic::ShellDialect::Zsh {
+        return false;
+    }
+
+    let Some(rest) = text.strip_prefix('[') else {
+        return false;
+    };
+    let Some(close) = rest.find(']') else {
+        return false;
+    };
+
+    !matches!(&rest[..close], "@" | "*")
+}
+
+fn part_has_zsh_short_positional_subscript(
+    parts: &[WordPartNode],
+    index: usize,
+    source: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
+    shell_dialect == shuck_semantic::ShellDialect::Zsh
+        && parts.get(index).is_some_and(
+            |part| matches!(&part.kind, WordPart::Variable(name) if name.as_str() == "@"),
+        )
+        && parts.get(index + 1).is_some_and(|next| {
+            matches!(
+                &next.kind,
+                WordPart::Literal(text)
+                    if literal_starts_with_zsh_subscript(text.as_str(source, next.span))
+            )
+        })
+}
+
+fn literal_starts_with_zsh_subscript(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix('[') else {
+        return false;
+    };
+    rest.contains(']')
+}
+
+fn var_ref_is_zsh_indexed_positional_at(
+    reference: &VarRef,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
+    shell_dialect == shuck_semantic::ShellDialect::Zsh
+        && reference.name.as_str() == "@"
+        && reference
+            .subscript
+            .as_deref()
+            .is_some_and(|subscript| subscript.selector().is_none())
+}
+
+fn var_ref_is_zsh_ranged_positional_at(
+    reference: &VarRef,
+    source: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
+    shell_dialect == shuck_semantic::ShellDialect::Zsh
+        && reference.name.as_str() == "@"
+        && reference.subscript.as_deref().is_some_and(|subscript| {
+            subscript.selector().is_none() && subscript.syntax_text(source).contains(',')
+        })
+}
+
+fn parameter_uses_zsh_ranged_positional_at(
+    parameter: &ParameterExpansion,
+    source: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
+    let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
+        return false;
+    };
+
+    match syntax {
+        BourneParameterExpansion::Access { reference }
+        | BourneParameterExpansion::Indices { reference }
+        | BourneParameterExpansion::Slice { reference, .. } => {
+            var_ref_is_zsh_ranged_positional_at(reference, source, shell_dialect)
+        }
+        BourneParameterExpansion::Operation {
+            reference,
+            operator,
+            ..
+        } => {
+            !matches!(operator.as_ref(), ParameterOp::UseReplacement)
+                && var_ref_is_zsh_ranged_positional_at(reference, source, shell_dialect)
+        }
+        BourneParameterExpansion::Transformation { reference, .. } => {
+            var_ref_is_zsh_ranged_positional_at(reference, source, shell_dialect)
+        }
+        _ => false,
+    }
+}
+
+fn part_has_zsh_short_positional_range(
+    parts: &[WordPartNode],
+    index: usize,
+    source: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
+    shell_dialect == shuck_semantic::ShellDialect::Zsh
+        && parts.get(index).is_some_and(
+            |part| matches!(&part.kind, WordPart::Variable(name) if name.as_str() == "@"),
+        )
+        && parts.get(index + 1).is_some_and(|next| {
+            matches!(
+                &next.kind,
+                WordPart::Literal(text)
+                    if literal_starts_with_zsh_positional_range(text.as_str(source, next.span))
+            )
+        })
+}
+
+fn literal_starts_with_zsh_positional_range(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix('[') else {
+        return false;
+    };
+    let Some(close) = rest.find(']') else {
+        return false;
+    };
+
+    rest[..close].contains(',')
+}
+
+pub fn word_zsh_positional_parameter_range_spans(
+    word: &Word,
+    source: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_zsh_positional_parameter_range_spans(&word.parts, source, shell_dialect, &mut spans);
+    spans
+}
+
+fn collect_zsh_positional_parameter_range_spans(
+    parts: &[WordPartNode],
+    source: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+    spans: &mut Vec<Span>,
+) {
+    if shell_dialect != shuck_semantic::ShellDialect::Zsh {
+        return;
+    }
+
+    for (index, part) in parts.iter().enumerate() {
+        match &part.kind {
+            WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_zsh_positional_parameter_range_spans(parts, source, shell_dialect, spans);
+            }
+            WordPart::Parameter(parameter)
+                if parameter_uses_zsh_ranged_positional_at(parameter, source, shell_dialect) =>
+            {
+                spans.push(part.span);
+            }
+            WordPart::Variable(_)
+                if part_has_zsh_short_positional_range(parts, index, source, shell_dialect) =>
+            {
+                spans.push(part.span);
+            }
+            _ => {}
+        }
+    }
 }
 
 pub(crate) fn parameter_is_array_like(parameter: &ParameterExpansion) -> bool {
@@ -964,6 +1287,7 @@ pub(crate) fn parameter_might_use_all_elements_array_expansion(
     parameter: &ParameterExpansion,
     span: Span,
     source: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
 ) -> bool {
     if !span.slice(source).contains('@') {
         return false;
@@ -971,15 +1295,28 @@ pub(crate) fn parameter_might_use_all_elements_array_expansion(
 
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Slice { reference, .. }
+            | BourneParameterExpansion::Operation { reference, .. }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                !var_ref_is_zsh_indexed_positional_at(reference, shell_dialect)
+            }
             BourneParameterExpansion::Length { .. } | BourneParameterExpansion::Indirect { .. } => {
                 false
             }
             BourneParameterExpansion::PrefixMatch { kind, .. } => {
                 matches!(kind, PrefixMatchKind::At)
             }
-            _ => true,
         },
-        ParameterExpansionSyntax::Zsh(_) => true,
+        ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
+            ZshExpansionTarget::Reference(reference) => {
+                !var_ref_is_zsh_indexed_positional_at(reference, shell_dialect)
+            }
+            ZshExpansionTarget::Nested(_)
+            | ZshExpansionTarget::Word(_)
+            | ZshExpansionTarget::Empty => true,
+        },
     }
 }
 
@@ -1053,29 +1390,39 @@ pub(crate) fn part_uses_positional_at_splat(part: &WordPart) -> bool {
     }
 }
 
-pub(crate) fn part_uses_unquoted_all_elements_array_expansion(part: &WordPart) -> bool {
+pub(crate) fn part_uses_unquoted_all_elements_array_expansion_in_dialect(
+    part: &WordPart,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
     match part {
         WordPart::Variable(name) => name.as_str() == "@",
         WordPart::ArrayAccess(reference) | WordPart::ArrayIndices(reference) => {
-            var_ref_uses_all_elements_at_splat(reference)
+            var_ref_uses_all_elements_at_splat_in_dialect(reference, shell_dialect)
         }
-        WordPart::ArraySlice { reference, .. } => var_ref_uses_all_elements_at_splat(reference),
+        WordPart::ArraySlice { reference, .. } => {
+            var_ref_uses_all_elements_at_splat_in_dialect(reference, shell_dialect)
+        }
         WordPart::Parameter(parameter) => {
-            parameter_uses_unquoted_all_elements_array_expansion(parameter)
+            parameter_uses_unquoted_all_elements_array_expansion(parameter, shell_dialect)
         }
         _ => false,
     }
 }
 
-pub(crate) fn part_uses_direct_all_elements_array_expansion(part: &WordPart) -> bool {
+pub(crate) fn part_uses_direct_all_elements_array_expansion(
+    part: &WordPart,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
     match part {
         WordPart::Variable(name) => name.as_str() == "@",
         WordPart::ArrayAccess(reference) | WordPart::ArrayIndices(reference) => {
-            var_ref_uses_all_elements_at_splat(reference)
+            var_ref_uses_all_elements_at_splat_in_dialect(reference, shell_dialect)
         }
-        WordPart::ArraySlice { reference, .. } => var_ref_uses_all_elements_at_splat(reference),
+        WordPart::ArraySlice { reference, .. } => {
+            var_ref_uses_all_elements_at_splat_in_dialect(reference, shell_dialect)
+        }
         WordPart::Parameter(parameter) => {
-            parameter_uses_direct_all_elements_array_expansion(parameter)
+            parameter_uses_direct_all_elements_array_expansion(parameter, shell_dialect)
         }
         _ => false,
     }
@@ -1124,6 +1471,21 @@ pub(crate) fn var_ref_uses_all_elements_at_splat(reference: &VarRef) -> bool {
         )
 }
 
+pub(crate) fn var_ref_uses_all_elements_at_splat_in_dialect(
+    reference: &VarRef,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
+    (reference.name.as_str() == "@"
+        && !var_ref_is_zsh_indexed_positional_at(reference, shell_dialect))
+        || matches!(
+            reference
+                .subscript
+                .as_ref()
+                .and_then(|subscript| subscript.selector()),
+            Some(SubscriptSelector::At)
+        )
+}
+
 pub(crate) fn parameter_uses_all_elements_array_slice(parameter: &ParameterExpansion) -> bool {
     let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
         return false;
@@ -1138,6 +1500,7 @@ pub(crate) fn parameter_uses_all_elements_array_slice(parameter: &ParameterExpan
 
 pub(crate) fn parameter_uses_unquoted_all_elements_array_expansion(
     parameter: &ParameterExpansion,
+    shell_dialect: shuck_semantic::ShellDialect,
 ) -> bool {
     let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
         return false;
@@ -1147,7 +1510,7 @@ pub(crate) fn parameter_uses_unquoted_all_elements_array_expansion(
         BourneParameterExpansion::Access { reference }
         | BourneParameterExpansion::Indices { reference }
         | BourneParameterExpansion::Slice { reference, .. } => {
-            var_ref_uses_all_elements_at_splat(reference)
+            var_ref_uses_all_elements_at_splat_in_dialect(reference, shell_dialect)
         }
         BourneParameterExpansion::Operation {
             reference,
@@ -1155,10 +1518,10 @@ pub(crate) fn parameter_uses_unquoted_all_elements_array_expansion(
             ..
         } => {
             !matches!(operator.as_ref(), ParameterOp::UseReplacement)
-                && var_ref_uses_all_elements_at_splat(reference)
+                && var_ref_uses_all_elements_at_splat_in_dialect(reference, shell_dialect)
         }
         BourneParameterExpansion::Transformation { reference, .. } => {
-            var_ref_uses_all_elements_at_splat(reference)
+            var_ref_uses_all_elements_at_splat_in_dialect(reference, shell_dialect)
         }
         _ => false,
     }
@@ -1166,6 +1529,7 @@ pub(crate) fn parameter_uses_unquoted_all_elements_array_expansion(
 
 pub(crate) fn parameter_uses_direct_all_elements_array_expansion(
     parameter: &ParameterExpansion,
+    shell_dialect: shuck_semantic::ShellDialect,
 ) -> bool {
     let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
         return false;
@@ -1175,7 +1539,7 @@ pub(crate) fn parameter_uses_direct_all_elements_array_expansion(
         BourneParameterExpansion::Access { reference }
         | BourneParameterExpansion::Indices { reference }
         | BourneParameterExpansion::Slice { reference, .. } => {
-            var_ref_uses_all_elements_at_splat(reference)
+            var_ref_uses_all_elements_at_splat_in_dialect(reference, shell_dialect)
         }
         BourneParameterExpansion::Operation {
             reference,
@@ -1183,10 +1547,10 @@ pub(crate) fn parameter_uses_direct_all_elements_array_expansion(
             ..
         } => {
             !matches!(operator.as_ref(), ParameterOp::UseReplacement)
-                && var_ref_uses_all_elements_at_splat(reference)
+                && var_ref_uses_all_elements_at_splat_in_dialect(reference, shell_dialect)
         }
         BourneParameterExpansion::Transformation { reference, .. } => {
-            var_ref_uses_all_elements_at_splat(reference)
+            var_ref_uses_all_elements_at_splat_in_dialect(reference, shell_dialect)
         }
         _ => false,
     }
@@ -1369,25 +1733,31 @@ pub(crate) fn parts_have_single_positional_at_splat(parts: &[WordPartNode]) -> b
     }
 }
 
-pub(crate) fn word_has_single_folded_all_elements_array_part(word: &Word) -> bool {
-    parts_have_single_folded_all_elements_array_part(&word.parts)
+pub(crate) fn word_has_single_folded_all_elements_array_part_in_dialect(
+    word: &Word,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
+    parts_have_single_folded_all_elements_array_part(&word.parts, shell_dialect)
 }
 
-pub(crate) fn parts_have_single_folded_all_elements_array_part(parts: &[WordPartNode]) -> bool {
+pub(crate) fn parts_have_single_folded_all_elements_array_part(
+    parts: &[WordPartNode],
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
     let [part] = parts else {
         return false;
     };
 
     match &part.kind {
         WordPart::DoubleQuoted { parts, .. } => {
-            parts_have_single_folded_all_elements_array_part(parts)
+            parts_have_single_folded_all_elements_array_part(parts, shell_dialect)
         }
         WordPart::SingleQuoted { .. } => false,
         WordPart::Parameter(parameter) => {
-            part_uses_direct_all_elements_array_expansion(&part.kind)
+            part_uses_direct_all_elements_array_expansion(&part.kind, shell_dialect)
                 || parameter_uses_replacement_all_elements_array_expansion(parameter)
         }
-        _ => part_uses_direct_all_elements_array_expansion(&part.kind),
+        _ => part_uses_direct_all_elements_array_expansion(&part.kind, shell_dialect),
     }
 }
 
@@ -1418,6 +1788,7 @@ pub(crate) fn positional_at_splat_is_standalone_expansion(word: &Word, source: &
 pub(crate) fn all_elements_array_expansion_is_standalone(
     word: &Word,
     locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
 ) -> bool {
     if word.parts.len() != 1 {
         return false;
@@ -1437,7 +1808,7 @@ pub(crate) fn all_elements_array_expansion_is_standalone(
         text
     };
 
-    folded_all_elements_array_candidate_spans(word, locator)
+    folded_all_elements_array_candidate_spans(word, locator, shell_dialect)
         .first()
         .is_some_and(|span| span.slice(source) == body)
 }
@@ -1447,6 +1818,7 @@ mod tests {
     use shuck_ast::{Span, Word};
     use shuck_indexer::LineIndex;
     use shuck_parser::parser::Parser;
+    use shuck_semantic::ShellDialect;
 
     use super::{
         collect_all_elements_array_slice_spans, collect_array_expansion_part_spans,
@@ -1462,15 +1834,31 @@ mod tests {
     use crate::facts::word_spans::collect_scalar_expansion_part_spans;
 
     fn all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
+        all_elements_array_expansion_part_spans_with_dialect(word, source, ShellDialect::Bash)
+    }
+
+    fn all_elements_array_expansion_part_spans_with_dialect(
+        word: &Word,
+        source: &str,
+        shell_dialect: ShellDialect,
+    ) -> Vec<Span> {
         let line_index = LineIndex::new(source);
         let locator = Locator::new(source, &line_index);
-        super::all_elements_array_expansion_part_spans(word, locator)
+        super::all_elements_array_expansion_part_spans(word, locator, shell_dialect)
     }
 
     fn word_folded_all_elements_array_span_in_source(word: &Word, source: &str) -> Option<Span> {
+        word_folded_all_elements_array_span_in_source_with_dialect(word, source, ShellDialect::Bash)
+    }
+
+    fn word_folded_all_elements_array_span_in_source_with_dialect(
+        word: &Word,
+        source: &str,
+        shell_dialect: ShellDialect,
+    ) -> Option<Span> {
         let line_index = LineIndex::new(source);
         let locator = Locator::new(source, &line_index);
-        super::word_folded_all_elements_array_span_in_source(word, locator)
+        super::word_folded_all_elements_array_span_in_source(word, locator, shell_dialect)
     }
 
     fn word_folded_positional_at_splat_span_in_source(word: &Word, source: &str) -> Option<Span> {
@@ -1478,9 +1866,21 @@ mod tests {
     }
 
     fn word_has_direct_all_elements_array_expansion_in_source(word: &Word, source: &str) -> bool {
+        word_has_direct_all_elements_array_expansion_in_source_with_dialect(
+            word,
+            source,
+            ShellDialect::Bash,
+        )
+    }
+
+    fn word_has_direct_all_elements_array_expansion_in_source_with_dialect(
+        word: &Word,
+        source: &str,
+        shell_dialect: ShellDialect,
+    ) -> bool {
         let line_index = LineIndex::new(source);
         let locator = Locator::new(source, &line_index);
-        super::word_has_direct_all_elements_array_expansion_in_source(word, locator)
+        super::word_has_direct_all_elements_array_expansion_in_source(word, locator, shell_dialect)
     }
 
     fn array_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
@@ -1490,8 +1890,25 @@ mod tests {
     }
 
     fn unquoted_all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
+        unquoted_all_elements_array_expansion_part_spans_with_dialect(
+            word,
+            source,
+            ShellDialect::Bash,
+        )
+    }
+
+    fn unquoted_all_elements_array_expansion_part_spans_with_dialect(
+        word: &Word,
+        source: &str,
+        shell_dialect: ShellDialect,
+    ) -> Vec<Span> {
         let mut spans = Vec::new();
-        collect_unquoted_all_elements_array_expansion_part_spans(word, source, &mut spans);
+        collect_unquoted_all_elements_array_expansion_part_spans(
+            word,
+            source,
+            shell_dialect,
+            &mut spans,
+        );
         spans
     }
 
@@ -1918,6 +2335,105 @@ printf '%s\\n' \"\\$@\" \"\\\\$@\" \"\\${@:2}\" \"\\\\${@:2}\" \"\\${arr[@]}\" \
             .collect::<Vec<_>>();
 
         assert_eq!(matches, vec![false, true, false, true, false, true]);
+    }
+
+    #[test]
+    fn word_has_direct_all_elements_array_expansion_ignores_zsh_positional_subscripts() {
+        let source = "print \"${@[_i]}\" \"$@[_i]\" \"${@[2,-1]:-}\" \"${@[5,-1]:-fallback}\"\n";
+        let output = Parser::with_dialect(source, shuck_parser::parser::ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let matches = command
+            .args
+            .iter()
+            .map(|word| {
+                word_has_direct_all_elements_array_expansion_in_source_with_dialect(
+                    word,
+                    source,
+                    ShellDialect::Zsh,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(matches, vec![false, false, false, false]);
+    }
+
+    #[test]
+    fn positional_subscript_exemption_is_zsh_only() {
+        assert!(super::candidate_is_all_elements_array_expansion(
+            "${@[_i]:-}",
+            ShellDialect::Bash,
+        ));
+        assert!(!super::candidate_is_all_elements_array_expansion(
+            "${@[_i]:-}",
+            ShellDialect::Zsh,
+        ));
+        assert!(super::candidate_is_direct_all_elements_array_expansion(
+            "${@[2,-1]:-fallback}",
+            ShellDialect::Bash,
+        ));
+        assert!(!super::candidate_is_direct_all_elements_array_expansion(
+            "${@[2,-1]:-fallback}",
+            ShellDialect::Zsh,
+        ));
+
+        let source = "print \"$@[_i]\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert!(super::word_has_all_elements_array_expansion_syntax(
+            &command.args[0],
+            source,
+            ShellDialect::Bash,
+        ));
+        assert!(!super::word_has_all_elements_array_expansion_syntax(
+            &command.args[0],
+            source,
+            ShellDialect::Zsh,
+        ));
+    }
+
+    #[test]
+    fn zsh_positional_selector_subscripts_still_count_as_all_elements_splats() {
+        assert!(super::candidate_is_all_elements_array_expansion(
+            "${@[*]:-fallback}",
+            ShellDialect::Zsh,
+        ));
+        assert!(super::candidate_is_direct_all_elements_array_expansion(
+            "${@[*]:-fallback}",
+            ShellDialect::Zsh,
+        ));
+
+        let source = "print \"${@[*]}\" \"$@[*]\" \"${@[@]}\" \"$@[@]\"\n";
+        let output = Parser::with_dialect(source, shuck_parser::parser::ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let matches = command
+            .args
+            .iter()
+            .map(|word| {
+                word_has_direct_all_elements_array_expansion_in_source_with_dialect(
+                    word,
+                    source,
+                    ShellDialect::Zsh,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(matches, vec![true, true, true, true]);
     }
 
     #[test]
