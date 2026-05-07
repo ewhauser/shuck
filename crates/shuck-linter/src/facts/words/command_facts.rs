@@ -1215,6 +1215,7 @@ pub(super) fn single_quoted_literal_instructional_output_argument(
     command_name: Option<&str>,
     args: &[Word],
     redirects: &[Redirect],
+    inherited_output_sinks: &FxHashMap<i32, CommandOutputSink>,
     shell_behavior: &ShellBehaviorAt<'_>,
     arg_index: usize,
     word: &Word,
@@ -1230,7 +1231,12 @@ pub(super) fn single_quoted_literal_instructional_output_argument(
         return false;
     }
 
-    if command_redirects_stdout_to_file(redirects, source, shell_behavior) {
+    if command_redirects_stdout_to_file(
+        redirects,
+        inherited_output_sinks,
+        source,
+        shell_behavior,
+    ) {
         return false;
     }
 
@@ -1246,11 +1252,32 @@ pub(super) fn single_quoted_literal_instructional_output_argument(
 
 fn command_redirects_stdout_to_file(
     redirects: &[Redirect],
+    inherited_output_sinks: &FxHashMap<i32, CommandOutputSink>,
     source: &str,
     shell_behavior: &ShellBehaviorAt<'_>,
 ) -> bool {
-    let mut fds = FxHashMap::from_iter([(1, CommandOutputSink::Other), (2, CommandOutputSink::Other)]);
+    let mut fds = inherited_output_sinks.clone();
+    apply_output_redirects(redirects, source, shell_behavior, &mut fds);
 
+    matches!(fds.get(&1), Some(CommandOutputSink::File))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CommandOutputSink {
+    File,
+    Other,
+}
+
+pub(super) fn output_sink_state_defaults() -> FxHashMap<i32, CommandOutputSink> {
+    FxHashMap::from_iter([(1, CommandOutputSink::Other), (2, CommandOutputSink::Other)])
+}
+
+pub(super) fn apply_output_redirects(
+    redirects: &[Redirect],
+    source: &str,
+    shell_behavior: &ShellBehaviorAt<'_>,
+    fds: &mut FxHashMap<i32, CommandOutputSink>,
+) {
     for redirect in redirects {
         match redirect.kind {
             RedirectKind::Output
@@ -1299,14 +1326,6 @@ fn command_redirects_stdout_to_file(
             | RedirectKind::DupInput => {}
         }
     }
-
-    matches!(fds.get(&1), Some(CommandOutputSink::File))
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CommandOutputSink {
-    File,
-    Other,
 }
 
 fn redirected_output_fd(redirect: &Redirect) -> Option<i32> {

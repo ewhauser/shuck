@@ -744,6 +744,22 @@ END { if (!set) exit 1 }\n\
     }
 
     #[test]
+    fn grouped_output_redirect_is_not_exempt() {
+        assert_eq!(
+            c005("{ echo 'export PATH=\"$HOME/bin:$PATH\"'; } >> \"$HOME/.profile\"\n"),
+            1
+        );
+    }
+
+    #[test]
+    fn subshell_output_redirect_is_not_exempt() {
+        assert_eq!(
+            c005("(echo 'export PATH=\"$HOME/bin:$PATH\"') > \"$HOME/.profile\"\n"),
+            1
+        );
+    }
+
+    #[test]
     fn quoted_variable_status_message_still_reports() {
         assert_eq!(c005("echo 'Your home is \"$HOME\".'\n"), 1);
     }

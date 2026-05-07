@@ -1266,6 +1266,7 @@ pub(super) struct WordFactCommandContext {
 }
 
 pub(super) struct WordFactOutputs<'out, 'a> {
+    pub(super) command_visits_by_id: &'out [Option<CommandVisit<'a>>],
     pub(super) word_nodes: &'out mut Vec<WordNode<'a>>,
     pub(super) word_spans: &'out mut ListArena<Span>,
     pub(super) word_span_scratch: &'out mut Vec<Span>,
@@ -1596,6 +1597,7 @@ pub(super) struct WordFactCollector<'out, 'a, 'norm> {
     surface_command_name: Option<&'norm str>,
     surface_body_arg_start_offset: Option<usize>,
     command_shell_behavior: ShellBehaviorAt<'a>,
+    command_visits_by_id: &'out [Option<CommandVisit<'a>>],
     word_nodes: &'out mut Vec<WordNode<'a>>,
     word_spans: &'out mut ListArena<Span>,
     word_span_scratch: &'out mut Vec<Span>,
@@ -1690,6 +1692,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 .first()
                 .map(|word| word.span.start.offset),
             command_shell_behavior,
+            command_visits_by_id: outputs.command_visits_by_id,
             word_nodes: outputs.word_nodes,
             word_spans: outputs.word_spans,
             word_span_scratch: outputs.word_span_scratch,
@@ -1972,6 +1975,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 let trap_action = trap_command
                     .then(|| trap_action_word_from_simple_command(command, self.source))
                     .flatten();
+                let inherited_output_sinks = self.inherited_output_sinks();
                 let direct_instructional_output_context = !self.nested_word_command
                     && !matches!(
                         self.semantic.scope_kind(self.command_scope),
@@ -2022,6 +2026,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                                 literal_exempt_command_name,
                                 &command.args,
                                 redirects,
+                                &inherited_output_sinks,
                                 &self.command_shell_behavior,
                                 arg_index,
                                 word,
@@ -2194,6 +2199,35 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 );
             }
         }
+    }
+
+    fn inherited_output_sinks(&self) -> FxHashMap<i32, CommandOutputSink> {
+        let mut parent_ids = Vec::new();
+        let mut parent_id = self.semantic.syntax_backed_command_parent_id(self.command_id);
+        while let Some(id) = parent_id {
+            parent_ids.push(id);
+            parent_id = self.semantic.syntax_backed_command_parent_id(id);
+        }
+        parent_ids.reverse();
+
+        let mut fds = output_sink_state_defaults();
+        for parent_id in parent_ids {
+            let Some(visit) = self
+                .command_visits_by_id
+                .get(parent_id.index())
+                .and_then(|visit| *visit)
+            else {
+                continue;
+            };
+            apply_output_redirects(
+                visit.redirects,
+                self.source,
+                &self.command_shell_behavior,
+                &mut fds,
+            );
+        }
+
+        fds
     }
 
     fn simple_command_argument_expansion_context(
