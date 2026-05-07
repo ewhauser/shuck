@@ -85,6 +85,8 @@ const SHELLCHECK_CACHE_MIGRATION_VERSION: u32 = 1;
 const ZSH_DIAGNOSTIC_CORPUS_BASELINE: &str = include_str!("testdata/zsh-diagnostic-corpus.yaml");
 const ZSH_DIAGNOSTIC_OH_MY_ZSH_REPO: &str = "ohmyzsh";
 const ZSH_DIAGNOSTIC_ZINIT_REPO: &str = "zinit";
+const ZSH_DIAGNOSTIC_PREZTO_REPO: &str = "prezto";
+const ZSH_DIAGNOSTIC_ZDOT_REPO: &str = "zdot";
 const ZSH_DIAGNOSTIC_PLUGIN_ENTRYPOINTS: &[(&str, &str)] = &[
     (
         "zdot/modules/autocompletion/autocompletion.zsh",
@@ -1999,6 +2001,16 @@ fn zsh_diagnostic_plugin_args(visible_root: &Path) -> Vec<String> {
     if zinit_root.join("zinit.zsh").is_file() {
         args.push("--zsh-plugin-root".into());
         args.push(format!("zinit={}", path_arg(&zinit_root)));
+    }
+    let prezto_root = visible_root.join(ZSH_DIAGNOSTIC_PREZTO_REPO);
+    if prezto_root.join("init.zsh").is_file() {
+        args.push("--zsh-plugin-root".into());
+        args.push(format!("prezto={}", path_arg(&prezto_root)));
+    }
+    let zdot_root = visible_root.join(ZSH_DIAGNOSTIC_ZDOT_REPO);
+    if zdot_root.join("zdot.zsh").is_file() {
+        args.push("--zsh-plugin-root".into());
+        args.push(format!("zdot={}", path_arg(&zdot_root)));
     }
 
     for (source_pattern, entrypoint) in ZSH_DIAGNOSTIC_PLUGIN_ENTRYPOINTS {
@@ -5628,6 +5640,14 @@ repos:
             "autosuggestions plugin\n",
         );
         write_file(visible_root.path().join("zinit/zinit.zsh"), "zinit\n");
+        write_file(
+            visible_root.path().join("prezto/init.zsh"),
+            "pmodload utility\n",
+        );
+        write_file(
+            visible_root.path().join("zdot/zdot.zsh"),
+            "zdot_load_module fzf\n",
+        );
 
         let args = zsh_diagnostic_plugin_args(visible_root.path());
 
@@ -5652,6 +5672,14 @@ repos:
                         .join("zsh-autosuggestions/zsh-autosuggestions.plugin.zsh")
                         .display()
                 ))
+        }));
+        assert!(args.windows(2).any(|window| {
+            window[0] == "--zsh-plugin-root"
+                && window[1] == format!("prezto={}", visible_root.path().join("prezto").display())
+        }));
+        assert!(args.windows(2).any(|window| {
+            window[0] == "--zsh-plugin-root"
+                && window[1] == format!("zdot={}", visible_root.path().join("zdot").display())
         }));
         assert!(!args.iter().any(|arg| arg.contains("zoxide.plugin.zsh")));
     }

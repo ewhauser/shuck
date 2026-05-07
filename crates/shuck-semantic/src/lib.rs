@@ -29,6 +29,7 @@ mod uninitialized;
 mod unused;
 mod value_flow;
 mod zsh_options;
+mod zsh_plugin_framework;
 
 /// Binding types and provenance metadata discovered during semantic analysis.
 pub use binding::{
@@ -86,10 +87,14 @@ pub use reference::{Reference, ReferenceId, ReferenceKind};
 pub use scope::{FunctionScopeKind, Scope, ScopeId, ScopeKind};
 /// Shell parser option types reused by the semantic analysis layer.
 pub use shuck_parser::{OptionValue, ShellDialect, ShellProfile, ZshEmulationMode, ZshOptionState};
+/// Zsh plugin framework layout helpers.
+pub use source_closure::{layout_for_plugin_framework, zsh_plugin_frameworks};
 /// Source-reference records and resolution state.
 pub use source_ref::{SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution};
 /// Value-flow query object built over semantic bindings, call sites, CFG, and dataflow.
 pub use value_flow::SemanticValueFlow;
+/// Zsh plugin framework traits and name aliases.
+pub use zsh_plugin_framework::{ZshPluginFramework, zsh_plugin_framework_from_name};
 
 /// How an unindexed array reference behaves at a source offset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -494,6 +499,8 @@ pub enum PluginFramework {
     OhMyZsh,
     /// Prezto module layouts.
     Prezto,
+    /// zdot module layouts.
+    Zdot,
     /// Zinit/Zi plugin manager layouts.
     Zinit,
     /// An explicit filesystem path rather than a logical framework/plugin pair.

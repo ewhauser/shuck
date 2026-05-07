@@ -15,8 +15,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpr, ArithmeticExprNode, ArrayElem, Assignment, AssignmentValue,
     BourneParameterExpansion, Command, DeclOperand, File, Name, ParameterExpansion,
-    ParameterExpansionSyntax, Span, StmtSeq, VarRef, Word, WordPart, WordPartNode, ZshDefaultingOp,
-    ZshExpansionOperation, ZshExpansionTarget, ZshParameterExpansion, static_word_text,
+    ParameterExpansionSyntax, SimpleCommand, Span, StmtSeq, VarRef, Word, WordPart, WordPartNode,
+    ZshDefaultingOp, ZshExpansionOperation, ZshExpansionTarget, ZshParameterExpansion,
+    static_word_text,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -26,6 +27,8 @@ use crate::function_resolution::{
     call_payloads_by_callee_scope, lexically_visible_function_binding_in_scope,
 };
 mod plugin_managers;
+
+pub use plugin_managers::{layout_for_plugin_framework, zsh_plugin_frameworks};
 
 use plugin_managers::{
     collect_plugin_requests, deferred_zsh_entrypoint_required_reads, sorted_dependency_paths,
@@ -1592,6 +1595,7 @@ fn summarize_helper(
         summaries,
         active,
         context.source_path_resolver,
+        context.plugin_resolver,
     );
     active.remove(&key);
     summaries.insert(key, summary.clone());
@@ -1607,6 +1611,7 @@ fn summarize_helper_uncached(
     summaries: &mut FxHashMap<HelperSummaryKey, FileContract>,
     active: &mut FxHashSet<HelperSummaryKey>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
 ) -> FileContract {
     let output = Parser::with_profile(source, shell_profile.clone()).parse();
     if output.is_err() {
@@ -1632,7 +1637,7 @@ fn summarize_helper_uncached(
         active,
         &SourceClosureLookupContext {
             source_path_resolver,
-            plugin_resolver: None,
+            plugin_resolver,
             analyzed_paths: None,
             shell_profile,
             resolved_helper_paths: RefCell::new(FxHashMap::default()),
