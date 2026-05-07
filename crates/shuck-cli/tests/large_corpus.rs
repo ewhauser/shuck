@@ -84,6 +84,7 @@ const SHELLCHECK_CACHE_SCHEMA: u32 = 3;
 const SHELLCHECK_CACHE_MIGRATION_VERSION: u32 = 1;
 const ZSH_DIAGNOSTIC_CORPUS_BASELINE: &str = include_str!("testdata/zsh-diagnostic-corpus.yaml");
 const ZSH_DIAGNOSTIC_OH_MY_ZSH_REPO: &str = "ohmyzsh";
+const ZSH_DIAGNOSTIC_ZINIT_REPO: &str = "zinit";
 const ZSH_DIAGNOSTIC_PLUGIN_ENTRYPOINTS: &[(&str, &str)] = &[
     (
         "zdot/modules/autocompletion/autocompletion.zsh",
@@ -1993,6 +1994,11 @@ fn zsh_diagnostic_plugin_args(visible_root: &Path) -> Vec<String> {
     if oh_my_zsh_root.join("oh-my-zsh.sh").is_file() {
         args.push("--zsh-plugin-root".into());
         args.push(format!("oh-my-zsh={}", path_arg(&oh_my_zsh_root)));
+    }
+    let zinit_root = visible_root.join(ZSH_DIAGNOSTIC_ZINIT_REPO);
+    if zinit_root.join("zinit.zsh").is_file() {
+        args.push("--zsh-plugin-root".into());
+        args.push(format!("zinit={}", path_arg(&zinit_root)));
     }
 
     for (source_pattern, entrypoint) in ZSH_DIAGNOSTIC_PLUGIN_ENTRYPOINTS {
@@ -5621,6 +5627,7 @@ repos:
                 .join("zsh-autosuggestions/zsh-autosuggestions.plugin.zsh"),
             "autosuggestions plugin\n",
         );
+        write_file(visible_root.path().join("zinit/zinit.zsh"), "zinit\n");
 
         let args = zsh_diagnostic_plugin_args(visible_root.path());
 
@@ -5631,6 +5638,10 @@ repos:
                         "oh-my-zsh={}",
                         visible_root.path().join("ohmyzsh").display()
                     )
+        }));
+        assert!(args.windows(2).any(|window| {
+            window[0] == "--zsh-plugin-root"
+                && window[1] == format!("zinit={}", visible_root.path().join("zinit").display())
         }));
         assert!(args.windows(2).any(|window| {
             window[0] == "--extend-zsh-plugin-entrypoint"

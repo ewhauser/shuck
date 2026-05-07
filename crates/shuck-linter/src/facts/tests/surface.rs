@@ -900,12 +900,18 @@ write_target
             .unwrap_or_else(|| panic!("expected {name} reference"))
             .span
     };
+    let has_reference = |name: &str| {
+        semantic
+            .references()
+            .iter()
+            .any(|reference| reference.name.as_str() == name)
+    };
 
     assert!(facts.is_suppressed_subscript_reference(reference_span("read_idx")));
     assert!(facts.is_suppressed_subscript_reference(reference_span("assoc_read_idx")));
     assert!(facts.is_suppressed_subscript_reference(reference_span("bare_check")));
-    assert!(facts.is_suppressed_subscript_reference(reference_span("assoc_target_bare")));
     assert!(facts.is_suppressed_subscript_reference(reference_span("assoc_bare_key")));
+    assert!(!has_reference("assoc_target_bare"));
     assert!(!facts.is_suppressed_subscript_reference(reference_span("dynamic_check")));
     assert!(!facts.is_suppressed_subscript_reference(reference_span("bare_target")));
     assert!(!facts.is_suppressed_subscript_reference(reference_span("dynamic_target")));

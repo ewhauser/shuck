@@ -18426,28 +18426,6 @@ repos:
           column: 26
         classification: false_positive
       - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `ice` is referenced before assignment"
-        start:
-          line: 77
-          column: 7
-        end:
-          line: 77
-          column: 10
-        classification: false_positive
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `nval` is referenced before assignment"
-        start:
-          line: 98
-          column: 7
-        end:
-          line: 98
-          column: 11
-        classification: false_positive
-      - path: "zinit.zsh"
         code: "C001"
         severity: "warning"
         message: "variable `ZINIT_2MAP` is assigned but never used"
@@ -18481,6 +18459,17 @@ repos:
           column: 65
         classification: real
       - path: "zinit.zsh"
+        code: "C156"
+        severity: "warning"
+        message: "reference to `PLUGINS_DIR` looks like it may mean `PLUGIN_DIR`"
+        start:
+          line: 353
+          column: 24
+        end:
+          line: 353
+          column: 36
+        classification: real
+      - path: "zinit.zsh"
         code: "C010"
         severity: "warning"
         message: "chaining `&&` and `||` makes the fallback depend on the middle command status"
@@ -18491,28 +18480,6 @@ repos:
           line: 449
           column: 23
         classification: real
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `BINDKEYS___dtrace` is referenced before assignment"
-        start:
-          line: 551
-          column: 45
-        end:
-          line: 551
-          column: 62
-        classification: false_positive
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `_dtrace` is referenced before assignment"
-        start:
-          line: 551
-          column: 63
-        end:
-          line: 551
-          column: 70
-        classification: false_positive
       - path: "zinit.zsh"
         code: "C001"
         severity: "warning"
@@ -18525,17 +18492,6 @@ repos:
           column: 23
         classification: real
       - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `ZSTYLES___dtrace` is referenced before assignment"
-        start:
-          line: 620
-          column: 45
-        end:
-          line: 620
-          column: 61
-        classification: false_positive
-      - path: "zinit.zsh"
         code: "C001"
         severity: "warning"
         message: "variable `avalue` is assigned but never used"
@@ -18546,127 +18502,6 @@ repos:
           line: 652
           column: 21
         classification: real
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `ALIASES___dtrace` is referenced before assignment"
-        start:
-          line: 677
-          column: 45
-        end:
-          line: 677
-          column: 61
-        classification: false_positive
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `WIDGETS_DELETE___dtrace` is referenced before assignment"
-        start:
-          line: 708
-          column: 53
-        end:
-          line: 708
-          column: 76
-        classification: false_positive
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `WIDGETS_SAVED___dtrace` is referenced before assignment"
-        start:
-          line: 726
-          column: 53
-        end:
-          line: 726
-          column: 75
-        classification: false_positive
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `bkp` is referenced before assignment"
-        start:
-          line: 782
-          column: 48
-        end:
-          line: 782
-          column: 51
-        classification: false_positive
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `autoload` is referenced before assignment"
-        start:
-          line: 782
-          column: 52
-        end:
-          line: 782
-          column: 60
-        classification: false_positive
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `compdef` is referenced before assignment"
-        start:
-          line: 787
-          column: 47
-        end:
-          line: 787
-          column: 54
-        classification: false_positive
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `source` is referenced before assignment"
-        start:
-          line: 792
-          column: 50
-        end:
-          line: 792
-          column: 56
-        classification: false_positive
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `bindkey` is referenced before assignment"
-        start:
-          line: 806
-          column: 47
-        end:
-          line: 806
-          column: 54
-        classification: false_positive
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `zstyle` is referenced before assignment"
-        start:
-          line: 813
-          column: 46
-        end:
-          line: 813
-          column: 52
-        classification: false_positive
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `alias` is referenced before assignment"
-        start:
-          line: 817
-          column: 45
-        end:
-          line: 817
-          column: 50
-        classification: false_positive
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `zle` is referenced before assignment"
-        start:
-          line: 821
-          column: 43
-        end:
-          line: 821
-          column: 46
-        classification: false_positive
       - path: "zinit.zsh"
         code: "C081"
         severity: "warning"
@@ -19350,17 +19185,6 @@ repos:
           column: 27
         classification: real
       - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `fts` is referenced before assignment"
-        start:
-          line: 2375
-          column: 24
-        end:
-          line: 2375
-          column: 27
-        classification: false_positive
-      - path: "zinit.zsh"
         code: "C081"
         severity: "warning"
         message: "quote the right-hand side so string comparisons do not turn into glob matches"
@@ -19404,50 +19228,6 @@ repos:
           line: 2673
           column: 47
         classification: real
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `annex` is referenced before assignment"
-        start:
-          line: 2689
-          column: 15
-        end:
-          line: 2689
-          column: 20
-        classification: false_positive
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `exposed` is referenced before assignment"
-        start:
-          line: 2689
-          column: 21
-        end:
-          line: 2689
-          column: 28
-        classification: false_positive
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `processed` is referenced before assignment"
-        start:
-          line: 2689
-          column: 29
-        end:
-          line: 2689
-          column: 38
-        classification: false_positive
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `IDs` is referenced before assignment"
-        start:
-          line: 2689
-          column: 39
-        end:
-          line: 2689
-          column: 42
-        classification: false_positive
       - path: "zinit.zsh"
         code: "C099"
         severity: "warning"
@@ -19569,28 +19349,6 @@ repos:
           line: 3133
           column: 67
         classification: real
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `STATES___local` is referenced before assignment"
-        start:
-          line: 3255
-          column: 7
-        end:
-          line: 3255
-          column: 21
-        classification: false_positive
-      - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `zinit` is referenced before assignment"
-        start:
-          line: 3255
-          column: 22
-        end:
-          line: 3255
-          column: 27
-        classification: false_positive
       - path: "zinit.zsh"
         code: "C005"
         severity: "warning"

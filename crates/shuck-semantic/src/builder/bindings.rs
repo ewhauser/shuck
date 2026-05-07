@@ -44,6 +44,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             (kind, self.current_scope())
         });
         attributes |= assignment_binding_attributes(assignment);
+        if matches!(assignment.value, AssignmentValue::Compound(_))
+            && !explicit_array_declaration
+            && self.previous_visible_binding_is_assoc(
+                &assignment.target.name,
+                assignment.target.name_span.start.offset,
+            )
+        {
+            attributes |= BindingAttributes::ARRAY | BindingAttributes::ASSOC;
+        }
         if zsh_scalar_subscript_assignment && !explicit_array_declaration {
             attributes.remove(BindingAttributes::ARRAY | BindingAttributes::ASSOC);
         }
@@ -158,6 +167,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 self.visit_array_expr_into(array, WordVisitKind::Expansion, flow, nested_regions);
             }
         }
+    }
+
+    fn previous_visible_binding_is_assoc(&self, name: &Name, offset: usize) -> bool {
+        let Some(binding_id) = self.resolve_reference(name, self.current_scope(), offset) else {
+            return false;
+        };
+        let binding = &self.bindings[binding_id.index()];
+        binding.attributes.contains(BindingAttributes::ASSOC)
+            && !self.binding_was_cleared_before_lookup(binding, self.current_scope(), offset)
     }
 
     pub(super) fn binding_was_cleared_in_scope_between(

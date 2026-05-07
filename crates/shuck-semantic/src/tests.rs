@@ -10075,6 +10075,54 @@ print -r -- ${functions[iterm2_precmd]}
 }
 
 #[test]
+fn whole_array_reassignment_preserves_visible_associative_attributes() {
+    let source = "\
+#!/bin/zsh
+typeset -A ZINIT
+ZINIT=( ${(kv)OTHER[@]} ${(kv)ZINIT[@]} )
+ZINIT[bkp-autoload]=${functions[autoload]}
+print -r -- ${ZINIT[bkp-autoload]}
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let unresolved = unresolved_names(&model);
+
+    assert_names_absent(&["bkp", "autoload"], &unresolved);
+    assert!(
+        model
+            .bindings()
+            .iter()
+            .rev()
+            .find(|binding| binding.name == "ZINIT")
+            .is_some_and(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
+    );
+}
+
+#[test]
+fn explicit_indexed_redeclaration_does_not_preserve_associative_attributes() {
+    let source = "\
+#!/bin/zsh
+typeset -A opts
+typeset -a opts=(alpha beta)
+print -r -- ${opts[$idx]}
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let unresolved = unresolved_names(&model);
+
+    assert_names_present(&["idx"], &unresolved);
+    assert!(
+        model
+            .bindings()
+            .iter()
+            .rev()
+            .find(|binding| binding.name == "opts")
+            .is_some_and(|binding| {
+                binding.attributes.contains(BindingAttributes::ARRAY)
+                    && !binding.attributes.contains(BindingAttributes::ASSOC)
+            })
+    );
+}
+
+#[test]
 fn zsh_subscript_declarations_preserve_explicit_array_flags() {
     let source = "\
 #!/bin/zsh
