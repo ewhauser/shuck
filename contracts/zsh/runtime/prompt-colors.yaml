@@ -1,0 +1,95 @@
+version: 1
+contracts:
+  - id: zsh/runtime/prompt-colors/runtime-path
+    groups:
+      - zsh
+      - zsh/runtime
+    label: Prompt color parameters on zsh runtime paths
+    when:
+      type: always
+    match:
+      shell: zsh_runtime
+      source:
+        mentions-any-names:
+          - bg
+          - bg_bold
+          - bg_no_bold
+          - color
+          - colour
+          - fg
+          - fg_bold
+          - fg_no_bold
+          - reset_color
+    files:
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+      - "**/completion/**"
+      - "**/completions/**"
+      - "**/functions/**"
+      - "**/highlighters/**"
+      - "**/lib/**"
+      - "**/modules/**"
+      - "**/plugins/**"
+      - "**/plugin/**"
+      - "**/themes/**"
+      - "**/*.plugin.zsh"
+      - "**/*.theme.zsh"
+      - "**/zsh-autosuggestions/**"
+      - "**/zsh-syntax-highlighting/**"
+    effects:
+      provides:
+        variables:
+          - bg
+          - bg_bold
+          - bg_no_bold
+          - color
+          - colour
+          - fg
+          - fg_bold
+          - fg_no_bold
+          - reset_color
+
+  - id: zsh/runtime/prompt-colors/autoload-colors
+    groups:
+      - zsh
+      - zsh/runtime
+    label: Prompt color parameters after autoload colors
+    when:
+      type: always
+    match:
+      shell: zsh
+      source:
+        mentions-any-names:
+          - bg
+          - bg_bold
+          - bg_no_bold
+          - color
+          - colour
+          - fg
+          - fg_bold
+          - fg_no_bold
+          - reset_color
+        loads-zsh-colors: true
+    effects:
+      provides:
+        variables:
+          - bg
+          - bg_bold
+          - bg_no_bold
+          - color
+          - colour
+          - fg
+          - fg_bold
+          - fg_no_bold
+          - reset_color

@@ -28,6 +28,7 @@ contracts/
   bash/
   bash-it/
   zsh/
+    runtime/
     plugins/
     zdot/
     themes/
