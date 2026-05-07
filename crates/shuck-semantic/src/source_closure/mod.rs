@@ -15,8 +15,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpr, ArithmeticExprNode, ArrayElem, Assignment, AssignmentValue,
     BourneParameterExpansion, Command, DeclOperand, File, Name, ParameterExpansion,
-    ParameterExpansionSyntax, Span, StmtSeq, VarRef, Word, WordPart, WordPartNode, ZshDefaultingOp,
-    ZshExpansionOperation, ZshExpansionTarget, ZshParameterExpansion, static_word_text,
+    ParameterExpansionSyntax, SimpleCommand, Span, StmtSeq, VarRef, Word, WordPart, WordPartNode,
+    ZshDefaultingOp, ZshExpansionOperation, ZshExpansionTarget, ZshParameterExpansion,
+    static_word_text,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -1592,6 +1593,7 @@ fn summarize_helper(
         summaries,
         active,
         context.source_path_resolver,
+        context.plugin_resolver,
     );
     active.remove(&key);
     summaries.insert(key, summary.clone());
@@ -1607,6 +1609,7 @@ fn summarize_helper_uncached(
     summaries: &mut FxHashMap<HelperSummaryKey, FileContract>,
     active: &mut FxHashSet<HelperSummaryKey>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
 ) -> FileContract {
     let output = Parser::with_profile(source, shell_profile.clone()).parse();
     if output.is_err() {
@@ -1632,7 +1635,7 @@ fn summarize_helper_uncached(
         active,
         &SourceClosureLookupContext {
             source_path_resolver,
-            plugin_resolver: None,
+            plugin_resolver,
             analyzed_paths: None,
             shell_profile,
             resolved_helper_paths: RefCell::new(FxHashMap::default()),

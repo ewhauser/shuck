@@ -9194,6 +9194,272 @@ _plugin_fetch_suggestion() {
 }
 
 #[test]
+fn prezto_zstyle_pmodule_loads_static_module_entrypoints() {
+    struct PreztoResolver {
+        root: PathBuf,
+    }
+
+    impl PluginResolver for PreztoResolver {
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.framework == PluginFramework::Prezto
+                && request.kind == PluginRequestKind::Plugin
+            {
+                PluginResolution {
+                    entrypoints: vec![
+                        self.root
+                            .join("modules")
+                            .join(&request.name)
+                            .join("init.zsh"),
+                    ],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("zpreztorc");
+    let prezto_root = temp.path().join("prezto");
+    let module = prezto_root.join("modules/editor/init.zsh");
+    fs::create_dir_all(module.parent().unwrap()).unwrap();
+    fs::write(
+        &main,
+        "\
+#!/bin/zsh
+EDITOR_STYLE=1
+zstyle ':prezto:load' pmodule \
+  'editor'
+",
+    )
+    .unwrap();
+    fs::write(&module, "print -r -- \"$EDITOR_STYLE\"\n").unwrap();
+
+    let resolver = PreztoResolver { root: prezto_root };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    assert!(
+        model
+            .synthetic_reads
+            .iter()
+            .any(|read| read.name == "EDITOR_STYLE"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
+    let unused = reportable_unused_names(&model);
+    assert!(
+        !unused.contains(&Name::from("EDITOR_STYLE")),
+        "unused: {unused:?}"
+    );
+}
+
+#[test]
+fn prezto_pmodload_loads_static_transitive_module_entrypoints() {
+    struct PreztoResolver {
+        root: PathBuf,
+    }
+
+    impl PluginResolver for PreztoResolver {
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.framework == PluginFramework::Prezto
+                && request.kind == PluginRequestKind::Plugin
+            {
+                PluginResolution {
+                    entrypoints: vec![
+                        self.root
+                            .join("modules")
+                            .join(&request.name)
+                            .join("init.zsh"),
+                    ],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("zpreztorc");
+    let prezto_root = temp.path().join("prezto");
+    let outer = prezto_root.join("modules/outer/init.zsh");
+    let inner = prezto_root.join("modules/inner/init.zsh");
+    fs::create_dir_all(outer.parent().unwrap()).unwrap();
+    fs::create_dir_all(inner.parent().unwrap()).unwrap();
+    fs::write(
+        &main,
+        "\
+#!/bin/zsh
+INNER_STYLE=1
+zstyle ':prezto:load' pmodule 'outer'
+",
+    )
+    .unwrap();
+    fs::write(&outer, "pmodload 'inner'\n").unwrap();
+    fs::write(&inner, "print -r -- \"$INNER_STYLE\"\n").unwrap();
+
+    let resolver = PreztoResolver { root: prezto_root };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    assert!(
+        model
+            .synthetic_reads
+            .iter()
+            .any(|read| read.name == "INNER_STYLE"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
+    let unused = reportable_unused_names(&model);
+    assert!(
+        !unused.contains(&Name::from("INNER_STYLE")),
+        "unused: {unused:?}"
+    );
+}
+
+#[test]
+fn prezto_dynamic_pmodule_styles_do_not_load_modules() {
+    struct EmptyResolver;
+
+    impl PluginResolver for EmptyResolver {
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            _request: &PluginRequest,
+        ) -> PluginResolution {
+            panic!("dynamic Prezto module style should not resolve a plugin request");
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("zpreztorc");
+    fs::write(
+        &main,
+        "\
+#!/bin/zsh
+DYNAMIC_ONLY=1
+module=editor
+zstyle ':prezto:load' pmodule \"$module\"
+",
+    )
+    .unwrap();
+
+    let model = model_at_path_with_plugin_resolver(&main, &EmptyResolver);
+    let unused = reportable_unused_names(&model);
+    assert!(
+        unused.contains(&Name::from("DYNAMIC_ONLY")),
+        "unused: {unused:?}"
+    );
+}
+
+#[test]
+fn zdot_load_module_loads_static_module_entrypoints() {
+    struct ZdotResolver {
+        root: PathBuf,
+    }
+
+    impl PluginResolver for ZdotResolver {
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.framework == PluginFramework::Zdot
+                && request.kind == PluginRequestKind::Plugin
+            {
+                PluginResolution {
+                    entrypoints: vec![
+                        self.root
+                            .join("modules")
+                            .join(&request.name)
+                            .join(format!("{}.zsh", request.name)),
+                    ],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join(".zshrc");
+    let zdot_root = temp.path().join("zdot");
+    let module = zdot_root.join("modules/fzf/fzf.zsh");
+    fs::create_dir_all(module.parent().unwrap()).unwrap();
+    fs::write(
+        &main,
+        "\
+#!/bin/zsh
+FZF_STYLE=1
+zdot_load_module fzf
+",
+    )
+    .unwrap();
+    fs::write(&module, "print -r -- \"$FZF_STYLE\"\n").unwrap();
+
+    let resolver = ZdotResolver { root: zdot_root };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    assert!(
+        model
+            .synthetic_reads
+            .iter()
+            .any(|read| read.name == "FZF_STYLE"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
+    let unused = reportable_unused_names(&model);
+    assert!(
+        !unused.contains(&Name::from("FZF_STYLE")),
+        "unused: {unused:?}"
+    );
+}
+
+#[test]
+fn zdot_dynamic_module_loads_do_not_resolve() {
+    struct EmptyResolver;
+
+    impl PluginResolver for EmptyResolver {
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            _request: &PluginRequest,
+        ) -> PluginResolution {
+            panic!("dynamic zdot module load should not resolve a plugin request");
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join(".zshrc");
+    fs::write(
+        &main,
+        "\
+#!/bin/zsh
+DYNAMIC_ZDOT_ONLY=1
+module=fzf
+zdot_load_module \"$module\"
+",
+    )
+    .unwrap();
+
+    let model = model_at_path_with_plugin_resolver(&main, &EmptyResolver);
+    let unused = reportable_unused_names(&model);
+    assert!(
+        unused.contains(&Name::from("DYNAMIC_ZDOT_ONLY")),
+        "unused: {unused:?}"
+    );
+}
+
+#[test]
 fn zsh_plugin_eval_generated_callbacks_make_function_reads_required() {
     struct EntryResolver {
         entrypoint: PathBuf,

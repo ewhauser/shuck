@@ -8,6 +8,8 @@
 
 mod generic_zsh_runtime;
 mod oh_my_zsh;
+mod prezto;
+mod zdot;
 
 use super::*;
 
@@ -71,8 +73,10 @@ pub(super) fn collect_plugin_requests(
         source_path,
         plugin_resolver,
     };
-    let managers: [&dyn ZshPluginManager; 2] = [
+    let managers: [&dyn ZshPluginManager; 4] = [
         &oh_my_zsh::OhMyZshPluginManager,
+        &prezto::PreztoPluginManager,
+        &zdot::ZdotPluginManager,
         &generic_zsh_runtime::GenericZshRuntimeManager,
     ];
 
@@ -119,4 +123,24 @@ pub(super) fn deferred_zsh_entrypoint_required_reads(
     reads.sort_by(|left, right| left.as_str().cmp(right.as_str()));
     reads.dedup();
     reads
+}
+
+fn static_command_args(command: &SimpleCommand, source: &str) -> Option<Vec<String>> {
+    command
+        .args
+        .iter()
+        .map(|arg| static_word_text(arg, source).map(|text| text.into_owned()))
+        .collect()
+}
+
+fn static_plugin_names<'a>(names: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let mut plugins = Vec::new();
+    for name in names {
+        let name = name.trim();
+        if name.is_empty() || name.contains('/') || plugins.iter().any(|plugin| plugin == name) {
+            continue;
+        }
+        plugins.push(name.to_owned());
+    }
+    plugins
 }

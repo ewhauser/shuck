@@ -494,6 +494,8 @@ pub enum PluginFramework {
     OhMyZsh,
     /// Prezto module layouts.
     Prezto,
+    /// zdot module layouts.
+    Zdot,
     /// Zinit/Zi plugin manager layouts.
     Zinit,
     /// An explicit filesystem path rather than a logical framework/plugin pair.

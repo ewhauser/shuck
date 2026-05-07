@@ -588,6 +588,11 @@ impl PluginResolver for ResolvedZshPluginSettings {
         {
             paths.push(root.join(suffix));
         }
+        if let Some(root) = self.roots.get("zdot")
+            && let Some(suffix) = zdot_source_suffix(root, source_path, candidate)
+        {
+            paths.push(root.join(suffix));
+        }
         for root in zinit_roots(self) {
             if let Some(suffix) = zinit_source_suffix(root, source_path, candidate) {
                 paths.push(root.join(suffix));
@@ -624,17 +629,29 @@ impl PluginResolver for ResolvedZshPluginSettings {
                 else {
                     return PluginResolution::default();
                 };
-                let path = root
-                    .join("plugins")
-                    .join(&request.name)
-                    .join(format!("{}.plugin.zsh", request.name));
+                let path = match request.framework {
+                    PluginFramework::Prezto => {
+                        root.join("modules").join(&request.name).join("init.zsh")
+                    }
+                    PluginFramework::Zdot => root
+                        .join("modules")
+                        .join(&request.name)
+                        .join(format!("{}.zsh", request.name)),
+                    _ => root
+                        .join("plugins")
+                        .join(&request.name)
+                        .join(format!("{}.plugin.zsh", request.name)),
+                };
                 PluginResolution {
                     entrypoints: vec![path],
                     file_entry_contracts: Vec::new(),
                 }
             }
             PluginRequestKind::Theme => {
-                if matches!(request.framework, PluginFramework::Zinit) {
+                if matches!(
+                    request.framework,
+                    PluginFramework::Prezto | PluginFramework::Zdot | PluginFramework::Zinit
+                ) {
                     return PluginResolution::default();
                 }
                 let Some(root) = request
@@ -711,6 +728,7 @@ fn plugin_framework_from_name(name: &str) -> PluginFramework {
     match name {
         "oh-my-zsh" => PluginFramework::OhMyZsh,
         "prezto" => PluginFramework::Prezto,
+        "zdot" => PluginFramework::Zdot,
         "zinit" | "zi" => PluginFramework::Zinit,
         other => PluginFramework::Other(other.to_owned()),
     }
@@ -723,6 +741,7 @@ fn plugin_root_for_request(
     let key = match &request.framework {
         PluginFramework::OhMyZsh => "oh-my-zsh",
         PluginFramework::Prezto => "prezto",
+        PluginFramework::Zdot => "zdot",
         PluginFramework::Zinit => return zinit_roots(settings).next().cloned(),
         PluginFramework::ExplicitFilesystem => return None,
         PluginFramework::Other(other) => other.as_str(),
@@ -763,6 +782,35 @@ fn oh_my_zsh_source_suffix(root: &Path, source_path: &Path, candidate: &str) -> 
 
 fn path_text_has_oh_my_zsh_anchor(path: &str) -> bool {
     path.contains("/.oh-my-zsh/") || path.contains("/oh-my-zsh/")
+}
+
+fn zdot_source_suffix(root: &Path, source_path: &Path, candidate: &str) -> Option<PathBuf> {
+    let normalized = candidate.replace('\\', "/");
+    if normalized == "zdot.zsh" || normalized.ends_with("/zdot.zsh") {
+        return Some(PathBuf::from("zdot.zsh"));
+    }
+
+    let source_in_framework = source_path.starts_with(root);
+    let candidate_has_framework_anchor =
+        path_text_has_zdot_anchor(&normalized) || path_text_starts_with_path(&normalized, root);
+    if !source_in_framework && !candidate_has_framework_anchor {
+        return None;
+    }
+
+    for marker in ["/core/", "/modules/"] {
+        if let Some(index) = normalized.rfind(marker) {
+            let suffix = &normalized[index + 1..];
+            if !suffix.is_empty() {
+                return Some(PathBuf::from(suffix));
+            }
+        }
+    }
+
+    None
+}
+
+fn path_text_has_zdot_anchor(path: &str) -> bool {
+    path.contains("/.zdot/") || path.contains("/zdot/")
 }
 
 fn zinit_source_suffix(root: &Path, source_path: &Path, candidate: &str) -> Option<PathBuf> {
@@ -1991,6 +2039,120 @@ mod tests {
         assert_eq!(
             settings.resolve_plugin_request(Path::new("/workspace/app/.zshrc"), &request),
             PluginResolution::default()
+        );
+    }
+
+    #[test]
+    fn prezto_plugin_root_resolves_module_entrypoint() {
+        let settings = ResolvedZshPluginSettings::resolve(
+            PathBuf::from("/workspace"),
+            true,
+            BTreeMap::from([("prezto".to_owned(), "/workspace/prezto".to_owned())]),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        let request = PluginRequest {
+            framework: PluginFramework::Prezto,
+            kind: PluginRequestKind::Plugin,
+            name: "editor".to_owned(),
+            span: shuck_ast::Span::new(),
+            explicit: false,
+            root_hint: None,
+        };
+
+        assert_eq!(
+            settings.resolve_plugin_request(Path::new("/workspace/app/.zshrc"), &request),
+            PluginResolution {
+                entrypoints: vec![PathBuf::from("/workspace/prezto/modules/editor/init.zsh")],
+                file_entry_contracts: Vec::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn prezto_theme_requests_do_not_use_oh_my_zsh_theme_layout() {
+        let settings = ResolvedZshPluginSettings::resolve(
+            PathBuf::from("/workspace"),
+            true,
+            BTreeMap::from([("prezto".to_owned(), "/workspace/prezto".to_owned())]),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        let request = PluginRequest {
+            framework: PluginFramework::Prezto,
+            kind: PluginRequestKind::Theme,
+            name: "sorin".to_owned(),
+            span: shuck_ast::Span::new(),
+            explicit: false,
+            root_hint: None,
+        };
+
+        assert_eq!(
+            settings.resolve_plugin_request(Path::new("/workspace/app/.zshrc"), &request),
+            PluginResolution::default()
+        );
+    }
+
+    #[test]
+    fn zdot_plugin_root_resolves_module_entrypoint() {
+        let settings = ResolvedZshPluginSettings::resolve(
+            PathBuf::from("/workspace"),
+            true,
+            BTreeMap::from([("zdot".to_owned(), "/workspace/zdot".to_owned())]),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        let request = PluginRequest {
+            framework: PluginFramework::Zdot,
+            kind: PluginRequestKind::Plugin,
+            name: "fzf".to_owned(),
+            span: shuck_ast::Span::new(),
+            explicit: false,
+            root_hint: None,
+        };
+
+        assert_eq!(
+            settings.resolve_plugin_request(Path::new("/workspace/app/.zshrc"), &request),
+            PluginResolution {
+                entrypoints: vec![PathBuf::from("/workspace/zdot/modules/fzf/fzf.zsh")],
+                file_entry_contracts: Vec::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn zdot_source_suffix_rewrites_framework_paths_only() {
+        let root = Path::new("/workspace/zdot");
+
+        assert_eq!(
+            zdot_source_suffix(
+                root,
+                Path::new("/workspace/zdot/zdot.zsh"),
+                "/not-installed/zdot/core/hooks.zsh",
+            ),
+            Some(PathBuf::from("core/hooks.zsh"))
+        );
+        assert_eq!(
+            zdot_source_suffix(
+                root,
+                Path::new("/workspace/zdot/zdot.zsh"),
+                "/not-installed/zdot/modules/fzf/fzf.zsh",
+            ),
+            Some(PathBuf::from("modules/fzf/fzf.zsh"))
+        );
+        assert_eq!(
+            zdot_source_suffix(
+                root,
+                Path::new("/workspace/app/.zshrc"),
+                "/tmp/other/core/hooks.zsh",
+            ),
+            None
         );
     }
 
