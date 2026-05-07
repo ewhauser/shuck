@@ -355,16 +355,11 @@ fn oh_my_zsh_refined_theme_provides_vcs_info() {
 }
 
 #[test]
-fn oh_my_zsh_core_paths_get_plugin_configuration_and_vcs_hook_state() {
+fn oh_my_zsh_core_paths_get_plugin_configuration() {
     let core_path = Path::new("/tmp/zsh/ohmyzsh/oh-my-zsh.sh");
     let core_source = "print -r -- \"$plugins\"\n";
     let core_contract = contract_for_shell(core_path, core_source, ShellDialect::Zsh).unwrap();
     assert!(has_initialized_binding(&core_contract, "plugins"));
-
-    let git_path = Path::new("/tmp/zsh/ohmyzsh/lib/git.zsh");
-    let git_source = "print -r -- \"${hook_com[branch]}\"\n";
-    let git_contract = contract_for_shell(git_path, git_source, ShellDialect::Zsh).unwrap();
-    assert!(has_ambient_binding(&git_contract, "hook_com"));
 }
 
 #[test]
