@@ -132,6 +132,12 @@ impl<'a> SourceSignals<'a> {
         self.assigned_names.contains(name)
     }
 
+    pub(super) fn assigns_name_with_prefix(&self, prefix: &str) -> bool {
+        self.assigned_names
+            .iter()
+            .any(|name| name.starts_with(prefix))
+    }
+
     pub(super) fn has_probable_function_definition(&self) -> bool {
         self.has_probable_function_definition
     }
@@ -378,6 +384,14 @@ mod tests {
         assert!(!signals.assigns_name("XHIST"));
         assert!(signals.assigns_name("HISTFILE"));
         assert!(signals.assigns_name("HISTSIZE"));
+    }
+
+    #[test]
+    fn assignment_signals_match_prefix_queries() {
+        let signals = SourceSignals::new("VCS_STATUS_RESULT=ok\nVCS_STATUS_HAS_STAGED=1\n");
+
+        assert!(signals.assigns_name_with_prefix("VCS_STATUS_"));
+        assert!(!signals.assigns_name_with_prefix("P9K_"));
     }
 
     #[test]

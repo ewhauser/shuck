@@ -480,6 +480,18 @@ const WELL_KNOWN_FILE_CONTRACTS: &[WellKnownFileContract] = &[
         apply: super::zsh_caller_arrays::apply_zsh_caller_scoped_array_contract,
     },
     WellKnownFileContract {
+        id: "zsh/powerlevel10k/bootstrap",
+        groups: &["zsh", "zsh/powerlevel10k"],
+        matches: super::powerlevel10k::matches_powerlevel10k_bootstrap_contract,
+        apply: super::powerlevel10k::apply_powerlevel10k_bootstrap_contract,
+    },
+    WellKnownFileContract {
+        id: "zsh/powerlevel10k/gitstatus",
+        groups: &["zsh", "zsh/powerlevel10k"],
+        matches: super::powerlevel10k::matches_powerlevel10k_gitstatus_contract,
+        apply: super::powerlevel10k::apply_powerlevel10k_gitstatus_contract,
+    },
+    WellKnownFileContract {
         id: "zsh/config",
         groups: &["zsh"],
         matches: super::zsh_config::matches_zsh_config_contract,

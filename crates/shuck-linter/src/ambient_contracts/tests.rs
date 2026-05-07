@@ -199,7 +199,7 @@ ZDOT_MODULE_NAME=prompt
 fn zsh_runtime_contract_initializes_special_parameters_and_prompt_colors() {
     let path = Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh");
     let source = "\
-print -r -- \"$sysparams\" \"$history\" \"$words\" \"$compstate\"
+print -r -- \"$sysparams\" \"$history\" \"$words\" \"$compstate\" \"$userdirs\"
 prompt=\"%{$fg_bold[blue]%}%{$reset_color%}\"
 ";
 
@@ -210,11 +210,22 @@ prompt=\"%{$fg_bold[blue]%}%{$reset_color%}\"
         "history",
         "words",
         "compstate",
+        "userdirs",
         "fg_bold",
         "reset_color",
     ] {
         assert!(has_initialized_binding(&contract, name), "{contract:?}");
     }
+}
+
+#[test]
+fn standalone_zsh_scripts_do_not_get_userdirs_without_runtime_context() {
+    let path = Path::new("/tmp/project/scripts/example.zsh");
+    let source = "print -r -- \"$userdirs\"\n";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(!has_initialized_binding(&contract, "userdirs"));
 }
 
 #[test]
@@ -470,6 +481,63 @@ fn zsh_runtime_contract_does_not_consume_read_only_output_parameters() {
     for name in ["reply", "REPLY", "compstate"] {
         assert!(!has_consumed_name(&contract, name), "{contract:?}");
     }
+}
+
+#[test]
+fn powerlevel10k_internal_bootstrap_files_initialize_injected_bindings() {
+    let cases = [
+        (
+            "/tmp/zsh/powerlevel10k/internal/p10k.zsh",
+            "[[ $__p9k_sourced == 1 ]] || return\neval \"$__p9k_intro\"\nprint -r -- \"$__p9k_root_dir\"\n",
+            &["__p9k_sourced", "__p9k_root_dir", "__p9k_intro"][..],
+        ),
+        (
+            "/tmp/zsh/powerlevel10k/internal/configure.zsh",
+            "print -r -- \"$__p9k_root_dir\"\neval \"$__p9k_intro\"\n",
+            &["__p9k_root_dir", "__p9k_intro"][..],
+        ),
+        (
+            "/tmp/zsh/powerlevel10k/internal/wizard.zsh",
+            "print -r -- \"$__p9k_root_dir\"\neval \"$__p9k_intro\"\n",
+            &["__p9k_root_dir", "__p9k_intro"][..],
+        ),
+    ];
+
+    for (path, source, expected_bindings) in cases {
+        let contract = contract_for_shell(Path::new(path), source, ShellDialect::Zsh).unwrap();
+        for name in expected_bindings {
+            assert!(has_initialized_binding(&contract, name), "{contract:?}");
+        }
+    }
+}
+
+#[test]
+fn powerlevel10k_gitstatus_zsh_contract_initializes_intro_base_and_consumes_status_prefix() {
+    let path = Path::new("/tmp/zsh/powerlevel10k/gitstatus/gitstatus.plugin.zsh");
+    let source = "\
+eval \"$__p9k_intro_base\"
+typeset -g VCS_STATUS_RESULT=ok
+typeset -g VCS_STATUS_HAS_STAGED=1
+";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(has_initialized_binding(&contract, "__p9k_intro_base"));
+    assert!(has_consumed_prefix(&contract, "VCS_STATUS_"));
+}
+
+#[test]
+fn powerlevel10k_gitstatus_sh_contract_consumes_status_prefix() {
+    let path = Path::new("/tmp/zsh/powerlevel10k/gitstatus/gitstatus.plugin.sh");
+    let source = "\
+VCS_STATUS_RESULT=ok
+VCS_STATUS_HAS_STAGED=1
+";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Sh).unwrap();
+
+    assert!(has_consumed_prefix(&contract, "VCS_STATUS_"));
+    assert!(!has_initialized_binding(&contract, "__p9k_intro_base"));
 }
 
 #[test]

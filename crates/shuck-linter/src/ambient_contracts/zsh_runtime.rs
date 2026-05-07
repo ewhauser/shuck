@@ -114,7 +114,7 @@ fn zsh_special_parameter_available(
             zsh_runtime_path_shape(path.lower_path()) || source.loads_zsh_module("zsh/langinfo")
         }
         "compstate" | "words" => zsh_runtime_path_shape(path.lower_path()),
-        "galiases" | "history" | "keymaps" | "reswords" | "saliases" => {
+        "galiases" | "history" | "keymaps" | "reswords" | "saliases" | "userdirs" => {
             zsh_runtime_path_shape(path.lower_path()) || source.loads_zsh_module("zsh/parameter")
         }
         _ => true,
@@ -175,6 +175,7 @@ const ZSH_INITIALIZED_SPECIAL_PARAMETERS: &[&str] = &[
     "reswords",
     "saliases",
     "sysparams",
+    "userdirs",
     "widgets",
     "words",
 ];
