@@ -41,6 +41,7 @@ use crate::ShellDialect;
 
 mod contracts;
 mod path;
+mod powerlevel10k;
 mod signals;
 mod source_scan;
 mod sourced_runtime;

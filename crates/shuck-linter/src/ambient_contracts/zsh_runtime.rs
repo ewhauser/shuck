@@ -175,6 +175,7 @@ const ZSH_INITIALIZED_SPECIAL_PARAMETERS: &[&str] = &[
     "reswords",
     "saliases",
     "sysparams",
+    "userdirs",
     "widgets",
     "words",
 ];
