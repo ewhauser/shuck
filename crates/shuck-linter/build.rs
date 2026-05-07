@@ -147,6 +147,10 @@ struct RuleMetadataRow {
 type RuleShellCheckMapping = (String, u32);
 type LoadedRuleMetadata = (Vec<RuleShellCheckMapping>, Vec<RuleMetadataRow>);
 
+// Keep this list in sync with the Rust-defined built-ins in
+// `src/ambient_contracts/contracts.rs`.
+const RUST_BUILT_IN_CONTRACT_IDS: &[&str] = &["zsh/runtime", "zsh/config", "zsh/module-metadata"];
+
 fn parse_shellcheck_code_value(raw: &str) -> Result<Option<u32>, String> {
     let raw = raw.trim().trim_matches(|ch| matches!(ch, '"' | '\''));
     if raw.is_empty() || raw.eq_ignore_ascii_case("null") || raw == "~" {
@@ -641,6 +645,13 @@ fn load_declarative_contracts(
         let data =
             fs::read_to_string(&path).map_err(|err| format!("read {}: {err}", path.display()))?;
         for contract in validate_declarative_contract_document(&data, &path)? {
+            if RUST_BUILT_IN_CONTRACT_IDS.contains(&contract.id.as_str()) {
+                return Err(format!(
+                    "declarative contract id {:?} in {} conflicts with existing Rust built-in contract id",
+                    contract.id,
+                    path.display()
+                ));
+            }
             if !seen_ids.insert(contract.id.clone()) {
                 return Err(format!(
                     "duplicate declarative contract id {:?} in {}",
