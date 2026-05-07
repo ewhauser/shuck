@@ -154,6 +154,7 @@ pub(super) fn build_for_header_facts<'a>(
                     command_fact_indices_by_id,
                     command_ids_by_span,
                     locator,
+                    fact.shell_behavior().shell_dialect(),
                 ),
             })
         })
@@ -183,6 +184,7 @@ pub(super) fn build_select_header_facts<'a>(
                     command_fact_indices_by_id,
                     command_ids_by_span,
                     locator,
+                    fact.shell_behavior().shell_dialect(),
                 ),
             })
         })
@@ -196,6 +198,7 @@ fn build_loop_header_word_facts<'a>(
     command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
     locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
 ) -> Box<[LoopHeaderWordFact<'a>]> {
     let source = locator.source();
     words
@@ -206,9 +209,17 @@ fn build_loop_header_word_facts<'a>(
                 word,
                 classification,
                 has_all_elements_array_expansion:
-                    word_spans::word_has_all_elements_array_expansion_syntax(word)
-                        || !word_spans::all_elements_array_expansion_part_spans(word, locator)
-                            .is_empty(),
+                    word_spans::word_has_all_elements_array_expansion_syntax(
+                        word,
+                        source,
+                        shell_dialect,
+                    )
+                        || !word_spans::all_elements_array_expansion_part_spans(
+                            word,
+                            locator,
+                            shell_dialect,
+                        )
+                        .is_empty(),
                 has_unquoted_command_substitution: classification.has_command_substitution()
                     && !word_spans::unquoted_command_substitution_part_spans(word).is_empty(),
                 contains_line_oriented_substitution: word_contains_line_oriented_substitution(

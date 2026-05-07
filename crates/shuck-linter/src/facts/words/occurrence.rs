@@ -526,7 +526,14 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     }
 
     pub fn has_direct_all_elements_array_expansion_in_source(self, locator: Locator<'_>) -> bool {
-        word_spans::word_has_direct_all_elements_array_expansion_in_source(self.word(), locator)
+        word_spans::word_has_direct_all_elements_array_expansion_in_source(
+            self.word(),
+            locator,
+            self.facts
+                .command(self.command_id())
+                .shell_behavior()
+                .shell_dialect(),
+        )
     }
 
     pub fn has_quoted_all_elements_array_slice(self) -> bool {
@@ -662,7 +669,14 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     }
 
     pub fn folded_all_elements_array_span_in_source(self, locator: Locator<'_>) -> Option<Span> {
-        word_spans::word_folded_all_elements_array_span_in_source(self.word(), locator)
+        word_spans::word_folded_all_elements_array_span_in_source(
+            self.word(),
+            locator,
+            self.facts
+                .command(self.command_id())
+                .shell_behavior()
+                .shell_dialect(),
+        )
     }
 
     pub fn zsh_flag_modifier_spans(self) -> Vec<Span> {
@@ -1278,6 +1292,7 @@ pub(super) type PendingArithmeticSeenKey = (FactSpan, ExpansionContext, WordFact
 pub(super) fn derive_word_fact_data<'a>(
     word: &'a Word,
     locator: Locator<'a>,
+    shell_dialect: shuck_semantic::ShellDialect,
     span_store: &mut ListArena<Span>,
     scratch: &mut Vec<Span>,
 ) -> WordNodeDerived<'a> {
@@ -1330,7 +1345,12 @@ pub(super) fn derive_word_fact_data<'a>(
             scratch,
             may_have_runtime_expansion_spans,
             |spans| {
-                word_spans::collect_all_elements_array_expansion_part_spans(word, locator, spans);
+                word_spans::collect_all_elements_array_expansion_part_spans(
+                    word,
+                    locator,
+                    shell_dialect,
+                    spans,
+                );
             },
         ),
         direct_all_elements_array_expansion_spans: push_needed_word_span_list(
@@ -1339,7 +1359,10 @@ pub(super) fn derive_word_fact_data<'a>(
             may_have_runtime_expansion_spans,
             |spans| {
                 word_spans::collect_direct_all_elements_array_expansion_part_spans(
-                    word, locator, spans,
+                    word,
+                    locator,
+                    shell_dialect,
+                    spans,
                 );
             },
         ),
@@ -1349,7 +1372,10 @@ pub(super) fn derive_word_fact_data<'a>(
             may_have_runtime_expansion_spans,
             |spans| {
                 word_spans::collect_unquoted_all_elements_array_expansion_part_spans(
-                    word, source, spans,
+                    word,
+                    source,
+                    shell_dialect,
+                    spans,
                 );
             },
         ),
@@ -2634,7 +2660,13 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             &mut analysis,
         );
         let derived =
-            derive_word_fact_data(word, self.locator, self.word_spans, self.word_span_scratch);
+            derive_word_fact_data(
+                word,
+                self.locator,
+                self.command_shell_behavior.shell_dialect(),
+                self.word_spans,
+                self.word_span_scratch,
+            );
         self.word_nodes.push(WordNode {
             key,
             word,

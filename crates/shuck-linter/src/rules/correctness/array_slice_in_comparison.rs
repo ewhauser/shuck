@@ -90,7 +90,7 @@ fn span_contains(outer: Span, inner: Span) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_all_elements_array_expansions_in_double_bracket_tests() {
@@ -144,5 +144,24 @@ if [ \"${sel[@]:1}\" = \"HELP\" ]; then :; fi
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_zsh_indexed_and_sliced_positional_parameter_tests() {
+        let source = "\
+#!/bin/zsh
+set -- alpha --scope tail
+_i=2
+if [[ \"${@[_i]}\" == --scope ]]; then :; fi
+if [[ \"$@[_i]\" == --scope ]]; then :; fi
+if [[ \"${@[2,-1]}\" == \"--scope tail\" ]]; then :; fi
+if [[ \"${@[5,-1]:-fallback}\" == fallback ]]; then :; fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArraySliceInComparison).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 }
