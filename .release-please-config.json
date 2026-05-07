@@ -39,8 +39,7 @@
         { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-semantic'].version" },
         { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-extract'].version" },
         { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-server'].version" },
-        { "type": "toml", "path": "pyproject.toml", "jsonpath": "$.project.version" },
-        { "type": "toml", "path": "pyproject.toml", "jsonpath": "$.project.dependencies[0]" },
+        { "type": "generic", "path": "pyproject.toml" },
         { "type": "toml", "path": "python/pyproject.toml", "jsonpath": "$.project.version" }
       ]
     }

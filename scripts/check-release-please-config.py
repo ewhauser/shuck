@@ -29,6 +29,16 @@ def configured_jsonpaths(repo_root: Path) -> set[str]:
     }
 
 
+def configured_generic_paths(repo_root: Path) -> set[str]:
+    config = json.loads((repo_root / ".release-please-config.json").read_text())
+    package_config = config["packages"]["."]
+    return {
+        entry["path"]
+        for entry in package_config.get("extra-files", [])
+        if entry.get("type") == "generic" and "path" in entry
+    }
+
+
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     expected = {
@@ -37,17 +47,29 @@ def main() -> int:
     }
     expected.update(
         {
-            "pyproject.toml::$.project.dependencies[0]",
-            "pyproject.toml::$.project.version",
             "python/pyproject.toml::$.project.version",
         }
     )
     actual = configured_jsonpaths(repo_root)
     missing = sorted(expected - actual)
+    generic_paths = configured_generic_paths(repo_root)
+
+    if "pyproject.toml" not in generic_paths:
+        missing.append("pyproject.toml::generic")
 
     if missing:
         for entry in missing:
             print(f"missing release-please extra-files entry: {entry}", file=sys.stderr)
+        return 1
+
+    pyproject_text = (repo_root / "pyproject.toml").read_text()
+    marker = "x-release-please-version"
+    marker_count = pyproject_text.count(marker)
+    if marker_count != 2:
+        print(
+            f"expected pyproject.toml to contain 2 {marker!r} annotations, found {marker_count}",
+            file=sys.stderr,
+        )
         return 1
 
     print("release-please config covers Rust crates and Python packaging metadata")
