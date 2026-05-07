@@ -139,6 +139,102 @@ jobs:
         env:
           RUSTDOCFLAGS: "-D warnings"
 
+  python-packaging:
+    name: "python packaging"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: "Install Rust toolchain"
+        run: rustup show
+      - name: "Build packaging test inputs"
+        run: |
+          set -euo pipefail
+          cargo build -p shuck-cli --locked
+
+          python3 -m venv "$RUNNER_TEMP/python-packaging"
+          source "$RUNNER_TEMP/python-packaging/bin/activate"
+          python -m pip install --upgrade pip
+          python -m pip install build pre-commit setuptools wheel
+
+          python scripts/build-python-release.py build-wheel \
+            --target x86_64-unknown-linux-gnu \
+            --binary target/debug/shuck \
+            --out-dir "$RUNNER_TEMP/python-dist"
+
+          pre-commit validate-manifest .pre-commit-hooks.yaml
+      - name: "Smoke test wheel, placeholder install, and pre-commit hook"
+        run: |
+          set -euo pipefail
+
+          expected_version="$(
+            python3 - <<'PY'
+from pathlib import Path
+import tomllib
+
+data = tomllib.loads(Path("python/pyproject.toml").read_text())
+print(data["project"]["version"])
+PY
+          )"
+
+          python3 -m venv "$RUNNER_TEMP/wheel-smoke"
+          source "$RUNNER_TEMP/wheel-smoke/bin/activate"
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install "$RUNNER_TEMP"/python-dist/shuck_cli-*manylinux_2_28_x86_64.whl
+          test "$(shuck --version)" = "shuck ${expected_version}"
+          deactivate
+
+          python3 -m venv "$RUNNER_TEMP/placeholder-smoke"
+          source "$RUNNER_TEMP/placeholder-smoke/bin/activate"
+          python -m pip install --upgrade pip setuptools wheel pre-commit
+          python -m pip install \
+            --find-links "$RUNNER_TEMP/python-dist" \
+            --no-build-isolation \
+            --no-index \
+            .
+          test "$(shuck --version)" = "shuck ${expected_version}"
+
+          smoke_repo="$RUNNER_TEMP/pre-commit-smoke"
+          rm -rf "$smoke_repo"
+          mkdir -p "$smoke_repo"
+          cd "$smoke_repo"
+          git init -q
+          git config user.email shuck@example.com
+          git config user.name shuck
+          cat > bad.sh <<'EOF'
+tmp=$(mktemp)
+echo ok
+EOF
+          git add bad.sh
+          hook_rev="$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
+          cat > .pre-commit-config.yaml <<EOF
+repos:
+  - repo: $GITHUB_WORKSPACE
+    rev: $hook_rev
+    hooks:
+      - id: shuck
+EOF
+
+          set +e
+          PIP_FIND_LINKS="$RUNNER_TEMP/python-dist" \
+            pre-commit run shuck --files bad.sh \
+            > "$RUNNER_TEMP/pre-commit-smoke.log" 2>&1
+          hook_status=$?
+          set -e
+
+          cat "$RUNNER_TEMP/pre-commit-smoke.log"
+          if [ "$hook_status" -eq 0 ]; then
+            echo "expected shuck pre-commit hook to report a lint failure" >&2
+            exit 1
+          fi
+
+          grep -F "warning[C001]" "$RUNNER_TEMP/pre-commit-smoke.log" >/dev/null
+
   cargo-test-other:
     strategy:
       matrix:

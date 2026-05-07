@@ -1,0 +1,13 @@
+- id: shuck
+  name: shuck
+  description: Shell script linter, binary install via PyPI
+  language: python
+  entry: shuck check
+  types_or: [shell, yaml]
+
+- id: shuck-src
+  name: shuck
+  description: Shell script linter, build from Rust source
+  language: rust
+  entry: shuck check
+  types_or: [shell, yaml]

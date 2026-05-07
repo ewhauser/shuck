@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=70.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shuck-cli"
+version = "0.0.35"
+description = "Python wheel wrapper for the shuck CLI binary"
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+authors = [{ name = "Eric Hauser" }]
+keywords = ["shell", "bash", "linter", "static-analysis", "cli"]
+classifiers = [
+  "Environment :: Console",
+  "Operating System :: MacOS",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.urls]
+Homepage = "https://github.com/ewhauser/shuck"
+Issues = "https://github.com/ewhauser/shuck/issues"
+Repository = "https://github.com/ewhauser/shuck"
+
+[project.scripts]
+shuck = "shuck_cli._launcher:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+shuck_cli = ["bin/*"]

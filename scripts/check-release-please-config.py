@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate release-please version bumps for publishable workspace crates."""
+"""Validate release-please version bumps for Rust crates and Python packaging files."""
 
 from __future__ import annotations
 
@@ -23,27 +23,34 @@ def configured_jsonpaths(repo_root: Path) -> set[str]:
     config = json.loads((repo_root / ".release-please-config.json").read_text())
     package_config = config["packages"]["."]
     return {
-        entry["jsonpath"]
+        f"{entry['path']}::{entry['jsonpath']}"
         for entry in package_config.get("extra-files", [])
-        if entry.get("path") == "Cargo.toml" and "jsonpath" in entry
+        if "jsonpath" in entry and "path" in entry
     }
 
 
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     expected = {
-        f"$.workspace.dependencies['{crate_name}'].version"
+        f"Cargo.toml::$.workspace.dependencies['{crate_name}'].version"
         for crate_name in publishable_workspace_crates(repo_root)
     }
+    expected.update(
+        {
+            "pyproject.toml::$.project.dependencies[0]",
+            "pyproject.toml::$.project.version",
+            "python/pyproject.toml::$.project.version",
+        }
+    )
     actual = configured_jsonpaths(repo_root)
     missing = sorted(expected - actual)
 
     if missing:
-        for jsonpath in missing:
-            print(f"missing release-please extra-files entry: {jsonpath}", file=sys.stderr)
+        for entry in missing:
+            print(f"missing release-please extra-files entry: {entry}", file=sys.stderr)
         return 1
 
-    print("release-please config covers all publishable workspace crates")
+    print("release-please config covers Rust crates and Python packaging metadata")
     return 0
 
 

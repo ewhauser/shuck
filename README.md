@@ -23,6 +23,15 @@ Shuck parses and analyzes shell scripts to catch common bugs, style issues, and 
 brew install ewhauser/tap/shuck
 ```
 
+### PyPI
+
+```sh
+pip install shuck-cli
+```
+
+The PyPI package is named `shuck-cli`, but it still installs the `shuck`
+command.
+
 ### From source
 
 ```sh
@@ -64,6 +73,32 @@ shuck check --no-cache .
 
 # Override the cache location
 shuck --cache-dir .tmp/shuck-cache check .
+```
+
+### Pre-commit
+
+Use the binary-backed hook when you want pre-commit to install `shuck`
+without requiring a local Rust toolchain:
+
+```yaml
+repos:
+  - repo: https://github.com/ewhauser/shuck
+    rev: v0.0.35
+    hooks:
+      - id: shuck
+```
+
+Replace `v0.0.35` with the release you want to pin.
+
+If you would rather build from source, or you are on a platform that does not
+have a published wheel yet, use the Rust hook instead:
+
+```yaml
+repos:
+  - repo: https://github.com/ewhauser/shuck
+    rev: v0.0.35
+    hooks:
+      - id: shuck-src
 ```
 
 ### Clean caches

@@ -1,0 +1,71 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pypi-publish-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: python publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Python packaging tools
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install build setuptools wheel
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-assets"
+          gh release download "$RELEASE_TAG" --repo "$REPOSITORY" --dir "$RUNNER_TEMP/release-assets"
+
+      - name: Build PyPI wheels
+        run: |
+          python3 scripts/build-python-release.py build-release-wheels \
+            --assets-dir "$RUNNER_TEMP/release-assets" \
+            --out-dir dist
+
+      - name: Smoke test host wheel
+        run: |
+          set -euo pipefail
+          expected_version="$(
+            python3 - <<'PY'
+from pathlib import Path
+import tomllib
+
+data = tomllib.loads(Path("python/pyproject.toml").read_text())
+print(data["project"]["version"])
+PY
+          )"
+
+          python3 -m venv "$RUNNER_TEMP/pypi-smoke"
+          source "$RUNNER_TEMP/pypi-smoke/bin/activate"
+          python -m pip install --upgrade pip
+          python -m pip install dist/shuck_cli-*manylinux_2_28_x86_64.whl
+          test "$(shuck --version)" = "shuck ${expected_version}"
+
+      - name: Publish wheels to PyPI
+        # PyPI Trusted Publishing must be configured for this repo/workflow/environment.
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: dist

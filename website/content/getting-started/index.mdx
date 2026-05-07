@@ -16,6 +16,15 @@ Shuck aims to be orders of magnitude faster than ShellCheck while expanding cove
 
 ## Installation
 
+### PyPI
+
+```bash
+pip install shuck-cli
+```
+
+The PyPI package name is `shuck-cli`, but it still installs the `shuck`
+command.
+
 ### From source
 
 ```bash
@@ -43,6 +52,32 @@ echo 'echo $foo' | shuck check -
 
 # Apply safe fixes automatically
 shuck check --fix .
+```
+
+## Pre-commit
+
+Use the published wheel-backed hook when you want pre-commit support without a
+local Rust toolchain:
+
+```yaml
+repos:
+  - repo: https://github.com/ewhauser/shuck
+    rev: v0.0.35
+    hooks:
+      - id: shuck
+```
+
+Replace `v0.0.35` with the release you want to pin.
+
+Use the source-build fallback instead when you prefer a Rust build or need an
+unsupported platform:
+
+```yaml
+repos:
+  - repo: https://github.com/ewhauser/shuck
+    rev: v0.0.35
+    hooks:
+      - id: shuck-src
 ```
 
 ## Editor integration
