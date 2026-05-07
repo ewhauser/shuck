@@ -1,0 +1,28 @@
+version: 1
+contracts:
+  - id: bash/completion/runtime
+    groups:
+      - bash
+      - bash/completion
+    label: Bash completion runtime state
+    when:
+      type: always
+    match:
+      source:
+        completion-initializer-invoked: true
+    files:
+      - "**/bash-completion/**"
+      - "**/bash_completion/**"
+      - "**/bash-it/completion/**"
+      - "**/bash-it/completions/**"
+      - "**/bash-progcomp/**"
+      - "**/*bash_autocomplete*"
+    effects:
+      provides:
+        ambient-variables:
+          - cur
+          - prev
+          - words
+          - cword
+          - comp_args
+          - split

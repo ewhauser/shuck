@@ -1,0 +1,471 @@
+version: 1
+contracts:
+  - id: zsh/runtime/special-parameters/always-zsh
+    groups:
+      - zsh
+      - zsh/runtime
+    label: Special parameters always available in zsh
+    when:
+      type: always
+    match:
+      shell: zsh
+      source:
+        mentions-any-names:
+          - parameters
+          - widgets
+    effects:
+      provides:
+        variables:
+          - parameters
+          - widgets
+
+  - id: zsh/runtime/special-parameters/project-or-dotfile
+    groups:
+      - zsh
+      - zsh/runtime
+    label: Special parameters available in shebangless zsh project files
+    when:
+      type: always
+    match:
+      shell: zsh_runtime
+      source:
+        mentions-any-names:
+          - parameters
+          - widgets
+    files:
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+      - "**/ohmyzsh/**"
+      - "**/powerlevel10k/**"
+      - "**/prezto/**"
+      - "**/zinit/**"
+      - "**/zsh-autosuggestions/**"
+      - "**/zsh-syntax-highlighting/**"
+    effects:
+      provides:
+        variables:
+          - parameters
+          - widgets
+
+  - id: zsh/runtime/special-parameters/runtime-path
+    groups:
+      - zsh
+      - zsh/runtime
+    label: Runtime path special parameters
+    when:
+      type: always
+    match:
+      shell: zsh_runtime
+      source:
+        mentions-any-names:
+          - compstate
+          - galiases
+          - history
+          - keymaps
+          - langinfo
+          - reswords
+          - saliases
+          - sysparams
+          - userdirs
+          - words
+    files:
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+      - "**/completion/**"
+      - "**/completions/**"
+      - "**/functions/**"
+      - "**/highlighters/**"
+      - "**/lib/**"
+      - "**/modules/**"
+      - "**/plugins/**"
+      - "**/plugin/**"
+      - "**/themes/**"
+      - "**/*.plugin.zsh"
+      - "**/*.theme.zsh"
+      - "**/zsh-autosuggestions/**"
+      - "**/zsh-syntax-highlighting/**"
+    effects:
+      provides:
+        variables:
+          - compstate
+          - galiases
+          - history
+          - keymaps
+          - langinfo
+          - reswords
+          - saliases
+          - sysparams
+          - userdirs
+          - words
+
+  - id: zsh/runtime/special-parameters/zmodload-parameter
+    groups:
+      - zsh
+      - zsh/runtime
+    label: zmodload zsh/parameter special parameters
+    when:
+      type: always
+    match:
+      shell: zsh
+      source:
+        mentions-any-names:
+          - galiases
+          - history
+          - keymaps
+          - reswords
+          - saliases
+          - userdirs
+        loads-zsh-modules-any:
+          - zsh/parameter
+    effects:
+      provides:
+        variables:
+          - galiases
+          - history
+          - keymaps
+          - reswords
+          - saliases
+          - userdirs
+
+  - id: zsh/runtime/special-parameters/zmodload-langinfo
+    groups:
+      - zsh
+      - zsh/runtime
+    label: zmodload zsh/langinfo special parameter
+    when:
+      type: always
+    match:
+      shell: zsh
+      source:
+        mentions-any-names:
+          - langinfo
+        loads-zsh-modules-any:
+          - zsh/langinfo
+    effects:
+      provides:
+        variables:
+          - langinfo
+
+  - id: zsh/runtime/special-parameters/zmodload-system
+    groups:
+      - zsh
+      - zsh/runtime
+    label: zmodload zsh/system special parameter
+    when:
+      type: always
+    match:
+      shell: zsh
+      source:
+        mentions-any-names:
+          - sysparams
+        loads-zsh-modules-any:
+          - zsh/system
+    effects:
+      provides:
+        variables:
+          - sysparams
+
+  - id: zsh/runtime/prompt-colors/runtime-path
+    groups:
+      - zsh
+      - zsh/runtime
+    label: Prompt color parameters on zsh runtime paths
+    when:
+      type: always
+    match:
+      shell: zsh_runtime
+      source:
+        mentions-any-names:
+          - bg
+          - bg_bold
+          - bg_no_bold
+          - color
+          - colour
+          - fg
+          - fg_bold
+          - fg_no_bold
+          - reset_color
+    files:
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+      - "**/completion/**"
+      - "**/completions/**"
+      - "**/functions/**"
+      - "**/highlighters/**"
+      - "**/lib/**"
+      - "**/modules/**"
+      - "**/plugins/**"
+      - "**/plugin/**"
+      - "**/themes/**"
+      - "**/*.plugin.zsh"
+      - "**/*.theme.zsh"
+      - "**/zsh-autosuggestions/**"
+      - "**/zsh-syntax-highlighting/**"
+    effects:
+      provides:
+        variables:
+          - bg
+          - bg_bold
+          - bg_no_bold
+          - color
+          - colour
+          - fg
+          - fg_bold
+          - fg_no_bold
+          - reset_color
+
+  - id: zsh/runtime/prompt-colors/autoload-colors
+    groups:
+      - zsh
+      - zsh/runtime
+    label: Prompt color parameters after autoload colors
+    when:
+      type: always
+    match:
+      shell: zsh
+      source:
+        mentions-any-names:
+          - bg
+          - bg_bold
+          - bg_no_bold
+          - color
+          - colour
+          - fg
+          - fg_bold
+          - fg_no_bold
+          - reset_color
+        loads-zsh-colors: true
+    effects:
+      provides:
+        variables:
+          - bg
+          - bg_bold
+          - bg_no_bold
+          - color
+          - colour
+          - fg
+          - fg_bold
+          - fg_no_bold
+          - reset_color
+
+  - id: zsh/runtime/hook-arrays/initialized
+    groups:
+      - zsh
+      - zsh/runtime
+    label: Zsh hook arrays available on runtime paths
+    when:
+      type: always
+    match:
+      shell: zsh_runtime
+      source:
+        mentions-any-names:
+          - chpwd_functions
+          - periodic_functions
+          - precmd_functions
+          - preexec_functions
+          - zsh_directory_name_functions
+          - zshaddhistory_functions
+          - zshexit_functions
+    files:
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+      - "**/completion/**"
+      - "**/completions/**"
+      - "**/functions/**"
+      - "**/highlighters/**"
+      - "**/lib/**"
+      - "**/modules/**"
+      - "**/plugins/**"
+      - "**/plugin/**"
+      - "**/themes/**"
+      - "**/*.plugin.zsh"
+      - "**/*.theme.zsh"
+      - "**/zsh-autosuggestions/**"
+      - "**/zsh-syntax-highlighting/**"
+    effects:
+      provides:
+        variables:
+          - chpwd_functions
+          - periodic_functions
+          - precmd_functions
+          - preexec_functions
+          - zsh_directory_name_functions
+          - zshaddhistory_functions
+          - zshexit_functions
+
+  - id: zsh/runtime/hook-arrays/consumed
+    groups:
+      - zsh
+      - zsh/runtime
+    label: Zsh hook arrays consumed after sourcing
+    when:
+      type: always
+    match:
+      shell: zsh_runtime
+      source:
+        assigns-any-names:
+          - chpwd_functions
+          - periodic_functions
+          - precmd_functions
+          - preexec_functions
+          - zsh_directory_name_functions
+          - zshaddhistory_functions
+          - zshexit_functions
+    files:
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+      - "**/completion/**"
+      - "**/completions/**"
+      - "**/functions/**"
+      - "**/highlighters/**"
+      - "**/lib/**"
+      - "**/modules/**"
+      - "**/plugins/**"
+      - "**/plugin/**"
+      - "**/themes/**"
+      - "**/*.plugin.zsh"
+      - "**/*.theme.zsh"
+      - "**/zsh-autosuggestions/**"
+      - "**/zsh-syntax-highlighting/**"
+    effects:
+      consumes:
+        names:
+          - chpwd_functions
+          - periodic_functions
+          - precmd_functions
+          - preexec_functions
+          - zsh_directory_name_functions
+          - zshaddhistory_functions
+          - zshexit_functions
+
+  - id: zsh/runtime/output-parameters/consumed
+    groups:
+      - zsh
+      - zsh/runtime
+    label: Zsh runtime output parameters
+    when:
+      type: always
+    match:
+      shell: zsh_runtime
+      source:
+        assigns-any-names:
+          - REPLY
+          - WORDCHARS
+          - compstate
+          - comppostfuncs
+          - reply
+    files:
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+      - "**/completion/**"
+      - "**/completions/**"
+      - "**/functions/**"
+      - "**/highlighters/**"
+      - "**/lib/**"
+      - "**/modules/**"
+      - "**/plugins/**"
+      - "**/plugin/**"
+      - "**/themes/**"
+      - "**/*.plugin.zsh"
+      - "**/*.theme.zsh"
+      - "**/zsh-autosuggestions/**"
+      - "**/zsh-syntax-highlighting/**"
+      - "**/test-data/**"
+      - "**/testdata/**"
+      - "**/fixtures/**"
+    effects:
+      consumes:
+        names:
+          - REPLY
+          - WORDCHARS
+          - compstate
+          - comppostfuncs
+          - reply
+
+  - id: zsh/runtime/zsh-syntax-highlighting/expected-prefix
+    groups:
+      - zsh
+      - zsh/runtime
+    label: Zsh syntax highlighting expected test variables
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        contains-any:
+          - expected_
+    files:
+      - "**/zsh-syntax-highlighting/**/test-data/**"
+      - "**/zsh-syntax-highlighting/**/testdata/**"
+      - "**/zsh-syntax-highlighting/**/fixtures/**"
+      - "**/zsh-syntax-highlighting/**/tests/**"
+    effects:
+      consumes:
+        prefixes:
+          - expected_

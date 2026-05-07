@@ -41,6 +41,8 @@ struct DeclarativeContract {
     groups: Vec<String>,
     label: Option<String>,
     when: DeclarativeContractWhen,
+    #[serde(default, rename = "match")]
+    matcher: DeclarativeContractMatch,
     #[serde(default)]
     files: Vec<String>,
     effects: DeclarativeContractEffects,
@@ -68,6 +70,45 @@ enum DeclarativeContractActivationType {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+struct DeclarativeContractMatch {
+    shell: DeclarativeContractShell,
+    source: DeclarativeContractSourceMatch,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+enum DeclarativeContractShell {
+    #[default]
+    #[serde(rename = "any")]
+    Any,
+    #[serde(rename = "zsh")]
+    Zsh,
+    #[serde(rename = "zsh_or_unknown")]
+    ZshOrUnknown,
+    #[serde(rename = "zsh_runtime")]
+    ZshRuntime,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+struct DeclarativeContractSourceMatch {
+    contains_any: Vec<String>,
+    mentions_any_names: Vec<String>,
+    mentions_all_names: Vec<String>,
+    assigns_any_names: Vec<String>,
+    assigns_all_names: Vec<String>,
+    assigns_any_prefixes: Vec<String>,
+    loads_zsh_modules_any: Vec<String>,
+    loads_zsh_modules_all: Vec<String>,
+    static_assignment_function_defs: Vec<String>,
+    probable_function_definition: bool,
+    source_command: bool,
+    completion_initializer_invoked: bool,
+    loads_zsh_colors: bool,
+    caller_scoped_array_length_names: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 struct DeclarativeContractEffects {
     reads: Vec<String>,
     consumes: DeclarativeContractConsumes,
@@ -87,7 +128,9 @@ struct DeclarativeContractConsumes {
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 struct DeclarativeContractProvides {
     variables: Vec<String>,
+    ambient_variables: Vec<String>,
     functions: Vec<String>,
+    caller_scoped_array_length_names: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -106,6 +149,7 @@ struct NormalizedDeclarativeContract {
     groups: Vec<String>,
     label: Option<String>,
     activation: NormalizedDeclarativeActivation,
+    matcher: NormalizedDeclarativeMatch,
     files: Vec<String>,
     effects: NormalizedDeclarativeEffects,
 }
@@ -118,13 +162,39 @@ enum NormalizedDeclarativeActivation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct NormalizedDeclarativeMatch {
+    shell: DeclarativeContractShell,
+    source: NormalizedDeclarativeSourceMatch,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NormalizedDeclarativeSourceMatch {
+    contains_any: Vec<String>,
+    mentions_any_names: Vec<String>,
+    mentions_all_names: Vec<String>,
+    assigns_any_names: Vec<String>,
+    assigns_all_names: Vec<String>,
+    assigns_any_prefixes: Vec<String>,
+    loads_zsh_modules_any: Vec<String>,
+    loads_zsh_modules_all: Vec<String>,
+    static_assignment_function_defs: Vec<String>,
+    probable_function_definition: bool,
+    source_command: bool,
+    completion_initializer_invoked: bool,
+    loads_zsh_colors: bool,
+    caller_scoped_array_length_names: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct NormalizedDeclarativeEffects {
     reads: Vec<String>,
     consumes_names: Vec<String>,
     consumes_prefixes: Vec<String>,
     consumes_all: bool,
     provides_variables: Vec<String>,
+    provides_ambient_variables: Vec<String>,
     provides_functions: Vec<String>,
+    provides_caller_scoped_array_length_names: bool,
     functions: Vec<NormalizedDeclarativeFunctionEffects>,
 }
 
@@ -146,10 +216,6 @@ struct RuleMetadataRow {
 
 type RuleShellCheckMapping = (String, u32);
 type LoadedRuleMetadata = (Vec<RuleShellCheckMapping>, Vec<RuleMetadataRow>);
-
-// Keep this list in sync with the Rust-defined built-ins in
-// `src/ambient_contracts/contracts.rs`.
-const RUST_BUILT_IN_CONTRACT_IDS: &[&str] = &["zsh/runtime", "zsh/config", "zsh/module-metadata"];
 
 fn parse_shellcheck_code_value(raw: &str) -> Result<Option<u32>, String> {
     let raw = raw.trim().trim_matches(|ch| matches!(ch, '"' | '\''));
@@ -259,6 +325,14 @@ fn normalize_declarative_contract(
     }
 
     let activation = normalize_declarative_activation(&contract.when, source_path)?;
+    let matcher = normalize_declarative_match(&contract.matcher, source_path)?;
+    if !matches!(activation, NormalizedDeclarativeActivation::Always) && !matcher_is_empty(&matcher)
+    {
+        return Err(format!(
+            "declarative contract match fields are only supported for `always` activation in {}",
+            source_path.display()
+        ));
+    }
     let files = normalize_globs(&contract.files, source_path)?;
     let effects = normalize_declarative_effects(&contract.effects, source_path)?;
     if effects_is_empty(&effects) {
@@ -273,6 +347,7 @@ fn normalize_declarative_contract(
         groups,
         label: contract.label.map(|label| label.trim().to_owned()),
         activation,
+        matcher,
         files,
         effects,
     })
@@ -349,16 +424,92 @@ fn normalize_declarative_effects(
             &effects.provides.variables,
             source_path,
         )?,
+        provides_ambient_variables: normalize_shell_names(
+            "provides.ambient-variables",
+            &effects.provides.ambient_variables,
+            source_path,
+        )?,
         provides_functions: normalize_shell_names(
             "provides.functions",
             &effects.provides.functions,
             source_path,
         )?,
+        provides_caller_scoped_array_length_names: effects
+            .provides
+            .caller_scoped_array_length_names,
         functions: effects
             .functions
             .iter()
             .map(|function| normalize_declarative_function_effects(function, source_path))
             .collect::<Result<Vec<_>, _>>()?,
+    })
+}
+
+fn normalize_declarative_match(
+    matcher: &DeclarativeContractMatch,
+    source_path: &Path,
+) -> Result<NormalizedDeclarativeMatch, String> {
+    Ok(NormalizedDeclarativeMatch {
+        shell: matcher.shell,
+        source: normalize_declarative_source_match(&matcher.source, source_path)?,
+    })
+}
+
+fn normalize_declarative_source_match(
+    source: &DeclarativeContractSourceMatch,
+    source_path: &Path,
+) -> Result<NormalizedDeclarativeSourceMatch, String> {
+    Ok(NormalizedDeclarativeSourceMatch {
+        contains_any: normalize_nonempty_text_values(
+            "match.source.contains-any",
+            &source.contains_any,
+            source_path,
+        )?,
+        mentions_any_names: normalize_shell_names(
+            "match.source.mentions-any-names",
+            &source.mentions_any_names,
+            source_path,
+        )?,
+        mentions_all_names: normalize_shell_names(
+            "match.source.mentions-all-names",
+            &source.mentions_all_names,
+            source_path,
+        )?,
+        assigns_any_names: normalize_shell_names(
+            "match.source.assigns-any-names",
+            &source.assigns_any_names,
+            source_path,
+        )?,
+        assigns_all_names: normalize_shell_names(
+            "match.source.assigns-all-names",
+            &source.assigns_all_names,
+            source_path,
+        )?,
+        assigns_any_prefixes: normalize_shell_prefixes(
+            "match.source.assigns-any-prefixes",
+            &source.assigns_any_prefixes,
+            source_path,
+        )?,
+        loads_zsh_modules_any: normalize_nonempty_text_values(
+            "match.source.loads-zsh-modules-any",
+            &source.loads_zsh_modules_any,
+            source_path,
+        )?,
+        loads_zsh_modules_all: normalize_nonempty_text_values(
+            "match.source.loads-zsh-modules-all",
+            &source.loads_zsh_modules_all,
+            source_path,
+        )?,
+        static_assignment_function_defs: normalize_shell_names(
+            "match.source.static-assignment-function-defs",
+            &source.static_assignment_function_defs,
+            source_path,
+        )?,
+        probable_function_definition: source.probable_function_definition,
+        source_command: source.source_command,
+        completion_initializer_invoked: source.completion_initializer_invoked,
+        loads_zsh_colors: source.loads_zsh_colors,
+        caller_scoped_array_length_names: source.caller_scoped_array_length_names,
     })
 }
 
@@ -434,6 +585,18 @@ fn normalize_nonempty_text(
         ));
     }
     Ok(value.to_owned())
+}
+
+fn normalize_nonempty_text_values(
+    field: &str,
+    values: &[String],
+    source_path: &Path,
+) -> Result<Vec<String>, String> {
+    let mut normalized = Vec::new();
+    for value in values {
+        normalized.push(normalize_nonempty_text(field, Some(value), source_path)?);
+    }
+    Ok(unique_stable(normalized))
 }
 
 fn normalize_globs(values: &[String], source_path: &Path) -> Result<Vec<String>, String> {
@@ -564,8 +727,28 @@ fn effects_is_empty(effects: &NormalizedDeclarativeEffects) -> bool {
         && effects.consumes_prefixes.is_empty()
         && !effects.consumes_all
         && effects.provides_variables.is_empty()
+        && effects.provides_ambient_variables.is_empty()
         && effects.provides_functions.is_empty()
+        && !effects.provides_caller_scoped_array_length_names
         && effects.functions.is_empty()
+}
+
+fn matcher_is_empty(matcher: &NormalizedDeclarativeMatch) -> bool {
+    matcher.shell == DeclarativeContractShell::Any
+        && matcher.source.contains_any.is_empty()
+        && matcher.source.mentions_any_names.is_empty()
+        && matcher.source.mentions_all_names.is_empty()
+        && matcher.source.assigns_any_names.is_empty()
+        && matcher.source.assigns_all_names.is_empty()
+        && matcher.source.assigns_any_prefixes.is_empty()
+        && matcher.source.loads_zsh_modules_any.is_empty()
+        && matcher.source.loads_zsh_modules_all.is_empty()
+        && matcher.source.static_assignment_function_defs.is_empty()
+        && !matcher.source.probable_function_definition
+        && !matcher.source.source_command
+        && !matcher.source.completion_initializer_invoked
+        && !matcher.source.loads_zsh_colors
+        && !matcher.source.caller_scoped_array_length_names
 }
 
 fn collect_yaml_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
@@ -645,13 +828,6 @@ fn load_declarative_contracts(
         let data =
             fs::read_to_string(&path).map_err(|err| format!("read {}: {err}", path.display()))?;
         for contract in validate_declarative_contract_document(&data, &path)? {
-            if RUST_BUILT_IN_CONTRACT_IDS.contains(&contract.id.as_str()) {
-                return Err(format!(
-                    "declarative contract id {:?} in {} conflicts with existing Rust built-in contract id",
-                    contract.id,
-                    path.display()
-                ));
-            }
             if !seen_ids.insert(contract.id.clone()) {
                 return Err(format!(
                     "duplicate declarative contract id {:?} in {}",
@@ -728,6 +904,70 @@ fn generate_declarative_contract_data(contracts: &[NormalizedDeclarativeContract
         generated.push_str("        activation: ");
         generated.push_str(&format_activation(&contract.activation));
         generated.push_str(",\n");
+        generated.push_str("        matcher: DeclarativeMatchDescriptor {\n");
+        generated.push_str(&format!(
+            "            shell: {},\n",
+            format_shell(&contract.matcher.shell)
+        ));
+        generated.push_str("            source: DeclarativeSourceMatchDescriptor {\n");
+        generated.push_str(&format!(
+            "                contains_any: {},\n",
+            format_string_slice(&contract.matcher.source.contains_any)
+        ));
+        generated.push_str(&format!(
+            "                mentions_any_names: {},\n",
+            format_string_slice(&contract.matcher.source.mentions_any_names)
+        ));
+        generated.push_str(&format!(
+            "                mentions_all_names: {},\n",
+            format_string_slice(&contract.matcher.source.mentions_all_names)
+        ));
+        generated.push_str(&format!(
+            "                assigns_any_names: {},\n",
+            format_string_slice(&contract.matcher.source.assigns_any_names)
+        ));
+        generated.push_str(&format!(
+            "                assigns_all_names: {},\n",
+            format_string_slice(&contract.matcher.source.assigns_all_names)
+        ));
+        generated.push_str(&format!(
+            "                assigns_any_prefixes: {},\n",
+            format_string_slice(&contract.matcher.source.assigns_any_prefixes)
+        ));
+        generated.push_str(&format!(
+            "                loads_zsh_modules_any: {},\n",
+            format_string_slice(&contract.matcher.source.loads_zsh_modules_any)
+        ));
+        generated.push_str(&format!(
+            "                loads_zsh_modules_all: {},\n",
+            format_string_slice(&contract.matcher.source.loads_zsh_modules_all)
+        ));
+        generated.push_str(&format!(
+            "                static_assignment_function_defs: {},\n",
+            format_string_slice(&contract.matcher.source.static_assignment_function_defs)
+        ));
+        generated.push_str(&format!(
+            "                probable_function_definition: {},\n",
+            contract.matcher.source.probable_function_definition
+        ));
+        generated.push_str(&format!(
+            "                source_command: {},\n",
+            contract.matcher.source.source_command
+        ));
+        generated.push_str(&format!(
+            "                completion_initializer_invoked: {},\n",
+            contract.matcher.source.completion_initializer_invoked
+        ));
+        generated.push_str(&format!(
+            "                loads_zsh_colors: {},\n",
+            contract.matcher.source.loads_zsh_colors
+        ));
+        generated.push_str(&format!(
+            "                caller_scoped_array_length_names: {},\n",
+            contract.matcher.source.caller_scoped_array_length_names
+        ));
+        generated.push_str("            },\n");
+        generated.push_str("        },\n");
         generated.push_str(&format!(
             "        files: {},\n",
             format_string_slice(&contract.files)
@@ -754,8 +994,16 @@ fn generate_declarative_contract_data(contracts: &[NormalizedDeclarativeContract
             format_string_slice(&contract.effects.provides_variables)
         ));
         generated.push_str(&format!(
+            "            provides_ambient_variables: {},\n",
+            format_string_slice(&contract.effects.provides_ambient_variables)
+        ));
+        generated.push_str(&format!(
             "            provides_functions: {},\n",
             format_string_slice(&contract.effects.provides_functions)
+        ));
+        generated.push_str(&format!(
+            "            provides_caller_scoped_array_length_names: {},\n",
+            contract.effects.provides_caller_scoped_array_length_names
         ));
         generated.push_str("            functions: &[\n");
         for function in &contract.effects.functions {
@@ -774,7 +1022,7 @@ fn generate_declarative_contract_data(contracts: &[NormalizedDeclarativeContract
         generated.push_str("            ],\n");
         generated.push_str("        },\n");
         generated.push_str("        compiled_files: std::sync::OnceLock::new(),\n");
-        generated.push_str("        file_entry_contract: std::sync::OnceLock::new(),\n");
+        generated.push_str("        static_file_entry_contract: std::sync::OnceLock::new(),\n");
         generated.push_str("        imported_contract: std::sync::OnceLock::new(),\n");
         generated.push_str("        requesting_file_contract: std::sync::OnceLock::new(),\n");
         generated.push_str("    },\n");
@@ -795,6 +1043,15 @@ fn format_activation(activation: &NormalizedDeclarativeActivation) -> String {
         NormalizedDeclarativeActivation::ZshTheme { framework, theme } => format!(
             "DeclarativeActivationDescriptor::ZshTheme {{ framework: {framework:?}, theme: {theme:?} }}"
         ),
+    }
+}
+
+fn format_shell(shell: &DeclarativeContractShell) -> &'static str {
+    match shell {
+        DeclarativeContractShell::Any => "DeclarativeShellDescriptor::Any",
+        DeclarativeContractShell::Zsh => "DeclarativeShellDescriptor::Zsh",
+        DeclarativeContractShell::ZshOrUnknown => "DeclarativeShellDescriptor::ZshOrUnknown",
+        DeclarativeContractShell::ZshRuntime => "DeclarativeShellDescriptor::ZshRuntime",
     }
 }
 

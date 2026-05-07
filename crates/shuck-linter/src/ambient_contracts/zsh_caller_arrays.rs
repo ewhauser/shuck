@@ -20,35 +20,8 @@ use std::collections::BTreeSet;
 use shuck_ast::{
     Name, ParameterExpansionSyntax, Word, WordPart, ZshExpansionOperation, ZshExpansionTarget,
 };
-use shuck_semantic::{ContractCertainty, FileContract, ProvidedBinding, ProvidedBindingKind};
 
-use super::AmbientContractCollector;
 use super::source_scan::{code_before_shell_comment, parse_shell_name_at};
-use crate::ShellDialect;
-
-pub(super) fn matches_zsh_caller_scoped_array_contract(
-    collector: &AmbientContractCollector<'_>,
-    shell: ShellDialect,
-) -> bool {
-    shell == ShellDialect::Zsh
-        && collector
-            .source_signals()
-            .has_probable_function_definition()
-        && !collector.caller_scoped_array_length_names.is_empty()
-}
-
-pub(super) fn apply_zsh_caller_scoped_array_contract(
-    contract: &mut FileContract,
-    collector: &AmbientContractCollector<'_>,
-) {
-    for name in &collector.caller_scoped_array_length_names {
-        contract.add_provided_binding(ProvidedBinding::new_file_entry_initialized(
-            name.clone(),
-            ProvidedBindingKind::Variable,
-            ContractCertainty::Definite,
-        ));
-    }
-}
 
 pub(super) fn collect_caller_scoped_array_length_names(word: &Word, names: &mut BTreeSet<Name>) {
     for part in &word.parts {

@@ -1,0 +1,205 @@
+version: 1
+contracts:
+  - id: zsh/config/history-state
+    groups:
+      - zsh
+      - zsh/config
+    label: Zsh history configuration variables
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        assigns-any-names:
+          - HISTFILE
+          - HISTSIZE
+          - SAVEHIST
+    files:
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+      - "**/zsh/**"
+      - "**/modules/history/**"
+      - "**/config.zsh"
+      - "**/history.zsh"
+      - "**/init.zsh"
+    effects:
+      consumes:
+        names:
+          - HISTFILE
+          - HISTSIZE
+          - SAVEHIST
+
+  - id: zsh/config/powerlevel9k
+    groups:
+      - zsh
+      - zsh/config
+      - zsh/powerlevel10k
+    label: Powerlevel prompt configuration prefixes
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        contains-any:
+          - P9K_
+          - POWERLEVEL9K_
+    files:
+      - "**/.p10k.zsh"
+      - "**/p10k.zsh"
+      - "**/p10k-*.zsh"
+      - "**/powerlevel10k/config/**"
+      - "**/powerlevel10k/internal/configure.zsh"
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+    effects:
+      consumes:
+        prefixes:
+          - P9K_
+          - POWERLEVEL9K_
+
+  - id: zsh/config/iterm2
+    groups:
+      - zsh
+      - zsh/config
+    label: iTerm2 configuration prefix
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        contains-any:
+          - ITERM2_
+    files:
+      - "**/.p10k.zsh"
+      - "**/p10k.zsh"
+      - "**/p10k-*.zsh"
+      - "**/powerlevel10k/config/**"
+      - "**/powerlevel10k/internal/configure.zsh"
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+    effects:
+      consumes:
+        prefixes:
+          - ITERM2_
+
+  - id: zsh/config/zdot
+    groups:
+      - zsh
+      - zsh/config
+    label: ZDOT configuration prefix
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        contains-any:
+          - ZDOT_
+    files:
+      - "**/.zshrc"
+      - "**/zshrc"
+      - "**/.zshenv"
+      - "**/zshenv"
+      - "**/.zprofile"
+      - "**/zprofile"
+      - "**/.zlogin"
+      - "**/zlogin"
+      - "**/.zlogout"
+      - "**/zlogout"
+      - "**/zdot/**"
+      - "**/zsh/config/**"
+      - "**/zsh/configs/**"
+    effects:
+      consumes:
+        prefixes:
+          - ZDOT_
+
+  - id: zsh/config/history-substring-search
+    groups:
+      - zsh
+      - zsh/config
+    label: History substring search configuration prefix
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        contains-any:
+          - HISTORY_SUBSTRING_SEARCH_
+    files:
+      - "**/history-substring-search/**"
+      - "**/modules/history-substring-search/**"
+    effects:
+      consumes:
+        prefixes:
+          - HISTORY_SUBSTRING_SEARCH_
+
+  - id: zsh/config/autosuggestions
+    groups:
+      - zsh
+      - zsh/config
+    label: Zsh autosuggestions configuration prefix
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        contains-any:
+          - ZSH_AUTOSUGGEST_
+    files:
+      - "**/zsh-autosuggestions/**"
+    effects:
+      consumes:
+        prefixes:
+          - ZSH_AUTOSUGGEST_
+
+  - id: zsh/config/syntax-highlighting
+    groups:
+      - zsh
+      - zsh/config
+    label: Zsh syntax highlighting configuration prefix
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        contains-any:
+          - ZSH_HIGHLIGHT_
+    files:
+      - "**/zsh-syntax-highlighting/**"
+    effects:
+      consumes:
+        prefixes:
+          - ZSH_HIGHLIGHT_

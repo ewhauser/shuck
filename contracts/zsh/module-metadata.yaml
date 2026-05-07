@@ -1,0 +1,23 @@
+version: 1
+contracts:
+  - id: zsh/module-metadata
+    groups:
+      - zsh
+    label: Zsh module metadata triplet
+    when:
+      type: always
+    match:
+      shell: zsh
+      source:
+        assigns-all-names:
+          - module_name
+          - module_description
+          - module_main_function
+        static-assignment-function-defs:
+          - module_main_function
+    effects:
+      consumes:
+        names:
+          - module_name
+          - module_description
+          - module_main_function

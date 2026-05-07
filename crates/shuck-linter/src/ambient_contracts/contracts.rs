@@ -232,20 +232,10 @@ impl ResolvedAmbientContracts {
         let mut matched = false;
 
         for id in &self.enabled_file_contract_ids {
-            if let Some(contract) = well_known_file_contract_by_id(id) {
-                if (contract.matches)(collector, shell) {
-                    matched = true;
-                    (contract.apply)(&mut merged, collector);
-                }
-                continue;
-            }
-
             let contract = declarative_contract_by_id(id).expect("known ambient contract id");
-            if declarative_file_activation_matches(&contract.activation, shell)
-                && contract.file_matches(&self.project_root, path.path())
-            {
+            if contract.matches_file_entry_contract(collector, shell, &self.project_root) {
                 matched = true;
-                merge_contract(&mut merged, contract.file_entry_contract().clone());
+                merge_contract(&mut merged, contract.file_entry_contract(collector));
             }
         }
 
@@ -468,10 +458,11 @@ struct DeclarativeContractDescriptor {
     #[allow(dead_code)]
     label: Option<&'static str>,
     activation: DeclarativeActivationDescriptor,
+    matcher: DeclarativeMatchDescriptor,
     files: &'static [&'static str],
     effects: DeclarativeEffectsDescriptor,
     compiled_files: OnceLock<Vec<CompiledPathMatcher>>,
-    file_entry_contract: OnceLock<FileContract>,
+    static_file_entry_contract: OnceLock<FileContract>,
     imported_contract: OnceLock<FileContract>,
     requesting_file_contract: OnceLock<FileContract>,
 }
@@ -489,13 +480,45 @@ enum DeclarativeActivationDescriptor {
     },
 }
 
+struct DeclarativeMatchDescriptor {
+    shell: DeclarativeShellDescriptor,
+    source: DeclarativeSourceMatchDescriptor,
+}
+
+#[derive(Clone, Copy)]
+enum DeclarativeShellDescriptor {
+    Any,
+    Zsh,
+    ZshOrUnknown,
+    ZshRuntime,
+}
+
+struct DeclarativeSourceMatchDescriptor {
+    contains_any: &'static [&'static str],
+    mentions_any_names: &'static [&'static str],
+    mentions_all_names: &'static [&'static str],
+    assigns_any_names: &'static [&'static str],
+    assigns_all_names: &'static [&'static str],
+    assigns_any_prefixes: &'static [&'static str],
+    loads_zsh_modules_any: &'static [&'static str],
+    loads_zsh_modules_all: &'static [&'static str],
+    static_assignment_function_defs: &'static [&'static str],
+    probable_function_definition: bool,
+    source_command: bool,
+    completion_initializer_invoked: bool,
+    loads_zsh_colors: bool,
+    caller_scoped_array_length_names: bool,
+}
+
 struct DeclarativeEffectsDescriptor {
     reads: &'static [&'static str],
     consumes_names: &'static [&'static str],
     consumes_prefixes: &'static [&'static str],
     consumes_all: bool,
     provides_variables: &'static [&'static str],
+    provides_ambient_variables: &'static [&'static str],
     provides_functions: &'static [&'static str],
+    provides_caller_scoped_array_length_names: bool,
     functions: &'static [DeclarativeFunctionDescriptor],
 }
 
@@ -503,13 +526,6 @@ struct DeclarativeFunctionDescriptor {
     name: &'static str,
     reads: &'static [&'static str],
     sets: &'static [&'static str],
-}
-
-struct WellKnownFileContract {
-    id: &'static str,
-    groups: &'static [&'static str],
-    matches: fn(&AmbientContractCollector<'_>, ShellDialect) -> bool,
-    apply: fn(&mut FileContract, &AmbientContractCollector<'_>),
 }
 
 #[allow(dead_code)]
@@ -568,9 +584,105 @@ impl DeclarativeContractDescriptor {
         if saw_positive { matched_positive } else { true }
     }
 
-    fn file_entry_contract(&self) -> &FileContract {
-        self.file_entry_contract
+    fn matches_file_entry_contract(
+        &self,
+        collector: &AmbientContractCollector<'_>,
+        shell: ShellDialect,
+        project_root: &Path,
+    ) -> bool {
+        self.activation_matches_file_shell(shell)
+            && self.shell_matches(shell, collector.path_signals().path())
+            && self.file_matches(project_root, collector.path_signals().path())
+            && self.source_matches(collector)
+    }
+
+    fn activation_matches_file_shell(&self, shell: ShellDialect) -> bool {
+        declarative_file_activation_matches(&self.activation, shell)
+    }
+
+    fn shell_matches(&self, shell: ShellDialect, path: &Path) -> bool {
+        match self.matcher.shell {
+            DeclarativeShellDescriptor::Any => true,
+            DeclarativeShellDescriptor::Zsh => shell == ShellDialect::Zsh,
+            DeclarativeShellDescriptor::ZshOrUnknown => {
+                matches!(shell, ShellDialect::Zsh | ShellDialect::Unknown)
+            }
+            DeclarativeShellDescriptor::ZshRuntime => {
+                shell == ShellDialect::Zsh
+                    || (shell == ShellDialect::Unknown && zsh_project_or_dotfile_path_shape(path))
+            }
+        }
+    }
+
+    fn source_matches(&self, collector: &AmbientContractCollector<'_>) -> bool {
+        let source = collector.source_signals();
+        let matcher = &self.matcher.source;
+
+        (matcher.contains_any.is_empty()
+            || matcher
+                .contains_any
+                .iter()
+                .any(|pattern| source.contains(pattern)))
+            && (matcher.mentions_any_names.is_empty()
+                || matcher
+                    .mentions_any_names
+                    .iter()
+                    .any(|name| source.mentions_name(name)))
+            && matcher
+                .mentions_all_names
+                .iter()
+                .all(|name| source.mentions_name(name))
+            && (matcher.assigns_any_names.is_empty()
+                || matcher
+                    .assigns_any_names
+                    .iter()
+                    .any(|name| source.assigns_name(name)))
+            && matcher
+                .assigns_all_names
+                .iter()
+                .all(|name| source.assigns_name(name))
+            && (matcher.assigns_any_prefixes.is_empty()
+                || matcher
+                    .assigns_any_prefixes
+                    .iter()
+                    .any(|prefix| source.assigns_name_with_prefix(prefix)))
+            && (matcher.loads_zsh_modules_any.is_empty()
+                || matcher
+                    .loads_zsh_modules_any
+                    .iter()
+                    .any(|module| source.loads_zsh_module(module)))
+            && matcher
+                .loads_zsh_modules_all
+                .iter()
+                .all(|module| source.loads_zsh_module(module))
+            && matcher.static_assignment_function_defs.iter().all(|name| {
+                source
+                    .static_assignment_value(name)
+                    .is_some_and(|function_name| source.defines_function(&function_name))
+            })
+            && (!matcher.probable_function_definition || source.has_probable_function_definition())
+            && (!matcher.source_command || source.has_source_command())
+            && (!matcher.completion_initializer_invoked || collector.completion_initializer_invoked)
+            && (!matcher.loads_zsh_colors || source.loads_zsh_colors())
+            && (!matcher.caller_scoped_array_length_names
+                || !collector.caller_scoped_array_length_names.is_empty())
+    }
+
+    fn file_entry_contract(&self, collector: &AmbientContractCollector<'_>) -> FileContract {
+        let mut contract = self
+            .static_file_entry_contract
             .get_or_init(|| file_entry_contract_from_declarative_effects(&self.effects))
+            .clone();
+        if self.effects.provides_caller_scoped_array_length_names {
+            for name in &collector.caller_scoped_array_length_names {
+                contract.add_provided_binding(ProvidedBinding::new_file_entry_initialized(
+                    name.clone(),
+                    ProvidedBindingKind::Variable,
+                    ContractCertainty::Definite,
+                ));
+            }
+        }
+        contract
     }
 
     fn imported_contract(&self) -> &FileContract {
@@ -586,67 +698,16 @@ impl DeclarativeContractDescriptor {
 
 include!(concat!(env!("OUT_DIR"), "/ambient_contracts_data.rs"));
 
-const WELL_KNOWN_FILE_CONTRACTS: &[WellKnownFileContract] = &[
-    WellKnownFileContract {
-        id: "sourced/runtime",
-        groups: &["sourced"],
-        matches: super::sourced_runtime::matches_sourced_runtime_contract,
-        apply: super::sourced_runtime::apply_sourced_runtime_contract,
-    },
-    WellKnownFileContract {
-        id: "zsh/runtime",
-        groups: &["zsh"],
-        matches: super::zsh_runtime::matches_zsh_ambient_runtime_contract,
-        apply: super::zsh_runtime::apply_zsh_ambient_runtime_contract,
-    },
-    WellKnownFileContract {
-        id: "zsh/caller-scoped-arrays",
-        groups: &["zsh"],
-        matches: super::zsh_caller_arrays::matches_zsh_caller_scoped_array_contract,
-        apply: super::zsh_caller_arrays::apply_zsh_caller_scoped_array_contract,
-    },
-    WellKnownFileContract {
-        id: "zsh/powerlevel10k/bootstrap",
-        groups: &["zsh", "zsh/powerlevel10k"],
-        matches: super::powerlevel10k::matches_powerlevel10k_bootstrap_contract,
-        apply: super::powerlevel10k::apply_powerlevel10k_bootstrap_contract,
-    },
-    WellKnownFileContract {
-        id: "zsh/powerlevel10k/gitstatus",
-        groups: &["zsh", "zsh/powerlevel10k"],
-        matches: super::powerlevel10k::matches_powerlevel10k_gitstatus_contract,
-        apply: super::powerlevel10k::apply_powerlevel10k_gitstatus_contract,
-    },
-    WellKnownFileContract {
-        id: "zsh/config",
-        groups: &["zsh"],
-        matches: super::zsh_config::matches_zsh_config_contract,
-        apply: super::zsh_config::apply_zsh_config_contract,
-    },
-    WellKnownFileContract {
-        id: "zsh/module-metadata",
-        groups: &["zsh"],
-        matches: super::zsh_module_metadata::matches_zsh_module_metadata_contract,
-        apply: super::zsh_module_metadata::apply_zsh_module_metadata_contract,
-    },
-];
-
 const WELL_KNOWN_REQUEST_CONTRACTS: &[WellKnownRequestContract] = &[];
 
 fn enabled_well_known_file_contract_ids(disabled: &[String]) -> Vec<&'static str> {
-    WELL_KNOWN_FILE_CONTRACTS
+    DECLARATIVE_CONTRACTS
         .iter()
-        .filter(|contract| !selector_matches(disabled, contract.id, contract.groups))
+        .filter(|contract| {
+            matches!(contract.activation, DeclarativeActivationDescriptor::Always)
+                && !selector_matches(disabled, contract.id, contract.groups)
+        })
         .map(|contract| contract.id)
-        .chain(
-            DECLARATIVE_CONTRACTS
-                .iter()
-                .filter(|contract| {
-                    matches!(contract.activation, DeclarativeActivationDescriptor::Always)
-                        && !selector_matches(disabled, contract.id, contract.groups)
-                })
-                .map(|contract| contract.id),
-        )
         .collect()
 }
 
@@ -671,12 +732,6 @@ fn selector_matches(selectors: &[String], id: &str, groups: &[&str]) -> bool {
     selectors.iter().any(|selector| {
         selector == "*" || selector == id || groups.iter().any(|group| selector == group)
     })
-}
-
-fn well_known_file_contract_by_id(id: &str) -> Option<&'static WellKnownFileContract> {
-    WELL_KNOWN_FILE_CONTRACTS
-        .iter()
-        .find(|contract| contract.id == id)
 }
 
 fn well_known_request_contract_by_id(id: &str) -> Option<&'static WellKnownRequestContract> {
@@ -704,12 +759,9 @@ fn validate_well_known_selectors(selectors: &[String]) -> Result<()> {
 }
 
 fn well_known_selector_exists(selector: &str) -> bool {
-    WELL_KNOWN_FILE_CONTRACTS
+    WELL_KNOWN_REQUEST_CONTRACTS
         .iter()
         .any(|contract| selector == contract.id || contract.groups.contains(&selector))
-        || WELL_KNOWN_REQUEST_CONTRACTS
-            .iter()
-            .any(|contract| selector == contract.id || contract.groups.contains(&selector))
         || DECLARATIVE_CONTRACTS
             .iter()
             .any(|contract| selector == contract.id || contract.groups.contains(&selector))
@@ -723,6 +775,33 @@ fn request_activation_matches(activation: RequestActivation, request: &PluginReq
                 && request.name == plugin
         }
     }
+}
+
+fn zsh_project_or_dotfile_path_shape(path: &Path) -> bool {
+    let lower_path = path.to_string_lossy().to_ascii_lowercase();
+    [
+        "/.zshrc",
+        "/zshrc",
+        "/.zshenv",
+        "/zshenv",
+        "/.zprofile",
+        "/zprofile",
+        "/.zlogin",
+        "/zlogin",
+        "/.zlogout",
+        "/zlogout",
+        "/zdot/",
+        "/zsh/config/",
+        "/zsh/configs/",
+        "/ohmyzsh/",
+        "/powerlevel10k/",
+        "/prezto/",
+        "/zinit/",
+        "/zsh-autosuggestions/",
+        "/zsh-syntax-highlighting/",
+    ]
+    .iter()
+    .any(|pattern| lower_path.contains(pattern))
 }
 
 fn declarative_file_activation_matches(
@@ -959,6 +1038,13 @@ fn imported_contract_from_declarative_effects(
     }
     for name in effects.provides_variables {
         contract.add_provided_binding(ProvidedBinding::new_file_entry_initialized(
+            Name::from(*name),
+            ProvidedBindingKind::Variable,
+            ContractCertainty::Definite,
+        ));
+    }
+    for name in effects.provides_ambient_variables {
+        contract.add_provided_binding(ProvidedBinding::new(
             Name::from(*name),
             ProvidedBindingKind::Variable,
             ContractCertainty::Definite,

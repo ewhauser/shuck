@@ -40,18 +40,12 @@ use shuck_semantic::{FileContract, FileEntryContractCollector, FileEntryContract
 use crate::ShellDialect;
 
 mod contracts;
-mod path;
-mod powerlevel10k;
 mod signals;
 mod source_scan;
 mod sourced_runtime;
 #[cfg(test)]
 mod tests;
 mod zsh_caller_arrays;
-mod zsh_config;
-mod zsh_module_metadata;
-mod zsh_paths;
-mod zsh_runtime;
 
 pub use contracts::{
     AmbientContractActivation, AmbientContractConfig, AmbientContractEffects, AmbientContractSpec,

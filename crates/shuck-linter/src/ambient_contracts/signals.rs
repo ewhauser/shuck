@@ -37,38 +37,17 @@ impl<'a> AmbientSignals<'a> {
 
 pub(super) struct PathSignals {
     path: PathBuf,
-    lower_path: String,
 }
 
 impl PathSignals {
     fn new(path: &Path) -> Self {
         Self {
             path: path.to_path_buf(),
-            lower_path: path.to_string_lossy().to_ascii_lowercase(),
         }
     }
 
     pub(super) fn path(&self) -> &Path {
         &self.path
-    }
-
-    pub(super) fn lower_path(&self) -> &str {
-        &self.lower_path
-    }
-
-    pub(super) fn contains(&self, pattern: &str) -> bool {
-        self.lower_path.contains(pattern)
-    }
-
-    pub(super) fn matches_any(&self, patterns: &[&str]) -> bool {
-        patterns.iter().any(|pattern| self.contains(pattern))
-    }
-
-    pub(super) fn file_name(&self) -> &str {
-        self.lower_path
-            .rsplit('/')
-            .next()
-            .unwrap_or(&self.lower_path)
     }
 }
 
@@ -122,10 +101,6 @@ impl<'a> SourceSignals<'a> {
 
     pub(super) fn mentions_name(&self, name: &str) -> bool {
         self.mentioned_names.contains(name)
-    }
-
-    pub(super) fn mentions_any(&self, names: &[&str]) -> bool {
-        names.iter().any(|name| self.mentions_name(name))
     }
 
     pub(super) fn assigns_name(&self, name: &str) -> bool {

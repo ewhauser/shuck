@@ -104,13 +104,20 @@ printf '%s\\n' \"$XBPS_SRCPKGDIR\" \"$configure_args\" \"$wrksrc\"
 }
 
 #[test]
-fn effective_well_known_ids_include_registry_backed_sourced_and_zsh_array_contracts() {
+fn effective_well_known_ids_include_registry_backed_bash_and_zsh_array_contracts() {
     let effective = ResolvedAmbientContracts::default().effective();
 
     assert!(
         effective
             .well_known_ids
-            .contains(&"sourced/runtime".to_owned())
+            .iter()
+            .any(|id| id.starts_with("bash/"))
+    );
+    assert!(
+        effective
+            .well_known_ids
+            .iter()
+            .any(|id| id.starts_with("bash-it/"))
     );
     assert!(
         effective
@@ -139,7 +146,7 @@ PROMPT_COMMAND=prompt_command
 }
 
 #[test]
-fn disabling_sourced_runtime_contract_selector_removes_palette_bindings() {
+fn disabling_bash_it_theme_selector_removes_palette_bindings() {
     let path = Path::new("/tmp/Bash-it/themes/example/example.theme.bash");
     let source = "\
 prompt_command() {
@@ -151,7 +158,7 @@ PROMPT_COMMAND=prompt_command
         ResolvedAmbientContracts::resolve(
             "/tmp",
             AmbientContractConfig {
-                disabled: vec!["sourced/runtime".to_owned()],
+                disabled: vec!["bash-it/theme".to_owned()],
                 ..AmbientContractConfig::default()
             },
         )
@@ -173,11 +180,7 @@ helper() {
 }
 ";
 
-    let contract = contract_for(path, source).unwrap();
-
-    assert!(!has_initialized_binding(&contract, "green"));
-    assert!(!has_initialized_binding(&contract, "reset_color"));
-    assert!(!contract.externally_consumed_bindings);
+    assert!(contract_for(path, source).is_none());
 }
 
 #[test]
@@ -223,9 +226,7 @@ fn standalone_zsh_scripts_do_not_get_userdirs_without_runtime_context() {
     let path = Path::new("/tmp/project/scripts/example.zsh");
     let source = "print -r -- \"$userdirs\"\n";
 
-    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
-
-    assert!(!has_initialized_binding(&contract, "userdirs"));
+    assert!(contract_for_shell(path, source, ShellDialect::Zsh).is_none());
 }
 
 #[test]
@@ -236,9 +237,7 @@ true;# zmodload zsh/parameter
 print -r -- \"$history\"
 ";
 
-    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
-
-    assert!(!has_initialized_binding(&contract, "history"));
+    assert!(contract_for_shell(path, source, ShellDialect::Zsh).is_none());
 }
 
 #[test]
@@ -691,11 +690,7 @@ helper() {
 }
 ";
 
-    let contract = contract_for(path, source).unwrap();
-
-    assert!(!has_initialized_binding(&contract, "cur"));
-    assert!(!has_initialized_binding(&contract, "cword"));
-    assert!(!contract.externally_consumed_bindings);
+    assert!(contract_for(path, source).is_none());
 }
 
 #[test]
@@ -708,11 +703,7 @@ helper() {
 }
 ";
 
-    let contract = contract_for(path, source).unwrap();
-
-    assert!(!has_initialized_binding(&contract, "cur"));
-    assert!(!has_initialized_binding(&contract, "cword"));
-    assert!(!contract.externally_consumed_bindings);
+    assert!(contract_for(path, source).is_none());
 }
 
 #[test]
@@ -725,11 +716,7 @@ _example() {
 }
 ";
 
-    let contract = contract_for(path, source).unwrap();
-
-    assert!(!has_initialized_binding(&contract, "cur"));
-    assert!(!has_initialized_binding(&contract, "cword"));
-    assert!(!contract.externally_consumed_bindings);
+    assert!(contract_for(path, source).is_none());
 }
 
 #[test]
@@ -805,13 +792,7 @@ _example() {
 }
 ";
 
-    let contract = contract_for(path, source).unwrap();
-
-    assert!(!has_ambient_binding(&contract, "cur"));
-    assert!(!has_ambient_binding(&contract, "cword"));
-    assert!(!has_initialized_binding(&contract, "cur"));
-    assert!(!has_initialized_binding(&contract, "cword"));
-    assert!(!contract.externally_consumed_bindings);
+    assert!(contract_for(path, source).is_none());
 }
 
 #[test]
@@ -823,13 +804,7 @@ _example() {
 }
 ";
 
-    let contract = contract_for(path, source).unwrap();
-
-    assert!(!has_ambient_binding(&contract, "cur"));
-    assert!(!has_ambient_binding(&contract, "cword"));
-    assert!(!has_initialized_binding(&contract, "cur"));
-    assert!(!has_initialized_binding(&contract, "cword"));
-    assert!(!contract.externally_consumed_bindings);
+    assert!(contract_for(path, source).is_none());
 }
 
 #[test]
@@ -842,11 +817,7 @@ _example() {
 }
 ";
 
-    let contract = contract_for(path, source).unwrap();
-
-    assert!(!has_initialized_binding(&contract, "cur"));
-    assert!(!has_initialized_binding(&contract, "cword"));
-    assert!(!contract.externally_consumed_bindings);
+    assert!(contract_for(path, source).is_none());
 }
 
 #[test]
@@ -859,11 +830,7 @@ _example() {
 }
 ";
 
-    let contract = contract_for(path, source).unwrap();
-
-    assert!(!has_initialized_binding(&contract, "cur"));
-    assert!(!has_initialized_binding(&contract, "cword"));
-    assert!(!contract.externally_consumed_bindings);
+    assert!(contract_for(path, source).is_none());
 }
 
 #[test]
@@ -878,11 +845,7 @@ _example() {
 }
 ";
 
-    let contract = contract_for(path, source).unwrap();
-
-    assert!(!has_initialized_binding(&contract, "cur"));
-    assert!(!has_initialized_binding(&contract, "cword"));
-    assert!(!contract.externally_consumed_bindings);
+    assert!(contract_for(path, source).is_none());
 }
 
 #[test]
@@ -895,11 +858,7 @@ _example() {
 }
 ";
 
-    let contract = contract_for(path, source).unwrap();
-
-    assert!(!has_initialized_binding(&contract, "cur"));
-    assert!(!has_initialized_binding(&contract, "cword"));
-    assert!(!contract.externally_consumed_bindings);
+    assert!(contract_for(path, source).is_none());
 }
 
 #[test]
@@ -914,11 +873,7 @@ _example() {
 }
 ";
 
-    let contract = contract_for(path, source).unwrap();
-
-    assert!(!has_initialized_binding(&contract, "cur"));
-    assert!(!has_initialized_binding(&contract, "cword"));
-    assert!(!contract.externally_consumed_bindings);
+    assert!(contract_for(path, source).is_none());
 }
 
 #[test]
@@ -931,9 +886,5 @@ backup_run() {
 }
 ";
 
-    let contract = contract_for(path, source).unwrap();
-
-    assert!(!has_initialized_binding(&contract, "lockdir"));
-    assert!(!has_initialized_binding(&contract, "commandname"));
-    assert!(!contract.externally_consumed_bindings);
+    assert!(contract_for(path, source).is_none());
 }
