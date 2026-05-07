@@ -250,6 +250,7 @@ fn collect_source_closure_contracts_with_cache(
     context: &SourceClosureLookupContext<'_>,
 ) -> SourceClosureContracts {
     let facts = collect_ast_facts(model);
+    let function_binding_lookup = model.function_binding_lookup();
     let call_args_by_scope = if facts.source_templates_use_positional_args {
         resolve_literal_call_args_by_scope(model, &facts.calls)
     } else {
@@ -353,13 +354,14 @@ fn collect_source_closure_contracts_with_cache(
     }
 
     for call in &facts.calls {
-        if let Some(function_site) = visible_imported_function_contract(
+        let imported_function_site = visible_imported_function_contract(
             model,
             &imported_functions,
             &call.name,
             call.scope,
             call.span.start.offset,
-        ) {
+        );
+        if let Some(function_site) = imported_function_site {
             for name in &function_site.contract.required_reads {
                 synthetic_reads.push(SyntheticRead {
                     scope: call.scope,
@@ -379,6 +381,25 @@ fn collect_source_closure_contracts_with_cache(
                         origin_paths: Vec::new(),
                     });
                 }
+            }
+        }
+        if imported_function_site.is_none()
+            && function_binding_lookup
+                .visible_function_binding(&call.name, call.scope, call.span.start.offset)
+                .is_none()
+            && let Some(bindings) = unresolved_zsh_reply_bindings_for_call(
+                source_path,
+                &context.shell_profile,
+                &call.name,
+            )
+        {
+            for binding in bindings {
+                imported_bindings.push(ImportedBindingContractSite {
+                    scope: call.scope,
+                    span: call.span,
+                    binding,
+                    origin_paths: Vec::new(),
+                });
             }
         }
 
@@ -1350,6 +1371,76 @@ fn local_helper_command_candidate(name: &Name) -> Option<String> {
 
 fn looks_like_local_helper_command(name: &str) -> bool {
     name.contains('/') || name.ends_with(".sh")
+}
+
+fn unresolved_zsh_reply_bindings_for_call(
+    source_path: &Path,
+    shell_profile: &ShellProfile,
+    name: &Name,
+) -> Option<[ProvidedBinding; 2]> {
+    if shell_profile.dialect != ParseShellDialect::Zsh
+        || !looks_like_zsh_runtime_path(source_path)
+        || !looks_like_zsh_reply_helper_command(name.as_str())
+    {
+        return None;
+    }
+
+    Some([
+        ProvidedBinding::new(
+            Name::from("REPLY"),
+            ProvidedBindingKind::Variable,
+            ContractCertainty::Definite,
+        ),
+        ProvidedBinding::new(
+            Name::from("reply"),
+            ProvidedBindingKind::Variable,
+            ContractCertainty::Definite,
+        ),
+    ])
+}
+
+fn looks_like_zsh_reply_helper_command(name: &str) -> bool {
+    !matches!(name, "." | ".." | "source")
+        && (name.starts_with('.') || name.contains('_') || name.contains(':'))
+}
+
+fn looks_like_zsh_runtime_path(path: &Path) -> bool {
+    let lower = path_to_template_string(path).to_ascii_lowercase();
+    let dotfile_shape = lower.split('/').any(|component| {
+        matches!(
+            component,
+            ".zshrc"
+                | "zshrc"
+                | ".zshenv"
+                | "zshenv"
+                | ".zprofile"
+                | "zprofile"
+                | ".zlogin"
+                | "zlogin"
+                | ".zlogout"
+                | "zlogout"
+                | "zdot"
+        )
+    }) || lower.contains("/zsh/config/")
+        || lower.contains("/zsh/configs/");
+    dotfile_shape
+        || [
+            "/completion/",
+            "/completions/",
+            "/functions/",
+            "/highlighters/",
+            "/lib/",
+            "/modules/",
+            "/plugins/",
+            "/plugin/",
+            "/themes/",
+            ".plugin.zsh",
+            ".theme.zsh",
+            "/zsh-autosuggestions/",
+            "/zsh-syntax-highlighting/",
+        ]
+        .iter()
+        .any(|pattern| lower.contains(pattern))
 }
 
 fn uses_positional_args(parts: &[TemplatePart]) -> bool {
