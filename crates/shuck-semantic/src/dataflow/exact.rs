@@ -137,6 +137,25 @@ impl ExactVariableDataflow {
             .collect()
     }
 
+    pub(crate) fn reference_reaches_any_binding(
+        &self,
+        context: &DataflowContext<'_>,
+        reference: &Reference,
+        candidate_bindings: impl IntoIterator<Item = BindingId>,
+    ) -> bool {
+        let Some(block_id) = self.reference_blocks[reference.id.index()] else {
+            return false;
+        };
+        if self.unreachable_blocks.contains(block_id.index()) {
+            return false;
+        }
+
+        let incoming = &self.reaching_definitions(context).reaching_in[block_id.index()];
+        candidate_bindings
+            .into_iter()
+            .any(|binding_id| incoming.contains(binding_id.index()))
+    }
+
     pub(crate) fn binding_block(&self, binding_id: BindingId) -> Option<BlockId> {
         self.binding_blocks[binding_id.index()]
     }

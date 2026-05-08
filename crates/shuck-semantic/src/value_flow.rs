@@ -51,6 +51,52 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         self.reaching_value_bindings_for_name_inner(name, at, synthetic_use_block)
     }
 
+    /// Returns value-supplying bindings for a named use site that is known not to have a direct
+    /// semantic reference. This is currently used by zsh-specific linter fanout checks so they
+    /// can jump straight to synthetic-use dataflow without first paying for the ordinary
+    /// reference-based query path.
+    #[doc(hidden)]
+    pub fn reaching_value_bindings_for_name_without_reference(
+        &self,
+        name: &Name,
+        at: Span,
+        synthetic_use_block: BlockId,
+    ) -> Vec<BindingId> {
+        let mut bindings =
+            self.synthetic_reaching_value_bindings_for_name(name, at, Some(synthetic_use_block));
+        if bindings.is_empty()
+            && let Some(binding_id) = self.latest_visible_value_binding_for_name(name, at)
+        {
+            bindings.push(binding_id);
+        }
+        self.sort_and_dedup_bindings(&mut bindings);
+        bindings
+    }
+
+    /// Returns true when `reference_id` may observe any candidate binding from the provided set.
+    /// Callers are expected to prefilter the candidate list to bindings that can supply a
+    /// parameter value. This is a narrow fast path for callers that already know the small subset
+    /// of bindings they care about, such as zsh array-fanout checks.
+    #[doc(hidden)]
+    pub fn reference_reaches_any_value_binding(
+        &self,
+        reference_id: ReferenceId,
+        candidate_bindings: &[BindingId],
+    ) -> bool {
+        if candidate_bindings.is_empty() {
+            return false;
+        }
+
+        let cfg = self.analysis.cfg();
+        let context = self.model().dataflow_context(cfg);
+        let exact = self.analysis.exact_variable_dataflow();
+        exact.reference_reaches_any_binding(
+            &context,
+            self.model().reference(reference_id),
+            candidate_bindings.iter().copied(),
+        )
+    }
+
     fn reaching_value_bindings_for_name_inner(
         &self,
         name: &Name,
