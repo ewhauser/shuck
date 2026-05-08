@@ -707,20 +707,7 @@ impl DeclarativeContractDescriptor {
     }
 
     fn vocabulary_names(&self) -> impl Iterator<Item = &'static str> {
-        self.matcher
-            .source
-            .mentions_any_names
-            .iter()
-            .chain(self.matcher.source.mentions_all_names.iter())
-            .chain(self.matcher.source.assigns_any_names.iter())
-            .chain(self.matcher.source.assigns_all_names.iter())
-            .chain(self.effects.reads.iter())
-            .chain(self.effects.consumes_names.iter())
-            .chain(self.effects.provides_variables.iter())
-            .chain(self.effects.provides_ambient_variables.iter())
-            .chain(self.effects.provides_functions.iter())
-            .chain(self.effects.vocabulary_names.iter())
-            .copied()
+        self.effects.vocabulary_names.iter().copied()
     }
 
     fn imported_contract(&self) -> &FileContract {
