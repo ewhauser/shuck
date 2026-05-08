@@ -148,6 +148,48 @@ impl SubstitutionFact {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct HostedSubstitutionOccurrence<'a> {
+    occurrence: SubstitutionOccurrence<'a>,
+    host_word_span: Span,
+    host_kind: SubstitutionHostKind,
+}
+
+fn collect_substitution_occurrences_for_command<'a>(
+    command: &'a Command,
+    redirects: &'a [Redirect],
+    source: &'a str,
+    buffer: &mut Vec<HostedSubstitutionOccurrence<'a>>,
+) {
+    let mut scratch: Vec<SubstitutionOccurrence<'a>> = Vec::new();
+
+    visit_command_substitution_inputs(command, redirects, source, &mut |host_kind, word| {
+        scratch.clear();
+        collect_word_substitution_occurrences(&word.parts, false, &mut scratch);
+        let host_word_span = word.span;
+        for occurrence in scratch.drain(..) {
+            buffer.push(HostedSubstitutionOccurrence {
+                occurrence,
+                host_word_span,
+                host_kind,
+            });
+        }
+    });
+
+    visit_heredoc_bodies_for_substitutions(redirects, &mut |body| {
+        scratch.clear();
+        collect_heredoc_body_substitution_occurrences(&body.parts, &mut scratch);
+        let host_word_span = body.span;
+        for occurrence in scratch.drain(..) {
+            buffer.push(HostedSubstitutionOccurrence {
+                occurrence,
+                host_word_span,
+                host_kind: SubstitutionHostKind::Other,
+            });
+        }
+    });
+}
+
 #[cfg_attr(shuck_profiling, inline(never))]
 #[allow(clippy::too_many_arguments)]
 fn populate_substitution_fact_ranges<'a>(
@@ -158,8 +200,14 @@ fn populate_substitution_fact_ranges<'a>(
     command_child_index: &CommandChildIndex,
     semantic: &LinterSemanticArtifacts<'a>,
     locator: Locator<'_>,
+    occurrences_by_command_id: &[Vec<HostedSubstitutionOccurrence<'a>>],
 ) {
+    let empty: Vec<HostedSubstitutionOccurrence<'a>> = Vec::new();
     for index in 0..commands.len() {
+        let command_id_index = commands[index].id().index();
+        let occurrences = occurrences_by_command_id
+            .get(command_id_index)
+            .unwrap_or(&empty);
         let substitutions = {
             let command_facts =
                 CommandFacts::new(commands, fact_store, command_fact_indices_by_id);
@@ -173,6 +221,7 @@ fn populate_substitution_fact_ranges<'a>(
                 command_child_index,
                 semantic,
                 locator,
+                occurrences,
             )
         };
         commands[index].substitution_facts = fact_store.substitution_facts.push_many(substitutions);
@@ -186,10 +235,14 @@ fn build_command_substitution_facts<'a>(
     command_child_index: &CommandChildIndex,
     semantic: &LinterSemanticArtifacts<'a>,
     locator: Locator<'_>,
+    occurrences: &[HostedSubstitutionOccurrence<'a>],
 ) -> Vec<SubstitutionFact> {
-    let source = locator.source();
-    let mut substitutions = Vec::new();
-    let mut substitution_index = FxHashMap::default();
+    if occurrences.is_empty() {
+        return Vec::new();
+    }
+
+    let mut substitutions: Vec<SubstitutionFact> = Vec::new();
+    let mut substitution_index: FxHashMap<FactSpan, usize> = FxHashMap::default();
     let context = SubstitutionFactBuildContext {
         commands,
         command_relationships: CommandRelationshipContext::new(
@@ -203,100 +256,17 @@ fn build_command_substitution_facts<'a>(
         locator,
     };
 
-    visit_command_substitution_inputs(
-        fact.command(),
-        fact.redirects(),
-        source,
-        &mut |host_kind, word| {
-            collect_or_update_word_substitution_facts(
-                word,
-                host_kind,
-                context,
-                &mut substitutions,
-                &mut substitution_index,
-            );
-        },
-    );
-
-    visit_heredoc_bodies_for_substitutions(fact.redirects(), &mut |body| {
-        collect_or_update_heredoc_body_substitution_facts(
-            body,
-            SubstitutionHostKind::Other,
-            context,
-            &mut substitutions,
-            &mut substitution_index,
-        );
-    });
-
-    substitutions
-}
-
-fn collect_or_update_word_substitution_facts<'a>(
-    word: &Word,
-    host_kind: SubstitutionHostKind,
-    context: SubstitutionFactBuildContext<'a, '_>,
-    substitutions: &mut Vec<SubstitutionFact>,
-    substitution_index: &mut FxHashMap<FactSpan, usize>,
-) {
-    let mut occurrences = Vec::new();
-    collect_word_substitution_occurrences(&word.parts, false, &mut occurrences);
-    collect_or_update_substitution_facts_from_occurrences(
-        word.span,
-        host_kind,
-        occurrences,
-        context,
-        substitutions,
-        substitution_index,
-    );
-}
-
-fn collect_or_update_heredoc_body_substitution_facts<'a>(
-    body: &shuck_ast::HeredocBody,
-    host_kind: SubstitutionHostKind,
-    context: SubstitutionFactBuildContext<'a, '_>,
-    substitutions: &mut Vec<SubstitutionFact>,
-    substitution_index: &mut FxHashMap<FactSpan, usize>,
-) {
-    let mut occurrences = Vec::new();
-    collect_heredoc_body_substitution_occurrences(&body.parts, &mut occurrences);
-    collect_or_update_substitution_facts_from_occurrences(
-        body.span,
-        host_kind,
-        occurrences,
-        context,
-        substitutions,
-        substitution_index,
-    );
-}
-
-#[derive(Clone, Copy)]
-struct SubstitutionFactBuildContext<'a, 'b> {
-    commands: CommandFacts<'b, 'a>,
-    command_relationships: CommandRelationshipContext<'b, 'a>,
-    host_command_id: CommandId,
-    semantic: &'b LinterSemanticArtifacts<'a>,
-    locator: Locator<'b>,
-}
-
-fn collect_or_update_substitution_facts_from_occurrences<'a>(
-    host_span: Span,
-    host_kind: SubstitutionHostKind,
-    occurrences: Vec<SubstitutionOccurrence<'a>>,
-    context: SubstitutionFactBuildContext<'a, '_>,
-    substitutions: &mut Vec<SubstitutionFact>,
-    substitution_index: &mut FxHashMap<FactSpan, usize>,
-) {
-    for occurrence in occurrences {
-        let key = FactSpan::new(occurrence.span);
-        if let Some(&index) = substitution_index.get(&key) {
-            substitutions[index].host_word_span = host_span;
-            substitutions[index].host_kind = host_kind;
-            substitutions[index].unquoted_in_host = occurrence.unquoted_in_host;
+    for hosted in occurrences {
+        let key = FactSpan::new(hosted.occurrence.span);
+        if let Some(&existing) = substitution_index.get(&key) {
+            substitutions[existing].host_word_span = hosted.host_word_span;
+            substitutions[existing].host_kind = hosted.host_kind;
+            substitutions[existing].unquoted_in_host = hosted.occurrence.unquoted_in_host;
             continue;
         }
 
         let body_facts = classify_substitution_body(
-            occurrence.body,
+            hosted.occurrence.body,
             context.commands,
             context.command_relationships,
             context.host_command_id,
@@ -305,9 +275,9 @@ fn collect_or_update_substitution_facts_from_occurrences<'a>(
         );
         substitution_index.insert(key, substitutions.len());
         substitutions.push(SubstitutionFact {
-            span: occurrence.span,
-            kind: occurrence.kind,
-            command_syntax: occurrence.command_syntax,
+            span: hosted.occurrence.span,
+            kind: hosted.occurrence.kind,
+            command_syntax: hosted.occurrence.command_syntax,
             stdout_intent: body_facts.stdout_intent,
             terminal_stdout_intent: body_facts.terminal_stdout_intent,
             has_stdout_redirect: body_facts.has_stdout_redirect,
@@ -323,11 +293,22 @@ fn collect_or_update_substitution_facts_from_occurrences<'a>(
             body_is_seq_utility: body_facts.body_is_seq_utility,
             body_has_commands: body_facts.body_has_commands,
             bash_file_slurp: body_facts.bash_file_slurp,
-            host_word_span: host_span,
-            host_kind,
-            unquoted_in_host: occurrence.unquoted_in_host,
+            host_word_span: hosted.host_word_span,
+            host_kind: hosted.host_kind,
+            unquoted_in_host: hosted.occurrence.unquoted_in_host,
         });
     }
+
+    substitutions
+}
+
+#[derive(Clone, Copy)]
+struct SubstitutionFactBuildContext<'a, 'b> {
+    commands: CommandFacts<'b, 'a>,
+    command_relationships: CommandRelationshipContext<'b, 'a>,
+    host_command_id: CommandId,
+    semantic: &'b LinterSemanticArtifacts<'a>,
+    locator: Locator<'b>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1533,9 +1514,9 @@ fn visit_command_argument_words_for_substitutions<'a>(
     }
 }
 
-fn visit_heredoc_bodies_for_substitutions(
-    redirects: &[Redirect],
-    visitor: &mut impl FnMut(&shuck_ast::HeredocBody),
+fn visit_heredoc_bodies_for_substitutions<'a>(
+    redirects: &'a [Redirect],
+    visitor: &mut impl FnMut(&'a shuck_ast::HeredocBody),
 ) {
     for redirect in redirects {
         let Some(heredoc) = redirect.heredoc() else {

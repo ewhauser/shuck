@@ -146,6 +146,10 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
 
         let mut commands: Vec<CommandFact<'_>> =
             Vec::with_capacity(self.semantic.command_count());
+        let mut substitution_occurrences_by_command_id: Vec<Vec<HostedSubstitutionOccurrence<'_>>> =
+            (0..self.semantic.command_count())
+                .map(|_| Vec::new())
+                .collect();
         let mut redirect_fact_store = ListArena::new();
         let mut declaration_assignment_probe_store = ListArena::new();
         let mut command_ids_by_span =
@@ -423,6 +427,12 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     simple_test,
                     conditional,
                 };
+                collect_substitution_occurrences_for_command(
+                    visit.command,
+                    visit.redirects,
+                    self.source,
+                    &mut substitution_occurrences_by_command_id[id.index()],
+                );
                 commands.push(command_fact);
 
                 if let Command::Function(function) = visit.command {
@@ -586,6 +596,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &command_child_index,
             self.semantic_artifacts,
             locator,
+            &substitution_occurrences_by_command_id,
         );
 
         let presence_tested_names = build_presence_tested_names(
