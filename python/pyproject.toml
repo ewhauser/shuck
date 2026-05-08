@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shuck-cli"
-version = "0.0.39"
+version = "0.0.40"
 description = "Python wheel wrapper for the shuck CLI binary"
 readme = "README.md"
 requires-python = ">=3.8"

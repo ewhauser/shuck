@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.0.40](https://github.com/ewhauser/shuck/compare/v0.0.39...v0.0.40) (2026-05-08)
+
+
+### Features
+
+* **docs:** add website contracts guide ([#965](https://github.com/ewhauser/shuck/issues/965)) ([f033b1f](https://github.com/ewhauser/shuck/commit/f033b1fd16cc0e7dd48585fa7681c09087a2cce8))
+* **linter:** add declarative built-in contracts ([#968](https://github.com/ewhauser/shuck/issues/968)) ([ad464f2](https://github.com/ewhauser/shuck/commit/ad464f23c4dd3362c92c74e13375be63c161161a))
+* **linter:** implement ambient contracts ([#964](https://github.com/ewhauser/shuck/issues/964)) ([4e16576](https://github.com/ewhauser/shuck/commit/4e16576a6e79d189a138373f887f9dc7c42af01e))
+* **linter:** make ambient contracts declarative ([#969](https://github.com/ewhauser/shuck/issues/969)) ([3ddf40a](https://github.com/ewhauser/shuck/commit/3ddf40a1f45191afffe457d38ee6e7942d9564cd))
+
+
+### Bug Fixes
+
+* **linter:** add S042 autofix ([#982](https://github.com/ewhauser/shuck/issues/982)) ([709b56d](https://github.com/ewhauser/shuck/commit/709b56d372024062a015bc9c2543e0740b5cdf64))
+* **linter:** add zsh framework contracts ([#970](https://github.com/ewhauser/shuck/issues/970)) ([bd78a60](https://github.com/ewhauser/shuck/commit/bd78a607df0d5d96f0b36c4d7e9cad1830a64438))
+* **linter:** add zsh framework contracts for C006 ([#973](https://github.com/ewhauser/shuck/issues/973)) ([6845632](https://github.com/ewhauser/shuck/commit/684563246e3f4583faea2b45b143c828f2a9b560))
+* **linter:** model powerlevel10k ambient contracts ([#967](https://github.com/ewhauser/shuck/issues/967)) ([e2cf65b](https://github.com/ewhauser/shuck/commit/e2cf65baaff6b6e45c1066a08f204618862ad4b6))
+* **linter:** narrow C005 instructional output handling ([#972](https://github.com/ewhauser/shuck/issues/972)) ([916c04f](https://github.com/ewhauser/shuck/commit/916c04f47df502037f70f1a141c4eeee3ecc95cf))
+* **linter:** tighten powerlevel10k runtime contracts ([#971](https://github.com/ewhauser/shuck/issues/971)) ([428cfeb](https://github.com/ewhauser/shuck/commit/428cfeb2fc5716a1dc2ded6877344254f9456f8c))
+
+
+### Performance
+
+* **indexer:** index expansion brace edges to drop two whole-source scans ([#983](https://github.com/ewhauser/shuck/issues/983)) ([89d72b0](https://github.com/ewhauser/shuck/commit/89d72b09ee6775f8c5a1bade00b54fde67253835))
+* **linter:** cache enclosing function scope on CommandFact ([#979](https://github.com/ewhauser/shuck/issues/979)) ([4c47e7b](https://github.com/ewhauser/shuck/commit/4c47e7bba4705b8ef4a93edee7752b446d1a6f18))
+* **linter:** drop dead escaped-template traversal scan ([#988](https://github.com/ewhauser/shuck/issues/988)) ([cedd9bb](https://github.com/ewhauser/shuck/commit/cedd9bb2f775ce75c09bedc59bd0a1f8d6dc601d))
+* **linter:** fuse substitution-input walkers into one pass ([#976](https://github.com/ewhauser/shuck/issues/976)) ([d9372ee](https://github.com/ewhauser/shuck/commit/d9372ee0a90913750bc9e43a226dc438ee691848))
+* **linter:** hoist substitution-occurrence collection into pass 1 ([#977](https://github.com/ewhauser/shuck/issues/977)) ([7959ed7](https://github.com/ewhauser/shuck/commit/7959ed7d752eb374a79579d13b30ede89a128f35))
+* **linter:** index compound-assignment values by occurrence id ([#974](https://github.com/ewhauser/shuck/issues/974)) ([8a38dea](https://github.com/ewhauser/shuck/commit/8a38dea7df5a850d1e1804df802e90fb40d53e33))
+* **linter:** index parameter operand word facts ([#987](https://github.com/ewhauser/shuck/issues/987)) ([0b2219f](https://github.com/ewhauser/shuck/commit/0b2219fedfc0742168f194d609cac2dcebe3cf0a))
+* **linter:** reuse indexed backtick substitution spans ([#985](https://github.com/ewhauser/shuck/issues/985)) ([e5c4fe3](https://github.com/ewhauser/shuck/commit/e5c4fe35074e5344df2d08166914c0205fa61a6f))
+* **linter:** skip array-like dataflow walk for uniform names ([#975](https://github.com/ewhauser/shuck/issues/975)) ([53e1118](https://github.com/ewhauser/shuck/commit/53e1118ee391561b4b4a7d85f04ee53b7d47b5af))
+* **linter:** skip non-$ bytes in parameter expansion edge scan ([#980](https://github.com/ewhauser/shuck/issues/980)) ([65d7517](https://github.com/ewhauser/shuck/commit/65d75171bf145f6950b5288f69613940e23d48ed))
+* **semantic:** skip unnecessary helper summary work ([#978](https://github.com/ewhauser/shuck/issues/978)) ([04b05a8](https://github.com/ewhauser/shuck/commit/04b05a86c303237f9b20025a88569ec0640885fd))
+
+
+### Refactor
+
+* **linter:** register remaining ambient file contracts ([#966](https://github.com/ewhauser/shuck/issues/966)) ([1a77119](https://github.com/ewhauser/shuck/commit/1a771195866733ba968b7c32a5d9c6c2972490cb))
+* **linter:** share fact-layer word subtree traversal ([#984](https://github.com/ewhauser/shuck/issues/984)) ([c12f513](https://github.com/ewhauser/shuck/commit/c12f5130c3cc499a604d682bcc67886fbdb3d32a))
+* route source lookups through line indexes ([#986](https://github.com/ewhauser/shuck/issues/986)) ([bec4f3a](https://github.com/ewhauser/shuck/commit/bec4f3aae93dd7373751a6329229fedec768a831))
+
 ## [0.0.39](https://github.com/ewhauser/shuck/compare/v0.0.38...v0.0.39) (2026-05-07)
 
 
