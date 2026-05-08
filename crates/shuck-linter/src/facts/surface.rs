@@ -1,4 +1,7 @@
 use super::*;
+use crate::facts::words::{
+    WordSubtreeVisitor, WordTraversalContext, WordTraversalState, walk_word_subtree,
+};
 use shuck_ast::{
     HeredocBody, HeredocBodyPart, HeredocBodyPartNode, PatternGroupKind, PatternPartNode, Position,
 };
@@ -760,7 +763,19 @@ impl<'a> SurfaceFragmentSink<'a> {
                 context.assignment_target,
             );
         }
-        self.collect_word_parts(&word.parts, context, false);
+        let mut visitor = SurfaceWordVisitor {
+            sink: self,
+            context,
+        };
+        walk_word_subtree(
+            word,
+            WordTraversalContext {
+                source: visitor.sink.source,
+                locator: None,
+                shell_dialect: context.shell_dialect,
+            },
+            &mut visitor,
+        );
         self.facts.open_double_quotes.len() > open_double_quote_count
     }
 
@@ -840,318 +855,322 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
     }
 
-    fn collect_word_parts(
+    fn collect_word_part_from_traversal(
         &mut self,
-        parts: &[WordPartNode],
+        part: &WordPartNode,
+        state: WordTraversalState<'_>,
         context: SurfaceScanContext<'_>,
-        in_double_quote: bool,
     ) {
-        for (index, part) in parts.iter().enumerate() {
-            if let WordPart::Literal(text) = &part.kind
-                && !in_double_quote
-            {
-                let literal = text.as_str(self.source, part.span);
-                if literal.as_bytes().contains(&UNICODE_SMART_QUOTE_LEAD_BYTE) {
-                    for (offset, char) in literal.char_indices() {
-                        if !is_unicode_smart_quote(char) {
-                            continue;
-                        }
-                        let start = part.span.start.advanced_by(&literal[..offset]);
-                        let end = start.advanced_by(char.encode_utf8(&mut [0; 4]));
-                        self.facts
-                            .unicode_smart_quote_spans
-                            .push(Span::from_positions(start, end));
-                    }
-                }
-            }
-
-            if let WordPart::Variable(name) = &part.kind
-                && matches!(
-                    name.as_str(),
-                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
-                )
-                && let Some(next_part) = parts.get(index + 1)
-                && let WordPart::Literal(text) = &next_part.kind
-                && text
-                    .as_str(self.source, next_part.span)
-                    .starts_with(|char: char| char.is_ascii_digit())
-                && self.looks_like_unbraced_positional_above_nine(part.span.merge(next_part.span))
-            {
-                self.facts
-                    .positional_parameters
-                    .push(PositionalParameterFragmentFact {
-                        span: part.span.merge(next_part.span),
-                        kind: PositionalParameterFragmentKind::AboveNine,
-                        guarded: context.guarded_parameter_operand,
-                    });
-            }
-
-            match &part.kind {
-                WordPart::SingleQuoted { dollar, .. } => {
-                    let literal_expansion_exempt = context.literal_expansion_exempt
-                        || single_quoted_fragment_is_zsh_delayed_eval_exempt(
-                            part.span,
-                            context,
-                            self.source,
-                        );
-                    self.facts.single_quoted.push(SingleQuotedFragmentFact {
-                        span: part.span,
-                        diagnostic_span: self.single_quoted_fragment_diagnostic_span(part.span),
-                        dollar_quoted: *dollar,
-                        command_name: context
-                            .command_name
-                            .map(str::to_owned)
-                            .map(String::into_boxed_str),
-                        assignment_target: context
-                            .assignment_target
-                            .map(str::to_owned)
-                            .map(String::into_boxed_str),
-                        shell_dialect: context.shell_dialect,
-                        variable_set_operand: context.variable_set_operand,
-                        literal_expansion_exempt,
-                        literal_backslash_in_single_quotes_span:
-                            single_quoted_backslash_continuation_span(parts, index, self.source),
-                    });
-                }
-                WordPart::DoubleQuoted { parts, dollar } => {
-                    if *dollar {
-                        self.facts
-                            .dollar_double_quoted
-                            .push(DollarDoubleQuotedFragmentFact { span: part.span });
-                    }
-                    self.collect_word_parts(parts, context, true);
-                }
-                WordPart::ZshQualifiedGlob(glob) => self.collect_zsh_qualified_glob(glob, context),
-                WordPart::ArithmeticExpansion {
-                    expression,
-                    syntax: ArithmeticExpansionSyntax::LegacyBracket,
-                    expression_word_ast,
-                    expression_ast,
-                    ..
-                } => {
-                    self.facts
-                        .legacy_arithmetic
-                        .push(LegacyArithmeticFragmentFact { span: part.span });
-                    collect_positional_parameter_operator_spans_in_arithmetic(
-                        part.span,
-                        expression_ast.as_deref(),
-                        expression,
-                        self.source,
-                        &mut self.facts.positional_parameter_operator_spans,
-                    );
-                    if let Some(expression_ast) = expression_ast.as_deref() {
-                        visit_arithmetic_words(expression_ast, &mut |word| {
-                            self.collect_word(word, context);
-                        });
-                    } else {
-                        self.collect_word(expression_word_ast, context);
-                    }
-                }
-                WordPart::ArithmeticExpansion {
-                    expression,
-                    expression_word_ast,
-                    expression_ast,
-                    ..
-                } => {
-                    collect_positional_parameter_operator_spans_in_arithmetic(
-                        part.span,
-                        expression_ast.as_deref(),
-                        expression,
-                        self.source,
-                        &mut self.facts.positional_parameter_operator_spans,
-                    );
-                    if let Some(expression_ast) = expression_ast.as_deref() {
-                        visit_arithmetic_words(expression_ast, &mut |word| {
-                            self.collect_word(word, context);
-                        });
-                    } else {
-                        self.collect_word(expression_word_ast, context);
-                    }
-                }
-                WordPart::CommandSubstitution {
-                    syntax: CommandSubstitutionSyntax::Backtick,
-                    body,
-                    ..
-                } => {
-                    if self.opening_backtick_is_escaped(part.span) {
+        let in_double_quote = state.in_double_quote;
+        let Some(parts) = state.siblings else {
+            return;
+        };
+        let Some(index) = state.part_index else {
+            return;
+        };
+        if let WordPart::Literal(text) = &part.kind
+            && !in_double_quote
+        {
+            let literal = text.as_str(self.source, part.span);
+            if literal.as_bytes().contains(&UNICODE_SMART_QUOTE_LEAD_BYTE) {
+                for (offset, char) in literal.char_indices() {
+                    if !is_unicode_smart_quote(char) {
                         continue;
                     }
-                    self.facts.backticks.push(BacktickFragmentFact {
-                        span: part.span,
-                        empty: body.is_empty(),
-                    });
-                }
-                WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
-                WordPart::Parameter(parameter) => {
-                    if parameter_is_plain_unindexed_reference(parameter) {
-                        self.record_plain_unindexed_reference(part.span);
-                    }
-                    self.collect_parameter_expansion(parameter, part.span, context);
-                }
-                WordPart::Variable(name) => {
-                    if name_is_plain_reference_candidate(name) {
-                        self.record_plain_unindexed_reference(part.span);
-                    }
-                    if name.as_str() == "$"
-                        && contains_nested_parameter_marker(part.span.slice(self.source))
-                    {
-                        self.facts
-                            .nested_parameter_expansions
-                            .push(NestedParameterExpansionFragmentFact { span: part.span });
-                    }
-                }
-                WordPart::ParameterExpansion {
-                    reference,
-                    operator,
-                    operand,
-                    operand_word_ast,
-                    ..
-                } => {
-                    if reference_has_array_subscript(reference) {
-                        self.record_array_reference(part.span, false);
-                    }
-                    if parameter_pattern_target_is_special(reference, operator) {
-                        self.parameter_special_target_word_scratch.clear();
-                        collect_parameter_operator_special_target_word_spans(
-                            operator,
-                            &mut self.parameter_special_target_word_scratch,
-                        );
-                        for index in 0..self.parameter_special_target_word_scratch.len() {
-                            let pattern_span = self.parameter_special_target_word_scratch[index];
-                            self.record_parameter_pattern_special_target(pattern_span);
-                        }
-                    }
-                    if matches!(
-                        operator.as_ref(),
-                        ParameterOp::UpperFirst
-                            | ParameterOp::UpperAll
-                            | ParameterOp::LowerFirst
-                            | ParameterOp::LowerAll
-                    ) {
-                        self.record_case_modification(part.span);
-                    }
-                    if matches!(
-                        operator.as_ref(),
-                        ParameterOp::ReplaceFirst { .. } | ParameterOp::ReplaceAll { .. }
-                    ) {
-                        self.record_replacement_expansion(part.span);
-                    }
-                    if reference_is_positional_parameter_trim(reference, operator) {
-                        self.record_positional_parameter_trim(part.span);
-                    }
-                    self.record_var_ref_subscript(
-                        reference,
-                        context.subscript_suppresses_later_references,
-                    );
-                    self.collect_parameter_operator_patterns(
-                        operator,
-                        operand.as_ref(),
-                        operand_word_ast.as_deref(),
-                        context,
-                    );
-                }
-                WordPart::Length(reference)
-                | WordPart::ArrayLength(reference)
-                | WordPart::Transformation { reference, .. } => {
-                    self.record_var_ref_subscript(
-                        reference,
-                        context.subscript_suppresses_later_references,
-                    );
-                }
-                WordPart::ArrayAccess(reference) => {
-                    if reference_has_array_subscript(reference) {
-                        self.record_array_reference(part.span, true);
-                        let case_modification_span = parts
-                            .get(index + 1)
-                            .filter(|next_part| {
-                                matches!(&next_part.kind, WordPart::Literal(text) if {
-                                    let text = text.as_str(self.source, next_part.span);
-                                    text.starts_with('^') || text.starts_with(',')
-                                })
-                            })
-                            .map_or(part.span, |next_part| part.span.merge(next_part.span));
-                        self.record_case_modification(case_modification_span);
-                    }
-                    self.record_var_ref_subscript(
-                        reference,
-                        context.subscript_suppresses_later_references,
-                    );
-                }
-                WordPart::ArrayIndices(reference) => {
-                    self.record_var_ref_subscript(
-                        reference,
-                        context.subscript_suppresses_later_references,
-                    );
+                    let start = part.span.start.advanced_by(&literal[..offset]);
+                    let end = start.advanced_by(char.encode_utf8(&mut [0; 4]));
                     self.facts
-                        .indirect_expansions
-                        .push(IndirectExpansionFragmentFact {
-                            span: part.span,
-                            array_keys: true,
-                        });
+                        .unicode_smart_quote_spans
+                        .push(Span::from_positions(start, end));
                 }
-                WordPart::Substring { reference, .. } => {
-                    self.record_substring_expansion(part.span);
-                    self.record_var_ref_subscript(
-                        reference,
-                        context.subscript_suppresses_later_references,
-                    );
-                }
-                WordPart::ArraySlice { reference, .. } => {
-                    self.record_var_ref_subscript(
-                        reference,
-                        context.subscript_suppresses_later_references,
-                    );
-                }
-                WordPart::IndirectExpansion {
-                    reference,
-                    operator: Some(operator),
-                    operand,
-                    operand_word_ast,
-                    ..
-                } => {
-                    self.record_var_ref_subscript(
-                        reference,
-                        context.subscript_suppresses_later_references,
-                    );
-                    self.facts
-                        .indirect_expansions
-                        .push(IndirectExpansionFragmentFact {
-                            span: part.span,
-                            array_keys: false,
-                        });
-                    self.collect_parameter_operator_patterns(
-                        operator,
-                        operand.as_ref(),
-                        operand_word_ast.as_deref(),
-                        context,
-                    );
-                }
-                WordPart::IndirectExpansion {
-                    reference,
-                    operator: None,
-                    ..
-                } => {
-                    self.record_var_ref_subscript(
-                        reference,
-                        context.subscript_suppresses_later_references,
-                    );
-                    self.facts
-                        .indirect_expansions
-                        .push(IndirectExpansionFragmentFact {
-                            span: part.span,
-                            array_keys: false,
-                        });
-                }
-                WordPart::PrefixMatch { .. } => {
-                    self.facts
-                        .indirect_expansions
-                        .push(IndirectExpansionFragmentFact {
-                            span: part.span,
-                            array_keys: false,
-                        });
-                }
-                WordPart::Literal(_) => {}
             }
+        }
+
+        if let WordPart::Variable(name) = &part.kind
+            && matches!(
+                name.as_str(),
+                "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+            )
+            && let Some(next_part) = parts.get(index + 1)
+            && let WordPart::Literal(text) = &next_part.kind
+            && text
+                .as_str(self.source, next_part.span)
+                .starts_with(|char: char| char.is_ascii_digit())
+            && self.looks_like_unbraced_positional_above_nine(part.span.merge(next_part.span))
+        {
+            self.facts
+                .positional_parameters
+                .push(PositionalParameterFragmentFact {
+                    span: part.span.merge(next_part.span),
+                    kind: PositionalParameterFragmentKind::AboveNine,
+                    guarded: context.guarded_parameter_operand,
+                });
+        }
+
+        match &part.kind {
+            WordPart::SingleQuoted { dollar, .. } => {
+                let literal_expansion_exempt = context.literal_expansion_exempt
+                    || single_quoted_fragment_is_zsh_delayed_eval_exempt(
+                        part.span,
+                        context,
+                        self.source,
+                    );
+                self.facts.single_quoted.push(SingleQuotedFragmentFact {
+                    span: part.span,
+                    diagnostic_span: self.single_quoted_fragment_diagnostic_span(part.span),
+                    dollar_quoted: *dollar,
+                    command_name: context
+                        .command_name
+                        .map(str::to_owned)
+                        .map(String::into_boxed_str),
+                    assignment_target: context
+                        .assignment_target
+                        .map(str::to_owned)
+                        .map(String::into_boxed_str),
+                    shell_dialect: context.shell_dialect,
+                    variable_set_operand: context.variable_set_operand,
+                    literal_expansion_exempt,
+                    literal_backslash_in_single_quotes_span:
+                        single_quoted_backslash_continuation_span(parts, index, self.source),
+                });
+            }
+            WordPart::DoubleQuoted { dollar, .. } => {
+                if *dollar {
+                    self.facts
+                        .dollar_double_quoted
+                        .push(DollarDoubleQuotedFragmentFact { span: part.span });
+                }
+            }
+            WordPart::ZshQualifiedGlob(glob) => self.collect_zsh_qualified_glob(glob, context),
+            WordPart::ArithmeticExpansion {
+                expression,
+                syntax: ArithmeticExpansionSyntax::LegacyBracket,
+                expression_word_ast,
+                expression_ast,
+                ..
+            } => {
+                self.facts
+                    .legacy_arithmetic
+                    .push(LegacyArithmeticFragmentFact { span: part.span });
+                collect_positional_parameter_operator_spans_in_arithmetic(
+                    part.span,
+                    expression_ast.as_deref(),
+                    expression,
+                    self.source,
+                    &mut self.facts.positional_parameter_operator_spans,
+                );
+                if let Some(expression_ast) = expression_ast.as_deref() {
+                    visit_arithmetic_words(expression_ast, &mut |word| {
+                        self.collect_word(word, context);
+                    });
+                } else {
+                    self.collect_word(expression_word_ast, context);
+                }
+            }
+            WordPart::ArithmeticExpansion {
+                expression,
+                expression_word_ast,
+                expression_ast,
+                ..
+            } => {
+                collect_positional_parameter_operator_spans_in_arithmetic(
+                    part.span,
+                    expression_ast.as_deref(),
+                    expression,
+                    self.source,
+                    &mut self.facts.positional_parameter_operator_spans,
+                );
+                if let Some(expression_ast) = expression_ast.as_deref() {
+                    visit_arithmetic_words(expression_ast, &mut |word| {
+                        self.collect_word(word, context);
+                    });
+                } else {
+                    self.collect_word(expression_word_ast, context);
+                }
+            }
+            WordPart::CommandSubstitution {
+                syntax: CommandSubstitutionSyntax::Backtick,
+                body,
+                ..
+            } => {
+                if self.opening_backtick_is_escaped(part.span) {
+                    return;
+                }
+                self.facts.backticks.push(BacktickFragmentFact {
+                    span: part.span,
+                    empty: body.is_empty(),
+                });
+            }
+            WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
+            WordPart::Parameter(parameter) => {
+                if parameter_is_plain_unindexed_reference(parameter) {
+                    self.record_plain_unindexed_reference(part.span);
+                }
+                self.collect_parameter_expansion(parameter, part.span, context);
+            }
+            WordPart::Variable(name) => {
+                if name_is_plain_reference_candidate(name) {
+                    self.record_plain_unindexed_reference(part.span);
+                }
+                if name.as_str() == "$"
+                    && contains_nested_parameter_marker(part.span.slice(self.source))
+                {
+                    self.facts
+                        .nested_parameter_expansions
+                        .push(NestedParameterExpansionFragmentFact { span: part.span });
+                }
+            }
+            WordPart::ParameterExpansion {
+                reference,
+                operator,
+                operand,
+                operand_word_ast,
+                ..
+            } => {
+                if reference_has_array_subscript(reference) {
+                    self.record_array_reference(part.span, false);
+                }
+                if parameter_pattern_target_is_special(reference, operator) {
+                    self.parameter_special_target_word_scratch.clear();
+                    collect_parameter_operator_special_target_word_spans(
+                        operator,
+                        &mut self.parameter_special_target_word_scratch,
+                    );
+                    for index in 0..self.parameter_special_target_word_scratch.len() {
+                        let pattern_span = self.parameter_special_target_word_scratch[index];
+                        self.record_parameter_pattern_special_target(pattern_span);
+                    }
+                }
+                if matches!(
+                    operator.as_ref(),
+                    ParameterOp::UpperFirst
+                        | ParameterOp::UpperAll
+                        | ParameterOp::LowerFirst
+                        | ParameterOp::LowerAll
+                ) {
+                    self.record_case_modification(part.span);
+                }
+                if matches!(
+                    operator.as_ref(),
+                    ParameterOp::ReplaceFirst { .. } | ParameterOp::ReplaceAll { .. }
+                ) {
+                    self.record_replacement_expansion(part.span);
+                }
+                if reference_is_positional_parameter_trim(reference, operator) {
+                    self.record_positional_parameter_trim(part.span);
+                }
+                self.record_var_ref_subscript(
+                    reference,
+                    context.subscript_suppresses_later_references,
+                );
+                self.collect_parameter_operator_patterns(
+                    operator,
+                    operand.as_ref(),
+                    operand_word_ast.as_deref(),
+                    context,
+                );
+            }
+            WordPart::Length(reference)
+            | WordPart::ArrayLength(reference)
+            | WordPart::Transformation { reference, .. } => {
+                self.record_var_ref_subscript(
+                    reference,
+                    context.subscript_suppresses_later_references,
+                );
+            }
+            WordPart::ArrayAccess(reference) => {
+                if reference_has_array_subscript(reference) {
+                    self.record_array_reference(part.span, true);
+                    let case_modification_span = parts
+                        .get(index + 1)
+                        .filter(|next_part| {
+                            matches!(&next_part.kind, WordPart::Literal(text) if {
+                                let text = text.as_str(self.source, next_part.span);
+                                text.starts_with('^') || text.starts_with(',')
+                            })
+                        })
+                        .map_or(part.span, |next_part| part.span.merge(next_part.span));
+                    self.record_case_modification(case_modification_span);
+                }
+                self.record_var_ref_subscript(
+                    reference,
+                    context.subscript_suppresses_later_references,
+                );
+            }
+            WordPart::ArrayIndices(reference) => {
+                self.record_var_ref_subscript(
+                    reference,
+                    context.subscript_suppresses_later_references,
+                );
+                self.facts
+                    .indirect_expansions
+                    .push(IndirectExpansionFragmentFact {
+                        span: part.span,
+                        array_keys: true,
+                    });
+            }
+            WordPart::Substring { reference, .. } => {
+                self.record_substring_expansion(part.span);
+                self.record_var_ref_subscript(
+                    reference,
+                    context.subscript_suppresses_later_references,
+                );
+            }
+            WordPart::ArraySlice { reference, .. } => {
+                self.record_var_ref_subscript(
+                    reference,
+                    context.subscript_suppresses_later_references,
+                );
+            }
+            WordPart::IndirectExpansion {
+                reference,
+                operator: Some(operator),
+                operand,
+                operand_word_ast,
+                ..
+            } => {
+                self.record_var_ref_subscript(
+                    reference,
+                    context.subscript_suppresses_later_references,
+                );
+                self.facts
+                    .indirect_expansions
+                    .push(IndirectExpansionFragmentFact {
+                        span: part.span,
+                        array_keys: false,
+                    });
+                self.collect_parameter_operator_patterns(
+                    operator,
+                    operand.as_ref(),
+                    operand_word_ast.as_deref(),
+                    context,
+                );
+            }
+            WordPart::IndirectExpansion {
+                reference,
+                operator: None,
+                ..
+            } => {
+                self.record_var_ref_subscript(
+                    reference,
+                    context.subscript_suppresses_later_references,
+                );
+                self.facts
+                    .indirect_expansions
+                    .push(IndirectExpansionFragmentFact {
+                        span: part.span,
+                        array_keys: false,
+                    });
+            }
+            WordPart::PrefixMatch { .. } => {
+                self.facts
+                    .indirect_expansions
+                    .push(IndirectExpansionFragmentFact {
+                        span: part.span,
+                        array_keys: false,
+                    });
+            }
+            WordPart::Literal(_) => {}
         }
     }
 
@@ -1586,6 +1605,20 @@ impl<'a> SurfaceFragmentSink<'a> {
         .end;
 
         Span::from_positions(start, end)
+    }
+}
+
+struct SurfaceWordVisitor<'sink, 'a, 'context> {
+    sink: &'sink mut SurfaceFragmentSink<'a>,
+    context: SurfaceScanContext<'context>,
+}
+
+impl<'word> WordSubtreeVisitor<'word> for SurfaceWordVisitor<'_, '_, '_> {
+    fn visit_part(&mut self, part: &'word WordPartNode, state: WordTraversalState<'word>) {
+        if state.processes_root_word() {
+            self.sink
+                .collect_word_part_from_traversal(part, state, self.context);
+        }
     }
 }
 

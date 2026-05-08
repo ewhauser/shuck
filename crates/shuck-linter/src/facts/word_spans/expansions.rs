@@ -1,35 +1,12 @@
 use super::*;
+use crate::facts::words::{
+    WordSubtreeVisitor, WordTraversalContext, WordTraversalState, walk_word_subtree,
+};
 
 pub fn expansion_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_expansion_spans(&word.parts, &mut spans);
+    collect_expansion_spans(word, traversal_context_without_source(), &mut spans);
     spans
-}
-
-pub fn collect_active_expansion_spans_in_source(
-    word: &Word,
-    locator: Locator<'_>,
-    spans: &mut Vec<Span>,
-) {
-    collect_expansion_spans(&word.parts, spans);
-    normalize_command_substitution_spans(spans, locator);
-    spans.extend(
-        word.brace_syntax()
-            .iter()
-            .copied()
-            .filter(|brace| brace.expands())
-            .map(|brace| brace.span),
-    );
-    spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
-    spans.dedup();
-}
-
-pub fn collect_scalar_expansion_part_spans(word: &Word, spans: &mut Vec<Span>) {
-    collect_scalar_expansion_spans(&word.parts, false, false, spans);
-}
-
-pub fn collect_unquoted_scalar_expansion_part_spans(word: &Word, spans: &mut Vec<Span>) {
-    collect_scalar_expansion_spans(&word.parts, false, true, spans);
 }
 
 pub fn word_double_quoted_scalar_only_expansion_spans(word: &Word) -> Vec<Span> {
@@ -106,12 +83,32 @@ pub(crate) fn collect_unquoted_assign_default_spans(
     }
 }
 
-pub(crate) fn collect_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
-    for part in parts {
+fn collect_expansion_spans<'a>(
+    word: &'a Word,
+    context: WordTraversalContext<'a>,
+    spans: &mut Vec<Span>,
+) {
+    let mut visitor = ExpansionSpanVisitor { spans };
+    walk_word_subtree(word, context, &mut visitor);
+}
+
+struct ExpansionSpanVisitor<'spans> {
+    spans: &'spans mut Vec<Span>,
+}
+
+impl<'a> WordSubtreeVisitor<'a> for ExpansionSpanVisitor<'_> {
+    fn visit_part(&mut self, part: &'a WordPartNode, state: WordTraversalState<'a>) {
+        if !state.processes_root_word() {
+            return;
+        }
+
         match &part.kind {
-            WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
-            WordPart::DoubleQuoted { parts, .. } => collect_expansion_spans(parts, spans),
-            WordPart::Variable(name) if matches!(name.as_str(), "@" | "*") => spans.push(part.span),
+            WordPart::Literal(_)
+            | WordPart::SingleQuoted { .. }
+            | WordPart::DoubleQuoted { .. } => {}
+            WordPart::Variable(name) if matches!(name.as_str(), "@" | "*") => {
+                self.spans.push(part.span);
+            }
             WordPart::Variable(_)
             | WordPart::ZshQualifiedGlob(_)
             | WordPart::CommandSubstitution { .. }
@@ -127,55 +124,16 @@ pub(crate) fn collect_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Sp
             | WordPart::IndirectExpansion { .. }
             | WordPart::PrefixMatch { .. }
             | WordPart::ProcessSubstitution { .. }
-            | WordPart::Transformation { .. } => spans.push(part.span),
+            | WordPart::Transformation { .. } => self.spans.push(part.span),
         }
     }
 }
 
-pub(crate) fn collect_scalar_expansion_spans(
-    parts: &[WordPartNode],
-    quoted: bool,
-    only_unquoted: bool,
-    spans: &mut Vec<Span>,
-) {
-    for part in parts {
-        match &part.kind {
-            WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
-            WordPart::DoubleQuoted { parts, .. } => {
-                collect_scalar_expansion_spans(parts, true, only_unquoted, spans)
-            }
-            WordPart::ZshQualifiedGlob(_) => {}
-            WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
-            WordPart::Parameter(parameter) => {
-                if parameter_is_scalar_like(parameter) && (!only_unquoted || !quoted) {
-                    spans.push(part.span);
-                }
-            }
-            WordPart::Variable(name) if matches!(name.as_str(), "@" | "*") => {}
-            WordPart::Variable(_)
-            | WordPart::ArithmeticExpansion { .. }
-            | WordPart::Length(_)
-            | WordPart::ArrayLength(_)
-            | WordPart::Substring { .. }
-            | WordPart::PrefixMatch { .. } => {
-                if !only_unquoted || !quoted {
-                    spans.push(part.span);
-                }
-            }
-            WordPart::ParameterExpansion { reference, .. }
-            | WordPart::IndirectExpansion { reference, .. }
-            | WordPart::Transformation { reference, .. } => {
-                if !reference.has_array_selector() && (!only_unquoted || !quoted) {
-                    spans.push(part.span);
-                }
-            }
-            WordPart::ArrayAccess(reference) => {
-                if !reference.has_array_selector() && (!only_unquoted || !quoted) {
-                    spans.push(part.span);
-                }
-            }
-            WordPart::ArrayIndices(_) | WordPart::ArraySlice { .. } => {}
-        }
+fn traversal_context_without_source<'a>() -> WordTraversalContext<'a> {
+    WordTraversalContext {
+        source: "",
+        locator: None,
+        shell_dialect: shuck_semantic::ShellDialect::Bash,
     }
 }
 
@@ -357,18 +315,88 @@ pub(crate) fn collect_literal_scan_exclusions(parts: &[WordPartNode], excluded: 
 
 #[cfg(test)]
 mod tests {
-    use shuck_ast::{Span, Word};
+    use shuck_ast::{Span, Word, WordPart, WordPartNode};
     use shuck_parser::parser::Parser;
 
     use super::{
-        collect_scalar_expansion_part_spans, word_double_quoted_scalar_only_expansion_spans,
-        word_unquoted_assign_default_spans,
+        word_double_quoted_scalar_only_expansion_spans, word_unquoted_assign_default_spans,
+    };
+    use crate::facts::word_spans::parameter_is_scalar_like;
+    use crate::facts::words::{
+        WordSubtreeVisitor, WordTraversalContext, WordTraversalState, walk_word_subtree,
     };
 
     fn scalar_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
+        scalar_expansion_part_spans_with_mode(word, false)
+    }
+
+    fn scalar_expansion_part_spans_with_mode(word: &Word, only_unquoted: bool) -> Vec<Span> {
         let mut spans = Vec::new();
-        collect_scalar_expansion_part_spans(word, &mut spans);
+        let mut visitor = TestScalarExpansionSpanVisitor {
+            spans: &mut spans,
+            only_unquoted,
+        };
+        walk_word_subtree(
+            word,
+            WordTraversalContext {
+                source: "",
+                locator: None,
+                shell_dialect: shuck_semantic::ShellDialect::Bash,
+            },
+            &mut visitor,
+        );
         spans
+    }
+
+    struct TestScalarExpansionSpanVisitor<'spans> {
+        spans: &'spans mut Vec<Span>,
+        only_unquoted: bool,
+    }
+
+    impl<'a> WordSubtreeVisitor<'a> for TestScalarExpansionSpanVisitor<'_> {
+        fn visit_part(&mut self, part: &'a WordPartNode, state: WordTraversalState<'a>) {
+            if !state.processes_root_word() {
+                return;
+            }
+            let quoted = state.in_double_quote;
+
+            match &part.kind {
+                WordPart::Literal(_)
+                | WordPart::SingleQuoted { .. }
+                | WordPart::DoubleQuoted { .. } => {}
+                WordPart::ZshQualifiedGlob(_) => {}
+                WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
+                WordPart::Parameter(parameter) => {
+                    if parameter_is_scalar_like(parameter) && (!self.only_unquoted || !quoted) {
+                        self.spans.push(part.span);
+                    }
+                }
+                WordPart::Variable(name) if matches!(name.as_str(), "@" | "*") => {}
+                WordPart::Variable(_)
+                | WordPart::ArithmeticExpansion { .. }
+                | WordPart::Length(_)
+                | WordPart::ArrayLength(_)
+                | WordPart::Substring { .. }
+                | WordPart::PrefixMatch { .. } => {
+                    if !self.only_unquoted || !quoted {
+                        self.spans.push(part.span);
+                    }
+                }
+                WordPart::ParameterExpansion { reference, .. }
+                | WordPart::IndirectExpansion { reference, .. }
+                | WordPart::Transformation { reference, .. } => {
+                    if !reference.has_array_selector() && (!self.only_unquoted || !quoted) {
+                        self.spans.push(part.span);
+                    }
+                }
+                WordPart::ArrayAccess(reference) => {
+                    if !reference.has_array_selector() && (!self.only_unquoted || !quoted) {
+                        self.spans.push(part.span);
+                    }
+                }
+                WordPart::ArrayIndices(_) | WordPart::ArraySlice { .. } => {}
+            }
+        }
     }
 
     #[test]

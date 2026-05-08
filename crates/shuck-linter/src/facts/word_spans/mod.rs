@@ -1,8 +1,8 @@
 use shuck_ast::{
-    ArithmeticExpr, BourneParameterExpansion, CaseItem, CommandSubstitutionSyntax, ConditionalExpr,
-    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position,
-    PrefixMatchKind, Span, SubscriptSelector, VarRef, Word, WordPart, WordPartNode,
-    ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
+    ArithmeticExpr, BourneParameterExpansion, CaseItem, ConditionalExpr, ParameterExpansion,
+    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position, PrefixMatchKind, Span,
+    SubscriptSelector, VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment,
+    ZshQualifiedGlob,
 };
 
 use super::BacktickEscapedParameter;

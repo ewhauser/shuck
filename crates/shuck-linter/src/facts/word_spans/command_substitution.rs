@@ -1,134 +1,102 @@
 use super::*;
-
-pub fn collect_command_substitution_part_spans_in_source(
-    word: &Word,
-    locator: Locator<'_>,
-    spans: &mut Vec<Span>,
-) {
-    collect_command_substitution_spans(&word.parts, spans);
-    normalize_command_substitution_spans(spans, locator);
-}
+use crate::facts::words::{
+    WordSubtreeVisitor, WordTraversalContext, WordTraversalState, walk_word_subtree,
+};
 
 pub fn arithmetic_expansion_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_arithmetic_expansion_spans(&word.parts, &mut spans);
+    collect_arithmetic_expansion_spans(word, &mut spans);
     spans
 }
 
 pub fn parenthesized_arithmetic_expansion_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_parenthesized_arithmetic_expansion_spans(&word.parts, &mut spans);
+    collect_parenthesized_arithmetic_expansion_spans(word, &mut spans);
     spans
 }
 
 pub fn unquoted_command_substitution_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_unquoted_command_substitution_spans(&word.parts, false, &mut spans);
+    collect_unquoted_command_substitution_spans(word, &mut spans);
     spans
 }
 
-pub fn collect_unquoted_command_substitution_part_spans_in_source(
-    word: &Word,
-    locator: Locator<'_>,
-    spans: &mut Vec<Span>,
-) {
-    collect_unquoted_command_substitution_spans(&word.parts, false, spans);
-    normalize_command_substitution_spans(spans, locator);
+pub(crate) fn collect_arithmetic_expansion_spans(word: &Word, spans: &mut Vec<Span>) {
+    let mut visitor = ArithmeticExpansionSpanVisitor {
+        spans,
+        parenthesized_only: false,
+    };
+    walk_word_subtree(word, traversal_context_without_source(), &mut visitor);
 }
 
-pub fn collect_unquoted_dollar_paren_command_substitution_part_spans_in_source(
-    word: &Word,
-    locator: Locator<'_>,
-    spans: &mut Vec<Span>,
-) {
-    collect_unquoted_dollar_paren_command_substitution_spans(&word.parts, false, spans);
-    normalize_command_substitution_spans(spans, locator);
+pub(crate) fn collect_parenthesized_arithmetic_expansion_spans(word: &Word, spans: &mut Vec<Span>) {
+    let mut visitor = ArithmeticExpansionSpanVisitor {
+        spans,
+        parenthesized_only: true,
+    };
+    walk_word_subtree(word, traversal_context_without_source(), &mut visitor);
 }
 
-pub(crate) fn collect_command_substitution_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
-    for part in parts {
-        match &part.kind {
-            WordPart::DoubleQuoted { parts, .. } => {
-                collect_command_substitution_spans(parts, spans)
+pub(crate) fn collect_unquoted_command_substitution_spans(word: &Word, spans: &mut Vec<Span>) {
+    let mut visitor = CommandSubstitutionSpanVisitor {
+        spans,
+        only_unquoted: true,
+    };
+    walk_word_subtree(word, traversal_context_without_source(), &mut visitor);
+}
+
+struct CommandSubstitutionSpanVisitor<'spans> {
+    spans: &'spans mut Vec<Span>,
+    only_unquoted: bool,
+}
+
+impl<'a> WordSubtreeVisitor<'a> for CommandSubstitutionSpanVisitor<'_> {
+    fn visit_command_substitution(
+        &mut self,
+        part: &'a WordPartNode,
+        state: WordTraversalState<'a>,
+    ) {
+        if !state.processes_root_word() || (self.only_unquoted && state.in_double_quote) {
+            return;
+        }
+        self.spans.push(part.span);
+    }
+}
+
+struct ArithmeticExpansionSpanVisitor<'spans> {
+    spans: &'spans mut Vec<Span>,
+    parenthesized_only: bool,
+}
+
+impl<'a> WordSubtreeVisitor<'a> for ArithmeticExpansionSpanVisitor<'_> {
+    fn visit_arithmetic_expansion(
+        &mut self,
+        part: &'a WordPartNode,
+        state: WordTraversalState<'a>,
+    ) {
+        if !state.processes_root_word() {
+            return;
+        }
+        let WordPart::ArithmeticExpansion { expression_ast, .. } = &part.kind else {
+            return;
+        };
+        if self.parenthesized_only {
+            if let Some(expression) = expression_ast
+                && matches!(expression.kind, ArithmeticExpr::Parenthesized { .. })
+            {
+                self.spans.push(expression.span);
             }
-            WordPart::CommandSubstitution { .. } => spans.push(part.span),
-            _ => {}
+        } else {
+            self.spans.push(part.span);
         }
     }
 }
 
-pub(crate) fn collect_arithmetic_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
-    for part in parts {
-        match &part.kind {
-            WordPart::DoubleQuoted { parts, .. } => {
-                collect_arithmetic_expansion_spans(parts, spans)
-            }
-            WordPart::ArithmeticExpansion { .. } => spans.push(part.span),
-            _ => {}
-        }
-    }
-}
-
-pub(crate) fn collect_parenthesized_arithmetic_expansion_spans(
-    parts: &[WordPartNode],
-    spans: &mut Vec<Span>,
-) {
-    for part in parts {
-        match &part.kind {
-            WordPart::DoubleQuoted { parts, .. } => {
-                collect_parenthesized_arithmetic_expansion_spans(parts, spans)
-            }
-            WordPart::ArithmeticExpansion {
-                expression_ast: Some(expression),
-                ..
-            } => {
-                if matches!(expression.kind, ArithmeticExpr::Parenthesized { .. }) {
-                    spans.push(expression.span);
-                }
-            }
-            WordPart::ArithmeticExpansion {
-                expression_ast: None,
-                ..
-            } => {}
-            _ => {}
-        }
-    }
-}
-
-pub(crate) fn collect_unquoted_command_substitution_spans(
-    parts: &[WordPartNode],
-    quoted: bool,
-    spans: &mut Vec<Span>,
-) {
-    for part in parts {
-        match &part.kind {
-            WordPart::SingleQuoted { .. } => {}
-            WordPart::DoubleQuoted { parts, .. } => {
-                collect_unquoted_command_substitution_spans(parts, true, spans)
-            }
-            WordPart::CommandSubstitution { .. } if !quoted => spans.push(part.span),
-            _ => {}
-        }
-    }
-}
-
-pub(crate) fn collect_unquoted_dollar_paren_command_substitution_spans(
-    parts: &[WordPartNode],
-    quoted: bool,
-    spans: &mut Vec<Span>,
-) {
-    for part in parts {
-        match &part.kind {
-            WordPart::SingleQuoted { .. } => {}
-            WordPart::DoubleQuoted { parts, .. } => {
-                collect_unquoted_dollar_paren_command_substitution_spans(parts, true, spans)
-            }
-            WordPart::CommandSubstitution {
-                syntax: CommandSubstitutionSyntax::DollarParen,
-                ..
-            } if !quoted => spans.push(part.span),
-            _ => {}
-        }
+fn traversal_context_without_source<'a>() -> WordTraversalContext<'a> {
+    WordTraversalContext {
+        source: "",
+        locator: None,
+        shell_dialect: shuck_semantic::ShellDialect::Bash,
     }
 }
 
@@ -287,14 +255,29 @@ mod tests {
     use shuck_parser::parser::Parser;
 
     use super::{
-        collect_command_substitution_spans,
-        collect_unquoted_dollar_paren_command_substitution_part_spans_in_source,
+        CommandSubstitutionSpanVisitor, WordTraversalContext, normalize_command_substitution_spans,
+        unquoted_command_substitution_part_spans, walk_word_subtree,
     };
     use crate::Locator;
 
-    fn command_substitution_part_spans(word: &Word) -> Vec<Span> {
+    fn command_substitution_part_spans(word: &Word, source: &str) -> Vec<Span> {
+        let line_index = LineIndex::new(source);
+        let locator = Locator::new(source, &line_index);
         let mut spans = Vec::new();
-        collect_command_substitution_spans(&word.parts, &mut spans);
+        let mut visitor = CommandSubstitutionSpanVisitor {
+            spans: &mut spans,
+            only_unquoted: false,
+        };
+        walk_word_subtree(
+            word,
+            WordTraversalContext {
+                source,
+                locator: Some(locator),
+                shell_dialect: shuck_semantic::ShellDialect::Bash,
+            },
+            &mut visitor,
+        );
+        normalize_command_substitution_spans(&mut spans, locator);
         spans
     }
 
@@ -304,11 +287,12 @@ mod tests {
     ) -> Vec<Span> {
         let line_index = LineIndex::new(source);
         let locator = Locator::new(source, &line_index);
-        let mut spans = Vec::new();
-        collect_unquoted_dollar_paren_command_substitution_part_spans_in_source(
-            word, locator, &mut spans,
-        );
+        let mut spans = unquoted_command_substitution_part_spans(word);
+        normalize_command_substitution_spans(&mut spans, locator);
         spans
+            .into_iter()
+            .filter(|span| span.slice(source).starts_with("$("))
+            .collect()
     }
 
     #[test]
@@ -320,7 +304,7 @@ mod tests {
             panic!("expected simple command");
         };
 
-        let spans = command_substitution_part_spans(&command.args[1]);
+        let spans = command_substitution_part_spans(&command.args[1], source);
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].slice(source), "$(date)");
     }

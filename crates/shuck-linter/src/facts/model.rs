@@ -1429,7 +1429,9 @@ fn collect_array_assignment_split_scalar_expansion_spans(
     }
 
     split_sensitive_spans.retain(|span| {
-        !use_replacement_spans.contains(span)
+        !use_replacement_spans
+            .iter()
+            .any(|replacement_span| contains_span(*replacement_span, *span))
             && !brace_expansion_spans
                 .iter()
                 .any(|brace_span| contains_span(*brace_span, *span))

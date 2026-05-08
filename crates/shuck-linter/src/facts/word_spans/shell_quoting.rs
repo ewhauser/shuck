@@ -405,7 +405,7 @@ pub(crate) fn neighbor_is_literal(part: Option<&WordPartNode>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use shuck_ast::{Span, Word};
+    use shuck_ast::{Span, Word, WordPart, WordPartNode};
     use shuck_parser::parser::Parser;
 
     use super::{
@@ -414,22 +414,88 @@ mod tests {
         word_unquoted_word_after_single_quoted_segment_spans,
     };
     use crate::facts::word_spans::{
-        collect_unquoted_command_substitution_part_spans_in_source,
-        collect_unquoted_scalar_expansion_part_spans,
+        normalize_command_substitution_spans, parameter_is_scalar_like,
+        unquoted_command_substitution_part_spans,
+    };
+    use crate::facts::words::{
+        WordSubtreeVisitor, WordTraversalContext, WordTraversalState, walk_word_subtree,
     };
 
     fn unquoted_scalar_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
         let mut spans = Vec::new();
-        collect_unquoted_scalar_expansion_part_spans(word, &mut spans);
+        let mut visitor = TestScalarExpansionSpanVisitor {
+            spans: &mut spans,
+            only_unquoted: true,
+        };
+        walk_word_subtree(
+            word,
+            WordTraversalContext {
+                source: "",
+                locator: None,
+                shell_dialect: shuck_semantic::ShellDialect::Bash,
+            },
+            &mut visitor,
+        );
         spans
     }
 
     fn unquoted_command_substitution_part_spans_in_source(word: &Word, source: &str) -> Vec<Span> {
         let line_index = shuck_indexer::LineIndex::new(source);
         let locator = crate::Locator::new(source, &line_index);
-        let mut spans = Vec::new();
-        collect_unquoted_command_substitution_part_spans_in_source(word, locator, &mut spans);
+        let mut spans = unquoted_command_substitution_part_spans(word);
+        normalize_command_substitution_spans(&mut spans, locator);
         spans
+    }
+
+    struct TestScalarExpansionSpanVisitor<'spans> {
+        spans: &'spans mut Vec<Span>,
+        only_unquoted: bool,
+    }
+
+    impl<'a> WordSubtreeVisitor<'a> for TestScalarExpansionSpanVisitor<'_> {
+        fn visit_part(&mut self, part: &'a WordPartNode, state: WordTraversalState<'a>) {
+            if !state.processes_root_word() {
+                return;
+            }
+            let quoted = state.in_double_quote;
+
+            match &part.kind {
+                WordPart::Literal(_)
+                | WordPart::SingleQuoted { .. }
+                | WordPart::DoubleQuoted { .. } => {}
+                WordPart::ZshQualifiedGlob(_) => {}
+                WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
+                WordPart::Parameter(parameter) => {
+                    if parameter_is_scalar_like(parameter) && (!self.only_unquoted || !quoted) {
+                        self.spans.push(part.span);
+                    }
+                }
+                WordPart::Variable(name) if matches!(name.as_str(), "@" | "*") => {}
+                WordPart::Variable(_)
+                | WordPart::ArithmeticExpansion { .. }
+                | WordPart::Length(_)
+                | WordPart::ArrayLength(_)
+                | WordPart::Substring { .. }
+                | WordPart::PrefixMatch { .. } => {
+                    if !self.only_unquoted || !quoted {
+                        self.spans.push(part.span);
+                    }
+                }
+                WordPart::ParameterExpansion { reference, .. }
+                | WordPart::IndirectExpansion { reference, .. }
+                | WordPart::Transformation { reference, .. } => {
+                    if !reference.has_array_selector() && (!self.only_unquoted || !quoted) {
+                        self.spans.push(part.span);
+                    }
+                }
+                WordPart::ArrayAccess(reference) => {
+                    if !reference.has_array_selector() && (!self.only_unquoted || !quoted) {
+                        self.spans.push(part.span);
+                    }
+                }
+                WordPart::ArrayIndices(_) | WordPart::ArraySlice { .. } => {}
+            }
+        }
     }
 
     #[test]

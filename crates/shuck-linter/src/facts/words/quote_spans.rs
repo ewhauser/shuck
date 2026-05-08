@@ -918,7 +918,16 @@ pub(super) fn double_quoted_expansion_part_spans(word: &Word) -> Vec<Span> {
 }
 
 pub(super) fn collect_double_quoted_expansion_part_spans(word: &Word, spans: &mut Vec<Span>) {
-    collect_double_quoted_expansion_spans(&word.parts, false, spans);
+    let mut visitor = DoubleQuotedExpansionSpanVisitor { spans };
+    walk_word_subtree(
+        word,
+        WordTraversalContext {
+            source: "",
+            locator: None,
+            shell_dialect: shuck_semantic::ShellDialect::Bash,
+        },
+        &mut visitor,
+    );
 }
 
 pub(super) fn single_quoted_equivalent_if_plain_double_quoted_word(
@@ -974,17 +983,17 @@ pub(super) fn shell_single_quoted_literal(text: &str) -> String {
     quoted
 }
 
-pub(super) fn collect_double_quoted_expansion_spans(
-    parts: &[WordPartNode],
-    inside_double_quotes: bool,
-    spans: &mut Vec<Span>,
-) {
-    for part in parts {
+struct DoubleQuotedExpansionSpanVisitor<'spans> {
+    spans: &'spans mut Vec<Span>,
+}
+
+impl<'a> WordSubtreeVisitor<'a> for DoubleQuotedExpansionSpanVisitor<'_> {
+    fn visit_part(&mut self, part: &'a WordPartNode, state: WordTraversalState<'a>) {
+        if !state.processes_root_word() || !state.in_double_quote {
+            return;
+        }
+
         match &part.kind {
-            WordPart::SingleQuoted { .. } => {}
-            WordPart::DoubleQuoted { parts, .. } => {
-                collect_double_quoted_expansion_spans(parts, true, spans);
-            }
             WordPart::Variable(_)
             | WordPart::Parameter(_)
             | WordPart::CommandSubstitution { .. }
@@ -1000,13 +1009,9 @@ pub(super) fn collect_double_quoted_expansion_spans(
             | WordPart::PrefixMatch { .. }
             | WordPart::ProcessSubstitution { .. }
             | WordPart::Transformation { .. }
-            | WordPart::ZshQualifiedGlob(_)
-                if inside_double_quotes =>
-            {
-                spans.push(part.span)
+            | WordPart::ZshQualifiedGlob(_) => self.spans.push(part.span),
+            WordPart::Literal(_) | WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. } => {
             }
-            WordPart::Literal(_) => {}
-            _ => {}
         }
     }
 }

@@ -194,8 +194,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
-        let escaped_template_starts =
-            escaped_parameter_template_body_starts(word_span, self.source);
+        let escaped_template_starts = self.escaped_parameter_template_body_starts_cached(word_span);
         for part in parts {
             if !escaped_template_starts.is_empty()
                 && escaped_template_starts.contains(&part.span.start.offset)
@@ -204,6 +203,21 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             self.visit_word_part(&part.kind, part.span, kind, flow, nested_regions);
         }
+    }
+
+    fn escaped_parameter_template_body_starts_cached(
+        &mut self,
+        word_span: Span,
+    ) -> SmallVec<[usize; 2]> {
+        let key = SpanKey::new(word_span);
+        if let Some(starts) = self.escaped_parameter_template_body_starts_cache.get(&key) {
+            return starts.clone();
+        }
+
+        let starts = escaped_parameter_template_body_starts(word_span, self.source);
+        self.escaped_parameter_template_body_starts_cache
+            .insert(key, starts.clone());
+        starts
     }
 
     pub(super) fn visit_pattern_part_nodes(
