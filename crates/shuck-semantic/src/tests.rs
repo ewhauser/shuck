@@ -5018,6 +5018,83 @@ printf done
 }
 
 #[test]
+fn value_flow_direct_reference_tracks_zsh_unquoted_array_fanout() {
+    let source = "\
+#!/bin/zsh
+foo=(a b)
+print $foo
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+    let reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "foo")
+        .expect("expected foo reference");
+    let analysis = model.analysis();
+    let value_flow = analysis.value_flow();
+
+    assert!(value_flow.reference_can_fan_out_when_unquoted(reference.id));
+
+    let disabled_source = "\
+#!/bin/zsh
+setopt ksh_arrays
+foo=(a b)
+print $foo
+";
+    let disabled_model =
+        model_with_profile(disabled_source, ShellProfile::native(ShellDialect::Zsh));
+    let disabled_reference = disabled_model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "foo")
+        .expect("expected foo reference");
+    let disabled_analysis = disabled_model.analysis();
+    let disabled_value_flow = disabled_analysis.value_flow();
+
+    assert!(!disabled_value_flow.reference_can_fan_out_when_unquoted(disabled_reference.id));
+}
+
+#[test]
+fn value_flow_synthetic_use_site_tracks_zsh_unquoted_array_fanout() {
+    let source = "\
+#!/bin/zsh
+foo=(a b)
+printf done
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+    let printf = command_id_starting_with(&model, source, "printf").expect("expected printf");
+    let use_span = model.command_span(printf);
+    let analysis = model.analysis();
+    let value_flow = analysis.value_flow();
+
+    assert!(value_flow.name_can_fan_out_when_unquoted_without_reference(
+        &Name::from("foo"),
+        use_span,
+        model.scope_at(use_span.start.offset),
+    ));
+
+    let scalar_source = "\
+#!/bin/zsh
+foo=scalar
+printf done
+";
+    let scalar_model = model_with_profile(scalar_source, ShellProfile::native(ShellDialect::Zsh));
+    let scalar_printf =
+        command_id_starting_with(&scalar_model, scalar_source, "printf").expect("expected printf");
+    let scalar_use_span = scalar_model.command_span(scalar_printf);
+    let scalar_analysis = scalar_model.analysis();
+    let scalar_value_flow = scalar_analysis.value_flow();
+
+    assert!(
+        !scalar_value_flow.name_can_fan_out_when_unquoted_without_reference(
+            &Name::from("foo"),
+            scalar_use_span,
+            scalar_model.scope_at(scalar_use_span.start.offset),
+        )
+    );
+}
+
+#[test]
 fn value_flow_can_bypass_one_reaching_binding() {
     let source = "\
 #!/bin/bash
@@ -11487,6 +11564,122 @@ fn semantic_shell_behavior_uses_selector_policy_for_non_zsh_profiles() {
         array_reference_policy_at(&model, offset),
         ArrayReferencePolicy::RequiresExplicitSelector,
         "{source}"
+    );
+}
+
+#[test]
+fn reference_array_use_kind_tracks_zsh_runtime_policy_states() {
+    for (source, expected) in [
+        (
+            "\
+#!/bin/zsh
+arr=(one two)
+print $arr
+",
+            Some(ArrayReferencePolicy::NativeZshScalar),
+        ),
+        (
+            "\
+#!/bin/zsh
+setopt ksh_arrays
+arr=(one two)
+print $arr
+",
+            Some(ArrayReferencePolicy::RequiresExplicitSelector),
+        ),
+        (
+            "\
+#!/bin/zsh
+opt=ksh_arrays
+setopt \"$opt\"
+arr=(one two)
+print $arr
+",
+            Some(ArrayReferencePolicy::Ambiguous),
+        ),
+    ] {
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "arr")
+            .expect("expected arr reference");
+
+        assert_eq!(
+            model.reference_array_use_kind(reference.id),
+            expected,
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn reference_array_use_kind_preserves_inherited_array_shape() {
+    let source = "\
+#!/bin/bash
+declare -a items
+items=scalar
+printf '%s\\n' \"$items\"
+";
+    let model = model(source);
+    let reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "items")
+        .expect("expected items reference");
+
+    assert_eq!(
+        model.reference_array_use_kind(reference.id),
+        Some(ArrayReferencePolicy::RequiresExplicitSelector)
+    );
+}
+
+#[test]
+fn reference_array_use_kind_suppresses_after_zsh_scalar_local_barrier() {
+    let source = "\
+#!/bin/zsh
+items=(one two)
+fn() {
+  local items=value
+  print $items
+}
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+    let reference = model
+        .references()
+        .iter()
+        .rfind(|reference| reference.name == "items")
+        .expect("expected items reference");
+
+    assert_eq!(model.reference_array_use_kind(reference.id), None);
+}
+
+#[test]
+fn reference_array_use_kind_reports_bash_runtime_arrays_without_bash_profile() {
+    let source = "\
+#!/bin/sh
+MAPFILE=scalar
+printf '%s\\n' \"$MAPFILE\" \"$BASH_SOURCE\"
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Posix));
+    let mapfile = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "MAPFILE")
+        .expect("expected MAPFILE reference");
+    let bash_source = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "BASH_SOURCE")
+        .expect("expected BASH_SOURCE reference");
+
+    assert_eq!(
+        model.reference_array_use_kind(mapfile.id),
+        Some(ArrayReferencePolicy::RequiresExplicitSelector)
+    );
+    assert_eq!(
+        model.reference_array_use_kind(bash_source.id),
+        Some(ArrayReferencePolicy::RequiresExplicitSelector)
     );
 }
 

@@ -641,7 +641,7 @@ fn walk_pattern<'a>(
             PatternPart::Word(word) => {
                 let word_state = state.with_origin(word_origin, word.span);
                 visitor.visit_pattern_word(word, word_state);
-                walk_word(word, context, word_state, visitor);
+                walk_word(word, context, word_state, None, visitor);
             }
             PatternPart::CharClass(_) => visitor.visit_pattern_char_class(part, state),
             PatternPart::Literal(_) | PatternPart::AnyString | PatternPart::AnyChar => {}

@@ -6,6 +6,7 @@
 //! The semantic model tracks scopes, bindings, references, control flow, and selected dataflow
 //! facts so higher-level crates can reason about shell behavior without re-traversing the AST.
 mod analysis;
+mod array_use;
 mod binding;
 mod builder;
 mod call_graph;
@@ -791,6 +792,7 @@ pub struct SemanticModel {
     function_bindings_by_scope: OnceLock<FxHashMap<ScopeId, SmallVec<[BindingId; 2]>>>,
     visible_function_call_bindings: OnceLock<FxHashMap<SpanKey, BindingId>>,
     function_definition_binding_ids: OnceLock<Vec<BindingId>>,
+    array_use_index: OnceLock<array_use::ArrayUseIndex>,
 }
 
 /// Lazy analysis view over a `SemanticModel`.
@@ -904,6 +906,7 @@ impl SemanticModel {
             function_bindings_by_scope: OnceLock::new(),
             visible_function_call_bindings: OnceLock::new(),
             function_definition_binding_ids: OnceLock::new(),
+            array_use_index: OnceLock::new(),
         }
     }
 

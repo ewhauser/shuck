@@ -73,6 +73,93 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         bindings
     }
 
+    /// Returns whether a direct semantic reference may fan out to multiple fields when used
+    /// unquoted under zsh's native array semantics.
+    #[doc(hidden)]
+    pub fn reference_can_fan_out_when_unquoted(&self, reference_id: ReferenceId) -> bool {
+        let reference = self.model().reference(reference_id);
+        if matches!(
+            self.model()
+                .shell_behavior_at(reference.span.start.offset)
+                .array_reference_policy(),
+            ArrayReferencePolicy::RequiresExplicitSelector
+        ) || !self
+            .model()
+            .name_has_array_value_candidates(&reference.name)
+        {
+            return false;
+        }
+
+        if let Some(binding_id) = self
+            .model()
+            .single_array_value_binding_for_name(&reference.name)
+            && self.model().binding_visible_at(binding_id, reference.span)
+        {
+            return true;
+        }
+
+        if self.model().name_is_uniformly_array_valued(&reference.name)
+            && self
+                .model()
+                .visible_binding(&reference.name, reference.span)
+                .is_some()
+        {
+            return true;
+        }
+
+        if self
+            .model()
+            .resolved_binding(reference_id)
+            .is_some_and(|binding| self.model().binding_has_array_value_shape(binding.id))
+        {
+            return true;
+        }
+
+        self.reference_reaches_any_value_binding(
+            reference_id,
+            self.model().array_value_bindings_for_name(&reference.name),
+        )
+    }
+
+    /// Returns whether a named use site that lacks a direct semantic reference may fan out to
+    /// multiple fields when used unquoted under zsh's native array semantics.
+    #[doc(hidden)]
+    pub fn name_can_fan_out_when_unquoted_without_reference(
+        &self,
+        name: &Name,
+        at: Span,
+        scope: ScopeId,
+    ) -> bool {
+        if matches!(
+            self.model()
+                .shell_behavior_at(at.start.offset)
+                .array_reference_policy(),
+            ArrayReferencePolicy::RequiresExplicitSelector
+        ) || !self.model().name_has_array_value_candidates(name)
+        {
+            return false;
+        }
+
+        if let Some(binding_id) = self.model().single_array_value_binding_for_name(name)
+            && self.model().binding_visible_at(binding_id, at)
+        {
+            return true;
+        }
+
+        if self.model().name_is_uniformly_array_valued(name)
+            && self.model().visible_binding(name, at).is_some()
+        {
+            return true;
+        }
+
+        let synthetic_use_block = self
+            .analysis
+            .flow_entry_block_for_binding_scopes(&[scope], at.start.offset);
+        self.reaching_value_bindings_for_name_without_reference(name, at, synthetic_use_block)
+            .into_iter()
+            .any(|binding_id| self.model().binding_has_array_value_shape(binding_id))
+    }
+
     /// Returns true when `reference_id` may observe any candidate binding from the provided set.
     /// Callers are expected to prefilter the candidate list to bindings that can supply a
     /// parameter value. This is a narrow fast path for callers that already know the small subset
@@ -403,17 +490,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
 
     /// Returns whether `binding_id` can contribute a runtime parameter value.
     pub fn binding_can_supply_parameter_value(&self, binding_id: BindingId) -> bool {
-        let binding = self.model().binding(binding_id);
-        match binding.origin {
-            BindingOrigin::FunctionDefinition { .. } => false,
-            BindingOrigin::Declaration { .. } => {
-                binding_is_name_only_declaration(binding)
-                    || binding.attributes.intersects(
-                        BindingAttributes::DECLARATION_INITIALIZED | BindingAttributes::INTEGER,
-                    )
-            }
-            _ => true,
-        }
+        self.model().binding_can_supply_parameter_value(binding_id)
     }
 
     fn synthetic_reaching_value_bindings_for_name(
@@ -1009,15 +1086,6 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         self.analysis.model
     }
 }
-
-fn binding_is_name_only_declaration(binding: &Binding) -> bool {
-    matches!(binding.origin, BindingOrigin::Declaration { .. })
-        && binding.attributes.contains(BindingAttributes::LOCAL)
-        && !binding
-            .attributes
-            .contains(BindingAttributes::DECLARATION_INITIALIZED)
-}
-
 fn span_contains(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
 }

@@ -87,6 +87,9 @@ fn collect_literal_brace_spans_for_word(
     scratch: &mut LiteralBraceScratch,
 ) {
     let word = occurrence_word(nodes, fact);
+    let derived = word_node_derived(&nodes[fact.node_id.index()]);
+    let nested_escaped_templates =
+        fact_store.word_spans(derived.nested_escaped_parameter_template_body_spans);
     scratch.dynamic_exclusions.clear();
     collect_dynamic_brace_exclusions(
         &word.parts,
@@ -117,7 +120,13 @@ fn collect_literal_brace_spans_for_word(
         })
     {
         collect_brace_character_spans(brace.span, source, spans, |span| {
-            literal_brace_word_span_is_reportable(nodes, fact, fact_store, word, span, source)
+            literal_brace_word_span_is_reportable(
+                nodes,
+                fact,
+                fact_store,
+                span,
+                nested_escaped_templates,
+            )
         });
     }
 
@@ -131,7 +140,15 @@ fn collect_literal_brace_spans_for_word(
             escaped_parameter_stack: &mut scratch.escaped_parameter_stack,
         },
         spans,
-        |span| literal_brace_word_span_is_reportable(nodes, fact, fact_store, word, span, source),
+        |span| {
+            literal_brace_word_span_is_reportable(
+                nodes,
+                fact,
+                fact_store,
+                span,
+                nested_escaped_templates,
+            )
+        },
     );
     collect_unclassified_literal_brace_spans(
         word,
@@ -139,7 +156,15 @@ fn collect_literal_brace_spans_for_word(
         &mut scratch.dynamic_exclusions,
         &mut scratch.unmatched_offsets,
         spans,
-        |span| literal_brace_word_span_is_reportable(nodes, fact, fact_store, word, span, source),
+        |span| {
+            literal_brace_word_span_is_reportable(
+                nodes,
+                fact,
+                fact_store,
+                span,
+                nested_escaped_templates,
+            )
+        },
     );
 }
 
@@ -147,11 +172,13 @@ fn literal_brace_word_span_is_reportable(
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
     fact_store: &FactStore<'_>,
-    word: &Word,
     span: Span,
-    source: &str,
+    nested_escaped_templates: &[Span],
 ) -> bool {
-    !span_inside_nested_escaped_parameter_template(word, span, source)
+    !nested_escaped_templates
+        .iter()
+        .copied()
+        .any(|body| body.start.offset <= span.start.offset && span.start.offset < body.end.offset)
         && !word_span_is_inside_command_substitution(nodes, fact, fact_store, span)
 }
 
@@ -1531,54 +1558,6 @@ fn brace_pair_matches_nonliteral_syntax(
             && brace.span.start.offset == absolute_open_offset
             && brace.span.end.offset == absolute_close_offset
     })
-}
-
-fn span_inside_nested_escaped_parameter_template(word: &Word, span: Span, source: &str) -> bool {
-    if span.start.offset < word.span.start.offset || span.start.offset >= word.span.end.offset {
-        return false;
-    }
-
-    let text = word.span.slice(source);
-    let relative_offset = span.start.offset - word.span.start.offset;
-    let mut index = 0usize;
-
-    while index < text.len() {
-        if text[index..].starts_with("\\${")
-            && let Some(end_offset) =
-                find_runtime_parameter_closing_brace(text, index + '\\'.len_utf8())
-        {
-            let body_start = index + "\\${".len();
-            let body_end = end_offset.saturating_sub('}'.len_utf8());
-            let has_nested_parameter =
-                body_start < body_end && text[body_start..body_end].contains("${");
-            let open_brace_offset = index + "\\$".len();
-            if has_nested_parameter
-                && relative_offset > open_brace_offset
-                && relative_offset < end_offset.saturating_sub('}'.len_utf8())
-            {
-                return true;
-            }
-            index = end_offset;
-            continue;
-        }
-
-        let Some(ch) = text[index..].chars().next() else {
-            break;
-        };
-        let ch_len = ch.len_utf8();
-
-        if ch == '\\' {
-            index += ch_len;
-            if let Some(escaped) = text[index..].chars().next() {
-                index += escaped.len_utf8();
-            }
-            continue;
-        }
-
-        index += ch_len;
-    }
-
-    false
 }
 
 fn collect_raw_escaped_parameter_exclusions(

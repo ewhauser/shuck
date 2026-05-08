@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use shuck_ast::Name;
 use shuck_semantic::{
     ArrayReferencePolicy, Binding, BindingAttributes, BindingKind, Declaration, DeclarationBuiltin,
-    DeclarationOperand, ScopeId,
+    DeclarationOperand, ScopeId, SemanticModel,
 };
 
 use crate::{Checker, ComparableNameUseKind, Rule, ShellDialect, Violation, WrapperKind};
@@ -50,7 +50,7 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
                 .map(|state| state.array_like)
                 .unwrap_or_else(|| binding_uses_builtin_array_history(checker, binding));
 
-            if declaration_resets_array_history(binding) {
+            if declaration_resets_array_history(semantic, binding) {
                 push_array_history(
                     &mut array_history,
                     name,
@@ -62,7 +62,7 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
                 binding,
                 &append_declaration_assignments,
             ) {
-                if binding_establishes_array_history(binding, &builtin_history) {
+                if binding_establishes_array_history(semantic, binding, &builtin_history) {
                     let prior = latest_array_history(&array_history, &name);
                     push_array_history(
                         &mut array_history,
@@ -78,8 +78,8 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
                 }
                 return None;
             }
-            if binding_is_array_like(binding) {
-                if binding_establishes_array_history(binding, &builtin_history) {
+            if semantic.binding_has_array_value_shape(binding.id) {
+                if binding_establishes_array_history(semantic, binding, &builtin_history) {
                     let prior = latest_array_history(&array_history, &name);
                     push_array_history(
                         &mut array_history,
@@ -106,7 +106,7 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
                 return None;
             }
 
-            if binding_establishes_array_history(binding, &builtin_history) {
+            if binding_establishes_array_history(semantic, binding, &builtin_history) {
                 let prior = latest_array_history(&array_history, &name);
                 push_array_history(
                     &mut array_history,
@@ -114,7 +114,7 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
                     ArrayHistoryState::from_binding(checker, binding, true, prior),
                 );
             } else if checker.shell() == ShellDialect::Zsh
-                && binding_establishes_local_scalar_history(binding)
+                && binding_establishes_local_scalar_history(semantic, binding)
             {
                 push_array_history(
                     &mut array_history,
@@ -235,7 +235,7 @@ fn zsh_selectorless_subscript_value_resets_scalar_history(
             .is_some_and(|value| {
                 value.zsh_selectorless_subscript_value()
                     && (!saw_array_history
-                        || (binding_establishes_local_scalar_history(binding)
+                        || (binding_establishes_local_scalar_history(checker.semantic(), binding)
                             && !visible_array_state.is_some_and(|state| state.local))
                         || value
                             .zsh_selectorless_subscript_value_references_base_name(&binding.name))
@@ -523,6 +523,7 @@ fn binding_can_trigger_array_to_string_conversion(
 }
 
 fn binding_establishes_array_history(
+    semantic: &SemanticModel,
     binding: &Binding,
     builtin_history: &BuiltinArrayHistory,
 ) -> bool {
@@ -549,18 +550,18 @@ fn binding_establishes_array_history(
         | BindingKind::GetoptsTarget
         | BindingKind::ZparseoptsTarget
         | BindingKind::ArithmeticAssignment
-        | BindingKind::Nameref => binding_is_array_like(binding),
+        | BindingKind::Nameref => semantic.binding_has_array_value_shape(binding.id),
     }
 }
 
-fn binding_establishes_local_scalar_history(binding: &Binding) -> bool {
+fn binding_establishes_local_scalar_history(semantic: &SemanticModel, binding: &Binding) -> bool {
     matches!(
         binding.kind,
         BindingKind::Declaration(DeclarationBuiltin::Local)
     ) && binding
         .attributes
         .contains(BindingAttributes::DECLARATION_INITIALIZED)
-        && !binding_is_array_like(binding)
+        && !semantic.binding_has_array_value_shape(binding.id)
 }
 
 fn binding_resets_array_history(binding: &Binding, builtin_history: &BuiltinArrayHistory) -> bool {
@@ -584,7 +585,7 @@ fn binding_resets_array_history(binding: &Binding, builtin_history: &BuiltinArra
     }
 }
 
-fn declaration_resets_array_history(binding: &Binding) -> bool {
+fn declaration_resets_array_history(semantic: &SemanticModel, binding: &Binding) -> bool {
     match binding.kind {
         BindingKind::Declaration(DeclarationBuiltin::Local) => !binding
             .attributes
@@ -593,7 +594,7 @@ fn declaration_resets_array_history(binding: &Binding) -> bool {
             !binding
                 .attributes
                 .contains(BindingAttributes::DECLARATION_INITIALIZED)
-                && !binding_is_array_like(binding)
+                && !semantic.binding_has_array_value_shape(binding.id)
         }
         BindingKind::Assignment
         | BindingKind::ParameterDefaultAssignment
@@ -717,13 +718,6 @@ fn command_wrapper_is_shadowed_function(
 
 fn contains_span(outer: shuck_ast::Span, inner: shuck_ast::Span) -> bool {
     outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
-}
-
-fn binding_is_array_like(binding: &Binding) -> bool {
-    binding
-        .attributes
-        .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC)
-        || binding.kind == BindingKind::ArrayAssignment
 }
 
 #[cfg(test)]
