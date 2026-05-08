@@ -757,7 +757,7 @@ pub struct SemanticModel {
     unresolved: Vec<ReferenceId>,
     functions: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     call_sites: FxHashMap<Name, SmallVec<[CallSite; 2]>>,
-    call_graph: CallGraph,
+    call_graph: OnceLock<CallGraph>,
     source_refs: Vec<SourceRef>,
     source_path_templates_by_binding: FxHashMap<BindingId, source_closure::SourcePathTemplate>,
     runtime: RuntimePrelude,
@@ -776,7 +776,7 @@ pub struct SemanticModel {
     import_origins_by_binding: FxHashMap<BindingId, Vec<PathBuf>>,
     imported_dependency_paths: Vec<PathBuf>,
     heuristic_unused_assignments: Vec<BindingId>,
-    zsh_option_analysis: Option<ZshOptionAnalysis>,
+    zsh_option_analysis: OnceLock<Option<ZshOptionAnalysis>>,
     zsh_runtime_ambiguous_entry_mask: OnceLock<zsh_options::ZshOptionMask>,
     zsh_runtime_by_function: OnceLock<FxHashMap<ScopeId, OnceLock<Option<ZshOptionAnalysis>>>>,
     zsh_runtime_function_summaries: OnceLock<zsh_options::SharedFunctionSummaryCache>,
@@ -852,20 +852,6 @@ impl SemanticModel {
             &built.indirect_expansion_refs,
             &built.indirect_target_hints,
         );
-        let zsh_dynamic_calls = zsh_options::DynamicCallAnalysisContext {
-            references: &built.references,
-            resolved: &built.resolved,
-            indirect_target_hints: &built.indirect_target_hints,
-            indirect_targets_by_binding: &indirect_targets_by_binding,
-            command_references: &built.command_references,
-        };
-        let zsh_option_analysis = zsh_options::analyze(
-            &built.shell_profile,
-            &built.scopes,
-            &built.bindings,
-            &built.recorded_program,
-            zsh_dynamic_calls,
-        );
         let scope_lookup = ScopeLookup::new(&built.scopes);
         Self {
             shell_profile: built.shell_profile,
@@ -884,7 +870,7 @@ impl SemanticModel {
             unresolved: built.unresolved,
             functions: built.functions,
             call_sites: built.call_sites,
-            call_graph: built.call_graph,
+            call_graph: OnceLock::new(),
             source_refs: built.source_refs,
             source_path_templates_by_binding: built.source_path_templates_by_binding,
             runtime: built.runtime,
@@ -903,7 +889,7 @@ impl SemanticModel {
             import_origins_by_binding: FxHashMap::default(),
             imported_dependency_paths: Vec::new(),
             heuristic_unused_assignments: built.heuristic_unused_assignments,
-            zsh_option_analysis,
+            zsh_option_analysis: OnceLock::new(),
             zsh_runtime_ambiguous_entry_mask: OnceLock::new(),
             zsh_runtime_by_function: OnceLock::new(),
             zsh_runtime_function_summaries: OnceLock::new(),
@@ -933,15 +919,13 @@ impl SemanticModel {
 
     /// Returns the zsh option state visible at `offset`, when the model tracks zsh options.
     pub fn zsh_options_at(&self, offset: usize) -> Option<&ZshOptionState> {
-        self.zsh_option_analysis
-            .as_ref()
+        self.zsh_option_analysis()
             .and_then(|analysis| analysis.options_at(&self.scopes, offset))
     }
 
     /// Returns whether `offset` is in a definite zsh `emulate sh` region.
     pub fn zsh_sh_emulation_at(&self, offset: usize) -> Option<bool> {
-        self.zsh_option_analysis
-            .as_ref()
+        self.zsh_option_analysis()
             .and_then(|analysis| analysis.sh_emulation_at(&self.scopes, offset))
     }
 
@@ -980,6 +964,29 @@ impl SemanticModel {
             .and_then(|analysis| analysis.options_at(&self.scopes, offset));
 
         Some(ambient.map_or(ordinary, |options| ordinary.merge(options)))
+    }
+
+    fn zsh_option_analysis(&self) -> Option<&ZshOptionAnalysis> {
+        self.zsh_option_analysis
+            .get_or_init(|| self.build_zsh_option_analysis())
+            .as_ref()
+    }
+
+    fn build_zsh_option_analysis(&self) -> Option<ZshOptionAnalysis> {
+        let zsh_dynamic_calls = zsh_options::DynamicCallAnalysisContext {
+            references: &self.references,
+            resolved: &self.resolved,
+            indirect_target_hints: &self.indirect_target_hints,
+            indirect_targets_by_binding: &self.indirect_targets_by_binding,
+            command_references: &self.command_references,
+        };
+        zsh_options::analyze(
+            &self.shell_profile,
+            &self.scopes,
+            &self.bindings,
+            &self.recorded_program,
+            zsh_dynamic_calls,
+        )
     }
 
     fn zsh_runtime_by_function(&self) -> &FxHashMap<ScopeId, OnceLock<Option<ZshOptionAnalysis>>> {
@@ -1937,7 +1944,7 @@ impl SemanticModel {
         self.set_entry_bindings(entry_bindings);
         self.invalidate_function_binding_lookup();
         self.resolve_unresolved_references();
-        self.rebuild_call_graph();
+        self.invalidate_semantic_caches();
     }
 
     fn mark_file_entry_consumed_bindings(&mut self) {
@@ -2102,7 +2109,7 @@ impl SemanticModel {
         }
         self.invalidate_function_binding_lookup();
         self.resolve_unresolved_references();
-        self.rebuild_call_graph();
+        self.invalidate_semantic_caches();
     }
 
     fn invalidate_function_binding_lookup(&mut self) {
@@ -2112,13 +2119,11 @@ impl SemanticModel {
         self.function_definition_binding_ids.take();
     }
 
-    fn rebuild_call_graph(&mut self) {
-        self.call_graph = build_call_graph(
-            &self.scopes,
-            &self.bindings,
-            &self.functions,
-            &self.call_sites,
-        );
+    fn invalidate_semantic_caches(&mut self) {
+        self.call_graph.take();
+        self.zsh_option_analysis.take();
+        self.zsh_runtime_by_function.take();
+        self.zsh_runtime_function_summaries.take();
     }
 
     fn resolve_unresolved_references(&mut self) {
@@ -2171,7 +2176,14 @@ impl SemanticModel {
 
     /// Returns the current call-graph summary for the model.
     pub fn call_graph(&self) -> &CallGraph {
-        &self.call_graph
+        self.call_graph.get_or_init(|| {
+            build_call_graph(
+                &self.scopes,
+                &self.bindings,
+                &self.functions,
+                &self.call_sites,
+            )
+        })
     }
 
     /// Returns declaration commands recorded in the file.

@@ -5615,6 +5615,21 @@ fn unused_assignment_options_preserve_heuristic_fast_path_without_indirect_targe
 }
 
 #[test]
+fn call_graph_and_zsh_option_analysis_are_lazy_until_queried() {
+    let model = model_with_profile("echo hi\n", ShellProfile::native(ShellDialect::Zsh));
+
+    assert!(model.call_graph.get().is_none());
+    assert!(model.zsh_option_analysis.get().is_none());
+
+    model.call_graph();
+    assert!(model.call_graph.get().is_some());
+    assert!(model.zsh_option_analysis.get().is_none());
+
+    model.zsh_options_at(0);
+    assert!(model.zsh_option_analysis.get().is_some());
+}
+
+#[test]
 fn unused_assignment_options_can_report_unreachable_assignments() {
     let source = "\
 #!/bin/bash

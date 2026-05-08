@@ -21,7 +21,7 @@ use crate::binding::{
     AssignmentValueOrigin, Binding, BindingAttributes, BindingKind, BindingOrigin,
     BuiltinBindingTargetKind, LoopValueOrigin,
 };
-use crate::call_graph::{CallGraph, CallSite, build_call_graph};
+use crate::call_graph::CallSite;
 use crate::cfg::{
     CommandId, CommandKind, FlowContext, IsolatedRegion, RecordedCaseArm, RecordedCommand,
     RecordedCommandInfo, RecordedCommandKind, RecordedCommandRange, RecordedElifBranch,
@@ -60,7 +60,6 @@ pub(crate) struct BuildOutput {
     pub(crate) unresolved: Vec<ReferenceId>,
     pub(crate) functions: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     pub(crate) call_sites: FxHashMap<Name, SmallVec<[CallSite; 2]>>,
-    pub(crate) call_graph: CallGraph,
     pub(crate) source_refs: Vec<SourceRef>,
     pub(crate) source_path_templates_by_binding: FxHashMap<BindingId, SourcePathTemplate>,
     pub(crate) runtime: RuntimePrelude,
@@ -277,12 +276,6 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         builder.mark_scope_completed(ScopeId(0));
         builder.drain_deferred_functions();
 
-        let call_graph = build_call_graph(
-            &builder.scopes,
-            &builder.bindings,
-            &builder.functions,
-            &builder.call_sites,
-        );
         let heuristic_unused_assignments = builder.compute_heuristic_unused_assignments();
 
         BuildOutput {
@@ -301,7 +294,6 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             unresolved: builder.unresolved,
             functions: builder.functions,
             call_sites: builder.call_sites,
-            call_graph,
             source_refs: builder.source_refs,
             source_path_templates_by_binding: builder.source_path_templates_by_binding,
             runtime: builder.runtime,

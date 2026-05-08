@@ -268,6 +268,7 @@ impl DeferredFunctionReadVisitor<'_> {
             self.analysis,
             scope,
             self.synthetic_reads,
+            false,
         );
         self.reads.extend(contract.required_reads);
 
