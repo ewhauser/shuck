@@ -818,7 +818,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             CommandFacts::new(&commands, &fact_store, &command_fact_indices_by_id),
             &fact_store,
             locator,
-            self._indexer.region_index().heredoc_ranges(),
+            self._indexer.region_index(),
         );
         let function_positional_parameter_facts = build_function_positional_parameter_facts(
             self.semantic,

@@ -53,6 +53,7 @@ pub struct RegionIndex {
     conditionals: Vec<TextRange>,
     quoted_heredocs: Vec<TextRange>,
     regions: Vec<IndexedRegion>,
+    expansion_brace_edges: Vec<TextSize>,
 }
 
 impl RegionIndex {
@@ -152,6 +153,17 @@ impl RegionIndex {
     pub fn heredoc_ranges(&self) -> &[TextRange] {
         &self.heredocs
     }
+
+    /// Return whether `offset` is the byte position of an `{` or `}` that the
+    /// parser classified as part of an expansion construct.
+    ///
+    /// Expansion brace edges include both delimiters of `${...}`-shaped
+    /// parameter expansions and the delimiters of unquoted active brace
+    /// expansions such as `{a,b}` or `{1..5}`. This lets downstream tools skip
+    /// those braces when reporting on stray literal `{` or `}` characters.
+    pub fn is_expansion_brace_edge(&self, offset: TextSize) -> bool {
+        self.expansion_brace_edges.binary_search(&offset).is_ok()
+    }
 }
 
 struct RegionCollector<'a> {
@@ -163,6 +175,7 @@ struct RegionCollector<'a> {
     arithmetic: Vec<TextRange>,
     conditionals: Vec<TextRange>,
     quoted_heredocs: Vec<TextRange>,
+    expansion_brace_edges: Vec<TextSize>,
 }
 
 impl<'a> RegionCollector<'a> {
@@ -176,6 +189,7 @@ impl<'a> RegionCollector<'a> {
             arithmetic: Vec::new(),
             conditionals: Vec::new(),
             quoted_heredocs: Vec::new(),
+            expansion_brace_edges: Vec::new(),
         }
     }
 
@@ -187,6 +201,8 @@ impl<'a> RegionCollector<'a> {
         sort_ranges(&mut self.arithmetic);
         sort_ranges(&mut self.conditionals);
         sort_ranges(&mut self.quoted_heredocs);
+        self.expansion_brace_edges.sort_unstable();
+        self.expansion_brace_edges.dedup();
 
         let mut regions = Vec::with_capacity(
             self.single_quoted.len()
@@ -253,6 +269,7 @@ impl<'a> RegionCollector<'a> {
             conditionals: self.conditionals,
             quoted_heredocs: self.quoted_heredocs,
             regions,
+            expansion_brace_edges: self.expansion_brace_edges,
         }
     }
 
@@ -457,6 +474,35 @@ impl<'a> RegionCollector<'a> {
         push_range(&mut self.arithmetic, range);
     }
 
+    fn push_dollar_brace_pair(&mut self, range: TextRange) {
+        let dollar_len = TextSize::new('$'.len_utf8() as u32);
+        let close_len = TextSize::new('}'.len_utf8() as u32);
+        if range.len() < dollar_len + close_len {
+            return;
+        }
+        let open = range.start() + dollar_len;
+        let close = range.end() - close_len;
+        if open >= close {
+            return;
+        }
+        self.expansion_brace_edges.push(open);
+        self.expansion_brace_edges.push(close);
+    }
+
+    fn push_expansion_brace_pair(&mut self, range: TextRange) {
+        let close_len = TextSize::new('}'.len_utf8() as u32);
+        if range.len() < close_len {
+            return;
+        }
+        let open = range.start();
+        let close = range.end() - close_len;
+        if open >= close {
+            return;
+        }
+        self.expansion_brace_edges.push(open);
+        self.expansion_brace_edges.push(close);
+    }
+
     fn visit_conditional_expr(&mut self, expression: &ConditionalExpr) {
         match expression {
             ConditionalExpr::Binary(expression) => {
@@ -515,6 +561,11 @@ impl<'a> RegionCollector<'a> {
     }
 
     fn visit_word(&mut self, word: &Word) {
+        for brace in word.brace_syntax.iter().copied() {
+            if brace.expands() {
+                self.push_expansion_brace_pair(brace.span.to_range());
+            }
+        }
         self.visit_word_parts(&word.parts);
     }
 
@@ -569,9 +620,7 @@ impl<'a> RegionCollector<'a> {
                     push_range(&mut self.arithmetic, range);
                 }
                 WordPart::ProcessSubstitution { body, .. } => self.visit_stmt_seq(body),
-                WordPart::Literal(_)
-                | WordPart::Variable(_)
-                | WordPart::Parameter(_)
+                WordPart::Parameter(_)
                 | WordPart::ParameterExpansion { .. }
                 | WordPart::Length(_)
                 | WordPart::ArrayAccess(_)
@@ -581,7 +630,10 @@ impl<'a> RegionCollector<'a> {
                 | WordPart::ArraySlice { .. }
                 | WordPart::IndirectExpansion { .. }
                 | WordPart::PrefixMatch { .. }
-                | WordPart::Transformation { .. } => {}
+                | WordPart::Transformation { .. } => {
+                    self.push_dollar_brace_pair(range);
+                }
+                WordPart::Literal(_) | WordPart::Variable(_) => {}
             }
         }
     }
@@ -597,9 +649,10 @@ impl<'a> RegionCollector<'a> {
                 HeredocBodyPart::ArithmeticExpansion { .. } => {
                     push_range(&mut self.arithmetic, range);
                 }
-                HeredocBodyPart::Literal(_)
-                | HeredocBodyPart::Variable(_)
-                | HeredocBodyPart::Parameter(_) => {}
+                HeredocBodyPart::Parameter(_) => {
+                    self.push_dollar_brace_pair(range);
+                }
+                HeredocBodyPart::Literal(_) | HeredocBodyPart::Variable(_) => {}
             }
         }
     }
@@ -802,5 +855,51 @@ mod tests {
         let offset = TextSize::new(source.find("foo").unwrap() as u32);
 
         assert_eq!(regions.region_at(offset), Some(RegionKind::Conditional));
+    }
+
+    #[test]
+    fn flags_parameter_expansion_brace_edges() {
+        let source = "echo ${name}\n";
+        let regions = regions(source);
+        let open = TextSize::new(source.find('{').unwrap() as u32);
+        let close = TextSize::new(source.find('}').unwrap() as u32);
+
+        assert!(regions.is_expansion_brace_edge(open));
+        assert!(regions.is_expansion_brace_edge(close));
+        let interior = TextSize::new(source.find("name").unwrap() as u32);
+        assert!(!regions.is_expansion_brace_edge(interior));
+    }
+
+    #[test]
+    fn flags_active_brace_expansion_edges() {
+        let source = "echo {a,b,c}\n";
+        let regions = regions(source);
+        let open = TextSize::new(source.find('{').unwrap() as u32);
+        let close = TextSize::new(source.find('}').unwrap() as u32);
+
+        assert!(regions.is_expansion_brace_edge(open));
+        assert!(regions.is_expansion_brace_edge(close));
+    }
+
+    #[test]
+    fn flags_parameter_expansion_brace_edges_in_heredocs() {
+        let source = "cat <<EOF\nhello ${name}\nEOF\n";
+        let regions = regions(source);
+        let open = TextSize::new(source.find('{').unwrap() as u32);
+        let close = TextSize::new(source.find('}').unwrap() as u32);
+
+        assert!(regions.is_expansion_brace_edge(open));
+        assert!(regions.is_expansion_brace_edge(close));
+    }
+
+    #[test]
+    fn does_not_flag_literal_braces() {
+        let source = "echo {literal}\n";
+        let regions = regions(source);
+        let open = TextSize::new(source.find('{').unwrap() as u32);
+        let close = TextSize::new(source.find('}').unwrap() as u32);
+
+        assert!(!regions.is_expansion_brace_edge(open));
+        assert!(!regions.is_expansion_brace_edge(close));
     }
 }
