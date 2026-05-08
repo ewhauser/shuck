@@ -1312,6 +1312,7 @@ mod tests {
         assert!(regions.is_arithmetic(arithmetic));
     }
 
+    #[test]
     fn tracks_backtick_command_substitution_ranges() {
         let source = "echo `printf '%s' \"$name\"` $(pwd)\n";
         let regions = regions(source);
