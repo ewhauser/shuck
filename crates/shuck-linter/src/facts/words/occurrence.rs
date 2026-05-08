@@ -1406,6 +1406,7 @@ pub(super) fn derive_word_fact_data<'a>(
         word,
         locator,
         shell_dialect,
+        escaped_template_bodies.as_slice(),
         may_have_runtime_expansion_spans,
         may_have_command_substitution_spans,
     );
@@ -1533,6 +1534,7 @@ fn collect_derived_word_traversal_spans<'a>(
     word: &'a Word,
     locator: Locator<'a>,
     shell_dialect: shuck_semantic::ShellDialect,
+    escaped_template_bodies: &[word_spans::EscapedParameterTemplateBody],
     may_have_runtime_expansion_spans: bool,
     may_have_command_substitution_spans: bool,
 ) -> DerivedWordTraversalSpans {
