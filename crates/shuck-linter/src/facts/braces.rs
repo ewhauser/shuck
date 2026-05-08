@@ -36,6 +36,7 @@ fn build_literal_brace_spans(
             fact,
             fact_store,
             source,
+            region_index,
             &mut spans,
             &mut scratch,
         );
@@ -81,6 +82,7 @@ fn collect_literal_brace_spans_for_word(
     fact: &WordOccurrence,
     fact_store: &FactStore<'_>,
     source: &str,
+    region_index: &RegionIndex,
     spans: &mut Vec<Span>,
     scratch: &mut LiteralBraceScratch,
 ) {
@@ -89,8 +91,8 @@ fn collect_literal_brace_spans_for_word(
     collect_dynamic_brace_exclusions(
         &word.parts,
         word.span.start.offset,
-        word.span.end.offset,
         source,
+        region_index,
         &mut scratch.dynamic_exclusions,
     );
     scratch
@@ -1292,8 +1294,8 @@ fn has_escaped_dollar_before(text: &str, offset: usize) -> bool {
 fn collect_dynamic_brace_exclusions(
     parts: &[WordPartNode],
     word_base_offset: usize,
-    word_end_offset: usize,
     source: &str,
+    region_index: &RegionIndex,
     out: &mut Vec<DynamicBraceExcludedSpan>,
 ) {
     for part in parts {
@@ -1310,8 +1312,8 @@ fn collect_dynamic_brace_exclusions(
                 collect_dynamic_brace_exclusions(
                     parts,
                     word_base_offset,
-                    word_end_offset,
                     source,
+                    region_index,
                     out,
                 );
             }
@@ -1340,8 +1342,7 @@ fn collect_dynamic_brace_exclusions(
             | WordPart::ZshQualifiedGlob(_) => out.push(runtime_shell_dynamic_brace_exclusion(
                 part,
                 word_base_offset,
-                word_end_offset,
-                source,
+                region_index,
             )),
         }
     }
@@ -1350,20 +1351,18 @@ fn collect_dynamic_brace_exclusions(
 fn runtime_shell_dynamic_brace_exclusion(
     part: &WordPartNode,
     word_base_offset: usize,
-    word_end_offset: usize,
-    source: &str,
+    region_index: &RegionIndex,
 ) -> DynamicBraceExcludedSpan {
     let start_offset = part.span.start.offset - word_base_offset;
     let mut end_offset = part.span.end.offset - word_base_offset;
-    let part_text = part.span.slice(source);
-    let word_text = &source[word_base_offset..word_end_offset.min(source.len())];
 
-    if let Some(relative_parameter_start) = part_text.find("${") {
-        end_offset = find_runtime_parameter_closing_brace(
-            word_text,
-            start_offset + relative_parameter_start,
-        )
-        .map_or(end_offset, |closing_offset| end_offset.max(closing_offset));
+    let part_range = TextRange::new(
+        TextSize::new(part.span.start.offset as u32),
+        TextSize::new(part.span.end.offset as u32),
+    );
+    if let Some(pair) = region_index.first_dollar_brace_pair_in(part_range) {
+        let pair_end_relative = pair.end().to_u32() as usize - word_base_offset;
+        end_offset = end_offset.max(pair_end_relative);
     }
 
     DynamicBraceExcludedSpan {

@@ -54,6 +54,7 @@ pub struct RegionIndex {
     quoted_heredocs: Vec<TextRange>,
     regions: Vec<IndexedRegion>,
     expansion_brace_edges: Vec<TextSize>,
+    dollar_brace_pairs: Vec<TextRange>,
 }
 
 impl RegionIndex {
@@ -164,6 +165,23 @@ impl RegionIndex {
     pub fn is_expansion_brace_edge(&self, offset: TextSize) -> bool {
         self.expansion_brace_edges.binary_search(&offset).is_ok()
     }
+
+    /// Return the first indexed `${...}` parameter expansion whose `$` byte
+    /// position falls within `range`, in source order.
+    ///
+    /// The returned range is the full `${...}` syntactic span, so its end is
+    /// the byte position one past the matching `}`. Active brace expansions
+    /// such as `{a,b}` are not included; only `${...}`-shaped expansions are.
+    pub fn first_dollar_brace_pair_in(&self, range: TextRange) -> Option<TextRange> {
+        let start = range.start();
+        let idx = self
+            .dollar_brace_pairs
+            .partition_point(|pair| pair.start() < start);
+        self.dollar_brace_pairs
+            .get(idx)
+            .copied()
+            .filter(|pair| pair.start() < range.end())
+    }
 }
 
 struct RegionCollector<'a> {
@@ -176,6 +194,7 @@ struct RegionCollector<'a> {
     conditionals: Vec<TextRange>,
     quoted_heredocs: Vec<TextRange>,
     expansion_brace_edges: Vec<TextSize>,
+    dollar_brace_pairs: Vec<TextRange>,
 }
 
 impl<'a> RegionCollector<'a> {
@@ -190,6 +209,7 @@ impl<'a> RegionCollector<'a> {
             conditionals: Vec::new(),
             quoted_heredocs: Vec::new(),
             expansion_brace_edges: Vec::new(),
+            dollar_brace_pairs: Vec::new(),
         }
     }
 
@@ -203,6 +223,10 @@ impl<'a> RegionCollector<'a> {
         sort_ranges(&mut self.quoted_heredocs);
         self.expansion_brace_edges.sort_unstable();
         self.expansion_brace_edges.dedup();
+        self.dollar_brace_pairs
+            .sort_unstable_by_key(|range| (range.start(), range.end()));
+        self.dollar_brace_pairs
+            .dedup_by_key(|range| (range.start(), range.end()));
 
         let mut regions = Vec::with_capacity(
             self.single_quoted.len()
@@ -270,6 +294,7 @@ impl<'a> RegionCollector<'a> {
             quoted_heredocs: self.quoted_heredocs,
             regions,
             expansion_brace_edges: self.expansion_brace_edges,
+            dollar_brace_pairs: self.dollar_brace_pairs,
         }
     }
 
@@ -484,6 +509,9 @@ impl<'a> RegionCollector<'a> {
         {
             return;
         }
+        if find_parameter_expansion_end(self._source, start) != Some(end) {
+            return;
+        }
 
         let dollar_len = TextSize::new('$'.len_utf8() as u32);
         let close_len = TextSize::new('}'.len_utf8() as u32);
@@ -497,6 +525,7 @@ impl<'a> RegionCollector<'a> {
         }
         self.expansion_brace_edges.push(open);
         self.expansion_brace_edges.push(close);
+        self.dollar_brace_pairs.push(range);
     }
 
     fn push_dollar_brace_pairs_in_source_range(&mut self, range: TextRange) {
@@ -523,8 +552,13 @@ impl<'a> RegionCollector<'a> {
             };
             let open = source_start + dollar_offset + '$'.len_utf8();
             let close = source_start + end_offset - '}'.len_utf8();
+            let pair = TextRange::new(
+                TextSize::new((source_start + dollar_offset) as u32),
+                TextSize::new((source_start + end_offset) as u32),
+            );
             self.expansion_brace_edges.push(TextSize::new(open as u32));
             self.expansion_brace_edges.push(TextSize::new(close as u32));
+            self.dollar_brace_pairs.push(pair);
             index = end_offset;
         }
     }
@@ -821,6 +855,73 @@ fn has_odd_backslash_run_before(text: &str, offset: usize) -> bool {
         == 1
 }
 
+fn find_command_substitution_end(text: &str, start_offset: usize) -> Option<usize> {
+    if start_offset >= text.len() || !text[start_offset..].starts_with("$(") {
+        return None;
+    }
+
+    let mut index = start_offset + "$(".len();
+    let mut paren_depth = 0usize;
+    let mut in_single = false;
+    let mut in_double = false;
+
+    while index < text.len() {
+        let ch = text[index..].chars().next()?;
+        let ch_len = ch.len_utf8();
+
+        if ch == '\\' {
+            index += ch_len;
+            if let Some(escaped) = text[index..].chars().next() {
+                index += escaped.len_utf8();
+            }
+            continue;
+        }
+
+        if in_single {
+            if ch == '\'' {
+                in_single = false;
+            }
+            index += ch_len;
+            continue;
+        }
+
+        if ch == '\'' && !in_double {
+            in_single = true;
+            index += ch_len;
+            continue;
+        }
+
+        if ch == '"' {
+            in_double = !in_double;
+            index += ch_len;
+            continue;
+        }
+
+        if ch == '$'
+            && text[index..].starts_with("$(")
+            && !has_odd_backslash_run_before(text, index)
+        {
+            index = find_command_substitution_end(text, index)?;
+            continue;
+        }
+
+        match ch {
+            '(' => {
+                paren_depth += 1;
+                index += ch_len;
+            }
+            ')' if paren_depth == 0 => return Some(index + ch_len),
+            ')' => {
+                paren_depth -= 1;
+                index += ch_len;
+            }
+            _ => index += ch_len,
+        }
+    }
+
+    None
+}
+
 fn find_parameter_expansion_end(text: &str, start_offset: usize) -> Option<usize> {
     if start_offset >= text.len() || !text[start_offset..].starts_with("${") {
         return None;
@@ -860,6 +961,14 @@ fn find_parameter_expansion_end(text: &str, start_offset: usize) -> Option<usize
         if ch == '"' {
             in_double = !in_double;
             index += ch_len;
+            continue;
+        }
+
+        if ch == '$'
+            && text[index..].starts_with("$(")
+            && !has_odd_backslash_run_before(text, index)
+        {
+            index = find_command_substitution_end(text, index)?;
             continue;
         }
 
@@ -1023,14 +1132,68 @@ mod tests {
         let parameter_start = source.find("${MESSAGE}").unwrap();
         let parameter_open = TextSize::new((parameter_start + 1) as u32);
         let parameter_close = TextSize::new((parameter_start + "${MESSAGE}".len() - 1) as u32);
+        let parameter_pair = TextRange::new(
+            TextSize::new(parameter_start as u32),
+            TextSize::new((parameter_start + "${MESSAGE}".len()) as u32),
+        );
 
         assert!(regions.is_expansion_brace_edge(parameter_open));
         assert!(regions.is_expansion_brace_edge(parameter_close));
+        assert_eq!(
+            regions.first_dollar_brace_pair_in(TextRange::new(
+                TextSize::new((parameter_start - 3) as u32),
+                TextSize::new((parameter_start + "MESSAGE".len()) as u32),
+            )),
+            Some(parameter_pair)
+        );
 
         let object_open = TextSize::new(source.find("{\n").unwrap() as u32);
         let object_close = TextSize::new((source.rfind("\n}").unwrap() + 1) as u32);
         assert!(!regions.is_expansion_brace_edge(object_open));
         assert!(!regions.is_expansion_brace_edge(object_close));
+    }
+
+    #[test]
+    fn ignores_incomplete_parameter_expansion_recovery_edges() {
+        let source = "echo ${var:1\n";
+        let regions = regions(source);
+        let parameter_start = source.find("${").unwrap();
+        let range = TextRange::new(
+            TextSize::new(parameter_start as u32),
+            TextSize::new(source.len() as u32),
+        );
+
+        assert_eq!(regions.first_dollar_brace_pair_in(range), None);
+        for offset in parameter_start..source.len() {
+            assert!(
+                !regions.is_expansion_brace_edge(TextSize::new(offset as u32)),
+                "unexpected expansion brace edge at byte {offset}"
+            );
+        }
+    }
+
+    #[test]
+    fn skips_command_substitutions_when_indexing_parameter_expansion_end() {
+        let source = "echo \"${x:-$(echo })}\"\n";
+        let regions = regions(source);
+        let parameter_start = source.find("${").unwrap();
+        let parameter_end = source.rfind('}').unwrap() + '}'.len_utf8();
+        let inner_literal_close = TextSize::new(source.find('}').unwrap() as u32);
+        let outer_parameter_close = TextSize::new((parameter_end - 1) as u32);
+        let parameter_pair = TextRange::new(
+            TextSize::new(parameter_start as u32),
+            TextSize::new(parameter_end as u32),
+        );
+
+        assert!(!regions.is_expansion_brace_edge(inner_literal_close));
+        assert!(regions.is_expansion_brace_edge(outer_parameter_close));
+        assert_eq!(
+            regions.first_dollar_brace_pair_in(TextRange::new(
+                TextSize::new(parameter_start as u32),
+                TextSize::new((parameter_start + "${x".len()) as u32),
+            )),
+            Some(parameter_pair)
+        );
     }
 
     #[test]
