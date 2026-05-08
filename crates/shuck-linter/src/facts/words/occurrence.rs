@@ -1324,6 +1324,13 @@ pub(super) fn derive_word_fact_data<'a>(
     let may_have_command_substitution_spans = word_may_have_command_substitution_spans(word);
     let may_have_mixed_quote_spans =
         word_may_have_unquoted_literal_between_double_quoted_segments_spans(word, source);
+    let mut traversal_spans = collect_derived_word_traversal_spans(
+        word,
+        locator,
+        shell_dialect,
+        may_have_runtime_expansion_spans,
+        may_have_command_substitution_spans,
+    );
 
     WordNodeDerived {
         static_text: borrowed_static_word_text(word, source),
@@ -1331,30 +1338,12 @@ pub(super) fn derive_word_fact_data<'a>(
         starts_with_extglob: word_spans::word_starts_with_extglob(word, source),
         has_literal_affixes: word_has_literal_affixes(word),
         contains_shell_quoting_literals: word_contains_shell_quoting_literals(word, source),
-        active_expansion_spans: push_needed_word_span_list(
-            span_store,
-            scratch,
-            may_have_runtime_expansion_spans || word.has_active_brace_expansion(),
-            |spans| {
-                word_spans::collect_active_expansion_spans_in_source(word, locator, spans);
-            },
-        ),
-        scalar_expansion_spans: push_needed_word_span_list(
-            span_store,
-            scratch,
-            may_have_runtime_expansion_spans,
-            |spans| {
-                word_spans::collect_scalar_expansion_part_spans(word, spans);
-            },
-        ),
-        unquoted_scalar_expansion_spans: push_needed_word_span_list(
-            span_store,
-            scratch,
-            may_have_runtime_expansion_spans,
-            |spans| {
-                word_spans::collect_unquoted_scalar_expansion_part_spans(word, spans);
-            },
-        ),
+        active_expansion_spans: span_store
+            .push_many(traversal_spans.active_expansion_spans.drain(..)),
+        scalar_expansion_spans: span_store
+            .push_many(traversal_spans.scalar_expansion_spans.drain(..)),
+        unquoted_scalar_expansion_spans: span_store
+            .push_many(traversal_spans.unquoted_scalar_expansion_spans.drain(..)),
         array_expansion_spans: push_needed_word_span_list(
             span_store,
             scratch,
@@ -1410,42 +1399,17 @@ pub(super) fn derive_word_fact_data<'a>(
                 word_spans::collect_unquoted_array_expansion_part_spans(word, spans);
             },
         ),
-        command_substitution_spans: push_needed_word_span_list(
-            span_store,
-            scratch,
-            may_have_command_substitution_spans,
-            |spans| {
-                word_spans::collect_command_substitution_part_spans_in_source(word, locator, spans);
-            },
+        command_substitution_spans: span_store
+            .push_many(traversal_spans.command_substitution_spans.drain(..)),
+        unquoted_command_substitution_spans: span_store
+            .push_many(traversal_spans.unquoted_command_substitution_spans.drain(..)),
+        unquoted_dollar_paren_command_substitution_spans: span_store.push_many(
+            traversal_spans
+                .unquoted_dollar_paren_command_substitution_spans
+                .drain(..),
         ),
-        unquoted_command_substitution_spans: push_needed_word_span_list(
-            span_store,
-            scratch,
-            may_have_command_substitution_spans,
-            |spans| {
-                word_spans::collect_unquoted_command_substitution_part_spans_in_source(
-                    word, locator, spans,
-                );
-            },
-        ),
-        unquoted_dollar_paren_command_substitution_spans: push_needed_word_span_list(
-            span_store,
-            scratch,
-            may_have_command_substitution_spans,
-            |spans| {
-                word_spans::collect_unquoted_dollar_paren_command_substitution_part_spans_in_source(
-                    word, locator, spans,
-                );
-            },
-        ),
-        double_quoted_expansion_spans: push_needed_word_span_list(
-            span_store,
-            scratch,
-            may_have_runtime_expansion_spans,
-            |spans| {
-                collect_double_quoted_expansion_part_spans(word, spans);
-            },
-        ),
+        double_quoted_expansion_spans: span_store
+            .push_many(traversal_spans.double_quoted_expansion_spans.drain(..)),
         unquoted_literal_between_double_quoted_segments_spans: push_needed_word_span_list(
             span_store,
             scratch,
@@ -1454,6 +1418,227 @@ pub(super) fn derive_word_fact_data<'a>(
                 collect_unquoted_literal_between_double_quoted_segments_spans(word, source, spans);
             },
         ),
+    }
+}
+
+#[derive(Default)]
+struct DerivedWordTraversalSpans {
+    active_expansion_spans: Vec<Span>,
+    scalar_expansion_spans: Vec<Span>,
+    unquoted_scalar_expansion_spans: Vec<Span>,
+    command_substitution_spans: Vec<Span>,
+    unquoted_command_substitution_spans: Vec<Span>,
+    unquoted_dollar_paren_command_substitution_spans: Vec<Span>,
+    double_quoted_expansion_spans: Vec<Span>,
+}
+
+fn collect_derived_word_traversal_spans<'a>(
+    word: &'a Word,
+    locator: Locator<'a>,
+    shell_dialect: shuck_semantic::ShellDialect,
+    may_have_runtime_expansion_spans: bool,
+    may_have_command_substitution_spans: bool,
+) -> DerivedWordTraversalSpans {
+    let mut spans = DerivedWordTraversalSpans::default();
+    if may_have_runtime_expansion_spans || may_have_command_substitution_spans {
+        let mut visitor = DerivedWordTraversalVisitor {
+            spans: &mut spans,
+            collect_runtime_expansion_spans: may_have_runtime_expansion_spans,
+            collect_command_substitution_spans: may_have_command_substitution_spans,
+        };
+        walk_word_subtree(
+            word,
+            WordTraversalContext {
+                source: locator.source(),
+                locator: Some(locator),
+                shell_dialect,
+            },
+            &mut visitor,
+        );
+    }
+
+    if may_have_command_substitution_spans {
+        word_spans::normalize_command_substitution_spans(
+            &mut spans.command_substitution_spans,
+            locator,
+        );
+        word_spans::normalize_command_substitution_spans(
+            &mut spans.unquoted_command_substitution_spans,
+            locator,
+        );
+        word_spans::normalize_command_substitution_spans(
+            &mut spans.unquoted_dollar_paren_command_substitution_spans,
+            locator,
+        );
+    }
+
+    if may_have_runtime_expansion_spans || word.has_active_brace_expansion() {
+        spans.active_expansion_spans.extend(
+            word.brace_syntax()
+                .iter()
+                .copied()
+                .filter(|brace| brace.expands())
+                .map(|brace| brace.span),
+        );
+        spans
+            .active_expansion_spans
+            .sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+        spans.active_expansion_spans.dedup();
+    }
+
+    spans
+}
+
+struct DerivedWordTraversalVisitor<'spans> {
+    spans: &'spans mut DerivedWordTraversalSpans,
+    collect_runtime_expansion_spans: bool,
+    collect_command_substitution_spans: bool,
+}
+
+impl<'a> WordSubtreeVisitor<'a> for DerivedWordTraversalVisitor<'_> {
+    fn visit_part(&mut self, part: &'a WordPartNode, state: WordTraversalState<'a>) {
+        if !state.processes_root_word() {
+            return;
+        }
+
+        if self.collect_runtime_expansion_spans {
+            self.collect_runtime_expansion_part(part, state);
+            self.collect_scalar_expansion_part(part, state);
+            self.collect_double_quoted_expansion_part(part, state);
+        }
+    }
+
+    fn visit_command_substitution(
+        &mut self,
+        part: &'a WordPartNode,
+        state: WordTraversalState<'a>,
+    ) {
+        if !self.collect_command_substitution_spans || !state.processes_root_word() {
+            return;
+        }
+
+        self.spans.command_substitution_spans.push(part.span);
+        if !state.in_double_quote {
+            self.spans
+                .unquoted_command_substitution_spans
+                .push(part.span);
+            if matches!(
+                &part.kind,
+                WordPart::CommandSubstitution {
+                    syntax: CommandSubstitutionSyntax::DollarParen,
+                    ..
+                }
+            ) {
+                self.spans
+                    .unquoted_dollar_paren_command_substitution_spans
+                    .push(part.span);
+            }
+        }
+    }
+}
+
+impl DerivedWordTraversalVisitor<'_> {
+    fn collect_runtime_expansion_part(&mut self, part: &WordPartNode, _state: WordTraversalState<'_>) {
+        match &part.kind {
+            WordPart::Literal(_) | WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. } => {
+            }
+            WordPart::Variable(name) if matches!(name.as_str(), "@" | "*") => {
+                self.spans.active_expansion_spans.push(part.span);
+            }
+            WordPart::Variable(_)
+            | WordPart::ZshQualifiedGlob(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. } => {
+                self.spans.active_expansion_spans.push(part.span);
+            }
+        }
+    }
+
+    fn collect_scalar_expansion_part(&mut self, part: &WordPartNode, state: WordTraversalState<'_>) {
+        let quoted = state.in_double_quote;
+        let push_scalar = |spans: &mut DerivedWordTraversalSpans| {
+            spans.scalar_expansion_spans.push(part.span);
+            if !quoted {
+                spans.unquoted_scalar_expansion_spans.push(part.span);
+            }
+        };
+
+        match &part.kind {
+            WordPart::Literal(_) | WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. } => {
+            }
+            WordPart::ZshQualifiedGlob(_) => {}
+            WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
+            WordPart::Parameter(parameter) => {
+                if word_spans::parameter_is_scalar_like(parameter) {
+                    push_scalar(self.spans);
+                }
+            }
+            WordPart::Variable(name) if matches!(name.as_str(), "@" | "*") => {}
+            WordPart::Variable(_)
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::Substring { .. }
+            | WordPart::PrefixMatch { .. } => push_scalar(self.spans),
+            WordPart::ParameterExpansion { reference, .. }
+            | WordPart::IndirectExpansion { reference, .. }
+            | WordPart::Transformation { reference, .. } => {
+                if !reference.has_array_selector() {
+                    push_scalar(self.spans);
+                }
+            }
+            WordPart::ArrayAccess(reference) => {
+                if !reference.has_array_selector() {
+                    push_scalar(self.spans);
+                }
+            }
+            WordPart::ArrayIndices(_) | WordPart::ArraySlice { .. } => {}
+        }
+    }
+
+    fn collect_double_quoted_expansion_part(
+        &mut self,
+        part: &WordPartNode,
+        state: WordTraversalState<'_>,
+    ) {
+        if !state.in_double_quote {
+            return;
+        }
+
+        match &part.kind {
+            WordPart::Variable(_)
+            | WordPart::Parameter(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => {
+                self.spans.double_quoted_expansion_spans.push(part.span);
+            }
+            WordPart::Literal(_) | WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. } => {
+            }
+        }
     }
 }
 
@@ -1651,28 +1836,122 @@ pub(super) fn simple_command_word_at(command: &SimpleCommand, index: usize) -> &
 }
 
 fn collect_split_sensitive_unquoted_command_substitution_spans(
-    parts: &[WordPartNode],
+    word: &Word,
     source: &str,
-    quoted: bool,
     behavior: &ShellBehaviorAt<'_>,
     spans: &mut Vec<Span>,
 ) {
-    for part in parts {
-        match &part.kind {
-            WordPart::SingleQuoted { .. } => {}
-            WordPart::DoubleQuoted { parts, .. } => {
-                collect_split_sensitive_unquoted_command_substitution_spans(
-                    parts, source, true, behavior, spans,
+    let mut visitor = SplitSensitiveCommandSubstitutionVisitor {
+        source,
+        behavior,
+        spans,
+    };
+    walk_word_subtree(
+        word,
+        WordTraversalContext {
+            source,
+            locator: None,
+            shell_dialect: behavior.shell_dialect(),
+        },
+        &mut visitor,
+    );
+}
+
+struct SplitSensitiveCommandSubstitutionVisitor<'spans, 'behavior, 'source> {
+    source: &'source str,
+    behavior: &'behavior ShellBehaviorAt<'source>,
+    spans: &'spans mut Vec<Span>,
+}
+
+impl<'a> WordSubtreeVisitor<'a>
+    for SplitSensitiveCommandSubstitutionVisitor<'_, '_, '_>
+{
+    fn visit_command_substitution(
+        &mut self,
+        part: &'a WordPartNode,
+        state: WordTraversalState<'a>,
+    ) {
+        if state.processes_root_word()
+            && !state.in_double_quote
+            && analyze_part(&part.kind, self.source, false, self.behavior)
+                .can_expand_to_multiple_fields
+        {
+            self.spans.push(part.span);
+        }
+    }
+}
+
+struct WordParameterPatternVisitor<'collector, 'out, 'a, 'norm> {
+    collector: &'collector mut WordFactCollector<'out, 'a, 'norm>,
+    host_kind: WordFactHostKind,
+}
+
+impl<'out, 'a, 'norm> WordSubtreeVisitor<'a>
+    for WordParameterPatternVisitor<'_, 'out, 'a, 'norm>
+{
+    fn visit_pattern_word(&mut self, word: &'a Word, state: WordTraversalState<'a>) {
+        if matches!(
+            (state.origin, state.pattern_context),
+            (
+                WordTraversalOrigin::ParameterPattern,
+                Some(WordTraversalPatternContext::ParameterOperator)
+            ) | (
+                WordTraversalOrigin::ZshQualifiedGlobPattern,
+                Some(WordTraversalPatternContext::ZshQualifiedGlob)
+            )
+        ) {
+            self.collector.push_word(
+                word,
+                WordFactContext::Expansion(ExpansionContext::ParameterPattern),
+                self.host_kind,
+            );
+        }
+    }
+}
+
+struct PendingArithmeticWordVisitor<'collector, 'out, 'a, 'norm> {
+    collector: &'collector mut WordFactCollector<'out, 'a, 'norm>,
+    enclosing_expansion_context: ExpansionContext,
+    host_kind: WordFactHostKind,
+}
+
+impl<'out, 'a, 'norm> WordSubtreeVisitor<'a>
+    for PendingArithmeticWordVisitor<'_, 'out, 'a, 'norm>
+{
+    fn visit_arithmetic_expansion(
+        &mut self,
+        part: &'a WordPartNode,
+        state: WordTraversalState<'a>,
+    ) {
+        if matches!(
+            state.origin,
+            WordTraversalOrigin::ParameterPattern | WordTraversalOrigin::ZshQualifiedGlobPattern
+        ) {
+            return;
+        }
+        let WordPart::ArithmeticExpansion {
+            expression_ast,
+            expression_word_ast,
+            ..
+        } = &part.kind
+        else {
+            return;
+        };
+
+        if let Some(expression) = expression_ast.as_ref() {
+            visit_arithmetic_words(expression, &mut |word| {
+                self.collector.push_pending_arithmetic_word_occurrence(
+                    word,
+                    self.enclosing_expansion_context,
+                    self.host_kind,
                 );
-            }
-            WordPart::CommandSubstitution { .. }
-                if !quoted
-                    && analyze_part(&part.kind, source, quoted, behavior)
-                        .can_expand_to_multiple_fields =>
-            {
-                spans.push(part.span);
-            }
-            _ => {}
+            });
+        } else {
+            self.collector.push_pending_arithmetic_word_occurrence(
+                expression_word_ast,
+                self.enclosing_expansion_context,
+                self.host_kind,
+            );
         }
     }
 }
@@ -2538,19 +2817,6 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         }
     }
 
-    fn collect_zsh_qualified_glob_context_words(
-        &mut self,
-        glob: &'a ZshQualifiedGlob,
-        context: WordFactContext,
-        host_kind: WordFactHostKind,
-    ) {
-        for segment in &glob.segments {
-            if let ZshGlobSegment::Pattern(pattern) = segment {
-                self.collect_pattern_context_words(pattern, context, host_kind, None);
-            }
-        }
-    }
-
     fn collect_conditional_expansion_words(
         &mut self,
         expression: &'a ConditionalExpr,
@@ -2614,82 +2880,13 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         }
     }
 
-    fn collect_word_parameter_patterns(
-        &mut self,
-        parts: &'a [WordPartNode],
-        host_kind: WordFactHostKind,
-    ) {
-        for part in parts {
-            match &part.kind {
-                WordPart::ZshQualifiedGlob(glob) => self.collect_zsh_qualified_glob_context_words(
-                    glob,
-                    WordFactContext::Expansion(ExpansionContext::ParameterPattern),
-                    host_kind,
-                ),
-                WordPart::DoubleQuoted { parts, .. } => {
-                    self.collect_word_parameter_patterns(parts, host_kind)
-                }
-                WordPart::Parameter(parameter) => {
-                    if let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
-                        operator,
-                        ..
-                    }) = &parameter.syntax
-                    {
-                        self.collect_parameter_operator_patterns(operator, host_kind);
-                    }
-                }
-                WordPart::ParameterExpansion { operator, .. } => {
-                    self.collect_parameter_operator_patterns(operator, host_kind)
-                }
-                WordPart::IndirectExpansion {
-                    operator: Some(operator),
-                    ..
-                } => self.collect_parameter_operator_patterns(operator, host_kind),
-                WordPart::Literal(_)
-                | WordPart::SingleQuoted { .. }
-                | WordPart::Variable(_)
-                | WordPart::CommandSubstitution { .. }
-                | WordPart::ArithmeticExpansion { .. }
-                | WordPart::Length(_)
-                | WordPart::ArrayAccess(_)
-                | WordPart::ArrayLength(_)
-                | WordPart::ArrayIndices(_)
-                | WordPart::Substring { .. }
-                | WordPart::ArraySlice { .. }
-                | WordPart::IndirectExpansion { operator: None, .. }
-                | WordPart::PrefixMatch { .. }
-                | WordPart::ProcessSubstitution { .. }
-                | WordPart::Transformation { .. } => {}
-            }
-        }
-    }
-
-    fn collect_parameter_operator_patterns(
-        &mut self,
-        operator: &'a ParameterOp,
-        host_kind: WordFactHostKind,
-    ) {
-        match operator {
-            ParameterOp::RemovePrefixShort { pattern }
-            | ParameterOp::RemovePrefixLong { pattern }
-            | ParameterOp::RemoveSuffixShort { pattern }
-            | ParameterOp::RemoveSuffixLong { pattern }
-            | ParameterOp::ReplaceFirst { pattern, .. }
-            | ParameterOp::ReplaceAll { pattern, .. } => self.collect_pattern_context_words(
-                pattern,
-                WordFactContext::Expansion(ExpansionContext::ParameterPattern),
-                host_kind,
-                None,
-            ),
-            ParameterOp::UseDefault
-            | ParameterOp::AssignDefault
-            | ParameterOp::UseReplacement
-            | ParameterOp::Error
-            | ParameterOp::UpperFirst
-            | ParameterOp::UpperAll
-            | ParameterOp::LowerFirst
-            | ParameterOp::LowerAll => {}
-        }
+    fn collect_word_parameter_patterns(&mut self, word: &'a Word, host_kind: WordFactHostKind) {
+        let context = self.word_traversal_context();
+        let mut visitor = WordParameterPatternVisitor {
+            collector: self,
+            host_kind,
+        };
+        walk_word_subtree(word, context, &mut visitor);
     }
 
     fn push_word(
@@ -2768,7 +2965,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             return (None, opened_double_quote);
         }
 
-        self.collect_word_parameter_patterns(&word.parts, host_kind);
+        self.collect_word_parameter_patterns(word, host_kind);
         self.collect_arithmetic_summary(word, context, host_kind);
 
         let node_id = self.intern_word_node(word);
@@ -2802,9 +2999,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         };
         self.word_span_scratch.clear();
         collect_split_sensitive_unquoted_command_substitution_spans(
-            &word.parts,
+            word,
             self.source,
-            false,
             &self.command_shell_behavior,
             self.word_span_scratch,
         );
@@ -2840,190 +3036,13 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         enclosing_expansion_context: ExpansionContext,
         host_kind: WordFactHostKind,
     ) {
-        self.collect_pending_arithmetic_word_occurrences_in_parts(
-            &word.parts,
+        let context = self.word_traversal_context();
+        let mut visitor = PendingArithmeticWordVisitor {
+            collector: self,
             enclosing_expansion_context,
             host_kind,
-        );
-    }
-
-    fn collect_pending_arithmetic_word_occurrences_in_parts(
-        &mut self,
-        parts: &'a [WordPartNode],
-        enclosing_expansion_context: ExpansionContext,
-        host_kind: WordFactHostKind,
-    ) {
-        for part in parts {
-            match &part.kind {
-                WordPart::DoubleQuoted { parts, .. } => self
-                    .collect_pending_arithmetic_word_occurrences_in_parts(
-                        parts,
-                        enclosing_expansion_context,
-                        host_kind,
-                    ),
-                WordPart::ArithmeticExpansion {
-                    expression_ast,
-                    expression_word_ast,
-                    ..
-                } => {
-                    if let Some(expression) = expression_ast.as_ref() {
-                        visit_arithmetic_words(expression, &mut |word| {
-                            self.push_pending_arithmetic_word_occurrence(
-                                word,
-                                enclosing_expansion_context,
-                                host_kind,
-                            );
-                        });
-                    } else {
-                        self.push_pending_arithmetic_word_occurrence(
-                            expression_word_ast,
-                            enclosing_expansion_context,
-                            host_kind,
-                        );
-                    }
-                }
-                WordPart::Parameter(parameter) => self
-                    .collect_pending_arithmetic_word_occurrences_in_parameter_expansion(
-                        parameter,
-                        enclosing_expansion_context,
-                        host_kind,
-                    ),
-                WordPart::ParameterExpansion {
-                    operator,
-                    operand_word_ast,
-                    ..
-                }
-                | WordPart::IndirectExpansion {
-                    operator: Some(operator),
-                    operand_word_ast,
-                    ..
-                } => self.collect_pending_arithmetic_word_occurrences_in_parameter_operator(
-                    operator,
-                    operand_word_ast.as_deref(),
-                    enclosing_expansion_context,
-                    host_kind,
-                ),
-                WordPart::Literal(_)
-                | WordPart::SingleQuoted { .. }
-                | WordPart::Variable(_)
-                | WordPart::CommandSubstitution { .. }
-                | WordPart::Length(_)
-                | WordPart::ArrayAccess(_)
-                | WordPart::ArrayLength(_)
-                | WordPart::ArrayIndices(_)
-                | WordPart::Substring { .. }
-                | WordPart::ArraySlice { .. }
-                | WordPart::IndirectExpansion { operator: None, .. }
-                | WordPart::PrefixMatch { .. }
-                | WordPart::ProcessSubstitution { .. }
-                | WordPart::Transformation { .. }
-                | WordPart::ZshQualifiedGlob(_) => {}
-            }
-        }
-    }
-
-    fn collect_pending_arithmetic_word_occurrences_in_parameter_expansion(
-        &mut self,
-        parameter: &'a ParameterExpansion,
-        enclosing_expansion_context: ExpansionContext,
-        host_kind: WordFactHostKind,
-    ) {
-        match &parameter.syntax {
-            ParameterExpansionSyntax::Bourne(
-                BourneParameterExpansion::Operation {
-                    operator,
-                    operand_word_ast,
-                    ..
-                }
-                | BourneParameterExpansion::Indirect {
-                    operator: Some(operator),
-                    operand_word_ast,
-                    ..
-                },
-            ) => self.collect_pending_arithmetic_word_occurrences_in_parameter_operator(
-                operator,
-                operand_word_ast.as_deref(),
-                enclosing_expansion_context,
-                host_kind,
-            ),
-            ParameterExpansionSyntax::Bourne(
-                BourneParameterExpansion::Access { .. }
-                | BourneParameterExpansion::Length { .. }
-                | BourneParameterExpansion::Indices { .. }
-                | BourneParameterExpansion::Indirect { operator: None, .. }
-                | BourneParameterExpansion::PrefixMatch { .. }
-                | BourneParameterExpansion::Slice { .. }
-                | BourneParameterExpansion::Transformation { .. },
-            ) => {}
-            ParameterExpansionSyntax::Zsh(syntax) => {
-                match &syntax.target {
-                    ZshExpansionTarget::Nested(parameter) => self
-                        .collect_pending_arithmetic_word_occurrences_in_parameter_expansion(
-                            parameter,
-                            enclosing_expansion_context,
-                            host_kind,
-                        ),
-                    ZshExpansionTarget::Word(word) => self
-                        .collect_pending_arithmetic_word_occurrences(
-                            word,
-                            enclosing_expansion_context,
-                            host_kind,
-                        ),
-                    ZshExpansionTarget::Reference(_) | ZshExpansionTarget::Empty => {}
-                }
-
-                if let Some(operation) = syntax.operation.as_ref()
-                    && let Some(operand_word) = operation.operand_word_ast()
-                {
-                    self.collect_pending_arithmetic_word_occurrences(
-                        operand_word,
-                        enclosing_expansion_context,
-                        host_kind,
-                    );
-                }
-
-                if let Some(operation) = syntax.operation.as_ref()
-                    && let Some(replacement_word) = operation.replacement_word_ast()
-                {
-                    self.collect_pending_arithmetic_word_occurrences(
-                        replacement_word,
-                        enclosing_expansion_context,
-                        host_kind,
-                    );
-                }
-            }
-        }
-    }
-
-    fn collect_pending_arithmetic_word_occurrences_in_parameter_operator(
-        &mut self,
-        operator: &'a ParameterOp,
-        operand_word_ast: Option<&'a Word>,
-        enclosing_expansion_context: ExpansionContext,
-        host_kind: WordFactHostKind,
-    ) {
-        if matches!(
-            operator,
-            ParameterOp::UseDefault
-                | ParameterOp::AssignDefault
-                | ParameterOp::UseReplacement
-                | ParameterOp::Error
-        ) && let Some(operand_word) = operand_word_ast
-        {
-            self.collect_pending_arithmetic_word_occurrences(
-                operand_word,
-                enclosing_expansion_context,
-                host_kind,
-            );
-        }
-
-        if let Some(replacement_word) = operator.replacement_word_ast() {
-            self.collect_pending_arithmetic_word_occurrences(
-                replacement_word,
-                enclosing_expansion_context,
-                host_kind,
-            );
-        }
+        };
+        walk_word_subtree(word, context, &mut visitor);
     }
 
     fn push_pending_arithmetic_word_occurrence(
@@ -3049,11 +3068,14 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 host_kind,
                 enclosing_expansion_context,
             });
-        self.collect_pending_arithmetic_word_occurrences(
-            word,
-            enclosing_expansion_context,
-            host_kind,
-        );
+    }
+
+    fn word_traversal_context(&self) -> WordTraversalContext<'a> {
+        WordTraversalContext {
+            source: self.source,
+            locator: Some(self.locator),
+            shell_dialect: self.command_shell_behavior.shell_dialect(),
+        }
     }
 
     fn collect_arithmetic_summary(
@@ -3074,8 +3096,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             );
         }
 
-        collect_arithmetic_expansion_spans_from_parts(
-            &word.parts,
+        collect_arithmetic_summary_spans_in_word(
+            word,
             self.source,
             host_kind == WordFactHostKind::Direct,
             &mut self.arithmetic.dollar_in_arithmetic_spans,

@@ -782,6 +782,186 @@ pub(super) fn collect_arithmetic_spans_in_parameter_operator(
     }
 }
 
+pub(super) fn collect_arithmetic_summary_spans_in_word(
+    word: &Word,
+    source: &str,
+    collect_dollar_spans: bool,
+    dollar_spans: &mut Vec<Span>,
+    command_substitution_spans: &mut Vec<Span>,
+) {
+    let mut visitor = ArithmeticSummarySpanVisitor {
+        source,
+        collect_dollar_spans,
+        dollar_spans,
+        command_substitution_spans,
+    };
+    walk_word_subtree(
+        word,
+        WordTraversalContext {
+            source,
+            locator: None,
+            shell_dialect: shuck_semantic::ShellDialect::Bash,
+        },
+        &mut visitor,
+    );
+}
+
+struct ArithmeticSummarySpanVisitor<'out, 'source> {
+    source: &'source str,
+    collect_dollar_spans: bool,
+    dollar_spans: &'out mut Vec<Span>,
+    command_substitution_spans: &'out mut Vec<Span>,
+}
+
+impl<'word> WordSubtreeVisitor<'word> for ArithmeticSummarySpanVisitor<'_, '_> {
+    fn visit_part(&mut self, part: &'word WordPartNode, state: WordTraversalState<'word>) {
+        if !state.processes_root_word() {
+            return;
+        }
+
+        match &part.kind {
+            WordPart::DoubleQuoted { .. } => {}
+            WordPart::ArithmeticExpansion {
+                expression_ast,
+                expression_word_ast,
+                ..
+            } => {
+                if let Some(expression) = expression_ast {
+                    visit_arithmetic_words(expression, &mut |word| {
+                        collect_arithmetic_context_spans_in_word(
+                            word,
+                            self.source,
+                            self.collect_dollar_spans,
+                            self.dollar_spans,
+                            self.command_substitution_spans,
+                        );
+                    });
+                } else {
+                    collect_arithmetic_summary_spans_in_word(
+                        expression_word_ast,
+                        self.source,
+                        self.collect_dollar_spans,
+                        self.dollar_spans,
+                        self.command_substitution_spans,
+                    );
+                }
+            }
+            WordPart::Parameter(parameter) => collect_arithmetic_spans_in_parameter_expansion(
+                parameter,
+                self.source,
+                self.collect_dollar_spans,
+                self.dollar_spans,
+                self.command_substitution_spans,
+            ),
+            WordPart::ParameterExpansion {
+                reference,
+                operator,
+                ..
+            } => {
+                collect_arithmetic_spans_in_var_ref(
+                    reference,
+                    self.source,
+                    self.collect_dollar_spans,
+                    self.dollar_spans,
+                    self.command_substitution_spans,
+                );
+                collect_arithmetic_spans_in_parameter_operator(
+                    operator,
+                    self.source,
+                    self.collect_dollar_spans,
+                    self.dollar_spans,
+                    self.command_substitution_spans,
+                );
+            }
+            WordPart::Length(reference)
+            | WordPart::ArrayAccess(reference)
+            | WordPart::ArrayLength(reference)
+            | WordPart::ArrayIndices(reference)
+            | WordPart::IndirectExpansion { reference, .. }
+            | WordPart::Transformation { reference, .. } => collect_arithmetic_spans_in_var_ref(
+                reference,
+                self.source,
+                self.collect_dollar_spans,
+                self.dollar_spans,
+                self.command_substitution_spans,
+            ),
+            WordPart::Substring {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            }
+            | WordPart::ArraySlice {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            } => {
+                collect_arithmetic_spans_in_var_ref(
+                    reference,
+                    self.source,
+                    self.collect_dollar_spans,
+                    self.dollar_spans,
+                    self.command_substitution_spans,
+                );
+                if let Some(expression) = offset_ast {
+                    collect_slice_arithmetic_expression_spans(
+                        expression,
+                        self.source,
+                        self.dollar_spans,
+                        self.command_substitution_spans,
+                    );
+                } else {
+                    collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
+                        &offset_word_ast.parts,
+                        self.source,
+                        self.dollar_spans,
+                    );
+                    collect_arithmetic_expansion_spans_from_parts(
+                        &offset_word_ast.parts,
+                        self.source,
+                        false,
+                        self.dollar_spans,
+                        self.command_substitution_spans,
+                    );
+                }
+                if let Some(expression) = length_ast {
+                    collect_slice_arithmetic_expression_spans(
+                        expression,
+                        self.source,
+                        self.dollar_spans,
+                        self.command_substitution_spans,
+                    );
+                } else if let Some(length_word_ast) = length_word_ast {
+                    collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
+                        &length_word_ast.parts,
+                        self.source,
+                        self.dollar_spans,
+                    );
+                    collect_arithmetic_expansion_spans_from_parts(
+                        &length_word_ast.parts,
+                        self.source,
+                        false,
+                        self.dollar_spans,
+                        self.command_substitution_spans,
+                    );
+                }
+            }
+            WordPart::Literal(_)
+            | WordPart::SingleQuoted { .. }
+            | WordPart::Variable(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::ZshQualifiedGlob(_) => {}
+        }
+    }
+}
+
 pub(super) fn collect_arithmetic_expansion_spans_from_parts(
     parts: &[WordPartNode],
     source: &str,

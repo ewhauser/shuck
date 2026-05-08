@@ -115,6 +115,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     short_circuit_condition_depth: u32,
     arithmetic_reference_kind: ReferenceKind,
     word_reference_kind_override: Option<ReferenceKind>,
+    escaped_parameter_template_body_starts_cache: FxHashMap<SpanKey, SmallVec<[usize; 2]>>,
 }
 
 fn semantic_statement_span(stmt: &Stmt) -> Span {
@@ -267,6 +268,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             short_circuit_condition_depth: 0,
             arithmetic_reference_kind: ReferenceKind::ArithmeticRead,
             word_reference_kind_override: None,
+            escaped_parameter_template_body_starts_cache: FxHashMap::default(),
         };
         let file_commands = builder.visit_stmt_seq(
             &file.body,
