@@ -2,6 +2,7 @@ use super::*;
 use compact_str::CompactString;
 
 const INDEX_BUILD_THRESHOLD: usize = 1024;
+const MIN_CANDIDATE_NAME_LEN: usize = 4;
 
 #[derive(Debug)]
 pub(crate) struct PossibleVariableMisspellingIndex {
@@ -221,7 +222,7 @@ impl MisspellingCandidateLookup {
                 .or_default()
                 .push(id);
 
-            if !is_environment_style_name(name) || name.len() < 4 {
+            if !is_environment_style_name(name) || name.len() < MIN_CANDIDATE_NAME_LEN {
                 continue;
             }
 
@@ -258,7 +259,7 @@ impl MisspellingCandidateLookup {
         target_name: &str,
         tie_break: CandidateTieBreak,
     ) -> Option<&'a str> {
-        if target_name.len() < 4 {
+        if target_name.len() < MIN_CANDIDATE_NAME_LEN {
             return None;
         }
         let ids = self
@@ -348,7 +349,7 @@ pub(super) fn build_possible_variable_misspelling_index(
         .bindings()
         .iter()
         .filter(|binding| is_sc2154_defining_binding(binding.kind))
-        .filter(|binding| binding.name.as_str().len() >= 4)
+        .filter(|binding| binding.name.as_str().len() >= MIN_CANDIDATE_NAME_LEN)
         .map(|binding| MisspellingCandidate {
             name: binding.name.as_str().into(),
             first_span: binding.span,
@@ -386,7 +387,7 @@ pub(super) fn should_scan_possible_variable_misspelling_candidates(
         .bindings()
         .iter()
         .filter(|binding| is_sc2154_defining_binding(binding.kind))
-        .filter(|binding| binding.name.as_str().len() >= 4)
+        .filter(|binding| binding.name.as_str().len() >= MIN_CANDIDATE_NAME_LEN)
         .take(INDEX_BUILD_THRESHOLD)
         .count();
     if binding_count >= INDEX_BUILD_THRESHOLD {
@@ -412,7 +413,7 @@ pub(super) fn scan_possible_variable_misspelling_candidate(
         .iter()
         .filter(|binding| is_sc2154_defining_binding(binding.kind))
         .filter(|binding| binding.name.as_str() != target_name)
-        .filter(|binding| binding.name.as_str().len() >= 4)
+        .filter(|binding| binding.name.as_str().len() >= MIN_CANDIDATE_NAME_LEN)
         .filter_map(|binding| {
             candidate_match_rank(target_name, binding.name.as_str()).map(|rank| {
                 (
@@ -521,7 +522,7 @@ fn build_presence_test_entries(
 fn build_well_known_entries(contract_names: &[Name]) -> Vec<MisspellingCandidate> {
     contract_names
         .iter()
-        .filter(|name| name.as_str().len() >= 4)
+        .filter(|name| name.as_str().len() >= MIN_CANDIDATE_NAME_LEN)
         .map(|name| MisspellingCandidate {
             name: name.as_str().into(),
             first_span: Span::default(),
@@ -536,6 +537,7 @@ fn scan_well_known_candidate_name<'a>(
     contract_names
         .iter()
         .map(|name| name.as_str())
+        .filter(|candidate_name| candidate_name.len() >= MIN_CANDIDATE_NAME_LEN)
         .filter(|candidate_name| *candidate_name != target_name)
         .filter_map(|candidate_name| {
             candidate_match_rank(target_name, candidate_name).map(|rank| (rank, candidate_name))
@@ -594,7 +596,7 @@ fn compare_candidates(
 }
 
 fn candidate_match_rank(target_name: &str, candidate_name: &str) -> Option<u8> {
-    if target_name.len() >= 4
+    if target_name.len() >= MIN_CANDIDATE_NAME_LEN
         && target_name.len() == candidate_name.len()
         && candidate_name
             .as_bytes()
@@ -605,7 +607,7 @@ fn candidate_match_rank(target_name: &str, candidate_name: &str) -> Option<u8> {
 
     if !is_environment_style_name(candidate_name)
         || target_name.len() < 3
-        || candidate_name.len() < 4
+        || candidate_name.len() < MIN_CANDIDATE_NAME_LEN
         || target_name.len().abs_diff(candidate_name.len()) > 2
     {
         return None;
@@ -646,7 +648,9 @@ fn compacted_plural_matches(pluralish_name: &str, compact_singular_name: &str) -
     let Some(singular_segment) = last_segment.strip_suffix('S') else {
         return false;
     };
-    if compacted_len(prefix) < 4 || singular_segment.len() < 4 {
+    if compacted_len(prefix) < MIN_CANDIDATE_NAME_LEN
+        || singular_segment.len() < MIN_CANDIDATE_NAME_LEN
+    {
         return false;
     }
 
@@ -763,4 +767,20 @@ fn is_sc2154_defining_binding(kind: BindingKind) -> bool {
         kind,
         BindingKind::FunctionDefinition | BindingKind::Imported
     )
+}
+
+#[cfg(test)]
+mod misspelling_tests {
+    use super::*;
+
+    #[test]
+    fn scan_well_known_candidate_name_skips_short_contract_names() {
+        let names = [Name::from("cur"), Name::from("WORDS")];
+
+        assert_eq!(
+            scan_well_known_candidate_name(&names, "WODS"),
+            Some("WORDS")
+        );
+        assert_eq!(scan_well_known_candidate_name(&names, "cu"), None);
+    }
 }
