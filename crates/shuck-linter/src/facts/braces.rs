@@ -5,9 +5,10 @@ fn build_literal_brace_spans(
     commands: CommandFacts<'_, '_>,
     fact_store: &FactStore<'_>,
     locator: Locator<'_>,
-    heredoc_ranges: &[TextRange],
+    region_index: &RegionIndex,
 ) -> Vec<Span> {
     let source = locator.source();
+    let heredoc_ranges = region_index.heredoc_ranges();
     let mut spans = Vec::new();
     let mut scratch = LiteralBraceScratch::default();
     scratch.processed_word_nodes.resize(nodes.len(), false);
@@ -35,6 +36,7 @@ fn build_literal_brace_spans(
             fact,
             fact_store,
             source,
+            region_index,
             &mut spans,
             &mut scratch,
         );
@@ -54,144 +56,12 @@ fn build_literal_brace_spans(
         &mut spans,
         &mut scratch,
     );
-    let candidate_offsets = build_literal_brace_candidate_offsets(&spans);
-    let plain_parameter_expansion_edges =
-        build_plain_parameter_expansion_edge_offsets(source, &candidate_offsets);
-    let active_brace_expansion_edges =
-        build_active_brace_expansion_edge_offsets(source, &candidate_offsets);
     spans.retain(|span| {
-        !plain_parameter_expansion_edges.contains(&span.start.offset)
-            && !active_brace_expansion_edges.contains(&span.start.offset)
+        !region_index.is_expansion_brace_edge(TextSize::new(span.start.offset as u32))
     });
     spans.sort_by_key(|span| (span.start.offset, span.end.offset));
     spans.dedup_by_key(|span| (span.start.offset, span.end.offset));
     spans
-}
-
-fn build_literal_brace_candidate_offsets(spans: &[Span]) -> FxHashSet<usize> {
-    spans.iter().map(|span| span.start.offset).collect()
-}
-
-fn build_plain_parameter_expansion_edge_offsets(
-    source: &str,
-    candidate_offsets: &FxHashSet<usize>,
-) -> FxHashSet<usize> {
-    let mut offsets = FxHashSet::default();
-    let bytes = source.as_bytes();
-    let mut index = 0usize;
-
-    while index + 1 < bytes.len() {
-        let Some(rel) = bytes[index..].iter().position(|&b| b == b'$') else {
-            break;
-        };
-        let pos = index + rel;
-        if bytes.get(pos + 1) == Some(&b'{')
-            && !has_odd_backslash_run_before(source, pos)
-            && let Some(end_offset) = find_runtime_parameter_closing_brace(source, pos)
-        {
-            let open_brace_offset = pos + '$'.len_utf8();
-            let close_brace_offset = end_offset.saturating_sub('}'.len_utf8());
-            if candidate_offsets.contains(&open_brace_offset) {
-                offsets.insert(open_brace_offset);
-            }
-            if candidate_offsets.contains(&close_brace_offset) {
-                offsets.insert(close_brace_offset);
-            }
-            index = end_offset;
-            continue;
-        }
-
-        index = pos + 1;
-    }
-
-    offsets
-}
-
-fn build_active_brace_expansion_edge_offsets(
-    source: &str,
-    candidate_offsets: &FxHashSet<usize>,
-) -> FxHashSet<usize> {
-    let bytes = source.as_bytes();
-    let mut opens = Vec::new();
-    let mut closes = Vec::new();
-    for (offset, byte) in bytes.iter().enumerate() {
-        match byte {
-            b'{' => opens.push(offset),
-            b'}' => closes.push(offset),
-            _ => {}
-        }
-    }
-
-    let mut offsets = FxHashSet::default();
-    for &offset in candidate_offsets {
-        match bytes.get(offset) {
-            Some(b'{') => {
-                let close_index = closes.partition_point(|&close| close <= offset);
-                let Some(&close_offset) = closes.get(close_index) else {
-                    continue;
-                };
-                if active_brace_pair_qualifies(source, offset, close_offset) {
-                    offsets.insert(offset);
-                    continue;
-                }
-
-                let next_open = opens
-                    .get(opens.partition_point(|&open| open <= offset))
-                    .copied()
-                    .unwrap_or(source.len());
-                for &close_offset in &closes[close_index..] {
-                    if close_offset >= next_open {
-                        break;
-                    }
-                    if active_brace_pair_qualifies(source, offset, close_offset) {
-                        offsets.insert(offset);
-                        break;
-                    }
-                }
-            }
-            Some(b'}') => {
-                let open_index = opens.partition_point(|&open| open < offset);
-                if open_index == 0 {
-                    continue;
-                }
-                let open_offset = opens[open_index - 1];
-                if active_brace_pair_qualifies(source, open_offset, offset) {
-                    offsets.insert(offset);
-                    continue;
-                }
-
-                let previous_close_index = closes.partition_point(|&close| close < offset);
-                let previous_close = if previous_close_index == 0 {
-                    None
-                } else {
-                    closes.get(previous_close_index - 1).copied()
-                };
-                for &open_offset in opens[..open_index].iter().rev() {
-                    if previous_close.is_some_and(|close| open_offset <= close) {
-                        break;
-                    }
-                    if active_brace_pair_qualifies(source, open_offset, offset) {
-                        offsets.insert(offset);
-                        break;
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    offsets
-}
-
-fn active_brace_pair_qualifies(source: &str, open_offset: usize, close_offset: usize) -> bool {
-    if close_offset <= open_offset {
-        return false;
-    }
-    let text = &source[open_offset..=close_offset];
-    brace_text_has_unescaped_comma_or_sequence(text)
-        && text[1..text.len() - 1]
-            .chars()
-            .all(|candidate| !candidate.is_whitespace())
 }
 
 #[derive(Default)]
@@ -212,6 +82,7 @@ fn collect_literal_brace_spans_for_word(
     fact: &WordOccurrence,
     fact_store: &FactStore<'_>,
     source: &str,
+    region_index: &RegionIndex,
     spans: &mut Vec<Span>,
     scratch: &mut LiteralBraceScratch,
 ) {
@@ -220,8 +91,8 @@ fn collect_literal_brace_spans_for_word(
     collect_dynamic_brace_exclusions(
         &word.parts,
         word.span.start.offset,
-        word.span.end.offset,
         source,
+        region_index,
         &mut scratch.dynamic_exclusions,
     );
     scratch
@@ -1423,8 +1294,8 @@ fn has_escaped_dollar_before(text: &str, offset: usize) -> bool {
 fn collect_dynamic_brace_exclusions(
     parts: &[WordPartNode],
     word_base_offset: usize,
-    word_end_offset: usize,
     source: &str,
+    region_index: &RegionIndex,
     out: &mut Vec<DynamicBraceExcludedSpan>,
 ) {
     for part in parts {
@@ -1441,8 +1312,8 @@ fn collect_dynamic_brace_exclusions(
                 collect_dynamic_brace_exclusions(
                     parts,
                     word_base_offset,
-                    word_end_offset,
                     source,
+                    region_index,
                     out,
                 );
             }
@@ -1471,8 +1342,7 @@ fn collect_dynamic_brace_exclusions(
             | WordPart::ZshQualifiedGlob(_) => out.push(runtime_shell_dynamic_brace_exclusion(
                 part,
                 word_base_offset,
-                word_end_offset,
-                source,
+                region_index,
             )),
         }
     }
@@ -1481,20 +1351,18 @@ fn collect_dynamic_brace_exclusions(
 fn runtime_shell_dynamic_brace_exclusion(
     part: &WordPartNode,
     word_base_offset: usize,
-    word_end_offset: usize,
-    source: &str,
+    region_index: &RegionIndex,
 ) -> DynamicBraceExcludedSpan {
     let start_offset = part.span.start.offset - word_base_offset;
     let mut end_offset = part.span.end.offset - word_base_offset;
-    let part_text = part.span.slice(source);
-    let word_text = &source[word_base_offset..word_end_offset.min(source.len())];
 
-    if let Some(relative_parameter_start) = part_text.find("${") {
-        end_offset = find_runtime_parameter_closing_brace(
-            word_text,
-            start_offset + relative_parameter_start,
-        )
-        .map_or(end_offset, |closing_offset| end_offset.max(closing_offset));
+    let part_range = TextRange::new(
+        TextSize::new(part.span.start.offset as u32),
+        TextSize::new(part.span.end.offset as u32),
+    );
+    if let Some(pair) = region_index.first_dollar_brace_pair_in(part_range) {
+        let pair_end_relative = pair.end().to_u32() as usize - word_base_offset;
+        end_offset = end_offset.max(pair_end_relative);
     }
 
     DynamicBraceExcludedSpan {
