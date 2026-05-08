@@ -221,14 +221,13 @@ fn build_function_parameter_fallback_spans(
 }
 
 fn build_completion_registered_function_command_flags(
-    semantic_analysis: &SemanticAnalysis<'_>,
     commands: &[CommandFact<'_>],
     registered_scopes: &FxHashSet<ScopeId>,
 ) -> Vec<bool> {
     let mut flags = vec![false; function_command_slot_count(commands)];
     for command in commands {
-        flags[command.id().index()] = semantic_analysis
-            .enclosing_function_scope_at(command.span().start.offset)
+        flags[command.id().index()] = command
+            .enclosing_function_scope()
             .is_some_and(|scope| registered_scopes.contains(&scope));
     }
     flags
@@ -400,8 +399,8 @@ fn extend_completion_registered_function_scopes_through_helpers(
                     });
             let referenced_by_completion_arguments = commands.iter().any(|command| {
                 command.normalized().effective_or_literal_name() == Some("_arguments")
-                    && semantic_analysis
-                        .enclosing_function_scope_at(command.span().start.offset)
+                    && command
+                        .enclosing_function_scope()
                         .is_some_and(|caller_scope| scopes.contains(&caller_scope))
                     && command.body_args().iter().any(|word| {
                         static_word_text(word, source).is_some_and(|text| {
