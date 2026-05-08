@@ -153,6 +153,10 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.node().key
     }
 
+    pub(in crate::facts) fn occurrence_id(self) -> WordOccurrenceId {
+        self.id
+    }
+
     pub fn span(self) -> Span {
         self.word().span
     }
