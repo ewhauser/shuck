@@ -35,12 +35,13 @@ use plugin_managers::{
 };
 
 use crate::{
-    Binding, BindingKind, ContractCertainty, FileContract, FileEntryContractCollector,
-    FileEntryContractCollectorFactory, FunctionContract, FunctionScopeKind, PluginFramework,
-    PluginRequest, PluginRequestKind, PluginResolver, ProvidedBinding, ProvidedBindingKind,
-    ScopeId, ScopeKind, SemanticModel, SourcePathResolver, SourceRefDiagnosticClass, SourceRefKind,
-    SourceRefResolution, SpanKey, SyntheticRead, build_semantic_model_base,
-    infer_explicit_parse_dialect_from_source,
+    Binding, BindingAttributes, BindingKind, ContractCertainty, FileContract,
+    FileEntryContractCollector, FileEntryContractCollectorFactory, FunctionContract,
+    FunctionScopeKind, PluginFramework, PluginRequest, PluginRequestKind, PluginResolver,
+    ProvidedBinding, ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel, SourcePathResolver,
+    SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution, SpanKey, SyntheticRead,
+    build_semantic_model_base, dataflow::binding_initializes_name,
+    dataflow::function_binding_certainty, infer_explicit_parse_dialect_from_source,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -1767,34 +1768,51 @@ fn summarize_helper_uncached(
     );
     semantic.apply_source_contracts(collected.clone());
     let analysis = semantic.analysis();
+    let include_root_provided_bindings =
+        scope_has_provided_binding_candidates(&semantic, ScopeId(0));
+    let include_root_provided_functions =
+        scope_has_provided_function_candidates(&semantic, ScopeId(0));
 
-    let mut contract =
-        summarize_scope_body_contract(&semantic, &analysis, ScopeId(0), &collected.synthetic_reads);
-    let provided_functions = analysis.summarize_scope_provided_functions(ScopeId(0));
+    let mut contract = summarize_scope_body_contract(
+        &semantic,
+        &analysis,
+        ScopeId(0),
+        &collected.synthetic_reads,
+        include_root_provided_bindings,
+    );
+    let provided_functions = if include_root_provided_functions {
+        analysis.summarize_scope_provided_functions(ScopeId(0))
+    } else {
+        Vec::new()
+    };
     for binding in &provided_functions {
         contract.add_provided_binding(binding.clone());
     }
-    for function in build_scope_function_contracts(
-        path,
-        &semantic,
-        &analysis,
-        ScopeId(0),
-        &collected.synthetic_reads,
-        &collected.imported_functions,
-        &provided_functions,
-    ) {
-        contract.add_provided_function(function);
+    if !provided_functions.is_empty() {
+        for function in build_scope_function_contracts(
+            path,
+            &semantic,
+            &analysis,
+            ScopeId(0),
+            &collected.synthetic_reads,
+            &collected.imported_functions,
+            &provided_functions,
+        ) {
+            contract.add_provided_function(function);
+        }
     }
-    let facts = collect_ast_facts(&semantic);
-    for name in deferred_zsh_entrypoint_required_reads(
-        &semantic,
-        &analysis,
-        &facts,
-        source,
-        ScopeId(0),
-        &collected.synthetic_reads,
-    ) {
-        contract.add_required_read(name);
+    if semantic.shell_profile().dialect == ParseShellDialect::Zsh {
+        let facts = collect_ast_facts(&semantic);
+        for name in deferred_zsh_entrypoint_required_reads(
+            &semantic,
+            &analysis,
+            &facts,
+            source,
+            ScopeId(0),
+            &collected.synthetic_reads,
+        ) {
+            contract.add_required_read(name);
+        }
     }
     contract
 }
@@ -1810,6 +1828,7 @@ fn summarize_scope_body_contract(
     analysis: &crate::SemanticAnalysis<'_>,
     scope: ScopeId,
     synthetic_reads: &[SyntheticRead],
+    include_provided_bindings: bool,
 ) -> FileContract {
     let scope_members = scope_members_excluding_functions(semantic.scopes(), scope);
     let mut contract = FileContract::default();
@@ -1824,10 +1843,27 @@ fn summarize_scope_body_contract(
             contract.add_required_read(read.name.clone());
         }
     }
-    for binding in analysis.summarize_scope_provided_bindings(scope) {
-        contract.add_provided_binding(binding);
+    if include_provided_bindings {
+        for binding in analysis.summarize_scope_provided_bindings(scope) {
+            contract.add_provided_binding(binding);
+        }
     }
     contract
+}
+
+fn scope_has_provided_binding_candidates(semantic: &SemanticModel, scope: ScopeId) -> bool {
+    semantic.bindings().iter().any(|binding| {
+        binding.scope == scope
+            && !binding.attributes.contains(BindingAttributes::LOCAL)
+            && binding_initializes_name(binding).is_some()
+    })
+}
+
+fn scope_has_provided_function_candidates(semantic: &SemanticModel, scope: ScopeId) -> bool {
+    semantic
+        .bindings()
+        .iter()
+        .any(|binding| binding.scope == scope && function_binding_certainty(binding).is_some())
 }
 
 fn build_scope_function_contracts(
@@ -1861,7 +1897,13 @@ fn build_scope_function_contracts(
         let body_contract = local_contracts_by_scope
             .entry(function_scope)
             .or_insert_with(|| {
-                summarize_scope_body_contract(semantic, analysis, function_scope, synthetic_reads)
+                summarize_scope_body_contract(
+                    semantic,
+                    analysis,
+                    function_scope,
+                    synthetic_reads,
+                    scope_has_provided_binding_candidates(semantic, function_scope),
+                )
             })
             .clone();
         for name in names {
@@ -2097,6 +2139,78 @@ noglob source \"$3\"
 
         let second = summarize_helper(&canonical_helper, &mut summaries, &mut active, &context);
         assert_eq!(second, first);
+    }
+
+    #[test]
+    fn summarize_helper_without_export_candidates_keeps_required_reads_only() {
+        let temp = tempdir().unwrap();
+        let helper = temp.path().join("helper.sh");
+        std::fs::write(&helper, "printf '%s\\n' \"$flag\"\n").unwrap();
+        let canonical_helper = std::fs::canonicalize(&helper).unwrap();
+
+        let context = SourceClosureLookupContext {
+            source_path_resolver: None,
+            plugin_resolver: None,
+            file_entry_contract_collector_factory: None,
+            analyzed_paths: None,
+            shell_profile: ShellProfile::native(ParseShellDialect::Bash),
+            resolved_helper_paths: RefCell::new(FxHashMap::default()),
+            dependency_paths: RefCell::new(FxHashSet::default()),
+        };
+        let mut summaries = FxHashMap::default();
+        let mut active = FxHashSet::default();
+
+        let summary = summarize_helper(&canonical_helper, &mut summaries, &mut active, &context);
+
+        assert_eq!(summary.required_reads, vec![Name::from("flag")]);
+        assert!(summary.provided_bindings.is_empty());
+        assert!(summary.provided_functions.is_empty());
+    }
+
+    #[test]
+    fn summarize_helper_keeps_reexported_sourced_functions() {
+        let temp = tempdir().unwrap();
+        let outer = temp.path().join("outer.sh");
+        let inner = temp.path().join("inner.sh");
+        std::fs::write(&outer, ". ./inner.sh\n").unwrap();
+        std::fs::write(
+            &inner,
+            "\
+set_flag() {
+  flag=1
+}
+",
+        )
+        .unwrap();
+        let canonical_outer = std::fs::canonicalize(&outer).unwrap();
+
+        let context = SourceClosureLookupContext {
+            source_path_resolver: None,
+            plugin_resolver: None,
+            file_entry_contract_collector_factory: None,
+            analyzed_paths: None,
+            shell_profile: ShellProfile::native(ParseShellDialect::Bash),
+            resolved_helper_paths: RefCell::new(FxHashMap::default()),
+            dependency_paths: RefCell::new(FxHashSet::default()),
+        };
+        let mut summaries = FxHashMap::default();
+        let mut active = FxHashSet::default();
+
+        let summary = summarize_helper(&canonical_outer, &mut summaries, &mut active, &context);
+
+        assert!(summary.provided_bindings.iter().any(|binding| {
+            binding.name.as_str() == "set_flag"
+                && binding.kind == ProvidedBindingKind::Function
+                && binding.certainty == ContractCertainty::Definite
+        }));
+        assert!(summary.provided_functions.iter().any(|function| {
+            function.name.as_str() == "set_flag"
+                && function.provided_bindings.iter().any(|binding| {
+                    binding.name.as_str() == "flag"
+                        && binding.kind == ProvidedBindingKind::Variable
+                        && binding.certainty == ContractCertainty::Definite
+                })
+        }));
     }
 
     #[cfg(unix)]

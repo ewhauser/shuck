@@ -151,12 +151,13 @@ pub(crate) use dense::materialize_reaching_definitions;
 use dense::*;
 pub(crate) use exact::ExactVariableDataflow;
 use scope_reads::{
-    ScopeReadPlan, binding_has_future_reads_before_local_shadow, binding_initializes_name,
-    build_scope_read_plans, compute_compatibility_read_sets, compute_transitive_read_sets,
-    is_function_escape_candidate, next_shadowing_local_declarations, reachable_blocks_dense,
+    ScopeReadPlan, binding_has_future_reads_before_local_shadow, build_scope_read_plans,
+    compute_compatibility_read_sets, compute_transitive_read_sets, is_function_escape_candidate,
+    next_shadowing_local_declarations, reachable_blocks_dense,
 };
 pub(crate) use scope_reads::{
-    summarize_scope_provided_bindings, summarize_scope_provided_functions,
+    binding_initializes_name, function_binding_certainty, summarize_scope_provided_bindings,
+    summarize_scope_provided_functions,
 };
 use uninitialized::analyze_uninitialized_references_exact;
 use unused::analyze_unused_assignments_exact;

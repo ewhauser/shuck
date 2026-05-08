@@ -626,7 +626,7 @@ fn future_reads_contain_after_without_shadow(
     })
 }
 
-pub(super) fn binding_initializes_name(binding: &Binding) -> Option<ContractCertainty> {
+pub(crate) fn binding_initializes_name(binding: &Binding) -> Option<ContractCertainty> {
     match binding.kind {
         BindingKind::Declaration(_) | BindingKind::Nameref => binding
             .attributes
@@ -662,7 +662,7 @@ pub(super) fn binding_initializes_name(binding: &Binding) -> Option<ContractCert
     }
 }
 
-fn function_binding_certainty(binding: &Binding) -> Option<ContractCertainty> {
+pub(crate) fn function_binding_certainty(binding: &Binding) -> Option<ContractCertainty> {
     match binding.kind {
         BindingKind::FunctionDefinition => Some(ContractCertainty::Definite),
         BindingKind::Imported
