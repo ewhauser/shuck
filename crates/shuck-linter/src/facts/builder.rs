@@ -975,13 +975,12 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 &subscript_later_suppression_spans,
             );
 
-        let mut backtick_substitution_spans = word_spans::backtick_substitution_spans(locator);
-        backtick_substitution_spans.retain(|span| {
-            !self
-                ._indexer
+        let backtick_substitution_spans = text_ranges_to_spans(
+            self._indexer
                 .region_index()
-                .is_quoted_heredoc(TextSize::new(span.start.offset as u32))
-        });
+                .backtick_command_substitution_ranges(),
+            locator,
+        );
         let backtick_escaped_parameters =
             word_spans::backtick_escaped_parameters(locator, &backtick_substitution_spans);
         let mut backtick_escaped_parameter_reference_spans =
@@ -1385,6 +1384,20 @@ fn linebreak_in_test_insert_offset(span: Span, source: &str) -> Option<usize> {
     } else {
         None
     }
+}
+
+fn text_ranges_to_spans(ranges: &[TextRange], locator: Locator<'_>) -> Vec<Span> {
+    ranges
+        .iter()
+        .filter_map(|range| text_range_to_span(*range, locator))
+        .collect()
+}
+
+fn text_range_to_span(range: TextRange, locator: Locator<'_>) -> Option<Span> {
+    Some(Span::from_positions(
+        locator.position_at_offset(usize::from(range.start()))?,
+        locator.position_at_offset(usize::from(range.end()))?,
+    ))
 }
 
 fn build_unset_command_ids_by_target_name(

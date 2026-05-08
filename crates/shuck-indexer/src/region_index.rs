@@ -1,8 +1,9 @@
 use shuck_ast::{
-    ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand,
-    ConditionalExpr, DeclClause, DeclOperand, File, FunctionDef, HeredocBody, HeredocBodyPart,
-    HeredocBodyPartNode, Pattern, PatternPart, PatternPartNode, Redirect, RedirectKind, Stmt,
-    StmtSeq, Subscript, TextRange, TextSize, VarRef, Word, WordPart, WordPartNode, ZshGlobSegment,
+    ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand, Command,
+    CommandSubstitutionSyntax, CompoundCommand, ConditionalExpr, DeclClause, DeclOperand, File,
+    FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, Pattern, PatternPart,
+    PatternPartNode, Redirect, RedirectKind, Stmt, StmtSeq, Subscript, TextRange, TextSize, VarRef,
+    Word, WordPart, WordPartNode, ZshGlobSegment,
 };
 /// A syntactic region that affects source interpretation.
 ///
@@ -49,6 +50,7 @@ pub struct RegionIndex {
     double_quoted: Vec<TextRange>,
     heredocs: Vec<TextRange>,
     command_substitutions: Vec<TextRange>,
+    backtick_command_substitutions: Vec<TextRange>,
     arithmetic: Vec<TextRange>,
     conditionals: Vec<TextRange>,
     quoted_heredocs: Vec<TextRange>,
@@ -138,6 +140,14 @@ impl RegionIndex {
         contains_any(&self.command_substitutions, offset)
     }
 
+    /// Return all backtick command-substitution ranges in source order.
+    ///
+    /// The ranges are half-open byte ranges for legacy `` `...` `` command
+    /// substitutions only. `$(...)` ranges are excluded.
+    pub fn backtick_command_substitution_ranges(&self) -> &[TextRange] {
+        &self.backtick_command_substitutions
+    }
+
     /// Return whether `offset` falls inside an arithmetic context.
     ///
     /// Arithmetic contexts include arithmetic commands, arithmetic `for`
@@ -190,6 +200,7 @@ struct RegionCollector<'a> {
     double_quoted: Vec<TextRange>,
     heredocs: Vec<TextRange>,
     command_substitutions: Vec<TextRange>,
+    backtick_command_substitutions: Vec<TextRange>,
     arithmetic: Vec<TextRange>,
     conditionals: Vec<TextRange>,
     quoted_heredocs: Vec<TextRange>,
@@ -205,6 +216,7 @@ impl<'a> RegionCollector<'a> {
             double_quoted: Vec::new(),
             heredocs: Vec::new(),
             command_substitutions: Vec::new(),
+            backtick_command_substitutions: Vec::new(),
             arithmetic: Vec::new(),
             conditionals: Vec::new(),
             quoted_heredocs: Vec::new(),
@@ -218,6 +230,7 @@ impl<'a> RegionCollector<'a> {
         sort_ranges(&mut self.double_quoted);
         sort_ranges(&mut self.heredocs);
         sort_ranges(&mut self.command_substitutions);
+        sort_ranges(&mut self.backtick_command_substitutions);
         sort_ranges(&mut self.arithmetic);
         sort_ranges(&mut self.conditionals);
         sort_ranges(&mut self.quoted_heredocs);
@@ -289,6 +302,7 @@ impl<'a> RegionCollector<'a> {
             double_quoted: self.double_quoted,
             heredocs: self.heredocs,
             command_substitutions: self.command_substitutions,
+            backtick_command_substitutions: self.backtick_command_substitutions,
             arithmetic: self.arithmetic,
             conditionals: self.conditionals,
             quoted_heredocs: self.quoted_heredocs,
@@ -687,8 +701,11 @@ impl<'a> RegionCollector<'a> {
                     self.push_dollar_brace_pairs_in_source_range(range);
                     self.visit_word_parts(parts);
                 }
-                WordPart::CommandSubstitution { body, .. } => {
+                WordPart::CommandSubstitution { body, syntax } => {
                     push_range(&mut self.command_substitutions, range);
+                    if *syntax == CommandSubstitutionSyntax::Backtick {
+                        push_range(&mut self.backtick_command_substitutions, range);
+                    }
                     self.visit_stmt_seq(body);
                 }
                 WordPart::ArithmeticExpansion { expression_ast, .. } => {
@@ -724,8 +741,11 @@ impl<'a> RegionCollector<'a> {
         for part in parts {
             let range = part.span.to_range();
             match &part.kind {
-                HeredocBodyPart::CommandSubstitution { body, .. } => {
+                HeredocBodyPart::CommandSubstitution { body, syntax } => {
                     push_range(&mut self.command_substitutions, range);
+                    if *syntax == CommandSubstitutionSyntax::Backtick {
+                        push_range(&mut self.backtick_command_substitutions, range);
+                    }
                     self.visit_stmt_seq(body);
                 }
                 HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => {
@@ -1090,6 +1110,22 @@ mod tests {
     }
 
     #[test]
+    fn tracks_backtick_command_substitution_ranges() {
+        let source = "echo `printf '%s' \"$name\"` $(pwd)\n";
+        let regions = regions(source);
+        let start = source.find('`').unwrap();
+        let end = source[start + 1..].find('`').unwrap() + start + 2;
+
+        assert_eq!(
+            regions.backtick_command_substitution_ranges(),
+            &[TextRange::new(
+                TextSize::new(start as u32),
+                TextSize::new(end as u32),
+            )]
+        );
+    }
+
+    #[test]
     fn tracks_quoted_regions_inside_keyed_array_subscripts() {
         let source = "declare -A map=(['$HOME']=1)\n";
         let regions = regions(source);
@@ -1108,6 +1144,20 @@ mod tests {
         assert_eq!(regions.region_at(offset), Some(RegionKind::Heredoc));
         assert!(regions.is_heredoc(offset));
         assert!(regions.is_quoted(offset));
+    }
+
+    #[test]
+    fn excludes_quoted_heredoc_backticks_from_backtick_ranges() {
+        let source = "cat <<'EOF'\n`printf quoted`\nEOF\ncat <<EOF\n`printf live`\nEOF\n";
+        let regions = regions(source);
+        let [range] = regions.backtick_command_substitution_ranges() else {
+            panic!("expected one live backtick substitution");
+        };
+
+        assert_eq!(
+            &source[usize::from(range.start())..usize::from(range.end())],
+            "`printf live`"
+        );
     }
 
     #[test]
