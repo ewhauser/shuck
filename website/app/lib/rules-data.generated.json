@@ -5511,8 +5511,8 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
-    "fixStatus": "planned",
-    "fixAvailability": "none",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
     "fixSafety": "safe",
     "fixDescription": "Rewrite `IFS==` as `IFS='='`.",
     "examples": [

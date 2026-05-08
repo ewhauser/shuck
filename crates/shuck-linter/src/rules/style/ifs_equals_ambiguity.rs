@@ -1,16 +1,22 @@
 use shuck_ast::{Assignment, BuiltinCommand, Command, Span};
 
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct IfsEqualsAmbiguity;
 
 impl Violation for IfsEqualsAmbiguity {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::IfsEqualsAmbiguity
     }
 
     fn message(&self) -> String {
         "quote `=` when assigning IFS to avoid looking like `==`".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("rewrite `IFS==` as `IFS='='`".to_owned())
     }
 }
 
@@ -23,7 +29,15 @@ pub fn ifs_equals_ambiguity(checker: &mut Checker) {
         .flat_map(|fact| command_assignment_spans(fact.command(), source))
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || IfsEqualsAmbiguity);
+    for span in spans {
+        checker.report_diagnostic_dedup(Diagnostic::new(IfsEqualsAmbiguity, span).with_fix(
+            Fix::safe_edit(Edit::replacement_at(
+                span.start.offset,
+                span.start.offset + 1,
+                "'='",
+            )),
+        ));
+    }
 }
 
 fn command_assignment_spans(command: &Command, source: &str) -> Vec<Span> {
@@ -65,8 +79,10 @@ fn ifs_equals_ambiguity_span(assignment: &Assignment, source: &str) -> Option<Sp
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use std::path::Path;
+
+    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
 
     #[test]
     fn anchors_on_the_second_equals_sign() {
@@ -105,5 +121,66 @@ foo==bar env
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::IfsEqualsAmbiguity));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_safe_fix_to_ambiguous_ifs_equals_assignments() {
+        let source = "\
+#!/bin/bash
+IFS== read x
+while IFS== read -r key val; do
+  :
+done < /dev/null
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::IfsEqualsAmbiguity),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+IFS='=' read x
+while IFS='=' read -r key val; do
+  :
+done < /dev/null
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_quoted_equals_unchanged_when_fixing() {
+        let source = "\
+#!/bin/bash
+IFS='=' read x
+IFS=\"=\" read y
+IFS=\\= read z
+foo==bar env
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::IfsEqualsAmbiguity),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshots_safe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("style").join("S042.sh").as_path(),
+            &LinterSettings::for_rule(Rule::IfsEqualsAmbiguity),
+            Applicability::Safe,
+        )?;
+
+        assert_diagnostics_diff!("S042_fix_S042.sh", result);
+        Ok(())
     }
 }
