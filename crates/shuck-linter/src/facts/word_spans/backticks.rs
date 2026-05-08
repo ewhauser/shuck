@@ -1051,6 +1051,23 @@ mod tests {
         assert!(escaped[0].standalone_command_name);
     }
 
+    #[test]
+    fn backtick_escaped_parameters_include_parameter_expansion_operands() {
+        let source = "echo ${x:-`printf '%s\\n' \\$HOME`}\n";
+        let line_index = LineIndex::new(source);
+        let locator = Locator::new(source, &line_index);
+        let backtick_spans = backtick_spans(source);
+        let escaped = backtick_escaped_parameters(locator, &backtick_spans);
+
+        assert_eq!(
+            escaped
+                .iter()
+                .map(|entry| entry.reference_span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$HOME"]
+        );
+    }
+
     fn span_for_text(source: &str, text: &str) -> Span {
         let start_offset = source.find(text).expect("expected text");
         let end_offset = start_offset + text.len();

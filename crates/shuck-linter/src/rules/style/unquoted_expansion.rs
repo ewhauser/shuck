@@ -2172,6 +2172,31 @@ EOF
     }
 
     #[test]
+    fn preserves_shellcheck_columns_for_backticks_in_parameter_expansion_operands() {
+        let source = "\
+#!/bin/sh
+depfile=${depfile-`echo \"$object\" |
+  sed 's|[^\\\\/]*$|'${DEPDIR-.deps}'/&|;s|\\.\\([^.]*\\)$|.P\\1|;s|Pobj$|Po|'`}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    (
+                        diagnostic.span.start.line,
+                        diagnostic.span.start.column,
+                        diagnostic.span.end.line,
+                        diagnostic.span.end.column,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![(3, 19, 3, 34)]
+        );
+    }
+
+    #[test]
     fn reports_unsafe_escaped_parameters_in_legacy_backticks() {
         let source = "\
 #!/bin/sh
