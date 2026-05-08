@@ -5,6 +5,7 @@ pub struct CommandFact<'a> {
     visit: CommandVisit<'a>,
     nested_word_command: bool,
     scope: ScopeId,
+    enclosing_function_scope: Option<ScopeId>,
     normalized: NormalizedCommand<'a>,
     shell_behavior: ShellBehaviorAt<'a>,
     redirect_facts: IdRange<RedirectFact<'a>>,
@@ -54,6 +55,10 @@ impl<'a> CommandFact<'a> {
 
     pub fn scope(&self) -> ScopeId {
         self.scope
+    }
+
+    pub fn enclosing_function_scope(&self) -> Option<ScopeId> {
+        self.enclosing_function_scope
     }
 
     pub fn stmt(&self) -> &'a Stmt {
@@ -223,6 +228,10 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
 
     pub fn scope(self) -> ScopeId {
         self.fact.scope()
+    }
+
+    pub fn enclosing_function_scope(self) -> Option<ScopeId> {
+        self.fact.enclosing_function_scope()
     }
 
     pub fn stmt(self) -> &'a Stmt {

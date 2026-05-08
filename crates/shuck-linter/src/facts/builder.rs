@@ -404,12 +404,14 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     .conditional_expression_visits(command_span(visit.command));
                 let conditional =
                     build_conditional_fact(conditional_expression_visits, self.source);
+                let enclosing_function_scope = self.semantic.enclosing_function_scope(scope);
                 let command_fact = CommandFact {
                     id,
                     key,
                     visit,
                     nested_word_command,
                     scope,
+                    enclosing_function_scope,
                     normalized,
                     shell_behavior: command_shell_behavior,
                     redirect_facts: redirect_fact_range,
@@ -697,7 +699,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         );
         let completion_registered_function_command_flags =
             build_completion_registered_function_command_flags(
-                semantic_analysis,
                 &commands,
                 &completion_registered_function_scopes,
             );
