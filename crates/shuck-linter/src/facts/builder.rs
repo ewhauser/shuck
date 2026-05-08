@@ -869,6 +869,13 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &mut fact_store,
             &array_assignment_split_word_ids,
         );
+        let compound_assignment_value_word_flags: Box<[bool]> = word_occurrences
+            .iter()
+            .map(|occurrence| {
+                compound_assignment_value_word_spans
+                    .contains(&word_nodes[occurrence.node_id.index()].key)
+            })
+            .collect();
         let echo_to_sed_substitution_spans = build_echo_to_sed_substitution_spans(
             CommandFacts::new(&commands, &fact_store, &command_fact_indices_by_id),
             &pipelines,
@@ -1000,7 +1007,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             redundant_echo_space_facts: OnceLock::new(),
             suppressed_subscript_reference_spans,
             subscript_later_suppression_reference_spans,
-            compound_assignment_value_word_spans,
+            compound_assignment_value_word_flags,
             word_nodes,
             word_occurrences,
             word_index,

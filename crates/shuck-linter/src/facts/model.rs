@@ -38,7 +38,7 @@ pub struct LinterFacts<'a> {
     redundant_echo_space_facts: OnceLock<Vec<RedundantEchoSpaceFact>>,
     suppressed_subscript_reference_spans: FxHashSet<FactSpan>,
     subscript_later_suppression_reference_spans: FxHashSet<FactSpan>,
-    compound_assignment_value_word_spans: FxHashSet<FactSpan>,
+    compound_assignment_value_word_flags: Box<[bool]>,
     word_nodes: Vec<WordNode<'a>>,
     word_occurrences: Vec<WordOccurrence>,
     word_index: FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
@@ -592,8 +592,10 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn is_compound_assignment_value_word(&self, fact: WordOccurrenceRef<'_, '_>) -> bool {
-        self.compound_assignment_value_word_spans
-            .contains(&fact.key())
+        self.compound_assignment_value_word_flags
+            .get(fact.occurrence_id().index())
+            .copied()
+            .unwrap_or(false)
     }
 
     pub fn expansion_word_facts(&self, context: ExpansionContext) -> WordOccurrenceIter<'_, 'a> {
