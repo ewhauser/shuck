@@ -580,6 +580,8 @@ impl<'a> SafeValueIndex<'a> {
             parts: vec![WordPartNode::new(part.clone(), span)],
             span,
             brace_syntax: Vec::new(),
+            surface_syntax: Default::default(),
+            zsh_surface_syntax: None,
         };
         if let Some(context) = query.operand_context()
             && self.literal_runtime_is_unsafe_for_safe_value(&word, context)
@@ -600,6 +602,8 @@ impl<'a> SafeValueIndex<'a> {
             parts: vec![WordPartNode::new(part.clone(), span)],
             span,
             brace_syntax: Vec::new(),
+            surface_syntax: Default::default(),
+            zsh_surface_syntax: None,
         };
         if let Some(context) = query.operand_context()
             && self.literal_runtime_is_unsafe_for_safe_value(&word, context)

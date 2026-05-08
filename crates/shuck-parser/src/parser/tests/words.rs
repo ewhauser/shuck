@@ -89,6 +89,41 @@ fn first_command_substitution_body(parts: &[WordPartNode]) -> Option<&StmtSeq> {
     })
 }
 
+fn escaped_template_slices<'a>(word: &'a Word, input: &'a str) -> Vec<&'a str> {
+    word.escaped_parameter_templates()
+        .iter()
+        .map(|template| template.span.slice(input))
+        .collect()
+}
+
+fn all_elements_surface_slices<'a>(word: &'a Word, input: &'a str) -> Vec<&'a str> {
+    word.all_elements_array_expansions()
+        .iter()
+        .map(|entry| entry.span.slice(input))
+        .collect()
+}
+
+fn unquoted_reference_candidates(
+    word: &Word,
+    input: &str,
+) -> Vec<(
+    shuck_ast::UnquotedReferenceCandidateKind,
+    String,
+    String,
+    String,
+)> {
+    word.zsh_unquoted_reference_candidates()
+        .map(|candidate| {
+            (
+                candidate.kind,
+                candidate.name.to_string(),
+                candidate.span.slice(input).to_string(),
+                candidate.lookup_span.slice(input).to_string(),
+            )
+        })
+        .collect()
+}
+
 #[test]
 fn test_current_word_cache_tracks_token_changes() {
     let input = "\"$foo\" bar\n";
@@ -297,6 +332,180 @@ fn test_parse_escaped_braced_parameter_keeps_inner_expansions_live() {
     let mut names = Vec::new();
     collect_bourne_parameter_names(&indirect_template.parts, &mut names);
     assert_eq!(names, vec!["1"]);
+}
+
+#[test]
+fn test_word_surface_tracks_escaped_templates_and_array_surfaces() {
+    let input = r#"echo \${x:-$HOME} ${arr[@]:+fallback} ${!cfg@} ${arr[@]}"#;
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    assert_eq!(command.args.len(), 4);
+
+    let escaped = &command.args[0];
+    assert_eq!(
+        escaped_template_slices(escaped, input),
+        vec![r#"\${x:-$HOME}"#]
+    );
+    assert_eq!(
+        escaped.escaped_parameter_templates()[0]
+            .body_span
+            .slice(input),
+        "x:-$HOME"
+    );
+    assert!(!escaped.escaped_parameter_templates()[0].contains_nested_parameter);
+
+    let replacement = &command.args[1];
+    assert_eq!(
+        all_elements_surface_slices(replacement, input),
+        vec!["${arr[@]:+fallback}"]
+    );
+    assert!(!replacement.all_elements_array_expansions()[0].direct);
+
+    let safe_name_fanout = &command.args[2];
+    assert_eq!(
+        all_elements_surface_slices(safe_name_fanout, input),
+        vec!["${!cfg@}"]
+    );
+    assert!(!safe_name_fanout.all_elements_array_expansions()[0].direct);
+
+    let direct = &command.args[3];
+    assert_eq!(
+        all_elements_surface_slices(direct, input),
+        vec!["${arr[@]}"]
+    );
+    assert!(direct.all_elements_array_expansions()[0].direct);
+}
+
+#[test]
+fn test_word_surface_tracks_nested_positional_forwarding_as_non_direct() {
+    let input = "echo ${1+'\"$@\"'}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    assert_eq!(all_elements_surface_slices(word, input), vec!["$@"]);
+    assert_eq!(
+        word.all_elements_array_expansions()[0].origin,
+        shuck_ast::AllElementsArrayExpansionOrigin::NestedParameterBody
+    );
+    assert!(!word.all_elements_array_expansions()[0].direct);
+}
+
+#[test]
+fn test_word_surface_gates_zsh_short_positional_syntax_by_dialect() {
+    let bash_input = "echo $@[1,3]\n";
+    let bash_script = Parser::new(bash_input).parse().unwrap().file;
+    let AstCommand::Simple(bash_command) = &bash_script.body[0].command else {
+        panic!("expected simple command");
+    };
+    assert!(bash_command.args[0].zsh_surface_syntax().is_none());
+
+    let zsh_input = "echo $@[1,3]\n";
+    let zsh_script = parse_zsh_with_options(zsh_input, |_| {}).file;
+    let AstCommand::Simple(zsh_command) = &zsh_script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let zsh_surface = zsh_command.args[0]
+        .zsh_surface_syntax()
+        .expect("expected zsh-only surface syntax");
+    assert_eq!(zsh_surface.short_positional_at().len(), 1);
+    assert_eq!(
+        zsh_surface.short_positional_at()[0].span.slice(zsh_input),
+        "$@[1,3]"
+    );
+    assert_eq!(
+        zsh_surface.short_positional_at()[0].kind,
+        shuck_ast::ZshShortPositionalAtKind::Range
+    );
+}
+
+#[test]
+fn test_word_surface_keeps_zsh_selector_suffixes_out_of_short_positional_syntax() {
+    let input = "echo \"$@[*]\" \"$@[@]\"\n";
+    let script = parse_zsh_with_options(input, |_| {}).file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    assert_eq!(command.args.len(), 2);
+
+    for word in &command.args {
+        assert_eq!(all_elements_surface_slices(word, input), vec!["$@"]);
+        assert!(word.zsh_surface_syntax().is_none());
+    }
+}
+
+#[test]
+fn test_word_surface_tracks_unquoted_reference_candidates() {
+    let input = "echo prefix$foo${bar}\"${baz}\" ${qux} ${arr[@]} ${#len}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+
+    assert_eq!(
+        unquoted_reference_candidates(&command.args[0], input),
+        vec![
+            (
+                shuck_ast::UnquotedReferenceCandidateKind::Variable,
+                "foo".to_string(),
+                "$foo".to_string(),
+                "$foo".to_string(),
+            ),
+            (
+                shuck_ast::UnquotedReferenceCandidateKind::ParameterAccess,
+                "bar".to_string(),
+                "${bar}".to_string(),
+                "bar".to_string(),
+            ),
+        ]
+    );
+    assert_eq!(
+        unquoted_reference_candidates(&command.args[1], input),
+        vec![(
+            shuck_ast::UnquotedReferenceCandidateKind::ParameterAccess,
+            "qux".to_string(),
+            "${qux}".to_string(),
+            "qux".to_string(),
+        )]
+    );
+    assert!(
+        command.args[2]
+            .zsh_unquoted_reference_candidates()
+            .next()
+            .is_none()
+    );
+    assert!(
+        command.args[3]
+            .zsh_unquoted_reference_candidates()
+            .next()
+            .is_none()
+    );
+}
+
+#[test]
+fn test_word_surface_tracks_zsh_short_positional_reference_candidates() {
+    let input = "echo $@[1,3]\n";
+    let script = parse_zsh_with_options(input, |_| {}).file;
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+
+    assert_eq!(
+        unquoted_reference_candidates(&command.args[0], input),
+        vec![(
+            shuck_ast::UnquotedReferenceCandidateKind::Variable,
+            "@".to_string(),
+            "$@".to_string(),
+            "$@".to_string(),
+        )]
+    );
 }
 
 #[test]

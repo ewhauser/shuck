@@ -6,6 +6,10 @@
 use crate::{
     Name,
     span::{Position, Span, TextRange},
+    word_surface::{
+        EscapedParameterTemplateSyntax, UnquotedReferenceCandidateKind,
+        UnquotedReferenceCandidateRef, WordSurfaceSyntax, ZshWordSurfaceSyntax,
+    },
 };
 use std::{
     borrow::Cow,
@@ -1743,6 +1747,10 @@ pub struct Word {
     pub span: Span,
     /// Parser-owned brace surface classification for this word.
     pub brace_syntax: Vec<BraceSyntax>,
+    /// Parser-owned dialect-neutral surface syntax for this word.
+    pub surface_syntax: WordSurfaceSyntax,
+    /// Parser-owned zsh-only surface syntax for this word.
+    pub zsh_surface_syntax: Option<ZshWordSurfaceSyntax>,
 }
 
 impl Word {
@@ -1760,6 +1768,8 @@ impl Word {
             )],
             span,
             brace_syntax: Vec::new(),
+            surface_syntax: WordSurfaceSyntax::default(),
+            zsh_surface_syntax: None,
         }
     }
 
@@ -1780,6 +1790,8 @@ impl Word {
             )],
             span,
             brace_syntax: Vec::new(),
+            surface_syntax: WordSurfaceSyntax::default(),
+            zsh_surface_syntax: None,
         }
     }
 
@@ -1792,6 +1804,8 @@ impl Word {
             )],
             span,
             brace_syntax: Vec::new(),
+            surface_syntax: WordSurfaceSyntax::default(),
+            zsh_surface_syntax: None,
         }
     }
 
@@ -1807,17 +1821,56 @@ impl Word {
             )],
             span,
             brace_syntax: Vec::new(),
+            surface_syntax: WordSurfaceSyntax::default(),
+            zsh_surface_syntax: None,
         }
     }
 
     /// Set the source span on an existing word.
     pub fn with_span(mut self, span: Span) -> Self {
+        fn relativize_position(position: Position, base: Position) -> Position {
+            Position {
+                line: position.line.saturating_sub(base.line) + 1,
+                column: if position.line == base.line {
+                    position.column.saturating_sub(base.column) + 1
+                } else {
+                    position.column
+                },
+                offset: position.offset.saturating_sub(base.offset),
+            }
+        }
+
+        fn rebase_span(span: Span, from: Position, to: Position) -> Span {
+            Span::from_positions(
+                relativize_position(span.start, from).rebased(to),
+                relativize_position(span.end, from).rebased(to),
+            )
+        }
+
         let previous_span = self.span;
         self.span = span;
-        if let [part] = self.parts.as_mut_slice()
-            && part.span == previous_span
-        {
-            part.span = span;
+        for part in &mut self.parts {
+            part.span = rebase_span(part.span, previous_span.start, span.start);
+        }
+        for brace in &mut self.brace_syntax {
+            brace.span = rebase_span(brace.span, previous_span.start, span.start);
+        }
+        for brace in &mut self.surface_syntax.braces {
+            brace.span = rebase_span(brace.span, previous_span.start, span.start);
+        }
+        for template in &mut self.surface_syntax.escaped_parameter_templates {
+            template.span = rebase_span(template.span, previous_span.start, span.start);
+            template.body_span = rebase_span(template.body_span, previous_span.start, span.start);
+        }
+        for expansion in &mut self.surface_syntax.all_elements_array_expansions {
+            expansion.span = rebase_span(expansion.span, previous_span.start, span.start);
+        }
+        if let Some(zsh_surface_syntax) = &mut self.zsh_surface_syntax {
+            for entry in &mut zsh_surface_syntax.short_positional_at {
+                entry.span = rebase_span(entry.span, previous_span.start, span.start);
+                entry.base_span = rebase_span(entry.base_span, previous_span.start, span.start);
+                entry.suffix_span = rebase_span(entry.suffix_span, previous_span.start, span.start);
+            }
         }
         self
     }
@@ -1839,6 +1892,65 @@ impl Word {
 
     pub fn brace_syntax(&self) -> &[BraceSyntax] {
         &self.brace_syntax
+    }
+
+    /// Borrow the parser-owned dialect-neutral surface syntax for this word.
+    pub fn surface_syntax(&self) -> &WordSurfaceSyntax {
+        &self.surface_syntax
+    }
+
+    /// Borrow escaped `\${...}` template entries for this word.
+    pub fn escaped_parameter_templates(&self) -> &[EscapedParameterTemplateSyntax] {
+        self.surface_syntax.escaped_parameter_templates()
+    }
+
+    /// Borrow parser-owned all-elements array-expansion entries for this word.
+    pub fn all_elements_array_expansions(&self) -> &[crate::AllElementsArrayExpansionSyntax] {
+        self.surface_syntax.all_elements_array_expansions()
+    }
+
+    /// Borrow parser-owned zsh-only surface syntax for this word, when present.
+    pub fn zsh_surface_syntax(&self) -> Option<&ZshWordSurfaceSyntax> {
+        self.zsh_surface_syntax.as_ref()
+    }
+
+    /// Iterate top-level unquoted named-reference candidates relevant to zsh fanout checks.
+    ///
+    /// This is computed on demand from already-parsed word parts instead of being stored on the
+    /// word, so non-zsh consumers do not pay for additional parser-owned per-word allocations.
+    pub fn zsh_unquoted_reference_candidates(
+        &self,
+    ) -> impl Iterator<Item = UnquotedReferenceCandidateRef<'_>> + '_ {
+        self.parts.iter().filter_map(|part| match &part.kind {
+            WordPart::Variable(name) => Some(UnquotedReferenceCandidateRef {
+                span: part.span,
+                lookup_span: part.span,
+                name,
+                kind: UnquotedReferenceCandidateKind::Variable,
+            }),
+            WordPart::Parameter(parameter) => match &parameter.syntax {
+                ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access {
+                    reference,
+                }) if reference.subscript.is_none() => Some(UnquotedReferenceCandidateRef {
+                    span: part.span,
+                    lookup_span: reference.name_span,
+                    name: &reference.name,
+                    kind: UnquotedReferenceCandidateKind::ParameterAccess,
+                }),
+                ParameterExpansionSyntax::Zsh(ZshParameterExpansion {
+                    target: ZshExpansionTarget::Reference(reference),
+                    length_prefix: None,
+                    ..
+                }) if reference.subscript.is_none() => Some(UnquotedReferenceCandidateRef {
+                    span: part.span,
+                    lookup_span: reference.name_span,
+                    name: &reference.name,
+                    kind: UnquotedReferenceCandidateKind::ParameterAccess,
+                }),
+                _ => None,
+            },
+            _ => None,
+        })
     }
 
     pub fn has_active_brace_expansion(&self) -> bool {
@@ -4042,6 +4154,8 @@ mod tests {
                 .collect(),
             span,
             brace_syntax: Vec::new(),
+            surface_syntax: Default::default(),
+            zsh_surface_syntax: None,
         }
     }
 
@@ -4210,6 +4324,8 @@ mod tests {
             ],
             span,
             brace_syntax: Vec::new(),
+            surface_syntax: Default::default(),
+            zsh_surface_syntax: None,
         };
 
         assert!(matches!(
@@ -4261,6 +4377,8 @@ mod tests {
             ],
             span,
             brace_syntax: Vec::new(),
+            surface_syntax: Default::default(),
+            zsh_surface_syntax: None,
         };
 
         assert_eq!(
@@ -4396,6 +4514,8 @@ mod tests {
             )],
             span: outer_span,
             brace_syntax: Vec::new(),
+            surface_syntax: Default::default(),
+            zsh_surface_syntax: None,
         };
 
         assert!(word_span_is_zsh_force_glob_parameter(&word, forced_span));
@@ -4590,6 +4710,8 @@ mod tests {
             parts: vec![WordPartNode::new(WordPart::Variable("1".into()), span)],
             span,
             brace_syntax: Vec::new(),
+            surface_syntax: Default::default(),
+            zsh_surface_syntax: None,
         };
 
         assert_eq!(w.render_syntax("${1}"), "${1}");
@@ -4616,6 +4738,8 @@ mod tests {
             )],
             span,
             brace_syntax: Vec::new(),
+            surface_syntax: Default::default(),
+            zsh_surface_syntax: None,
         };
 
         assert_eq!(w.render_syntax("foo "), "foo");
@@ -4640,6 +4764,8 @@ mod tests {
             )],
             span,
             brace_syntax: Vec::new(),
+            surface_syntax: Default::default(),
+            zsh_surface_syntax: None,
         };
 
         assert_eq!(w.render_syntax(source), source);
@@ -4676,6 +4802,8 @@ mod tests {
             )],
             span,
             brace_syntax: Vec::new(),
+            surface_syntax: Default::default(),
+            zsh_surface_syntax: None,
         };
         let mut rendered = String::from("prefix:");
 

@@ -112,6 +112,24 @@ foo=\"items: $@\"
     }
 
     #[test]
+    fn ignores_safe_replacement_forwarding_idioms() {
+        let source = "\
+#!/bin/bash
+opts=(--flag value)
+printf '%s\\n' ${opts:+\"${opts[@]}\"}
+printf '%s\\n' ${1+\"$@\"}
+printf '%s\\n' ${1+'\"$@\"'}
+printf '%s\\n' ${1:+'\"$@\"'}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PositionalArgsInString),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_general_array_mixes_like_the_oracle() {
         let source = "\
 #!/bin/bash

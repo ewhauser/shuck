@@ -414,8 +414,7 @@ mod tests {
         word_unquoted_word_after_single_quoted_segment_spans,
     };
     use crate::facts::word_spans::{
-        normalize_command_substitution_spans, parameter_is_scalar_like,
-        unquoted_command_substitution_part_spans,
+        parameter_is_scalar_like, unquoted_command_substitution_part_spans,
     };
     use crate::facts::words::{
         WordSubtreeVisitor, WordTraversalContext, WordTraversalState, walk_word_subtree,
@@ -439,12 +438,8 @@ mod tests {
         spans
     }
 
-    fn unquoted_command_substitution_part_spans_in_source(word: &Word, source: &str) -> Vec<Span> {
-        let line_index = shuck_indexer::LineIndex::new(source);
-        let locator = crate::Locator::new(source, &line_index);
-        let mut spans = unquoted_command_substitution_part_spans(word);
-        normalize_command_substitution_spans(&mut spans, locator);
-        spans
+    fn unquoted_command_substitution_part_spans_in_source(word: &Word, _source: &str) -> Vec<Span> {
+        unquoted_command_substitution_part_spans(word)
     }
 
     struct TestScalarExpansionSpanVisitor<'spans> {

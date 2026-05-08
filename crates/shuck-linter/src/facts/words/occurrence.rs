@@ -1215,84 +1215,15 @@ fn word_has_unquoted_visible_array_reference(
     value_flow: &SemanticValueFlow<'_, '_>,
     scope: ScopeId,
 ) -> bool {
-    parts_have_unquoted_visible_array_reference(
-        &word.parts,
-        semantic_analysis,
-        value_flow,
-        scope,
-        false,
-    )
-}
-
-fn parts_have_unquoted_visible_array_reference(
-    parts: &[WordPartNode],
-    semantic_analysis: &SemanticAnalysis<'_>,
-    value_flow: &SemanticValueFlow<'_, '_>,
-    scope: ScopeId,
-    in_double_quotes: bool,
-) -> bool {
-    for part in parts {
-        match &part.kind {
-            WordPart::DoubleQuoted { parts, .. } => {
-                if parts_have_unquoted_visible_array_reference(
-                    parts,
-                    semantic_analysis,
-                    value_flow,
-                    scope,
-                    true,
-                ) {
-                    return true;
-                }
-            }
-            WordPart::Variable(name) if !in_double_quotes => {
-                if visible_name_is_array_like(
-                    name,
-                    part.span,
-                    semantic_analysis,
-                    value_flow,
-                    scope,
-                ) {
-                    return true;
-                }
-            }
-            WordPart::Parameter(parameter) if !in_double_quotes => {
-                if zsh_parameter_targets_visible_array(
-                    parameter,
-                    semantic_analysis,
-                    value_flow,
-                    scope,
-                ) {
-                    return true;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    false
-}
-
-fn zsh_parameter_targets_visible_array(
-    parameter: &ParameterExpansion,
-    semantic_analysis: &SemanticAnalysis<'_>,
-    value_flow: &SemanticValueFlow<'_, '_>,
-    scope: ScopeId,
-) -> bool {
-    match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
-        | ParameterExpansionSyntax::Zsh(ZshParameterExpansion {
-            target: ZshExpansionTarget::Reference(reference),
-            length_prefix: None,
-            ..
-        }) if reference.subscript.is_none() => visible_name_is_array_like(
-            &reference.name,
-            reference.name_span,
+    word.zsh_unquoted_reference_candidates().any(|candidate| {
+        visible_name_is_array_like(
+            candidate.name,
+            candidate.lookup_span,
             semantic_analysis,
             value_flow,
             scope,
-        ),
-        _ => false,
-    }
+        )
+    })
 }
 
 fn visible_name_is_array_like(
@@ -1397,7 +1328,12 @@ pub(super) fn derive_word_fact_data<'a>(
     scratch: &mut Vec<Span>,
 ) -> WordNodeDerived<'a> {
     let source = locator.source();
-    let escaped_template_bodies = word_spans::escaped_parameter_template_bodies(word.span, source);
+    let escaped_template_bodies = word
+        .escaped_parameter_templates()
+        .iter()
+        .filter(|template| template.contains_nested_parameter)
+        .map(|template| template.body_span)
+        .collect::<Vec<_>>();
     let may_have_runtime_expansion_spans = word_may_have_runtime_expansion_spans(word);
     let may_have_command_substitution_spans = word_may_have_command_substitution_spans(word);
     let may_have_mixed_quote_spans =
@@ -1422,16 +1358,9 @@ pub(super) fn derive_word_fact_data<'a>(
         nested_escaped_parameter_template_body_spans: push_needed_word_span_list(
             span_store,
             scratch,
-            escaped_template_bodies
-                .iter()
-                .any(|body| body.contains_nested_parameter),
+            !escaped_template_bodies.is_empty(),
             |spans| {
-                spans.extend(
-                    escaped_template_bodies
-                        .iter()
-                        .filter(|body| body.contains_nested_parameter)
-                        .map(|body| body.span),
-                );
+                spans.extend(escaped_template_bodies.iter().copied());
             },
         ),
         active_expansion_spans: span_store
@@ -1466,11 +1395,10 @@ pub(super) fn derive_word_fact_data<'a>(
             scratch,
             may_have_runtime_expansion_spans,
             |spans| {
-                word_spans::collect_direct_all_elements_array_expansion_part_spans_with_escaped_templates(
+                word_spans::collect_direct_all_elements_array_expansion_part_spans(
                     word,
                     locator,
                     shell_dialect,
-                    escaped_template_bodies.as_slice(),
                     spans,
                 );
             },
@@ -1551,21 +1479,6 @@ fn collect_derived_word_traversal_spans<'a>(
                 shell_dialect,
             },
             &mut visitor,
-        );
-    }
-
-    if may_have_command_substitution_spans {
-        word_spans::normalize_command_substitution_spans(
-            &mut spans.command_substitution_spans,
-            locator,
-        );
-        word_spans::normalize_command_substitution_spans(
-            &mut spans.unquoted_command_substitution_spans,
-            locator,
-        );
-        word_spans::normalize_command_substitution_spans(
-            &mut spans.unquoted_dollar_paren_command_substitution_spans,
-            locator,
         );
     }
 
@@ -3114,7 +3027,6 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             &self.command_shell_behavior,
             self.word_span_scratch,
         );
-        word_spans::normalize_command_substitution_spans(self.word_span_scratch, self.locator);
         let split_sensitive_unquoted_command_substitution_spans =
             self.word_spans.push_many(self.word_span_scratch.drain(..));
         let id = WordOccurrenceId::new(self.word_occurrences.len());

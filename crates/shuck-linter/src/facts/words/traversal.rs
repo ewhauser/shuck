@@ -851,6 +851,8 @@ mod tests {
             )],
             span: span_for(source, 0, source.len()),
             brace_syntax: Vec::new(),
+            surface_syntax: Default::default(),
+            zsh_surface_syntax: None,
         };
         let visitor = walk_recorded(source, &word);
 

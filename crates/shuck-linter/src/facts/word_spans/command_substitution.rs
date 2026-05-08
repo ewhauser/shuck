@@ -100,6 +100,7 @@ fn traversal_context_without_source<'a>() -> WordTraversalContext<'a> {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn normalize_command_substitution_span(span: Span, locator: Locator<'_>) -> Span {
     let source = locator.source();
     let text = span.slice(source);
@@ -120,12 +121,14 @@ pub(crate) fn normalize_command_substitution_span(span: Span, locator: Locator<'
     span
 }
 
+#[cfg(test)]
 pub(crate) fn normalize_command_substitution_spans(spans: &mut [Span], locator: Locator<'_>) {
     for span in spans {
         *span = normalize_command_substitution_span(*span, locator);
     }
 }
 
+#[cfg(test)]
 pub(crate) fn widen_dollar_paren_command_substitution_span(
     span: Span,
     locator: Locator<'_>,
@@ -220,6 +223,7 @@ pub(crate) fn widen_dollar_paren_command_substitution_span(
     None
 }
 
+#[cfg(test)]
 pub(crate) fn widen_backtick_command_substitution_span(
     span: Span,
     locator: Locator<'_>,

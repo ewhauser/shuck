@@ -1,5 +1,8 @@
 use super::*;
-use shuck_ast::ArrayValueWord;
+use shuck_ast::{
+    AllElementsArrayExpansionOrigin, AllElementsArrayExpansionSyntax, ArrayValueWord,
+    WordSurfaceSyntax,
+};
 use smallvec::SmallVec;
 #[derive(Debug, Clone, Copy)]
 struct PatternCursor {
@@ -17,6 +20,7 @@ struct PatternParser<'a> {
     input: &'a str,
     segments: Vec<PatternSegment<'a>>,
     full_span: Span,
+    dialect: ShellDialect,
     features: ZshGlobParseFeatures,
     allow_prefixed_bare_groups_without_ksh: bool,
 }
@@ -58,27 +62,39 @@ impl<'a> PatternParser<'a> {
     const MAX_PATTERN_GROUP_DEPTH: usize = 8;
     const MAX_ZSH_CASE_GROUP_PRESCAN_BYTES: usize = 512;
 
-    fn new(input: &'a str, word: &'a Word, features: ZshGlobParseFeatures) -> Self {
-        Self::from_word_parts_with_options(input, &word.parts, word.span, features, false)
+    fn new(
+        input: &'a str,
+        word: &'a Word,
+        dialect: ShellDialect,
+        features: ZshGlobParseFeatures,
+    ) -> Self {
+        Self::from_word_parts_with_options(input, &word.parts, word.span, dialect, features, false)
     }
 
-    fn for_pattern_context(input: &'a str, word: &'a Word, features: ZshGlobParseFeatures) -> Self {
-        Self::from_word_parts_with_options(input, &word.parts, word.span, features, true)
+    fn for_pattern_context(
+        input: &'a str,
+        word: &'a Word,
+        dialect: ShellDialect,
+        features: ZshGlobParseFeatures,
+    ) -> Self {
+        Self::from_word_parts_with_options(input, &word.parts, word.span, dialect, features, true)
     }
 
     fn from_word_parts(
         input: &'a str,
         parts: &'a [WordPartNode],
         full_span: Span,
+        dialect: ShellDialect,
         features: ZshGlobParseFeatures,
     ) -> Self {
-        Self::from_word_parts_with_options(input, parts, full_span, features, false)
+        Self::from_word_parts_with_options(input, parts, full_span, dialect, features, false)
     }
 
     fn from_word_parts_with_options(
         input: &'a str,
         parts: &'a [WordPartNode],
         full_span: Span,
+        dialect: ShellDialect,
         features: ZshGlobParseFeatures,
         allow_prefixed_bare_groups_without_ksh: bool,
     ) -> Self {
@@ -98,8 +114,38 @@ impl<'a> PatternParser<'a> {
             input,
             segments,
             full_span,
+            dialect,
             features,
             allow_prefixed_bare_groups_without_ksh,
+        }
+    }
+
+    fn word_from_segment_part(&self, part: &WordPartNode) -> Word {
+        let mut surface_syntax = WordSurfaceSyntax::default();
+        if let Some((kind, direct)) = super::word_surface::all_elements_surface_for_part(
+            std::slice::from_ref(part),
+            0,
+            &part.kind,
+            self.input,
+            self.dialect,
+        ) {
+            surface_syntax
+                .all_elements_array_expansions
+                .push(AllElementsArrayExpansionSyntax {
+                    span: part.span,
+                    kind,
+                    origin: AllElementsArrayExpansionOrigin::DirectPart,
+                    direct,
+                    quote_context: BraceQuoteContext::Unquoted,
+                });
+        }
+
+        Word {
+            parts: vec![part.clone()],
+            span: part.span,
+            brace_syntax: Vec::new(),
+            surface_syntax,
+            zsh_surface_syntax: None,
         }
     }
 
@@ -145,11 +191,7 @@ impl<'a> PatternParser<'a> {
                 PatternSegment::Word(part) => {
                     self.flush_literal(&mut parts, &mut literal, &mut literal_start, literal_end);
                     parts.push(PatternPartNode::new(
-                        PatternPart::Word(Word {
-                            parts: vec![(*part).clone()],
-                            span: part.span,
-                            brace_syntax: Vec::new(),
-                        }),
+                        PatternPart::Word(self.word_from_segment_part(part)),
                         part.span,
                     ));
                     self.advance_to_next_segment(cursor);
@@ -693,6 +735,7 @@ impl<'a> Parser<'a> {
         PatternParser::new(
             self.input,
             word,
+            self.dialect,
             self.zsh_glob_parse_features_at(word.span.start.offset),
         )
         .parse()
@@ -704,7 +747,8 @@ impl<'a> Parser<'a> {
             .conditional_prefixed_bare_group_source_word(word, features)
             .unwrap_or_else(|| word.clone());
 
-        PatternParser::for_pattern_context(self.input, &source_backed_word, features).parse()
+        PatternParser::for_pattern_context(self.input, &source_backed_word, self.dialect, features)
+            .parse()
     }
 
     fn conditional_prefixed_bare_group_source_word(
@@ -847,7 +891,7 @@ impl<'a> Parser<'a> {
         word: &Word,
         features: ZshGlobParseFeatures,
     ) -> Pattern {
-        PatternParser::for_pattern_context(self.input, word, features).parse()
+        PatternParser::for_pattern_context(self.input, word, self.dialect, features).parse()
     }
 
     pub(super) fn pattern_from_source_text(&mut self, text: &SourceText) -> Pattern {
@@ -884,6 +928,7 @@ impl<'a> Parser<'a> {
             self.input,
             &parts,
             span,
+            self.dialect,
             self.zsh_glob_parse_features_at(span.start.offset),
         )
         .parse();

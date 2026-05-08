@@ -2821,6 +2821,8 @@ fn word_part_syntax(part: &WordPartNode, source: &str) -> String {
         parts: vec![part.clone()],
         span: part.span,
         brace_syntax: Vec::new(),
+        surface_syntax: Default::default(),
+        zsh_surface_syntax: None,
     }
     .render_syntax(source)
 }

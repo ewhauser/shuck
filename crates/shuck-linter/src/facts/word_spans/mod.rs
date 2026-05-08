@@ -1,8 +1,9 @@
+#[cfg(test)]
+use shuck_ast::PrefixMatchKind;
 use shuck_ast::{
     ArithmeticExpr, BourneParameterExpansion, CaseItem, ConditionalExpr, ParameterExpansion,
-    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position, PrefixMatchKind, Span,
-    SubscriptSelector, VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment,
-    ZshQualifiedGlob,
+    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position, Span, SubscriptSelector,
+    VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 
 use super::BacktickEscapedParameter;

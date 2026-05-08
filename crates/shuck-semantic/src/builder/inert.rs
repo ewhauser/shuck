@@ -93,6 +93,8 @@ mod tests {
                 .collect(),
             span,
             brace_syntax: Vec::new(),
+            surface_syntax: Default::default(),
+            zsh_surface_syntax: None,
         }
     }
 

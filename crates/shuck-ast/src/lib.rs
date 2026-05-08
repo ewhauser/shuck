@@ -18,6 +18,8 @@ mod name;
 mod span;
 #[allow(missing_docs)]
 mod tokens;
+#[allow(missing_docs)]
+mod word_surface;
 
 /// Compact typed arena index and list storage utilities.
 pub use arena::{IdRange, Idx, ListArena};
@@ -31,3 +33,5 @@ pub use name::Name;
 pub use span::{Position, Span, TextRange, TextSize};
 /// Token kinds emitted by the lexer.
 pub use tokens::TokenKind;
+/// Parser-owned word surface syntax adjuncts.
+pub use word_surface::*;
