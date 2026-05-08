@@ -1060,6 +1060,7 @@ struct ZshArrayFanoutContext<'a, 'flow> {
 struct ZshArrayFanoutLookups<'a> {
     array_like_capable_names: &'a FxHashSet<Name>,
     single_array_like_bindings: &'a FxHashMap<Name, BindingId>,
+    uniformly_array_like_names: &'a FxHashSet<Name>,
 }
 
 fn apply_zsh_array_fanout(
@@ -1211,6 +1212,11 @@ fn visible_name_is_array_like(
     {
         return true;
     }
+    if lookups.uniformly_array_like_names.contains(name)
+        && semantic.visible_binding(name, span).is_some()
+    {
+        return true;
+    }
     let synthetic_use_block = if semantic_analysis.reference_id_for_name_at(name, span).is_none() {
         Some(semantic_analysis.flow_entry_block_for_binding_scopes(&[scope], span.start.offset))
     } else {
@@ -1287,6 +1293,7 @@ pub(super) struct WordFactOutputs<'out, 'a> {
         &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
     pub(super) array_like_capable_names: &'out FxHashSet<Name>,
     pub(super) single_array_like_bindings: &'out FxHashMap<Name, BindingId>,
+    pub(super) uniformly_array_like_names: &'out FxHashSet<Name>,
     pub(super) semantic_analysis: &'out SemanticAnalysis<'a>,
     pub(super) case_pattern_expansions: &'out mut Vec<CasePatternExpansionFact>,
     pub(super) pattern_literal_spans: &'out mut Vec<Span>,
@@ -1612,6 +1619,7 @@ pub(super) struct WordFactCollector<'out, 'a, 'norm> {
     assoc_binding_visibility_memo: &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
     array_like_capable_names: &'out FxHashSet<Name>,
     single_array_like_bindings: &'out FxHashMap<Name, BindingId>,
+    uniformly_array_like_names: &'out FxHashSet<Name>,
     semantic_analysis: &'out SemanticAnalysis<'a>,
     value_flow: SemanticValueFlow<'out, 'a>,
     seen: &'out mut FxHashSet<WordOccurrenceSeenKey>,
@@ -1707,6 +1715,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             assoc_binding_visibility_memo: outputs.assoc_binding_visibility_memo,
             array_like_capable_names: outputs.array_like_capable_names,
             single_array_like_bindings: outputs.single_array_like_bindings,
+            uniformly_array_like_names: outputs.uniformly_array_like_names,
             semantic_analysis: outputs.semantic_analysis,
             value_flow,
             seen: {
@@ -2721,6 +2730,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 lookups: ZshArrayFanoutLookups {
                     array_like_capable_names: self.array_like_capable_names,
                     single_array_like_bindings: self.single_array_like_bindings,
+                    uniformly_array_like_names: self.uniformly_array_like_names,
                 },
             },
             &mut analysis,
