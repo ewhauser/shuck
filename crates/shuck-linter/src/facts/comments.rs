@@ -14,9 +14,10 @@ struct ShebangHeaderFacts {
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
-    let mut source_lines = source_lines_with_offsets(source).enumerate();
-    let Some((_, first_line)) = source_lines.next() else {
+fn build_shebang_header_facts(locator: Locator<'_>) -> ShebangHeaderFacts {
+    let source = locator.source();
+    let line_index = locator.line_index();
+    let Some(first_line) = source_line(source, line_index, 1) else {
         return ShebangHeaderFacts::default();
     };
     let first_line_offset = first_line.offset;
@@ -31,7 +32,9 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
     let mut last_line_ending =
         (!first_line.line_ending.is_empty()).then_some(first_line.line_ending);
 
-    for (line_index, source_line) in std::iter::once((0, first_line)).chain(source_lines) {
+    for (line_index, source_line) in (1..=line_index.line_count()).filter_map(|line_number| {
+        source_line(source, line_index, line_number).map(|line| (line_number - 1, line))
+    }) {
         let offset = source_line.offset;
         let raw_line = source_line.text;
         let line = raw_line.trim_end_matches('\r');
@@ -115,12 +118,12 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
         if interpreter.starts_with('/') || *interpreter == "/usr/bin/env" {
             return None;
         }
-        if has_header_shellcheck_shell_directive(source) {
+        if has_header_shellcheck_shell_directive(source, line_index) {
             return None;
         }
         Some(line_span(1, first_line_offset, first_line_text))
     });
-    let enables_errexit = first_nonempty_source_line(source)
+    let enables_errexit = first_nonempty_source_line(source, line_index)
         .and_then(|(_, line)| line.trim_end_matches('\r').strip_prefix("#!"))
         .map(parse_shebang_words)
         .is_some_and(|words| shebang_enables_errexit(&words));
@@ -227,29 +230,34 @@ struct SourceLine<'a> {
     line_ending: &'static str,
 }
 
-fn source_lines_with_offsets(source: &str) -> impl Iterator<Item = SourceLine<'_>> + '_ {
-    source
-        .split_inclusive('\n')
-        .scan(0usize, |offset, raw_line| {
-            let (line, line_ending) = if let Some(line) = raw_line.strip_suffix("\r\n") {
-                (line, "\r\n")
-            } else if let Some(line) = raw_line.strip_suffix('\n') {
-                (line, "\n")
-            } else {
-                (raw_line, "")
-            };
-            let line_offset = *offset;
-            *offset += raw_line.len();
-            Some(SourceLine {
-                offset: line_offset,
-                text: line,
-                line_ending,
-            })
-        })
+fn source_line<'a>(source: &'a str, line_index: &LineIndex, line: usize) -> Option<SourceLine<'a>> {
+    let range = line_index.line_range(line, source)?;
+    let offset = usize::from(range.start());
+    let raw_text = range.slice(source);
+    let has_newline = source.as_bytes().get(usize::from(range.end())) == Some(&b'\n');
+    let (text, line_ending) = if has_newline {
+        if let Some(text) = raw_text.strip_suffix('\r') {
+            (text, "\r\n")
+        } else {
+            (raw_text, "\n")
+        }
+    } else {
+        (raw_text, "")
+    };
+
+    Some(SourceLine {
+        offset,
+        text,
+        line_ending,
+    })
 }
 
-fn first_nonempty_source_line(source: &str) -> Option<(usize, &str)> {
-    source_lines_with_offsets(source)
+fn first_nonempty_source_line<'a>(
+    source: &'a str,
+    line_index: &LineIndex,
+) -> Option<(usize, &'a str)> {
+    (1..=line_index.line_count())
+        .filter_map(|line_number| source_line(source, line_index, line_number))
         .find(|line| !line.text.trim().is_empty())
         .map(|line| (line.offset, line.text))
 }
@@ -342,9 +350,11 @@ fn build_commented_continuation_comment_spans(source: &str, indexer: &Indexer) -
 }
 
 fn build_comment_double_quote_nesting_spans(source: &str, indexer: &Indexer) -> Vec<Span> {
-    source_lines_with_offsets(source)
-        .enumerate()
-        .filter_map(|(line_index, source_line)| {
+    let line_index = indexer.line_index();
+
+    (1..=line_index.line_count())
+        .filter_map(|line_number| {
+            let source_line = source_line(source, line_index, line_number)?;
             let line = source_line.text.trim_end_matches('\r');
             let comment_start = line.find('#')?;
             let comment_offset = source_line.offset + comment_start;
@@ -365,7 +375,7 @@ fn build_comment_double_quote_nesting_spans(source: &str, indexer: &Indexer) -> 
                 .map(|offset| parameter_start + offset)?;
             let expansion_start = comment_start + quoted_positional + 1;
             Some(line_slice_span(
-                line_index + 1,
+                line_number,
                 source_line.offset,
                 line,
                 expansion_start,
@@ -447,9 +457,12 @@ fn case_item_label_comment(
     })
 }
 
-fn has_header_shellcheck_shell_directive(source: &str) -> bool {
-    for line in source.lines().skip(1) {
-        let trimmed = line.trim_start();
+fn has_header_shellcheck_shell_directive(source: &str, line_index: &LineIndex) -> bool {
+    for line_number in 2..=line_index.line_count() {
+        let Some(source_line) = source_line(source, line_index, line_number) else {
+            continue;
+        };
+        let trimmed = source_line.text.trim_end_matches('\r').trim_start();
         if trimmed.is_empty() || trimmed.starts_with("#!") {
             continue;
         }

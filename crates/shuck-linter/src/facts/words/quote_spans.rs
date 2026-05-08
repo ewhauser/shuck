@@ -490,6 +490,7 @@ pub(super) fn mixed_quote_chained_line_join_between_double_quotes_spans(
 
     let mut spans = Vec::new();
     let mut cursor = word.span.end.offset;
+    let mut cursor_position = word.span.end;
     while source[cursor..].starts_with('"') {
         let Some(closing_quote_relative) =
             mixed_quote_closing_double_quote_offset(&source[cursor..])
@@ -509,9 +510,10 @@ pub(super) fn mixed_quote_chained_line_join_between_double_quotes_spans(
             break;
         };
 
-        let start = Position::new().advanced_by(&source[..after_closing_quote]);
+        let start = cursor_position.advanced_by(&source[cursor..after_closing_quote]);
         spans.push(Span::from_positions(start, start.advanced_by(suffix)));
         cursor = after_closing_quote + suffix.len();
+        cursor_position = start.advanced_by(suffix);
     }
 
     spans

@@ -2532,7 +2532,9 @@ pub(crate) fn infer_explicit_parse_dialect_from_source(
 }
 
 fn shebang_interpreter(source: &str) -> Option<&str> {
-    shuck_parser::shebang::interpreter_name(source.lines().next()?)
+    let first_line_end = source.find('\n').unwrap_or(source.len());
+    let first_line = source.get(..first_line_end)?;
+    shuck_parser::shebang::interpreter_name(first_line.strip_suffix('\r').unwrap_or(first_line))
 }
 
 fn infer_parse_dialect_from_path(path: Option<&Path>) -> Option<shuck_parser::ShellDialect> {

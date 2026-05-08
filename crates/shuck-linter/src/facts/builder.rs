@@ -727,7 +727,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &command_child_index,
             locator,
         );
-        let shebang_header_facts = build_shebang_header_facts(self.source);
+        let shebang_header_facts = build_shebang_header_facts(locator);
         let errexit_enabled_anywhere = self.ambient_shell_options.errexit
             || shebang_header_facts.enables_errexit
             || commands

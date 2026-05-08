@@ -509,14 +509,16 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
                         .map_or(part_span, |relative_start| {
                             let start_offset = search_start + relative_start;
                             let end_offset = start_offset + expected.len();
-                            let start = Position::new().advanced_by(&source[..start_offset]);
-                            let end = Position::new().advanced_by(&source[..end_offset]);
-                            Span::from_positions(start, end)
+                            locator
+                                .position_at_offset(start_offset)
+                                .zip(locator.position_at_offset(end_offset))
+                                .map(|(start, end)| Span::from_positions(start, end))
+                                .unwrap_or(part_span)
                         })
                 }
             }
             WordPart::Parameter(_) | WordPart::ParameterExpansion { .. } => {
-                shellcheck_parameter_span_inside_escaped_quotes(part_span, source)
+                shellcheck_parameter_span_inside_escaped_quotes(part_span, locator)
                     .unwrap_or(part_span)
             }
             _ => return part_span,
@@ -737,26 +739,28 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     }
 }
 
-pub(super) fn shellcheck_parameter_span_inside_escaped_quotes(span: Span, source: &str) -> Option<Span> {
+pub(super) fn shellcheck_parameter_span_inside_escaped_quotes(
+    span: Span,
+    locator: Locator<'_>,
+) -> Option<Span> {
     if span.start.line != span.end.line {
         return None;
     }
 
-    let search_start = offset_for_line_column(
-        source,
+    let source = locator.source();
+    let search_start = locator.offset_for_line_column(
         span.start.line,
         span.start.column.saturating_sub(2).max(1),
     )?;
-    let search_end = offset_for_line_column(
-        source,
+    let search_end = locator.offset_for_line_column(
         span.end.line,
         span.end.column.saturating_add(3),
     )
-    .or_else(|| line_end_offset(source, span.end.line))?;
+    .or_else(|| locator.line_range(span.end.line).map(|range| usize::from(range.end())))?;
     let window = source.get(search_start..search_end)?;
     let relative_dollar = window.find('$')?;
     let start_offset = search_start + relative_dollar;
-    let start = Position::new().advanced_by(&source[..start_offset]);
+    let start = locator.position_at_offset(start_offset)?;
     if start.line != span.start.line
         || start.column < span.start.column
         || start.column > span.start.column.saturating_add(2)
@@ -764,14 +768,14 @@ pub(super) fn shellcheck_parameter_span_inside_escaped_quotes(span: Span, source
         return None;
     }
 
-    let span_start_offset = offset_for_line_column(source, span.start.line, span.start.column)?;
+    let span_start_offset = locator.offset_for_line_column(span.start.line, span.start.column)?;
     let prefix = source.get(span_start_offset..start_offset)?;
     if !prefix.contains('"') && !prefix.contains('\\') {
         return None;
     }
 
     let end_offset = parameter_expansion_end_offset(source, start_offset)?;
-    let end = Position::new().advanced_by(&source[..end_offset]);
+    let end = locator.position_at_offset(end_offset)?;
     if end.line != span.end.line
         || end.column < span.end.column
         || end.column > span.end.column.saturating_add(3)
@@ -784,58 +788,6 @@ pub(super) fn shellcheck_parameter_span_inside_escaped_quotes(span: Span, source
     }
 
     Some(Span::from_positions(start, end))
-}
-
-pub(super) fn offset_for_line_column(source: &str, line: usize, column: usize) -> Option<usize> {
-    if line == 0 || column == 0 {
-        return None;
-    }
-
-    let mut current_line = 1usize;
-    let mut line_start = 0usize;
-    for (offset, ch) in source.char_indices() {
-        if current_line == line {
-            return offset_for_column_in_line(source, line_start, column);
-        }
-        if ch == '\n' {
-            current_line += 1;
-            line_start = offset + ch.len_utf8();
-        }
-    }
-
-    (current_line == line).then(|| offset_for_column_in_line(source, line_start, column))?
-}
-
-pub(super) fn offset_for_column_in_line(source: &str, line_start: usize, column: usize) -> Option<usize> {
-    let mut current_column = 1usize;
-    for (relative_offset, ch) in source.get(line_start..)?.char_indices() {
-        if ch == '\n' {
-            break;
-        }
-        if current_column == column {
-            return Some(line_start + relative_offset);
-        }
-        current_column += 1;
-    }
-
-    (current_column == column).then_some(
-        line_start
-            + source
-                .get(line_start..)?
-                .find('\n')
-                .unwrap_or(source.len() - line_start),
-    )
-}
-
-pub(super) fn line_end_offset(source: &str, line: usize) -> Option<usize> {
-    let line_start = offset_for_line_column(source, line, 1)?;
-    Some(
-        line_start
-            + source
-                .get(line_start..)?
-                .find('\n')
-                .unwrap_or(source.len() - line_start),
-    )
 }
 
 pub(super) fn parameter_expansion_end_offset(source: &str, dollar_offset: usize) -> Option<usize> {

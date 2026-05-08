@@ -143,8 +143,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             return None;
         }
 
-        let (line_start_offset, line) =
-            source_line(self.source, &self.line_start_offsets, span.start.line)?;
+        let (line_start_offset, line) = source_line(self.source, self.line_index, span.start.line)?;
         let name = name.as_str();
         let mut best = None::<(usize, usize, usize)>;
         for (start, _) in line.match_indices('$') {
@@ -174,8 +173,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         needle: &str,
         span: Span,
     ) -> Option<Span> {
-        let (line_start_offset, line) =
-            source_line(self.source, &self.line_start_offsets, span.start.line)?;
+        let (line_start_offset, line) = source_line(self.source, self.line_index, span.start.line)?;
         let mut best = None::<(usize, usize, usize)>;
         let name = needle.strip_prefix("${").unwrap_or(needle);
         for (start, _) in line.match_indices(needle) {
@@ -217,7 +215,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     }
 
     pub(super) fn source_position_at_offset(&self, offset: usize) -> Option<Position> {
-        source_position_at_offset(self.source, &self.line_start_offsets, offset)
+        source_position_at_offset(self.source, self.line_index, offset)
     }
 
     pub(super) fn add_parameter_default_binding(&mut self, reference: &VarRef) {
@@ -325,20 +323,18 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
 fn source_position_at_offset(
     source: &str,
-    line_start_offsets: &[usize],
+    line_index: &LineIndex,
     offset: usize,
 ) -> Option<Position> {
     if offset > source.len() || !source.is_char_boundary(offset) {
         return None;
     }
 
-    let line_index = line_start_offsets
-        .partition_point(|line_start| *line_start <= offset)
-        .checked_sub(1)?;
-    let line_start = *line_start_offsets.get(line_index)?;
+    let line = line_index.line_number(TextSize::new(offset as u32));
+    let line_start = usize::from(line_index.line_start(line)?);
     let column = source.get(line_start..offset)?.chars().count() + 1;
     Some(Position {
-        line: line_index + 1,
+        line,
         column,
         offset,
     })
@@ -351,10 +347,10 @@ mod tests {
     #[test]
     fn source_position_lookup_uses_precomputed_line_starts() {
         let source = "alpha\nb\u{e9}ta\n";
-        let line_starts = source_line_start_offsets(source);
+        let line_index = LineIndex::new(source);
 
         assert_eq!(
-            source_position_at_offset(source, &line_starts, 0),
+            source_position_at_offset(source, &line_index, 0),
             Some(Position {
                 line: 1,
                 column: 1,
@@ -363,7 +359,7 @@ mod tests {
         );
         let beta_offset = source.find('b').expect("expected second line");
         assert_eq!(
-            source_position_at_offset(source, &line_starts, beta_offset),
+            source_position_at_offset(source, &line_index, beta_offset),
             Some(Position {
                 line: 2,
                 column: 1,
@@ -372,7 +368,7 @@ mod tests {
         );
         let after_e_acute = beta_offset + "b\u{e9}".len();
         assert_eq!(
-            source_position_at_offset(source, &line_starts, after_e_acute),
+            source_position_at_offset(source, &line_index, after_e_acute),
             Some(Position {
                 line: 2,
                 column: 3,
@@ -380,7 +376,7 @@ mod tests {
             })
         );
         assert_eq!(
-            source_position_at_offset(source, &line_starts, source.len()),
+            source_position_at_offset(source, &line_index, source.len()),
             Some(Position {
                 line: 3,
                 column: 1,

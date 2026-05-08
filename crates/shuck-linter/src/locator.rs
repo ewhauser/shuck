@@ -6,7 +6,7 @@
 //! keeps signatures compact while still routing every offset lookup through
 //! the precomputed [`LineIndex`].
 
-use shuck_ast::{Position, TextSize};
+use shuck_ast::{Position, TextRange, TextSize};
 use shuck_indexer::LineIndex;
 
 #[derive(Clone, Copy, Debug)]
@@ -26,6 +26,18 @@ impl<'a> Locator<'a> {
 
     pub fn line_index(&self) -> &'a LineIndex {
         self.line_index
+    }
+
+    #[inline]
+    pub fn line_range(&self, line: usize) -> Option<TextRange> {
+        self.line_index.line_range(line, self.source)
+    }
+
+    #[inline]
+    pub fn offset_for_line_column(&self, line: usize, column: usize) -> Option<usize> {
+        self.line_index
+            .offset_for_line_column(line, column, self.source)
+            .map(usize::from)
     }
 
     /// Resolve a byte offset to a [`Position`] using the precomputed

@@ -86,6 +86,36 @@ impl LineIndex {
         Some(TextRange::new(start, end))
     }
 
+    /// Return the byte offset for a 1-based line and 1-based column.
+    ///
+    /// `column` may point just past the final character on the line, in which
+    /// case the returned offset is the end of [`Self::line_range`].
+    pub fn offset_for_line_column(
+        &self,
+        line: usize,
+        column: usize,
+        source: &str,
+    ) -> Option<TextSize> {
+        if line == 0 || column == 0 {
+            return None;
+        }
+
+        let range = self.line_range(line, source)?;
+        let line_start = usize::from(range.start());
+        let line_end = usize::from(range.end());
+        let line_text = source.get(line_start..line_end)?;
+
+        let mut current_column = 1usize;
+        for (relative_offset, _) in line_text.char_indices() {
+            if current_column == column {
+                return Some(TextSize::new((line_start + relative_offset) as u32));
+            }
+            current_column += 1;
+        }
+
+        (current_column == column).then_some(range.end())
+    }
+
     /// Return the number of physical lines recorded for the source.
     ///
     /// The count is always at least `1`, even for empty source.
@@ -144,6 +174,33 @@ mod tests {
         assert_eq!(
             index.line_range(1, source).unwrap().slice(source),
             "caf\u{00E9}"
+        );
+    }
+
+    #[test]
+    fn resolves_line_and_column_to_offsets() {
+        let source = "alpha\nb\u{e9}ta\n";
+        let index = LineIndex::new(source);
+
+        assert_eq!(
+            index.offset_for_line_column(1, 1, source),
+            Some(TextSize::new(0))
+        );
+        assert_eq!(
+            index.offset_for_line_column(2, 1, source),
+            Some(TextSize::new("alpha\n".len() as u32))
+        );
+        assert_eq!(
+            index.offset_for_line_column(2, 3, source),
+            Some(TextSize::new("alpha\nb\u{e9}".len() as u32))
+        );
+        assert_eq!(
+            index.offset_for_line_column(2, 5, source),
+            Some(TextSize::new("alpha\nb\u{e9}ta".len() as u32))
+        );
+        assert_eq!(
+            index.offset_for_line_column(3, 1, source),
+            Some(TextSize::new(source.len() as u32))
         );
     }
 }
