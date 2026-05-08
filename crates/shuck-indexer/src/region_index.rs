@@ -905,6 +905,14 @@ fn find_command_substitution_end(text: &str, start_offset: usize) -> Option<usiz
             continue;
         }
 
+        if ch == '$'
+            && text[index..].starts_with("${")
+            && !has_odd_backslash_run_before(text, index)
+        {
+            index = find_parameter_expansion_end(text, index)?;
+            continue;
+        }
+
         match ch {
             '(' => {
                 paren_depth += 1;
@@ -1234,6 +1242,30 @@ mod tests {
         assert_eq!(
             find_parameter_expansion_end("\"${x:-`echo }`}\"", 1),
             Some("\"${x:-`echo }`}".len())
+        );
+    }
+
+    #[test]
+    fn skips_parameter_expansions_when_indexing_command_substitution_end() {
+        let source = "echo \"${outer:-$(echo ${x//)/y})}\"\n";
+        let regions = regions(source);
+        let outer_start = source.find("${outer").unwrap();
+        let outer_end = source.rfind('}').unwrap() + '}'.len_utf8();
+        let inner_close_paren = TextSize::new(source.find(')').unwrap() as u32);
+        let outer_parameter_close = TextSize::new((outer_end - 1) as u32);
+        let outer_pair = TextRange::new(
+            TextSize::new(outer_start as u32),
+            TextSize::new(outer_end as u32),
+        );
+
+        assert!(!regions.is_expansion_brace_edge(inner_close_paren));
+        assert!(regions.is_expansion_brace_edge(outer_parameter_close));
+        assert_eq!(
+            regions.first_dollar_brace_pair_in(TextRange::new(
+                TextSize::new(outer_start as u32),
+                TextSize::new((outer_start + "${outer".len()) as u32),
+            )),
+            Some(outer_pair)
         );
     }
 
