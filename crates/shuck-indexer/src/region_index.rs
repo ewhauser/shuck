@@ -869,19 +869,19 @@ fn find_command_substitution_end(text: &str, start_offset: usize) -> Option<usiz
         let ch = text[index..].chars().next()?;
         let ch_len = ch.len_utf8();
 
-        if ch == '\\' {
-            index += ch_len;
-            if let Some(escaped) = text[index..].chars().next() {
-                index += escaped.len_utf8();
-            }
-            continue;
-        }
-
         if in_single {
             if ch == '\'' {
                 in_single = false;
             }
             index += ch_len;
+            continue;
+        }
+
+        if ch == '\\' {
+            index += ch_len;
+            if let Some(escaped) = text[index..].chars().next() {
+                index += escaped.len_utf8();
+            }
             continue;
         }
 
@@ -977,19 +977,19 @@ fn find_parameter_expansion_end(text: &str, start_offset: usize) -> Option<usize
         let ch = text[index..].chars().next()?;
         let ch_len = ch.len_utf8();
 
-        if ch == '\\' {
-            index += ch_len;
-            if let Some(escaped) = text[index..].chars().next() {
-                index += escaped.len_utf8();
-            }
-            continue;
-        }
-
         if in_single {
             if ch == '\'' {
                 in_single = false;
             }
             index += ch_len;
+            continue;
+        }
+
+        if ch == '\\' {
+            index += ch_len;
+            if let Some(escaped) = text[index..].chars().next() {
+                index += escaped.len_utf8();
+            }
             continue;
         }
 
@@ -1247,6 +1247,14 @@ mod tests {
         assert_eq!(
             find_parameter_expansion_end("\"${x:-`echo }`}\"", 1),
             Some("\"${x:-`echo }`}".len())
+        );
+    }
+
+    #[test]
+    fn keeps_backslashes_literal_inside_single_quotes_when_indexing_parameter_expansion_end() {
+        assert_eq!(
+            find_parameter_expansion_end("${x:-'\\'}", 0),
+            Some("${x:-'\\'}".len())
         );
     }
 
