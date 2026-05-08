@@ -8,6 +8,7 @@ struct LinterFactsBuilder<'a, 'analysis> {
     command_visits_by_id: &'a [Option<CommandVisit<'a>>],
     shell: ShellDialect,
     ambient_shell_options: AmbientShellOptions,
+    possible_variable_misspelling_contract_names: Vec<Name>,
 }
 
 #[derive(Debug, Default)]
@@ -121,6 +122,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         indexer: &'a Indexer,
         shell: ShellDialect,
         ambient_shell_options: AmbientShellOptions,
+        possible_variable_misspelling_contract_names: Vec<Name>,
     ) -> Self {
         Self {
             file,
@@ -132,6 +134,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             command_visits_by_id: semantic.command_visits_by_id(),
             shell,
             ambient_shell_options,
+            possible_variable_misspelling_contract_names,
         }
     }
 
@@ -1038,6 +1041,8 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             possible_variable_misspelling_use_scan: OnceLock::new(),
             possible_variable_misspelling_index: OnceLock::new(),
             possible_variable_misspelling_scope_compat_name_uses: OnceLock::new(),
+            possible_variable_misspelling_contract_names: self
+                .possible_variable_misspelling_contract_names,
             plain_unindexed_array_references: OnceLock::new(),
             redundant_echo_space_facts: OnceLock::new(),
             suppressed_subscript_reference_spans,

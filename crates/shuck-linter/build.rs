@@ -113,6 +113,7 @@ struct DeclarativeContractEffects {
     reads: Vec<String>,
     consumes: DeclarativeContractConsumes,
     provides: DeclarativeContractProvides,
+    vocabulary: DeclarativeContractVocabulary,
     functions: Vec<DeclarativeFunctionEffects>,
 }
 
@@ -131,6 +132,12 @@ struct DeclarativeContractProvides {
     ambient_variables: Vec<String>,
     functions: Vec<String>,
     caller_scoped_array_length_names: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+struct DeclarativeContractVocabulary {
+    names: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -195,6 +202,7 @@ struct NormalizedDeclarativeEffects {
     provides_ambient_variables: Vec<String>,
     provides_functions: Vec<String>,
     provides_caller_scoped_array_length_names: bool,
+    vocabulary_names: Vec<String>,
     functions: Vec<NormalizedDeclarativeFunctionEffects>,
 }
 
@@ -437,6 +445,11 @@ fn normalize_declarative_effects(
         provides_caller_scoped_array_length_names: effects
             .provides
             .caller_scoped_array_length_names,
+        vocabulary_names: normalize_shell_names(
+            "vocabulary.names",
+            &effects.vocabulary.names,
+            source_path,
+        )?,
         functions: effects
             .functions
             .iter()
@@ -730,6 +743,7 @@ fn effects_is_empty(effects: &NormalizedDeclarativeEffects) -> bool {
         && effects.provides_ambient_variables.is_empty()
         && effects.provides_functions.is_empty()
         && !effects.provides_caller_scoped_array_length_names
+        && effects.vocabulary_names.is_empty()
         && effects.functions.is_empty()
 }
 
@@ -1004,6 +1018,10 @@ fn generate_declarative_contract_data(contracts: &[NormalizedDeclarativeContract
         generated.push_str(&format!(
             "            provides_caller_scoped_array_length_names: {},\n",
             contract.effects.provides_caller_scoped_array_length_names
+        ));
+        generated.push_str(&format!(
+            "            vocabulary_names: {},\n",
+            format_string_slice(&contract.effects.vocabulary_names)
         ));
         generated.push_str("            functions: &[\n");
         for function in &contract.effects.functions {

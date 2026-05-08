@@ -1,0 +1,18 @@
+version: 1
+contracts:
+  - id: shell/shellspec/vocabulary
+    groups:
+      - shell
+      - shell/shellspec
+    label: ShellSpec runtime variable vocabulary
+    when:
+      type: always
+    match:
+      source:
+        contains-any:
+          - SHELLSPEC_
+    effects:
+      vocabulary:
+        names:
+          - SHELLSPEC_EXECDIR
+          - SHELLSPEC_SPECDIR

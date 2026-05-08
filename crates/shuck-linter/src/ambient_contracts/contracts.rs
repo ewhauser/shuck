@@ -222,6 +222,28 @@ impl ResolvedAmbientContracts {
         super::AmbientContractCollectorFactory::new(Arc::clone(self))
     }
 
+    pub(crate) fn well_known_vocabulary_names(
+        self: &Arc<Self>,
+        source: &str,
+        path: Option<&Path>,
+        shell: ShellDialect,
+    ) -> Vec<&'static str> {
+        let Some(path) = path else {
+            return Vec::new();
+        };
+        let collector = AmbientContractCollector::new(source, Some(path), shell, Arc::clone(self));
+        let mut names = Vec::new();
+        for id in &self.enabled_file_contract_ids {
+            let contract = declarative_contract_by_id(id).expect("known ambient contract id");
+            if contract.matches_file_entry_contract(&collector, shell, &self.project_root) {
+                names.extend(contract.vocabulary_names());
+            }
+        }
+        names.sort_unstable();
+        names.dedup();
+        names
+    }
+
     pub(crate) fn file_entry_contract(
         &self,
         collector: &AmbientContractCollector<'_>,
@@ -519,6 +541,7 @@ struct DeclarativeEffectsDescriptor {
     provides_ambient_variables: &'static [&'static str],
     provides_functions: &'static [&'static str],
     provides_caller_scoped_array_length_names: bool,
+    vocabulary_names: &'static [&'static str],
     functions: &'static [DeclarativeFunctionDescriptor],
 }
 
@@ -683,6 +706,23 @@ impl DeclarativeContractDescriptor {
             }
         }
         contract
+    }
+
+    fn vocabulary_names(&self) -> impl Iterator<Item = &'static str> {
+        self.matcher
+            .source
+            .mentions_any_names
+            .iter()
+            .chain(self.matcher.source.mentions_all_names.iter())
+            .chain(self.matcher.source.assigns_any_names.iter())
+            .chain(self.matcher.source.assigns_all_names.iter())
+            .chain(self.effects.reads.iter())
+            .chain(self.effects.consumes_names.iter())
+            .chain(self.effects.provides_variables.iter())
+            .chain(self.effects.provides_ambient_variables.iter())
+            .chain(self.effects.provides_functions.iter())
+            .chain(self.effects.vocabulary_names.iter())
+            .copied()
     }
 
     fn imported_contract(&self) -> &FileContract {

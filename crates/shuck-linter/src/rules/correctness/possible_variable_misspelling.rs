@@ -846,7 +846,9 @@ fn is_shell_name_byte(byte: u8) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
+    use std::path::Path;
+
+    use crate::test::{test_snippet, test_snippet_at_path};
     use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
@@ -1465,6 +1467,29 @@ case $SHELLSPEC_EXECDIR in (@basedir*)
 esac
 ";
         let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$SHELLSPEC_EXECDIR"]
+        );
+    }
+
+    #[test]
+    fn reports_contract_vocabulary_candidates_without_local_mentions() {
+        let source = "\
+#!/bin/sh
+case $SHELLSPEC_EXECDIR in (@basedir*)
+  exit 1
+esac
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("spec/helpers/example.sh"),
             source,
             &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
         );

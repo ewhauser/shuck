@@ -1,0 +1,25 @@
+version: 1
+contracts:
+  - id: shell/build-flags/vocabulary
+    groups:
+      - shell
+      - shell/build-flags
+    label: Conventional build flag variable vocabulary
+    when:
+      type: always
+    match:
+      source:
+        contains-any:
+          - CFLAGS
+          - CPPFLAGS
+          - CXXFLAGS
+          - LDFLAGS
+          - GOFLAGS
+    effects:
+      vocabulary:
+        names:
+          - CFLAGS
+          - CPPFLAGS
+          - CXXFLAGS
+          - LDFLAGS
+          - GOFLAGS

@@ -7,6 +7,7 @@ const INDEX_BUILD_THRESHOLD: usize = 1024;
 pub(crate) struct PossibleVariableMisspellingIndex {
     bindings: MisspellingCandidateSet,
     presence_tests: MisspellingCandidateSet,
+    well_known: MisspellingCandidateSet,
 }
 
 impl PossibleVariableMisspellingIndex {
@@ -16,6 +17,10 @@ impl PossibleVariableMisspellingIndex {
             .or_else(|| {
                 self.presence_tests
                     .candidate_name(target_name, CandidateTieBreak::PresenceTest)
+            })
+            .or_else(|| {
+                self.well_known
+                    .candidate_name(target_name, CandidateTieBreak::WellKnown)
             })
     }
 }
@@ -330,12 +335,14 @@ struct MisspellingCandidate {
 enum CandidateTieBreak {
     Binding,
     PresenceTest,
+    WellKnown,
 }
 
 pub(super) fn build_possible_variable_misspelling_index(
     semantic: &SemanticModel,
     presence_test_references_by_name: &FxHashMap<Name, Vec<PresenceTestReferenceFact>>,
     presence_test_names_by_name: &FxHashMap<Name, Vec<PresenceTestNameFact>>,
+    contract_names: &[Name],
 ) -> PossibleVariableMisspellingIndex {
     let binding_entries = semantic
         .bindings()
@@ -352,10 +359,12 @@ pub(super) fn build_possible_variable_misspelling_index(
         presence_test_references_by_name,
         presence_test_names_by_name,
     );
+    let well_known_entries = build_well_known_entries(contract_names);
 
     PossibleVariableMisspellingIndex {
         bindings: MisspellingCandidateSet::new(binding_entries),
         presence_tests: MisspellingCandidateSet::new(presence_entries),
+        well_known: MisspellingCandidateSet::new(well_known_entries),
     }
 }
 
@@ -363,10 +372,12 @@ pub(super) fn should_scan_possible_variable_misspelling_candidates(
     semantic: &SemanticModel,
     presence_test_references_by_name: &FxHashMap<Name, Vec<PresenceTestReferenceFact>>,
     presence_test_names_by_name: &FxHashMap<Name, Vec<PresenceTestNameFact>>,
+    contract_names: &[Name],
 ) -> bool {
     let raw_candidate_count = semantic.bindings().len()
         + presence_test_references_by_name.len()
-        + presence_test_names_by_name.len();
+        + presence_test_names_by_name.len()
+        + contract_names.len();
     if raw_candidate_count < INDEX_BUILD_THRESHOLD {
         return true;
     }
@@ -382,7 +393,10 @@ pub(super) fn should_scan_possible_variable_misspelling_candidates(
         return false;
     }
 
-    binding_count + presence_test_references_by_name.len() + presence_test_names_by_name.len()
+    binding_count
+        + presence_test_references_by_name.len()
+        + presence_test_names_by_name.len()
+        + contract_names.len()
         < INDEX_BUILD_THRESHOLD
 }
 
@@ -390,6 +404,7 @@ pub(super) fn scan_possible_variable_misspelling_candidate(
     semantic: &SemanticModel,
     presence_test_references_by_name: &FxHashMap<Name, Vec<PresenceTestReferenceFact>>,
     presence_test_names_by_name: &FxHashMap<Name, Vec<PresenceTestNameFact>>,
+    contract_names: &[Name],
     target_name: &str,
 ) -> Option<String> {
     semantic
@@ -418,6 +433,9 @@ pub(super) fn scan_possible_variable_misspelling_candidate(
                 target_name,
             )
             .map(ToOwned::to_owned)
+        })
+        .or_else(|| {
+            scan_well_known_candidate_name(contract_names, target_name).map(ToOwned::to_owned)
         })
 }
 
@@ -500,6 +518,32 @@ fn build_presence_test_entries(
         .collect()
 }
 
+fn build_well_known_entries(contract_names: &[Name]) -> Vec<MisspellingCandidate> {
+    contract_names
+        .iter()
+        .filter(|name| name.as_str().len() >= 4)
+        .map(|name| MisspellingCandidate {
+            name: name.as_str().into(),
+            first_span: Span::default(),
+        })
+        .collect()
+}
+
+fn scan_well_known_candidate_name<'a>(
+    contract_names: &'a [Name],
+    target_name: &str,
+) -> Option<&'a str> {
+    contract_names
+        .iter()
+        .map(|name| name.as_str())
+        .filter(|candidate_name| *candidate_name != target_name)
+        .filter_map(|candidate_name| {
+            candidate_match_rank(target_name, candidate_name).map(|rank| (rank, candidate_name))
+        })
+        .min_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(right.1)))
+        .map(|(_, name)| name)
+}
+
 fn first_presence_test_span(
     semantic: &SemanticModel,
     candidate_name: &Name,
@@ -545,6 +589,7 @@ fn compare_candidates(
     match tie_break {
         CandidateTieBreak::Binding => left.0.cmp(&right.0),
         CandidateTieBreak::PresenceTest => left_entry.name.cmp(&right_entry.name),
+        CandidateTieBreak::WellKnown => left_entry.name.cmp(&right_entry.name),
     }
 }
 

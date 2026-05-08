@@ -81,6 +81,9 @@ contracts:
 - `effects.provides.functions`: Definite function bindings.
 - `effects.provides.caller-scoped-array-length-names: true`: Re-export the
   caller-scoped zsh array length names discovered in the file.
+- `effects.vocabulary.names`: Names that belong to the active runtime or
+  ecosystem vocabulary without implying that the name is initialized, read, or
+  externally consumed.
 - `effects.functions`: Function-specific caller reads and sets.
 
 ## Match Predicates

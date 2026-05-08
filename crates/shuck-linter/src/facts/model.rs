@@ -34,6 +34,7 @@ pub struct LinterFacts<'a> {
     possible_variable_misspelling_use_scan: OnceLock<bool>,
     possible_variable_misspelling_index: OnceLock<PossibleVariableMisspellingIndex>,
     possible_variable_misspelling_scope_compat_name_uses: OnceLock<Vec<ComparableNameUse>>,
+    possible_variable_misspelling_contract_names: Vec<Name>,
     plain_unindexed_array_references: OnceLock<Vec<PlainUnindexedArrayReferenceFact>>,
     redundant_echo_space_facts: OnceLock<Vec<RedundantEchoSpaceFact>>,
     suppressed_subscript_reference_spans: FxHashSet<FactSpan>,
@@ -205,6 +206,28 @@ impl<'a> LinterFacts<'a> {
         shell: ShellDialect,
         ambient_shell_options: AmbientShellOptions,
     ) -> Self {
+        Self::build_with_semantic_analysis_shell_ambient_shell_options_and_contract_names(
+            file,
+            source,
+            semantic,
+            semantic_analysis,
+            indexer,
+            shell,
+            ambient_shell_options,
+            Vec::new(),
+        )
+    }
+
+    pub(crate) fn build_with_semantic_analysis_shell_ambient_shell_options_and_contract_names(
+        file: &'a File,
+        source: &'a str,
+        semantic: &'a LinterSemanticArtifacts<'a>,
+        semantic_analysis: &SemanticAnalysis<'a>,
+        indexer: &'a Indexer,
+        shell: ShellDialect,
+        ambient_shell_options: AmbientShellOptions,
+        possible_variable_misspelling_contract_names: Vec<Name>,
+    ) -> Self {
         LinterFactsBuilder::new(
             file,
             source,
@@ -213,6 +236,7 @@ impl<'a> LinterFacts<'a> {
             indexer,
             shell,
             ambient_shell_options,
+            possible_variable_misspelling_contract_names,
         )
         .build()
     }
@@ -458,12 +482,14 @@ impl<'a> LinterFacts<'a> {
                 semantic,
                 &self.presence_test_references_by_name,
                 &self.presence_test_names_by_name,
+                &self.possible_variable_misspelling_contract_names,
             )
         }) {
             return scan_possible_variable_misspelling_candidate(
                 semantic,
                 &self.presence_test_references_by_name,
                 &self.presence_test_names_by_name,
+                &self.possible_variable_misspelling_contract_names,
                 target_name,
             );
         }
@@ -474,6 +500,7 @@ impl<'a> LinterFacts<'a> {
                     semantic,
                     &self.presence_test_references_by_name,
                     &self.presence_test_names_by_name,
+                    &self.possible_variable_misspelling_contract_names,
                 )
             })
             .candidate_name(target_name)
