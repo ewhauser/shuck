@@ -202,20 +202,20 @@ impl<'a> SafeValueIndex<'a> {
         if self.span_is_after_unconditional_inline_terminator(word.span) {
             return false;
         }
-        let Some(analysis) = self
-            .facts
-            .any_word_fact(word.span)
-            .map(|fact| fact.analysis())
-        else {
+        let Some(fact) = self.facts.any_word_fact(word.span) else {
             return false;
         };
+        let analysis = fact.analysis();
         if query != SafeValueQuery::Quoted
             && (analysis.array_valued || analysis.hazards.command_or_process_substitution)
         {
             return false;
         }
+        if fact.safe_value_special_parameter_access() {
+            return true;
+        }
 
-        word.parts_with_spans()
+        fact.parts_with_spans()
             .all(|(part, span)| self.part_is_safe(part, span, query))
     }
 
@@ -257,9 +257,31 @@ impl<'a> SafeValueIndex<'a> {
         {
             return false;
         }
+        if fact.safe_value_special_parameter_access() {
+            return true;
+        }
 
         fact.parts_with_spans()
             .all(|(part, span)| self.part_is_safe(part, span, query))
+    }
+
+    fn word_fact(&self, word: &Word) -> Option<crate::WordOccurrenceRef<'_, 'a>> {
+        self.facts.any_word_fact(word.span)
+    }
+
+    fn word_plain_scalar_reference_name(&self, word: &Word) -> Option<Name> {
+        self.word_fact(word)
+            .and_then(|fact| fact.safe_value_plain_scalar_reference_name().cloned())
+    }
+
+    fn word_has_arithmetic_expansion(&self, word: &Word) -> bool {
+        self.word_fact(word)
+            .is_some_and(|fact| fact.has_arithmetic_expansion())
+    }
+
+    fn word_contains_special_parameter_slice(&self, word: &Word) -> bool {
+        self.word_fact(word)
+            .is_some_and(|fact| fact.safe_value_contains_special_parameter_slice())
     }
 
     pub fn name_reference_is_safe(&mut self, name: &Name, at: Span, query: SafeValueQuery) -> bool {
@@ -1793,7 +1815,7 @@ impl<'a> SafeValueIndex<'a> {
             .facts
             .binding_value(binding_id)
             .and_then(|value| value.scalar_word())?;
-        let target_name = plain_scalar_reference_name(word)?;
+        let target_name = self.word_plain_scalar_reference_name(word)?;
         let binding_span = self.semantic.binding(binding_id).span;
         self.binding_value_stack.push(binding_id);
         let prior_bindings = self.safe_bindings_for_name(&target_name, binding_span);
@@ -1901,7 +1923,7 @@ impl<'a> SafeValueIndex<'a> {
                                 at,
                             ))
                         && words.into_iter().all(|word| {
-                            !word_contains_special_parameter_slice(word)
+                            !self.word_contains_special_parameter_slice(word)
                                 && self.word_is_safe(word, query)
                         })
                 })
@@ -1968,7 +1990,7 @@ impl<'a> SafeValueIndex<'a> {
         if word_static_text_is_shell_integer(word, self.source) {
             return true;
         }
-        word_has_arithmetic_expansion(word)
+        self.word_has_arithmetic_expansion(word)
             && self.word_is_safe_for_binding_value(binding_id, word, query)
     }
 
@@ -3907,7 +3929,7 @@ impl<'a> SafeValueIndex<'a> {
             return true;
         }
 
-        plain_scalar_reference_name(word)
+        self.word_plain_scalar_reference_name(word)
             .is_some_and(|name| self.name_is_safe(&name, at, SafeValueQuery::NumericTestOperand))
     }
 
@@ -4134,12 +4156,12 @@ impl<'a> SafeValueIndex<'a> {
         };
 
         if word_static_text_is_shell_integer(word, self.source)
-            || word_has_arithmetic_expansion(word)
+            || self.word_has_arithmetic_expansion(word)
         {
             return true;
         }
 
-        plain_scalar_reference_name(word)
+        self.word_plain_scalar_reference_name(word)
             .is_some_and(|name| self.name_is_safe(&name, at, SafeValueQuery::NumericTestOperand))
     }
 }
@@ -4178,13 +4200,6 @@ fn literal_is_regex_safe(text: &str) -> bool {
     }
 
     !escaped
-}
-
-fn plain_scalar_reference_name(word: &Word) -> Option<Name> {
-    let [part] = word.parts.as_slice() else {
-        return None;
-    };
-    plain_scalar_reference_name_from_part(&part.kind)
 }
 
 fn plain_scalar_reference_name_from_part(part: &WordPart) -> Option<Name> {
@@ -4316,85 +4331,11 @@ fn shell_integer_text_is_safe(text: &str) -> bool {
     !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
 }
 
-fn word_has_arithmetic_expansion(word: &Word) -> bool {
-    parts_have_arithmetic_expansion(&word.parts)
-}
-
 fn word_is_arithmetic_expansion(word: &Word) -> bool {
     matches!(
         word.parts.as_slice(),
         [part] if matches!(part.kind, WordPart::ArithmeticExpansion { .. })
     )
-}
-
-fn parts_have_arithmetic_expansion(parts: &[WordPartNode]) -> bool {
-    parts.iter().any(|part| match &part.kind {
-        WordPart::ArithmeticExpansion { .. } => true,
-        WordPart::DoubleQuoted { parts, .. } => parts_have_arithmetic_expansion(parts),
-        WordPart::Literal(_)
-        | WordPart::ZshQualifiedGlob(_)
-        | WordPart::SingleQuoted { .. }
-        | WordPart::Variable(_)
-        | WordPart::CommandSubstitution { .. }
-        | WordPart::Parameter(_)
-        | WordPart::ParameterExpansion { .. }
-        | WordPart::Length(_)
-        | WordPart::ArrayAccess(_)
-        | WordPart::ArrayLength(_)
-        | WordPart::ArrayIndices(_)
-        | WordPart::Substring { .. }
-        | WordPart::ArraySlice { .. }
-        | WordPart::IndirectExpansion { .. }
-        | WordPart::PrefixMatch { .. }
-        | WordPart::ProcessSubstitution { .. }
-        | WordPart::Transformation { .. } => false,
-    })
-}
-
-fn word_contains_special_parameter_slice(word: &Word) -> bool {
-    word.parts.iter().any(|part| {
-        part_contains_special_parameter_slice(&part.kind)
-            && !matches!(part.kind, WordPart::DoubleQuoted { .. })
-    })
-}
-
-fn part_contains_special_parameter_slice(part: &WordPart) -> bool {
-    match part {
-        WordPart::DoubleQuoted { parts, .. } => parts
-            .iter()
-            .any(|part| part_contains_special_parameter_slice(&part.kind)),
-        WordPart::Substring { reference, .. } => special_parameter_slice_reference(reference),
-        WordPart::Parameter(parameter) => parameter_contains_special_parameter_slice(parameter),
-        WordPart::Literal(_)
-        | WordPart::ZshQualifiedGlob(_)
-        | WordPart::SingleQuoted { .. }
-        | WordPart::Variable(_)
-        | WordPart::CommandSubstitution { .. }
-        | WordPart::ArithmeticExpansion { .. }
-        | WordPart::ParameterExpansion { .. }
-        | WordPart::Length(_)
-        | WordPart::ArrayAccess(_)
-        | WordPart::ArrayLength(_)
-        | WordPart::ArrayIndices(_)
-        | WordPart::ArraySlice { .. }
-        | WordPart::IndirectExpansion { .. }
-        | WordPart::PrefixMatch { .. }
-        | WordPart::ProcessSubstitution { .. }
-        | WordPart::Transformation { .. } => false,
-    }
-}
-
-fn parameter_contains_special_parameter_slice(parameter: &ParameterExpansion) -> bool {
-    match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Slice { reference, .. }) => {
-            special_parameter_slice_reference(reference)
-        }
-        ParameterExpansionSyntax::Bourne(_) | ParameterExpansionSyntax::Zsh(_) => false,
-    }
-}
-
-fn special_parameter_slice_reference(reference: &VarRef) -> bool {
-    matches!(reference.name.as_str(), "@" | "*")
 }
 
 fn function_has_terminal_exit(function: &FunctionDef) -> bool {

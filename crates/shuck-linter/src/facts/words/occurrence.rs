@@ -13,6 +13,9 @@ pub(super) struct WordNodeDerived<'a> {
     pub(super) starts_with_extglob: bool,
     pub(super) has_literal_affixes: bool,
     pub(super) contains_shell_quoting_literals: bool,
+    pub(super) safe_value_plain_scalar_reference_name: Option<Name>,
+    pub(super) safe_value_special_parameter_access: bool,
+    pub(super) safe_value_contains_special_parameter_slice: bool,
     pub(super) active_expansion_spans: IdRange<Span>,
     pub(super) scalar_expansion_spans: IdRange<Span>,
     pub(super) unquoted_scalar_expansion_spans: IdRange<Span>,
@@ -64,6 +67,7 @@ pub(super) enum WordOccurrenceFilter {
     Any,
     NonArithmetic,
     ArithmeticCommand,
+    ParameterOperand,
     Expansion(ExpansionContext),
     CaseSubject,
 }
@@ -98,10 +102,16 @@ impl<'facts, 'a> WordOccurrenceIter<'facts, 'a> {
         match self.filter {
             WordOccurrenceFilter::Any => true,
             WordOccurrenceFilter::NonArithmetic => {
-                occurrence.context != WordFactContext::ArithmeticCommand
+                !matches!(
+                    occurrence.context,
+                    WordFactContext::ArithmeticCommand | WordFactContext::ParameterOperand
+                )
             }
             WordOccurrenceFilter::ArithmeticCommand => {
                 occurrence.context == WordFactContext::ArithmeticCommand
+            }
+            WordOccurrenceFilter::ParameterOperand => {
+                occurrence.context == WordFactContext::ParameterOperand
             }
             WordOccurrenceFilter::Expansion(context) => {
                 occurrence.context == WordFactContext::Expansion(context)
@@ -182,6 +192,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
             WordFactContext::Expansion(context) => Some(context),
             WordFactContext::CaseSubject => None,
             WordFactContext::ArithmeticCommand => None,
+            WordFactContext::ParameterOperand => None,
         }
     }
 
@@ -196,6 +207,10 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
 
     pub fn is_arithmetic_command(self) -> bool {
         self.context() == WordFactContext::ArithmeticCommand
+    }
+
+    pub fn is_parameter_operand(self) -> bool {
+        self.context() == WordFactContext::ParameterOperand
     }
 
     pub fn part_is_inside_backtick_escaped_double_quotes(
@@ -356,12 +371,28 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         word_is_plain_scalar_reference(self.word())
     }
 
+    pub fn safe_value_plain_scalar_reference_name(self) -> Option<&'facts Name> {
+        self.derived().safe_value_plain_scalar_reference_name.as_ref()
+    }
+
     pub fn is_plain_parameter_reference(self) -> bool {
         word_is_plain_parameter_reference(self.word())
     }
 
     pub fn is_direct_numeric_expansion(self) -> bool {
         word_is_direct_numeric_expansion(self.word())
+    }
+
+    pub fn has_arithmetic_expansion(self) -> bool {
+        self.analysis().hazards.arithmetic_expansion
+    }
+
+    pub fn safe_value_special_parameter_access(self) -> bool {
+        self.derived().safe_value_special_parameter_access
+    }
+
+    pub fn safe_value_contains_special_parameter_slice(self) -> bool {
+        self.derived().safe_value_contains_special_parameter_slice
     }
 
     pub fn starts_with_extglob(self) -> bool {
@@ -823,7 +854,12 @@ pub(super) fn build_brace_variable_before_bracket_spans<'a>(
     let mut spans = occurrences
         .iter()
         .filter(|fact| fact.host_kind == WordFactHostKind::Direct)
-        .filter(|fact| fact.context != WordFactContext::ArithmeticCommand)
+        .filter(|fact| {
+            !matches!(
+                fact.context,
+                WordFactContext::ArithmeticCommand | WordFactContext::ParameterOperand
+            )
+        })
         .flat_map(|fact| {
             word_unbraced_variable_before_bracket_spans(occurrence_word(nodes, fact), source)
         })
@@ -866,6 +902,51 @@ pub(super) fn word_node_derived<'node, 'word>(
 
 pub(super) fn word_is_plain_scalar_reference(word: &Word) -> bool {
     word_is_plain_reference(word, false)
+}
+
+fn safe_value_plain_scalar_reference_name(word: &Word) -> Option<Name> {
+    let [part] = word.parts.as_slice() else {
+        return None;
+    };
+    safe_value_plain_scalar_reference_name_from_part(&part.kind)
+}
+
+fn safe_value_plain_scalar_reference_name_from_part(part: &WordPart) -> Option<Name> {
+    match part {
+        WordPart::Variable(name) if !matches!(name.as_str(), "@" | "*") => Some(name.clone()),
+        WordPart::DoubleQuoted { parts, .. } => {
+            let [part] = parts.as_slice() else {
+                return None;
+            };
+            safe_value_plain_scalar_reference_name_from_part(&part.kind)
+        }
+        WordPart::Parameter(parameter) => match &parameter.syntax {
+            ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+                if reference.subscript.is_none()
+                    && !matches!(reference.name.as_str(), "@" | "*") =>
+            {
+                Some(reference.name.clone())
+            }
+            ParameterExpansionSyntax::Bourne(_) | ParameterExpansionSyntax::Zsh(_) => None,
+        },
+        WordPart::Literal(_)
+        | WordPart::ZshQualifiedGlob(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::Variable(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. } => None,
+    }
 }
 
 pub(super) fn word_is_plain_parameter_reference(word: &Word) -> bool {
@@ -954,6 +1035,98 @@ pub(super) fn parameter_is_direct_numeric_expansion(parameter: &ParameterExpansi
         ParameterExpansionSyntax::Zsh(syntax) => syntax.length_prefix.is_some(),
         _ => false,
     }
+}
+
+fn safe_value_special_parameter_access(word: &Word) -> bool {
+    let [part] = word.parts.as_slice() else {
+        return false;
+    };
+    safe_value_special_parameter_access_from_part(&part.kind)
+}
+
+fn safe_value_special_parameter_access_from_part(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(name) => safe_value_special_parameter(name),
+        WordPart::DoubleQuoted { parts, .. } => {
+            matches!(
+                parts.as_slice(),
+                [part] if safe_value_special_parameter_access_from_part(&part.kind)
+            )
+        }
+        WordPart::Parameter(parameter) => matches!(
+            parameter.bourne(),
+            Some(BourneParameterExpansion::Access { reference })
+                if safe_value_special_parameter(&reference.name) && reference.subscript.is_none()
+        ),
+        WordPart::Literal(_)
+        | WordPart::ZshQualifiedGlob(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. } => false,
+    }
+}
+
+fn safe_value_special_parameter(name: &Name) -> bool {
+    matches!(name.as_str(), "@" | "#" | "?" | "$" | "!" | "-")
+}
+
+fn safe_value_contains_special_parameter_slice(word: &Word) -> bool {
+    word.parts.iter().any(|part| {
+        safe_value_part_contains_special_parameter_slice(&part.kind)
+            && !matches!(part.kind, WordPart::DoubleQuoted { .. })
+    })
+}
+
+fn safe_value_part_contains_special_parameter_slice(part: &WordPart) -> bool {
+    match part {
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| safe_value_part_contains_special_parameter_slice(&part.kind)),
+        WordPart::Substring { reference, .. } => safe_value_special_parameter_slice_reference(reference),
+        WordPart::Parameter(parameter) => {
+            safe_value_parameter_contains_special_parameter_slice(parameter)
+        }
+        WordPart::Literal(_)
+        | WordPart::ZshQualifiedGlob(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::Variable(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. } => false,
+    }
+}
+
+fn safe_value_parameter_contains_special_parameter_slice(parameter: &ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Slice { reference, .. }) => {
+            safe_value_special_parameter_slice_reference(reference)
+        }
+        ParameterExpansionSyntax::Bourne(_) | ParameterExpansionSyntax::Zsh(_) => false,
+    }
+}
+
+fn safe_value_special_parameter_slice_reference(reference: &VarRef) -> bool {
+    matches!(reference.name.as_str(), "@" | "*")
 }
 
 
@@ -1236,11 +1409,15 @@ pub(super) struct WordFactOutputs<'out, 'a> {
     pub(super) word_occurrences: &'out mut Vec<WordOccurrence>,
     pub(super) pending_arithmetic_word_occurrences:
         &'out mut Vec<PendingArithmeticWordOccurrence>,
+    pub(super) pending_parameter_operand_word_occurrences:
+        &'out mut Vec<PendingParameterOperandWordOccurrence>,
     pub(super) compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
     pub(super) array_assignment_split_word_ids: &'out mut Vec<WordOccurrenceId>,
     pub(super) seen_word_occurrences: &'out mut FxHashSet<WordOccurrenceSeenKey>,
     pub(super) seen_pending_arithmetic_word_occurrences:
         &'out mut FxHashSet<PendingArithmeticSeenKey>,
+    pub(super) seen_pending_parameter_operand_word_occurrences:
+        &'out mut FxHashSet<PendingParameterOperandSeenKey>,
     pub(super) assoc_binding_visibility_memo:
         &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
     pub(super) array_like_capable_names: &'out FxHashSet<Name>,
@@ -1261,8 +1438,18 @@ pub(super) struct PendingArithmeticWordOccurrence {
     pub(super) enclosing_expansion_context: ExpansionContext,
 }
 
+pub(super) struct PendingParameterOperandWordOccurrence {
+    pub(super) node_id: WordNodeId,
+    pub(super) command_id: CommandId,
+    pub(super) nested_word_command: bool,
+    pub(super) host_kind: WordFactHostKind,
+    pub(super) enclosing_expansion_context: ExpansionContext,
+}
+
 pub(super) type WordOccurrenceSeenKey = (FactSpan, WordFactContext, WordFactHostKind);
 pub(super) type PendingArithmeticSeenKey = (FactSpan, ExpansionContext, WordFactHostKind);
+pub(super) type PendingParameterOperandSeenKey =
+    (FactSpan, ExpansionContext, WordFactHostKind);
 
 pub(super) fn derive_word_fact_data<'a>(
     word: &'a Word,
@@ -1290,6 +1477,9 @@ pub(super) fn derive_word_fact_data<'a>(
         starts_with_extglob: word_spans::word_starts_with_extglob(word, source),
         has_literal_affixes: word_has_literal_affixes(word),
         contains_shell_quoting_literals: word_contains_shell_quoting_literals(word, source),
+        safe_value_plain_scalar_reference_name: safe_value_plain_scalar_reference_name(word),
+        safe_value_special_parameter_access: safe_value_special_parameter_access(word),
+        safe_value_contains_special_parameter_slice: safe_value_contains_special_parameter_slice(word),
         active_expansion_spans: span_store
             .push_many(traversal_spans.active_expansion_spans.drain(..)),
         scalar_expansion_spans: span_store
@@ -1752,6 +1942,8 @@ pub(super) struct WordFactCollector<'out, 'a, 'norm> {
     word_node_ids_by_span: &'out mut FxHashMap<FactSpan, WordNodeId>,
     word_occurrences: &'out mut Vec<WordOccurrence>,
     pending_arithmetic_word_occurrences: &'out mut Vec<PendingArithmeticWordOccurrence>,
+    pending_parameter_operand_word_occurrences:
+        &'out mut Vec<PendingParameterOperandWordOccurrence>,
     array_assignment_split_word_ids: &'out mut Vec<WordOccurrenceId>,
     assoc_binding_visibility_memo: &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
     array_like_capable_names: &'out FxHashSet<Name>,
@@ -1761,6 +1953,7 @@ pub(super) struct WordFactCollector<'out, 'a, 'norm> {
     value_flow: SemanticValueFlow<'out, 'a>,
     seen: &'out mut FxHashSet<WordOccurrenceSeenKey>,
     seen_pending_arithmetic: &'out mut FxHashSet<PendingArithmeticSeenKey>,
+    seen_pending_parameter_operand: &'out mut FxHashSet<PendingParameterOperandSeenKey>,
     compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
     case_pattern_expansions: &'out mut Vec<CasePatternExpansionFact>,
     pattern_literal_spans: &'out mut Vec<Span>,
@@ -1870,6 +2063,16 @@ struct PendingArithmeticWordVisitor<'collector, 'out, 'a, 'norm> {
 impl<'out, 'a, 'norm> WordSubtreeVisitor<'a>
     for PendingArithmeticWordVisitor<'_, 'out, 'a, 'norm>
 {
+    fn enter_word(&mut self, word: &'a Word, state: WordTraversalState<'a>) {
+        if state.origin == WordTraversalOrigin::ParameterOperand {
+            self.collector.push_pending_parameter_operand_word_occurrence(
+                word,
+                self.enclosing_expansion_context,
+                self.host_kind,
+            );
+        }
+    }
+
     fn visit_arithmetic_expansion(
         &mut self,
         part: &'a WordPartNode,
@@ -1942,6 +2145,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             word_node_ids_by_span: outputs.word_node_ids_by_span,
             word_occurrences: outputs.word_occurrences,
             pending_arithmetic_word_occurrences: outputs.pending_arithmetic_word_occurrences,
+            pending_parameter_operand_word_occurrences: outputs
+                .pending_parameter_operand_word_occurrences,
             array_assignment_split_word_ids: outputs.array_assignment_split_word_ids,
             assoc_binding_visibility_memo: outputs.assoc_binding_visibility_memo,
             array_like_capable_names: outputs.array_like_capable_names,
@@ -1956,6 +2161,12 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             seen_pending_arithmetic: {
                 outputs.seen_pending_arithmetic_word_occurrences.clear();
                 outputs.seen_pending_arithmetic_word_occurrences
+            },
+            seen_pending_parameter_operand: {
+                outputs
+                    .seen_pending_parameter_operand_word_occurrences
+                    .clear();
+                outputs.seen_pending_parameter_operand_word_occurrences
             },
             compound_assignment_value_word_spans: outputs.compound_assignment_value_word_spans,
             case_pattern_expansions: outputs.case_pattern_expansions,
@@ -2929,7 +3140,9 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 context,
                 Some(&self.command_shell_behavior),
             ),
-            WordFactContext::CaseSubject | WordFactContext::ArithmeticCommand => {
+            WordFactContext::CaseSubject
+            | WordFactContext::ArithmeticCommand
+            | WordFactContext::ParameterOperand => {
                 RuntimeLiteralAnalysis::default()
             }
         };
@@ -2947,7 +3160,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             }
             WordFactContext::Expansion(_)
             | WordFactContext::CaseSubject
-            | WordFactContext::ArithmeticCommand => None,
+            | WordFactContext::ArithmeticCommand
+            | WordFactContext::ParameterOperand => None,
         };
         self.word_span_scratch.clear();
         collect_split_sensitive_unquoted_command_substitution_spans(
@@ -3014,6 +3228,31 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         let node_id = self.intern_word_node(word);
         self.pending_arithmetic_word_occurrences
             .push(PendingArithmeticWordOccurrence {
+                node_id,
+                command_id: self.command_id,
+                nested_word_command: self.nested_word_command,
+                host_kind,
+                enclosing_expansion_context,
+            });
+    }
+
+    fn push_pending_parameter_operand_word_occurrence(
+        &mut self,
+        word: &'a Word,
+        enclosing_expansion_context: ExpansionContext,
+        host_kind: WordFactHostKind,
+    ) {
+        let key = FactSpan::new(word.span);
+        if !self
+            .seen_pending_parameter_operand
+            .insert((key, enclosing_expansion_context, host_kind))
+        {
+            return;
+        }
+
+        let node_id = self.intern_word_node(word);
+        self.pending_parameter_operand_word_occurrences
+            .push(PendingParameterOperandWordOccurrence {
                 node_id,
                 command_id: self.command_id,
                 nested_word_command: self.nested_word_command,

@@ -591,6 +591,10 @@ impl<'a> LinterFacts<'a> {
         WordOccurrenceIter::all(self, WordOccurrenceFilter::ArithmeticCommand)
     }
 
+    pub fn parameter_operand_word_facts(&self) -> WordOccurrenceIter<'_, 'a> {
+        WordOccurrenceIter::all(self, WordOccurrenceFilter::ParameterOperand)
+    }
+
     pub fn is_compound_assignment_value_word(&self, fact: WordOccurrenceRef<'_, '_>) -> bool {
         self.compound_assignment_value_word_flags
             .get(fact.occurrence_id().index())

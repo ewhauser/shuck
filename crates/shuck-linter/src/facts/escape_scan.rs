@@ -119,7 +119,9 @@ pub(super) fn build_escape_scan_matches(
             is_tr_operand_argument(commands, command_fact_indices_by_id, nodes, fact);
         let expansion_context = match fact.context {
             super::WordFactContext::Expansion(context) => Some(context),
-            super::WordFactContext::CaseSubject | super::WordFactContext::ArithmeticCommand => None,
+            super::WordFactContext::CaseSubject
+            | super::WordFactContext::ArithmeticCommand
+            | super::WordFactContext::ParameterOperand => None,
         };
         if is_regex_like_context(expansion_context) {
             continue;
@@ -150,7 +152,9 @@ pub(super) fn build_escape_scan_matches(
     for fact in occurrences.iter().filter(|fact| {
         is_assignment_value_context(match fact.context {
             super::WordFactContext::Expansion(context) => Some(context),
-            super::WordFactContext::CaseSubject | super::WordFactContext::ArithmeticCommand => None,
+            super::WordFactContext::CaseSubject
+            | super::WordFactContext::ArithmeticCommand
+            | super::WordFactContext::ParameterOperand => None,
         })
     }) {
         if !word_spans::word_has_single_literal_part(occurrence_word(nodes, fact)) {
@@ -192,7 +196,9 @@ pub(super) fn build_escape_scan_matches(
             is_tr_operand_argument(commands, command_fact_indices_by_id, nodes, fact);
         if is_regex_like_context(match fact.context {
             super::WordFactContext::Expansion(context) => Some(context),
-            super::WordFactContext::CaseSubject | super::WordFactContext::ArithmeticCommand => None,
+            super::WordFactContext::CaseSubject
+            | super::WordFactContext::ArithmeticCommand
+            | super::WordFactContext::ParameterOperand => None,
         }) {
             continue;
         }
@@ -393,7 +399,9 @@ fn is_relevant_word_occurrence(fact: &WordOccurrence) -> bool {
             fact.host_kind == WordFactHostKind::CommandWrapperTarget
         }
         WordFactContext::Expansion(context) => is_relevant_word_context(Some(context)),
-        WordFactContext::CaseSubject | WordFactContext::ArithmeticCommand => false,
+        WordFactContext::CaseSubject
+        | WordFactContext::ArithmeticCommand
+        | WordFactContext::ParameterOperand => false,
     }
 }
 
