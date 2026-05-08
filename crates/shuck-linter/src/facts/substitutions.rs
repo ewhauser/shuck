@@ -203,60 +203,25 @@ fn build_command_substitution_facts<'a>(
         locator,
     };
 
-    visit_command_words_for_substitutions(fact.command(), fact.redirects(), source, &mut |word| {
-        collect_or_update_word_substitution_facts(
-            word,
-            SubstitutionHostKind::Other,
-            context,
-            &mut substitutions,
-            &mut substitution_index,
-        );
-    });
+    visit_command_substitution_inputs(
+        fact.command(),
+        fact.redirects(),
+        source,
+        &mut |host_kind, word| {
+            collect_or_update_word_substitution_facts(
+                word,
+                host_kind,
+                context,
+                &mut substitutions,
+                &mut substitution_index,
+            );
+        },
+    );
 
     visit_heredoc_bodies_for_substitutions(fact.redirects(), &mut |body| {
         collect_or_update_heredoc_body_substitution_facts(
             body,
             SubstitutionHostKind::Other,
-            context,
-            &mut substitutions,
-            &mut substitution_index,
-        );
-    });
-
-    visit_command_argument_words_for_substitutions(fact.command(), source, &mut |word| {
-        collect_or_update_word_substitution_facts(
-            word,
-            SubstitutionHostKind::CommandArgument,
-            context,
-            &mut substitutions,
-            &mut substitution_index,
-        );
-    });
-
-    visit_here_string_words_for_substitutions(fact.redirects(), &mut |word| {
-        collect_or_update_word_substitution_facts(
-            word,
-            SubstitutionHostKind::HereStringOperand,
-            context,
-            &mut substitutions,
-            &mut substitution_index,
-        );
-    });
-
-    visit_declaration_assignment_words_for_substitutions(fact.command(), &mut |word| {
-        collect_or_update_word_substitution_facts(
-            word,
-            SubstitutionHostKind::DeclarationAssignmentValue,
-            context,
-            &mut substitutions,
-            &mut substitution_index,
-        );
-    });
-
-    visit_command_subscript_words_for_substitutions(fact.command(), source, &mut |kind, word| {
-        collect_or_update_word_substitution_facts(
-            word,
-            kind,
             context,
             &mut substitutions,
             &mut substitution_index,
@@ -1568,39 +1533,6 @@ fn visit_command_argument_words_for_substitutions<'a>(
     }
 }
 
-fn visit_declaration_assignment_words_for_substitutions(
-    command: &Command,
-    visitor: &mut impl FnMut(&Word),
-) {
-    let Command::Decl(command) = command else {
-        return;
-    };
-
-    for operand in &command.operands {
-        let DeclOperand::Assignment(assignment) = operand else {
-            continue;
-        };
-
-        if let AssignmentValue::Scalar(word) = &assignment.value {
-            visitor(word);
-        }
-    }
-}
-
-fn visit_here_string_words_for_substitutions(
-    redirects: &[Redirect],
-    visitor: &mut impl FnMut(&Word),
-) {
-    for redirect in redirects {
-        if redirect.kind == RedirectKind::HereString {
-            let Some(word) = redirect.word_target() else {
-                continue;
-            };
-            visitor(word);
-        }
-    }
-}
-
 fn visit_heredoc_bodies_for_substitutions(
     redirects: &[Redirect],
     visitor: &mut impl FnMut(&shuck_ast::HeredocBody),
@@ -1615,58 +1547,215 @@ fn visit_heredoc_bodies_for_substitutions(
     }
 }
 
-fn visit_command_subscript_words_for_substitutions(
-    command: &Command,
-    source: &str,
-    visitor: &mut impl FnMut(SubstitutionHostKind, &Word),
+fn emit_assignment_substitution_words<'a>(
+    assignment: &'a Assignment,
+    scalar_kind: SubstitutionHostKind,
+    source: &'a str,
+    visitor: &mut impl FnMut(SubstitutionHostKind, &'a Word),
 ) {
-    for assignment in command_assignments(command) {
-        visit_var_ref_subscript_words_with_source(&assignment.target, source, &mut |word| {
+    visit_subscript_words(
+        assignment.target.subscript.as_deref(),
+        source,
+        &mut |word| {
             visitor(SubstitutionHostKind::AssignmentTargetSubscript, word);
-        });
+        },
+    );
 
-        if let AssignmentValue::Compound(array) = &assignment.value {
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => visitor(scalar_kind, word),
+        AssignmentValue::Compound(array) => {
             for element in &array.elements {
-                if let shuck_ast::ArrayElem::Keyed { key, .. }
-                | shuck_ast::ArrayElem::KeyedAppend { key, .. } = element
-                {
-                    visit_subscript_words(Some(key), source, &mut |word| {
-                        visitor(SubstitutionHostKind::ArrayKeySubscript, word);
-                    });
+                match element {
+                    ArrayElem::Sequential(word) => visitor(SubstitutionHostKind::Other, word),
+                    ArrayElem::Keyed { key, value }
+                    | ArrayElem::KeyedAppend { key, value } => {
+                        visit_subscript_words(Some(key), source, &mut |word| {
+                            visitor(SubstitutionHostKind::ArrayKeySubscript, word);
+                        });
+                        visitor(SubstitutionHostKind::Other, value);
+                    }
                 }
             }
         }
     }
+}
 
-    for operand in declaration_operands(command) {
-        match operand {
-            DeclOperand::Name(reference) => {
-                visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
-                    visitor(SubstitutionHostKind::DeclarationNameSubscript, word);
-                });
-            }
-            DeclOperand::Assignment(assignment) => {
-                visit_var_ref_subscript_words_with_source(
-                    &assignment.target,
+fn visit_command_substitution_inputs<'a>(
+    command: &'a Command,
+    redirects: &'a [Redirect],
+    source: &'a str,
+    visitor: &mut impl FnMut(SubstitutionHostKind, &'a Word),
+) {
+    match command {
+        Command::Simple(command) => {
+            for assignment in &command.assignments {
+                emit_assignment_substitution_words(
+                    assignment,
+                    SubstitutionHostKind::Other,
                     source,
-                    &mut |word| {
-                        visitor(SubstitutionHostKind::AssignmentTargetSubscript, word);
-                    },
+                    visitor,
                 );
+            }
+            visitor(SubstitutionHostKind::Other, &command.name);
 
-                if let AssignmentValue::Compound(array) = &assignment.value {
-                    for element in &array.elements {
-                        if let shuck_ast::ArrayElem::Keyed { key, .. }
-                        | shuck_ast::ArrayElem::KeyedAppend { key, .. } = element
-                        {
-                            visit_subscript_words(Some(key), source, &mut |word| {
-                                visitor(SubstitutionHostKind::ArrayKeySubscript, word);
-                            });
-                        }
+            let arg_kind = if static_word_text(&command.name, source).as_deref() == Some("trap") {
+                SubstitutionHostKind::Other
+            } else {
+                SubstitutionHostKind::CommandArgument
+            };
+            for word in &command.args {
+                visitor(arg_kind, word);
+            }
+        }
+        Command::Builtin(command) => {
+            for assignment in builtin_assignments(command) {
+                emit_assignment_substitution_words(
+                    assignment,
+                    SubstitutionHostKind::Other,
+                    source,
+                    visitor,
+                );
+            }
+            match command {
+                BuiltinCommand::Break(c) => {
+                    if let Some(word) = &c.depth {
+                        visitor(SubstitutionHostKind::CommandArgument, word);
+                    }
+                    for word in &c.extra_args {
+                        visitor(SubstitutionHostKind::CommandArgument, word);
+                    }
+                }
+                BuiltinCommand::Continue(c) => {
+                    if let Some(word) = &c.depth {
+                        visitor(SubstitutionHostKind::CommandArgument, word);
+                    }
+                    for word in &c.extra_args {
+                        visitor(SubstitutionHostKind::CommandArgument, word);
+                    }
+                }
+                BuiltinCommand::Return(c) => {
+                    if let Some(word) = &c.code {
+                        visitor(SubstitutionHostKind::CommandArgument, word);
+                    }
+                    for word in &c.extra_args {
+                        visitor(SubstitutionHostKind::CommandArgument, word);
+                    }
+                }
+                BuiltinCommand::Exit(c) => {
+                    if let Some(word) = &c.code {
+                        visitor(SubstitutionHostKind::CommandArgument, word);
+                    }
+                    for word in &c.extra_args {
+                        visitor(SubstitutionHostKind::CommandArgument, word);
                     }
                 }
             }
-            DeclOperand::Flag(_) | DeclOperand::Dynamic(_) => {}
+        }
+        Command::Decl(command) => {
+            for assignment in &command.assignments {
+                emit_assignment_substitution_words(
+                    assignment,
+                    SubstitutionHostKind::Other,
+                    source,
+                    visitor,
+                );
+            }
+            for operand in &command.operands {
+                match operand {
+                    DeclOperand::Flag(word) => {
+                        visitor(SubstitutionHostKind::Other, word);
+                    }
+                    DeclOperand::Dynamic(word) => {
+                        visitor(SubstitutionHostKind::CommandArgument, word);
+                    }
+                    DeclOperand::Name(reference) => {
+                        visit_subscript_words(
+                            reference.subscript.as_deref(),
+                            source,
+                            &mut |word| {
+                                visitor(SubstitutionHostKind::DeclarationNameSubscript, word);
+                            },
+                        );
+                    }
+                    DeclOperand::Assignment(assignment) => {
+                        emit_assignment_substitution_words(
+                            assignment,
+                            SubstitutionHostKind::DeclarationAssignmentValue,
+                            source,
+                            visitor,
+                        );
+                    }
+                }
+            }
+        }
+        Command::Binary(_) => {}
+        Command::Function(function) => {
+            for entry in &function.header.entries {
+                visitor(SubstitutionHostKind::CommandArgument, &entry.word);
+            }
+        }
+        Command::AnonymousFunction(function) => {
+            for word in &function.args {
+                visitor(SubstitutionHostKind::CommandArgument, word);
+            }
+        }
+        Command::Compound(command) => match command {
+            CompoundCommand::For(c) => {
+                if let Some(words) = &c.words {
+                    for word in words {
+                        visitor(SubstitutionHostKind::Other, word);
+                    }
+                }
+            }
+            CompoundCommand::Repeat(c) => {
+                visitor(SubstitutionHostKind::Other, &c.count);
+            }
+            CompoundCommand::Foreach(c) => {
+                for word in &c.words {
+                    visitor(SubstitutionHostKind::Other, word);
+                }
+            }
+            CompoundCommand::Case(c) => {
+                visitor(SubstitutionHostKind::Other, &c.word);
+                for case in &c.cases {
+                    for pattern in &case.patterns {
+                        visit_pattern_for_substitutions(pattern, &mut |word| {
+                            visitor(SubstitutionHostKind::Other, word);
+                        });
+                    }
+                }
+            }
+            CompoundCommand::Select(c) => {
+                for word in &c.words {
+                    visitor(SubstitutionHostKind::Other, word);
+                }
+            }
+            CompoundCommand::Conditional(c) => {
+                visit_conditional_words_for_substitutions(&c.expression, source, &mut |word| {
+                    visitor(SubstitutionHostKind::Other, word);
+                });
+            }
+            CompoundCommand::If(_)
+            | CompoundCommand::ArithmeticFor(_)
+            | CompoundCommand::While(_)
+            | CompoundCommand::Until(_)
+            | CompoundCommand::Subshell(_)
+            | CompoundCommand::BraceGroup(_)
+            | CompoundCommand::Always(_)
+            | CompoundCommand::Arithmetic(_)
+            | CompoundCommand::Time(_)
+            | CompoundCommand::Coproc(_) => {}
+        },
+    }
+
+    for redirect in redirects {
+        if let Some(word) = redirect.word_target() {
+            let kind = if redirect.kind == RedirectKind::HereString {
+                SubstitutionHostKind::HereStringOperand
+            } else {
+                SubstitutionHostKind::Other
+            };
+            visitor(kind, word);
         }
     }
 }
@@ -1756,13 +1845,19 @@ fn visit_words_for_substitutions<'a>(words: &'a [Word], visitor: &mut impl FnMut
     }
 }
 
-fn visit_patterns_for_substitutions(patterns: &[Pattern], visitor: &mut impl FnMut(&Word)) {
+fn visit_patterns_for_substitutions<'a>(
+    patterns: &'a [Pattern],
+    visitor: &mut impl FnMut(&'a Word),
+) {
     for pattern in patterns {
         visit_pattern_for_substitutions(pattern, visitor);
     }
 }
 
-fn visit_pattern_for_substitutions(pattern: &Pattern, visitor: &mut impl FnMut(&Word)) {
+fn visit_pattern_for_substitutions<'a>(
+    pattern: &'a Pattern,
+    visitor: &mut impl FnMut(&'a Word),
+) {
     for (part, _) in pattern.parts_with_spans() {
         match part {
             PatternPart::Group { patterns, .. } => {
@@ -1777,10 +1872,10 @@ fn visit_pattern_for_substitutions(pattern: &Pattern, visitor: &mut impl FnMut(&
     }
 }
 
-fn visit_conditional_words_for_substitutions(
-    expression: &ConditionalExpr,
-    source: &str,
-    visitor: &mut impl FnMut(&Word),
+fn visit_conditional_words_for_substitutions<'a>(
+    expression: &'a ConditionalExpr,
+    source: &'a str,
+    visitor: &mut impl FnMut(&'a Word),
 ) {
     match expression {
         ConditionalExpr::Binary(expr) => {
