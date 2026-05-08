@@ -161,7 +161,9 @@ pub(super) fn build_conditional_portability_facts<'a>(
     for fact in inputs.word_occurrences {
         let expansion_context = match fact.context {
             super::WordFactContext::Expansion(context) => Some(context),
-            super::WordFactContext::CaseSubject | super::WordFactContext::ArithmeticCommand => None,
+            super::WordFactContext::CaseSubject
+            | super::WordFactContext::ArithmeticCommand
+            | super::WordFactContext::ParameterOperand => None,
         };
         let word = occurrence_word(inputs.word_nodes, fact);
         if supports_extglob_portability_context(expansion_context)

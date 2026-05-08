@@ -176,11 +176,13 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             FxHashMap::with_capacity_and_hasher(estimated_word_nodes, Default::default());
         let mut word_occurrences = Vec::with_capacity(estimated_word_occurrences);
         let mut pending_arithmetic_word_occurrences = Vec::new();
+        let mut pending_parameter_operand_word_occurrences = Vec::new();
         let mut compound_assignment_value_word_spans = FxHashSet::default();
         let mut array_assignment_split_word_ids =
             Vec::with_capacity(capacity.commands.saturating_div(8));
         let mut seen_word_occurrences = FxHashSet::default();
         let mut seen_pending_arithmetic_word_occurrences = FxHashSet::default();
+        let mut seen_pending_parameter_operand_word_occurrences = FxHashSet::default();
         let mut assoc_binding_visibility_memo = FxHashMap::default();
         let array_like_capable_names = compute_array_like_capable_names(self.semantic);
         let single_array_like_bindings = compute_single_array_like_bindings(self.semantic);
@@ -308,12 +310,16 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                         word_occurrences: &mut word_occurrences,
                         pending_arithmetic_word_occurrences:
                             &mut pending_arithmetic_word_occurrences,
+                        pending_parameter_operand_word_occurrences:
+                            &mut pending_parameter_operand_word_occurrences,
                         compound_assignment_value_word_spans:
                             &mut compound_assignment_value_word_spans,
                         array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
                         seen_word_occurrences: &mut seen_word_occurrences,
                         seen_pending_arithmetic_word_occurrences:
                             &mut seen_pending_arithmetic_word_occurrences,
+                        seen_pending_parameter_operand_word_occurrences:
+                            &mut seen_pending_parameter_operand_word_occurrences,
                         assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
                         array_like_capable_names: &array_like_capable_names,
                         single_array_like_bindings: &single_array_like_bindings,
@@ -895,6 +901,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &word_nodes,
             &mut word_occurrences,
             pending_arithmetic_word_occurrences,
+            pending_parameter_operand_word_occurrences,
             &mut fact_store,
         );
         populate_array_assignment_split_scalar_expansion_spans(
@@ -1159,6 +1166,7 @@ fn build_word_occurrence_index(
     word_nodes: &[WordNode<'_>],
     word_occurrences: &mut Vec<WordOccurrence>,
     pending_arithmetic_word_occurrences: Vec<PendingArithmeticWordOccurrence>,
+    pending_parameter_operand_word_occurrences: Vec<PendingParameterOperandWordOccurrence>,
     fact_store: &mut FactStore<'_>,
 ) -> FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>> {
     word_occurrences.extend(
@@ -1169,6 +1177,22 @@ fn build_word_occurrence_index(
                 command_id: pending.command_id,
                 nested_word_command: pending.nested_word_command,
                 context: WordFactContext::ArithmeticCommand,
+                host_kind: pending.host_kind,
+                runtime_literal: RuntimeLiteralAnalysis::default(),
+                operand_class: None,
+                enclosing_expansion_context: Some(pending.enclosing_expansion_context),
+                split_sensitive_unquoted_command_substitution_spans: IdRange::empty(),
+                array_assignment_split_scalar_expansion_spans: IdRange::empty(),
+            }),
+    );
+    word_occurrences.extend(
+        pending_parameter_operand_word_occurrences
+            .into_iter()
+            .map(|pending| WordOccurrence {
+                node_id: pending.node_id,
+                command_id: pending.command_id,
+                nested_word_command: pending.nested_word_command,
+                context: WordFactContext::ParameterOperand,
                 host_kind: pending.host_kind,
                 runtime_literal: RuntimeLiteralAnalysis::default(),
                 operand_class: None,

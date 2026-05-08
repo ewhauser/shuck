@@ -1268,6 +1268,74 @@ fn word_facts_track_only_literal_command_trailers() {
 }
 
 #[test]
+fn word_facts_expose_safe_value_structural_summaries() {
+    let source = "\
+#!/bin/bash
+printf '%s\n' \"$name\" \"${name:-fallback}\" \"${@:1}\" ${@:1} \"$@\" $@
+";
+
+    with_facts(source, None, |_, facts| {
+        let word_fact = |text: &str| {
+            facts
+                .word_facts()
+                .find(|fact| fact.span().slice(source) == text)
+                .expect("expected word fact")
+        };
+
+        let plain_name = word_fact("\"$name\"");
+        assert_eq!(
+            plain_name
+                .safe_value_plain_scalar_reference_name()
+                .map(|name| name.as_str()),
+            Some("name")
+        );
+        assert!(!plain_name.safe_value_special_parameter_access());
+        assert!(!plain_name.safe_value_contains_special_parameter_slice());
+
+        let defaulted = word_fact("\"${name:-fallback}\"");
+        assert_eq!(defaulted.safe_value_plain_scalar_reference_name(), None);
+
+        let quoted_slice = word_fact("\"${@:1}\"");
+        assert!(!quoted_slice.safe_value_contains_special_parameter_slice());
+
+        let unquoted_slice = word_fact("${@:1}");
+        assert!(unquoted_slice.safe_value_contains_special_parameter_slice());
+
+        let quoted_special = word_fact("\"$@\"");
+        assert!(quoted_special.safe_value_special_parameter_access());
+        assert_eq!(
+            quoted_special.safe_value_plain_scalar_reference_name(),
+            None
+        );
+
+        let unquoted_special = word_fact("$@");
+        assert!(unquoted_special.safe_value_special_parameter_access());
+    });
+}
+
+#[test]
+fn word_facts_report_arithmetic_expansion_hazards() {
+    let source = "\
+#!/bin/bash
+printf '%s\n' \"prefix $((x + 1)) suffix\" plain
+";
+
+    with_facts(source, None, |_, facts| {
+        let arithmetic = facts
+            .word_facts()
+            .find(|fact| fact.span().slice(source) == "\"prefix $((x + 1)) suffix\"")
+            .expect("expected arithmetic word fact");
+        let plain = facts
+            .word_facts()
+            .find(|fact| fact.span().slice(source) == "plain")
+            .expect("expected plain word fact");
+
+        assert!(arithmetic.has_arithmetic_expansion());
+        assert!(!plain.has_arithmetic_expansion());
+    });
+}
+
+#[test]
 fn builds_case_pattern_expansion_spans_for_simple_dynamic_patterns() {
     let source = "\
 #!/bin/sh
@@ -1931,6 +1999,38 @@ fn indexes_pending_arithmetic_word_facts_by_span() {
                 .any_word_fact(arithmetic.span())
                 .map(|fact| fact.span().slice(source)),
             Some("$name")
+        );
+    });
+}
+
+#[test]
+fn indexes_parameter_operand_word_facts_by_span_without_exposing_them_in_word_facts() {
+    let source = "#!/bin/bash\nprintf '%s\\n' \"${value:-$name}\"\n";
+
+    with_facts(source, None, |_, facts| {
+        let operand = facts
+            .parameter_operand_word_facts()
+            .find(|fact| fact.span().slice(source) == "$name")
+            .expect("expected parameter operand word fact");
+
+        assert!(operand.is_parameter_operand());
+        assert_eq!(
+            facts
+                .word_fact(operand.span(), operand.context())
+                .map(|fact| fact.span().slice(source)),
+            Some("$name")
+        );
+        assert_eq!(
+            facts
+                .any_word_fact(operand.span())
+                .map(|fact| fact.span().slice(source)),
+            Some("$name")
+        );
+        assert!(
+            facts
+                .word_facts()
+                .all(|fact| fact.span().slice(source) != "$name"),
+            "parameter operand fact should stay out of the normal word_facts stream"
         );
     });
 }

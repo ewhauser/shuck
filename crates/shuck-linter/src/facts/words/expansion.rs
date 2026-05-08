@@ -165,6 +165,7 @@ pub enum WordFactContext {
     Expansion(ExpansionContext),
     CaseSubject,
     ArithmeticCommand,
+    ParameterOperand,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
