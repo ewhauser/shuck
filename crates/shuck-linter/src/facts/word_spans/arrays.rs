@@ -1815,7 +1815,7 @@ pub(crate) fn all_elements_array_expansion_is_standalone(
 
 #[cfg(test)]
 mod tests {
-    use shuck_ast::{Span, Word};
+    use shuck_ast::{Span, Word, WordPart, WordPartNode};
     use shuck_indexer::LineIndex;
     use shuck_parser::parser::Parser;
     use shuck_semantic::ShellDialect;
@@ -1831,7 +1831,10 @@ mod tests {
         word_unquoted_star_parameter_spans, word_unquoted_star_splat_spans,
     };
     use crate::Locator;
-    use crate::facts::word_spans::collect_scalar_expansion_part_spans;
+    use crate::facts::word_spans::parameter_is_scalar_like;
+    use crate::facts::words::{
+        WordSubtreeVisitor, WordTraversalContext, WordTraversalState, walk_word_subtree,
+    };
 
     fn all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
         all_elements_array_expansion_part_spans_with_dialect(word, source, ShellDialect::Bash)
@@ -1946,8 +1949,71 @@ mod tests {
 
     fn scalar_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
         let mut spans = Vec::new();
-        collect_scalar_expansion_part_spans(word, &mut spans);
+        let mut visitor = TestScalarExpansionSpanVisitor {
+            spans: &mut spans,
+            only_unquoted: false,
+        };
+        walk_word_subtree(
+            word,
+            WordTraversalContext {
+                source: "",
+                locator: None,
+                shell_dialect: ShellDialect::Bash,
+            },
+            &mut visitor,
+        );
         spans
+    }
+
+    struct TestScalarExpansionSpanVisitor<'spans> {
+        spans: &'spans mut Vec<Span>,
+        only_unquoted: bool,
+    }
+
+    impl<'a> WordSubtreeVisitor<'a> for TestScalarExpansionSpanVisitor<'_> {
+        fn visit_part(&mut self, part: &'a WordPartNode, state: WordTraversalState<'a>) {
+            if !state.processes_root_word() {
+                return;
+            }
+            let quoted = state.in_double_quote;
+
+            match &part.kind {
+                WordPart::Literal(_)
+                | WordPart::SingleQuoted { .. }
+                | WordPart::DoubleQuoted { .. } => {}
+                WordPart::ZshQualifiedGlob(_) => {}
+                WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
+                WordPart::Parameter(parameter) => {
+                    if parameter_is_scalar_like(parameter) && (!self.only_unquoted || !quoted) {
+                        self.spans.push(part.span);
+                    }
+                }
+                WordPart::Variable(name) if matches!(name.as_str(), "@" | "*") => {}
+                WordPart::Variable(_)
+                | WordPart::ArithmeticExpansion { .. }
+                | WordPart::Length(_)
+                | WordPart::ArrayLength(_)
+                | WordPart::Substring { .. }
+                | WordPart::PrefixMatch { .. } => {
+                    if !self.only_unquoted || !quoted {
+                        self.spans.push(part.span);
+                    }
+                }
+                WordPart::ParameterExpansion { reference, .. }
+                | WordPart::IndirectExpansion { reference, .. }
+                | WordPart::Transformation { reference, .. } => {
+                    if !reference.has_array_selector() && (!self.only_unquoted || !quoted) {
+                        self.spans.push(part.span);
+                    }
+                }
+                WordPart::ArrayAccess(reference) => {
+                    if !reference.has_array_selector() && (!self.only_unquoted || !quoted) {
+                        self.spans.push(part.span);
+                    }
+                }
+                WordPart::ArrayIndices(_) | WordPart::ArraySlice { .. } => {}
+            }
+        }
     }
 
     #[test]

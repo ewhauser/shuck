@@ -27,10 +27,8 @@ pub(in crate::facts) enum WordTraversalPatternContext {
 }
 
 #[derive(Clone, Copy, Debug)]
-#[allow(dead_code)]
 pub(in crate::facts) struct WordTraversalState<'a> {
     pub parent_word_span: Span,
-    pub part_span: Option<Span>,
     pub part_index: Option<usize>,
     pub siblings: Option<&'a [WordPartNode]>,
     pub in_double_quote: bool,
@@ -43,7 +41,6 @@ impl<'a> WordTraversalState<'a> {
     fn root(word: &'a Word) -> Self {
         Self {
             parent_word_span: word.span,
-            part_span: None,
             part_index: None,
             siblings: None,
             in_double_quote: false,
@@ -59,14 +56,13 @@ impl<'a> WordTraversalState<'a> {
 
     fn with_part(
         self,
-        part: &'a WordPartNode,
+        _part: &'a WordPartNode,
         siblings: &'a [WordPartNode],
         part_index: usize,
         escaped_template_suppressed: bool,
     ) -> Self {
         Self {
             parent_word_span: self.parent_word_span,
-            part_span: Some(part.span),
             part_index: Some(part_index),
             siblings: Some(siblings),
             in_double_quote: self.in_double_quote,
@@ -79,7 +75,6 @@ impl<'a> WordTraversalState<'a> {
     fn without_part(self) -> Self {
         Self {
             parent_word_span: self.parent_word_span,
-            part_span: None,
             part_index: None,
             siblings: None,
             in_double_quote: self.in_double_quote,
@@ -99,7 +94,6 @@ impl<'a> WordTraversalState<'a> {
     fn with_origin(self, origin: WordTraversalOrigin, word_span: Span) -> Self {
         Self {
             parent_word_span: word_span,
-            part_span: None,
             part_index: None,
             siblings: None,
             in_double_quote: false,
@@ -695,7 +689,9 @@ mod tests {
                 "literal:{text}:{:?}:{:?}",
                 state.origin, state.in_double_quote
             ));
-            assert_eq!(state.part_span, Some(part.span));
+            let siblings = state.siblings.expect("literal should expose siblings");
+            let part_index = state.part_index.expect("literal should expose index");
+            assert_eq!(siblings[part_index].span, part.span);
         }
 
         fn enter_double_quoted(&mut self, _part: &'a WordPartNode, _state: WordTraversalState<'a>) {

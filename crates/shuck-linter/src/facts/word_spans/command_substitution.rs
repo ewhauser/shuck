@@ -3,16 +3,6 @@ use crate::facts::words::{
     WordSubtreeVisitor, WordTraversalContext, WordTraversalState, walk_word_subtree,
 };
 
-#[allow(dead_code)]
-pub fn collect_command_substitution_part_spans_in_source(
-    word: &Word,
-    locator: Locator<'_>,
-    spans: &mut Vec<Span>,
-) {
-    collect_command_substitution_spans(word, traversal_context_with_locator(locator), spans);
-    normalize_command_substitution_spans(spans, locator);
-}
-
 pub fn arithmetic_expansion_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_arithmetic_expansion_spans(word, &mut spans);
@@ -29,39 +19,6 @@ pub fn unquoted_command_substitution_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_unquoted_command_substitution_spans(word, &mut spans);
     spans
-}
-
-#[allow(dead_code)]
-pub fn collect_unquoted_command_substitution_part_spans_in_source(
-    word: &Word,
-    locator: Locator<'_>,
-    spans: &mut Vec<Span>,
-) {
-    collect_unquoted_command_substitution_spans(word, spans);
-    normalize_command_substitution_spans(spans, locator);
-}
-
-#[allow(dead_code)]
-pub fn collect_unquoted_dollar_paren_command_substitution_part_spans_in_source(
-    word: &Word,
-    locator: Locator<'_>,
-    spans: &mut Vec<Span>,
-) {
-    collect_unquoted_dollar_paren_command_substitution_spans(word, spans);
-    normalize_command_substitution_spans(spans, locator);
-}
-
-fn collect_command_substitution_spans<'a>(
-    word: &'a Word,
-    context: WordTraversalContext<'a>,
-    spans: &mut Vec<Span>,
-) {
-    let mut visitor = CommandSubstitutionSpanVisitor {
-        spans,
-        only_unquoted: false,
-        only_dollar_paren: false,
-    };
-    walk_word_subtree(word, context, &mut visitor);
 }
 
 pub(crate) fn collect_arithmetic_expansion_spans(word: &Word, spans: &mut Vec<Span>) {
@@ -84,17 +41,6 @@ pub(crate) fn collect_unquoted_command_substitution_spans(word: &Word, spans: &m
     let mut visitor = CommandSubstitutionSpanVisitor {
         spans,
         only_unquoted: true,
-        only_dollar_paren: false,
-    };
-    walk_word_subtree(word, traversal_context_without_source(), &mut visitor);
-}
-
-#[allow(dead_code)]
-fn collect_unquoted_dollar_paren_command_substitution_spans(word: &Word, spans: &mut Vec<Span>) {
-    let mut visitor = CommandSubstitutionSpanVisitor {
-        spans,
-        only_unquoted: true,
-        only_dollar_paren: true,
     };
     walk_word_subtree(word, traversal_context_without_source(), &mut visitor);
 }
@@ -102,7 +48,6 @@ fn collect_unquoted_dollar_paren_command_substitution_spans(word: &Word, spans: 
 struct CommandSubstitutionSpanVisitor<'spans> {
     spans: &'spans mut Vec<Span>,
     only_unquoted: bool,
-    only_dollar_paren: bool,
 }
 
 impl<'a> WordSubtreeVisitor<'a> for CommandSubstitutionSpanVisitor<'_> {
@@ -112,17 +57,6 @@ impl<'a> WordSubtreeVisitor<'a> for CommandSubstitutionSpanVisitor<'_> {
         state: WordTraversalState<'a>,
     ) {
         if !state.processes_root_word() || (self.only_unquoted && state.in_double_quote) {
-            return;
-        }
-        if self.only_dollar_paren
-            && !matches!(
-                &part.kind,
-                WordPart::CommandSubstitution {
-                    syntax: CommandSubstitutionSyntax::DollarParen,
-                    ..
-                }
-            )
-        {
             return;
         }
         self.spans.push(part.span);
@@ -155,15 +89,6 @@ impl<'a> WordSubtreeVisitor<'a> for ArithmeticExpansionSpanVisitor<'_> {
         } else {
             self.spans.push(part.span);
         }
-    }
-}
-
-#[allow(dead_code)]
-fn traversal_context_with_locator(locator: Locator<'_>) -> WordTraversalContext<'_> {
-    WordTraversalContext {
-        source: locator.source(),
-        locator: Some(locator),
-        shell_dialect: shuck_semantic::ShellDialect::Bash,
     }
 }
 
@@ -330,19 +255,29 @@ mod tests {
     use shuck_parser::parser::Parser;
 
     use super::{
-        collect_command_substitution_part_spans_in_source,
-        collect_unquoted_dollar_paren_command_substitution_part_spans_in_source,
+        CommandSubstitutionSpanVisitor, WordTraversalContext, normalize_command_substitution_spans,
+        unquoted_command_substitution_part_spans, walk_word_subtree,
     };
     use crate::Locator;
 
     fn command_substitution_part_spans(word: &Word, source: &str) -> Vec<Span> {
         let line_index = LineIndex::new(source);
+        let locator = Locator::new(source, &line_index);
         let mut spans = Vec::new();
-        collect_command_substitution_part_spans_in_source(
+        let mut visitor = CommandSubstitutionSpanVisitor {
+            spans: &mut spans,
+            only_unquoted: false,
+        };
+        walk_word_subtree(
             word,
-            Locator::new(source, &line_index),
-            &mut spans,
+            WordTraversalContext {
+                source,
+                locator: Some(locator),
+                shell_dialect: shuck_semantic::ShellDialect::Bash,
+            },
+            &mut visitor,
         );
+        normalize_command_substitution_spans(&mut spans, locator);
         spans
     }
 
@@ -352,11 +287,12 @@ mod tests {
     ) -> Vec<Span> {
         let line_index = LineIndex::new(source);
         let locator = Locator::new(source, &line_index);
-        let mut spans = Vec::new();
-        collect_unquoted_dollar_paren_command_substitution_part_spans_in_source(
-            word, locator, &mut spans,
-        );
+        let mut spans = unquoted_command_substitution_part_spans(word);
+        normalize_command_substitution_spans(&mut spans, locator);
         spans
+            .into_iter()
+            .filter(|span| span.slice(source).starts_with("$("))
+            .collect()
     }
 
     #[test]
