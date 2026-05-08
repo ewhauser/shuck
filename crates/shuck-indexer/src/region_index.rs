@@ -913,6 +913,11 @@ fn find_command_substitution_end(text: &str, start_offset: usize) -> Option<usiz
             continue;
         }
 
+        if ch == '`' {
+            index = find_backtick_substitution_end(text, index)?;
+            continue;
+        }
+
         match ch {
             '(' => {
                 paren_depth += 1;
@@ -1266,6 +1271,14 @@ mod tests {
                 TextSize::new((outer_start + "${outer".len()) as u32),
             )),
             Some(outer_pair)
+        );
+    }
+
+    #[test]
+    fn skips_backticks_when_indexing_command_substitution_end() {
+        assert_eq!(
+            find_command_substitution_end("$(echo `echo )`)", 0),
+            Some("$(echo `echo )`)".len())
         );
     }
 
