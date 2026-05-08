@@ -922,6 +922,34 @@ fn find_command_substitution_end(text: &str, start_offset: usize) -> Option<usiz
     None
 }
 
+fn find_backtick_substitution_end(text: &str, start_offset: usize) -> Option<usize> {
+    if start_offset >= text.len() || !text[start_offset..].starts_with('`') {
+        return None;
+    }
+
+    let mut index = start_offset + '`'.len_utf8();
+    while index < text.len() {
+        let ch = text[index..].chars().next()?;
+        let ch_len = ch.len_utf8();
+
+        if ch == '\\' {
+            index += ch_len;
+            if let Some(escaped) = text[index..].chars().next() {
+                index += escaped.len_utf8();
+            }
+            continue;
+        }
+
+        if ch == '`' {
+            return Some(index + ch_len);
+        }
+
+        index += ch_len;
+    }
+
+    None
+}
+
 fn find_parameter_expansion_end(text: &str, start_offset: usize) -> Option<usize> {
     if start_offset >= text.len() || !text[start_offset..].starts_with("${") {
         return None;
@@ -978,6 +1006,11 @@ fn find_parameter_expansion_end(text: &str, start_offset: usize) -> Option<usize
         {
             depth += 1;
             index += "${".len();
+            continue;
+        }
+
+        if ch == '`' {
+            index = find_backtick_substitution_end(text, index)?;
             continue;
         }
 
@@ -1193,6 +1226,14 @@ mod tests {
                 TextSize::new((parameter_start + "${x".len()) as u32),
             )),
             Some(parameter_pair)
+        );
+    }
+
+    #[test]
+    fn skips_backticks_when_indexing_parameter_expansion_end() {
+        assert_eq!(
+            find_parameter_expansion_end("\"${x:-`echo }`}\"", 1),
+            Some("\"${x:-`echo }`}".len())
         );
     }
 
