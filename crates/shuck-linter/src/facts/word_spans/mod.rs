@@ -21,8 +21,7 @@ mod zsh;
 pub use arrays::*;
 pub(crate) use backticks::{
     backtick_double_escaped_parameter_spans, backtick_escaped_parameter_reference_spans,
-    backtick_escaped_parameters, backtick_substitution_spans,
-    shellcheck_collapsed_backtick_part_span,
+    backtick_escaped_parameters, shellcheck_collapsed_backtick_part_span,
 };
 pub use command_substitution::*;
 pub use expansions::*;

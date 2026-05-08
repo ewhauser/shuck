@@ -85,163 +85,10 @@ pub(crate) fn containing_backtick_substitution_span(
         .find(|span| span_contains(*span, target))
 }
 
-#[derive(Clone, Copy, Default)]
-pub(crate) struct BacktickQuoteContext {
-    in_single_quote: bool,
-    in_double_quote: bool,
-    in_comment: bool,
-    previous_char: Option<char>,
-}
-
 pub(crate) fn backtick_shell_comment_can_start(previous_char: Option<char>) -> bool {
     previous_char.is_none_or(|ch| {
         ch.is_ascii_whitespace() || matches!(ch, ';' | '|' | '&' | '(' | ')' | '<' | '>')
     })
-}
-
-pub(crate) fn backtick_substitution_spans(locator: Locator<'_>) -> Vec<Span> {
-    let source = locator.source();
-    let mut spans = Vec::new();
-    let mut contexts = vec![BacktickQuoteContext::default()];
-    let mut backtick_start_offsets = Vec::<usize>::new();
-    let mut index = 0usize;
-
-    while index < source.len() {
-        let ch = source[index..]
-            .chars()
-            .next()
-            .expect("index should remain on UTF-8 boundaries");
-        let ch_len = ch.len_utf8();
-
-        if contexts
-            .last()
-            .expect("scanner should always retain a root context")
-            .in_comment
-        {
-            if ch == '\n' {
-                let context = contexts
-                    .last_mut()
-                    .expect("scanner should always retain a root context");
-                context.in_comment = false;
-                context.previous_char = Some(ch);
-            }
-            index += ch_len;
-            continue;
-        }
-
-        if contexts
-            .last()
-            .expect("scanner should always retain a root context")
-            .in_single_quote
-        {
-            if ch == '\'' {
-                contexts
-                    .last_mut()
-                    .expect("scanner should always retain a root context")
-                    .in_single_quote = false;
-            }
-            contexts
-                .last_mut()
-                .expect("scanner should always retain a root context")
-                .previous_char = Some(ch);
-            index += ch_len;
-            continue;
-        }
-
-        match ch {
-            '\\' => {
-                index += ch_len;
-                if index < source.len() {
-                    let escaped = source[index..]
-                        .chars()
-                        .next()
-                        .expect("index should remain on UTF-8 boundaries");
-                    index += escaped.len_utf8();
-                    contexts
-                        .last_mut()
-                        .expect("scanner should always retain a root context")
-                        .previous_char = Some(escaped);
-                } else {
-                    contexts
-                        .last_mut()
-                        .expect("scanner should always retain a root context")
-                        .previous_char = Some('\\');
-                }
-            }
-            '\'' if !contexts
-                .last()
-                .expect("scanner should always retain a root context")
-                .in_double_quote =>
-            {
-                let context = contexts
-                    .last_mut()
-                    .expect("scanner should always retain a root context");
-                context.in_single_quote = true;
-                context.previous_char = Some(ch);
-                index += ch_len;
-            }
-            '"' => {
-                let context = contexts
-                    .last_mut()
-                    .expect("scanner should always retain a root context");
-                context.in_double_quote = !context.in_double_quote;
-                context.previous_char = Some(ch);
-                index += ch_len;
-            }
-            '#' if !contexts
-                .last()
-                .expect("scanner should always retain a root context")
-                .in_double_quote
-                && backtick_shell_comment_can_start(
-                    contexts
-                        .last()
-                        .expect("scanner should always retain a root context")
-                        .previous_char,
-                ) =>
-            {
-                contexts
-                    .last_mut()
-                    .expect("scanner should always retain a root context")
-                    .in_comment = true;
-                index += ch_len;
-            }
-            '`' => {
-                if let Some(start_offset) = backtick_start_offsets.pop() {
-                    let _ = contexts.pop();
-                    let Some(start) = locator.position_at_offset(start_offset) else {
-                        index += ch_len;
-                        continue;
-                    };
-                    let Some(end) = locator.position_at_offset(index + ch_len) else {
-                        index += ch_len;
-                        continue;
-                    };
-                    spans.push(Span::from_positions(start, end));
-                    contexts
-                        .last_mut()
-                        .expect("scanner should always retain a root context")
-                        .previous_char = Some(ch);
-                } else {
-                    backtick_start_offsets.push(index);
-                    contexts
-                        .last_mut()
-                        .expect("scanner should always retain a root context")
-                        .previous_char = Some(ch);
-                    contexts.push(BacktickQuoteContext::default());
-                }
-                index += ch_len;
-            }
-            _ => {
-                contexts
-                    .last_mut()
-                    .expect("scanner should always retain a root context")
-                    .previous_char = Some(ch);
-                index += ch_len;
-            }
-        }
-    }
-
-    spans
 }
 
 pub(crate) fn backtick_escaped_parameters(
@@ -1020,18 +867,37 @@ pub(crate) fn shellcheck_collapsed_position(
 #[cfg(test)]
 mod tests {
     use shuck_ast::Span;
-    use shuck_indexer::LineIndex;
+    use shuck_indexer::{Indexer, LineIndex};
+    use shuck_parser::parser::Parser;
 
     use super::{
         backtick_double_escaped_parameter_spans, backtick_escaped_parameters,
-        backtick_substitution_spans, shellcheck_collapsed_backtick_part_span,
+        shellcheck_collapsed_backtick_part_span,
     };
     use crate::Locator;
+
+    fn backtick_spans(source: &str) -> Vec<Span> {
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let locator = Locator::new(source, indexer.line_index());
+
+        indexer
+            .region_index()
+            .backtick_command_substitution_ranges()
+            .iter()
+            .filter_map(|range| {
+                Some(Span::from_positions(
+                    locator.position_at_offset(usize::from(range.start()))?,
+                    locator.position_at_offset(usize::from(range.end()))?,
+                ))
+            })
+            .collect()
+    }
 
     fn shellcheck_collapsed_backtick_part_span_in_source(span: Span, source: &str) -> Span {
         let line_index = LineIndex::new(source);
         let locator = Locator::new(source, &line_index);
-        let backtick_spans = backtick_substitution_spans(locator);
+        let backtick_spans = backtick_spans(source);
         shellcheck_collapsed_backtick_part_span(span, locator, &backtick_spans)
     }
 
@@ -1154,7 +1020,7 @@ mod tests {
         let source = "`VAR=\"a b\" OTHER=$(printf '%s\\n' value) \\$cmd arg`";
         let line_index = LineIndex::new(source);
         let locator = Locator::new(source, &line_index);
-        let backtick_spans = backtick_substitution_spans(locator);
+        let backtick_spans = backtick_spans(source);
         let escaped = backtick_escaped_parameters(locator, &backtick_spans);
 
         assert_eq!(escaped.len(), 1);
@@ -1166,7 +1032,7 @@ mod tests {
         let source = "`VAR+=x \\$cmd arg`";
         let line_index = LineIndex::new(source);
         let locator = Locator::new(source, &line_index);
-        let backtick_spans = backtick_substitution_spans(locator);
+        let backtick_spans = backtick_spans(source);
         let escaped = backtick_escaped_parameters(locator, &backtick_spans);
 
         assert_eq!(escaped.len(), 1);
@@ -1178,11 +1044,28 @@ mod tests {
         let source = "`>/tmp/out 2>\"/tmp err\" FOO=bar \\$cmd arg`";
         let line_index = LineIndex::new(source);
         let locator = Locator::new(source, &line_index);
-        let backtick_spans = backtick_substitution_spans(locator);
+        let backtick_spans = backtick_spans(source);
         let escaped = backtick_escaped_parameters(locator, &backtick_spans);
 
         assert_eq!(escaped.len(), 1);
         assert!(escaped[0].standalone_command_name);
+    }
+
+    #[test]
+    fn backtick_escaped_parameters_include_parameter_expansion_operands() {
+        let source = "echo ${x:-`printf '%s\\n' \\$HOME`}\n";
+        let line_index = LineIndex::new(source);
+        let locator = Locator::new(source, &line_index);
+        let backtick_spans = backtick_spans(source);
+        let escaped = backtick_escaped_parameters(locator, &backtick_spans);
+
+        assert_eq!(
+            escaped
+                .iter()
+                .map(|entry| entry.reference_span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$HOME"]
+        );
     }
 
     fn span_for_text(source: &str, text: &str) -> Span {
@@ -1197,7 +1080,7 @@ mod tests {
             r#"`echo "foreach dir {puts \\$dir} literal \\\\$literal"` `echo "plain $missing"`"#;
         let line_index = LineIndex::new(source);
         let locator = Locator::new(source, &line_index);
-        let backtick_spans = backtick_substitution_spans(locator);
+        let backtick_spans = backtick_spans(source);
         let escaped = backtick_double_escaped_parameter_spans(locator, &backtick_spans);
 
         assert_eq!(

@@ -1,8 +1,10 @@
 use shuck_ast::{
-    ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand,
-    ConditionalExpr, DeclClause, DeclOperand, File, FunctionDef, HeredocBody, HeredocBodyPart,
-    HeredocBodyPartNode, Pattern, PatternPart, PatternPartNode, Redirect, RedirectKind, Stmt,
-    StmtSeq, Subscript, TextRange, TextSize, VarRef, Word, WordPart, WordPartNode, ZshGlobSegment,
+    ArithmeticForCommand, Assignment, AssignmentValue, BourneParameterExpansion, BuiltinCommand,
+    Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalExpr, DeclClause, DeclOperand,
+    File, FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, ParameterExpansion,
+    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, PatternPartNode, Redirect,
+    RedirectKind, Stmt, StmtSeq, Subscript, TextRange, TextSize, VarRef, Word, WordPart,
+    WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment, ZshParameterExpansion,
 };
 /// A syntactic region that affects source interpretation.
 ///
@@ -49,6 +51,7 @@ pub struct RegionIndex {
     double_quoted: Vec<TextRange>,
     heredocs: Vec<TextRange>,
     command_substitutions: Vec<TextRange>,
+    backtick_command_substitutions: Vec<TextRange>,
     arithmetic: Vec<TextRange>,
     conditionals: Vec<TextRange>,
     quoted_heredocs: Vec<TextRange>,
@@ -138,6 +141,14 @@ impl RegionIndex {
         contains_any(&self.command_substitutions, offset)
     }
 
+    /// Return all backtick command-substitution ranges in source order.
+    ///
+    /// The ranges are half-open byte ranges for legacy `` `...` `` command
+    /// substitutions only. `$(...)` ranges are excluded.
+    pub fn backtick_command_substitution_ranges(&self) -> &[TextRange] {
+        &self.backtick_command_substitutions
+    }
+
     /// Return whether `offset` falls inside an arithmetic context.
     ///
     /// Arithmetic contexts include arithmetic commands, arithmetic `for`
@@ -190,6 +201,7 @@ struct RegionCollector<'a> {
     double_quoted: Vec<TextRange>,
     heredocs: Vec<TextRange>,
     command_substitutions: Vec<TextRange>,
+    backtick_command_substitutions: Vec<TextRange>,
     arithmetic: Vec<TextRange>,
     conditionals: Vec<TextRange>,
     quoted_heredocs: Vec<TextRange>,
@@ -205,6 +217,7 @@ impl<'a> RegionCollector<'a> {
             double_quoted: Vec::new(),
             heredocs: Vec::new(),
             command_substitutions: Vec::new(),
+            backtick_command_substitutions: Vec::new(),
             arithmetic: Vec::new(),
             conditionals: Vec::new(),
             quoted_heredocs: Vec::new(),
@@ -218,6 +231,7 @@ impl<'a> RegionCollector<'a> {
         sort_ranges(&mut self.double_quoted);
         sort_ranges(&mut self.heredocs);
         sort_ranges(&mut self.command_substitutions);
+        sort_ranges(&mut self.backtick_command_substitutions);
         sort_ranges(&mut self.arithmetic);
         sort_ranges(&mut self.conditionals);
         sort_ranges(&mut self.quoted_heredocs);
@@ -289,6 +303,7 @@ impl<'a> RegionCollector<'a> {
             double_quoted: self.double_quoted,
             heredocs: self.heredocs,
             command_substitutions: self.command_substitutions,
+            backtick_command_substitutions: self.backtick_command_substitutions,
             arithmetic: self.arithmetic,
             conditionals: self.conditionals,
             quoted_heredocs: self.quoted_heredocs,
@@ -643,6 +658,152 @@ impl<'a> RegionCollector<'a> {
         self.visit_word_parts(&word.parts);
     }
 
+    fn visit_parameter_expansion(&mut self, parameter: &ParameterExpansion) {
+        match &parameter.syntax {
+            ParameterExpansionSyntax::Bourne(syntax) => {
+                self.visit_bourne_parameter_expansion(syntax);
+            }
+            ParameterExpansionSyntax::Zsh(syntax) => {
+                self.visit_zsh_parameter_expansion(syntax);
+            }
+        }
+    }
+
+    fn visit_bourne_parameter_expansion(&mut self, syntax: &BourneParameterExpansion) {
+        match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                self.visit_var_ref_subscript(reference);
+            }
+            BourneParameterExpansion::Indirect {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                self.visit_var_ref_subscript(reference);
+                if let Some(operator) = operator.as_deref() {
+                    self.visit_parameter_operator(operator);
+                }
+                if let Some(operand_word) = operand_word_ast.as_deref() {
+                    self.visit_word(operand_word);
+                }
+            }
+            BourneParameterExpansion::Slice {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            } => {
+                self.visit_var_ref_subscript(reference);
+                self.visit_arithmetic_operand_word(offset_ast.as_deref(), offset_word_ast);
+                if let Some(length_ast) = length_ast.as_deref() {
+                    self.visit_arithmetic_shell_words(length_ast);
+                } else if let Some(length_word) = length_word_ast.as_deref() {
+                    self.visit_word(length_word);
+                }
+            }
+            BourneParameterExpansion::Operation {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                self.visit_var_ref_subscript(reference);
+                self.visit_parameter_operator(operator);
+                if let Some(operand_word) = operand_word_ast.as_deref() {
+                    self.visit_word(operand_word);
+                }
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => {}
+        }
+    }
+
+    fn visit_parameter_operator(&mut self, operator: &ParameterOp) {
+        match operator {
+            ParameterOp::RemovePrefixShort { pattern }
+            | ParameterOp::RemovePrefixLong { pattern }
+            | ParameterOp::RemoveSuffixShort { pattern }
+            | ParameterOp::RemoveSuffixLong { pattern } => {
+                self.visit_pattern(pattern);
+            }
+            ParameterOp::ReplaceFirst {
+                pattern,
+                replacement_word_ast,
+                ..
+            }
+            | ParameterOp::ReplaceAll {
+                pattern,
+                replacement_word_ast,
+                ..
+            } => {
+                self.visit_pattern(pattern);
+                self.visit_word(replacement_word_ast);
+            }
+            ParameterOp::UseDefault
+            | ParameterOp::AssignDefault
+            | ParameterOp::UseReplacement
+            | ParameterOp::Error
+            | ParameterOp::UpperFirst
+            | ParameterOp::UpperAll
+            | ParameterOp::LowerFirst
+            | ParameterOp::LowerAll => {}
+        }
+    }
+
+    fn visit_zsh_parameter_expansion(&mut self, syntax: &ZshParameterExpansion) {
+        match &syntax.target {
+            ZshExpansionTarget::Reference(reference) => self.visit_var_ref_subscript(reference),
+            ZshExpansionTarget::Nested(parameter) => self.visit_parameter_expansion(parameter),
+            ZshExpansionTarget::Word(word) => self.visit_word(word),
+            ZshExpansionTarget::Empty => {}
+        }
+
+        for modifier in &syntax.modifiers {
+            if let Some(word) = modifier.argument_word_ast() {
+                self.visit_word(word);
+            }
+        }
+
+        if let Some(operation) = syntax.operation.as_ref() {
+            self.visit_zsh_expansion_operation(operation);
+        }
+    }
+
+    fn visit_zsh_expansion_operation(&mut self, operation: &ZshExpansionOperation) {
+        if let Some(word) = operation.operand_word_ast() {
+            self.visit_word(word);
+        }
+        if let Some(word) = operation.pattern_word_ast() {
+            self.visit_word(word);
+        }
+        if let Some(word) = operation.replacement_word_ast() {
+            self.visit_word(word);
+        }
+        if let Some(word) = operation.offset_word_ast() {
+            self.visit_word(word);
+        }
+        if let Some(word) = operation.length_word_ast() {
+            self.visit_word(word);
+        }
+    }
+
+    fn visit_arithmetic_operand_word(
+        &mut self,
+        expression_ast: Option<&shuck_ast::ArithmeticExprNode>,
+        word: &Word,
+    ) {
+        if let Some(expression_ast) = expression_ast {
+            self.visit_arithmetic_shell_words(expression_ast);
+        } else {
+            self.visit_word(word);
+        }
+    }
+
     fn visit_heredoc_body(&mut self, body: &HeredocBody) {
         self.visit_heredoc_body_parts(&body.parts);
     }
@@ -687,8 +848,11 @@ impl<'a> RegionCollector<'a> {
                     self.push_dollar_brace_pairs_in_source_range(range);
                     self.visit_word_parts(parts);
                 }
-                WordPart::CommandSubstitution { body, .. } => {
+                WordPart::CommandSubstitution { body, syntax } => {
                     push_range(&mut self.command_substitutions, range);
+                    if *syntax == CommandSubstitutionSyntax::Backtick {
+                        push_range(&mut self.backtick_command_substitutions, range);
+                    }
                     self.visit_stmt_seq(body);
                 }
                 WordPart::ArithmeticExpansion { expression_ast, .. } => {
@@ -699,17 +863,72 @@ impl<'a> RegionCollector<'a> {
                     }
                 }
                 WordPart::ProcessSubstitution { body, .. } => self.visit_stmt_seq(body),
-                WordPart::Parameter(_)
-                | WordPart::ParameterExpansion { .. }
-                | WordPart::Length(_)
-                | WordPart::ArrayAccess(_)
-                | WordPart::ArrayLength(_)
-                | WordPart::ArrayIndices(_)
-                | WordPart::Substring { .. }
-                | WordPart::ArraySlice { .. }
-                | WordPart::IndirectExpansion { .. }
-                | WordPart::PrefixMatch { .. }
-                | WordPart::Transformation { .. } => {
+                WordPart::Parameter(parameter) => {
+                    self.push_dollar_brace_pair(range);
+                    self.visit_parameter_expansion(parameter);
+                }
+                WordPart::ParameterExpansion {
+                    reference,
+                    operator,
+                    operand_word_ast,
+                    ..
+                } => {
+                    self.push_dollar_brace_pair(range);
+                    self.visit_var_ref_subscript(reference);
+                    self.visit_parameter_operator(operator);
+                    if let Some(operand_word) = operand_word_ast.as_deref() {
+                        self.visit_word(operand_word);
+                    }
+                }
+                WordPart::Length(reference)
+                | WordPart::ArrayAccess(reference)
+                | WordPart::ArrayLength(reference)
+                | WordPart::ArrayIndices(reference)
+                | WordPart::Transformation { reference, .. } => {
+                    self.push_dollar_brace_pair(range);
+                    self.visit_var_ref_subscript(reference);
+                }
+                WordPart::Substring {
+                    reference,
+                    offset_ast,
+                    offset_word_ast,
+                    length_ast,
+                    length_word_ast,
+                    ..
+                }
+                | WordPart::ArraySlice {
+                    reference,
+                    offset_ast,
+                    offset_word_ast,
+                    length_ast,
+                    length_word_ast,
+                    ..
+                } => {
+                    self.push_dollar_brace_pair(range);
+                    self.visit_var_ref_subscript(reference);
+                    self.visit_arithmetic_operand_word(offset_ast.as_deref(), offset_word_ast);
+                    if let Some(length_ast) = length_ast.as_deref() {
+                        self.visit_arithmetic_shell_words(length_ast);
+                    } else if let Some(length_word) = length_word_ast.as_deref() {
+                        self.visit_word(length_word);
+                    }
+                }
+                WordPart::IndirectExpansion {
+                    reference,
+                    operator,
+                    operand_word_ast,
+                    ..
+                } => {
+                    self.push_dollar_brace_pair(range);
+                    self.visit_var_ref_subscript(reference);
+                    if let Some(operator) = operator.as_deref() {
+                        self.visit_parameter_operator(operator);
+                    }
+                    if let Some(operand_word) = operand_word_ast.as_deref() {
+                        self.visit_word(operand_word);
+                    }
+                }
+                WordPart::PrefixMatch { .. } => {
                     self.push_dollar_brace_pair(range);
                 }
                 WordPart::Variable(_) => {
@@ -724,8 +943,11 @@ impl<'a> RegionCollector<'a> {
         for part in parts {
             let range = part.span.to_range();
             match &part.kind {
-                HeredocBodyPart::CommandSubstitution { body, .. } => {
+                HeredocBodyPart::CommandSubstitution { body, syntax } => {
                     push_range(&mut self.command_substitutions, range);
+                    if *syntax == CommandSubstitutionSyntax::Backtick {
+                        push_range(&mut self.backtick_command_substitutions, range);
+                    }
                     self.visit_stmt_seq(body);
                 }
                 HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => {
@@ -735,8 +957,9 @@ impl<'a> RegionCollector<'a> {
                         self.visit_arithmetic_shell_words(expression_ast);
                     }
                 }
-                HeredocBodyPart::Parameter(_) => {
+                HeredocBodyPart::Parameter(parameter) => {
                     self.push_dollar_brace_pair(range);
+                    self.visit_parameter_expansion(parameter);
                 }
                 HeredocBodyPart::Variable(_) => {
                     self.push_dollar_brace_pair(range);
@@ -1090,6 +1313,38 @@ mod tests {
     }
 
     #[test]
+    fn tracks_backtick_command_substitution_ranges() {
+        let source = "echo `printf '%s' \"$name\"` $(pwd)\n";
+        let regions = regions(source);
+        let start = source.find('`').unwrap();
+        let end = source[start + 1..].find('`').unwrap() + start + 2;
+
+        assert_eq!(
+            regions.backtick_command_substitution_ranges(),
+            &[TextRange::new(
+                TextSize::new(start as u32),
+                TextSize::new(end as u32),
+            )]
+        );
+    }
+
+    #[test]
+    fn tracks_backtick_command_substitution_ranges_in_parameter_operands() {
+        let source = "echo ${x:-`printf '%s' \"$name\"`}\n";
+        let regions = regions(source);
+        let start = source.find('`').unwrap();
+        let end = source[start + 1..].find('`').unwrap() + start + 2;
+
+        assert_eq!(
+            regions.backtick_command_substitution_ranges(),
+            &[TextRange::new(
+                TextSize::new(start as u32),
+                TextSize::new(end as u32),
+            )]
+        );
+    }
+
+    #[test]
     fn tracks_quoted_regions_inside_keyed_array_subscripts() {
         let source = "declare -A map=(['$HOME']=1)\n";
         let regions = regions(source);
@@ -1108,6 +1363,20 @@ mod tests {
         assert_eq!(regions.region_at(offset), Some(RegionKind::Heredoc));
         assert!(regions.is_heredoc(offset));
         assert!(regions.is_quoted(offset));
+    }
+
+    #[test]
+    fn excludes_quoted_heredoc_backticks_from_backtick_ranges() {
+        let source = "cat <<'EOF'\n`printf quoted`\nEOF\ncat <<EOF\n`printf live`\nEOF\n";
+        let regions = regions(source);
+        let [range] = regions.backtick_command_substitution_ranges() else {
+            panic!("expected one live backtick substitution");
+        };
+
+        assert_eq!(
+            &source[usize::from(range.start())..usize::from(range.end())],
+            "`printf live`"
+        );
     }
 
     #[test]
