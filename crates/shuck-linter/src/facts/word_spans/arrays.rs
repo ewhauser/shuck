@@ -1,4 +1,5 @@
 use super::*;
+use smallvec::SmallVec;
 
 pub fn collect_array_expansion_part_spans(word: &Word, spans: &mut Vec<Span>) {
     collect_array_expansion_spans(&word.parts, false, false, spans);
@@ -52,11 +53,12 @@ pub fn collect_direct_all_elements_array_expansion_part_spans(
     shell_dialect: shuck_semantic::ShellDialect,
     spans: &mut Vec<Span>,
 ) {
-    collect_direct_all_elements_array_expansion_spans(
-        &word.parts,
-        word.span,
+    let escaped_templates = escaped_parameter_template_bodies(word.span, locator.source());
+    collect_direct_all_elements_array_expansion_part_spans_with_escaped_templates(
+        word,
         locator,
         shell_dialect,
+        escaped_templates.as_slice(),
         spans,
     );
 }
@@ -482,26 +484,105 @@ pub(crate) fn collect_all_elements_array_slice_spans(
     }
 }
 
-pub(crate) fn collect_direct_all_elements_array_expansion_spans(
-    parts: &[WordPartNode],
-    word_span: Span,
+pub(crate) fn collect_direct_all_elements_array_expansion_part_spans_with_escaped_templates(
+    word: &Word,
     locator: Locator<'_>,
     shell_dialect: shuck_semantic::ShellDialect,
+    escaped_templates: &[EscapedParameterTemplateBody],
+    spans: &mut Vec<Span>,
+) {
+    collect_direct_all_elements_array_expansion_spans_with_escaped_templates(
+        &word.parts,
+        locator,
+        shell_dialect,
+        escaped_templates,
+        spans,
+    );
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EscapedParameterTemplateBody {
+    pub span: Span,
+    pub contains_nested_parameter: bool,
+}
+
+pub(crate) fn escaped_parameter_template_bodies(
+    word_span: Span,
+    source: &str,
+) -> SmallVec<[EscapedParameterTemplateBody; 2]> {
+    let mut bodies = SmallVec::new();
+    if word_span.start.offset >= word_span.end.offset || word_span.end.offset > source.len() {
+        return bodies;
+    }
+
+    let text = word_span.slice(source);
+    if !text.contains("\\${") {
+        return bodies;
+    }
+
+    let mut index = 0usize;
+    while index < text.len() {
+        if text[index..].starts_with("\\${") {
+            let dollar_offset = index + '\\'.len_utf8();
+            if offset_is_backslash_escaped(word_span.start.offset + dollar_offset, source)
+                && let Some(end_offset) = escaped_parameter_template_end(text, dollar_offset)
+            {
+                let body_start = dollar_offset + "${".len();
+                let body_end = end_offset.saturating_sub('}'.len_utf8());
+                if body_start < body_end {
+                    let span = Span::from_positions(
+                        word_span.start.advanced_by(&text[..body_start]),
+                        word_span.start.advanced_by(&text[..body_end]),
+                    );
+                    bodies.push(EscapedParameterTemplateBody {
+                        span,
+                        contains_nested_parameter: text[body_start..body_end].contains("${"),
+                    });
+                }
+                index = end_offset;
+                continue;
+            }
+        }
+
+        let Some(ch) = text[index..].chars().next() else {
+            break;
+        };
+        index += ch.len_utf8();
+    }
+
+    bodies
+}
+
+pub(crate) fn span_start_inside_escaped_parameter_template(
+    span: Span,
+    bodies: &[EscapedParameterTemplateBody],
+) -> bool {
+    bodies
+        .iter()
+        .copied()
+        .any(|body| body.contains(span.start.offset))
+}
+
+fn collect_direct_all_elements_array_expansion_spans_with_escaped_templates(
+    parts: &[WordPartNode],
+    locator: Locator<'_>,
+    shell_dialect: shuck_semantic::ShellDialect,
+    escaped_templates: &[EscapedParameterTemplateBody],
     spans: &mut Vec<Span>,
 ) {
     let source = locator.source();
     for part in parts {
-        if span_inside_escaped_parameter_template(word_span, part.span, source) {
+        if span_start_inside_escaped_parameter_template(part.span, escaped_templates) {
             continue;
         }
         match &part.kind {
             WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
-                collect_direct_all_elements_array_expansion_spans(
+                collect_direct_all_elements_array_expansion_spans_with_escaped_templates(
                     parts,
-                    word_span,
                     locator,
                     shell_dialect,
+                    escaped_templates,
                     spans,
                 )
             }
@@ -535,42 +616,10 @@ pub(crate) fn collect_direct_all_elements_array_expansion_spans(
     }
 }
 
-pub(crate) fn span_inside_escaped_parameter_template(
-    word_span: Span,
-    span: Span,
-    source: &str,
-) -> bool {
-    if span.start.offset < word_span.start.offset || span.start.offset >= word_span.end.offset {
-        return false;
+impl EscapedParameterTemplateBody {
+    fn contains(self, offset: usize) -> bool {
+        self.span.start.offset <= offset && offset < self.span.end.offset
     }
-
-    let text = word_span.slice(source);
-    let relative_offset = span.start.offset - word_span.start.offset;
-    let mut index = 0usize;
-
-    while index < text.len() {
-        if text[index..].starts_with("\\${") {
-            let dollar_offset = index + '\\'.len_utf8();
-            if offset_is_backslash_escaped(word_span.start.offset + dollar_offset, source)
-                && let Some(end_offset) = escaped_parameter_template_end(text, dollar_offset)
-            {
-                let body_start = dollar_offset + "${".len();
-                let body_end = end_offset.saturating_sub('}'.len_utf8());
-                if relative_offset >= body_start && relative_offset < body_end {
-                    return true;
-                }
-                index = end_offset;
-                continue;
-            }
-        }
-
-        let Some(ch) = text[index..].chars().next() else {
-            break;
-        };
-        index += ch.len_utf8();
-    }
-
-    false
 }
 
 pub(crate) fn escaped_parameter_template_end(text: &str, dollar_offset: usize) -> Option<usize> {

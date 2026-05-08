@@ -23,15 +23,10 @@ fn build_plain_unindexed_array_reference_facts(
 struct PlainUnindexedArrayReferenceContext<'a, 'src> {
     facts: &'a LinterFacts<'src>,
     semantic: &'a SemanticModel,
-    local_declarations: LocalDeclarationIndex,
     simple_command_ancestors_by_offset: FxHashMap<usize, Vec<SimpleCommandAncestor>>,
     same_command_writers_by_name: FxHashMap<Name, Vec<BindingId>>,
     presence_test_ends_by_name_binding: FxHashMap<Name, FxHashMap<Option<BindingId>, Vec<usize>>>,
     resolved_binding_ids: FxHashMap<ReferenceId, Option<BindingId>>,
-    binding_inherits_indexed_array_type_cache: FxHashMap<BindingId, bool>,
-    binding_has_prior_local_barrier_cache: FxHashMap<BindingId, bool>,
-    binding_is_append_declaration_cache: FxHashMap<BindingId, bool>,
-    binding_reset_by_name_only_before_cache: FxHashMap<(BindingId, usize), bool>,
 }
 
 impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
@@ -39,15 +34,10 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
         Self {
             facts,
             semantic: facts.semantic,
-            local_declarations: LocalDeclarationIndex::build(facts.semantic),
             simple_command_ancestors_by_offset: FxHashMap::default(),
             same_command_writers_by_name: FxHashMap::default(),
             presence_test_ends_by_name_binding: FxHashMap::default(),
             resolved_binding_ids: FxHashMap::default(),
-            binding_inherits_indexed_array_type_cache: FxHashMap::default(),
-            binding_has_prior_local_barrier_cache: FxHashMap::default(),
-            binding_is_append_declaration_cache: FxHashMap::default(),
-            binding_reset_by_name_only_before_cache: FxHashMap::default(),
         }
     }
 
@@ -60,65 +50,16 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
             || self.reference_is_zsh_presence_test(reference)
             || self.reference_has_prior_presence_test(reference)
             || self.reference_reads_into_same_name_array_writer(reference)
-            || self.reference_has_prior_zsh_scalar_local_barrier(reference)
         {
             return None;
         }
 
-        if let Some(binding) = self.semantic.resolved_binding(reference.id)
-            && self.semantic.binding_visible_at(binding.id, reference.span)
-            && !binding_is_array_like(binding)
-            && !self.binding_inherits_indexed_array_type(binding)
-            && (binding_resets_indexed_array_type(binding)
-                || self.binding_has_prior_local_barrier(binding)
-                || (self.facts.shell == ShellDialect::Zsh
-                    && binding_is_initialized_scalar_declaration(binding)))
-        {
+        let policy = self.semantic.reference_array_use_kind(reference.id)?;
+        if self.reference_is_zsh_array_assignment_list_value(reference, policy) {
             return None;
         }
 
-        let array_like = if is_bash_runtime_array_name(reference.name.as_str()) {
-            true
-        } else {
-            let mut binding_ids = Vec::new();
-            let mut seen = FxHashSet::default();
-            if let Some(binding) = self.semantic.resolved_binding(reference.id)
-                && !binding_is_array_like(binding)
-                && seen.insert(binding.id)
-            {
-                binding_ids.push(binding.id);
-            }
-            for binding_id in self
-                .semantic
-                .visible_candidate_bindings_for_reference(reference)
-            {
-                if seen.insert(binding_id) {
-                    binding_ids.push(binding_id);
-                }
-            }
-
-            binding_ids.into_iter().any(|binding_id| {
-                let binding = self.semantic.binding(binding_id);
-                !self.binding_reset_by_name_only_declaration_before(binding, reference.span)
-                    && (binding_is_array_like(binding)
-                        || self.binding_inherits_indexed_array_type(binding))
-            })
-        };
-        if !array_like {
-            return None;
-        }
-
-        if is_bash_runtime_array_name(reference.name.as_str()) {
-            return Some(PlainUnindexedArrayReferenceFact::SelectorRequired(
-                SelectorRequiredArrayReference::new(reference.id, reference.span),
-            ));
-        }
-
-        if self.reference_is_zsh_array_assignment_list_value(reference) {
-            return None;
-        }
-
-        Some(match self.array_reference_policy(reference) {
+        Some(match policy {
             shuck_semantic::ArrayReferencePolicy::RequiresExplicitSelector => {
                 PlainUnindexedArrayReferenceFact::SelectorRequired(
                     SelectorRequiredArrayReference::new(reference.id, reference.span),
@@ -138,12 +79,13 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
         })
     }
 
-    fn reference_is_zsh_array_assignment_list_value(&mut self, reference: &Reference) -> bool {
+    fn reference_is_zsh_array_assignment_list_value(
+        &mut self,
+        reference: &Reference,
+        policy: shuck_semantic::ArrayReferencePolicy,
+    ) -> bool {
         if self.facts.shell != ShellDialect::Zsh
-            || matches!(
-                self.array_reference_policy(reference),
-                shuck_semantic::ArrayReferencePolicy::RequiresExplicitSelector
-            )
+            || matches!(policy, shuck_semantic::ArrayReferencePolicy::RequiresExplicitSelector)
         {
             return false;
         }
@@ -171,105 +113,6 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
         self.semantic
             .shell_behavior_at(reference.span.start.offset)
             .array_reference_policy()
-    }
-
-    fn binding_inherits_indexed_array_type(&mut self, binding: &Binding) -> bool {
-        if let Some(cached) = self
-            .binding_inherits_indexed_array_type_cache
-            .get(&binding.id)
-            .copied()
-        {
-            return cached;
-        }
-
-        let inherited = if binding_resets_indexed_array_type(binding) {
-            false
-        } else {
-            let initialized_scalar_declaration =
-                matches!(binding.kind, BindingKind::Declaration(_))
-                    && binding
-                        .attributes
-                        .contains(BindingAttributes::DECLARATION_INITIALIZED)
-                    && !binding
-                        .attributes
-                        .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC);
-            let append_declaration = self.binding_is_append_declaration(binding);
-            let prior_local_barrier = self.binding_has_prior_local_barrier(binding);
-            let prior_bindings = self
-                .semantic
-                .bindings_for(&binding.name)
-                .iter()
-                .copied()
-                .filter(|candidate_id| {
-                    let candidate = self.semantic.binding(*candidate_id);
-                    let same_scope_candidate_allowed = !initialized_scalar_declaration
-                        || append_declaration
-                        || self.facts.shell != ShellDialect::Zsh;
-                    candidate.span.start.offset < binding.span.start.offset
-                        && ((candidate.scope != binding.scope && !prior_local_barrier)
-                            || same_scope_candidate_allowed)
-                        && !self
-                            .binding_reset_by_name_only_declaration_before(candidate, binding.span)
-                })
-                .collect::<Vec<_>>();
-
-            let mut inherited = false;
-            for candidate_id in prior_bindings.into_iter().rev() {
-                let candidate = self.semantic.binding(candidate_id);
-                if binding_resets_indexed_array_type(candidate) {
-                    inherited = false;
-                    break;
-                }
-                if binding_is_sticky_indexed_array(candidate) {
-                    inherited = true;
-                    break;
-                }
-            }
-            inherited
-        };
-
-        self.binding_inherits_indexed_array_type_cache
-            .insert(binding.id, inherited);
-        inherited
-    }
-
-    fn reference_has_prior_zsh_scalar_local_barrier(&self, reference: &Reference) -> bool {
-        if self.facts.shell != ShellDialect::Zsh {
-            return false;
-        }
-
-        let latest_barrier = self
-            .semantic
-            .ancestor_scopes(self.semantic.scope_at(reference.span.start.offset))
-            .flat_map(|scope| {
-                self.local_declarations
-                    .initialized_scalar_local_declarations_for(scope, &reference.name)
-                    .iter()
-                    .copied()
-            })
-            .filter(|span| span.end.offset < reference.span.start.offset)
-            .max_by_key(|span| span.start.offset);
-
-        latest_barrier
-            .is_some_and(|barrier| !self.zsh_array_binding_after_scalar_local_barrier(reference, barrier))
-    }
-
-    fn zsh_array_binding_after_scalar_local_barrier(
-        &self,
-        reference: &Reference,
-        barrier: Span,
-    ) -> bool {
-        self.semantic
-            .bindings_for(&reference.name)
-            .iter()
-            .copied()
-            .map(|binding_id| self.semantic.binding(binding_id))
-            .any(|binding| {
-                binding.span.start.offset > barrier.start.offset
-                    && binding.span.start.offset < reference.span.start.offset
-                    && self.semantic.binding_visible_at(binding.id, reference.span)
-                    && binding_is_array_like(binding)
-            })
     }
 
     fn reference_reads_into_same_name_array_writer(&mut self, reference: &Reference) -> bool {
@@ -436,50 +279,6 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
 
         None
     }
-
-    fn binding_reset_by_name_only_declaration_before(
-        &mut self,
-        binding: &Binding,
-        at: Span,
-    ) -> bool {
-        *self
-            .binding_reset_by_name_only_before_cache
-            .entry((binding.id, at.start.offset))
-            .or_insert_with(|| {
-                self.local_declarations
-                    .name_only_local_declarations_for(binding.scope, &binding.name)
-                    .iter()
-                    .any(|span| {
-                        span.start.offset > binding.span.start.offset
-                            && span.end.offset < at.start.offset
-                    })
-            })
-    }
-
-    fn binding_has_prior_local_barrier(&mut self, binding: &Binding) -> bool {
-        *self
-            .binding_has_prior_local_barrier_cache
-            .entry(binding.id)
-            .or_insert_with(|| {
-                self.local_declarations
-                    .local_declarations_for(binding.scope, &binding.name)
-                    .iter()
-                    .any(|span| span.end.offset < binding.span.start.offset)
-            })
-    }
-
-    fn binding_is_append_declaration(&mut self, binding: &Binding) -> bool {
-        *self
-            .binding_is_append_declaration_cache
-            .entry(binding.id)
-            .or_insert_with(|| {
-                self.local_declarations.is_local_append_declaration(
-                    binding.scope,
-                    &binding.name,
-                    binding.span,
-                )
-            })
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -488,178 +287,8 @@ struct SimpleCommandAncestor {
     assignment_only: bool,
 }
 
-struct LocalDeclarationIndex {
-    local_declarations_by_scope_name: FxHashMap<(ScopeId, Name), Vec<Span>>,
-    name_only_local_declarations_by_scope_name: FxHashMap<(ScopeId, Name), Vec<Span>>,
-    initialized_scalar_local_declarations_by_scope_name: FxHashMap<(ScopeId, Name), Vec<Span>>,
-    append_local_declaration_spans: FxHashSet<(ScopeId, Name, usize, usize)>,
-}
-
-impl LocalDeclarationIndex {
-    fn build(semantic: &SemanticModel) -> Self {
-        let mut local_declarations_by_scope_name =
-            FxHashMap::<(ScopeId, Name), Vec<Span>>::default();
-        let mut name_only_local_declarations_by_scope_name =
-            FxHashMap::<(ScopeId, Name), Vec<Span>>::default();
-        let mut initialized_scalar_local_declarations_by_scope_name =
-            FxHashMap::<(ScopeId, Name), Vec<Span>>::default();
-        let mut append_local_declaration_spans = FxHashSet::default();
-
-        for declaration in semantic.declarations() {
-            if !matches!(declaration.builtin, DeclarationBuiltin::Local) {
-                continue;
-            }
-
-            let scope = semantic.scope_at(declaration.span.start.offset);
-            let declaration_has_array_flag = declaration.operands.iter().any(|operand| {
-                matches!(
-                    operand,
-                    SemanticDeclarationOperand::Flag {
-                        flag: 'a' | 'A',
-                        ..
-                    }
-                )
-            });
-            for operand in &declaration.operands {
-                match operand {
-                    SemanticDeclarationOperand::Name { name, .. } => {
-                        local_declarations_by_scope_name
-                            .entry((scope, name.clone()))
-                            .or_default()
-                            .push(declaration.span);
-                        name_only_local_declarations_by_scope_name
-                            .entry((scope, name.clone()))
-                            .or_default()
-                            .push(declaration.span);
-                    }
-                    SemanticDeclarationOperand::Assignment {
-                        name,
-                        name_span,
-                        append,
-                        ..
-                    } => {
-                        local_declarations_by_scope_name
-                            .entry((scope, name.clone()))
-                            .or_default()
-                            .push(declaration.span);
-                        if !*append && !declaration_has_array_flag {
-                            initialized_scalar_local_declarations_by_scope_name
-                                .entry((scope, name.clone()))
-                                .or_default()
-                                .push(declaration.span);
-                        }
-                        if *append {
-                            append_local_declaration_spans.insert((
-                                scope,
-                                name.clone(),
-                                name_span.start.offset,
-                                name_span.end.offset,
-                            ));
-                        }
-                    }
-                    SemanticDeclarationOperand::Flag { .. }
-                    | SemanticDeclarationOperand::DynamicWord { .. } => {}
-                }
-            }
-        }
-
-        Self {
-            local_declarations_by_scope_name,
-            name_only_local_declarations_by_scope_name,
-            initialized_scalar_local_declarations_by_scope_name,
-            append_local_declaration_spans,
-        }
-    }
-
-    fn local_declarations_for(&self, scope: ScopeId, name: &Name) -> &[Span] {
-        self.local_declarations_by_scope_name
-            .get(&(scope, name.clone()))
-            .map_or(&[], Vec::as_slice)
-    }
-
-    fn name_only_local_declarations_for(&self, scope: ScopeId, name: &Name) -> &[Span] {
-        self.name_only_local_declarations_by_scope_name
-            .get(&(scope, name.clone()))
-            .map_or(&[], Vec::as_slice)
-    }
-
-    fn initialized_scalar_local_declarations_for(&self, scope: ScopeId, name: &Name) -> &[Span] {
-        self.initialized_scalar_local_declarations_by_scope_name
-            .get(&(scope, name.clone()))
-            .map_or(&[], Vec::as_slice)
-    }
-
-    fn is_local_append_declaration(&self, scope: ScopeId, name: &Name, span: Span) -> bool {
-        self.append_local_declaration_spans.contains(&(
-            scope,
-            name.clone(),
-            span.start.offset,
-            span.end.offset,
-        ))
-    }
-}
-
 fn span_is_within(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
-}
-
-fn binding_is_array_like(binding: &Binding) -> bool {
-    let declared_array = binding
-        .attributes
-        .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC);
-    (declared_array && !is_uninitialized_local_array_declaration(binding))
-        || matches!(
-            binding.kind,
-            BindingKind::ArrayAssignment | BindingKind::MapfileTarget
-        )
-}
-
-fn binding_resets_indexed_array_type(binding: &Binding) -> bool {
-    matches!(
-        binding.kind,
-        BindingKind::ArithmeticAssignment
-            | BindingKind::GetoptsTarget
-            | BindingKind::Imported
-            | BindingKind::LoopVariable
-            | BindingKind::PrintfTarget
-    ) || (matches!(binding.kind, BindingKind::ReadTarget)
-        && !binding.attributes.contains(BindingAttributes::ARRAY))
-        || (matches!(binding.kind, BindingKind::Declaration(_))
-            && !binding
-                .attributes
-                .contains(BindingAttributes::DECLARATION_INITIALIZED)
-            && !binding
-                .attributes
-                .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC))
-}
-
-fn binding_is_initialized_scalar_declaration(binding: &Binding) -> bool {
-    matches!(binding.kind, BindingKind::Declaration(_))
-        && binding
-            .attributes
-            .contains(BindingAttributes::DECLARATION_INITIALIZED)
-        && !binding
-            .attributes
-            .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC)
-}
-
-fn binding_is_sticky_indexed_array(binding: &Binding) -> bool {
-    !is_uninitialized_local_array_declaration(binding)
-        && (binding.attributes.contains(BindingAttributes::ARRAY)
-            || matches!(
-                binding.kind,
-                BindingKind::ArrayAssignment | BindingKind::MapfileTarget
-            ))
-}
-
-fn is_uninitialized_local_array_declaration(binding: &Binding) -> bool {
-    matches!(binding.kind, BindingKind::Declaration(DeclarationBuiltin::Local))
-        && binding
-            .attributes
-            .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC)
-        && !binding
-            .attributes
-            .contains(BindingAttributes::DECLARATION_INITIALIZED)
 }
 
 fn loop_header_word_quote(facts: &LinterFacts<'_>, span: Span) -> Option<WordQuote> {
@@ -682,28 +311,6 @@ fn binding_suppresses_same_command_array_read(binding: &Binding, assignment_only
         || (matches!(binding.kind, BindingKind::ReadTarget)
             && binding.attributes.contains(BindingAttributes::ARRAY))
         || (matches!(binding.kind, BindingKind::ArrayAssignment) && assignment_only)
-}
-
-fn is_bash_runtime_array_name(name: &str) -> bool {
-    matches!(
-        name,
-        "BASH_ALIASES"
-            | "BASH_ARGC"
-            | "BASH_ARGV"
-            | "BASH_CMDS"
-            | "BASH_LINENO"
-            | "BASH_REMATCH"
-            | "BASH_SOURCE"
-            | "BASH_VERSINFO"
-            | "COMP_WORDS"
-            | "COMPREPLY"
-            | "COPROC"
-            | "DIRSTACK"
-            | "FUNCNAME"
-            | "GROUPS"
-            | "MAPFILE"
-            | "PIPESTATUS"
-    )
 }
 
 fn collect_use_replacement_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {

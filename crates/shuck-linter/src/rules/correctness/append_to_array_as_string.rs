@@ -1,4 +1,4 @@
-use shuck_semantic::{Binding, BindingAttributes, BindingKind};
+use shuck_semantic::{BindingAttributes, BindingKind};
 
 use crate::facts::words::leading_literal_word_prefix;
 use crate::{Checker, Rule, Violation};
@@ -38,7 +38,7 @@ pub fn append_to_array_as_string(checker: &mut Checker) {
                 binding.span,
                 Some(binding.span),
             )?;
-            if !binding_is_array_like(prior_binding) {
+            if !semantic.binding_has_array_value_shape(prior_binding.id) {
                 return None;
             }
 
@@ -50,13 +50,6 @@ pub fn append_to_array_as_string(checker: &mut Checker) {
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || AppendToArrayAsString);
-}
-
-fn binding_is_array_like(binding: &Binding) -> bool {
-    binding
-        .attributes
-        .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC)
-        || binding.kind == BindingKind::ArrayAssignment
 }
 
 #[cfg(test)]
