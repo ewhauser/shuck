@@ -691,8 +691,12 @@ impl<'a> RegionCollector<'a> {
                     push_range(&mut self.command_substitutions, range);
                     self.visit_stmt_seq(body);
                 }
-                WordPart::ArithmeticExpansion { .. } => {
+                WordPart::ArithmeticExpansion { expression_ast, .. } => {
                     push_range(&mut self.arithmetic, range);
+                    self.push_dollar_brace_pairs_in_source_range(range);
+                    if let Some(expression_ast) = expression_ast.as_deref() {
+                        self.visit_arithmetic_shell_words(expression_ast);
+                    }
                 }
                 WordPart::ProcessSubstitution { body, .. } => self.visit_stmt_seq(body),
                 WordPart::Parameter(_)
@@ -724,8 +728,12 @@ impl<'a> RegionCollector<'a> {
                     push_range(&mut self.command_substitutions, range);
                     self.visit_stmt_seq(body);
                 }
-                HeredocBodyPart::ArithmeticExpansion { .. } => {
+                HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => {
                     push_range(&mut self.arithmetic, range);
+                    self.push_dollar_brace_pairs_in_source_range(range);
+                    if let Some(expression_ast) = expression_ast.as_ref() {
+                        self.visit_arithmetic_shell_words(expression_ast);
+                    }
                 }
                 HeredocBodyPart::Parameter(_) => {
                     self.push_dollar_brace_pair(range);
@@ -1279,6 +1287,29 @@ mod tests {
                 TextSize::new((outer_start + "${outer".len()) as u32),
             )),
             Some(outer_pair)
+        );
+    }
+
+    #[test]
+    fn indexes_parameter_expansion_edges_inside_arithmetic_expansions() {
+        let source = "echo $(( ${x:-1} + 1 ))\n";
+        let regions = regions(source);
+        let parameter_start = source.find("${x:-1}").unwrap();
+        let parameter_open = TextSize::new((parameter_start + 1) as u32);
+        let parameter_close = TextSize::new((parameter_start + "${x:-1}".len() - 1) as u32);
+        let parameter_pair = TextRange::new(
+            TextSize::new(parameter_start as u32),
+            TextSize::new((parameter_start + "${x:-1}".len()) as u32),
+        );
+
+        assert!(regions.is_expansion_brace_edge(parameter_open));
+        assert!(regions.is_expansion_brace_edge(parameter_close));
+        assert_eq!(
+            regions.first_dollar_brace_pair_in(TextRange::new(
+                TextSize::new(parameter_start as u32),
+                TextSize::new((parameter_start + "${x".len()) as u32),
+            )),
+            Some(parameter_pair)
         );
     }
 
