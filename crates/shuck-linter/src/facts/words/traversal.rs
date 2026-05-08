@@ -1,5 +1,4 @@
 use super::*;
-use crate::facts::word_spans;
 use shuck_ast::{LiteralText, PatternGroupKind, PatternPartNode};
 
 #[derive(Clone, Copy)]
@@ -34,7 +33,6 @@ pub(in crate::facts) struct WordTraversalState<'a> {
     pub in_double_quote: bool,
     pub origin: WordTraversalOrigin,
     pub pattern_context: Option<WordTraversalPatternContext>,
-    pub escaped_template_suppressed: bool,
 }
 
 impl<'a> WordTraversalState<'a> {
@@ -46,7 +44,6 @@ impl<'a> WordTraversalState<'a> {
             in_double_quote: false,
             origin: WordTraversalOrigin::Root,
             pattern_context: None,
-            escaped_template_suppressed: false,
         }
     }
 
@@ -59,7 +56,6 @@ impl<'a> WordTraversalState<'a> {
         _part: &'a WordPartNode,
         siblings: &'a [WordPartNode],
         part_index: usize,
-        escaped_template_suppressed: bool,
     ) -> Self {
         Self {
             parent_word_span: self.parent_word_span,
@@ -68,7 +64,6 @@ impl<'a> WordTraversalState<'a> {
             in_double_quote: self.in_double_quote,
             origin: self.origin,
             pattern_context: self.pattern_context,
-            escaped_template_suppressed,
         }
     }
 
@@ -80,7 +75,6 @@ impl<'a> WordTraversalState<'a> {
             in_double_quote: self.in_double_quote,
             origin: self.origin,
             pattern_context: self.pattern_context,
-            escaped_template_suppressed: self.escaped_template_suppressed,
         }
     }
 
@@ -99,7 +93,6 @@ impl<'a> WordTraversalState<'a> {
             in_double_quote: false,
             origin,
             pattern_context: self.pattern_context,
-            escaped_template_suppressed: false,
         }
     }
 
@@ -193,13 +186,7 @@ fn walk_word_parts<'a>(
     visitor: &mut impl WordSubtreeVisitor<'a>,
 ) {
     for (index, part) in parts.iter().enumerate() {
-        let escaped_template_suppressed = state.parent_word_span.end.offset <= context.source.len()
-            && word_spans::span_inside_escaped_parameter_template(
-                state.parent_word_span,
-                part.span,
-                context.source,
-            );
-        let part_state = state.with_part(part, parts, index, escaped_template_suppressed);
+        let part_state = state.with_part(part, parts, index);
         visitor.visit_part(part, part_state);
         match &part.kind {
             WordPart::Literal(text) => {
@@ -665,14 +652,12 @@ fn walk_pattern<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shuck_ast::LiteralText;
     use shuck_indexer::LineIndex;
     use shuck_parser::parser::Parser;
 
     #[derive(Default)]
     struct RecordingVisitor {
         events: Vec<String>,
-        escaped_suppressed: Vec<String>,
     }
 
     impl<'a> WordSubtreeVisitor<'a> for RecordingVisitor {
@@ -682,9 +667,6 @@ mod tests {
             text: &'a str,
             state: WordTraversalState<'a>,
         ) {
-            if state.escaped_template_suppressed {
-                self.escaped_suppressed.push(text.to_owned());
-            }
             self.events.push(format!(
                 "literal:{text}:{:?}:{:?}",
                 state.origin, state.in_double_quote
@@ -878,27 +860,6 @@ mod tests {
                 .events
                 .iter()
                 .any(|event| event == "pattern-word:ZshQualifiedGlobPattern")
-        );
-    }
-
-    #[test]
-    fn walker_marks_escaped_template_parts() {
-        let source = "\\${name}";
-        let word = Word {
-            parts: vec![WordPartNode::new(
-                WordPart::Literal(LiteralText::source()),
-                span_for(source, 3, 7),
-            )],
-            span: span_for(source, 0, source.len()),
-            brace_syntax: Vec::new(),
-        };
-        let visitor = walk_recorded(source, &word);
-
-        assert!(
-            visitor
-                .escaped_suppressed
-                .iter()
-                .any(|text| text.contains("name"))
         );
     }
 
