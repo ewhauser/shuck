@@ -1,5 +1,3 @@
-use std::path::Path;
-use std::sync::Arc;
 use std::sync::OnceLock;
 
 use rustc_hash::FxHashSet;
@@ -11,7 +9,7 @@ use shuck_semantic::SemanticAnalysis;
 
 use crate::{
     AmbientShellOptions, Diagnostic, LinterFacts, LinterRuleOptions, LinterSemanticArtifacts,
-    Locator, ResolvedAmbientContracts, Rule, RuleSet, ShellDialect, SuppressionIndex, Violation,
+    Locator, Rule, RuleSet, ShellDialect, SuppressionIndex, Violation,
     facts::LinterFactBuildOptions, rules,
 };
 
@@ -21,12 +19,11 @@ pub struct Checker<'a> {
     indexer: &'a Indexer,
     file: &'a File,
     source: &'a str,
-    source_path: Option<&'a Path>,
     facts: OnceLock<LinterFacts<'a>>,
     rules: &'a RuleSet,
     shell: ShellDialect,
     ambient_shell_options: AmbientShellOptions,
-    ambient_contracts: Arc<ResolvedAmbientContracts>,
+    contract_vocabulary_names: Vec<Name>,
     report_environment_style_names: bool,
     rule_options: LinterRuleOptions,
     suppression_index: Option<&'a SuppressionIndex>,
@@ -59,11 +56,10 @@ impl<'a> Checker<'a> {
         source: &'a str,
         semantic: &'a LinterSemanticArtifacts<'a>,
         indexer: &'a Indexer,
-        source_path: Option<&'a Path>,
         rules: &'a RuleSet,
         shell: ShellDialect,
         ambient_shell_options: AmbientShellOptions,
-        ambient_contracts: Arc<ResolvedAmbientContracts>,
+        contract_vocabulary_names: Vec<Name>,
         report_environment_style_names: bool,
         rule_options: LinterRuleOptions,
         suppression_index: Option<&'a SuppressionIndex>,
@@ -75,12 +71,11 @@ impl<'a> Checker<'a> {
             indexer,
             file,
             source,
-            source_path,
             facts: OnceLock::new(),
             rules,
             shell,
             ambient_shell_options,
-            ambient_contracts,
+            contract_vocabulary_names,
             report_environment_style_names,
             rule_options,
             suppression_index,
@@ -126,24 +121,11 @@ impl<'a> Checker<'a> {
         self.report_environment_style_names
     }
 
-    pub(crate) fn well_known_contract_vocabulary_names(&self) -> Vec<&'static str> {
-        self.ambient_contracts.well_known_vocabulary_names(
-            self.source,
-            self.source_path,
-            self.shell,
-        )
-    }
-
     pub fn rule_options(&self) -> &LinterRuleOptions {
         &self.rule_options
     }
 
     fn build_facts(&self) -> LinterFacts<'a> {
-        let contract_names = self
-            .well_known_contract_vocabulary_names()
-            .into_iter()
-            .map(Name::from)
-            .collect();
         LinterFacts::build_with_semantic_analysis_and_options(
             self.file,
             self.source,
@@ -151,7 +133,9 @@ impl<'a> Checker<'a> {
             &self.semantic_analysis,
             self.indexer,
             LinterFactBuildOptions::new(self.shell, self.ambient_shell_options)
-                .with_possible_variable_misspelling_contract_names(contract_names),
+                .with_possible_variable_misspelling_contract_names(
+                    self.contract_vocabulary_names.clone(),
+                ),
         )
     }
 

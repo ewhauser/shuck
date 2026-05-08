@@ -224,18 +224,16 @@ impl ResolvedAmbientContracts {
 
     pub(crate) fn well_known_vocabulary_names(
         self: &Arc<Self>,
-        source: &str,
-        path: Option<&Path>,
+        collector: &AmbientContractCollector<'_>,
         shell: ShellDialect,
     ) -> Vec<&'static str> {
-        let Some(path) = path else {
+        if collector.signals.path().is_none() {
             return Vec::new();
-        };
-        let collector = AmbientContractCollector::new(source, Some(path), shell, Arc::clone(self));
+        }
         let mut names = Vec::new();
         for id in &self.enabled_file_contract_ids {
             let contract = declarative_contract_by_id(id).expect("known ambient contract id");
-            if contract.matches_file_entry_contract(&collector, shell, &self.project_root) {
+            if contract.matches_file_entry_contract(collector, shell, &self.project_root) {
                 names.extend(contract.vocabulary_names());
             }
         }

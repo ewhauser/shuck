@@ -3,14 +3,13 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    AmbientShellOptions, Checker, ExpansionContext, LinterSemanticArtifacts,
-    ResolvedAmbientContracts, RuleSet, ShellDialect, WordFactContext,
+    AmbientShellOptions, Checker, ExpansionContext, LinterSemanticArtifacts, RuleSet, ShellDialect,
+    WordFactContext,
 };
 use shuck_parser::parser::Parser;
 use shuck_parser::{ShellDialect as ParseShellDialect, ShellProfile};
@@ -149,11 +148,10 @@ fn run_fixture(fixture: &Fixture) -> Result<()> {
         &fixture.source,
         &semantic,
         &indexer,
-        None,
         &rules,
         ShellDialect::Zsh,
         AmbientShellOptions::default(),
-        Arc::new(ResolvedAmbientContracts::default()),
+        Vec::new(),
         false,
         shuck_linter::LinterRuleOptions::default(),
         None,

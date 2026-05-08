@@ -1075,6 +1075,37 @@ _example() {
 }
 
 #[test]
+fn completion_initializer_vocabulary_uses_observed_collector_state() {
+    let path = Path::new("/tmp/bash-completion/completions/example.bash");
+    let source = "\
+_example() {
+  _init_completion || return
+}
+";
+    let contracts = Arc::new(ResolvedAmbientContracts::default());
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let mut observer = NoopTraversalObserver;
+    let mut collector =
+        AmbientContractCollector::new(source, Some(path), ShellDialect::Sh, Arc::clone(&contracts));
+    let _semantic = build_with_observer_with_options(
+        &output.file,
+        source,
+        &indexer,
+        &mut observer,
+        SemanticBuildOptions {
+            file_entry_contract_collector: Some(&mut collector),
+            ..SemanticBuildOptions::default()
+        },
+    );
+
+    let names = contracts.well_known_vocabulary_names(&collector, ShellDialect::Sh);
+
+    assert!(names.contains(&"cur"));
+    assert!(names.contains(&"cword"));
+}
+
+#[test]
 fn bash_completion_paths_with_chained_initializer_wrappers_get_ambient_completion_contracts() {
     let path = Path::new("/tmp/bash-completion/completions/example.bash");
     let source = "\

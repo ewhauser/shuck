@@ -127,7 +127,7 @@ pub use suppression::{
 pub use violation::Violation;
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{Command, CompoundCommand, File, Span, Stmt, StmtSeq, TextSize};
+use shuck_ast::{Command, CompoundCommand, File, Name, Span, Stmt, StmtSeq, TextSize};
 use shuck_indexer::Indexer;
 
 use shuck_parser::parser::{ParseResult, Parser};
@@ -805,16 +805,21 @@ fn analyze_linter_file_at_path_with_resolver_and_shell<'a>(
         },
     );
     let checker_diagnostics = {
+        let contract_vocabulary_names = settings
+            .ambient_contracts
+            .well_known_vocabulary_names(&file_entry_contract_collector, shell)
+            .into_iter()
+            .map(Name::from)
+            .collect();
         let checker = Checker::new(
             file,
             source,
             &linter_semantic_artifacts,
             indexer,
-            source_path,
             &settings.rules,
             shell,
             settings.ambient_shell_options,
-            std::sync::Arc::clone(&settings.ambient_contracts),
+            contract_vocabulary_names,
             settings.report_environment_style_names,
             settings.rule_options.clone(),
             suppression_index,
@@ -1122,11 +1127,15 @@ fn analyze_file_at_path_with_resolver_and_parse_result_and_directives(
         source,
         &linter_semantic_artifacts,
         indexer,
-        source_path,
         &settings.rules,
         shell,
         settings.ambient_shell_options,
-        std::sync::Arc::clone(&settings.ambient_contracts),
+        settings
+            .ambient_contracts
+            .well_known_vocabulary_names(&file_entry_contract_collector, shell)
+            .into_iter()
+            .map(Name::from)
+            .collect(),
         settings.report_environment_style_names,
         settings.rule_options.clone(),
         suppression_index.as_ref(),
