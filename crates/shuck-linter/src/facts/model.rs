@@ -144,6 +144,30 @@ pub struct LinterFacts<'a> {
     conditional_portability: ConditionalPortabilityFacts,
 }
 
+pub(crate) struct LinterFactBuildOptions {
+    shell: ShellDialect,
+    ambient_shell_options: AmbientShellOptions,
+    possible_variable_misspelling_contract_names: Vec<Name>,
+}
+
+impl LinterFactBuildOptions {
+    pub(crate) fn new(shell: ShellDialect, ambient_shell_options: AmbientShellOptions) -> Self {
+        Self {
+            shell,
+            ambient_shell_options,
+            possible_variable_misspelling_contract_names: Vec::new(),
+        }
+    }
+
+    pub(crate) fn with_possible_variable_misspelling_contract_names(
+        mut self,
+        names: Vec<Name>,
+    ) -> Self {
+        self.possible_variable_misspelling_contract_names = names;
+        self
+    }
+}
+
 impl<'a> LinterFacts<'a> {
     pub fn build(
         file: &'a File,
@@ -206,39 +230,25 @@ impl<'a> LinterFacts<'a> {
         shell: ShellDialect,
         ambient_shell_options: AmbientShellOptions,
     ) -> Self {
-        Self::build_with_semantic_analysis_shell_ambient_shell_options_and_contract_names(
+        Self::build_with_semantic_analysis_and_options(
             file,
             source,
             semantic,
             semantic_analysis,
             indexer,
-            shell,
-            ambient_shell_options,
-            Vec::new(),
+            LinterFactBuildOptions::new(shell, ambient_shell_options),
         )
     }
 
-    pub(crate) fn build_with_semantic_analysis_shell_ambient_shell_options_and_contract_names(
+    pub(crate) fn build_with_semantic_analysis_and_options(
         file: &'a File,
         source: &'a str,
         semantic: &'a LinterSemanticArtifacts<'a>,
         semantic_analysis: &SemanticAnalysis<'a>,
         indexer: &'a Indexer,
-        shell: ShellDialect,
-        ambient_shell_options: AmbientShellOptions,
-        possible_variable_misspelling_contract_names: Vec<Name>,
+        options: LinterFactBuildOptions,
     ) -> Self {
-        LinterFactsBuilder::new(
-            file,
-            source,
-            semantic,
-            semantic_analysis,
-            indexer,
-            shell,
-            ambient_shell_options,
-            possible_variable_misspelling_contract_names,
-        )
-        .build()
+        LinterFactsBuilder::new(file, source, semantic, semantic_analysis, indexer, options).build()
     }
 
     pub fn commands(&self) -> CommandFacts<'_, 'a> {

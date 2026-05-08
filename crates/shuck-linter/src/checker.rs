@@ -12,7 +12,7 @@ use shuck_semantic::SemanticAnalysis;
 use crate::{
     AmbientShellOptions, Diagnostic, LinterFacts, LinterRuleOptions, LinterSemanticArtifacts,
     Locator, ResolvedAmbientContracts, Rule, RuleSet, ShellDialect, SuppressionIndex, Violation,
-    rules,
+    facts::LinterFactBuildOptions, rules,
 };
 
 pub struct Checker<'a> {
@@ -144,15 +144,14 @@ impl<'a> Checker<'a> {
             .into_iter()
             .map(Name::from)
             .collect();
-        LinterFacts::build_with_semantic_analysis_shell_ambient_shell_options_and_contract_names(
+        LinterFacts::build_with_semantic_analysis_and_options(
             self.file,
             self.source,
             self.semantic,
             &self.semantic_analysis,
             self.indexer,
-            self.shell,
-            self.ambient_shell_options,
-            contract_names,
+            LinterFactBuildOptions::new(self.shell, self.ambient_shell_options)
+                .with_possible_variable_misspelling_contract_names(contract_names),
         )
     }
 

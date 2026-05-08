@@ -120,9 +120,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         semantic: &'a LinterSemanticArtifacts<'a>,
         semantic_analysis: &'analysis SemanticAnalysis<'a>,
         indexer: &'a Indexer,
-        shell: ShellDialect,
-        ambient_shell_options: AmbientShellOptions,
-        possible_variable_misspelling_contract_names: Vec<Name>,
+        options: LinterFactBuildOptions,
     ) -> Self {
         Self {
             file,
@@ -132,9 +130,10 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             semantic_analysis,
             _indexer: indexer,
             command_visits_by_id: semantic.command_visits_by_id(),
-            shell,
-            ambient_shell_options,
-            possible_variable_misspelling_contract_names,
+            shell: options.shell,
+            ambient_shell_options: options.ambient_shell_options,
+            possible_variable_misspelling_contract_names: options
+                .possible_variable_misspelling_contract_names,
         }
     }
 
