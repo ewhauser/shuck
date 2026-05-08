@@ -77,14 +77,19 @@ fn build_plain_parameter_expansion_edge_offsets(
     candidate_offsets: &FxHashSet<usize>,
 ) -> FxHashSet<usize> {
     let mut offsets = FxHashSet::default();
+    let bytes = source.as_bytes();
     let mut index = 0usize;
 
-    while index < source.len() {
-        if source[index..].starts_with("${")
-            && !has_odd_backslash_run_before(source, index)
-            && let Some(end_offset) = find_runtime_parameter_closing_brace(source, index)
+    while index + 1 < bytes.len() {
+        let Some(rel) = bytes[index..].iter().position(|&b| b == b'$') else {
+            break;
+        };
+        let pos = index + rel;
+        if bytes.get(pos + 1) == Some(&b'{')
+            && !has_odd_backslash_run_before(source, pos)
+            && let Some(end_offset) = find_runtime_parameter_closing_brace(source, pos)
         {
-            let open_brace_offset = index + '$'.len_utf8();
+            let open_brace_offset = pos + '$'.len_utf8();
             let close_brace_offset = end_offset.saturating_sub('}'.len_utf8());
             if candidate_offsets.contains(&open_brace_offset) {
                 offsets.insert(open_brace_offset);
@@ -96,19 +101,7 @@ fn build_plain_parameter_expansion_edge_offsets(
             continue;
         }
 
-        let Some(ch) = source[index..].chars().next() else {
-            break;
-        };
-        let ch_len = ch.len_utf8();
-        if ch == '\\' {
-            index += ch_len;
-            if let Some(escaped) = source[index..].chars().next() {
-                index += escaped.len_utf8();
-            }
-            continue;
-        }
-
-        index += ch_len;
+        index = pos + 1;
     }
 
     offsets
