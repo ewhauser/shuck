@@ -65,8 +65,8 @@ use shuck_indexer::{Indexer, LineIndex, RegionIndex};
 #[cfg(test)]
 use shuck_parser::parser::Parser;
 use shuck_semantic::{
-    ArithmeticLiteralBehavior, Binding, BindingAttributes, BindingId, BindingKind, CaseCliDispatch,
-    CommandKind, CompoundCommandKind, Declaration, DeclarationBuiltin,
+    ArithmeticLiteralBehavior, Binding, BindingAttributes, BindingId, BindingKind, BindingOrigin,
+    CaseCliDispatch, CommandKind, CompoundCommandKind, Declaration, DeclarationBuiltin,
     DeclarationOperand as SemanticDeclarationOperand, FieldSplittingBehavior,
     FileExpansionOrderBehavior, FunctionScopeKind, GlobDotBehavior, GlobFailureBehavior,
     GlobPatternBehavior, NonpersistentAssignmentAnalysisContext,

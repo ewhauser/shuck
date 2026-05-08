@@ -4893,6 +4893,70 @@ printf '%s\\n' \"$foo\"
 }
 
 #[test]
+fn value_flow_can_check_direct_references_against_candidate_bindings() {
+    for (source, expected) in [
+        (
+            "\
+#!/bin/bash
+foo=1
+if cond; then
+  foo=(a b)
+fi
+printf '%s\\n' \"$foo\"
+",
+            true,
+        ),
+        (
+            "\
+#!/bin/bash
+foo=(a b)
+foo=1
+printf '%s\\n' \"$foo\"
+",
+            false,
+        ),
+    ] {
+        let model = model(source);
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "foo")
+            .expect("expected foo reference");
+        let candidate_bindings = model
+            .bindings()
+            .iter()
+            .filter(|binding| binding.name == "foo")
+            .filter(|binding| {
+                binding
+                    .attributes
+                    .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC)
+                    || matches!(
+                        binding.kind,
+                        BindingKind::ArrayAssignment | BindingKind::MapfileTarget
+                    )
+            })
+            .map(|binding| binding.id)
+            .collect::<Vec<_>>();
+        let analysis = model.analysis();
+        let value_flow = analysis.value_flow();
+
+        assert_eq!(
+            value_flow.reference_reaches_any_value_binding(reference.id, &candidate_bindings),
+            expected,
+            "{source}"
+        );
+        assert_eq!(
+            value_flow
+                .reaching_value_bindings_for_name(&reference.name, reference.span)
+                .into_iter()
+                .any(|binding_id| candidate_bindings.contains(&binding_id)),
+            expected,
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn value_flow_returns_synthetic_use_site_value_bindings() {
     let source = "\
 #!/bin/bash
@@ -4916,6 +4980,40 @@ printf done
     assert_eq!(
         value_flow.reaching_value_bindings_for_name(&Name::from("foo"), model.command_span(printf)),
         bindings
+    );
+}
+
+#[test]
+fn value_flow_can_skip_reference_lookup_for_known_synthetic_use_sites() {
+    let source = "\
+#!/bin/bash
+foo=1
+if cond; then
+  foo=2
+fi
+printf done
+";
+    let model = model(source);
+    let printf = command_id_starting_with(&model, source, "printf").expect("expected printf");
+    let analysis = model.analysis();
+    let value_flow = analysis.value_flow();
+    let use_span = model.command_span(printf);
+    let synthetic_use_block = analysis.flow_entry_block_for_binding_scopes(
+        &[model.scope_at(use_span.start.offset)],
+        use_span.start.offset,
+    );
+
+    assert_eq!(
+        value_flow.reaching_value_bindings_for_name_without_reference(
+            &Name::from("foo"),
+            use_span,
+            synthetic_use_block,
+        ),
+        value_flow.reaching_value_bindings_for_name_with_synthetic_use_block(
+            &Name::from("foo"),
+            use_span,
+            Some(synthetic_use_block),
+        )
     );
 }
 

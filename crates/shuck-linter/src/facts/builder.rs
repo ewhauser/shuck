@@ -55,11 +55,32 @@ fn binding_has_array_like_shape(binding: &Binding) -> bool {
         )
 }
 
+fn binding_is_name_only_declaration(binding: &Binding) -> bool {
+    matches!(binding.origin, BindingOrigin::Declaration { .. })
+        && binding.attributes.contains(BindingAttributes::LOCAL)
+        && !binding
+            .attributes
+            .contains(BindingAttributes::DECLARATION_INITIALIZED)
+}
+
+fn binding_can_supply_parameter_value(binding: &Binding) -> bool {
+    match binding.origin {
+        BindingOrigin::FunctionDefinition { .. } => false,
+        BindingOrigin::Declaration { .. } => {
+            binding_is_name_only_declaration(binding)
+                || binding.attributes.intersects(
+                    BindingAttributes::DECLARATION_INITIALIZED | BindingAttributes::INTEGER,
+                )
+        }
+        _ => true,
+    }
+}
+
 #[cfg_attr(shuck_profiling, inline(never))]
 fn compute_array_like_capable_names(semantic: &SemanticModel) -> FxHashSet<Name> {
     let mut names = FxHashSet::default();
     for binding in semantic.bindings() {
-        if binding_has_array_like_shape(binding) {
+        if binding_can_supply_parameter_value(binding) && binding_has_array_like_shape(binding) {
             names.insert(binding.name.clone());
         }
     }
@@ -70,6 +91,9 @@ fn compute_array_like_capable_names(semantic: &SemanticModel) -> FxHashSet<Name>
 fn compute_single_array_like_bindings(semantic: &SemanticModel) -> FxHashMap<Name, BindingId> {
     let mut bindings_by_name = FxHashMap::default();
     for binding in semantic.bindings() {
+        if !binding_can_supply_parameter_value(binding) {
+            continue;
+        }
         let array_like = binding_has_array_like_shape(binding);
         match bindings_by_name.entry(binding.name.clone()) {
             std::collections::hash_map::Entry::Vacant(entry) => {
@@ -87,6 +111,22 @@ fn compute_single_array_like_bindings(semantic: &SemanticModel) -> FxHashMap<Nam
         .collect()
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
+fn compute_array_like_bindings_by_name(
+    semantic: &SemanticModel,
+) -> FxHashMap<Name, SmallVec<[BindingId; 2]>> {
+    let mut bindings_by_name = FxHashMap::<Name, SmallVec<[BindingId; 2]>>::default();
+    for binding in semantic.bindings() {
+        if binding_can_supply_parameter_value(binding) && binding_has_array_like_shape(binding) {
+            bindings_by_name
+                .entry(binding.name.clone())
+                .or_default()
+                .push(binding.id);
+        }
+    }
+    bindings_by_name
+}
+
 /// Names where *every* binding is array-like. For these names, the slow dataflow walk in
 /// `visible_name_is_array_like` is unnecessary: any lexically visible binding will satisfy the
 /// predicate.
@@ -94,6 +134,9 @@ fn compute_single_array_like_bindings(semantic: &SemanticModel) -> FxHashMap<Nam
 fn compute_uniformly_array_like_names(semantic: &SemanticModel) -> FxHashSet<Name> {
     let mut name_state: FxHashMap<Name, bool> = FxHashMap::default();
     for binding in semantic.bindings() {
+        if !binding_can_supply_parameter_value(binding) {
+            continue;
+        }
         let array_like = binding_has_array_like_shape(binding);
         match name_state.entry(binding.name.clone()) {
             std::collections::hash_map::Entry::Vacant(entry) => {
@@ -186,6 +229,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let mut assoc_binding_visibility_memo = FxHashMap::default();
         let array_like_capable_names = compute_array_like_capable_names(self.semantic);
         let single_array_like_bindings = compute_single_array_like_bindings(self.semantic);
+        let array_like_bindings_by_name = compute_array_like_bindings_by_name(self.semantic);
         let uniformly_array_like_names = compute_uniformly_array_like_names(self.semantic);
         let mut pattern_exactly_one_extglob_spans = Vec::new();
         let mut case_pattern_expansions = Vec::new();
@@ -323,6 +367,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                         assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
                         array_like_capable_names: &array_like_capable_names,
                         single_array_like_bindings: &single_array_like_bindings,
+                        array_like_bindings_by_name: &array_like_bindings_by_name,
                         uniformly_array_like_names: &uniformly_array_like_names,
                         semantic_analysis: self.semantic_analysis,
                         case_pattern_expansions: &mut case_pattern_expansions,

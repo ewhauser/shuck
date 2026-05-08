@@ -1185,6 +1185,7 @@ struct ZshArrayFanoutContext<'a, 'flow> {
 struct ZshArrayFanoutLookups<'a> {
     array_like_capable_names: &'a FxHashSet<Name>,
     single_array_like_bindings: &'a FxHashMap<Name, BindingId>,
+    array_like_bindings_by_name: &'a FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     uniformly_array_like_names: &'a FxHashSet<Name>,
 }
 
@@ -1342,17 +1343,29 @@ fn visible_name_is_array_like(
     {
         return true;
     }
-    let synthetic_use_block = if semantic_analysis.reference_id_for_name_at(name, span).is_none() {
-        Some(semantic_analysis.flow_entry_block_for_binding_scopes(&[scope], span.start.offset))
-    } else {
-        None
-    };
-    value_flow
-        .reaching_value_bindings_for_name_with_synthetic_use_block(
+    if let Some(reference_id) = semantic_analysis.reference_id_for_name_at(name, span) {
+        if semantic
+            .resolved_binding(reference_id)
+            .is_some_and(binding_is_array_like)
+        {
+            return true;
+        }
+        if let Some(array_like_bindings) = lookups.array_like_bindings_by_name.get(name) {
+            return value_flow.reference_reaches_any_value_binding(reference_id, array_like_bindings);
+        }
+        return false;
+    }
+    let bindings =
+    {
+        let synthetic_use_block =
+            semantic_analysis.flow_entry_block_for_binding_scopes(&[scope], span.start.offset);
+        value_flow.reaching_value_bindings_for_name_without_reference(
             name,
             span,
             synthetic_use_block,
         )
+    };
+    bindings
         .into_iter()
         .any(|binding_id| binding_is_array_like(semantic.binding(binding_id)))
 }
@@ -1422,6 +1435,7 @@ pub(super) struct WordFactOutputs<'out, 'a> {
         &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
     pub(super) array_like_capable_names: &'out FxHashSet<Name>,
     pub(super) single_array_like_bindings: &'out FxHashMap<Name, BindingId>,
+    pub(super) array_like_bindings_by_name: &'out FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     pub(super) uniformly_array_like_names: &'out FxHashSet<Name>,
     pub(super) semantic_analysis: &'out SemanticAnalysis<'a>,
     pub(super) case_pattern_expansions: &'out mut Vec<CasePatternExpansionFact>,
@@ -1948,6 +1962,7 @@ pub(super) struct WordFactCollector<'out, 'a, 'norm> {
     assoc_binding_visibility_memo: &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
     array_like_capable_names: &'out FxHashSet<Name>,
     single_array_like_bindings: &'out FxHashMap<Name, BindingId>,
+    array_like_bindings_by_name: &'out FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     uniformly_array_like_names: &'out FxHashSet<Name>,
     semantic_analysis: &'out SemanticAnalysis<'a>,
     value_flow: SemanticValueFlow<'out, 'a>,
@@ -2151,6 +2166,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             assoc_binding_visibility_memo: outputs.assoc_binding_visibility_memo,
             array_like_capable_names: outputs.array_like_capable_names,
             single_array_like_bindings: outputs.single_array_like_bindings,
+            array_like_bindings_by_name: outputs.array_like_bindings_by_name,
             uniformly_array_like_names: outputs.uniformly_array_like_names,
             semantic_analysis: outputs.semantic_analysis,
             value_flow,
@@ -3090,6 +3106,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 lookups: ZshArrayFanoutLookups {
                     array_like_capable_names: self.array_like_capable_names,
                     single_array_like_bindings: self.single_array_like_bindings,
+                    array_like_bindings_by_name: self.array_like_bindings_by_name,
                     uniformly_array_like_names: self.uniformly_array_like_names,
                 },
             },
