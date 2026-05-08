@@ -9,11 +9,11 @@ use shuck_ast::{
     FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, LiteralText, Name,
     NormalizedCommand, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
     PatternGroupKind, PatternPart, PatternPartNode, Position, SourceText, Span, Stmt, StmtSeq,
-    Subscript, SubscriptInterpretation, VarRef, Word, WordPart, WordPartNode, WrapperKind,
-    ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment, ZshParameterExpansion,
+    Subscript, SubscriptInterpretation, TextSize, VarRef, Word, WordPart, WordPartNode,
+    WrapperKind, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment, ZshParameterExpansion,
     normalize_command_words, static_word_text, try_static_word_parts_text,
 };
-use shuck_indexer::Indexer;
+use shuck_indexer::{Indexer, LineIndex};
 use shuck_parser::{ShellDialect, ShellProfile, ZshEmulationMode, ZshOptionState, parser::Parser};
 use smallvec::SmallVec;
 
@@ -77,7 +77,7 @@ pub(crate) struct BuildOutput {
 pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     source: &'a str,
     file_entry_contract_collector: Option<&'observer mut dyn FileEntryContractCollector>,
-    line_start_offsets: Vec<usize>,
+    line_index: &'a LineIndex,
     shell_profile: ShellProfile,
     observer: &'observer mut dyn TraversalObserver<'a>,
     scopes: Vec<Scope>,
@@ -230,7 +230,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let mut builder = Self {
             source,
             file_entry_contract_collector,
-            line_start_offsets: source_line_start_offsets(source),
+            line_index: indexer.line_index(),
             shell_profile: shell_profile.clone(),
             observer,
             scopes: vec![file_scope],
@@ -2439,16 +2439,6 @@ fn recorded_list_operator(op: BinaryOp) -> RecordedListOperator {
     }
 }
 
-fn source_line_start_offsets(source: &str) -> Vec<usize> {
-    let mut starts = vec![0];
-    for (offset, ch) in source.char_indices() {
-        if ch == '\n' {
-            starts.push(offset + ch.len_utf8());
-        }
-    }
-    starts
-}
-
 fn reference_kind_uses_braced_parameter_syntax(kind: ReferenceKind) -> bool {
     matches!(
         kind,
@@ -2548,17 +2538,12 @@ fn braced_parameter_end_offset(
 
 fn source_line<'a>(
     source: &'a str,
-    line_start_offsets: &[usize],
+    line_index: &LineIndex,
     target_line: usize,
 ) -> Option<(usize, &'a str)> {
-    let line_index = target_line.checked_sub(1)?;
-    let line_start = *line_start_offsets.get(line_index)?;
-    let line_end = line_start_offsets
-        .get(line_index + 1)
-        .copied()
-        .unwrap_or(source.len());
-    let line = source.get(line_start..line_end)?;
-    let line = line.strip_suffix('\n').unwrap_or(line);
-    let line = line.strip_suffix('\r').unwrap_or(line);
-    Some((line_start, line))
+    let range = line_index.line_range(target_line, source)?;
+    Some((
+        usize::from(range.start()),
+        range.slice(source).trim_end_matches('\r'),
+    ))
 }

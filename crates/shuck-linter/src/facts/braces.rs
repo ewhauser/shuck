@@ -19,7 +19,7 @@ fn build_literal_brace_spans(
         }
 
         let is_find_exec_placeholder_word =
-            is_find_exec_placeholder_word(commands, nodes, fact, source);
+            is_find_exec_placeholder_word(commands, nodes, fact, source, locator);
         let is_xargs_replacement_word = is_xargs_replacement_word(commands, nodes, fact, source);
         if is_find_exec_placeholder_word || is_xargs_replacement_word {
             continue;
@@ -174,6 +174,7 @@ fn is_find_exec_placeholder_word(
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
     source: &str,
+    locator: Locator<'_>,
 ) -> bool {
     if !word_is_empty_brace_pair_variant(occurrence_word(nodes, fact), source) {
         return false;
@@ -191,7 +192,7 @@ fn is_find_exec_placeholder_word(
         command.stmt().span.start.offset <= occurrence_span(nodes, fact).start.offset
             && command.stmt().span.end.offset >= occurrence_span(nodes, fact).end.offset
             && is_find_exec_command(command, source)
-    }) || line_has_find_exec_placeholder_context(source, occurrence_span(nodes, fact))
+    }) || line_has_find_exec_placeholder_context(locator, occurrence_span(nodes, fact))
 }
 
 fn is_find_exec_command(command: CommandFactRef<'_, '_>, source: &str) -> bool {
@@ -222,15 +223,13 @@ fn is_find_exec_command(command: CommandFactRef<'_, '_>, source: &str) -> bool {
     has_exec_flag && has_exec_terminator
 }
 
-fn line_has_find_exec_placeholder_context(source: &str, brace_span: Span) -> bool {
-    let Some(line_text) = source.lines().nth(brace_span.start.line.saturating_sub(1)) else {
+fn line_has_find_exec_placeholder_context(locator: Locator<'_>, brace_span: Span) -> bool {
+    let source = locator.source();
+    let Some(line_range) = locator.line_range(brace_span.start.line) else {
         return false;
     };
-    let line_start_offset = source
-        .lines()
-        .take(brace_span.start.line.saturating_sub(1))
-        .map(|line| line.len() + '\n'.len_utf8())
-        .sum::<usize>();
+    let line_start_offset = usize::from(line_range.start());
+    let line_text = line_range.slice(source);
     let Some(relative_start) = brace_span.start.offset.checked_sub(line_start_offset) else {
         return false;
     };

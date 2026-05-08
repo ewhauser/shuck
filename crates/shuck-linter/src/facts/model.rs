@@ -1449,11 +1449,14 @@ fn shell_has_brace_expansion(shell: ShellDialect) -> bool {
 fn build_flag_for_loop_source_name_uses(locator: Locator<'_>) -> Vec<ComparableNameUse> {
     let source = locator.source();
     let mut uses = Vec::new();
-    let mut line_start = 0;
-    for line in source.split_inclusive('\n') {
-        let line_without_newline = line.trim_end_matches('\n');
-        let trimmed = line_without_newline.trim_start();
-        let leading_whitespace = line_without_newline.len() - trimmed.len();
+    for line_number in 1..=locator.line_index().line_count() {
+        let Some(line_range) = locator.line_range(line_number) else {
+            continue;
+        };
+        let line_start = usize::from(line_range.start());
+        let line = line_range.slice(source).trim_end_matches('\r');
+        let trimmed = line.trim_start();
+        let leading_whitespace = line.len() - trimmed.len();
         if let Some(after_for) = trimmed.strip_prefix("for ")
             && let Some(in_offset) = after_for.find(" in ")
         {
@@ -1490,7 +1493,6 @@ fn build_flag_for_loop_source_name_uses(locator: Locator<'_>) -> Vec<ComparableN
                 }
             }
         }
-        line_start += line.len();
     }
     uses
 }
