@@ -637,6 +637,7 @@ impl<'a> Parser<'a> {
         let brace_syntax = surface_syntax.braces.clone();
         let zsh_surface_syntax = self.zsh_word_surface_syntax_from_parts(
             &parts,
+            span,
             surface_syntax.escaped_parameter_templates(),
         );
         Word {
@@ -660,6 +661,7 @@ impl<'a> Parser<'a> {
         let brace_syntax = surface_syntax.braces.clone();
         let zsh_surface_syntax = self.zsh_word_surface_syntax_from_parts(
             &parts,
+            span,
             surface_syntax.escaped_parameter_templates(),
         );
         Word {

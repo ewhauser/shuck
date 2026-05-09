@@ -6,18 +6,59 @@ use shuck_ast::{
 };
 
 impl<'a> Parser<'a> {
+    fn word_surface_interest(&self, word_span: Span) -> WordSurfaceInterest {
+        let brace_syntax_enabled = self.brace_syntax_enabled_at(word_span.start.offset);
+        let Some(text) = self.input.get(word_span.start.offset..word_span.end.offset) else {
+            return WordSurfaceInterest {
+                brace_syntax: brace_syntax_enabled,
+                ..WordSurfaceInterest::default()
+            };
+        };
+
+        let bytes = text.as_bytes();
+        WordSurfaceInterest {
+            brace_syntax: brace_syntax_enabled && memchr(b'{', bytes).is_some(),
+            escaped_parameter_templates: has_escaped_parameter_template(text),
+            all_elements_array_expansions: memchr2(b'$', b'@', bytes).is_some(),
+            zsh_short_positional_at: self.dialect == ShellDialect::Zsh
+                && has_zsh_short_positional_at(text),
+        }
+    }
+
     pub(super) fn word_surface_syntax_from_parts(
         &self,
         parts: &[WordPartNode],
         word_span: Span,
     ) -> WordSurfaceSyntax {
-        let braces = self.brace_syntax_from_parts(parts, word_span.start.offset);
-        let escaped_parameter_templates =
-            self.collect_escaped_parameter_templates_from_parts(parts, word_span);
-        let all_elements_array_expansions = self.collect_all_elements_array_expansions_from_parts(
-            parts,
-            escaped_parameter_templates.as_slice(),
-        );
+        if let [part] = parts
+            && let Some(surface_syntax) = self.fast_surface_syntax_for_single_part(part)
+        {
+            return surface_syntax;
+        }
+
+        let interest = self.word_surface_interest(word_span);
+        if interest.is_empty() {
+            return WordSurfaceSyntax::default();
+        }
+
+        let braces = if interest.brace_syntax {
+            self.brace_syntax_from_parts(parts, word_span.start.offset)
+        } else {
+            Vec::new()
+        };
+        let escaped_parameter_templates = if interest.escaped_parameter_templates {
+            self.collect_escaped_parameter_templates_in_span(word_span)
+        } else {
+            Vec::new()
+        };
+        let all_elements_array_expansions = if interest.all_elements_array_expansions {
+            self.collect_all_elements_array_expansions_from_parts(
+                parts,
+                escaped_parameter_templates.as_slice(),
+            )
+        } else {
+            Vec::new()
+        };
 
         WordSurfaceSyntax {
             braces,
@@ -29,9 +70,17 @@ impl<'a> Parser<'a> {
     pub(super) fn zsh_word_surface_syntax_from_parts(
         &self,
         parts: &[WordPartNode],
+        word_span: Span,
         escaped_parameter_templates: &[EscapedParameterTemplateSyntax],
     ) -> Option<ZshWordSurfaceSyntax> {
-        if self.dialect != ShellDialect::Zsh {
+        if self.dialect != ShellDialect::Zsh || parts.len() < 2 {
+            return None;
+        }
+
+        let Some(text) = self.input.get(word_span.start.offset..word_span.end.offset) else {
+            return None;
+        };
+        if !has_zsh_short_positional_at(text) {
             return None;
         }
 
@@ -42,40 +91,135 @@ impl<'a> Parser<'a> {
             escaped_parameter_templates,
             &mut short_positional_at,
         );
-        short_positional_at.sort_by_key(|entry| {
-            (
-                entry.span.start.offset,
-                entry.span.end.offset,
-                entry.base_span.start.offset,
-            )
-        });
-        short_positional_at.dedup_by_key(|entry| {
-            (
-                entry.span.start.offset,
-                entry.span.end.offset,
-                entry.base_span.start.offset,
-                entry.suffix_span.start.offset,
-                entry.kind,
-                entry.quote_context,
-            )
-        });
+        if short_positional_at.len() > 1 {
+            short_positional_at.sort_by_key(|entry| {
+                (
+                    entry.span.start.offset,
+                    entry.span.end.offset,
+                    entry.base_span.start.offset,
+                )
+            });
+            short_positional_at.dedup_by_key(|entry| {
+                (
+                    entry.span.start.offset,
+                    entry.span.end.offset,
+                    entry.base_span.start.offset,
+                    entry.suffix_span.start.offset,
+                    entry.kind,
+                    entry.quote_context,
+                )
+            });
+        }
 
         (!short_positional_at.is_empty()).then_some(ZshWordSurfaceSyntax {
             short_positional_at,
         })
     }
 
-    fn collect_escaped_parameter_templates_from_parts(
+    fn fast_surface_syntax_for_single_part(
         &self,
-        _parts: &[WordPartNode],
+        part: &WordPartNode,
+    ) -> Option<WordSurfaceSyntax> {
+        match &part.kind {
+            WordPart::Literal(text) => {
+                let syntax_text = text.syntax_str(self.input, part.span);
+                let mut surface_syntax = WordSurfaceSyntax::default();
+
+                if self.brace_syntax_enabled_at(part.span.start.offset)
+                    && memchr(b'{', syntax_text.as_bytes()).is_some()
+                {
+                    let mut braces = Vec::new();
+                    Self::scan_brace_syntax_text(
+                        syntax_text,
+                        part.span.start,
+                        BraceQuoteContext::Unquoted,
+                        self.brace_ccl_enabled_at(part.span.start.offset),
+                        &mut braces,
+                    );
+                    surface_syntax.braces = braces;
+                }
+
+                if has_escaped_parameter_template(syntax_text) {
+                    surface_syntax.escaped_parameter_templates =
+                        self.collect_escaped_parameter_templates_in_span(part.span);
+                }
+
+                Some(surface_syntax)
+            }
+            WordPart::SingleQuoted { .. } => {
+                let Some(raw) = self.input.get(part.span.start.offset..part.span.end.offset) else {
+                    return Some(WordSurfaceSyntax::default());
+                };
+                let mut surface_syntax = WordSurfaceSyntax::default();
+
+                if self.brace_syntax_enabled_at(part.span.start.offset)
+                    && memchr(b'{', raw.as_bytes()).is_some()
+                {
+                    let mut braces = Vec::new();
+                    Self::scan_brace_syntax_text(
+                        raw,
+                        part.span.start,
+                        BraceQuoteContext::SingleQuoted,
+                        self.brace_ccl_enabled_at(part.span.start.offset),
+                        &mut braces,
+                    );
+                    surface_syntax.braces = braces;
+                }
+
+                if has_escaped_parameter_template(raw) {
+                    surface_syntax.escaped_parameter_templates =
+                        self.collect_escaped_parameter_templates_in_span(part.span);
+                }
+
+                Some(surface_syntax)
+            }
+            WordPart::Variable(name) => {
+                let kind = match name.as_str() {
+                    "@" => Some(AllElementsArrayExpansionKind::PositionalAt),
+                    "*" => Some(AllElementsArrayExpansionKind::PositionalStar),
+                    _ => None,
+                };
+                Some(WordSurfaceSyntax {
+                    braces: Vec::new(),
+                    escaped_parameter_templates: Vec::new(),
+                    all_elements_array_expansions: kind
+                        .into_iter()
+                        .map(|kind| AllElementsArrayExpansionSyntax {
+                            span: part.span,
+                            kind,
+                            origin: AllElementsArrayExpansionOrigin::DirectPart,
+                            direct: true,
+                            quote_context: BraceQuoteContext::Unquoted,
+                        })
+                        .collect(),
+                })
+            }
+            WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::ProcessSubstitution { .. } => Some(WordSurfaceSyntax::default()),
+            WordPart::DoubleQuoted { .. }
+            | WordPart::ZshQualifiedGlob(_)
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::Transformation { .. } => None,
+        }
+    }
+
+    fn collect_escaped_parameter_templates_in_span(
+        &self,
         word_span: Span,
     ) -> Vec<EscapedParameterTemplateSyntax> {
         let Some(text) = self.input.get(word_span.start.offset..word_span.end.offset) else {
             return Vec::new();
         };
-        if !text.contains("\\${") {
-            return Vec::new();
-        }
 
         #[derive(Clone, Copy, PartialEq, Eq)]
         enum QuoteState {
@@ -148,22 +292,24 @@ impl<'a> Parser<'a> {
             index += ch.len_utf8();
         }
 
-        templates.sort_by_key(|template| {
-            (
-                template.span.start.offset,
-                template.span.end.offset,
-                template.body_span.start.offset,
-            )
-        });
-        templates.dedup_by_key(|template| {
-            (
-                template.span.start.offset,
-                template.span.end.offset,
-                template.body_span.start.offset,
-                template.body_span.end.offset,
-                template.quote_context,
-            )
-        });
+        if templates.len() > 1 {
+            templates.sort_by_key(|template| {
+                (
+                    template.span.start.offset,
+                    template.span.end.offset,
+                    template.body_span.start.offset,
+                )
+            });
+            templates.dedup_by_key(|template| {
+                (
+                    template.span.start.offset,
+                    template.span.end.offset,
+                    template.body_span.start.offset,
+                    template.body_span.end.offset,
+                    template.quote_context,
+                )
+            });
+        }
         templates
     }
 
@@ -179,25 +325,27 @@ impl<'a> Parser<'a> {
             escaped_parameter_templates,
             &mut expansions,
         );
-        expansions.sort_by_key(|entry| {
-            (
-                entry.span.start.offset,
-                entry.span.end.offset,
-                entry.kind as u8,
-                entry.origin as u8,
-                entry.direct,
-            )
-        });
-        expansions.dedup_by_key(|entry| {
-            (
-                entry.span.start.offset,
-                entry.span.end.offset,
-                entry.kind,
-                entry.origin,
-                entry.direct,
-                entry.quote_context,
-            )
-        });
+        if expansions.len() > 1 {
+            expansions.sort_by_key(|entry| {
+                (
+                    entry.span.start.offset,
+                    entry.span.end.offset,
+                    entry.kind as u8,
+                    entry.origin as u8,
+                    entry.direct,
+                )
+            });
+            expansions.dedup_by_key(|entry| {
+                (
+                    entry.span.start.offset,
+                    entry.span.end.offset,
+                    entry.kind,
+                    entry.origin,
+                    entry.direct,
+                    entry.quote_context,
+                )
+            });
+        }
         expansions
     }
 
@@ -385,15 +533,17 @@ impl<'a> Parser<'a> {
             brace_ccl_enabled,
             &mut brace_syntax,
         );
-        brace_syntax.sort_by_key(|brace| (brace.span.start.offset, brace.span.end.offset));
-        brace_syntax.dedup_by_key(|brace| {
-            (
-                brace.span.start.offset,
-                brace.span.end.offset,
-                brace.quote_context,
-                brace.kind,
-            )
-        });
+        if brace_syntax.len() > 1 {
+            brace_syntax.sort_by_key(|brace| (brace.span.start.offset, brace.span.end.offset));
+            brace_syntax.dedup_by_key(|brace| {
+                (
+                    brace.span.start.offset,
+                    brace.span.end.offset,
+                    brace.quote_context,
+                    brace.kind,
+                )
+            });
+        }
         brace_syntax
     }
 
@@ -1317,6 +1467,49 @@ impl<'a> Parser<'a> {
             BraceSyntaxKind::Literal
         }
     }
+}
+
+#[derive(Clone, Copy, Default)]
+pub(super) struct WordSurfaceInterest {
+    brace_syntax: bool,
+    escaped_parameter_templates: bool,
+    all_elements_array_expansions: bool,
+    zsh_short_positional_at: bool,
+}
+
+impl WordSurfaceInterest {
+    const fn is_empty(self) -> bool {
+        !(self.brace_syntax
+            || self.escaped_parameter_templates
+            || self.all_elements_array_expansions
+            || self.zsh_short_positional_at)
+    }
+}
+
+fn has_escaped_parameter_template(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut start = 0usize;
+    while let Some(relative) = memchr(b'\\', &bytes[start..]) {
+        let index = start + relative;
+        if bytes.get(index + 1) == Some(&b'$') && bytes.get(index + 2) == Some(&b'{') {
+            return true;
+        }
+        start = index + 1;
+    }
+    false
+}
+
+fn has_zsh_short_positional_at(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut start = 0usize;
+    while let Some(relative) = memchr(b'@', &bytes[start..]) {
+        let index = start + relative;
+        if bytes.get(index + 1) == Some(&b'[') {
+            return true;
+        }
+        start = index + 1;
+    }
+    false
 }
 
 fn span_start_inside_escaped_parameter_template(
