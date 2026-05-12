@@ -2,17 +2,26 @@ use rustc_hash::FxHashSet;
 use shuck_ast::{Assignment, AssignmentValue, Command, Span, static_word_text};
 use shuck_semantic::{Binding, BindingKind};
 
-use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext, WordQuote};
+use crate::{
+    Checker, Diagnostic, Edit, ExpansionContext, Fix, FixAvailability, Rule, Violation,
+    WordFactContext, WordQuote,
+};
 
 pub struct AssignmentLooksLikeComparison;
 
 impl Violation for AssignmentLooksLikeComparison {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::AssignmentLooksLikeComparison
     }
 
     fn message(&self) -> String {
         "assignment value looks like arithmetic subtraction".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("quote the assignment value".to_owned())
     }
 }
 
@@ -33,7 +42,13 @@ pub fn assignment_looks_like_comparison(checker: &mut Checker) {
         .flat_map(|fact| command_assignment_spans(checker, fact.command(), source, &known_names))
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || AssignmentLooksLikeComparison);
+    for span in spans {
+        checker.report_diagnostic_dedup(
+            Diagnostic::new(AssignmentLooksLikeComparison, span).with_fix(Fix::safe_edit(
+                Edit::replacement(format!("\"{}\"", span.slice(source)), span),
+            )),
+        );
+    }
 }
 
 fn command_assignment_spans(
@@ -122,8 +137,10 @@ fn binding_contributes_known_variable_name(binding: &Binding) -> bool {
 mod tests {
     use std::path::Path;
 
-    use crate::test::{test_snippet, test_snippet_at_path};
-    use crate::{LinterSettings, Rule};
+    use crate::test::{
+        test_path_with_fix, test_snippet, test_snippet_at_path, test_snippet_with_fix,
+    };
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
 
     #[test]
     fn anchors_on_assignment_values() {
@@ -243,5 +260,60 @@ style=history-expansion
         );
 
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn applies_safe_fix_to_literal_assignment_values() {
+        let source = "\
+#!/bin/bash
+foo=foo-bar
+foo+=foo-1
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::AssignmentLooksLikeComparison),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+foo=\"foo-bar\"
+foo+=\"foo-1\"
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_non_matching_values_unchanged_when_fixing() {
+        let source = "\
+#!/bin/bash
+foo=bar-baz
+foo=\"$foo-bar\"
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::AssignmentLooksLikeComparison),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshots_safe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("correctness").join("C095.sh").as_path(),
+            &LinterSettings::for_rule(Rule::AssignmentLooksLikeComparison),
+            Applicability::Safe,
+        )?;
+
+        assert_diagnostics_diff!("C095_fix_C095.sh", result);
+        Ok(())
     }
 }
