@@ -1,0 +1,40 @@
+---
+source: crates/shuck-linter/src/rules/correctness/local_cross_reference.rs
+assertion_line: 310
+---
+Diagnostics:
+C136 assignment is reused later in the same declaration
+ --> <source>:4:9
+  |
+4 |   local iface="${1}" ifvar="$(echo "${iface}" | tr - _)"
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,7 +1,8 @@
+ #!/bin/sh
+ # shellcheck disable=3043,2034,2155
+ myfunc() {
+-  local iface="${1}" ifvar="$(echo "${iface}" | tr - _)"
++  local iface="${1}"
++  local ifvar="$(echo "${iface}" | tr - _)"
+   echo "$iface $ifvar"
+ }
+ myfunc eth0
+
+Fixed source:
+#!/bin/sh
+# shellcheck disable=3043,2034,2155
+myfunc() {
+  local iface="${1}"
+  local ifvar="$(echo "${iface}" | tr - _)"
+  echo "$iface $ifvar"
+}
+myfunc eth0
+
+Remaining diagnostics:
+<none>
