@@ -22,6 +22,7 @@ pub struct LinterFacts<'a> {
     ifs_literal_backslash_assignment_value_spans: Vec<Span>,
     env_prefix_assignment_scope_spans: Vec<Span>,
     env_prefix_expansion_scope_spans: Vec<Span>,
+    env_prefix_expansion_fix_facts: Vec<EnvPrefixExpansionFixFact>,
     unset_command_ids_by_target_name: FxHashMap<Name, Vec<CommandId>>,
     function_unset_command_ids_by_target_name: FxHashMap<Name, Vec<CommandId>>,
     presence_tested_names: FxHashSet<Name>,
@@ -434,6 +435,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn env_prefix_expansion_scope_spans(&self) -> &[Span] {
         &self.env_prefix_expansion_scope_spans
+    }
+
+    pub fn env_prefix_expansion_fix_facts(&self) -> &[EnvPrefixExpansionFixFact] {
+        &self.env_prefix_expansion_fix_facts
     }
 
     pub fn is_if_condition_command(&self, id: CommandId) -> bool {

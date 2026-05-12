@@ -809,6 +809,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let EnvPrefixScopeSpans {
             assignment_scope_spans: env_prefix_assignment_scope_spans,
             expansion_scope_spans: env_prefix_expansion_scope_spans,
+            expansion_fix_facts: env_prefix_expansion_fix_facts,
         } = build_env_prefix_scope_spans(self.source, self.semantic, &commands);
         let unset_command_ids_by_target_name = build_unset_command_ids_by_target_name(
             &commands,
@@ -959,6 +960,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             ifs_literal_backslash_assignment_value_spans,
             env_prefix_assignment_scope_spans,
             env_prefix_expansion_scope_spans,
+            env_prefix_expansion_fix_facts,
             unset_command_ids_by_target_name,
             function_unset_command_ids_by_target_name,
             presence_tested_names: presence_tested_names.global_names,
