@@ -89,7 +89,10 @@ pub(crate) fn collect_parse_rule_diagnostics(
     if enabled_rules.contains(crate::Rule::MissingDoneInForLoop)
         && missing_done_loop_kind == Some(MissingDoneLoopKind::For)
     {
-        diagnostics.push(Diagnostic::new(MissingDoneInForLoop, eof_point(file)));
+        diagnostics.push(
+            Diagnostic::new(MissingDoneInForLoop, eof_point(file))
+                .with_fix(missing_done_fix(source)),
+        );
     }
     if enabled_rules.contains(crate::Rule::DanglingElse)
         && let Some(span) = dangling_else_span(parse_diagnostics)
@@ -185,6 +188,16 @@ fn missing_fi_fix(source: &str) -> Fix {
         "fi\n"
     } else {
         "\nfi\n"
+    };
+
+    Fix::unsafe_edit(Edit::insertion(source.len(), content))
+}
+
+fn missing_done_fix(source: &str) -> Fix {
+    let content = if source.is_empty() || source.ends_with('\n') {
+        "done\n"
+    } else {
+        "\ndone\n"
     };
 
     Fix::unsafe_edit(Edit::insertion(source.len(), content))
@@ -1232,6 +1245,14 @@ fi
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::MissingDoneInForLoop);
+        assert_eq!(
+            diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
+            Some(Applicability::Unsafe)
+        );
+        assert_eq!(
+            diagnostics[0].fix_title.as_deref(),
+            Some("append a closing `done`")
+        );
     }
 
     #[test]
