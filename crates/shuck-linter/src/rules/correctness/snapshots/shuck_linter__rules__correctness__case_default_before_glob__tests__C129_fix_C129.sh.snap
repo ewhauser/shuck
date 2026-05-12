@@ -1,0 +1,98 @@
+---
+source: crates/shuck-linter/src/rules/correctness/case_default_before_glob.rs
+assertion_line: 374
+---
+Diagnostics:
+C129 this case pattern is unreachable because an earlier pattern already matches it
+ --> <source>:8:3
+  |
+8 |   foo) : ;;
+  |
+
+C129 this case pattern is unreachable because an earlier pattern already matches it
+  --> <source>:14:3
+   |
+14 |   foo*) : ;;
+   |
+
+C129 this case pattern is unreachable because an earlier pattern already matches it
+  --> <source>:19:5
+   |
+19 |   *|foo*) : ;;
+   |
+
+C129 this case pattern is unreachable because an earlier pattern already matches it
+  --> <source>:20:3
+   |
+20 |   foo) : ;;
+   |
+
+
+Applied fixes: 4
+
+Diff:
+--- before
++++ after
+@@ -5,19 +5,16 @@
+ # Should trigger: duplicate patterns make the later arm unreachable.
+ case "$value" in
+   foo) : ;;
+-  foo) : ;;
+ esac
+ 
+ # Should trigger: a catch-all arm makes a later glob unreachable.
+ case "$value" in
+   *) : ;;
+-  foo*) : ;;
+ esac
+ 
+ # Should trigger: earlier alternatives in the same arm can make later patterns unreachable.
+ case "$value" in
+-  *|foo*) : ;;
+-  foo) : ;;
++  *) : ;;
+ esac
+ 
+ # Should not trigger: character classes are intentionally left out of this reachability check.
+
+Fixed source:
+#!/bin/bash
+
+value=foobar
+
+# Should trigger: duplicate patterns make the later arm unreachable.
+case "$value" in
+  foo) : ;;
+esac
+
+# Should trigger: a catch-all arm makes a later glob unreachable.
+case "$value" in
+  *) : ;;
+esac
+
+# Should trigger: earlier alternatives in the same arm can make later patterns unreachable.
+case "$value" in
+  *) : ;;
+esac
+
+# Should not trigger: character classes are intentionally left out of this reachability check.
+case "$value" in
+  [ab]*) : ;;
+  afoo) : ;;
+esac
+
+# Should not trigger: continue-matching terminators keep later arms reachable.
+case "$value" in
+  foo) : ;;&
+  foo) : ;;
+esac
+
+# Should not trigger: escaped wildcards are literal characters, not catch-all patterns.
+case "$value" in
+  \?) : ;;
+  :) : ;;
+  *) : ;;
+esac
+
+Remaining diagnostics:
+<none>
