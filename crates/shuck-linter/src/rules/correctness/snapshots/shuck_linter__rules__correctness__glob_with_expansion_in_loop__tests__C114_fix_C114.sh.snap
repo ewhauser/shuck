@@ -1,0 +1,65 @@
+---
+source: crates/shuck-linter/src/rules/correctness/glob_with_expansion_in_loop.rs
+assertion_line: 210
+---
+Diagnostics:
+C114 quote expansion prefixes when combining them with loop globs
+ --> <source>:2:10
+  |
+2 | for i in $CWD/file.*pattern*; do :; done
+  |
+
+C114 quote expansion prefixes when combining them with loop globs
+ --> <source>:3:10
+  |
+3 | for i in ${CWD}/file.*pattern*; do :; done
+  |
+
+C114 quote expansion prefixes when combining them with loop globs
+ --> <source>:4:10
+  |
+4 | for i in $(pwd)/file.*pattern*; do :; done
+  |
+
+C114 quote expansion prefixes when combining them with loop globs
+ --> <source>:9:10
+  |
+9 | for i in $DIR/{1..3}*.txt; do :; done
+  |
+
+
+Applied fixes: 4
+
+Diff:
+--- before
++++ after
+@@ -1,10 +1,10 @@
+ #!/bin/sh
+-for i in $CWD/file.*pattern*; do :; done
+-for i in ${CWD}/file.*pattern*; do :; done
+-for i in $(pwd)/file.*pattern*; do :; done
++for i in "$CWD"/file.*pattern*; do :; done
++for i in "${CWD}"/file.*pattern*; do :; done
++for i in "$(pwd)"/file.*pattern*; do :; done
+ 
+ for i in "$CWD"/file.*pattern*; do :; done
+ for i in file.*pattern*; do :; done
+ for i in "$CWD"/*.txt; do :; done
+-for i in $DIR/{1..3}*.txt; do :; done
++for i in "$DIR"/{1..3}*.txt; do :; done
+ for i in $DIR/setjmp-aarch64/{setjmp.S,private-*.h}; do :; done
+
+Fixed source:
+#!/bin/sh
+for i in "$CWD"/file.*pattern*; do :; done
+for i in "${CWD}"/file.*pattern*; do :; done
+for i in "$(pwd)"/file.*pattern*; do :; done
+
+for i in "$CWD"/file.*pattern*; do :; done
+for i in file.*pattern*; do :; done
+for i in "$CWD"/*.txt; do :; done
+for i in "$DIR"/{1..3}*.txt; do :; done
+for i in $DIR/setjmp-aarch64/{setjmp.S,private-*.h}; do :; done
+
+Remaining diagnostics:
+<none>

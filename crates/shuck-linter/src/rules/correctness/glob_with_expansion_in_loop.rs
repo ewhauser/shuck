@@ -1,15 +1,24 @@
-use crate::{Checker, ExpansionContext, Rule, Violation, WordOccurrenceRef};
+use crate::{
+    Checker, Diagnostic, Edit, ExpansionContext, Fix, FixAvailability, Rule, Violation,
+    WordOccurrenceRef,
+};
 use shuck_ast::Span;
 
 pub struct GlobWithExpansionInLoop;
 
 impl Violation for GlobWithExpansionInLoop {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::GlobWithExpansionInLoop
     }
 
     fn message(&self) -> String {
         "quote expansion prefixes when combining them with loop globs".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("quote the expansion prefix".to_owned())
     }
 }
 
@@ -26,7 +35,14 @@ pub fn glob_with_expansion_in_loop(checker: &mut Checker) {
         .flat_map(unquoted_expansion_prefix_spans)
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || GlobWithExpansionInLoop);
+    for span in spans {
+        checker.report_diagnostic_dedup(Diagnostic::new(GlobWithExpansionInLoop, span).with_fix(
+            Fix::unsafe_edits([
+                Edit::insertion(span.start.offset, "\""),
+                Edit::insertion(span.end.offset, "\""),
+            ]),
+        ));
+    }
 }
 
 fn unquoted_expansion_prefix_spans(fact: WordOccurrenceRef<'_, '_>) -> Vec<Span> {
@@ -43,8 +59,10 @@ fn unquoted_expansion_prefix_spans(fact: WordOccurrenceRef<'_, '_>) -> Vec<Span>
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule, ShellDialect};
+    use std::path::Path;
+
+    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, ShellDialect, assert_diagnostics_diff};
 
     #[test]
     fn reports_unquoted_expansion_prefixes_in_for_glob_words() {
@@ -138,5 +156,58 @@ for repo in \"${ZINIT[PLUGINS_DIR]}\"/*; do :; done
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_unquoted_expansion_prefixes() {
+        let source = "\
+#!/bin/sh
+for i in $CWD/file.*pattern*; do :; done
+for i in ${CWD}/file.*pattern*; do :; done
+for i in $(pwd)/file.*pattern*; do :; done
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::GlobWithExpansionInLoop),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 3);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/sh
+for i in \"$CWD\"/file.*pattern*; do :; done
+for i in \"${CWD}\"/file.*pattern*; do :; done
+for i in \"$(pwd)\"/file.*pattern*; do :; done
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn safe_fix_mode_leaves_unquoted_expansion_prefixes_unchanged() {
+        let source = "#!/bin/sh\nfor i in $CWD/file.*pattern*; do :; done\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::GlobWithExpansionInLoop),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert_eq!(result.fixed_diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("correctness").join("C114.sh").as_path(),
+            &LinterSettings::for_rule(Rule::GlobWithExpansionInLoop),
+            Applicability::Unsafe,
+        )?;
+
+        assert_diagnostics_diff!("C114_fix_C114.sh", result);
+        Ok(())
     }
 }
