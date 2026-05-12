@@ -1,14 +1,20 @@
-use crate::{Checker, Rule, ShellDialect, Violation};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, ShellDialect, Violation};
 
 pub struct SetFlagsWithoutDashes;
 
 impl Violation for SetFlagsWithoutDashes {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::SetFlagsWithoutDashes
     }
 
     fn message(&self) -> String {
         "flags passed to `set` should start with `-` or `+`".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("insert `--` before positional arguments".to_owned())
     }
 }
 
@@ -33,13 +39,20 @@ pub fn set_flags_without_dashes(checker: &mut Checker) {
         .flat_map(|set| set.flags_without_prefix_spans().iter().copied())
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || SetFlagsWithoutDashes);
+    for span in spans {
+        checker.report_diagnostic_dedup(
+            Diagnostic::new(SetFlagsWithoutDashes, span)
+                .with_fix(Fix::safe_edit(Edit::insertion(span.start.offset, "-- "))),
+        );
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule, ShellDialect};
+    use std::path::Path;
+
+    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, ShellDialect, assert_diagnostics_diff};
 
     #[test]
     fn reports_set_flags_without_prefix() {
@@ -122,5 +135,58 @@ set OFFLINE_PATH \"$PWD\"
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_safe_fix_to_bare_set_operands() {
+        let source = "\
+set euox pipefail
+set foo bar
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SetFlagsWithoutDashes).with_shell(ShellDialect::Bash),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "\
+set -- euox pipefail
+set -- foo bar
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_explicit_and_unambiguous_set_operands_unchanged_when_fixing() {
+        let source = "\
+set -euo pipefail
+set -- foo bar
+set foo
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SetFlagsWithoutDashes).with_shell(ShellDialect::Bash),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshots_safe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("correctness").join("C098.sh").as_path(),
+            &LinterSettings::for_rule(Rule::SetFlagsWithoutDashes).with_shell(ShellDialect::Bash),
+            Applicability::Safe,
+        )?;
+
+        assert_diagnostics_diff!("C098_fix_C098.sh", result);
+        Ok(())
     }
 }
