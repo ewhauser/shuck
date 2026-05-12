@@ -3278,6 +3278,33 @@ find . | xargs -P11 echo
 }
 
 #[test]
+fn handles_xargs_options_with_missing_required_arguments() {
+    let source = "\
+#!/bin/bash
+ls *.txt | xargs -n
+find . | xargs --max-procs
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+
+    let xargs_facts = facts
+        .commands()
+        .iter()
+        .filter(|fact| fact.effective_name_is("xargs"))
+        .filter_map(|fact| fact.options().xargs())
+        .collect::<Vec<_>>();
+
+    assert_eq!(xargs_facts.len(), 2);
+    assert!(
+        xargs_facts
+            .iter()
+            .all(|xargs| xargs.command_operand_words().is_empty())
+    );
+}
+
+#[test]
 fn rm_command_facts_track_shellcheck_style_variable_path_hazards() {
     let source = "\
 #!/bin/bash
