@@ -136,10 +136,11 @@ pub fn word_is_pure_positional_at_splat(word: &Word) -> bool {
     parts_are_pure_positional_at_splat(&word.parts)
 }
 
-pub fn word_positional_at_splat_span_in_source(word: &Word, source: &str) -> Option<Span> {
+pub fn word_positional_at_splat_spans_in_source(word: &Word, source: &str) -> Vec<Span> {
     word_positional_at_splat_spans(word)
         .into_iter()
-        .find(|span| !span_is_escaped(*span, source))
+        .filter(|span| !span_is_escaped(*span, source))
+        .collect()
 }
 
 pub fn word_folded_positional_at_splat_span_in_source(word: &Word, source: &str) -> Option<Span> {
@@ -1874,7 +1875,7 @@ mod tests {
         collect_unquoted_all_elements_array_expansion_part_spans,
         collect_unquoted_array_expansion_part_spans, span_is_escaped,
         word_has_quoted_all_elements_array_slice, word_has_single_positional_at_splat_part,
-        word_is_pure_positional_at_splat, word_positional_at_splat_span_in_source,
+        word_is_pure_positional_at_splat, word_positional_at_splat_spans_in_source,
         word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,
         word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
         word_unquoted_star_parameter_spans, word_unquoted_star_splat_spans,
@@ -2878,7 +2879,7 @@ printf '%s\\n' \"${arr[@]}\" \"x${arr[@]}\" \"x${!arr[@]}\" \"x${arr[@]:1}\" \"x
     }
 
     #[test]
-    fn word_positional_at_splat_span_in_source_tracks_operation_forms() {
+    fn word_positional_at_splat_spans_in_source_tracks_operation_forms() {
         let source = "printf '%s\\n' \"${@:-fallback}\" \"$@\" \"\\$@\"\n";
         let output = Parser::new(source).parse().unwrap();
         let command = &output.file.body[0].command;
@@ -2887,17 +2888,19 @@ printf '%s\\n' \"${arr[@]}\" \"x${arr[@]}\" \"x${!arr[@]}\" \"x${arr[@]:1}\" \"x
         };
 
         assert_eq!(
-            word_positional_at_splat_span_in_source(&command.args[1], source)
-                .expect("expected positional span")
-                .slice(source),
-            "${@:-fallback}"
+            word_positional_at_splat_spans_in_source(&command.args[1], source)
+                .into_iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${@:-fallback}"]
         );
         assert_eq!(
-            word_positional_at_splat_span_in_source(&command.args[2], source)
-                .expect("expected positional span")
-                .slice(source),
-            "$@"
+            word_positional_at_splat_spans_in_source(&command.args[2], source)
+                .into_iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$@"]
         );
-        assert!(word_positional_at_splat_span_in_source(&command.args[3], source).is_none());
+        assert!(word_positional_at_splat_spans_in_source(&command.args[3], source).is_empty());
     }
 }
