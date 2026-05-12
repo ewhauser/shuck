@@ -1,0 +1,28 @@
+---
+source: crates/shuck-linter/src/rules/style/function_body_without_braces.rs
+assertion_line: 153
+---
+Diagnostics:
+S041 function body should use a brace group instead of a bare compound command
+ --> <source>:2:5
+  |
+2 | f() [[ -n "$x" ]]
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,2 +1,2 @@
+ #!/bin/bash
+-f() [[ -n "$x" ]]
++f() { [[ -n "$x" ]]; }
+
+Fixed source:
+#!/bin/bash
+f() { [[ -n "$x" ]]; }
+
+Remaining diagnostics:
+<none>
