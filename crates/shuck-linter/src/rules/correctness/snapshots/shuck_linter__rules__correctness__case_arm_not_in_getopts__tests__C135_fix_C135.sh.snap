@@ -1,0 +1,72 @@
+---
+source: crates/shuck-linter/src/rules/correctness/case_arm_not_in_getopts.rs
+assertion_line: 468
+---
+Diagnostics:
+C135 this case arm handles -k, but getopts does not declare it
+ --> <source>:8:5
+  |
+8 |     k) keyfile=$OPTARG ;;
+  |
+
+C135 this case arm handles -b, but getopts does not declare it
+  --> <source>:16:7
+   |
+16 |     a|b) : ;;
+   |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -5,7 +5,6 @@
+   case "$OPT" in
+     a) alg=$OPTARG ;;
+     d) domain=$OPTARG ;;
+-    k) keyfile=$OPTARG ;;
+     h) echo help; exit 0 ;;
+   esac
+ done
+@@ -13,7 +12,7 @@
+ # Should trigger only on the undeclared alternative.
+ while getopts 'a' opt; do
+   case "$opt" in
+-    a|b) : ;;
++    a) : ;;
+   esac
+ done
+ 
+
+Fixed source:
+#!/bin/sh
+
+# Should trigger: -k is handled in the case statement but missing from getopts.
+while getopts ':a:d:h' OPT; do
+  case "$OPT" in
+    a) alg=$OPTARG ;;
+    d) domain=$OPTARG ;;
+    h) echo help; exit 0 ;;
+  esac
+done
+
+# Should trigger only on the undeclared alternative.
+while getopts 'a' opt; do
+  case "$opt" in
+    a) : ;;
+  esac
+done
+
+# Should not trigger: getopts error handlers and fallback arms are intentional.
+while getopts ':a' opt; do
+  case "$opt" in
+    a) : ;;
+    \?) : ;;
+    :) : ;;
+    *) : ;;
+  esac
+done
+
+Remaining diagnostics:
+<none>
