@@ -1,0 +1,41 @@
+---
+source: crates/shuck-linter/src/rules/correctness/a_flag_in_double_bracket.rs
+assertion_line: 138
+---
+Diagnostics:
+C122 use `-e` or `&&` instead of `-a` inside `[[ ... ]]`
+ --> <source>:2:4
+  |
+2 | [[ -a "$path" ]]
+  |
+
+C122 use `-e` or `&&` instead of `-a` inside `[[ ... ]]`
+ --> <source>:3:6
+  |
+3 | [[ ! -a "$path" ]]
+  |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -1,5 +1,5 @@
+ #!/bin/sh
+-[[ -a "$path" ]]
+-[[ ! -a "$path" ]]
+ [[ -e "$path" ]]
++[[ ! -e "$path" ]]
++[[ -e "$path" ]]
+ [ -a "$path" ]
+
+Fixed source:
+#!/bin/sh
+[[ -e "$path" ]]
+[[ ! -e "$path" ]]
+[[ -e "$path" ]]
+[ -a "$path" ]
+
+Remaining diagnostics:
+<none>
