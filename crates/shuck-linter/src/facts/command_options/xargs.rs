@@ -89,14 +89,16 @@ pub(super) fn parse_xargs_command<'a>(args: &[&'a Word], source: &str) -> XargsC
         }
     }
 
+    let command_operand_words = args.get(index..).unwrap_or(&[]);
+
     XargsCommandFacts {
         uses_null_input,
         max_procs,
         zero_digit_option_word,
         inline_replace_options: inline_replace_options.into_boxed_slice(),
-        command_operand_words: args[index..].to_vec().into_boxed_slice(),
+        command_operand_words: command_operand_words.to_vec().into_boxed_slice(),
         sc2267_default_replace_silent_shape: xargs_sc2267_default_replace_silent_shape(
-            &args[index..],
+            command_operand_words,
             source,
         ),
     }
