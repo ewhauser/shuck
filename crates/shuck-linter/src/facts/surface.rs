@@ -871,7 +871,7 @@ impl<'a> SurfaceFragmentSink<'a> {
         if let WordPart::Literal(text) = &part.kind
             && !in_double_quote
         {
-            let literal = text.as_str(self.source, part.span);
+            let literal = text.syntax_str(self.source, part.span);
             if literal.as_bytes().contains(&UNICODE_SMART_QUOTE_LEAD_BYTE) {
                 for (offset, char) in literal.char_indices() {
                     if !is_unicode_smart_quote(char) {

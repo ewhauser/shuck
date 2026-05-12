@@ -837,6 +837,22 @@ echo 'hello ‘world’'
 }
 
 #[test]
+fn builds_unicode_smart_quote_spans_from_source_offsets_for_escaped_literals() {
+    let source = "#!/bin/sh\necho “hello\\${”\n";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .unicode_smart_quote_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["“", "”"]
+        );
+    });
+}
+
+#[test]
 fn ignores_unicode_smart_quotes_in_heredoc_payloads() {
     let source = "\
 #!/bin/sh
