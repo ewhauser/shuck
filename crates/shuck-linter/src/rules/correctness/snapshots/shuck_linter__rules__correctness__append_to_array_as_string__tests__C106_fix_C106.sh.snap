@@ -1,0 +1,72 @@
+---
+source: crates/shuck-linter/src/rules/correctness/append_to_array_as_string.rs
+assertion_line: 188
+---
+Diagnostics:
+C106 appending a string to an array with `+=` merges into an element; use `+=(...)`
+ --> <source>:5:1
+  |
+5 | items+=" two"
+  |
+
+C106 appending a string to an array with `+=` merges into an element; use `+=(...)`
+ --> <source>:9:1
+  |
+9 | flags+=" ${extra}"
+  |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -2,11 +2,11 @@
+ 
+ # Invalid: this appends text to an existing array element.
+ items=(one)
+-items+=" two"
++items+=(" two")
+ 
+ # Invalid: declaration-created arrays still need +=(...) for new elements.
+ declare -a flags=(--first)
+-flags+=" ${extra}"
++flags+=(" ${extra}")
+ 
+ # Valid: this appends a new element.
+ items+=("three")
+
+Fixed source:
+#!/bin/bash
+
+# Invalid: this appends text to an existing array element.
+items=(one)
+items+=(" two")
+
+# Invalid: declaration-created arrays still need +=(...) for new elements.
+declare -a flags=(--first)
+flags+=(" ${extra}")
+
+# Valid: this appends a new element.
+items+=("three")
+
+# Valid: scalar append is intentional.
+name=base
+name+=" suffix"
+
+# Valid: appending to a specific element is outside this rule.
+items[0]+=" tail"
+
+# Valid: array defined later should not classify this as an array append.
+late+=" value"
+late=(value)
+
+# Valid: local scalar shadowing should not inherit outer array type.
+arr=(one)
+f() {
+  local arr=base
+  arr+=" two"
+}
+
+Remaining diagnostics:
+<none>
