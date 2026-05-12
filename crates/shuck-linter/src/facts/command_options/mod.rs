@@ -226,6 +226,7 @@ pub struct FindCommandFacts {
     pub has_print0: bool,
     has_formatted_output_action: bool,
     or_without_grouping_spans: Box<[Span]>,
+    or_without_grouping_fix_spans: Box<[FindOrWithoutGroupingFixSpan]>,
     glob_pattern_operand_spans: Box<[Span]>,
 }
 
@@ -238,9 +239,20 @@ impl FindCommandFacts {
         &self.or_without_grouping_spans
     }
 
+    pub fn or_without_grouping_fix_spans(&self) -> &[FindOrWithoutGroupingFixSpan] {
+        &self.or_without_grouping_fix_spans
+    }
+
     pub fn glob_pattern_operand_spans(&self) -> &[Span] {
         &self.glob_pattern_operand_spans
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FindOrWithoutGroupingFixSpan {
+    pub diagnostic_span: Span,
+    pub branch_start: Span,
+    pub action_span: Span,
 }
 
 #[derive(Debug, Clone)]

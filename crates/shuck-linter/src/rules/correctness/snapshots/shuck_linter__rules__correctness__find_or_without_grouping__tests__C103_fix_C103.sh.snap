@@ -1,0 +1,57 @@
+---
+source: crates/shuck-linter/src/rules/correctness/find_or_without_grouping.rs
+assertion_line: 248
+---
+Diagnostics:
+C103 `find` alternatives joined with `-o` should be grouped before applying actions
+ --> <source>:4:49
+  |
+4 | find . -name perllocal.pod -o -name ".packlist" -print
+  |
+
+C103 `find` alternatives joined with `-o` should be grouped before applying actions
+ --> <source>:7:39
+  |
+7 | find . -name '*.tmp' -o -name '*.bak' -delete
+  |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -1,10 +1,10 @@
+ #!/bin/bash
+ 
+ # Invalid: `-o` alternatives are not grouped before an action.
+-find . -name perllocal.pod -o -name ".packlist" -print
++find . -name perllocal.pod -o \( -name ".packlist" -print \)
+ 
+ # Invalid: same precedence issue on another branch pair.
+-find . -name '*.tmp' -o -name '*.bak' -delete
++find . -name '*.tmp' -o \( -name '*.bak' -delete \)
+ 
+ # Valid: grouped alternatives before applying action.
+ find . \( -name perllocal.pod -o -name ".packlist" \) -print
+
+Fixed source:
+#!/bin/bash
+
+# Invalid: `-o` alternatives are not grouped before an action.
+find . -name perllocal.pod -o \( -name ".packlist" -print \)
+
+# Invalid: same precedence issue on another branch pair.
+find . -name '*.tmp' -o \( -name '*.bak' -delete \)
+
+# Valid: grouped alternatives before applying action.
+find . \( -name perllocal.pod -o -name ".packlist" \) -print
+
+# Valid: explicit `-a` avoids implicit precedence traps.
+find . -name '*.tmp' -o -name '*.bak' -a -print
+
+# Valid: if earlier branches already include actions, this pattern is intentional.
+find . -name '*.tmp' -print -o -name '*.bak' -print
+
+Remaining diagnostics:
+<none>

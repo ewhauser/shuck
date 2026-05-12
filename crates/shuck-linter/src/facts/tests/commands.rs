@@ -280,6 +280,24 @@ fn summarizes_command_options_and_invokers() {
         .map(|span| span.slice(source))
         .collect::<Vec<_>>();
     assert_eq!(find_or_without_grouping_spans, vec!["-print"]);
+    let find_or_without_grouping_fix_spans = facts
+        .commands()
+        .iter()
+        .filter(|fact| fact.effective_name_is("find"))
+        .filter_map(|fact| fact.options().find())
+        .flat_map(|find| find.or_without_grouping_fix_spans().iter().copied())
+        .map(|fix| {
+            (
+                fix.diagnostic_span.slice(source),
+                fix.branch_start.slice(source),
+                fix.action_span.slice(source),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        find_or_without_grouping_fix_spans,
+        vec![("-print", "-name", "-print")]
+    );
     let find_glob_pattern_operand_spans = facts
         .commands()
         .iter()

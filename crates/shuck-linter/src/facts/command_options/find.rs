@@ -193,6 +193,7 @@ pub(super) fn parse_find_command<'a>(
     let mut has_print0 = false;
     let mut has_formatted_output_action = false;
     let mut or_without_grouping_spans = Vec::new();
+    let mut or_without_grouping_fix_spans = Vec::new();
     let mut glob_pattern_operand_spans = Vec::new();
     let mut group_stack = vec![FindGroupState::default()];
     let mut pending_argument: Option<FindPendingArgument> = None;
@@ -269,17 +270,20 @@ pub(super) fn parse_find_command<'a>(
             if matches!(text.as_ref(), "-fprint0" | "-printf" | "-fprintf") {
                 has_formatted_output_action = true;
             }
+            let pending = find_pending_argument(text.as_ref());
             state.note_action(
                 word.span,
                 is_find_reportable_action_token(text.as_ref()),
+                pending.is_none(),
                 &mut or_without_grouping_spans,
+                &mut or_without_grouping_fix_spans,
             );
-            pending_argument = find_pending_argument(text.as_ref());
+            pending_argument = pending;
             continue;
         }
 
         if is_find_predicate_token(text.as_ref()) {
-            state.note_predicate();
+            state.note_predicate(word.span);
             pending_argument = find_pending_argument(text.as_ref());
         }
     }
@@ -288,6 +292,7 @@ pub(super) fn parse_find_command<'a>(
         has_print0,
         has_formatted_output_action,
         or_without_grouping_spans: or_without_grouping_spans.into_boxed_slice(),
+        or_without_grouping_fix_spans: or_without_grouping_fix_spans.into_boxed_slice(),
         glob_pattern_operand_spans: glob_pattern_operand_spans.into_boxed_slice(),
     }
 }
@@ -351,6 +356,7 @@ struct FindGroupState {
     saw_action_before_current_branch: bool,
     current_branch_has_predicate: bool,
     current_branch_has_explicit_and: bool,
+    current_branch_start: Option<Span>,
     has_any_predicate: bool,
     has_any_action: bool,
 }
@@ -364,24 +370,42 @@ impl FindGroupState {
         self.saw_or = true;
         self.current_branch_has_predicate = false;
         self.current_branch_has_explicit_and = false;
+        self.current_branch_start = None;
     }
 
     fn note_and(&mut self) {
         self.current_branch_has_explicit_and = true;
     }
 
-    fn note_predicate(&mut self) {
+    fn note_predicate(&mut self, span: Span) {
+        self.current_branch_start.get_or_insert(span);
         self.current_branch_has_predicate = true;
         self.has_any_predicate = true;
     }
 
-    fn note_action(&mut self, span: Span, reportable: bool, spans: &mut Vec<Span>) {
+    fn note_action(
+        &mut self,
+        span: Span,
+        reportable: bool,
+        fixable_without_action_arguments: bool,
+        spans: &mut Vec<Span>,
+        fix_spans: &mut Vec<FindOrWithoutGroupingFixSpan>,
+    ) {
         if reportable
             && self.saw_or
             && !self.saw_action_before_current_branch
             && self.current_branch_can_bind_action()
         {
             spans.push(span);
+            if fixable_without_action_arguments
+                && let Some(branch_start) = self.current_branch_start
+            {
+                fix_spans.push(FindOrWithoutGroupingFixSpan {
+                    diagnostic_span: span,
+                    branch_start,
+                    action_span: span,
+                });
+            }
         }
 
         self.saw_action_before_current_branch = true;
@@ -390,7 +414,11 @@ impl FindGroupState {
 
     fn incorporate_group(&mut self, child: Self) {
         if child.has_any_predicate {
-            self.note_predicate();
+            if let Some(span) = child.current_branch_start {
+                self.current_branch_start.get_or_insert(span);
+            }
+            self.current_branch_has_predicate = true;
+            self.has_any_predicate = true;
         }
 
         if child.has_any_action {
