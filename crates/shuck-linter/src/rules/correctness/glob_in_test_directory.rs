@@ -1,19 +1,25 @@
 use shuck_ast::{ConditionalUnaryOp, Span, Word, static_word_text};
 
 use crate::{
-    Checker, ConditionalFact, ConditionalNodeFact, LinterFacts, Rule, SimpleTestFact,
-    SimpleTestShape, Violation,
+    Checker, ConditionalFact, ConditionalNodeFact, Diagnostic, Edit, Fix, FixAvailability,
+    LinterFacts, Rule, SimpleTestFact, SimpleTestShape, Violation,
 };
 
 pub struct GlobInTestDirectory;
 
 impl Violation for GlobInTestDirectory {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::GlobInTestDirectory
     }
 
     fn message(&self) -> String {
         "unquoted globs in file tests can match multiple paths".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("quote the file-test operand".to_owned())
     }
 }
 
@@ -43,7 +49,14 @@ pub fn glob_in_test_directory(checker: &mut Checker) {
         })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || GlobInTestDirectory);
+    for span in spans {
+        checker.report_diagnostic_dedup(Diagnostic::new(GlobInTestDirectory, span).with_fix(
+            Fix::unsafe_edit(Edit::replacement(
+                format!("\"{}\"", span.slice(source)),
+                span,
+            )),
+        ));
+    }
 }
 
 fn simple_test_file_test_spans(
@@ -217,8 +230,10 @@ fn is_simple_test_file_test_unary_operator(token: Option<&str>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use std::path::Path;
+
+    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
 
     #[test]
     fn reports_unquoted_globs_in_simple_and_conditional_file_tests() {
@@ -264,5 +279,62 @@ test -n mtp2*
             test_snippet(source, &LinterSettings::for_rule(Rule::GlobInTestDirectory));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_unquoted_file_test_globs() {
+        let source = "\
+#!/bin/bash
+[ -d mtp2* ]
+[ -e bar* -a -L baz* ]
+[[ -r qux* && -w quux* ]]
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::GlobInTestDirectory),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 5);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+[ -d \"mtp2*\" ]
+[ -e \"bar*\" -a -L \"baz*\" ]
+[[ -r \"qux*\" && -w \"quux*\" ]]
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_quoted_globs_and_non_file_tests_unchanged_when_fixing() {
+        let source = "\
+#!/bin/bash
+[ -d \"mtp2*\" ]
+test -n mtp2*
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::GlobInTestDirectory),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("correctness").join("C102.sh").as_path(),
+            &LinterSettings::for_rule(Rule::GlobInTestDirectory),
+            Applicability::Unsafe,
+        )?;
+
+        assert_diagnostics_diff!("C102_fix_C102.sh", result);
+        Ok(())
     }
 }
