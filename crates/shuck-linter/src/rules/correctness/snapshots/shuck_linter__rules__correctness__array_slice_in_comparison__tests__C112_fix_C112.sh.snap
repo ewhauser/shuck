@@ -1,0 +1,97 @@
+---
+source: crates/shuck-linter/src/rules/correctness/array_slice_in_comparison.rs
+assertion_line: 311
+---
+Diagnostics:
+C112 all-elements array expansions collapse inside `[[ ... ]]` tests
+ --> <source>:8:7
+  |
+8 | if [[ "${sel[@]:0:4}" == "HELP" ]]; then :; fi
+  |
+
+C112 all-elements array expansions collapse inside `[[ ... ]]` tests
+ --> <source>:9:10
+  |
+9 | if [[ -n "$@" ]]; then :; fi
+  |
+
+C112 all-elements array expansions collapse inside `[[ ... ]]` tests
+  --> <source>:10:12
+   |
+10 | if [[ x == *${arr[@]}* ]]; then :; fi
+   |
+
+C112 all-elements array expansions collapse inside `[[ ... ]]` tests
+  --> <source>:11:7
+   |
+11 | if [[ "${@: -1}" == "mM" || "${@:-1}" == "Mm" ]]; then :; fi
+   |
+
+C112 all-elements array expansions collapse inside `[[ ... ]]` tests
+  --> <source>:11:29
+   |
+11 | if [[ "${@: -1}" == "mM" || "${@:-1}" == "Mm" ]]; then :; fi
+   |
+
+C112 all-elements array expansions collapse inside `[[ ... ]]` tests
+  --> <source>:12:7
+   |
+12 | if [[ " ${arr[@]} " =~ " x " ]]; then :; fi
+   |
+
+C112 all-elements array expansions collapse inside `[[ ... ]]` tests
+  --> <source>:13:7
+   |
+13 | if [[ "${arr[@]}" ]]; then :; fi
+   |
+
+
+Applied fixes: 7
+
+Diff:
+--- before
++++ after
+@@ -5,12 +5,12 @@
+ # Invalid: all-elements array expansions in [[ ... ]] tests.
+ set -- a b
+ arr=(x y)
+-if [[ "${sel[@]:0:4}" == "HELP" ]]; then :; fi
+-if [[ -n "$@" ]]; then :; fi
+-if [[ x == *${arr[@]}* ]]; then :; fi
+-if [[ "${@: -1}" == "mM" || "${@:-1}" == "Mm" ]]; then :; fi
+-if [[ " ${arr[@]} " =~ " x " ]]; then :; fi
+-if [[ "${arr[@]}" ]]; then :; fi
++if [[ "${sel[*]:0:4}" == "HELP" ]]; then :; fi
++if [[ -n "$*" ]]; then :; fi
++if [[ x == *${arr[*]}* ]]; then :; fi
++if [[ "${*: -1}" == "mM" || "${*:-1}" == "Mm" ]]; then :; fi
++if [[ " ${arr[*]} " =~ " x " ]]; then :; fi
++if [[ "${arr[*]}" ]]; then :; fi
+ 
+ # Valid: star-selector forms, escaped text, and single-bracket tests.
+ if [[ "${sel[*]:1}" == "HELP" ]]; then :; fi
+
+Fixed source:
+#!/bin/bash
+
+# shellcheck disable=2034,2154
+
+# Invalid: all-elements array expansions in [[ ... ]] tests.
+set -- a b
+arr=(x y)
+if [[ "${sel[*]:0:4}" == "HELP" ]]; then :; fi
+if [[ -n "$*" ]]; then :; fi
+if [[ x == *${arr[*]}* ]]; then :; fi
+if [[ "${*: -1}" == "mM" || "${*:-1}" == "Mm" ]]; then :; fi
+if [[ " ${arr[*]} " =~ " x " ]]; then :; fi
+if [[ "${arr[*]}" ]]; then :; fi
+
+# Valid: star-selector forms, escaped text, and single-bracket tests.
+if [[ "${sel[*]:1}" == "HELP" ]]; then :; fi
+if [[ "\${sel[@]:1}" == "HELP" ]]; then :; fi
+if [[ x == ${sel[*]}* ]]; then :; fi
+if [[ "\$@" ]]; then :; fi
+if [ "${sel[@]:1}" = "HELP" ]; then :; fi
+
+Remaining diagnostics:
+<none>

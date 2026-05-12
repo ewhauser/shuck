@@ -1875,8 +1875,8 @@ mod tests {
         collect_unquoted_all_elements_array_expansion_part_spans,
         collect_unquoted_array_expansion_part_spans, span_is_escaped,
         word_has_quoted_all_elements_array_slice, word_has_single_positional_at_splat_part,
-        word_is_pure_positional_at_splat, word_positional_at_splat_spans_in_source,
-        word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,
+        word_is_pure_positional_at_splat, word_positional_at_splat_spans,
+        word_positional_at_splat_spans_in_source, word_quoted_all_elements_array_slice_spans,
         word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
         word_unquoted_star_parameter_spans, word_unquoted_star_splat_spans,
     };
