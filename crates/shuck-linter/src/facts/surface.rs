@@ -442,6 +442,60 @@ impl PositionalParameterTrimFragmentFact {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct PositionalParameterTrimFixFact {
+    diagnostic_span: Span,
+    command_span: Span,
+    insertion_offset: usize,
+    insertion: Box<str>,
+    replacement_span: Span,
+    replacement: Box<str>,
+}
+
+impl PositionalParameterTrimFixFact {
+    pub(super) fn new(
+        diagnostic_span: Span,
+        command_span: Span,
+        insertion_offset: usize,
+        insertion: Box<str>,
+        replacement_span: Span,
+        replacement: Box<str>,
+    ) -> Self {
+        Self {
+            diagnostic_span,
+            command_span,
+            insertion_offset,
+            insertion,
+            replacement_span,
+            replacement,
+        }
+    }
+
+    pub fn diagnostic_span(&self) -> Span {
+        self.diagnostic_span
+    }
+
+    pub fn command_span(&self) -> Span {
+        self.command_span
+    }
+
+    pub fn insertion_offset(&self) -> usize {
+        self.insertion_offset
+    }
+
+    pub fn insertion(&self) -> &str {
+        &self.insertion
+    }
+
+    pub fn replacement_span(&self) -> Span {
+        self.replacement_span
+    }
+
+    pub fn replacement(&self) -> &str {
+        &self.replacement
+    }
+}
+
 #[derive(Debug, Default)]
 pub(super) struct SurfaceFragmentFacts {
     pub(super) single_quoted: Vec<SingleQuotedFragmentFact>,

@@ -824,6 +824,8 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 &structural_command_ids,
                 source,
             );
+        let positional_parameter_trim_fix_facts =
+            build_positional_parameter_trim_fix_facts(&positional_parameter_trims, &commands, source);
         let word_index = build_word_occurrence_index(
             &commands,
             &word_nodes,
@@ -1084,9 +1086,129 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             case_modification_fragments: case_modifications,
             replacement_expansion_fragments: replacement_expansions,
             positional_parameter_trim_fragments: positional_parameter_trims,
+            positional_parameter_trim_fix_facts,
             conditional_portability,
         }
     }
+}
+
+fn build_positional_parameter_trim_fix_facts(
+    fragments: &[PositionalParameterTrimFragmentFact],
+    commands: &[CommandFact<'_>],
+    source: &str,
+) -> Vec<PositionalParameterTrimFixFact> {
+    fragments
+        .iter()
+        .filter_map(|fragment| positional_parameter_trim_fix_fact(*fragment, commands, source))
+        .collect()
+}
+
+fn positional_parameter_trim_fix_fact(
+    fragment: PositionalParameterTrimFragmentFact,
+    commands: &[CommandFact<'_>],
+    source: &str,
+) -> Option<PositionalParameterTrimFixFact> {
+    let text = fragment.span().slice(source);
+    let (target, rest) = text
+        .strip_prefix("${*")
+        .map(|rest| ('*', rest))
+        .or_else(|| text.strip_prefix("${@").map(|rest| ('@', rest)))?;
+    let command = commands
+        .iter()
+        .filter(|command| {
+            !command.is_nested_word_command()
+                && span_contains_trim_fragment(command.span(), fragment.span())
+                && command.span().start.line == fragment.span().start.line
+        })
+        .min_by_key(|command| command.span().end.offset - command.span().start.offset)?;
+    let line_start = source[..command.span().start.offset]
+        .rfind('\n')
+        .map_or(0, |offset| offset + 1);
+    let indent = &source[line_start..command.span().start.offset];
+    if !indent.bytes().all(|byte| matches!(byte, b' ' | b'\t')) {
+        return None;
+    }
+    if previous_line_ends_with_control_operator(source, line_start) {
+        return None;
+    }
+
+    let temp_name = "_shuck_positional_params";
+    Some(PositionalParameterTrimFixFact::new(
+        fragment.span(),
+        command.span(),
+        line_start,
+        format!("{indent}{temp_name}=${target}\n").into_boxed_str(),
+        fragment.span(),
+        format!("${{{temp_name}{rest}").into_boxed_str(),
+    ))
+}
+
+fn previous_line_ends_with_control_operator(source: &str, line_start: usize) -> bool {
+    source[..line_start]
+        .lines()
+        .rev()
+        .map(|line| {
+            let line = line_without_trailing_comment(line).trim_end_matches([' ', '\t']);
+            line.strip_suffix('\\')
+                .map_or(line, |continued| continued.trim_end_matches([' ', '\t']))
+        })
+        .find(|line| !line.is_empty())
+        .is_some_and(|line| line.ends_with('|') || line.ends_with("|&") || line.ends_with("&&"))
+}
+
+fn line_without_trailing_comment(line: &str) -> &str {
+    let mut escaped = false;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut comment_can_start = true;
+
+    for (offset, ch) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        if in_single_quotes {
+            if ch == '\'' {
+                in_single_quotes = false;
+            }
+            continue;
+        }
+
+        if in_double_quotes {
+            match ch {
+                '\\' => escaped = true,
+                '"' => in_double_quotes = false,
+                _ => {}
+            }
+            continue;
+        }
+
+        match ch {
+            '#' if comment_can_start => return &line[..offset],
+            '\\' => {
+                escaped = true;
+                comment_can_start = false;
+            }
+            '\'' => {
+                in_single_quotes = true;
+                comment_can_start = false;
+            }
+            '"' => {
+                in_double_quotes = true;
+                comment_can_start = false;
+            }
+            ' ' | '\t' => comment_can_start = true,
+            '|' | '&' | ';' | '(' | ')' | '<' | '>' => comment_can_start = true,
+            _ => comment_can_start = false,
+        }
+    }
+
+    line
+}
+
+fn span_contains_trim_fragment(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]

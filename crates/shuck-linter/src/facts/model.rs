@@ -141,6 +141,7 @@ pub struct LinterFacts<'a> {
     case_modification_fragments: Vec<CaseModificationFragmentFact>,
     replacement_expansion_fragments: Vec<ReplacementExpansionFragmentFact>,
     positional_parameter_trim_fragments: Vec<PositionalParameterTrimFragmentFact>,
+    positional_parameter_trim_fix_facts: Vec<PositionalParameterTrimFixFact>,
     conditional_portability: ConditionalPortabilityFacts,
 }
 
@@ -1045,6 +1046,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn positional_parameter_trim_fragments(&self) -> &[PositionalParameterTrimFragmentFact] {
         &self.positional_parameter_trim_fragments
+    }
+
+    pub fn positional_parameter_trim_fix_facts(&self) -> &[PositionalParameterTrimFixFact] {
+        &self.positional_parameter_trim_fix_facts
     }
 
     pub fn conditional_portability(&self) -> &ConditionalPortabilityFacts {
