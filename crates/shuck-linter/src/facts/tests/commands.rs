@@ -3505,6 +3505,86 @@ rm -rf /usr/share/*
 }
 
 #[test]
+fn rm_command_facts_track_rootish_targets() {
+    let source = "\
+#!/bin/sh
+dir=/tmp
+rm -rf /
+rm -rf /*
+rm -rf /**
+rm -rf /./
+rm -rf /./*
+rm -rf /..
+rm -rf /../*
+rm -rf \"$HOME\"
+rm -rf \"${HOME}\"/*
+rm -rf \"${HOME:?}\"
+rm -rf \"${HOME:?}\"/*
+rm -rf \"$HOME\"/.
+rm -rf \"$HOME\"/./*
+rm -rf ~
+rm -rf ~/*
+rm -rf ~/**
+rm -rf ~/.
+rm -rf ~/./*
+rm -rf ~root/*
+rm -f \"$HOME\"/*
+rm -rf \"$HOME\"/.cache
+rm -rf \"${HOME%/*}\"
+rm -rf \"${HOME%%/*}\"
+rm -rf \"$HOME\"/..
+rm -rf \"$HOME\"/../*
+rm -rf ~/..
+rm -rf ~/../*
+rm -rf ~0
+rm -rf ~1/*
+rm -rf ~/Downloads/*
+rm -rf /tmp/*
+rm -rf /tmp/../*
+rm -rf ~/tmp/../*
+rm -rf ~root/tmp/../*
+rm -rf \"$dir\"/*
+rm -rf \"~\"/*
+rm -rf \"$HOME\"/\"*\"
+";
+
+    with_facts(source, None, |_, facts| {
+        let rm_spans = facts
+            .commands()
+            .iter()
+            .filter_map(|fact| fact.options().rm())
+            .flat_map(|rm| rm.rootish_path_spans(source).iter().copied())
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            rm_spans,
+            vec![
+                "/",
+                "/*",
+                "/**",
+                "/./",
+                "/./*",
+                "/..",
+                "/../*",
+                "\"$HOME\"",
+                "\"${HOME}\"/*",
+                "\"${HOME:?}\"",
+                "\"${HOME:?}\"/*",
+                "\"$HOME\"/.",
+                "\"$HOME\"/./*",
+                "~",
+                "~/*",
+                "~/**",
+                "~/.",
+                "~/./*",
+                "~root/*"
+            ]
+        );
+    });
+}
+
+#[test]
 fn builds_redirect_facts_with_cached_target_analysis() {
     let source = "#!/bin/bash\necho hi 2>&3 >/dev/null >> \"$((i++))\"\necho hi > \"$((i + 1))\"\n";
 

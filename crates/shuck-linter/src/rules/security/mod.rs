@@ -1,6 +1,7 @@
 pub mod eval_on_array;
 pub mod find_execdir_with_shell;
 pub mod rm_glob_on_variable_path;
+pub mod rm_rootish_target;
 pub mod ssh_local_expansion;
 
 #[cfg(test)]
@@ -14,6 +15,7 @@ mod tests {
 
     #[test_case(Rule::FindExecDirWithShell, Path::new("K004.sh"))]
     #[test_case(Rule::RmGlobOnVariablePath, Path::new("K001.sh"))]
+    #[test_case(Rule::RmRootishTarget, Path::new("K006.sh"))]
     #[test_case(Rule::SshLocalExpansion, Path::new("K002.sh"))]
     #[test_case(Rule::EvalOnArray, Path::new("K003.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {

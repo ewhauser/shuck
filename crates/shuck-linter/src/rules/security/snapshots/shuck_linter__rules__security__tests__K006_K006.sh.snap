@@ -1,0 +1,50 @@
+---
+source: crates/shuck-linter/src/rules/security/mod.rs
+---
+K006 recursive `rm` targets a root-like directory
+ --> <source>:2:8
+  |
+2 | rm -rf "$HOME"/*
+  |
+
+K006 recursive `rm` targets a root-like directory
+ --> <source>:3:8
+  |
+3 | rm -rf "$HOME"/**
+  |
+
+K006 recursive `rm` targets a root-like directory
+ --> <source>:4:8
+  |
+4 | rm -rf /
+  |
+
+K006 recursive `rm` targets a root-like directory
+ --> <source>:5:8
+  |
+5 | rm -rf /**
+  |
+
+K006 recursive `rm` targets a root-like directory
+ --> <source>:6:8
+  |
+6 | rm -rf /..
+  |
+
+K006 recursive `rm` targets a root-like directory
+ --> <source>:7:8
+  |
+7 | rm -rf /../*
+  |
+
+K006 recursive `rm` targets a root-like directory
+ --> <source>:8:8
+  |
+8 | rm -rf ~
+  |
+
+K006 recursive `rm` targets a root-like directory
+ --> <source>:9:8
+  |
+9 | rm -rf ~/**
+  |

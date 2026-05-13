@@ -200,13 +200,25 @@ impl<'a> UnsetOperandFact<'a> {
 pub(crate) struct UnsetArraySubscriptFact;
 
 #[derive(Debug, Clone)]
-pub struct RmCommandFacts {
+pub struct RmCommandFacts<'a> {
     dangerous_path_spans: Box<[Span]>,
+    rootish_path_words: Box<[&'a Word]>,
+    rootish_path_spans: OnceLock<Box<[Span]>>,
 }
 
-impl RmCommandFacts {
+impl RmCommandFacts<'_> {
     pub fn dangerous_path_spans(&self) -> &[Span] {
         &self.dangerous_path_spans
+    }
+
+    pub fn rootish_path_spans(&self, source: &str) -> &[Span] {
+        self.rootish_path_spans.get_or_init(|| {
+            self.rootish_path_words
+                .iter()
+                .filter_map(|word| rm_path_is_rootish(word, source).then_some(word.span))
+                .collect::<Vec<_>>()
+                .into_boxed_slice()
+        })
     }
 }
 
@@ -612,7 +624,7 @@ pub struct SudoFamilyCommandFacts {
 
 #[derive(Debug, Clone, Default)]
 pub struct CommandOptionFacts<'a> {
-    rm: Option<RmCommandFacts>,
+    rm: Option<RmCommandFacts<'a>>,
     ssh: Option<SshCommandFacts>,
     read: Option<ReadCommandFacts>,
     su: Option<SuCommandFacts>,
@@ -648,7 +660,7 @@ impl<'facts, 'a> CommandOptionFactsRef<'facts, 'a> {
         Self { inner }
     }
 
-    pub fn rm(self) -> Option<&'facts RmCommandFacts> {
+    pub fn rm(self) -> Option<&'facts RmCommandFacts<'a>> {
         self.inner.and_then(CommandOptionFacts::rm)
     }
 
@@ -748,7 +760,7 @@ impl<'facts, 'a> CommandOptionFactsRef<'facts, 'a> {
 }
 
 impl<'a> CommandOptionFacts<'a> {
-    pub fn rm(&self) -> Option<&RmCommandFacts> {
+    pub fn rm(&self) -> Option<&RmCommandFacts<'a>> {
         self.rm.as_ref()
     }
 
@@ -1055,7 +1067,7 @@ fn is_tr_option(text: &str) -> bool {
             .all(|byte| matches!(byte, b'c' | b'C' | b'd' | b's' | b't'))
 }
 
-fn parse_rm_command(args: &[&Word], source: &str) -> Option<RmCommandFacts> {
+fn parse_rm_command<'a>(args: &[&'a Word], source: &str) -> Option<RmCommandFacts<'a>> {
     let mut index = 0usize;
     let mut recursive = false;
 
@@ -1091,9 +1103,16 @@ fn parse_rm_command(args: &[&Word], source: &str) -> Option<RmCommandFacts> {
         .iter()
         .flat_map(|word| std::iter::repeat_n(word.span, rm_path_danger_count(word, source)))
         .collect::<Vec<_>>();
+    let rootish_path_words = args[index..]
+        .iter()
+        .copied()
+        .filter(|word| rm_path_may_be_rootish(word, source))
+        .collect::<Vec<_>>();
 
-    (!dangerous_path_spans.is_empty()).then_some(RmCommandFacts {
+    (!dangerous_path_spans.is_empty() || !rootish_path_words.is_empty()).then_some(RmCommandFacts {
         dangerous_path_spans: dangerous_path_spans.into_boxed_slice(),
+        rootish_path_words: rootish_path_words.into_boxed_slice(),
+        rootish_path_spans: OnceLock::new(),
     })
 }
 
@@ -1131,7 +1150,9 @@ fn rm_path_danger_count(word: &Word, source: &str) -> usize {
 
 #[derive(Debug, Default)]
 struct RmPathSegment {
-    has_unsafe_param: bool,
+    unsafe_param_count: usize,
+    unsafe_home_param_count: usize,
+    home_param_count: usize,
     has_literal_text: bool,
     has_other_dynamic: bool,
     text: String,
@@ -1169,23 +1190,36 @@ fn append_rm_path_part(
             current_rm_path_segment(segments).has_other_dynamic = true;
         }
         WordPart::DoubleQuoted { parts, .. } => append_rm_path_segments(segments, parts, source),
-        WordPart::Variable(_) => {
-            current_rm_path_segment(segments).has_unsafe_param = true;
+        WordPart::Variable(name) => {
+            mark_rm_path_unsafe_parameter(segments, name.as_str() == "HOME");
         }
         WordPart::Parameter(parameter) => {
-            if rm_path_parameter_expansion_is_unsafe(parameter) {
-                current_rm_path_segment(segments).has_unsafe_param = true;
+            if rm_path_parameter_expansion_is_guarded_home_access(parameter) {
+                mark_rm_path_home_parameter(segments);
+            } else if rm_path_parameter_expansion_is_unsafe(parameter) {
+                mark_rm_path_unsafe_parameter(
+                    segments,
+                    rm_path_parameter_expansion_is_home_access(parameter, source),
+                );
             } else {
                 current_rm_path_segment(segments).has_other_dynamic = true;
             }
         }
         WordPart::ParameterExpansion {
+            reference,
             operator,
             colon_variant: _,
             ..
         } => {
-            if rm_path_parameter_op_is_unsafe(operator) {
-                current_rm_path_segment(segments).has_unsafe_param = true;
+            let is_guarded_home = rm_path_parameter_op_is_guarded_home_access(reference, operator);
+            if is_guarded_home {
+                mark_rm_path_home_parameter(segments);
+            } else if rm_path_parameter_op_is_unsafe(operator) {
+                mark_rm_path_unsafe_parameter(
+                    segments,
+                    rm_var_ref_is_home(reference)
+                        && rm_path_parameter_op_preserves_home_root(operator, source),
+                );
             } else {
                 current_rm_path_segment(segments).has_other_dynamic = true;
             }
@@ -1208,6 +1242,19 @@ fn append_rm_path_part(
     }
 }
 
+fn mark_rm_path_unsafe_parameter(segments: &mut [RmPathSegment], is_home: bool) {
+    let segment = current_rm_path_segment(segments);
+    segment.unsafe_param_count += 1;
+    if is_home {
+        segment.unsafe_home_param_count += 1;
+        segment.home_param_count += 1;
+    }
+}
+
+fn mark_rm_path_home_parameter(segments: &mut [RmPathSegment]) {
+    current_rm_path_segment(segments).home_param_count += 1;
+}
+
 fn rm_path_parameter_expansion_is_unsafe(parameter: &ParameterExpansion) -> bool {
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(syntax) => match syntax {
@@ -1220,8 +1267,13 @@ fn rm_path_parameter_expansion_is_unsafe(parameter: &ParameterExpansion) -> bool
             } => operator
                 .as_deref()
                 .is_none_or(rm_path_parameter_op_is_unsafe),
-            BourneParameterExpansion::Operation { operator, .. } => {
+            BourneParameterExpansion::Operation {
+                reference,
+                operator,
+                ..
+            } => {
                 rm_path_parameter_op_is_unsafe(operator)
+                    && !rm_path_parameter_op_is_guarded_home_access(reference, operator)
             }
             BourneParameterExpansion::Length { .. }
             | BourneParameterExpansion::Indices { .. }
@@ -1231,6 +1283,55 @@ fn rm_path_parameter_expansion_is_unsafe(parameter: &ParameterExpansion) -> bool
         },
         ParameterExpansionSyntax::Zsh(_) => false,
     }
+}
+
+fn rm_path_parameter_expansion_is_home_access(
+    parameter: &ParameterExpansion,
+    source: &str,
+) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
+            rm_var_ref_is_home(reference)
+        }
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+            reference,
+            operator,
+            ..
+        }) => {
+            rm_path_parameter_op_is_guarded_home_access(reference, operator)
+                || rm_var_ref_is_home(reference)
+                    && rm_path_parameter_op_preserves_home_root(operator, source)
+        }
+        ParameterExpansionSyntax::Bourne(_) | ParameterExpansionSyntax::Zsh(_) => false,
+    }
+}
+
+fn rm_path_parameter_expansion_is_guarded_home_access(parameter: &ParameterExpansion) -> bool {
+    matches!(
+        &parameter.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+            reference,
+            operator,
+            ..
+        }) if rm_path_parameter_op_is_guarded_home_access(reference, operator)
+    )
+}
+
+fn rm_path_parameter_op_preserves_home_root(operator: &ParameterOp, source: &str) -> bool {
+    match operator {
+        ParameterOp::RemoveSuffixShort { pattern } | ParameterOp::RemoveSuffixLong { pattern } => {
+            matches!(pattern.render(source).as_str(), "" | "/")
+        }
+        _ => false,
+    }
+}
+
+fn rm_var_ref_is_home(reference: &VarRef) -> bool {
+    reference.name.as_str() == "HOME" && reference.subscript.is_none()
+}
+
+fn rm_path_parameter_op_is_guarded_home_access(reference: &VarRef, operator: &ParameterOp) -> bool {
+    rm_var_ref_is_home(reference) && matches!(operator, ParameterOp::Error)
 }
 
 fn rm_path_parameter_op_is_unsafe(operator: &ParameterOp) -> bool {
@@ -1261,10 +1362,22 @@ fn current_rm_path_segment(segments: &mut [RmPathSegment]) -> &mut RmPathSegment
 }
 
 fn rm_path_segment_is_empty(segment: &RmPathSegment) -> bool {
-    !segment.has_unsafe_param
+    segment.unsafe_param_count == 0
         && !segment.has_literal_text
         && !segment.has_other_dynamic
         && segment.text.is_empty()
+}
+
+fn rm_path_segment_is_root_equivalent_tail(
+    segment: &RmPathSegment,
+    dotdot_is_root_equivalent: bool,
+) -> bool {
+    rm_path_segment_is_empty(segment)
+        || (segment.unsafe_param_count == 0 && !segment.has_other_dynamic && segment.text == ".")
+        || (dotdot_is_root_equivalent
+            && segment.unsafe_param_count == 0
+            && !segment.has_other_dynamic
+            && segment.text == "..")
 }
 
 fn rm_path_has_absolute_root(segments: &[RmPathSegment]) -> bool {
@@ -1276,7 +1389,113 @@ fn rm_word_has_explicit_trailing_separator(word: &Word, source: &str) -> bool {
 }
 
 fn rm_path_segment_is_pure_unsafe_parameter(segment: &RmPathSegment) -> bool {
-    segment.has_unsafe_param && !segment.has_literal_text && !segment.has_other_dynamic
+    segment.unsafe_param_count > 0 && !segment.has_literal_text && !segment.has_other_dynamic
+}
+
+fn rm_path_is_rootish(word: &Word, source: &str) -> bool {
+    let segments = rm_path_segments(word, source);
+    if segments.is_empty() {
+        return false;
+    }
+    let has_unquoted_glob = rm_word_has_unquoted_glob_pattern(word, source);
+
+    if rm_path_has_absolute_root(&segments) {
+        return rm_path_tail_is_rootish(&segments[1..], has_unquoted_glob, true);
+    }
+
+    let Some((root, tail)) = segments.split_first() else {
+        return false;
+    };
+
+    (rm_path_segment_is_home_parameter_root(root)
+        || rm_path_segment_is_unquoted_home_tilde(root, word, source))
+        && rm_path_tail_is_rootish(tail, has_unquoted_glob, false)
+}
+
+fn rm_path_may_be_rootish(word: &Word, source: &str) -> bool {
+    let text = word.span.slice(source);
+    text.contains('/') || text.contains('~') || text.contains("HOME") || text.contains('*')
+}
+
+fn rm_word_has_unquoted_glob_pattern(word: &Word, source: &str) -> bool {
+    !word_spans::word_unquoted_glob_pattern_spans(word, source).is_empty()
+}
+
+fn rm_path_segment_is_home_parameter_root(segment: &RmPathSegment) -> bool {
+    segment.home_param_count == 1
+        && segment.unsafe_param_count == segment.unsafe_home_param_count
+        && !segment.has_literal_text
+        && !segment.has_other_dynamic
+        && segment.text.is_empty()
+}
+
+fn rm_path_segment_is_unquoted_home_tilde(
+    segment: &RmPathSegment,
+    word: &Word,
+    source: &str,
+) -> bool {
+    word.span.slice(source).starts_with('~')
+        && segment.unsafe_param_count == 0
+        && !segment.has_other_dynamic
+        && rm_tilde_prefix_is_home_root(&segment.text)
+}
+
+fn rm_tilde_prefix_is_home_root(text: &str) -> bool {
+    let Some(suffix) = text.strip_prefix('~') else {
+        return false;
+    };
+
+    if suffix.starts_with(['+', '-']) {
+        return false;
+    }
+
+    if suffix.as_bytes().first().is_some_and(u8::is_ascii_digit) {
+        return false;
+    }
+
+    !suffix.contains(['*', '?', '[', ']', '{', '}'])
+}
+
+fn rm_path_tail_is_rootish(
+    segments: &[RmPathSegment],
+    has_unquoted_glob: bool,
+    dotdot_is_root_equivalent: bool,
+) -> bool {
+    let canonical_segments = canonicalize_rm_path_tail(segments);
+    let mut meaningful_segments = canonical_segments.iter().copied().filter(|segment| {
+        !rm_path_segment_is_root_equivalent_tail(segment, dotdot_is_root_equivalent)
+    });
+
+    match (meaningful_segments.next(), meaningful_segments.next()) {
+        (None, _) => true,
+        (Some(segment), None) => rm_path_segment_is_rootish_wildcard(segment, has_unquoted_glob),
+        (Some(_), Some(_)) => false,
+    }
+}
+
+fn canonicalize_rm_path_tail(segments: &[RmPathSegment]) -> Vec<&RmPathSegment> {
+    let mut stack = Vec::<&RmPathSegment>::new();
+
+    for segment in segments {
+        if rm_path_segment_is_static_text(segment, ".") || rm_path_segment_is_empty(segment) {
+            continue;
+        }
+
+        stack.push(segment);
+    }
+
+    stack
+}
+
+fn rm_path_segment_is_static_text(segment: &RmPathSegment, text: &str) -> bool {
+    segment.unsafe_param_count == 0 && !segment.has_other_dynamic && segment.text == text
+}
+
+fn rm_path_segment_is_rootish_wildcard(segment: &RmPathSegment, has_unquoted_glob: bool) -> bool {
+    has_unquoted_glob
+        && segment.unsafe_param_count == 0
+        && !segment.has_other_dynamic
+        && matches!(segment.text.as_str(), "*" | "**" | ".*")
 }
 
 fn rm_path_tail_text(segments: &[RmPathSegment]) -> String {
@@ -1291,7 +1510,7 @@ const RM_PURE_DYNAMIC_TAIL_COMPONENT: &str = "\u{1f}";
 const RM_MIXED_DYNAMIC_TAIL_PREFIX: &str = "\u{1e}";
 
 fn rm_path_segment_tail_pattern(segment: &RmPathSegment) -> String {
-    if segment.has_unsafe_param || segment.has_other_dynamic {
+    if segment.unsafe_param_count > 0 || segment.has_other_dynamic {
         if segment.text.is_empty() {
             RM_PURE_DYNAMIC_TAIL_COMPONENT.to_owned()
         } else {

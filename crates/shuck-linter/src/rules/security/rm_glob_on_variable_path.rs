@@ -79,7 +79,7 @@ mod tests {
 
     #[test]
     fn ignores_guarded_parameter_segments_that_shellcheck_accepts() {
-        let source = "#!/bin/bash\ndir=/tmp\nrm -rf \"$dir/${dev:-does_not_exist}\"\nrm -rf \"${NVM_DIR}/${TEST_VERSION:?}\" .nvmrc\nrm -rf \"${foo:-\"$bar/baz\"}/$1\"/\n";
+        let source = "#!/bin/bash\ndir=/tmp\nrepo=demo\nrm -rf \"$dir/${dev:-does_not_exist}\"\nrm -rf \"${NVM_DIR}/${TEST_VERSION:?}\" .nvmrc\nrm -rf \"${HOME:?}/${repo}\"\nrm -rf \"${foo:-\"$bar/baz\"}/$1\"/\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::RmGlobOnVariablePath),
