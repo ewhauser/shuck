@@ -55,6 +55,9 @@ struct EffectivePerFileShell {
 struct EffectiveRuleOptions {
     c001_treat_indirect_expansion_targets_as_used: bool,
     c063_report_unreached_nested_definitions: bool,
+    s085_non_trivial_line_threshold: usize,
+    s085_non_trivial_function_count: usize,
+    s085_main_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -174,6 +177,9 @@ impl EffectiveRuleOptions {
             c063_report_unreached_nested_definitions: rule_options
                 .c063
                 .report_unreached_nested_definitions,
+            s085_non_trivial_line_threshold: rule_options.s085.non_trivial_line_threshold,
+            s085_non_trivial_function_count: rule_options.s085.non_trivial_function_count,
+            s085_main_name: rule_options.s085.main_name.clone(),
         }
     }
 }
@@ -185,6 +191,9 @@ impl CacheKey for EffectiveRuleOptions {
             .cache_key(state);
         self.c063_report_unreached_nested_definitions
             .cache_key(state);
+        self.s085_non_trivial_line_threshold.cache_key(state);
+        self.s085_non_trivial_function_count.cache_key(state);
+        self.s085_main_name.cache_key(state);
     }
 }
 
@@ -932,6 +941,30 @@ fn linter_rule_options_for_lint_config(lint: &LintConfig) -> shuck_linter::Linte
         .and_then(|c063| c063.report_unreached_nested_definitions)
     {
         rule_options.c063.report_unreached_nested_definitions = value;
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.s085.as_ref())
+        .and_then(|s085| s085.non_trivial_line_threshold)
+    {
+        rule_options.s085.non_trivial_line_threshold = value;
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.s085.as_ref())
+        .and_then(|s085| s085.non_trivial_function_count)
+    {
+        rule_options.s085.non_trivial_function_count = value;
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.s085.as_ref())
+        .and_then(|s085| s085.main_name.as_ref())
+    {
+        rule_options.s085.main_name.clone_from(value);
     }
 
     rule_options

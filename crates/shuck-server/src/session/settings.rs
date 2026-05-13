@@ -613,6 +613,30 @@ fn apply_linter_rule_options_for_lint_config(
     {
         rule_options.c063.report_unreached_nested_definitions = value;
     }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.s085.as_ref())
+        .and_then(|s085| s085.non_trivial_line_threshold)
+    {
+        rule_options.s085.non_trivial_line_threshold = value;
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.s085.as_ref())
+        .and_then(|s085| s085.non_trivial_function_count)
+    {
+        rule_options.s085.non_trivial_function_count = value;
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.s085.as_ref())
+        .and_then(|s085| s085.main_name.as_ref())
+    {
+        rule_options.s085.main_name.clone_from(value);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -839,6 +863,44 @@ mod tests {
         );
 
         assert_eq!(settings.linter().shell, LinterShellDialect::Zsh);
+    }
+
+    #[test]
+    fn shuck_settings_apply_s085_rule_options() {
+        let options = ClientOptions::default();
+        let tempdir = tempfile::tempdir().expect("tempdir should be created");
+        std::fs::write(
+            tempdir.path().join(".shuck.toml"),
+            "[lint.rule-options.s085]\nnon-trivial-line-threshold = 20\nnon-trivial-function-count = 3\nmain-name = 'run'\n",
+        )
+        .expect("config should be written");
+
+        let file_path = tempdir.path().join("script.sh");
+        std::fs::write(&file_path, "run() { :; }\n").expect("source should be written");
+
+        let settings = ShuckSettings::resolve(
+            Some(&file_path),
+            &[tempdir.path().to_path_buf()],
+            &[&options],
+        );
+
+        assert_eq!(
+            settings
+                .linter()
+                .rule_options
+                .s085
+                .non_trivial_line_threshold,
+            20
+        );
+        assert_eq!(
+            settings
+                .linter()
+                .rule_options
+                .s085
+                .non_trivial_function_count,
+            3
+        );
+        assert_eq!(settings.linter().rule_options.s085.main_name, "run");
     }
 
     #[test]
