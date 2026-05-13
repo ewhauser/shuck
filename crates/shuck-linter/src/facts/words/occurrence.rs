@@ -3271,10 +3271,6 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 word_spans::parenthesized_arithmetic_expansion_part_spans(word),
             );
         }
-        self.arithmetic
-            .arithmetic_expansion_spans
-            .extend(word_spans::arithmetic_expansion_part_spans(word));
-
         collect_arithmetic_summary_spans_in_word(
             word,
             self.source,

@@ -891,6 +891,7 @@ impl<'word> WordSubtreeVisitor<'word> for ArithmeticSummarySpanVisitor<'_, '_> {
                 expression_word_ast,
                 ..
             } => {
+                self.arithmetic_expansion_spans.push(part.span);
                 if let Some(expression) = expression_ast {
                     collect_wrapped_arithmetic_spans_in_span(
                         expression.span,
