@@ -162,4 +162,19 @@ printf '%s\n' \"${name%%dBm*}\"
         assert_eq!(result.fixed_diagnostics.len(), 1);
         assert_eq!(result.fixed_diagnostics[0].span.slice(source), "${*%%dBm*}");
     }
+
+    #[test]
+    fn leaves_comment_trailing_control_operator_continuations_unfixed() {
+        let source = "#!/bin/sh\nprintf '%s\\n' ok | # keep the next command in this pipeline\n  printf '%s\\n' \"${*%%dBm*}\"\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::StarGlobRemovalInSh),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert_eq!(result.fixed_diagnostics.len(), 1);
+        assert_eq!(result.fixed_diagnostics[0].span.slice(source), "${*%%dBm*}");
+    }
 }

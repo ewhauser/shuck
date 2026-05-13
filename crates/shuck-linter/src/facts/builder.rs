@@ -1144,8 +1144,16 @@ fn positional_parameter_trim_fix_fact(
 }
 
 fn previous_line_ends_with_control_operator(source: &str, line_start: usize) -> bool {
-    let prefix = source[..line_start].trim_end_matches([' ', '\t', '\n']);
-    prefix.ends_with('|') || prefix.ends_with("|&") || prefix.ends_with("&&")
+    source[..line_start]
+        .lines()
+        .rev()
+        .map(|line| {
+            line.split_once('#')
+                .map_or(line, |(code, _)| code)
+                .trim_end_matches([' ', '\t'])
+        })
+        .find(|line| !line.is_empty())
+        .is_some_and(|line| line.ends_with('|') || line.ends_with("|&") || line.ends_with("&&"))
 }
 
 fn span_contains_trim_fragment(outer: Span, inner: Span) -> bool {
