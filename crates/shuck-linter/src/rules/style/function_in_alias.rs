@@ -108,6 +108,9 @@ alias 9foo='echo $1'
 alias if='echo $1'
 alias for='echo $1'
 alias function='echo $1'
+alias export='echo $1'
+alias readonly='echo $1'
+alias unset='echo $1'
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionInAlias));
 
@@ -124,6 +127,9 @@ alias function='echo $1'
                 "if='echo $1'",
                 "for='echo $1'",
                 "function='echo $1'",
+                "export='echo $1'",
+                "readonly='echo $1'",
+                "unset='echo $1'",
             ]
         );
         assert!(
@@ -189,6 +195,19 @@ alias function='echo $1'
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "greet='echo $1\n# note'");
+        assert!(diagnostics[0].fix.is_none());
+    }
+
+    #[test]
+    fn leaves_escaped_newline_comment_alias_bodies_unfixed() {
+        let source = "#!/bin/sh\nalias greet='echo $1 \\\n# note'\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionInAlias));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "greet='echo $1 \\\n# note'"
+        );
         assert!(diagnostics[0].fix.is_none());
     }
 

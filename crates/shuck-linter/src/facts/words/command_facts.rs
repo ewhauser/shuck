@@ -216,7 +216,7 @@ fn function_in_alias_definition_span(words: &[&Word], source: &str) -> Option<Sp
 }
 
 fn literal_alias_name_is_fixable(name: &str) -> bool {
-    is_shell_variable_name(name) && !is_shell_reserved_word(name)
+    is_shell_variable_name(name) && !is_shell_reserved_word(name) && !is_posix_special_builtin(name)
 }
 
 fn is_shell_reserved_word(name: &str) -> bool {
@@ -241,6 +241,26 @@ fn is_shell_reserved_word(name: &str) -> bool {
     )
 }
 
+fn is_posix_special_builtin(name: &str) -> bool {
+    matches!(
+        name,
+        ":" | "."
+            | "break"
+            | "continue"
+            | "eval"
+            | "exec"
+            | "exit"
+            | "export"
+            | "readonly"
+            | "return"
+            | "set"
+            | "shift"
+            | "times"
+            | "trap"
+            | "unset"
+    )
+}
+
 fn contains_unquoted_comment_start(text: &str) -> bool {
     let mut escaped = false;
     let mut in_single_quotes = false;
@@ -249,6 +269,9 @@ fn contains_unquoted_comment_start(text: &str) -> bool {
 
     for ch in text.chars() {
         if escaped {
+            if ch == '\n' || ch == '\r' {
+                comment_can_start = true;
+            }
             escaped = false;
             continue;
         }
