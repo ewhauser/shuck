@@ -29,10 +29,39 @@ pub fn star_glob_removal_in_sh(checker: &mut Checker) {
             let span = fragment.span();
             let diagnostic = Diagnostic::new(StarGlobRemovalInSh, span);
             let diagnostic = match fix_facts.iter().find(|fact| fact.diagnostic_span() == span) {
-                Some(fact) => diagnostic.with_fix(Fix::unsafe_edits([
-                    Edit::insertion(fact.insertion_offset(), fact.insertion()),
-                    Edit::replacement(fact.replacement(), fact.replacement_span()),
-                ])),
+                Some(fact) => {
+                    let mut group_facts = fix_facts
+                        .iter()
+                        .filter(|candidate| {
+                            candidate.command_span() == fact.command_span()
+                                && candidate.insertion_offset() == fact.insertion_offset()
+                                && candidate.insertion() == fact.insertion()
+                        })
+                        .collect::<Vec<_>>();
+                    group_facts.sort_by_key(|candidate| {
+                        (
+                            candidate.replacement_span().start.offset,
+                            candidate.replacement_span().end.offset,
+                        )
+                    });
+
+                    if group_facts
+                        .first()
+                        .is_none_or(|first| first.diagnostic_span() != span)
+                    {
+                        diagnostic
+                    } else {
+                        let mut edits = Vec::with_capacity(group_facts.len() + 1);
+                        edits.push(Edit::insertion(fact.insertion_offset(), fact.insertion()));
+                        edits.extend(group_facts.into_iter().map(|group_fact| {
+                            Edit::replacement(
+                                group_fact.replacement(),
+                                group_fact.replacement_span(),
+                            )
+                        }));
+                        diagnostic.with_fix(Fix::unsafe_edits(edits))
+                    }
+                }
                 None => diagnostic,
             };
             report(diagnostic);
@@ -98,6 +127,23 @@ printf '%s\n' \"${name%%dBm*}\"
         assert_eq!(
             result.fixed_source,
             "#!/bin/sh\n_shuck_positional_params=$*\nprintf '%s\\n' \"${_shuck_positional_params%%dBm*}\"\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_one_unsafe_fix_for_multiple_trims_in_one_command() {
+        let source = "#!/bin/sh\nprintf '%s\\n' \"${*%%a*}\" \"${*%%b*}\"\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::StarGlobRemovalInSh),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/sh\n_shuck_positional_params=$*\nprintf '%s\\n' \"${_shuck_positional_params%%a*}\" \"${_shuck_positional_params%%b*}\"\n"
         );
         assert!(result.fixed_diagnostics.is_empty());
     }

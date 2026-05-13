@@ -445,6 +445,7 @@ impl PositionalParameterTrimFragmentFact {
 #[derive(Debug, Clone)]
 pub struct PositionalParameterTrimFixFact {
     diagnostic_span: Span,
+    command_span: Span,
     insertion_offset: usize,
     insertion: Box<str>,
     replacement_span: Span,
@@ -454,6 +455,7 @@ pub struct PositionalParameterTrimFixFact {
 impl PositionalParameterTrimFixFact {
     pub(super) fn new(
         diagnostic_span: Span,
+        command_span: Span,
         insertion_offset: usize,
         insertion: Box<str>,
         replacement_span: Span,
@@ -461,6 +463,7 @@ impl PositionalParameterTrimFixFact {
     ) -> Self {
         Self {
             diagnostic_span,
+            command_span,
             insertion_offset,
             insertion,
             replacement_span,
@@ -470,6 +473,10 @@ impl PositionalParameterTrimFixFact {
 
     pub fn diagnostic_span(&self) -> Span {
         self.diagnostic_span
+    }
+
+    pub fn command_span(&self) -> Span {
+        self.command_span
     }
 
     pub fn insertion_offset(&self) -> usize {
