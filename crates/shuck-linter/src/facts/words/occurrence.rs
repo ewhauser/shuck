@@ -2206,6 +2206,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                             expression,
                             self.source,
                             &mut self.arithmetic.dollar_in_arithmetic_spans,
+                            &mut self.arithmetic.arithmetic_expansion_spans,
                             &mut self.arithmetic.arithmetic_command_substitution_spans,
                         );
                     }
@@ -2223,6 +2224,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                             expression,
                             self.source,
                             &mut self.arithmetic.dollar_in_arithmetic_spans,
+                            &mut self.arithmetic.arithmetic_expansion_spans,
                             &mut self.arithmetic.arithmetic_command_substitution_spans,
                         );
                     }
@@ -3278,6 +3280,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             self.source,
             host_kind == WordFactHostKind::Direct,
             &mut self.arithmetic.dollar_in_arithmetic_spans,
+            &mut self.arithmetic.arithmetic_expansion_spans,
             &mut self.arithmetic.arithmetic_command_substitution_spans,
         );
 

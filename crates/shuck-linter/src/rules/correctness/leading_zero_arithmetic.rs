@@ -44,6 +44,7 @@ pub fn leading_zero_arithmetic(checker: &mut Checker) {
             !is_adjacent_to_runtime_expansion(
                 source,
                 fact.span(),
+                arithmetic_expansion_spans,
                 arithmetic_command_substitution_spans,
             )
         })
@@ -82,6 +83,7 @@ fn contains_invalid_octal_digit(text: &str) -> bool {
 fn is_adjacent_to_runtime_expansion(
     source: &str,
     span: Span,
+    arithmetic_expansion_spans: &[Span],
     command_substitution_spans: &[Span],
 ) -> bool {
     let Some(previous_offset) = previous_non_quote_offset(source, span.start.offset) else {
@@ -93,9 +95,14 @@ fn is_adjacent_to_runtime_expansion(
 
     *previous == b'}'
         || *previous == b'`'
-        || command_substitution_spans.iter().any(|substitution| {
-            quote_only_between(source, substitution.end.offset, span.start.offset)
-        })
+        || any_span_end_is_quote_adjacent(source, arithmetic_expansion_spans, span)
+        || any_span_end_is_quote_adjacent(source, command_substitution_spans, span)
+}
+
+fn any_span_end_is_quote_adjacent(source: &str, spans: &[Span], span: Span) -> bool {
+    spans
+        .iter()
+        .any(|runtime| quote_only_between(source, runtime.end.offset, span.start.offset))
 }
 
 fn previous_non_quote_offset(source: &str, end_offset: usize) -> Option<usize> {
@@ -209,6 +216,9 @@ declare -A checksums
 [[ $(printf '%s' 1)08 -lt 200 ]]
 [[ \"$(printf '%s' 1)08\" -lt 200 ]]
 [[ \"$(printf '%s' 1)\"08 -lt 200 ]]
+[[ $((1))08 -lt 200 ]]
+[[ \"$((1))08\" -lt 200 ]]
+[[ \"$((1))\"08 -lt 200 ]]
 ";
         let diagnostics = test_snippet(
             source,
@@ -233,6 +243,9 @@ count=3
 : $(( $(printf '%s' 1)08 / 2 ))
 : $(( \"$(printf '%s' 1)08\" / 2 ))
 : $(( \"$(printf '%s' 1)\"08 / 2 ))
+: $(( $((1))08 / 2 ))
+: $(( \"$((1))08\" / 2 ))
+: $(( \"$((1))\"08 / 2 ))
 declare -A checksums
 checksums[008]=value
 ";

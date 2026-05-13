@@ -35,9 +35,21 @@ pub(crate) fn collect_arithmetic_command_spans(
     expression: &ArithmeticExprNode,
     source: &str,
     dollar_spans: &mut Vec<Span>,
+    arithmetic_expansion_spans: &mut Vec<Span>,
     command_substitution_spans: &mut Vec<Span>,
 ) {
+    collect_wrapped_arithmetic_spans_in_span(
+        expression.span,
+        source,
+        dollar_spans,
+        arithmetic_expansion_spans,
+        command_substitution_spans,
+    );
+
     visit_arithmetic_words(expression, &mut |word| {
+        arithmetic_expansion_spans.extend(crate::facts::word_spans::arithmetic_expansion_part_spans(
+            word,
+        ));
         collect_arithmetic_context_spans_in_word(
             word,
             source,
@@ -241,7 +253,23 @@ pub(crate) fn collect_wrapped_arithmetic_spans_in_word(
     arithmetic_expansion_spans: &mut Vec<Span>,
     command_substitution_spans: &mut Vec<Span>,
 ) {
-    let text = word.span.slice(source);
+    collect_wrapped_arithmetic_spans_in_span(
+        word.span,
+        source,
+        dollar_spans,
+        arithmetic_expansion_spans,
+        command_substitution_spans,
+    );
+}
+
+pub(crate) fn collect_wrapped_arithmetic_spans_in_span(
+    span: Span,
+    source: &str,
+    dollar_spans: &mut Vec<Span>,
+    arithmetic_expansion_spans: &mut Vec<Span>,
+    command_substitution_spans: &mut Vec<Span>,
+) {
+    let text = span.slice(source);
     let bytes = text.as_bytes();
     let mut index = 0usize;
 
@@ -276,7 +304,7 @@ pub(crate) fn collect_wrapped_arithmetic_spans_in_word(
                 }
                 b')' => {
                     if depth == 1 && cursor + 1 < bytes.len() && bytes[cursor + 1] == b')' {
-                        let expansion_start = word.span.start.advanced_by(&text[..index]);
+                        let expansion_start = span.start.advanced_by(&text[..index]);
                         let expansion_end =
                             expansion_start.advanced_by(&text[index..cursor + 2]);
                         arithmetic_expansion_spans
@@ -284,7 +312,7 @@ pub(crate) fn collect_wrapped_arithmetic_spans_in_word(
 
                         let expr_start = index + 3;
                         let expr_end = cursor;
-                        let start = word.span.start.advanced_by(&text[..expr_start]);
+                        let start = span.start.advanced_by(&text[..expr_start]);
                         let end = start.advanced_by(&text[expr_start..expr_end]);
                         let expression_span = Span::from_positions(start, end);
                         collect_dollar_prefixed_arithmetic_variable_spans(
@@ -821,12 +849,14 @@ pub(crate) fn collect_arithmetic_summary_spans_in_word(
     source: &str,
     collect_dollar_spans: bool,
     dollar_spans: &mut Vec<Span>,
+    arithmetic_expansion_spans: &mut Vec<Span>,
     command_substitution_spans: &mut Vec<Span>,
 ) {
     let mut visitor = ArithmeticSummarySpanVisitor {
         source,
         collect_dollar_spans,
         dollar_spans,
+        arithmetic_expansion_spans,
         command_substitution_spans,
     };
     walk_word_subtree(
@@ -844,6 +874,7 @@ struct ArithmeticSummarySpanVisitor<'out, 'source> {
     source: &'source str,
     collect_dollar_spans: bool,
     dollar_spans: &'out mut Vec<Span>,
+    arithmetic_expansion_spans: &'out mut Vec<Span>,
     command_substitution_spans: &'out mut Vec<Span>,
 }
 
@@ -861,7 +892,17 @@ impl<'word> WordSubtreeVisitor<'word> for ArithmeticSummarySpanVisitor<'_, '_> {
                 ..
             } => {
                 if let Some(expression) = expression_ast {
+                    collect_wrapped_arithmetic_spans_in_span(
+                        expression.span,
+                        self.source,
+                        self.dollar_spans,
+                        self.arithmetic_expansion_spans,
+                        self.command_substitution_spans,
+                    );
                     visit_arithmetic_words(expression, &mut |word| {
+                        self.arithmetic_expansion_spans.extend(
+                            crate::facts::word_spans::arithmetic_expansion_part_spans(word),
+                        );
                         collect_arithmetic_context_spans_in_word(
                             word,
                             self.source,
@@ -876,6 +917,7 @@ impl<'word> WordSubtreeVisitor<'word> for ArithmeticSummarySpanVisitor<'_, '_> {
                         self.source,
                         self.collect_dollar_spans,
                         self.dollar_spans,
+                        self.arithmetic_expansion_spans,
                         self.command_substitution_spans,
                     );
                 }
