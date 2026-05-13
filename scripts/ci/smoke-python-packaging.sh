@@ -32,7 +32,7 @@ cd "$smoke_repo"
 git init -q
 git config user.email shuck@example.com
 git config user.name shuck
-printf '%s\n' 'tmp=$(mktemp)' 'echo ok' > bad.sh
+printf '%s\n' "tmp=\$(mktemp)" 'echo ok' > bad.sh
 git add bad.sh
 hook_rev="$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
 hook_repo="$RUNNER_TEMP/hook-repo"

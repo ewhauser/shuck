@@ -10,6 +10,7 @@ use crate::rules::correctness::if_missing_then::IfMissingThen;
 use crate::rules::correctness::loop_without_end::LoopWithoutEnd;
 use crate::rules::correctness::missing_done_in_for_loop::MissingDoneInForLoop;
 use crate::rules::correctness::missing_fi::MissingFi;
+use crate::rules::correctness::stray_closing_keyword::StrayClosingKeyword;
 use crate::rules::correctness::until_missing_do::UntilMissingDo;
 use crate::rules::portability::function_params_in_sh::FunctionParamsInSh;
 use crate::rules::portability::targets_non_zsh_shell;
@@ -128,6 +129,11 @@ pub(crate) fn collect_parse_rule_diagnostics(
                 Some(fix) => diagnostic.with_fix(fix),
                 None => diagnostic,
             });
+        }
+    }
+    if enabled_rules.contains(crate::Rule::StrayClosingKeyword) && is_c016_shell(shell) {
+        for span in stray_closing_keyword_spans(locator, parse_diagnostics) {
+            diagnostics.push(Diagnostic::new(StrayClosingKeyword, span));
         }
     }
     if enabled_rules.contains(crate::Rule::FunctionParamsInSh)
@@ -661,6 +667,41 @@ fn is_dangling_else_error(message: &str) -> bool {
 
 fn is_expected_command_error(message: &str) -> bool {
     message.starts_with("expected command")
+}
+
+fn stray_closing_keyword_spans(
+    locator: Locator<'_>,
+    parse_diagnostics: &[ParseDiagnostic],
+) -> Vec<Span> {
+    let source = locator.source();
+    parse_diagnostics
+        .iter()
+        .filter_map(|diagnostic| {
+            if !is_expected_command_error(&diagnostic.message) {
+                return None;
+            }
+
+            let keyword = diagnostic.span.slice(source);
+            if !matches!(
+                keyword,
+                "then" | "else" | "elif" | "fi" | "do" | "done" | "esac"
+            ) {
+                return None;
+            }
+
+            if is_more_specific_parse_diagnostic(locator, diagnostic) {
+                return None;
+            }
+
+            Some(diagnostic.span)
+        })
+        .collect()
+}
+
+fn is_more_specific_parse_diagnostic(locator: Locator<'_>, diagnostic: &ParseDiagnostic) -> bool {
+    let diagnostic = std::slice::from_ref(diagnostic);
+    if_missing_then_span(locator, diagnostic).is_some()
+        || until_missing_do_span(locator, diagnostic).is_some()
 }
 
 fn is_function_parameter_syntax_error(message: &str) -> bool {
@@ -1208,6 +1249,13 @@ impl<'a> Iterator for ShellLikeWords<'a> {
 }
 
 fn is_x037_shell(shell: ShellDialect) -> bool {
+    matches!(
+        shell,
+        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
+    )
+}
+
+fn is_c016_shell(shell: ShellDialect) -> bool {
     matches!(
         shell,
         ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
@@ -1995,6 +2043,38 @@ esac
         let source = "#!/bin/sh\nuntil :\ndone\n";
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_missing_then_parse_error_for_c016() {
+        let source = "#!/bin/sh\nif true\n  echo hi\nfi\n";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::StrayClosingKeyword);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_until_missing_do_parse_error_for_c016() {
+        let source = "#!/bin/sh\nuntil :\ndone\n";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::StrayClosingKeyword);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
