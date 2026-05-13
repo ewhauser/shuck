@@ -88,7 +88,7 @@ fn grep_count_pipeline_fix(
 ) -> Option<Fix> {
     let grep_name = grep.body_name_word()?;
     let wc_span = wc.span_in_source(source);
-    let delete_start = preceding_space_start(source, operator_span.start.offset);
+    let delete_start = pipeline_delete_start(source, operator_span.start.offset);
     Some(Fix::unsafe_edits([
         Edit::insertion(grep_name.span.end.offset, " -c"),
         Edit::deletion_at(delete_start, wc_span.end.offset),
@@ -125,6 +125,24 @@ fn wc_uses_line_count(fact: CommandFactRef<'_, '_>, source: &str) -> bool {
             text == "-l" || text == "--lines" || (text.starts_with('-') && text[1..].contains('l'))
         })
     })
+}
+
+fn pipeline_delete_start(source: &str, operator_start: usize) -> usize {
+    let offset = preceding_space_start(source, operator_start);
+    line_continuation_delete_start(source, offset).unwrap_or(offset)
+}
+
+fn line_continuation_delete_start(source: &str, offset: usize) -> Option<usize> {
+    if offset == 0 || source.as_bytes().get(offset - 1) != Some(&b'\n') {
+        return None;
+    }
+
+    let backslash = offset.checked_sub(2)?;
+    if source.as_bytes().get(backslash) != Some(&b'\\') {
+        return None;
+    }
+
+    Some(preceding_space_start(source, backslash))
 }
 
 fn preceding_space_start(source: &str, mut offset: usize) -> usize {
@@ -182,6 +200,30 @@ grep foo file | grep bar | wc -l
 grep -c foo file
 grep -c foo file 2>/dev/null
 grep foo file | grep -c bar
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_multiline_continued_grep_wc_pipeline() {
+        let source = "\
+#!/bin/sh
+grep foo file \\
+  | wc -l
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::GrepCountPipeline),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/sh
+grep -c foo file
 "
         );
         assert!(result.fixed_diagnostics.is_empty());
