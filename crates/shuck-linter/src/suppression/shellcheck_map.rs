@@ -139,6 +139,10 @@ mod tests {
         );
         assert_eq!(map.resolve("SC2280"), Some(Rule::AssignSpecialZero));
         assert_eq!(map.resolve("SC2317"), Some(Rule::UnreachableAfterExit));
+        assert_eq!(
+            map.resolve("SC2218"),
+            Some(Rule::FunctionCalledBeforeDefined)
+        );
         assert_eq!(map.resolve("SC7777"), None);
     }
 
@@ -207,6 +211,10 @@ mod tests {
         assert_eq!(
             map.code_for_rule(Rule::BraceVariableBeforeBracket),
             Some(1087)
+        );
+        assert_eq!(
+            map.code_for_rule(Rule::FunctionCalledBeforeDefined),
+            Some(2218)
         );
         assert_eq!(map.code_for_rule(Rule::BackslashBeforeCommand), None);
         assert_eq!(

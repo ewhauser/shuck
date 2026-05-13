@@ -15,6 +15,7 @@ const DEFAULT_DISABLED_NON_STYLE_RULES: &[Rule] = &[
     Rule::ImplicitGlobalInFunction,
     Rule::MutableGlobal,
     Rule::UnanchoredSourcePath,
+    Rule::FunctionCalledBeforeDefined,
 ];
 const DEFAULT_C160_ALLOWED_ANCHORS: &[&str] = &[
     "${BASH_SOURCE[0]%/*}",
@@ -39,6 +40,8 @@ pub struct LinterRuleOptions {
     pub c159: C159RuleOptions,
     /// Behavior overrides for `C160`.
     pub c160: C160RuleOptions,
+    /// Behavior overrides for `C161`.
+    pub c161: C161RuleOptions,
 }
 
 /// Behavior overrides for `C001` unused-assignment analysis.
@@ -161,6 +164,21 @@ impl Default for C160RuleOptions {
                 .iter()
                 .map(|anchor| (*anchor).to_owned())
                 .collect(),
+        }
+    }
+}
+
+/// Behavior overrides for `C161` function-call ordering analysis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct C161RuleOptions {
+    /// Whether calls after a source command are ignored because sourced files may define functions.
+    pub ignore_after_source: bool,
+}
+
+impl Default for C161RuleOptions {
+    fn default() -> Self {
+        Self {
+            ignore_after_source: true,
         }
     }
 }
@@ -405,6 +423,11 @@ impl LinterSettings {
         self
     }
 
+    pub fn with_c161_ignore_after_source(mut self, value: bool) -> Self {
+        self.rule_options.c161.ignore_after_source = value;
+        self
+    }
+
     pub fn per_file_ignored_rules(&self, path: Option<&Path>) -> RuleSet {
         path.map_or(RuleSet::EMPTY, |path| {
             self.per_file_ignores.ignored_rules(path)
@@ -532,6 +555,7 @@ mod tests {
         assert!(!defaults.contains(Rule::ImplicitGlobalInFunction));
         assert!(!defaults.contains(Rule::MutableGlobal));
         assert!(!defaults.contains(Rule::UnanchoredSourcePath));
+        assert!(!defaults.contains(Rule::FunctionCalledBeforeDefined));
         assert!(!defaults.contains(Rule::AmpersandSemicolon));
     }
 
