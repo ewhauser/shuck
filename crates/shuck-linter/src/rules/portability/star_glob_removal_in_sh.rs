@@ -30,6 +30,15 @@ pub fn star_glob_removal_in_sh(checker: &mut Checker) {
             let diagnostic = Diagnostic::new(StarGlobRemovalInSh, span);
             let diagnostic = match fix_facts.iter().find(|fact| fact.diagnostic_span() == span) {
                 Some(fact) => {
+                    if fix_facts.iter().any(|candidate| {
+                        candidate.command_span() == fact.command_span()
+                            && candidate.insertion_offset() == fact.insertion_offset()
+                            && candidate.insertion() != fact.insertion()
+                    }) {
+                        report(diagnostic);
+                        continue;
+                    }
+
                     let mut group_facts = fix_facts
                         .iter()
                         .filter(|candidate| {
@@ -149,8 +158,43 @@ printf '%s\n' \"${name%%dBm*}\"
     }
 
     #[test]
+    fn leaves_mixed_star_and_at_trims_unfixed() {
+        let source = "#!/bin/sh\nprintf '%s\\n' \"${*%%a*}\" \"${@%%b*}\"\n";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::StarGlobRemovalInSh));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${*%%a*}", "${@%%b*}"]
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.fix.is_none())
+        );
+    }
+
+    #[test]
     fn leaves_multiline_control_operator_continuations_unfixed() {
         let source = "#!/bin/sh\nprintf '%s\\n' ok |\n  printf '%s\\n' \"${*%%dBm*}\"\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::StarGlobRemovalInSh),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert_eq!(result.fixed_diagnostics.len(), 1);
+        assert_eq!(result.fixed_diagnostics[0].span.slice(source), "${*%%dBm*}");
+    }
+
+    #[test]
+    fn leaves_quoted_hash_control_operator_continuations_unfixed() {
+        let source = "#!/bin/sh\nprintf '%s\\n' '#x' |\n  printf '%s\\n' \"${*%%dBm*}\"\n";
         let result = test_snippet_with_fix(
             source,
             &LinterSettings::for_rule(Rule::StarGlobRemovalInSh),

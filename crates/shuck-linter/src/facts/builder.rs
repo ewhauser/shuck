@@ -1148,12 +1148,62 @@ fn previous_line_ends_with_control_operator(source: &str, line_start: usize) -> 
         .lines()
         .rev()
         .map(|line| {
-            line.split_once('#')
-                .map_or(line, |(code, _)| code)
+            line_without_trailing_comment(line)
                 .trim_end_matches([' ', '\t'])
         })
         .find(|line| !line.is_empty())
         .is_some_and(|line| line.ends_with('|') || line.ends_with("|&") || line.ends_with("&&"))
+}
+
+fn line_without_trailing_comment(line: &str) -> &str {
+    let mut escaped = false;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut comment_can_start = true;
+
+    for (offset, ch) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        if in_single_quotes {
+            if ch == '\'' {
+                in_single_quotes = false;
+            }
+            continue;
+        }
+
+        if in_double_quotes {
+            match ch {
+                '\\' => escaped = true,
+                '"' => in_double_quotes = false,
+                _ => {}
+            }
+            continue;
+        }
+
+        match ch {
+            '#' if comment_can_start => return &line[..offset],
+            '\\' => {
+                escaped = true;
+                comment_can_start = false;
+            }
+            '\'' => {
+                in_single_quotes = true;
+                comment_can_start = false;
+            }
+            '"' => {
+                in_double_quotes = true;
+                comment_can_start = false;
+            }
+            ' ' | '\t' => comment_can_start = true,
+            '|' | '&' | ';' | '(' | ')' | '<' | '>' => comment_can_start = true,
+            _ => comment_can_start = false,
+        }
+    }
+
+    line
 }
 
 fn span_contains_trim_fragment(outer: Span, inner: Span) -> bool {
