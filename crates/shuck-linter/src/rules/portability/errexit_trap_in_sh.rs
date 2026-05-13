@@ -29,24 +29,29 @@ pub fn errexit_trap_in_sh(checker: &mut Checker) {
         .iter()
         .filter(|fact| fact.effective_name_is("set"))
         .flat_map(|fact| {
-            fact.options().set().into_iter().flat_map(|set| {
+            let command_span = fact.span_in_source(checker.source());
+            fact.options().set().into_iter().flat_map(move |set| {
                 set.errtrace_flag_spans()
                     .iter()
                     .chain(set.functrace_flag_spans().iter())
                     .copied()
+                    .map(move |span| (command_span, span))
             })
         })
         .collect::<Vec<_>>();
 
-    for span in spans {
+    for (command_span, span) in spans {
         checker.report_diagnostic(
-            Diagnostic::new(ErrexitTrapInSh, span)
-                .with_fix(errexit_trap_fix(checker.source(), span)),
+            Diagnostic::new(ErrexitTrapInSh, span).with_fix(errexit_trap_fix(
+                checker.source(),
+                command_span,
+                span,
+            )),
         );
     }
 }
 
-fn errexit_trap_fix(source: &str, span: shuck_ast::Span) -> Fix {
+fn errexit_trap_fix(source: &str, command_span: shuck_ast::Span, span: shuck_ast::Span) -> Fix {
     let text = span.slice(source);
     let mut chars = text.chars();
     let Some(sign @ ('-' | '+')) = chars.next() else {
@@ -56,10 +61,47 @@ fn errexit_trap_fix(source: &str, span: shuck_ast::Span) -> Fix {
         .filter(|ch| !matches!(ch, 'E' | 'T'))
         .collect::<String>();
     if retained.is_empty() {
-        Fix::unsafe_edit(Edit::deletion(span))
+        if command_is_empty_set_after_removing_span(source, command_span, span) {
+            Fix::unsafe_edit(Edit::replacement(
+                empty_set_replacement(source, command_span),
+                command_span,
+            ))
+        } else {
+            Fix::unsafe_edit(Edit::deletion(span))
+        }
     } else {
         Fix::unsafe_edit(Edit::replacement(format!("{sign}{retained}"), span))
     }
+}
+
+fn empty_set_replacement(source: &str, command_span: shuck_ast::Span) -> &'static str {
+    if command_span.slice(source).trim_end().ends_with(';') {
+        ":;"
+    } else {
+        ":"
+    }
+}
+
+fn command_is_empty_set_after_removing_span(
+    source: &str,
+    command_span: shuck_ast::Span,
+    span: shuck_ast::Span,
+) -> bool {
+    let command = command_span.slice(source);
+    let remove_start = span.start.offset.saturating_sub(command_span.start.offset);
+    let remove_end = span.end.offset.saturating_sub(command_span.start.offset);
+    let mut remaining = String::with_capacity(command.len());
+    remaining.push_str(&command[..remove_start]);
+    remaining.push_str(&command[remove_end..]);
+    let remaining = remaining.trim();
+    if remaining == "set" {
+        return true;
+    }
+    remaining.strip_prefix("set").is_some_and(|suffix| {
+        suffix
+            .bytes()
+            .all(|byte| matches!(byte, b' ' | b'\t' | b';'))
+    })
 }
 
 #[cfg(test)]
@@ -129,7 +171,21 @@ set -E -T -- +E +T
         );
 
         assert_eq!(result.fixes_applied, 3);
-        assert_eq!(result.fixed_source, "#!/bin/sh\nset \nset -e\nset \n");
+        assert_eq!(result.fixed_source, "#!/bin/sh\n:\nset -e\n:\n");
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_without_leaving_bare_set_commands() {
+        let source = "#!/bin/sh\nif ok; then set -E; fi\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::ErrexitTrapInSh),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(result.fixed_source, "#!/bin/sh\nif ok; then :; fi\n");
         assert!(result.fixed_diagnostics.is_empty());
     }
 }

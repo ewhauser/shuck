@@ -21,6 +21,7 @@ impl Violation for SubshellTestGroup {
 }
 
 pub fn subshell_test_group(checker: &mut Checker) {
+    let source = checker.source();
     let single_test_spans = checker.facts().single_test_subshell_spans();
     let spans = checker
         .facts()
@@ -31,16 +32,30 @@ pub fn subshell_test_group(checker: &mut Checker) {
         .collect::<Vec<_>>();
     for span in spans {
         checker.report_diagnostic_dedup(
-            Diagnostic::new(SubshellTestGroup, span).with_fix(brace_group_fix(span)),
+            Diagnostic::new(SubshellTestGroup, span).with_fix(brace_group_fix(source, span)),
         );
     }
 }
 
-fn brace_group_fix(span: Span) -> Fix {
+fn brace_group_fix(source: &str, span: Span) -> Fix {
+    let close_start = span.end.offset.saturating_sub(1);
+    let close_replacement = if offset_is_indented_line_start(source, close_start) {
+        "}"
+    } else {
+        "; }"
+    };
+
     Fix::unsafe_edits([
         Edit::replacement_at(span.start.offset, span.start.offset + 1, "{"),
-        Edit::replacement_at(span.end.offset.saturating_sub(1), span.end.offset, "; }"),
+        Edit::replacement_at(close_start, span.end.offset, close_replacement),
     ])
+}
+
+fn offset_is_indented_line_start(source: &str, offset: usize) -> bool {
+    let line_start = source[..offset].rfind('\n').map_or(0, |offset| offset + 1);
+    source[line_start..offset]
+        .bytes()
+        .all(|byte| matches!(byte, b' ' | b'\t'))
 }
 
 #[cfg(test)]
@@ -93,6 +108,39 @@ if ( [ \"$b\" = jpeg ] || [ \"$b\" = jpg ] ); then echo ok; fi
         assert_eq!(
             result.fixed_source,
             "#!/bin/sh\na=1\nb=jpg\nif [ -n \"$a\" ] && { [ \"$b\" = jpeg ] || [ \"$b\" = jpg ] ; }; then echo ok; fi\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_multiline_subshell_group() {
+        let source = "\
+#!/bin/sh
+if (
+  [ -f a ]
+  [ -f b ]
+); then
+  echo ok
+fi
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellTestGroup),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/sh
+if {
+  [ -f a ]
+  [ -f b ]
+}; then
+  echo ok
+fi
+"
         );
         assert!(result.fixed_diagnostics.is_empty());
     }

@@ -154,7 +154,12 @@ fn is_arithmetic_name(name: &str) -> bool {
 
 fn line_indent_before(source: &str, offset: usize) -> &str {
     let line_start = source[..offset].rfind('\n').map_or(0, |offset| offset + 1);
-    &source[line_start..offset]
+    let line_prefix = &source[line_start..offset];
+    let indent_len = line_prefix
+        .bytes()
+        .take_while(|byte| matches!(byte, b' ' | b'\t'))
+        .count();
+    &line_prefix[..indent_len]
 }
 
 #[cfg(test)]
@@ -207,6 +212,24 @@ while [ \"$((i < 3))\" -ne 0 ]; do
   : \"$((i = i + 1))\"
 done
 "
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_without_copying_inline_prefix_as_indent() {
+        let source =
+            "#!/bin/sh\nif ready; then for ((i = 0; i < 1; i++)); do echo \"$i\"; done; fi\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::CStyleForInSh),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/sh\nif ready; then : \"$((i = 0))\"\nwhile [ \"$((i < 1))\" -ne 0 ]; do\n  echo \"$i\";\n  : \"$((i = i + 1))\"\ndone; fi\n"
         );
         assert!(result.fixed_diagnostics.is_empty());
     }

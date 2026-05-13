@@ -26,7 +26,7 @@ pub fn spaced_assignment(checker: &mut Checker) {
         .facts()
         .structural_commands()
         .filter_map(|fact| fact.declaration())
-        .flat_map(|declaration| spaced_assignment_diagnostics(&declaration.operands, source))
+        .flat_map(|declaration| spaced_assignment_diagnostics(declaration.operands, source))
         .collect::<Vec<_>>();
 
     for diagnostic in diagnostics {

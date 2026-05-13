@@ -27,9 +27,12 @@ pub fn misquoted_heredoc_close(checker: &mut Checker) {
         .misquoted_heredoc_close_spans()
         .iter()
         .copied()
-        .filter_map(|span| {
-            let fix = heredoc_closer_fix(span, source)?;
-            Some(Diagnostic::new(MisquotedHeredocClose, span).with_fix(fix))
+        .map(|span| {
+            let diagnostic = Diagnostic::new(MisquotedHeredocClose, span);
+            match heredoc_closer_fix(span, source) {
+                Some(fix) => diagnostic.with_fix(fix),
+                None => diagnostic,
+            }
         })
         .collect::<Vec<_>>();
 
@@ -53,6 +56,7 @@ fn heredoc_closer_fix(span: Span, source: &str) -> Option<Fix> {
 
 fn heredoc_marker_from_redirect_span(span: Span, source: &str) -> Option<String> {
     let text = span.slice(source).trim();
+    let text = text.trim_start_matches(|ch: char| ch.is_ascii_digit());
     let marker = text
         .strip_prefix("<<-")
         .or_else(|| text.strip_prefix("<<"))?
@@ -99,6 +103,23 @@ x
         assert_eq!(
             result.fixed_source,
             "#!/bin/bash\ncat <<'BLOCK'\nx\n'BLOCK'\nBLOCK\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_safe_fix_to_fd_prefixed_heredoc_redirects() {
+        let source = "#!/bin/bash\ncat 3<<'BLOCK'\nx\n'BLOCK'\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::MisquotedHeredocClose),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/bash\ncat 3<<'BLOCK'\nx\n'BLOCK'\nBLOCK\n"
         );
         assert!(result.fixed_diagnostics.is_empty());
     }

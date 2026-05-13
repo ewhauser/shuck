@@ -260,9 +260,7 @@ fn simple_case_pattern_start(source: &str, line_start: usize, group_start: usize
         match byte {
             b')' => depth += 1,
             b'(' => {
-                if depth > 0 {
-                    depth -= 1;
-                }
+                depth = depth.saturating_sub(1);
             }
             b'|' if depth == 0 => return Some(index + 1),
             _ => {}
