@@ -55,6 +55,16 @@ pub(crate) fn build_heredoc_fact_summary(
                 summary.heredoc_end_space_spans.push(span);
             }
 
+            if !redirect_uses_tab_stripping_heredoc(redirect, heredoc, source) {
+                summary
+                    .indented_heredoc_close_facts
+                    .extend(indented_heredoc_close_facts(
+                        heredoc.body.span,
+                        delimiter,
+                        locator,
+                    ));
+            }
+
             if redirect.kind == RedirectKind::HereDocStrip {
                 summary
                     .spaced_tabstrip_close_spans
@@ -94,6 +104,28 @@ pub(crate) fn build_heredoc_fact_summary(
 
 pub(crate) fn is_heredoc_redirect_kind(kind: RedirectKind) -> bool {
     matches!(kind, RedirectKind::HereDoc | RedirectKind::HereDocStrip)
+}
+
+fn redirect_uses_tab_stripping_heredoc(
+    redirect: &Redirect,
+    heredoc: &shuck_ast::Heredoc,
+    source: &str,
+) -> bool {
+    redirect.kind == RedirectKind::HereDocStrip
+        || heredoc.delimiter.strip_tabs
+        || redirect.span.slice(source).contains("<<-")
+        || heredoc_delimiter_line_contains_tabstrip_operator(heredoc, source)
+}
+
+fn heredoc_delimiter_line_contains_tabstrip_operator(
+    heredoc: &shuck_ast::Heredoc,
+    source: &str,
+) -> bool {
+    let delimiter_start = heredoc.delimiter.span.start.offset;
+    let line_start = source[..delimiter_start]
+        .rfind('\n')
+        .map_or(0, |offset| offset + '\n'.len_utf8());
+    source[line_start..delimiter_start].contains("<<-")
 }
 
 pub(crate) fn heredoc_closer_not_alone_span(
@@ -183,6 +215,34 @@ pub(crate) fn spaced_tabstrip_close_spans(
     }
 
     spans
+}
+
+fn indented_heredoc_close_facts(
+    body_span: Span,
+    delimiter: &str,
+    locator: Locator<'_>,
+) -> Vec<(Span, Span)> {
+    let source = locator.source();
+    let mut facts = Vec::new();
+    let mut line_start_offset = body_span.start.offset;
+    for raw_line in body_span.slice(source).split_inclusive('\n') {
+        let line_without_newline = raw_line.trim_end_matches('\n').trim_end_matches('\r');
+        let trimmed = line_without_newline.trim_start_matches([' ', '\t']);
+        let indent_len = line_without_newline.len() - trimmed.len();
+        if indent_len > 0
+            && trimmed == delimiter
+            && let Some(start) = locator.position_at_offset(line_start_offset)
+            && let Some(indent_end) = locator.position_at_offset(line_start_offset + indent_len)
+        {
+            facts.push((
+                Span::from_positions(start, start),
+                Span::from_positions(start, indent_end),
+            ));
+        }
+        line_start_offset += raw_line.len();
+    }
+
+    facts
 }
 
 pub(crate) fn normalized_heredoc_line(raw_line: &str, strip_tabs: bool) -> (&str, usize) {

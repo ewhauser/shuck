@@ -164,6 +164,7 @@ pub(crate) struct SourceFactStore<'a> {
     pub(in crate::facts) heredoc_closer_not_alone_spans: Vec<Span>,
     pub(in crate::facts) misquoted_heredoc_close_spans: Vec<Span>,
     pub(in crate::facts) heredoc_end_space_spans: Vec<Span>,
+    pub(in crate::facts) indented_heredoc_close_facts: Vec<(Span, Span)>,
     pub(in crate::facts) echo_here_doc_spans: Vec<Span>,
     pub(in crate::facts) spaced_tabstrip_close_spans: Vec<Span>,
 }
@@ -1069,6 +1070,10 @@ impl<'facts, 'a> SourceFacts<'facts, 'a> {
 
     pub(crate) fn heredoc_end_space_spans(self) -> &'facts [Span] {
         &self.facts.source_facts.heredoc_end_space_spans
+    }
+
+    pub(crate) fn indented_heredoc_close_facts(self) -> &'facts [(Span, Span)] {
+        &self.facts.source_facts.indented_heredoc_close_facts
     }
 
     pub(crate) fn echo_here_doc_spans(self) -> &'facts [Span] {
