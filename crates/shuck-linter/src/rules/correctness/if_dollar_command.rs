@@ -40,7 +40,50 @@ pub fn if_dollar_command(checker: &mut Checker) {
 fn if_dollar_command_fix(span: Span, source: &str) -> Option<(Span, Fix)> {
     let text = span.slice(source);
     let body = text.strip_prefix("$(")?.strip_suffix(')')?;
-    Some((span, Fix::unsafe_edit(Edit::replacement(body, span))))
+    Some((
+        span,
+        Fix::unsafe_edit(Edit::replacement_at(
+            span.start.offset,
+            command_substitution_replacement_end(span, source),
+            body,
+        )),
+    ))
+}
+
+fn command_substitution_replacement_end(span: Span, source: &str) -> usize {
+    let close_start = span.end.offset.saturating_sub(1);
+    if !offset_is_indented_line_start(source, close_start) {
+        return span.end.offset;
+    }
+
+    let mut end = span.end.offset;
+    while source
+        .as_bytes()
+        .get(end)
+        .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+    {
+        end += 1;
+    }
+    if source.as_bytes().get(end) != Some(&b';') {
+        return span.end.offset;
+    }
+
+    end += 1;
+    while source
+        .as_bytes()
+        .get(end)
+        .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+    {
+        end += 1;
+    }
+    end
+}
+
+fn offset_is_indented_line_start(source: &str, offset: usize) -> bool {
+    let line_start = source[..offset].rfind('\n').map_or(0, |offset| offset + 1);
+    source[line_start..offset]
+        .bytes()
+        .all(|byte| matches!(byte, b' ' | b'\t'))
 }
 
 #[cfg(test)]
@@ -129,6 +172,37 @@ if `printf '%s' ok`; then :; fi
         assert_eq!(
             result.fixed_source,
             "#!/bin/bash\nif false; then echo ok; fi\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_multiline_command_substitution_condition() {
+        let source = "\
+#!/bin/bash
+if $(
+  false
+); then
+  :
+fi
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::IfDollarCommand),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            concat!(
+                "#!/bin/bash\n",
+                "if \n",
+                "  false\n",
+                "then\n",
+                "  :\n",
+                "fi\n",
+            )
         );
         assert!(result.fixed_diagnostics.is_empty());
     }
