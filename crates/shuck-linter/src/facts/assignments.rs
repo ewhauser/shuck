@@ -1,16 +1,17 @@
 use super::*;
 
 #[derive(Debug, Clone)]
-pub struct DeclarationAssignmentProbe {
+pub struct DeclarationAssignmentProbe<'a> {
     kind: DeclarationKind,
     readonly_flag: bool,
     target_name: Box<str>,
     target_name_span: Span,
+    value_word: Option<&'a Word>,
     has_command_substitution: bool,
     status_capture: bool,
 }
 
-impl DeclarationAssignmentProbe {
+impl<'a> DeclarationAssignmentProbe<'a> {
     pub fn kind(&self) -> &DeclarationKind {
         &self.kind
     }
@@ -33,6 +34,32 @@ impl DeclarationAssignmentProbe {
 
     pub fn status_capture(&self) -> bool {
         self.status_capture
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ExtraMaskedReturnDeclarationFact {
+    kind: DeclarationKind,
+    readonly_flag: bool,
+    span: Span,
+    masked_return_command_spans: Box<[Span]>,
+}
+
+impl ExtraMaskedReturnDeclarationFact {
+    pub fn kind(&self) -> &DeclarationKind {
+        &self.kind
+    }
+
+    pub fn readonly_flag(&self) -> bool {
+        self.readonly_flag
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn masked_return_command_spans(&self) -> &[Span] {
+        &self.masked_return_command_spans
     }
 }
 
@@ -3399,7 +3426,7 @@ pub(crate) fn build_declaration_assignment_probes<'a>(
     semantic: &SemanticModel,
     source: &str,
     behavior: &ShellBehaviorAt<'_>,
-) -> Vec<DeclarationAssignmentProbe> {
+) -> Vec<DeclarationAssignmentProbe<'a>> {
     if let Some(declaration) = normalized.declaration.as_ref() {
         return declaration
             .assignment_operands
@@ -3414,6 +3441,7 @@ pub(crate) fn build_declaration_assignment_probes<'a>(
                     readonly_flag: declaration.readonly_flag,
                     target_name: assignment.target.name.as_str().into(),
                     target_name_span: assignment.target.name_span,
+                    value_word: Some(word),
                     has_command_substitution: word_has_command_substitution(word, source, behavior),
                     status_capture: word_is_standalone_status_capture(word),
                 })
@@ -3449,17 +3477,130 @@ pub(crate) fn build_declaration_assignment_probes<'a>(
             else {
                 return None;
             };
+            let value_word = word_for_declaration_value_span(command, *value_span);
             Some(DeclarationAssignmentProbe {
                 kind: kind.clone(),
                 readonly_flag,
                 target_name: name.as_str().into(),
                 target_name_span: *name_span,
+                value_word,
                 has_command_substitution: *has_command_substitution,
-                status_capture: word_for_declaration_value_span(command, *value_span)
+                status_capture: value_word
                     .is_some_and(|word| word_span_is_standalone_status_capture(word, *value_span)),
             })
         })
         .collect()
+}
+
+pub(crate) fn build_extra_masked_return_declaration_facts<'a>(
+    facts: &LinterFacts<'a>,
+) -> Vec<ExtraMaskedReturnDeclarationFact> {
+    let source = facts.source_facts.source;
+    let locator = Locator::new(source, facts.source_facts.line_index);
+    let command_visits_by_id = facts.semantic_artifacts.command_visits_by_id();
+    let mut declarations = Vec::new();
+
+    for command in facts.command_facts().structural_commands() {
+        for probe in command.declaration_assignment_probes() {
+            let Some(word) = probe.value_word else {
+                continue;
+            };
+            let spans = masked_return_command_spans_for_word(
+                word,
+                facts.semantic,
+                command_visits_by_id,
+                source,
+                locator,
+            );
+            if spans.is_empty() {
+                continue;
+            }
+
+            declarations.push(ExtraMaskedReturnDeclarationFact {
+                kind: probe.kind.clone(),
+                readonly_flag: probe.readonly_flag,
+                span: command.span(),
+                masked_return_command_spans: spans,
+            });
+        }
+    }
+
+    declarations
+}
+
+fn masked_return_command_spans_for_word(
+    word: &Word,
+    semantic: &SemanticModel,
+    command_visits_by_id: &[Option<CommandVisit<'_>>],
+    source: &str,
+    locator: Locator<'_>,
+) -> Box<[Span]> {
+    let substitution_spans = word_spans::command_substitution_part_spans(word, source, locator);
+    if substitution_spans.is_empty() {
+        return Box::default();
+    }
+
+    let mut spans = semantic
+        .command_contexts()
+        .filter(|context| context.is_nested_word_command())
+        .filter_map(|context| {
+            let span = context.syntax_span();
+            if !span_contains(word.span, span)
+                || !substitution_spans
+                    .iter()
+                    .any(|substitution| span_contains(*substitution, span))
+            {
+                return None;
+            }
+
+            let visit = command_visits_by_id
+                .get(context.id().index())
+                .and_then(|visit| *visit)?;
+            extra_masked_return_command_span(visit.command, source)
+        })
+        .collect::<Vec<_>>();
+    sort_and_dedup_spans(&mut spans);
+    spans.into_boxed_slice()
+}
+
+fn extra_masked_return_command_span(command: &Command, source: &str) -> Option<Span> {
+    if !matches!(
+        command,
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_)
+    ) {
+        return None;
+    }
+
+    let normalized = command::normalize_command(command, source);
+    if matches!(
+        normalized.effective_name.as_deref(),
+        Some("echo" | "printf")
+    ) {
+        return None;
+    }
+
+    Some(extra_masked_return_report_span(command, source))
+}
+
+fn extra_masked_return_report_span(command: &Command, source: &str) -> Span {
+    let span = command_span(command);
+    let text = span.slice(source);
+    let trimmed = text.trim_end();
+    if trimmed.ends_with("||") {
+        return span;
+    }
+    let Some(without_operator) = trimmed
+        .strip_suffix("|&")
+        .or_else(|| trimmed.strip_suffix('|'))
+    else {
+        return span;
+    };
+    let command_text = without_operator.trim_end();
+    Span::from_positions(
+        span.start,
+        span.start
+            .advanced_by(&source[span.start.offset..span.start.offset + command_text.len()]),
+    )
 }
 
 pub(crate) fn declaration_kind_from_semantic(builtin: DeclarationBuiltin) -> DeclarationKind {

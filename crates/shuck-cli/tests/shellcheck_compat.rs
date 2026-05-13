@@ -285,6 +285,96 @@ fn compat_optional_uppercase_check_is_disabled_by_default() {
 }
 
 #[test]
+fn compat_extra_masked_returns_check_is_disabled_by_default() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("x.sh"),
+        "#!/bin/bash\nf() {\n  local -r result=$(get_value)\n  echo \"$result\"\n}\n",
+    )
+    .unwrap();
+
+    let output = run_compat(["--norc", "-f", "json1", "x.sh"].as_slice(), tempdir.path());
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(json1_comments(&output), Vec::<Value>::new());
+}
+
+#[test]
+fn compat_include_sc2312_respects_optional_enable_gate() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("x.sh"),
+        "#!/bin/bash\nf() {\n  local -r result=$(get_value)\n  echo \"$result\"\n}\n",
+    )
+    .unwrap();
+
+    let output = run_compat(
+        ["--norc", "--include=SC2312", "-f", "json1", "x.sh"].as_slice(),
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(json1_comments(&output), Vec::<Value>::new());
+}
+
+#[test]
+fn compat_include_sc2312_reports_when_optional_check_is_enabled() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("x.sh"),
+        "#!/bin/bash\nf() {\n  local -r result=$(get_value)\n  echo \"$result\"\n}\n",
+    )
+    .unwrap();
+
+    let output = run_compat(
+        [
+            "--norc",
+            "--enable=check-extra-masked-returns",
+            "--include=SC2312",
+            "-f",
+            "json1",
+            "x.sh",
+        ]
+        .as_slice(),
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(1));
+
+    let ordered_codes = json1_comments(&output)
+        .into_iter()
+        .map(|comment| comment["code"].as_u64().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(ordered_codes, vec![2312]);
+}
+
+#[test]
+fn compat_check_extra_masked_returns_enables_sc2312() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("x.sh"),
+        "#!/bin/bash\nf() {\n  local -r result=$(get_value)\n  echo \"$result\"\n}\n",
+    )
+    .unwrap();
+
+    let output = run_compat(
+        [
+            "--norc",
+            "--enable=check-extra-masked-returns",
+            "-f",
+            "json1",
+            "x.sh",
+        ]
+        .as_slice(),
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(1));
+
+    let ordered_codes = json1_comments(&output)
+        .into_iter()
+        .map(|comment| comment["code"].as_u64().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(ordered_codes, vec![2312]);
+}
+
+#[test]
 fn compat_shellcheckrc_enable_turns_on_check_unassigned_uppercase() {
     let tempdir = tempdir().unwrap();
     fs::write(

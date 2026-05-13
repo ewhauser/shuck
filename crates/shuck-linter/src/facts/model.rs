@@ -46,6 +46,8 @@ pub(crate) struct CommandFactStore<'a> {
     pub(in crate::facts) condition_status_capture_spans: Vec<Span>,
     pub(in crate::facts) command_substitution_command_spans: Vec<Span>,
     pub(in crate::facts) backtick_command_name_spans: Vec<Span>,
+    pub(in crate::facts) extra_masked_return_declaration_facts:
+        OnceLock<Vec<ExtraMaskedReturnDeclarationFact>>,
     pub(in crate::facts) assignment_spacing_spans: OnceLock<Vec<Span>>,
     pub(in crate::facts) missing_space_before_bracket_close_facts: OnceLock<Vec<(Span, usize)>>,
     pub(in crate::facts) jammed_test_bracket_facts: OnceLock<Vec<(Span, usize)>>,
@@ -346,6 +348,15 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
             .iter()
             .copied()
             .map(move |id| self.command(id))
+    }
+
+    pub(crate) fn extra_masked_return_declaration_facts(
+        self,
+    ) -> &'facts [ExtraMaskedReturnDeclarationFact] {
+        self.facts
+            .command
+            .extra_masked_return_declaration_facts
+            .get_or_init(|| build_extra_masked_return_declaration_facts(self.facts))
     }
 
     pub(crate) fn command(self, id: CommandId) -> CommandFactRef<'facts, 'a> {

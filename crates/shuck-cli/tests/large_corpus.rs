@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use shuck::shellcheck_runtime::{
     ShellCheckDiagnostic, ShellCheckProbe, ShellCheckRun, decode_shellcheck_diagnostics,
-    parse_shellcheck_supported_shells, probe_shellcheck, run_shellcheck_json1 as run_shellcheck,
+    parse_shellcheck_supported_shells, probe_shellcheck, run_shellcheck_json1_with_enable_checks,
     shellcheck_parse_aborted, shellcheck_supported_shells,
 };
 
@@ -770,14 +770,16 @@ struct ShellCheckCache {
     dir: PathBuf,
     version_text: String,
     legacy_invocation_hash: String,
+    enable_checks: Vec<&'static str>,
 }
 
 impl ShellCheckCache {
-    fn new(cache_root: &Path, probe: &ShellCheckProbe) -> Self {
+    fn new(cache_root: &Path, probe: &ShellCheckProbe, enable_checks: Vec<&'static str>) -> Self {
         Self {
             dir: cache_root.join("shellcheck"),
             version_text: probe.version_text.clone(),
             legacy_invocation_hash: legacy_shellcheck_invocation_hash(&probe.command),
+            enable_checks,
         }
     }
 
@@ -835,7 +837,13 @@ impl ShellCheckCache {
             return Ok(cached);
         }
 
-        let run = run_shellcheck(&fixture.path, &fixture.shell, shellcheck_path, timeout)?;
+        let run = run_shellcheck_json1_with_enable_checks(
+            &fixture.path,
+            &fixture.shell,
+            shellcheck_path,
+            timeout,
+            &self.enable_checks,
+        )?;
         self.write_cache(fixture, &run);
         Ok(run)
     }
@@ -847,6 +855,7 @@ impl ShellCheckCache {
             "shell": fixture.shell,
             "sourceHash": fixture.source_hash,
             "versionText": self.version_text,
+            "enableChecks": self.enable_checks,
         });
         let key = hash_bytes(key_data.to_string().as_bytes());
         self.dir.join(format!("{key}.json"))
@@ -1230,7 +1239,10 @@ fn large_corpus_conforms_with_shellcheck() {
     let corpus_metadata = load_all_rule_corpus_metadata();
     let shellcheck_filter_codes =
         build_shellcheck_filter_codes(cfg.selected_rules, cfg.mapped_only);
-    let shellcheck_cache = ShellCheckCache::new(&cfg.cache_dir, &shellcheck);
+    let shellcheck_enable_checks =
+        build_large_corpus_shellcheck_enable_checks(cfg.selected_rules.as_ref(), cfg.mapped_only);
+    let shellcheck_cache =
+        ShellCheckCache::new(&cfg.cache_dir, &shellcheck, shellcheck_enable_checks);
     shellcheck_cache.prepare(&fixtures, &discover_worktree_roots());
     let linter_settings =
         build_large_corpus_compat_linter_settings(cfg.selected_rules, cfg.mapped_only);
@@ -3298,6 +3310,21 @@ fn build_large_corpus_compat_linter_settings(
     build_large_corpus_linter_settings(selected_rules, mapped_only)
 }
 
+fn build_large_corpus_shellcheck_enable_checks(
+    selected_rules: Option<&shuck_linter::RuleSet>,
+    mapped_only: bool,
+) -> Vec<&'static str> {
+    let extra_masked_returns_active = selected_rules.map_or(mapped_only, |rules| {
+        rules.contains(shuck_linter::Rule::ExtraMaskedReturns)
+    });
+
+    if extra_masked_returns_active {
+        vec!["check-extra-masked-returns"]
+    } else {
+        Vec::new()
+    }
+}
+
 fn large_corpus_uses_single_file_c001_oracle(
     selected_rules: Option<&shuck_linter::RuleSet>,
     shellcheck_filter_codes: Option<&HashSet<u32>>,
@@ -3854,11 +3881,12 @@ mod tests {
         permissions.set_mode(0o755);
         fs::set_permissions(&shellcheck_path, permissions).unwrap();
 
-        let err = run_shellcheck(
+        let err = run_shellcheck_json1_with_enable_checks(
             &fixture_path,
             "sh",
             shellcheck_path.to_str().unwrap(),
             Duration::from_millis(10),
+            &[],
         )
         .unwrap_err();
 
@@ -4368,6 +4396,21 @@ mod tests {
             settings
                 .rules
                 .contains(shuck_linter::Rule::UndefinedVariable)
+        );
+    }
+
+    #[test]
+    fn c162_large_corpus_selection_enables_shellcheck_optional_check() {
+        let selected_rules =
+            shuck_linter::RuleSet::from_iter([shuck_linter::Rule::ExtraMaskedReturns]);
+
+        assert_eq!(
+            build_large_corpus_shellcheck_enable_checks(Some(&selected_rules), false),
+            vec!["check-extra-masked-returns"]
+        );
+        assert_eq!(
+            build_large_corpus_shellcheck_enable_checks(None, false),
+            Vec::<&'static str>::new()
         );
     }
 
@@ -5064,7 +5107,7 @@ mod tests {
     #[test]
     fn shellcheck_cache_key_is_stable_across_worktree_paths() {
         let tempdir = tempfile::tempdir().unwrap();
-        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
+        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"), Vec::new());
         let left = fixture_at(
             Path::new("/tmp/worktree-a/.cache/large-corpus/scripts/example.sh"),
             Path::new("example.sh"),
@@ -5084,10 +5127,27 @@ mod tests {
             Path::new("/tmp/worktree/.cache/large-corpus/scripts/example.sh"),
             Path::new("example.sh"),
         );
-        let first = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
-        let second = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.1"));
+        let first = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"), Vec::new());
+        let second = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.1"), Vec::new());
 
         assert_ne!(first.cache_path(&fixture), second.cache_path(&fixture));
+    }
+
+    #[test]
+    fn shellcheck_cache_key_changes_with_enabled_optional_checks() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let fixture = fixture_at(
+            Path::new("/tmp/worktree/.cache/large-corpus/scripts/example.sh"),
+            Path::new("example.sh"),
+        );
+        let baseline = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"), Vec::new());
+        let optional = ShellCheckCache::new(
+            tempdir.path(),
+            &probe("version: 0.10.0"),
+            vec!["check-extra-masked-returns"],
+        );
+
+        assert_ne!(baseline.cache_path(&fixture), optional.cache_path(&fixture));
     }
 
     #[test]
@@ -5098,7 +5158,7 @@ mod tests {
             &root.join(".cache/large-corpus/scripts/example.sh"),
             Path::new("example.sh"),
         );
-        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
+        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"), Vec::new());
         let stable_path = cache.cache_path(&fixture);
         let legacy_path = cache.legacy_cache_path_for_absolute_path(&fixture, &fixture.path);
 
@@ -5123,7 +5183,7 @@ mod tests {
             &current_root.join(".cache/large-corpus/scripts/example.sh"),
             Path::new("example.sh"),
         );
-        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
+        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"), Vec::new());
         let stable_path = cache.cache_path(&fixture);
         let alternate_legacy_path = cache.legacy_cache_path_for_absolute_path(
             &fixture,
@@ -5158,7 +5218,7 @@ mod tests {
             &root.join(".cache/large-corpus/scripts/example.sh"),
             Path::new("example.sh"),
         );
-        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
+        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"), Vec::new());
         let stable_path = cache.cache_path(&fixture);
         let legacy_path = cache.legacy_cache_path_for_absolute_path(&fixture, &fixture.path);
 
@@ -5182,7 +5242,7 @@ mod tests {
             &root.join(".cache/large-corpus/scripts/example.sh"),
             Path::new("example.sh"),
         );
-        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
+        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"), Vec::new());
         let stable_path = cache.cache_path(&fixture);
         let legacy_path = cache.legacy_cache_path_for_absolute_path(&fixture, &fixture.path);
 
@@ -5208,7 +5268,7 @@ mod tests {
                 .join("worktree/.cache/large-corpus/scripts/example.sh"),
             Path::new("example.sh"),
         );
-        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
+        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"), Vec::new());
         let stale_path = cache.cache_path(&fixture);
 
         if let Some(parent) = stale_path.parent() {

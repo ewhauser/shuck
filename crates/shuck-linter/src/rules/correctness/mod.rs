@@ -48,6 +48,7 @@ pub mod env_prefix_expansion_only;
 pub mod escaped_negation_in_test;
 pub mod export_with_positional_params;
 pub mod expr_substr_in_test;
+pub mod extra_masked_returns;
 pub mod find_or_without_grouping;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
@@ -313,6 +314,7 @@ mod tests {
     #[test_case(Rule::MutableGlobal, Path::new("C159.sh"))]
     #[test_case(Rule::UnanchoredSourcePath, Path::new("C160.sh"))]
     #[test_case(Rule::FunctionCalledBeforeDefined, Path::new("C161.sh"))]
+    #[test_case(Rule::ExtraMaskedReturns, Path::new("C162.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

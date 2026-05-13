@@ -143,6 +143,7 @@ mod tests {
             map.resolve("SC2218"),
             Some(Rule::FunctionCalledBeforeDefined)
         );
+        assert_eq!(map.resolve("SC2312"), Some(Rule::ExtraMaskedReturns));
         assert_eq!(map.resolve("SC7777"), None);
     }
 
@@ -216,6 +217,7 @@ mod tests {
             map.code_for_rule(Rule::FunctionCalledBeforeDefined),
             Some(2218)
         );
+        assert_eq!(map.code_for_rule(Rule::ExtraMaskedReturns), Some(2312));
         assert_eq!(map.code_for_rule(Rule::BackslashBeforeCommand), None);
         assert_eq!(
             map.code_for_rule(Rule::LeadingGlobInGrepPattern),

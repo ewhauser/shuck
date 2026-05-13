@@ -55,6 +55,7 @@ struct EffectivePerFileShell {
 struct EffectiveRuleOptions {
     c001_treat_indirect_expansion_targets_as_used: bool,
     c063_report_unreached_nested_definitions: bool,
+    c162_treat_as_masking: Vec<String>,
     s084_require_globals: bool,
     s084_require_arguments: bool,
     s084_require_outputs: bool,
@@ -186,6 +187,7 @@ impl EffectiveRuleOptions {
             c063_report_unreached_nested_definitions: rule_options
                 .c063
                 .report_unreached_nested_definitions,
+            c162_treat_as_masking: rule_options.c162.treat_as_masking.clone(),
             s084_require_globals: rule_options.s084.require_globals,
             s084_require_arguments: rule_options.s084.require_arguments,
             s084_require_outputs: rule_options.s084.require_outputs,
@@ -209,6 +211,7 @@ impl CacheKey for EffectiveRuleOptions {
             .cache_key(state);
         self.c063_report_unreached_nested_definitions
             .cache_key(state);
+        self.c162_treat_as_masking.cache_key(state);
         self.s084_require_globals.cache_key(state);
         self.s084_require_arguments.cache_key(state);
         self.s084_require_outputs.cache_key(state);
@@ -1000,6 +1003,14 @@ fn linter_rule_options_for_lint_config(lint: &LintConfig) -> shuck_linter::Linte
         .and_then(|s084| s084.require_returns)
     {
         rule_options.s084.require_returns = value;
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.c162.as_ref())
+        .and_then(|c162| c162.treat_as_masking.as_ref())
+    {
+        rule_options.c162.treat_as_masking = value.clone();
     }
     if let Some(value) = lint
         .rule_options

@@ -146,18 +146,30 @@ pub fn run_shellcheck_json1(
     shellcheck_path: &str,
     timeout: Duration,
 ) -> Result<ShellCheckRun, String> {
-    let output = run_shellcheck_command(
-        shellcheck_path,
-        [
-            OsString::from("--norc"),
-            OsString::from("-s"),
-            OsString::from(shell),
-            OsString::from("-f"),
-            OsString::from("json1"),
-            path.as_os_str().to_os_string(),
-        ],
-        timeout,
-    )?;
+    run_shellcheck_json1_with_enable_checks(path, shell, shellcheck_path, timeout, &[])
+}
+
+pub fn run_shellcheck_json1_with_enable_checks(
+    path: &Path,
+    shell: &str,
+    shellcheck_path: &str,
+    timeout: Duration,
+    enable_checks: &[&str],
+) -> Result<ShellCheckRun, String> {
+    let mut args = vec![
+        OsString::from("--norc"),
+        OsString::from("-s"),
+        OsString::from(shell),
+        OsString::from("-f"),
+        OsString::from("json1"),
+    ];
+    for check in enable_checks {
+        args.push(OsString::from("-o"));
+        args.push(OsString::from(check));
+    }
+    args.push(path.as_os_str().to_os_string());
+
+    let output = run_shellcheck_command(shellcheck_path, args, timeout)?;
 
     // ShellCheck exits 1 when it reports diagnostics, which is not an execution error.
     if !matches!(output.status_code, 0 | 1) {
