@@ -14,6 +14,7 @@ pub mod bad_redirection_fd_order;
 pub mod bad_var_name;
 pub mod bare_closing_brace;
 pub mod bare_done_word;
+pub mod bare_glob_command_path;
 pub mod bare_slash_marker;
 pub mod broken_assoc_key;
 mod broken_test_common;
@@ -191,6 +192,7 @@ mod tests {
     #[test_case(Rule::CStyleComment, Path::new("C041.sh"))]
     #[test_case(Rule::CPrototypeFragment, Path::new("C042.sh"))]
     #[test_case(Rule::BadRedirectionFdOrder, Path::new("C043.sh"))]
+    #[test_case(Rule::BareGlobCommandPath, Path::new("C044.sh"))]
     #[test_case(Rule::PipeToKill, Path::new("C046.sh"))]
     #[test_case(Rule::InvalidExitStatus, Path::new("C047.sh"))]
     #[test_case(Rule::CasePatternVar, Path::new("C048.sh"))]

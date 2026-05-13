@@ -848,6 +848,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::LeadingGlobArgument) {
             rules::correctness::leading_glob_argument::leading_glob_argument(self);
         }
+        if self.is_rule_enabled(Rule::BareGlobCommandPath) {
+            rules::correctness::bare_glob_command_path::bare_glob_command_path(self);
+        }
         if self.is_rule_enabled(Rule::FindOutputToXargs) {
             rules::correctness::find_output_to_xargs::find_output_to_xargs(self);
         }

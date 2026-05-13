@@ -124,6 +124,7 @@ mod tests {
         assert_eq!(map.resolve("SC1012"), Some(Rule::LiteralControlEscape));
         assert_eq!(map.resolve("SC2238"), Some(Rule::RedirectToCommandName));
         assert_eq!(map.resolve("SC2063"), Some(Rule::LeadingGlobInGrepPattern));
+        assert_eq!(map.resolve("SC2211"), Some(Rule::BareGlobCommandPath));
         assert_eq!(map.resolve("SC3034"), Some(Rule::BashFileSlurp));
         assert_eq!(map.resolve("SC2096"), Some(Rule::DuplicateShebangFlag));
         assert_eq!(map.resolve("SC2318"), Some(Rule::LocalCrossReference));

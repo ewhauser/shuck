@@ -124,6 +124,7 @@ declare_rules! {
     ("C041", Category::Correctness, Severity::Error, CStyleComment),
     ("C042", Category::Correctness, Severity::Warning, CPrototypeFragment),
     ("C043", Category::Correctness, Severity::Warning, BadRedirectionFdOrder),
+    ("C044", Category::Correctness, Severity::Warning, BareGlobCommandPath),
     ("C046", Category::Correctness, Severity::Warning, PipeToKill),
     ("C047", Category::Correctness, Severity::Error, InvalidExitStatus),
     ("C048", Category::Correctness, Severity::Warning, CasePatternVar),
@@ -846,6 +847,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-121" => Some(Rule::CStyleComment),
         "SH-123" => Some(Rule::CPrototypeFragment),
         "SH-129" => Some(Rule::BadRedirectionFdOrder),
+        "SH-130" => Some(Rule::BareGlobCommandPath),
         "SH-141" => Some(Rule::InvalidExitStatus),
         "SH-142" => Some(Rule::CasePatternVar),
         "SH-143" => Some(Rule::TautologyChain),
@@ -1215,6 +1217,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-123"), Some(Rule::CPrototypeFragment));
         assert_eq!(code_to_rule("C043"), Some(Rule::BadRedirectionFdOrder));
         assert_eq!(code_to_rule("SH-129"), Some(Rule::BadRedirectionFdOrder));
+        assert_eq!(code_to_rule("C044"), Some(Rule::BareGlobCommandPath));
+        assert_eq!(code_to_rule("SH-130"), Some(Rule::BareGlobCommandPath));
         assert_eq!(code_to_rule("C085"), Some(Rule::StderrBeforeStdoutRedirect));
         assert_eq!(code_to_rule("C094"), Some(Rule::RedirectClobbersInput));
         assert_eq!(

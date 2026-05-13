@@ -374,6 +374,50 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
         self.fact.body_name_word()
     }
 
+    pub fn command_name_word(self) -> Option<&'a Word> {
+        match self.command() {
+            Command::Simple(command) => Some(&command.name),
+            _ => None,
+        }
+    }
+
+    pub fn command_name_word_unquoted_glob_spans(self, source: &str) -> Vec<Span> {
+        let Some(word) = self.command_name_word() else {
+            return Vec::new();
+        };
+
+        word_spans::word_unquoted_glob_pattern_spans_outside_brace_expansion(word, source)
+    }
+
+    pub fn command_name_word_active_glob_spans_outside_brace_expansion(
+        self,
+        source: &str,
+    ) -> Vec<Span> {
+        if self.has_wrapper(WrapperKind::Noglob) {
+            return Vec::new();
+        }
+
+        let Some(word) = self.command_name_word() else {
+            return Vec::new();
+        };
+
+        let behavior = self.shell_behavior();
+        word_spans::word_active_glob_pattern_spans_outside_brace_expansion(
+            word,
+            source,
+            behavior.pathname_expansion(),
+            behavior.glob_pattern(),
+        )
+    }
+
+    pub fn command_name_word_single_double_quoted_replacement(
+        self,
+        source: &str,
+    ) -> Option<Box<str>> {
+        self.command_name_word()
+            .map(|word| rewrite_word_as_single_double_quoted_string(word, source, None))
+    }
+
     pub fn suspicious_body_name_bracket_glob_spans(self, source: &str) -> Vec<Span> {
         let Some(word) = self.body_name_word() else {
             return Vec::new();
