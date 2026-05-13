@@ -482,6 +482,8 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         arithmetic_update_operator_spans
             .sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
         arithmetic_update_operator_spans.dedup();
+        let arithmetic_update_operator_fix_facts =
+            build_arithmetic_update_operator_fix_facts(&arithmetic_update_operator_spans, self.source);
         arithmetic_literal_spans.sort_unstable_by_key(|(span, kind)| {
             (span.start.offset, span.end.offset, *kind)
         });
@@ -1065,6 +1067,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             positional_parameter_operator_spans,
             double_paren_grouping_spans,
             arithmetic_update_operator_spans,
+            arithmetic_update_operator_fix_facts,
             arithmetic_literal_facts,
             escape_scan_matches,
             echo_backslash_escape_word_spans,

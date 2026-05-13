@@ -1743,6 +1743,197 @@ fn collect_arithmetic_lvalue_update_operator_spans(
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ArithmeticUpdateOperatorFixFact {
+    diagnostic_span: Span,
+    replacement_span: Span,
+    replacement: Box<str>,
+}
+
+impl ArithmeticUpdateOperatorFixFact {
+    fn new(diagnostic_span: Span, replacement_span: Span, replacement: Box<str>) -> Self {
+        Self {
+            diagnostic_span,
+            replacement_span,
+            replacement,
+        }
+    }
+
+    pub fn diagnostic_span(&self) -> Span {
+        self.diagnostic_span
+    }
+
+    pub fn replacement_span(&self) -> Span {
+        self.replacement_span
+    }
+
+    pub fn replacement(&self) -> &str {
+        &self.replacement
+    }
+}
+
+fn build_arithmetic_update_operator_fix_facts(
+    spans: &[Span],
+    source: &str,
+) -> Vec<ArithmeticUpdateOperatorFixFact> {
+    spans
+        .iter()
+        .copied()
+        .filter_map(|span| arithmetic_update_operator_fix_fact(span, source))
+        .collect()
+}
+
+fn arithmetic_update_operator_fix_fact(
+    diagnostic_span: Span,
+    source: &str,
+) -> Option<ArithmeticUpdateOperatorFixFact> {
+    let operator = diagnostic_span.slice(source);
+    let operator = match operator {
+        "++" => "+",
+        "--" => "-",
+        _ => return None,
+    };
+
+    if let Some(operand_span) = arithmetic_prefix_update_operand_span(diagnostic_span, source) {
+        let operand = operand_span.slice(source);
+        return Some(ArithmeticUpdateOperatorFixFact::new(
+            diagnostic_span,
+            Span::from_positions(diagnostic_span.start, operand_span.end),
+            format!("({operand} = {operand} {operator} 1)").into_boxed_str(),
+        ));
+    }
+
+    let operand_span = arithmetic_postfix_update_operand_span(diagnostic_span, source)?;
+    let operand = operand_span.slice(source);
+    Some(ArithmeticUpdateOperatorFixFact::new(
+        diagnostic_span,
+        Span::from_positions(operand_span.start, diagnostic_span.end),
+        format!("({operand} = {operand} {operator} 1)").into_boxed_str(),
+    ))
+}
+
+fn arithmetic_prefix_update_operand_span(operator_span: Span, source: &str) -> Option<Span> {
+    let start = operator_span.end.offset;
+    let end = scan_arithmetic_lvalue_end(source, start)?;
+    (end > start).then(|| Span::from_positions(operator_span.end, operator_span.end.advanced_by(&source[start..end])))
+}
+
+fn arithmetic_postfix_update_operand_span(operator_span: Span, source: &str) -> Option<Span> {
+    let end = operator_span.start.offset;
+    let start = scan_arithmetic_lvalue_start(source, end)?;
+    (start < end).then(|| {
+        let start_position = position_at_offset_on_same_line(operator_span.start, start);
+        Span::from_positions(start_position, operator_span.start)
+    })
+}
+
+fn scan_arithmetic_lvalue_end(source: &str, start: usize) -> Option<usize> {
+    let mut end = scan_identifier_end(source, start)?;
+    if source[end..].starts_with('[') {
+        end = scan_balanced_bracket_end(source, end)?;
+    }
+    Some(end)
+}
+
+fn scan_arithmetic_lvalue_start(source: &str, end: usize) -> Option<usize> {
+    if end == 0 {
+        return None;
+    }
+    let mut start = if source[..end].ends_with(']') {
+        let open = scan_balanced_bracket_start(source, end - 1)?;
+        scan_identifier_start(source, open)?
+    } else {
+        scan_identifier_start(source, end)?
+    };
+    if start == end {
+        start = scan_identifier_start(source, end)?;
+    }
+    Some(start)
+}
+
+fn scan_identifier_end(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let first = *bytes.get(start)?;
+    if !is_arithmetic_identifier_start(first) {
+        return None;
+    }
+    let mut end = start + 1;
+    while bytes
+        .get(end)
+        .is_some_and(|byte| is_arithmetic_identifier_continue(*byte))
+    {
+        end += 1;
+    }
+    Some(end)
+}
+
+fn scan_identifier_start(source: &str, end: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut start = end;
+    while start > 0 && is_arithmetic_identifier_continue(bytes[start - 1]) {
+        start -= 1;
+    }
+    (start < end && is_arithmetic_identifier_start(bytes[start])).then_some(start)
+}
+
+fn scan_balanced_bracket_end(source: &str, open: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut depth = 0usize;
+    let mut index = open;
+    while let Some(byte) = bytes.get(index).copied() {
+        match byte {
+            b'[' => depth += 1,
+            b']' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(index + 1);
+                }
+            }
+            b'\n' => return None,
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+fn scan_balanced_bracket_start(source: &str, close: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut depth = 0usize;
+    let mut index = close + 1;
+    while index > 0 {
+        index -= 1;
+        match bytes[index] {
+            b']' => depth += 1,
+            b'[' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            b'\n' => return None,
+            _ => {}
+        }
+    }
+    None
+}
+
+fn is_arithmetic_identifier_start(byte: u8) -> bool {
+    byte == b'_' || byte.is_ascii_alphabetic()
+}
+
+fn is_arithmetic_identifier_continue(byte: u8) -> bool {
+    is_arithmetic_identifier_start(byte) || byte.is_ascii_digit()
+}
+
+fn position_at_offset_on_same_line(anchor: Position, offset: usize) -> Position {
+    Position {
+        line: anchor.line,
+        column: anchor.column.saturating_sub(anchor.offset - offset),
+        offset,
+    }
+}
+
 fn find_operator_span(expression_span: Span, source: &str, operator: &str, first: bool) -> Span {
     let expression = expression_span.slice(source);
     let offset = if first {
