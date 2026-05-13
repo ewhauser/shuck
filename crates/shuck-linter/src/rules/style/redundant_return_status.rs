@@ -1,8 +1,10 @@
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct RedundantReturnStatus;
 
 impl Violation for RedundantReturnStatus {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::RedundantReturnStatus
     }
@@ -10,22 +12,30 @@ impl Violation for RedundantReturnStatus {
     fn message(&self) -> String {
         "function already propagates the last command status".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("delete the redundant `return $?`".to_owned())
+    }
 }
 
 pub fn redundant_return_status(checker: &mut Checker) {
-    checker.report_fact_slice_dedup(
-        |facts| facts.redundant_return_status_spans(),
-        || RedundantReturnStatus,
-    );
+    checker.report_fact_diagnostics_dedup(|facts, report| {
+        for span in facts.redundant_return_status_spans().iter().copied() {
+            report(
+                Diagnostic::new(RedundantReturnStatus, span)
+                    .with_fix(Fix::safe_edit(Edit::deletion(span))),
+            );
+        }
+    });
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
-    fn ignores_returning_the_previous_status_inside_functions() {
+    fn reports_returning_the_previous_status_inside_functions() {
         let source = "\
 #!/bin/sh
 f() {
@@ -38,7 +48,53 @@ f() {
             &LinterSettings::for_rule(Rule::RedundantReturnStatus),
         );
 
-        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "  return $?\n");
+    }
+
+    #[test]
+    fn applies_safe_fix_to_delete_redundant_return_status() {
+        let source = "\
+#!/bin/sh
+f() {
+  echo hello > /dev/null
+  return $?
+}
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::RedundantReturnStatus),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/sh
+f() {
+  echo hello > /dev/null
+}
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn safe_fix_deletes_statement_terminators() {
+        let source = "#!/bin/sh\nf(){ false; return $?; }\ng(){ false; return $? ; }\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::RedundantReturnStatus),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/sh\nf(){ false;  }\ng(){ false;  }\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]

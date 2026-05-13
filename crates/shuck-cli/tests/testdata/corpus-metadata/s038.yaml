@@ -1,1 +1,4 @@
-reviewed_divergences: []
+reviewed_divergences:
+  - side: shuck-only
+    rule_wide: true
+    reason: "S038 is retained as an independently authored style rule, but the nix-pinned ShellCheck oracle does not emit SC2265 for trailing return-status propagation patterns."
