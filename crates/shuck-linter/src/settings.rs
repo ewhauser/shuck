@@ -22,6 +22,8 @@ pub struct LinterRuleOptions {
     pub c001: C001RuleOptions,
     /// Behavior overrides for `C063`.
     pub c063: C063RuleOptions,
+    /// Behavior overrides for `S085`.
+    pub s085: S085RuleOptions,
 }
 
 /// Behavior overrides for `C001` unused-assignment analysis.
@@ -57,6 +59,28 @@ impl C063RuleOptions {
         }
     }
 }
+
+/// Behavior overrides for `S085` main entrypoint analysis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct S085RuleOptions {
+    /// Minimum source line count before the script is checked.
+    pub non_trivial_line_threshold: usize,
+    /// Minimum function definition count before the script is checked.
+    pub non_trivial_function_count: usize,
+    /// Expected entrypoint function name.
+    pub main_name: String,
+}
+
+impl Default for S085RuleOptions {
+    fn default() -> Self {
+        Self {
+            non_trivial_line_threshold: 30,
+            non_trivial_function_count: 2,
+            main_name: "main".to_owned(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinterSettings {
     pub rules: RuleSet,
@@ -236,6 +260,21 @@ impl LinterSettings {
 
     pub fn with_c063_report_unreached_nested_definitions(mut self, value: bool) -> Self {
         self.rule_options.c063.report_unreached_nested_definitions = value;
+        self
+    }
+
+    pub fn with_s085_non_trivial_line_threshold(mut self, value: usize) -> Self {
+        self.rule_options.s085.non_trivial_line_threshold = value;
+        self
+    }
+
+    pub fn with_s085_non_trivial_function_count(mut self, value: usize) -> Self {
+        self.rule_options.s085.non_trivial_function_count = value;
+        self
+    }
+
+    pub fn with_s085_main_name(mut self, value: impl Into<String>) -> Self {
+        self.rule_options.s085.main_name = value.into();
         self
     }
 

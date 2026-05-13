@@ -496,6 +496,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::EchoHereDoc) {
             rules::style::echo_here_doc::echo_here_doc(self);
         }
+        if self.is_rule_enabled(Rule::MissingMainEntrypoint) {
+            rules::style::missing_main_entrypoint::missing_main_entrypoint(self);
+        }
         if self.is_rule_enabled(Rule::InvalidExitStatus) {
             rules::correctness::invalid_exit_status::invalid_exit_status(self);
         }

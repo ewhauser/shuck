@@ -60,10 +60,15 @@ const CONFIG_OVERRIDE_LINT_ZSH_PLUGIN_KEYS: &[&str] = &[
     "theme-loads",
     "entrypoints",
 ];
-const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &["c001", "c063"];
+const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &["c001", "c063", "s085"];
 const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
     &["treat-indirect-expansion-targets-as-used"];
 const CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS: &[&str] = &["report-unreached-nested-definitions"];
+const CONFIG_OVERRIDE_S085_RULE_OPTION_KEYS: &[&str] = &[
+    "non-trivial-line-threshold",
+    "non-trivial-function-count",
+    "main-name",
+];
 const CONFIG_OVERRIDE_RUN_KEYS: &[&str] = &["shell", "shell-version", "shells"];
 const CONFIG_OVERRIDE_RUN_SHELL_NAMES: &[&str] =
     &["bash", "gbash", "bashkit", "zsh", "dash", "mksh", "busybox"];
@@ -316,6 +321,8 @@ pub struct LintRuleOptionsConfig {
     pub c001: Option<C001RuleOptionsConfig>,
     /// Options for rule C063.
     pub c063: Option<C063RuleOptionsConfig>,
+    /// Options for rule S085.
+    pub s085: Option<S085RuleOptionsConfig>,
 }
 
 impl LintRuleOptionsConfig {
@@ -325,6 +332,9 @@ impl LintRuleOptionsConfig {
         }
         if let Some(c063) = overrides.c063 {
             self.c063.get_or_insert_default().apply_overrides(c063);
+        }
+        if let Some(s085) = overrides.s085 {
+            self.s085.get_or_insert_default().apply_overrides(s085);
         }
     }
 }
@@ -359,6 +369,32 @@ impl C063RuleOptionsConfig {
         if overrides.report_unreached_nested_definitions.is_some() {
             self.report_unreached_nested_definitions =
                 overrides.report_unreached_nested_definitions;
+        }
+    }
+}
+
+/// Options for rule S085.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct S085RuleOptionsConfig {
+    /// Minimum source line count before the script is checked.
+    pub non_trivial_line_threshold: Option<usize>,
+    /// Minimum function definition count before the script is checked.
+    pub non_trivial_function_count: Option<usize>,
+    /// Expected entrypoint function name.
+    pub main_name: Option<String>,
+}
+
+impl S085RuleOptionsConfig {
+    fn apply_overrides(&mut self, overrides: Self) {
+        if overrides.non_trivial_line_threshold.is_some() {
+            self.non_trivial_line_threshold = overrides.non_trivial_line_threshold;
+        }
+        if overrides.non_trivial_function_count.is_some() {
+            self.non_trivial_function_count = overrides.non_trivial_function_count;
+        }
+        if overrides.main_name.is_some() {
+            self.main_name = overrides.main_name;
         }
     }
 }
@@ -644,6 +680,34 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
                             value_type: "bool",
                             example: "report-unreached-nested-definitions = true",
                         }],
+                        sections: &[],
+                    },
+                    ConfigSectionMetadata {
+                        key: "s085",
+                        docs: "Behavior overrides for `S085` missing main entrypoint analysis.",
+                        fields: &[
+                            ConfigFieldMetadata {
+                                key: "non-trivial-line-threshold",
+                                docs: "Minimum source line count before the script is checked.",
+                                default: "30",
+                                value_type: "int",
+                                example: "non-trivial-line-threshold = 20",
+                            },
+                            ConfigFieldMetadata {
+                                key: "non-trivial-function-count",
+                                docs: "Minimum function definition count before the script is checked.",
+                                default: "2",
+                                value_type: "int",
+                                example: "non-trivial-function-count = 3",
+                            },
+                            ConfigFieldMetadata {
+                                key: "main-name",
+                                docs: "Function name expected as the final top-level call in non-trivial scripts.",
+                                default: r#""main""#,
+                                value_type: "string",
+                                example: r#"main-name = "run""#,
+                            },
+                        ],
                         sections: &[],
                     },
                 ],
@@ -1320,6 +1384,9 @@ fn validate_lint_rule_options_override(value: &toml::Value) -> std::result::Resu
     if let Some(c063_value) = rule_options.get("c063") {
         validate_c063_rule_options_override(c063_value)?;
     }
+    if let Some(s085_value) = rule_options.get("s085") {
+        validate_s085_rule_options_override(s085_value)?;
+    }
 
     Ok(())
 }
@@ -1349,6 +1416,22 @@ fn validate_c063_rule_options_override(value: &toml::Value) -> std::result::Resu
             return Err(format!(
                 "unsupported `[lint.rule-options.c063]` option `{key}`; expected one of: {}",
                 CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS.join(", ")
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_s085_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let s085 = value
+        .as_table()
+        .ok_or_else(|| "`[lint.rule-options.s085]` must be a TOML table".to_owned())?;
+    for key in s085.keys() {
+        if !CONFIG_OVERRIDE_S085_RULE_OPTION_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.rule-options.s085]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_S085_RULE_OPTION_KEYS.join(", ")
             ));
         }
     }
@@ -1597,6 +1680,26 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_validate_supported_s085_rule_option_keys() {
+        let config = parse_config_override(
+            "lint.rule-options.s085.non-trivial-line-threshold = 20\n\
+             lint.rule-options.s085.non-trivial-function-count = 3\n\
+             lint.rule-options.s085.main-name = 'run'",
+        )
+        .unwrap();
+        let s085 = config
+            .lint
+            .rule_options
+            .as_ref()
+            .and_then(|options| options.s085.as_ref())
+            .expect("missing s085 options");
+
+        assert_eq!(s085.non_trivial_line_threshold, Some(20));
+        assert_eq!(s085.non_trivial_function_count, Some(3));
+        assert_eq!(s085.main_name.as_deref(), Some("run"));
+    }
+
+    #[test]
     fn inline_config_overrides_validate_supported_zsh_plugin_keys() {
         let config = parse_config_override(
             "lint.zsh.plugins.resolution = false\n\
@@ -1689,6 +1792,12 @@ mod tests {
     fn inline_config_overrides_reject_unknown_c063_rule_option_keys() {
         let err = parse_config_override("lint.rule-options.c063.preview = true").unwrap_err();
         assert!(err.contains("unsupported `[lint.rule-options.c063]` option `preview`"));
+    }
+
+    #[test]
+    fn inline_config_overrides_reject_unknown_s085_rule_option_keys() {
+        let err = parse_config_override("lint.rule-options.s085.preview = true").unwrap_err();
+        assert!(err.contains("unsupported `[lint.rule-options.s085]` option `preview`"));
     }
 
     #[test]
@@ -1796,6 +1905,34 @@ mod tests {
                 .and_then(|options| options.c063.as_ref())
                 .and_then(|c063| c063.report_unreached_nested_definitions),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn s085_rule_option_config_arguments_allow_last_override_to_win() {
+        let tempdir = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.rule-options.s085.main-name = 'main'").unwrap(),
+                )),
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.rule-options.s085.main-name = 'run'").unwrap(),
+                )),
+            ],
+            false,
+        )
+        .unwrap();
+
+        let loaded = load_project_config(tempdir.path(), &config).unwrap();
+        assert_eq!(
+            loaded
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.s085.as_ref())
+                .and_then(|s085| s085.main_name.as_deref()),
+            Some("run")
         );
     }
 

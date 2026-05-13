@@ -45,6 +45,7 @@ pub mod loop_from_command_output;
 pub mod ls_grep_pipeline;
 pub mod ls_in_substitution;
 pub mod ls_piped_to_xargs;
+pub mod missing_main_entrypoint;
 pub mod missing_shebang_line;
 pub mod mixed_quote_word;
 pub mod positional_args_in_string;
@@ -166,6 +167,7 @@ mod tests {
     #[test_case(Rule::SpacedTabstripClose, Path::new("S073.sh"))]
     #[test_case(Rule::AmpersandSemicolon, Path::new("S074.sh"))]
     #[test_case(Rule::CombineAppends, Path::new("S075.sh"))]
+    #[test_case(Rule::MissingMainEntrypoint, Path::new("S085.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

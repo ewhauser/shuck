@@ -637,6 +637,50 @@ mod tests {
     }
 
     #[test]
+    fn invalidates_cache_when_s085_rule_options_change() {
+        let tempdir = tempdir().unwrap();
+        let script = tempdir.path().join("script.sh");
+        fs::write(
+            &script,
+            "#!/bin/bash\nsetup() { :; }\nrun() { :; }\nsetup\nrun\n",
+        )
+        .unwrap();
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[lint]\nselect = ['S085']\n",
+        )
+        .unwrap();
+
+        let first = run_check_with_cwd(
+            &check_args(false),
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        assert_eq!(first.cache_hits, 0);
+        assert_eq!(first.cache_misses, 1);
+        assert!(first.diagnostics.is_empty());
+
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[lint]\nselect = ['S085']\n\n[lint.rule-options.s085]\nnon-trivial-line-threshold = 1\n",
+        )
+        .unwrap();
+
+        let second = run_check_with_cwd(
+            &check_args(false),
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        assert_eq!(second.cache_hits, 0);
+        assert_eq!(second.cache_misses, 1);
+        assert_eq!(second.diagnostics.len(), 1);
+    }
+
+    #[test]
     fn invalidates_cache_when_resolved_zsh_plugin_entrypoint_changes() {
         let tempdir = tempdir().unwrap();
         let omz_root = tempdir.path().join("oh-my-zsh");

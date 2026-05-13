@@ -671,6 +671,7 @@ declare_rules! {
     ("S073", Category::Style, Severity::Warning, SpacedTabstripClose),
     ("S074", Category::Style, Severity::Warning, AmpersandSemicolon),
     ("S075", Category::Style, Severity::Warning, CombineAppends),
+    ("S085", Category::Style, Severity::Warning, MissingMainEntrypoint),
 }
 
 pub fn code_to_rule(code: &str) -> Option<Rule> {
@@ -1191,6 +1192,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-335"), Some(Rule::AmpersandSemicolon));
         assert_eq!(code_to_rule("S075"), Some(Rule::CombineAppends));
         assert_eq!(code_to_rule("SH-349"), Some(Rule::CombineAppends));
+        assert_eq!(code_to_rule("S085"), Some(Rule::MissingMainEntrypoint));
         assert_eq!(code_to_rule("C040"), Some(Rule::LinebreakInTest));
         assert_eq!(code_to_rule("SH-115"), Some(Rule::LinebreakInTest));
         assert_eq!(code_to_rule("C041"), Some(Rule::CStyleComment));
