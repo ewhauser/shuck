@@ -553,6 +553,35 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
         })
     }
 
+    pub(crate) fn fork_bomb_pattern_spans(self) -> Vec<Span> {
+        self.facts
+            .command
+            .function_headers
+            .iter()
+            .filter_map(|function| {
+                let (name, _) = function.static_name_entry()?;
+                let scope = function.function_scope()?;
+                self.function_has_background_self_pipe(name.as_str(), scope)
+                    .then(|| function.span_in_source(self.facts.source_facts.source))
+            })
+            .collect()
+    }
+
+    fn function_has_background_self_pipe(self, name: &str, scope: ScopeId) -> bool {
+        self.facts.command.commands.iter().any(|command| {
+            command.enclosing_function_scope() == Some(scope)
+                && stmt_is_plain_background(command.stmt())
+                && match command.command() {
+                    Command::Binary(binary) => binary_is_two_segment_self_pipe(
+                        binary,
+                        name,
+                        self.facts.source_facts.source,
+                    ),
+                    _ => false,
+                }
+        })
+    }
+
     pub(crate) fn function_in_alias_spans(self) -> &'facts [Span] {
         &self.facts.command.function_in_alias_spans
     }
@@ -1590,6 +1619,42 @@ impl FunctionDocBodyBehavior {
     pub(crate) fn has_explicit_return(self) -> bool {
         self.has_explicit_return
     }
+}
+
+fn stmt_is_plain_background(stmt: &Stmt) -> bool {
+    matches!(
+        stmt.terminator,
+        Some(StmtTerminator::Background(BackgroundOperator::Plain))
+    )
+}
+
+fn binary_is_two_segment_self_pipe(binary: &BinaryCommand, name: &str, source: &str) -> bool {
+    let Some(chain) = BinaryCommandChain::pipeline(binary) else {
+        return false;
+    };
+
+    let mut segments = Vec::new();
+    let mut operators = Vec::new();
+    chain.visit_parts(
+        |segment| segments.push(segment),
+        |operator| operators.push(operator),
+    );
+
+    matches!(operators.as_slice(), [operator] if operator.op == BinaryOp::Pipe)
+        && matches!(segments.as_slice(), [left, right] if {
+            stmt_is_zero_arg_call_to(left, name, source)
+                && stmt_is_zero_arg_call_to(right, name, source)
+        })
+}
+
+fn stmt_is_zero_arg_call_to(stmt: &Stmt, name: &str, source: &str) -> bool {
+    let Command::Simple(command) = &stmt.command else {
+        return false;
+    };
+
+    command.assignments.is_empty()
+        && command.args.is_empty()
+        && static_command_name_text(&command.name, source).as_deref() == Some(name)
 }
 
 pub(crate) fn build_possible_variable_misspelling_scope_compat_name_uses(

@@ -443,6 +443,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::FindExecDirWithShell) {
             rules::security::find_execdir_with_shell::find_execdir_with_shell(self);
         }
+        if self.is_rule_enabled(Rule::ForkBombPattern) {
+            rules::security::fork_bomb_pattern::fork_bomb_pattern(self);
+        }
         if self.is_rule_enabled(Rule::ReadWithoutRaw) {
             rules::style::read_without_raw::read_without_raw(self);
         }

@@ -1,6 +1,7 @@
 pub mod chmod_world_writable_sensitive_path;
 pub mod eval_on_array;
 pub mod find_execdir_with_shell;
+pub mod fork_bomb_pattern;
 pub mod rm_glob_on_variable_path;
 pub mod rm_rootish_target;
 pub mod ssh_local_expansion;
@@ -16,6 +17,7 @@ mod tests {
 
     #[test_case(Rule::ChmodWorldWritableSensitivePath, Path::new("K007.sh"))]
     #[test_case(Rule::FindExecDirWithShell, Path::new("K004.sh"))]
+    #[test_case(Rule::ForkBombPattern, Path::new("K008.sh"))]
     #[test_case(Rule::RmGlobOnVariablePath, Path::new("K001.sh"))]
     #[test_case(Rule::RmRootishTarget, Path::new("K006.sh"))]
     #[test_case(Rule::SshLocalExpansion, Path::new("K002.sh"))]
