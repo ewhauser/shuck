@@ -34,6 +34,7 @@ pub(crate) struct CommandFactStore<'a> {
     pub(in crate::facts) getopts_cases: Vec<GetoptsCaseFact>,
     pub(in crate::facts) pipelines: Vec<PipelineFact<'a>>,
     pub(in crate::facts) lists: Vec<ListFact<'a>>,
+    pub(in crate::facts) tautology_chain_operator_spans: Vec<Span>,
     pub(in crate::facts) statement_facts: Vec<StatementFact>,
     pub(in crate::facts) background_semicolon_spans: Vec<Span>,
     pub(in crate::facts) single_test_subshell_spans: Vec<Span>,
@@ -571,6 +572,10 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
 
     pub(crate) fn lists(self) -> &'facts [ListFact<'a>] {
         &self.facts.command.lists
+    }
+
+    pub(crate) fn tautology_chain_operator_spans(self) -> &'facts [Span] {
+        &self.facts.command.tautology_chain_operator_spans
     }
 
     pub(crate) fn statement_facts(self) -> &'facts [StatementFact] {

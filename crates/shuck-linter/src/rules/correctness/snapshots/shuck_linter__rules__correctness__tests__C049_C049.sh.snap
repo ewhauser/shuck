@@ -1,0 +1,38 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C049 these alternatives make the OR chain unable to fail
+ --> <source>:4:17
+  |
+4 | [[ "$x" != a ]] || [[ "$x" != b ]]
+  |
+
+C049 these alternatives make the OR chain unable to fail
+ --> <source>:7:17
+  |
+7 | [[ a != "$x" ]] || [[ "$x" != b ]]
+  |
+
+C049 these alternatives make the OR chain unable to fail
+  --> <source>:10:16
+   |
+10 | [ "$n" -ne 1 ] || [ 2 -ne "$n" ]
+   |
+
+C049 these alternatives make the OR chain unable to fail
+  --> <source>:13:26
+   |
+13 | [[ a != "$x" ]] || maybe || [[ b != "$x" ]]
+   |
+
+C049 these alternatives make the OR chain unable to fail
+  --> <source>:16:17
+   |
+16 | [[ "$x" != a ]] || [[ "$x" != b ]] || [[ "$x" != c ]]
+   |
+
+C049 these alternatives make the OR chain unable to fail
+  --> <source>:16:36
+   |
+16 | [[ "$x" != a ]] || [[ "$x" != b ]] || [[ "$x" != c ]]
+   |

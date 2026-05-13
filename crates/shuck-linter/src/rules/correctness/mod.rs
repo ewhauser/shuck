@@ -120,6 +120,7 @@ pub mod subst_with_redirect_err;
 pub mod sudo_redirection_order;
 pub mod suspicious_bracket_glob;
 pub mod syntax;
+pub mod tautology_chain;
 pub mod template_brace_in_command;
 pub mod tilde_in_string_comparison;
 pub mod trap_string_expansion;
@@ -191,6 +192,7 @@ mod tests {
     #[test_case(Rule::PipeToKill, Path::new("C046.sh"))]
     #[test_case(Rule::InvalidExitStatus, Path::new("C047.sh"))]
     #[test_case(Rule::CasePatternVar, Path::new("C048.sh"))]
+    #[test_case(Rule::TautologyChain, Path::new("C049.sh"))]
     #[test_case(Rule::ArithmeticRedirectionTarget, Path::new("C050.sh"))]
     #[test_case(Rule::BareSlashMarker, Path::new("C054.sh"))]
     #[test_case(Rule::PatternWithVariable, Path::new("C055.sh"))]

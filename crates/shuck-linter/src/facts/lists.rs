@@ -375,3 +375,209 @@ pub(crate) fn matches_assignment_ternary(
         && then_branch.assignment_target().is_some()
         && then_branch.assignment_target() == else_branch.assignment_target()
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NegativeComparison {
+    runtime_operand: String,
+    literal_operand: String,
+}
+
+#[cfg_attr(shuck_profiling, inline(never))]
+pub(super) fn build_tautology_chain_operator_spans<'a>(
+    commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
+    lists: &[ListFact<'a>],
+    source: &str,
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    for list in lists {
+        if !list
+            .operators()
+            .iter()
+            .all(|operator| operator.op() == BinaryOp::Or)
+        {
+            continue;
+        }
+
+        let mut prior_comparisons: Vec<NegativeComparison> = Vec::new();
+        for (segment_index, segment) in list.segments().iter().enumerate() {
+            let command = command_fact(commands, command_fact_indices_by_id, segment.command_id());
+            let Some(comparison) = negative_comparison_for_tautology(command, source) else {
+                continue;
+            };
+
+            if prior_comparisons.iter().any(|prior| {
+                prior.runtime_operand == comparison.runtime_operand
+                    && prior.literal_operand != comparison.literal_operand
+            }) && let Some(operator) = segment_index
+                .checked_sub(1)
+                .and_then(|index| list.operators().get(index))
+            {
+                spans.push(operator.span());
+            }
+
+            prior_comparisons.push(comparison);
+        }
+    }
+
+    sort_and_dedup_spans(&mut spans);
+    spans
+}
+
+fn negative_comparison_for_tautology(
+    command: &CommandFact<'_>,
+    source: &str,
+) -> Option<NegativeComparison> {
+    command
+        .simple_test()
+        .and_then(|simple_test| simple_test_negative_comparison(simple_test, source))
+        .or_else(|| {
+            command
+                .conditional()
+                .and_then(|conditional| conditional_negative_comparison(conditional, source))
+        })
+}
+
+fn simple_test_negative_comparison(
+    simple_test: &SimpleTestFact<'_>,
+    source: &str,
+) -> Option<NegativeComparison> {
+    if simple_test.syntax() != SimpleTestSyntax::Bracket
+        || simple_test.effective_operands().len() != 3
+    {
+        return None;
+    }
+
+    let operator = simple_test_effective_operand_text(simple_test, 1, source)?;
+    if !matches!(operator.as_str(), "!=" | "-ne") {
+        return None;
+    }
+
+    negative_comparison_from_words(
+        simple_test.effective_operands()[0],
+        simple_test.effective_operand_class(0)?,
+        simple_test.effective_operands()[2],
+        simple_test.effective_operand_class(2)?,
+        source,
+        false,
+    )
+}
+
+fn conditional_negative_comparison(
+    conditional: &ConditionalFact<'_>,
+    source: &str,
+) -> Option<NegativeComparison> {
+    let ConditionalNodeFact::Binary(binary) = conditional.root() else {
+        return None;
+    };
+
+    let skip_pattern_literals = match binary.op() {
+        ConditionalBinaryOp::PatternNe => true,
+        ConditionalBinaryOp::ArithmeticNe => false,
+        _ => return None,
+    };
+
+    negative_comparison_from_operands(binary.left(), binary.right(), source, skip_pattern_literals)
+}
+
+fn negative_comparison_from_operands(
+    left: ConditionalOperandFact<'_>,
+    right: ConditionalOperandFact<'_>,
+    source: &str,
+    skip_pattern_literals: bool,
+) -> Option<NegativeComparison> {
+    match (left.class(), right.class()) {
+        (TestOperandClass::FixedLiteral, TestOperandClass::RuntimeSensitive) => {
+            let literal = conditional_operand_literal_text(left, source, skip_pattern_literals)?;
+            Some(NegativeComparison {
+                runtime_operand: conditional_operand_source_text(right, source).to_owned(),
+                literal_operand: literal,
+            })
+        }
+        (TestOperandClass::RuntimeSensitive, TestOperandClass::FixedLiteral) => {
+            let literal = conditional_operand_literal_text(right, source, skip_pattern_literals)?;
+            Some(NegativeComparison {
+                runtime_operand: conditional_operand_source_text(left, source).to_owned(),
+                literal_operand: literal,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn negative_comparison_from_words(
+    left: &Word,
+    left_class: TestOperandClass,
+    right: &Word,
+    right_class: TestOperandClass,
+    source: &str,
+    skip_pattern_literals: bool,
+) -> Option<NegativeComparison> {
+    match (left_class, right_class) {
+        (TestOperandClass::FixedLiteral, TestOperandClass::RuntimeSensitive) => {
+            let literal = word_literal_text(left, source, skip_pattern_literals)?;
+            Some(NegativeComparison {
+                runtime_operand: right.span.slice(source).to_owned(),
+                literal_operand: literal,
+            })
+        }
+        (TestOperandClass::RuntimeSensitive, TestOperandClass::FixedLiteral) => {
+            let literal = word_literal_text(right, source, skip_pattern_literals)?;
+            Some(NegativeComparison {
+                runtime_operand: left.span.slice(source).to_owned(),
+                literal_operand: literal,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn conditional_operand_literal_text(
+    operand: ConditionalOperandFact<'_>,
+    source: &str,
+    skip_pattern_literals: bool,
+) -> Option<String> {
+    let text = if let Some(word) = operand.word() {
+        word_literal_text(word, source, skip_pattern_literals)?
+    } else {
+        let text = operand.expression().span().slice(source).to_owned();
+        if skip_pattern_literals && looks_like_conditional_pattern_literal(&text) {
+            return None;
+        }
+        text
+    };
+
+    Some(text)
+}
+
+fn conditional_operand_source_text<'a>(
+    operand: ConditionalOperandFact<'_>,
+    source: &'a str,
+) -> &'a str {
+    operand.expression().span().slice(source)
+}
+
+fn word_literal_text(word: &Word, source: &str, skip_pattern_literals: bool) -> Option<String> {
+    let text = static_word_text(word, source)?;
+    if skip_pattern_literals && looks_like_conditional_pattern_literal(&text) {
+        return None;
+    }
+
+    Some(text.into_owned())
+}
+
+fn looks_like_conditional_pattern_literal(text: &str) -> bool {
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if matches!(ch, '*' | '?' | '[' | ']') {
+            return true;
+        }
+
+        if matches!(ch, '@' | '!' | '+') && matches!(chars.peek(), Some('(')) {
+            return true;
+        }
+    }
+
+    false
+}
