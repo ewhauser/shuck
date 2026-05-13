@@ -60,10 +60,16 @@ const CONFIG_OVERRIDE_LINT_ZSH_PLUGIN_KEYS: &[&str] = &[
     "theme-loads",
     "entrypoints",
 ];
-const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &["c001", "c063", "s085"];
+const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &["c001", "c063", "s084", "s085"];
 const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
     &["treat-indirect-expansion-targets-as-used"];
 const CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS: &[&str] = &["report-unreached-nested-definitions"];
+const CONFIG_OVERRIDE_S084_RULE_OPTION_KEYS: &[&str] = &[
+    "require-globals",
+    "require-arguments",
+    "require-outputs",
+    "require-returns",
+];
 const CONFIG_OVERRIDE_S085_RULE_OPTION_KEYS: &[&str] = &[
     "non-trivial-line-threshold",
     "non-trivial-function-count",
@@ -321,6 +327,8 @@ pub struct LintRuleOptionsConfig {
     pub c001: Option<C001RuleOptionsConfig>,
     /// Options for rule C063.
     pub c063: Option<C063RuleOptionsConfig>,
+    /// Options for rule S084.
+    pub s084: Option<S084RuleOptionsConfig>,
     /// Options for rule S085.
     pub s085: Option<S085RuleOptionsConfig>,
 }
@@ -332,6 +340,9 @@ impl LintRuleOptionsConfig {
         }
         if let Some(c063) = overrides.c063 {
             self.c063.get_or_insert_default().apply_overrides(c063);
+        }
+        if let Some(s084) = overrides.s084 {
+            self.s084.get_or_insert_default().apply_overrides(s084);
         }
         if let Some(s085) = overrides.s085 {
             self.s085.get_or_insert_default().apply_overrides(s085);
@@ -373,6 +384,37 @@ impl C063RuleOptionsConfig {
     }
 }
 
+/// Options for rule S084.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct S084RuleOptionsConfig {
+    /// Whether comments should document global variables used by a function body.
+    pub require_globals: Option<bool>,
+    /// Whether comments should document positional parameters used by a function body.
+    pub require_arguments: Option<bool>,
+    /// Whether comments should document stdout output produced by a function body.
+    pub require_outputs: Option<bool>,
+    /// Whether comments should document explicit return statuses from a function body.
+    pub require_returns: Option<bool>,
+}
+
+impl S084RuleOptionsConfig {
+    fn apply_overrides(&mut self, overrides: Self) {
+        if overrides.require_globals.is_some() {
+            self.require_globals = overrides.require_globals;
+        }
+        if overrides.require_arguments.is_some() {
+            self.require_arguments = overrides.require_arguments;
+        }
+        if overrides.require_outputs.is_some() {
+            self.require_outputs = overrides.require_outputs;
+        }
+        if overrides.require_returns.is_some() {
+            self.require_returns = overrides.require_returns;
+        }
+    }
+}
+
 /// Options for rule S085.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
@@ -398,7 +440,6 @@ impl S085RuleOptionsConfig {
         }
     }
 }
-
 /// Partial formatter settings supplied by CLI flags or config files.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FormatSettingsPatch {
@@ -680,6 +721,41 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
                             value_type: "bool",
                             example: "report-unreached-nested-definitions = true",
                         }],
+                        sections: &[],
+                    },
+                    ConfigSectionMetadata {
+                        key: "s084",
+                        docs: "Behavior overrides for `S084` function documentation content.",
+                        fields: &[
+                            ConfigFieldMetadata {
+                                key: "require-globals",
+                                docs: "Require a Globals section when a documented function reads or writes non-local variables.",
+                                default: "true",
+                                value_type: "bool",
+                                example: "require-globals = false",
+                            },
+                            ConfigFieldMetadata {
+                                key: "require-arguments",
+                                docs: "Require an Arguments section when a documented function uses positional parameters.",
+                                default: "true",
+                                value_type: "bool",
+                                example: "require-arguments = false",
+                            },
+                            ConfigFieldMetadata {
+                                key: "require-outputs",
+                                docs: "Require an Outputs section when a documented function writes with echo or printf.",
+                                default: "true",
+                                value_type: "bool",
+                                example: "require-outputs = false",
+                            },
+                            ConfigFieldMetadata {
+                                key: "require-returns",
+                                docs: "Require a Returns section when a documented function has an explicit return code.",
+                                default: "true",
+                                value_type: "bool",
+                                example: "require-returns = false",
+                            },
+                        ],
                         sections: &[],
                     },
                     ConfigSectionMetadata {
@@ -1384,6 +1460,9 @@ fn validate_lint_rule_options_override(value: &toml::Value) -> std::result::Resu
     if let Some(c063_value) = rule_options.get("c063") {
         validate_c063_rule_options_override(c063_value)?;
     }
+    if let Some(s084_value) = rule_options.get("s084") {
+        validate_s084_rule_options_override(s084_value)?;
+    }
     if let Some(s085_value) = rule_options.get("s085") {
         validate_s085_rule_options_override(s085_value)?;
     }
@@ -1423,6 +1502,22 @@ fn validate_c063_rule_options_override(value: &toml::Value) -> std::result::Resu
     Ok(())
 }
 
+fn validate_s084_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let s084 = value
+        .as_table()
+        .ok_or_else(|| "`[lint.rule-options.s084]` must be a TOML table".to_owned())?;
+    for key in s084.keys() {
+        if !CONFIG_OVERRIDE_S084_RULE_OPTION_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.rule-options.s084]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_S084_RULE_OPTION_KEYS.join(", ")
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 fn validate_s085_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
     let s085 = value
         .as_table()
@@ -1438,7 +1533,6 @@ fn validate_s085_rule_options_override(value: &toml::Value) -> std::result::Resu
 
     Ok(())
 }
-
 fn invalid_config_argument(
     cmd: &clap::Command,
     arg: Option<&clap::Arg>,
@@ -1680,6 +1774,27 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_validate_supported_s084_rule_option_keys() {
+        let config = parse_config_override(
+            "lint.rule-options.s084.require-globals = false\n\
+             lint.rule-options.s084.require-arguments = false\n\
+             lint.rule-options.s084.require-outputs = true\n\
+             lint.rule-options.s084.require-returns = true",
+        )
+        .unwrap();
+        let s084 = config
+            .lint
+            .rule_options
+            .as_ref()
+            .and_then(|options| options.s084.as_ref())
+            .expect("missing s084 options");
+        assert_eq!(s084.require_globals, Some(false));
+        assert_eq!(s084.require_arguments, Some(false));
+        assert_eq!(s084.require_outputs, Some(true));
+        assert_eq!(s084.require_returns, Some(true));
+    }
+
+    #[test]
     fn inline_config_overrides_validate_supported_s085_rule_option_keys() {
         let config = parse_config_override(
             "lint.rule-options.s085.non-trivial-line-threshold = 20\n\
@@ -1795,6 +1910,12 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_reject_unknown_s084_rule_option_keys() {
+        let err = parse_config_override("lint.rule-options.s084.preview = true").unwrap_err();
+        assert!(err.contains("unsupported `[lint.rule-options.s084]` option `preview`"));
+    }
+
+    #[test]
     fn inline_config_overrides_reject_unknown_s085_rule_option_keys() {
         let err = parse_config_override("lint.rule-options.s085.preview = true").unwrap_err();
         assert!(err.contains("unsupported `[lint.rule-options.s085]` option `preview`"));
@@ -1904,6 +2025,35 @@ mod tests {
                 .as_ref()
                 .and_then(|options| options.c063.as_ref())
                 .and_then(|c063| c063.report_unreached_nested_definitions),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn s084_rule_option_config_arguments_allow_last_override_to_win() {
+        let tempdir = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.rule-options.s084.require-returns = true").unwrap(),
+                )),
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.rule-options.s084.require-returns = false")
+                        .unwrap(),
+                )),
+            ],
+            false,
+        )
+        .unwrap();
+
+        let loaded = load_project_config(tempdir.path(), &config).unwrap();
+        assert_eq!(
+            loaded
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.s084.as_ref())
+                .and_then(|s084| s084.require_returns),
             Some(false)
         );
     }

@@ -180,6 +180,348 @@ pub(crate) fn build_function_header_facts<'a>(
         .collect()
 }
 
+pub(crate) fn build_function_doc_content_facts<'a>(
+    semantic: &SemanticModel,
+    headers: &[FunctionHeaderFact<'a>],
+    commands: &[CommandFact<'a>],
+    positional_parameter_facts: &FxHashMap<ScopeId, FunctionPositionalParameterFacts>,
+    source: &str,
+    line_index: &LineIndex,
+    comment_index: &CommentIndex,
+) -> Vec<FunctionDocContentFact> {
+    let mut summaries = build_function_doc_body_summaries(semantic, commands, source);
+
+    headers
+        .iter()
+        .filter_map(|header| {
+            let (name, name_span) = header.static_name_entry()?;
+            let function_scope = header.function_scope()?;
+            let function_span = header.function_span_in_source(source);
+            let comment_block = leading_function_doc_block(
+                source,
+                line_index,
+                comment_index,
+                function_span.start.line,
+            );
+            let summary = summaries.remove(&function_scope).unwrap_or_default();
+            let uses_positional_parameters = positional_parameter_facts
+                .get(&function_scope)
+                .is_some_and(|facts| facts.uses_positional_parameters());
+
+            Some(FunctionDocContentFact::new(
+                name,
+                name_span,
+                comment_block.map(|block| block.span),
+                comment_block
+                    .map(|block| block.sections)
+                    .unwrap_or_default(),
+                FunctionDocBodyBehavior::new(
+                    summary.uses_global_variables,
+                    uses_positional_parameters,
+                    summary.writes_stdout,
+                    summary.has_explicit_return,
+                ),
+            ))
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct FunctionDocBodySummary {
+    uses_global_variables: bool,
+    writes_stdout: bool,
+    has_explicit_return: bool,
+}
+
+fn build_function_doc_body_summaries(
+    semantic: &SemanticModel,
+    commands: &[CommandFact<'_>],
+    source: &str,
+) -> FxHashMap<ScopeId, FunctionDocBodySummary> {
+    let mut summaries = FxHashMap::<ScopeId, FunctionDocBodySummary>::default();
+    let reference_bindings = reference_binding_index(semantic);
+    let global_reference_skip_spans = function_doc_global_reference_skip_spans(commands, source);
+
+    for reference in semantic.references() {
+        if !reference_can_represent_global(reference, &global_reference_skip_spans) {
+            continue;
+        }
+        let Some(function_scope) = semantic.enclosing_function_scope(reference.scope) else {
+            continue;
+        };
+        if reference_is_global_variable_use(
+            semantic,
+            reference,
+            function_scope,
+            &reference_bindings,
+        ) {
+            summaries
+                .entry(function_scope)
+                .or_default()
+                .uses_global_variables = true;
+        }
+    }
+
+    for binding in semantic.bindings() {
+        let Some(function_scope) = semantic.enclosing_function_scope(binding.scope) else {
+            continue;
+        };
+        if !binding_can_represent_global_write(semantic, binding, function_scope) {
+            continue;
+        }
+        summaries
+            .entry(function_scope)
+            .or_default()
+            .uses_global_variables = true;
+    }
+
+    for command in commands {
+        let Some(function_scope) = command.enclosing_function_scope() else {
+            continue;
+        };
+        let summary = summaries.entry(function_scope).or_default();
+        summary.writes_stdout |= function_body_command_writes_stdout(command, source);
+        summary.has_explicit_return |=
+            !command.is_nested_word_command() && command_has_explicit_return(command);
+    }
+
+    summaries
+}
+
+fn reference_binding_index(semantic: &SemanticModel) -> FxHashMap<ReferenceId, BindingId> {
+    let mut index = FxHashMap::default();
+    for binding in semantic.bindings() {
+        for reference in &binding.references {
+            index.insert(*reference, binding.id);
+        }
+    }
+    index
+}
+
+fn reference_can_represent_global(reference: &Reference, skip_spans: &FxHashSet<FactSpan>) -> bool {
+    !matches!(reference.kind, ReferenceKind::DeclarationName)
+        && !is_special_or_positional_parameter_name(reference.name.as_str())
+        && !skip_spans.contains(&FactSpan::new(reference.span))
+}
+
+fn reference_is_global_variable_use(
+    semantic: &SemanticModel,
+    reference: &Reference,
+    function_scope: ScopeId,
+    reference_bindings: &FxHashMap<ReferenceId, BindingId>,
+) -> bool {
+    let Some(binding_id) = reference_bindings.get(&reference.id).copied() else {
+        return true;
+    };
+    let binding = semantic.binding(binding_id);
+    if matches!(binding.kind, BindingKind::FunctionDefinition) {
+        return false;
+    }
+
+    !binding.attributes.contains(BindingAttributes::LOCAL)
+        || semantic.enclosing_function_scope(binding.scope) != Some(function_scope)
+}
+
+fn binding_can_represent_global_write(
+    semantic: &SemanticModel,
+    binding: &Binding,
+    function_scope: ScopeId,
+) -> bool {
+    !binding.attributes.contains(BindingAttributes::LOCAL)
+        && !matches!(
+            binding.kind,
+            BindingKind::FunctionDefinition | BindingKind::Imported
+        )
+        && !is_special_or_positional_parameter_name(binding.name.as_str())
+        && !binding_targets_prior_local(semantic, binding, function_scope)
+}
+
+fn binding_targets_prior_local(
+    semantic: &SemanticModel,
+    binding: &Binding,
+    function_scope: ScopeId,
+) -> bool {
+    semantic
+        .bindings_for(&binding.name)
+        .iter()
+        .any(|candidate| {
+            let candidate = semantic.binding(*candidate);
+            candidate.id != binding.id
+                && candidate.span.start.offset < binding.span.start.offset
+                && candidate.attributes.contains(BindingAttributes::LOCAL)
+                && semantic.enclosing_function_scope(candidate.scope) == Some(function_scope)
+        })
+}
+
+fn is_special_or_positional_parameter_name(name: &str) -> bool {
+    name.bytes().all(|byte| byte.is_ascii_digit())
+        || matches!(name, "@" | "*" | "#" | "?" | "-" | "$" | "!")
+}
+
+fn function_body_command_writes_stdout(command: &CommandFact<'_>, source: &str) -> bool {
+    if command.is_nested_word_command() || command_stdout_is_redirected(command) {
+        return false;
+    }
+
+    command.normalized().effective_basename_is("echo")
+        || (command.normalized().effective_basename_is("printf")
+            && (!command.effective_name_is("printf")
+                || !printf_assigns_to_variable(command, source)))
+}
+
+fn printf_assigns_to_variable(command: &CommandFact<'_>, source: &str) -> bool {
+    match command
+        .body_args()
+        .first()
+        .and_then(|word| static_word_text(word, source))
+    {
+        Some(text) if text == "-v" => command.body_args().len() >= 2,
+        Some(text) if text.starts_with("-v") && text.len() > 2 => true,
+        _ => false,
+    }
+}
+
+fn command_stdout_is_redirected(command: &CommandFact<'_>) -> bool {
+    command.redirects().iter().any(redirect_redirects_stdout)
+}
+
+fn redirect_redirects_stdout(redirect: &Redirect) -> bool {
+    if redirect.fd_var.is_some() {
+        return false;
+    }
+
+    match redirect.kind {
+        RedirectKind::Output
+        | RedirectKind::Clobber
+        | RedirectKind::Append
+        | RedirectKind::DupOutput => redirect.fd.unwrap_or(1) == 1,
+        RedirectKind::ReadWrite => redirect.fd == Some(1),
+        RedirectKind::OutputBoth => true,
+        RedirectKind::Input
+        | RedirectKind::HereDoc
+        | RedirectKind::HereDocStrip
+        | RedirectKind::HereString
+        | RedirectKind::DupInput => false,
+    }
+}
+
+fn command_has_explicit_return(command: &CommandFact<'_>) -> bool {
+    matches!(
+        command.command(),
+        Command::Builtin(BuiltinCommand::Return(command)) if command.code.is_some()
+    )
+}
+
+fn function_doc_global_reference_skip_spans(
+    commands: &[CommandFact<'_>],
+    source: &str,
+) -> FxHashSet<FactSpan> {
+    commands
+        .iter()
+        .filter_map(|command| printf_assignment_target_span(command, source))
+        .map(FactSpan::new)
+        .collect()
+}
+
+fn printf_assignment_target_span(command: &CommandFact<'_>, source: &str) -> Option<Span> {
+    if !command.effective_name_is("printf") {
+        return None;
+    }
+
+    let args = command.body_args();
+    match args.first().and_then(|word| static_word_text(word, source)) {
+        Some(text) if text == "-v" => args.get(1).map(|word| word.span),
+        Some(text) if text.starts_with("-v") && text.len() > 2 => Some(args[0].span),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LeadingFunctionDocBlock {
+    span: Span,
+    sections: FunctionDocSections,
+}
+
+fn leading_function_doc_block(
+    source: &str,
+    line_index: &LineIndex,
+    comment_index: &CommentIndex,
+    function_start_line: usize,
+) -> Option<LeadingFunctionDocBlock> {
+    let mut line = function_start_line.checked_sub(1)?;
+    let mut block_start: Option<Position> = None;
+    let mut block_end: Option<Position> = None;
+    let mut sections = FunctionDocSections::default();
+    let mut has_doc_comment = false;
+
+    loop {
+        let Some(comment) = comment_index
+            .comments_on_line(line)
+            .iter()
+            .find(|comment| comment.is_own_line)
+        else {
+            break;
+        };
+        let line_start = usize::from(line_index.line_start(line)?);
+        let line_end = usize::from(line_index.line_range(line, source)?.end()).min(source.len());
+        let comment_start = usize::from(comment.range.start());
+        let comment_end = usize::from(comment.range.end()).min(line_end);
+        if comment_start < line_start || comment_start >= comment_end {
+            break;
+        }
+
+        let comment_text = &source[comment_start..comment_end];
+        let Some(comment_body) = function_doc_comment_body(comment_text) else {
+            break;
+        };
+
+        let line_start_position = Position {
+            line,
+            column: 1,
+            offset: line_start,
+        };
+        let comment_start_position =
+            line_start_position.advanced_by(&source[line_start..comment_start]);
+        let comment_end_position =
+            line_start_position.advanced_by(&source[line_start..comment_end]);
+        block_start = Some(comment_start_position);
+        block_end.get_or_insert(comment_end_position);
+
+        if is_function_doc_comment_body(comment_body) {
+            has_doc_comment = true;
+            sections.record_comment_body(comment_body);
+        }
+
+        let Some(previous_line) = line.checked_sub(1) else {
+            break;
+        };
+        line = previous_line;
+    }
+
+    if !has_doc_comment {
+        return None;
+    }
+
+    Some(LeadingFunctionDocBlock {
+        span: Span::from_positions(block_start?, block_end?),
+        sections,
+    })
+}
+
+fn function_doc_comment_body(comment_text: &str) -> Option<&str> {
+    let body = comment_text.strip_prefix('#')?.trim();
+    (!body.starts_with('!')).then_some(body)
+}
+
+fn is_function_doc_comment_body(body: &str) -> bool {
+    if body.is_empty() {
+        return false;
+    }
+
+    let lower = body.to_ascii_lowercase();
+    !lower.starts_with("shellcheck ") && !lower.starts_with("shuck:")
+}
+
 #[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn build_function_cli_dispatch_facts(
     dispatches: &[CaseCliDispatch],

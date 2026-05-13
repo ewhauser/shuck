@@ -22,6 +22,8 @@ pub struct LinterRuleOptions {
     pub c001: C001RuleOptions,
     /// Behavior overrides for `C063`.
     pub c063: C063RuleOptions,
+    /// Behavior overrides for `S084`.
+    pub s084: S084RuleOptions,
     /// Behavior overrides for `S085`.
     pub s085: S085RuleOptions,
 }
@@ -59,6 +61,25 @@ impl C063RuleOptions {
         }
     }
 }
+/// Behavior overrides for `S084` function documentation content.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct S084RuleOptions {
+    pub require_globals: bool,
+    pub require_arguments: bool,
+    pub require_outputs: bool,
+    pub require_returns: bool,
+}
+
+impl Default for S084RuleOptions {
+    fn default() -> Self {
+        Self {
+            require_globals: true,
+            require_arguments: true,
+            require_outputs: true,
+            require_returns: true,
+        }
+    }
+}
 
 /// Behavior overrides for `S085` main entrypoint analysis.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,7 +101,6 @@ impl Default for S085RuleOptions {
         }
     }
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinterSettings {
     pub rules: RuleSet,
@@ -263,6 +283,26 @@ impl LinterSettings {
         self
     }
 
+    pub fn with_s084_require_globals(mut self, value: bool) -> Self {
+        self.rule_options.s084.require_globals = value;
+        self
+    }
+
+    pub fn with_s084_require_arguments(mut self, value: bool) -> Self {
+        self.rule_options.s084.require_arguments = value;
+        self
+    }
+
+    pub fn with_s084_require_outputs(mut self, value: bool) -> Self {
+        self.rule_options.s084.require_outputs = value;
+        self
+    }
+
+    pub fn with_s084_require_returns(mut self, value: bool) -> Self {
+        self.rule_options.s084.require_returns = value;
+        self
+    }
+
     pub fn with_s085_non_trivial_line_threshold(mut self, value: usize) -> Self {
         self.rule_options.s085.non_trivial_line_threshold = value;
         self
@@ -277,7 +317,6 @@ impl LinterSettings {
         self.rule_options.s085.main_name = value.into();
         self
     }
-
     pub fn per_file_ignored_rules(&self, path: Option<&Path>) -> RuleSet {
         path.map_or(RuleSet::EMPTY, |path| {
             self.per_file_ignores.ignored_rules(path)
