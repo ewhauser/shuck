@@ -1,9 +1,16 @@
 use crate::facts::word_spans;
-use crate::{Checker, ExpansionContext, Rule, Violation, WordFactHostKind};
+use shuck_ast::Span;
+
+use crate::{
+    Checker, Diagnostic, Edit, ExpansionContext, Fix, FixAvailability, Rule, Violation,
+    WordFactHostKind,
+};
 
 pub struct SuspiciousBracketGlob;
 
 impl Violation for SuspiciousBracketGlob {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::SuspiciousBracketGlob
     }
@@ -11,11 +18,15 @@ impl Violation for SuspiciousBracketGlob {
     fn message(&self) -> String {
         "bracket globs only match one character at a time; quote word-like ones".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("quote the bracket-glob text".to_owned())
+    }
 }
 
 pub fn suspicious_bracket_glob(checker: &mut Checker) {
     let source = checker.source();
-    let spans = checker
+    let diagnostics = checker
         .facts()
         .commands()
         .iter()
@@ -49,9 +60,48 @@ pub fn suspicious_bracket_glob(checker: &mut Checker) {
                 .filter(|fact| supports_suspicious_bracket_glob_context(fact.expansion_context()))
                 .flat_map(|fact| fact.suspicious_bracket_glob_spans(source)),
         )
+        .map(|span| {
+            Diagnostic::new(SuspiciousBracketGlob, span)
+                .with_fix(Fix::unsafe_edit(single_quote_span_edit(span, source)))
+        })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || SuspiciousBracketGlob);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
+}
+
+fn single_quote_span_edit(span: Span, source: &str) -> Edit {
+    Edit::replacement(shell_single_quoted_literal(span.slice(source)), span)
+}
+
+fn shell_single_quoted_literal(text: &str) -> String {
+    let content = unescape_single_quote_shell_escapes(text);
+    let mut quoted = String::with_capacity(content.len() + 2);
+    quoted.push('\'');
+    for ch in content.chars() {
+        if ch == '\'' {
+            quoted.push_str("'\\''");
+        } else {
+            quoted.push(ch);
+        }
+    }
+    quoted.push('\'');
+    quoted
+}
+
+fn unescape_single_quote_shell_escapes(text: &str) -> String {
+    let mut unescaped = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' && chars.peek() == Some(&'\'') {
+            unescaped.push('\'');
+            chars.next();
+        } else {
+            unescaped.push(ch);
+        }
+    }
+    unescaped
 }
 
 fn supports_suspicious_bracket_glob_context(context: Option<ExpansionContext>) -> bool {
@@ -77,8 +127,8 @@ fn bare_bracket_test_name(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule, ShellDialect};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_suspicious_bracket_globs_across_shell_contexts() {
@@ -119,6 +169,34 @@ case $x in [appname]) : ;; esac
                 "[appname]"
             ]
         );
+    }
+
+    #[test]
+    fn applies_unsafe_fix_by_single_quoting_bracket_glob_text() {
+        let source = "#!/bin/bash\necho [appname]\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SuspiciousBracketGlob),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(result.fixed_source, "#!/bin/bash\necho '[appname]'\n");
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_with_escaped_apostrophe_in_bracket_glob_text() {
+        let source = "#!/bin/bash\necho [a\\'a]\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SuspiciousBracketGlob),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(result.fixed_source, "#!/bin/bash\necho '[a'\\''a]'\n");
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]

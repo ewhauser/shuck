@@ -1,16 +1,23 @@
 use crate::{
-    Checker, ExpansionContext, Rule, ShellDialect, Violation, WordFactHostKind, WordOccurrenceRef,
+    Checker, Diagnostic, Edit, ExpansionContext, Fix, FixAvailability, Rule, ShellDialect,
+    Violation, WordFactHostKind, WordOccurrenceRef,
 };
 
 pub struct UnquotedCommandSubstitution;
 
 impl Violation for UnquotedCommandSubstitution {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::UnquotedCommandSubstitution
     }
 
     fn message(&self) -> String {
         "quote command substitutions in arguments to avoid word splitting".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("quote the command substitution".to_owned())
     }
 }
 
@@ -40,7 +47,8 @@ pub fn unquoted_command_substitution(checker: &mut Checker) {
         .filter(|fact| !fact.body_has_commands())
         .map(|fact| fact.span())
         .collect::<Vec<_>>();
-    let spans = checker
+    let source = checker.source();
+    let diagnostics = checker
         .facts()
         .word_facts()
         .iter()
@@ -61,9 +69,16 @@ pub fn unquoted_command_substitution(checker: &mut Checker) {
                 })
                 .collect::<Vec<_>>()
         })
+        .map(|span| {
+            Diagnostic::new(UnquotedCommandSubstitution, span).with_fix(Fix::unsafe_edit(
+                Edit::replacement(format!("\"{}\"", span.slice(source)), span),
+            ))
+        })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || UnquotedCommandSubstitution);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
 }
 
 fn should_report_unquoted_command_substitution(
@@ -110,8 +125,8 @@ fn should_report_unquoted_command_substitution(
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule, ShellDialect};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn anchors_on_inner_command_substitution_spans() {
@@ -128,6 +143,23 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["$(date)", "$(uname)"]
         );
+    }
+
+    #[test]
+    fn applies_unsafe_fix_by_quoting_command_substitutions() {
+        let source = "#!/bin/bash\nprintf '%s\\n' $(printf arg)\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/bash\nprintf '%s\\n' \"$(printf arg)\"\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]

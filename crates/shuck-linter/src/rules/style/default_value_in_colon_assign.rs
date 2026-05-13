@@ -1,10 +1,13 @@
 use rustc_hash::FxHashSet;
+use shuck_ast::Span;
 
-use crate::{Checker, ExpansionContext, Rule, Violation};
+use crate::{Checker, Diagnostic, Edit, ExpansionContext, Fix, FixAvailability, Rule, Violation};
 
 pub struct DefaultValueInColonAssign;
 
 impl Violation for DefaultValueInColonAssign {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::DefaultValueInColonAssign
     }
@@ -12,6 +15,10 @@ impl Violation for DefaultValueInColonAssign {
     fn message(&self) -> String {
         "quote default-assignment expansions passed to ':' to avoid splitting and globbing"
             .to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("quote the default-assignment expansion".to_owned())
     }
 }
 
@@ -24,20 +31,31 @@ pub fn default_value_in_colon_assign(checker: &mut Checker) {
         .map(|fact| fact.id())
         .collect::<FxHashSet<_>>();
 
-    let spans = checker
+    let source = checker.source();
+    let diagnostics = checker
         .facts()
         .expansion_word_facts(ExpansionContext::CommandArgument)
         .filter(|fact| colon_command_ids.contains(&fact.command_id()))
         .flat_map(|fact| fact.unquoted_assign_default_spans())
+        .map(|span| {
+            Diagnostic::new(DefaultValueInColonAssign, span)
+                .with_fix(Fix::safe_edit(double_quote_span_edit(span, source)))
+        })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || DefaultValueInColonAssign);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
+}
+
+fn double_quote_span_edit(span: Span, source: &str) -> Edit {
+    Edit::replacement(format!("\"{}\"", span.slice(source)), span)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn reports_unquoted_assign_default_expansions_passed_to_colon() {
@@ -86,5 +104,19 @@ printf '%s\\n' ${x:=fallback}
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_safe_fix_by_quoting_default_assignment_expansion() {
+        let source = "#!/bin/bash\n: ${x:=fallback}\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::DefaultValueInColonAssign),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(result.fixed_source, "#!/bin/bash\n: \"${x:=fallback}\"\n");
+        assert!(result.fixed_diagnostics.is_empty());
     }
 }

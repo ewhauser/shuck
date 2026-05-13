@@ -1,9 +1,13 @@
 use crate::facts::word_spans;
-use crate::{Checker, Rule, Violation, WordQuote};
+use shuck_ast::Span;
+
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation, WordQuote};
 
 pub struct QuotedDollarStarLoop;
 
 impl Violation for QuotedDollarStarLoop {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::QuotedDollarStarLoop
     }
@@ -11,10 +15,14 @@ impl Violation for QuotedDollarStarLoop {
     fn message(&self) -> String {
         "fully quoted loop-list expansions collapse into one value".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("remove the loop-list quotes".to_owned())
+    }
 }
 
 pub fn quoted_dollar_star_loop(checker: &mut Checker) {
-    let spans = checker
+    let diagnostics = checker
         .facts()
         .for_headers()
         .iter()
@@ -37,15 +45,32 @@ pub fn quoted_dollar_star_loop(checker: &mut Checker) {
                 || !word_spans::word_quoted_star_splat_spans(word.word()).is_empty())
             .then_some(word.span())
         })
+        .filter_map(quoted_loop_word_fix)
+        .map(|(span, fix)| Diagnostic::new(QuotedDollarStarLoop, span).with_fix(fix))
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || QuotedDollarStarLoop);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
+}
+
+fn quoted_loop_word_fix(span: Span) -> Option<(Span, Fix)> {
+    if span.end.offset < span.start.offset + 2 {
+        return None;
+    }
+    Some((
+        span,
+        Fix::unsafe_edits([
+            Edit::deletion_at(span.start.offset, span.start.offset + 1),
+            Edit::deletion_at(span.end.offset - 1, span.end.offset),
+        ]),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn reports_fully_quoted_loop_list_expansions() {
@@ -100,6 +125,23 @@ done
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn applies_unsafe_fix_by_unquoting_single_loop_list_word() {
+        let source = "#!/bin/bash\nfor item in \"$*\"; do :; done\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedDollarStarLoop),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/bash\nfor item in $*; do :; done\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]

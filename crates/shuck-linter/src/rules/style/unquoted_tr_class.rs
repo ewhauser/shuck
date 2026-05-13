@@ -1,10 +1,16 @@
+use shuck_ast::Span;
 use shuck_ast::static_word_text;
 
-use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext, WordQuote};
+use crate::{
+    Checker, Diagnostic, Edit, ExpansionContext, Fix, FixAvailability, Rule, Violation,
+    WordFactContext, WordQuote,
+};
 
 pub struct UnquotedTrClass;
 
 impl Violation for UnquotedTrClass {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::UnquotedTrClass
     }
@@ -12,10 +18,15 @@ impl Violation for UnquotedTrClass {
     fn message(&self) -> String {
         "quote `tr` character class operands".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("quote the `tr` character class".to_owned())
+    }
 }
 
 pub fn unquoted_tr_class(checker: &mut Checker) {
-    let spans = checker
+    let source = checker.source();
+    let diagnostics = checker
         .facts()
         .commands()
         .iter()
@@ -33,9 +44,15 @@ pub fn unquoted_tr_class(checker: &mut Checker) {
                 is_unquoted_tr_class(text.as_ref()).then_some(word.span)
             })
         })
+        .map(|span| {
+            Diagnostic::new(UnquotedTrClass, span)
+                .with_fix(Fix::unsafe_edit(single_quote_span_edit(span, source)))
+        })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || UnquotedTrClass);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
 }
 
 fn is_unquoted_tr_class(text: &str) -> bool {
@@ -47,10 +64,14 @@ fn is_unquoted_tr_class(text: &str) -> bool {
     !inner.is_empty() && inner.bytes().all(|byte| byte.is_ascii_lowercase())
 }
 
+fn single_quote_span_edit(span: Span, source: &str) -> Edit {
+    Edit::replacement(format!("'{}'", span.slice(source)), span)
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn reports_unquoted_tr_class_operands() {
@@ -93,5 +114,22 @@ printf '%s\\n' '[:lower:]'
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedTrClass));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_by_quoting_tr_character_classes() {
+        let source = "#!/bin/sh\ntr [:upper:] [:lower:]\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedTrClass),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/sh\ntr '[:upper:]' '[:lower:]'\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 }

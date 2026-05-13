@@ -1,8 +1,12 @@
-use crate::{Checker, Rule, Violation};
+use shuck_ast::Span;
+
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct BareCommandNameAssignment;
 
 impl Violation for BareCommandNameAssignment {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
+
     fn rule() -> Rule {
         Rule::BareCommandNameAssignment
     }
@@ -11,19 +15,51 @@ impl Violation for BareCommandNameAssignment {
         "bare command-like text in an assignment should be quoted or captured with `$(...)`"
             .to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("quote the assignment value".to_owned())
+    }
 }
 
 pub fn bare_command_name_assignment(checker: &mut Checker) {
-    checker.report_fact_slice_dedup(
-        |facts| facts.bare_command_name_assignment_spans(),
-        || BareCommandNameAssignment,
-    );
+    let source = checker.source();
+    checker.report_fact_diagnostics_dedup(|facts, report| {
+        for span in facts.bare_command_name_assignment_spans().iter().copied() {
+            let diagnostic = Diagnostic::new(BareCommandNameAssignment, span);
+            report(match quote_assignment_value_fix(span, source) {
+                Some(fix) => diagnostic.with_fix(fix),
+                None => diagnostic,
+            });
+        }
+    });
+}
+
+fn quote_assignment_value_fix(span: Span, source: &str) -> Option<Fix> {
+    let line = source
+        .get(span.start.offset..)?
+        .split_inclusive('\n')
+        .next()?;
+    let eq_relative = line.find('=')?;
+    let value_start = span.start.offset + eq_relative + 1;
+    let value_text = source.get(value_start..)?;
+    let value_len = value_text
+        .chars()
+        .take_while(|ch| !ch.is_whitespace() && *ch != ';')
+        .map(char::len_utf8)
+        .sum::<usize>();
+    if value_len == 0 {
+        return None;
+    }
+    Some(Fix::safe_edits([
+        Edit::insertion(value_start, "\""),
+        Edit::insertion(value_start + value_len, "\""),
+    ]))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn reports_plain_assignments_and_single_assignment_command_prefixes() {
@@ -77,6 +113,20 @@ f() {
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_safe_fix_by_quoting_literal_assignment_value() {
+        let source = "#!/bin/sh\ntool=grep\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::BareCommandNameAssignment),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(result.fixed_source, "#!/bin/sh\ntool=\"grep\"\n");
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]

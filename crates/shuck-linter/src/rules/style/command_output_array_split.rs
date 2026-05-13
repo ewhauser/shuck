@@ -1,8 +1,12 @@
-use crate::{Checker, Rule, Violation};
+use shuck_ast::Span;
+
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct CommandOutputArraySplit;
 
 impl Violation for CommandOutputArraySplit {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::CommandOutputArraySplit
     }
@@ -10,10 +14,15 @@ impl Violation for CommandOutputArraySplit {
     fn message(&self) -> String {
         "avoid splitting command output directly into arrays; use mapfile or read -a".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("quote the command substitution in the array assignment".to_owned())
+    }
 }
 
 pub fn command_output_array_split(checker: &mut Checker) {
-    let spans = checker
+    let source = checker.source();
+    let diagnostics = checker
         .facts()
         .array_assignment_split_word_facts()
         .flat_map(|fact| {
@@ -21,17 +30,27 @@ pub fn command_output_array_split(checker: &mut Checker) {
                 .iter()
                 .copied()
         })
+        .map(|span| {
+            Diagnostic::new(CommandOutputArraySplit, span)
+                .with_fix(Fix::unsafe_edit(double_quote_span_edit(span, source)))
+        })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || CommandOutputArraySplit);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
+}
+
+fn double_quote_span_edit(span: Span, source: &str) -> Edit {
+    Edit::replacement(format!("\"{}\"", span.slice(source)), span)
 }
 
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
-    use crate::test::{test_snippet, test_snippet_at_path};
-    use crate::{LinterSettings, Rule, ShellDialect};
+    use crate::test::{test_snippet, test_snippet_at_path, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_unquoted_command_substitutions_in_array_assignments() {
@@ -59,6 +78,23 @@ arr+=($(printf '%s\\n' tail))
                 "$(printf '%s\\n' tail)"
             ]
         );
+    }
+
+    #[test]
+    fn applies_unsafe_fix_by_quoting_command_substitution_in_array_assignment() {
+        let source = "#!/bin/bash\narr=($(printf '%s\\n' a b))\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::CommandOutputArraySplit),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/bash\narr=(\"$(printf '%s\\n' a b)\")\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]

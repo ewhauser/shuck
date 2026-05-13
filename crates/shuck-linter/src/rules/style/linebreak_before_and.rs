@@ -1,14 +1,20 @@
-use crate::{Rule, Violation};
+use crate::{FixAvailability, Rule, Violation};
 
 pub struct LinebreakBeforeAnd;
 
 impl Violation for LinebreakBeforeAnd {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::LinebreakBeforeAnd
     }
 
     fn message(&self) -> String {
         "control operator starts a new line instead of ending the previous one".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("move the control operator to the previous line".to_owned())
     }
 }
 

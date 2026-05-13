@@ -1,8 +1,10 @@
-use crate::{Checker, ExpansionContext, Rule, Violation};
+use crate::{Checker, Diagnostic, Edit, ExpansionContext, Fix, FixAvailability, Rule, Violation};
 
 pub struct LiteralBackslash;
 
 impl Violation for LiteralBackslash {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::LiteralBackslash
     }
@@ -10,12 +12,16 @@ impl Violation for LiteralBackslash {
     fn message(&self) -> String {
         "a backslash before a normal letter is literal".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("remove the literal backslash".to_owned())
+    }
 }
 
 pub fn literal_backslash(checker: &mut Checker) {
     let source = checker.source();
     let facts = checker.facts();
-    let spans = checker
+    let diagnostics = checker
         .facts()
         .word_facts()
         .iter()
@@ -24,9 +30,17 @@ pub fn literal_backslash(checker: &mut Checker) {
         .filter(|fact| !is_command_name_word(facts, *fact))
         .filter(|fact| !is_unalias_argument(facts, *fact))
         .filter_map(|fact| fact.standalone_literal_backslash_span(source))
+        .map(|span| {
+            Diagnostic::new(LiteralBackslash, span).with_fix(Fix::safe_edit(Edit::deletion_at(
+                span.start.offset,
+                span.start.offset + 1,
+            )))
+        })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || LiteralBackslash);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
 }
 
 fn is_relevant_word_context(context: Option<ExpansionContext>) -> bool {
@@ -62,8 +76,8 @@ fn is_unalias_argument<'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn reports_literal_backslashes_before_normal_letters() {
@@ -92,5 +106,19 @@ echo '\\q'
                 .collect::<Vec<_>>(),
             vec!["", ""]
         );
+    }
+
+    #[test]
+    fn applies_safe_fix_to_literal_backslash_words() {
+        let source = "#!/bin/sh\necho \\q\nprintf '%s\\n' \\w\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::LiteralBackslash),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(result.fixed_source, "#!/bin/sh\necho q\nprintf '%s\\n' w\n");
+        assert!(result.fixed_diagnostics.is_empty());
     }
 }

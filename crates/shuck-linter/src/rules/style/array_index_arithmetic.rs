@@ -1,8 +1,12 @@
-use crate::{Checker, Rule, Violation};
+use shuck_ast::Span;
+
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct ArrayIndexArithmetic;
 
 impl Violation for ArrayIndexArithmetic {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::ArrayIndexArithmetic
     }
@@ -10,19 +14,33 @@ impl Violation for ArrayIndexArithmetic {
     fn message(&self) -> String {
         "remove the `$((...))` wrapper from array subscripts".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("remove the arithmetic expansion wrapper".to_owned())
+    }
 }
 
 pub fn array_index_arithmetic(checker: &mut Checker) {
-    checker.report_fact_slice_dedup(
-        |facts| facts.array_index_arithmetic_spans(),
-        || ArrayIndexArithmetic,
-    );
+    let source = checker.source();
+    checker.report_fact_diagnostics_dedup(|facts, report| {
+        for span in facts.array_index_arithmetic_spans().iter().copied() {
+            if let Some(fix) = array_index_arithmetic_fix(span, source) {
+                report(Diagnostic::new(ArrayIndexArithmetic, span).with_fix(fix));
+            }
+        }
+    });
+}
+
+fn array_index_arithmetic_fix(span: Span, source: &str) -> Option<Fix> {
+    let text = span.slice(source);
+    let body = text.strip_prefix("$((")?.strip_suffix("))")?;
+    Some(Fix::safe_edit(Edit::replacement(body, span)))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn reports_arithmetic_expansions_inside_assignment_subscripts() {
@@ -61,6 +79,20 @@ mod tests {
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn applies_safe_fix_to_array_index_arithmetic_wrapper() {
+        let source = "#!/bin/bash\narr[$((1+1))]=x\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayIndexArithmetic),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(result.fixed_source, "#!/bin/bash\narr[1+1]=x\n");
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]

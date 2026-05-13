@@ -1,8 +1,15 @@
-use crate::{Checker, ExpansionContext, Rule, Violation, WordFactHostKind};
+use shuck_ast::Span;
+
+use crate::{
+    Checker, Diagnostic, Edit, ExpansionContext, Fix, FixAvailability, Rule, Violation,
+    WordFactHostKind,
+};
 
 pub struct MixedQuoteWord;
 
 impl Violation for MixedQuoteWord {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::MixedQuoteWord
     }
@@ -10,11 +17,16 @@ impl Violation for MixedQuoteWord {
     fn message(&self) -> String {
         "avoid mixing bare fragments between reopened double-quoted text".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("rewrite the word as one double-quoted string".to_owned())
+    }
 }
 
 pub fn mixed_quote_word(checker: &mut Checker) {
     let facts = checker.facts();
-    let spans = [
+    let source = checker.source();
+    let reports = [
         ExpansionContext::CommandName,
         ExpansionContext::CommandArgument,
         ExpansionContext::AssignmentValue,
@@ -27,19 +39,38 @@ pub fn mixed_quote_word(checker: &mut Checker) {
     .chain(facts.case_subject_facts())
     .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
     .flat_map(|fact| {
+        let replacement_span = fact.span();
+        let replacement = fact.single_double_quoted_replacement(source);
         fact.unquoted_literal_between_double_quoted_segments_spans()
             .iter()
             .copied()
+            .map(move |diagnostic_span| MixedQuoteWordReport {
+                diagnostic_span,
+                replacement_span,
+                replacement: replacement.clone(),
+            })
     })
     .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || MixedQuoteWord);
+    for report in reports {
+        checker.report_diagnostic_dedup(
+            Diagnostic::new(MixedQuoteWord, report.diagnostic_span).with_fix(Fix::safe_edit(
+                Edit::replacement(report.replacement, report.replacement_span),
+            )),
+        );
+    }
+}
+
+struct MixedQuoteWordReport {
+    diagnostic_span: Span,
+    replacement_span: Span,
+    replacement: Box<str>,
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn reports_bare_fragments_between_reopened_double_quotes() {
@@ -61,6 +92,23 @@ case x in \"foo\"bar\"baz\") : ;; esac
                 .collect::<Vec<_>>(),
             vec!["middle", "-", "bar", "bar", "bar", "bar"]
         );
+    }
+
+    #[test]
+    fn applies_safe_fix_to_rewrite_mixed_quote_words() {
+        let source = "#!/bin/bash\nprintf '%s\\n' \"left \"middle\" right\" \"foo\"-\"bar\"\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::MixedQuoteWord),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/bash\nprintf '%s\\n' \"left middle right\" \"foo-bar\"\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]

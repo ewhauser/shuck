@@ -5,18 +5,25 @@ use shuck_ast::Span;
 
 use self::safe_value::{S001QuoteExposure, SafeValueIndex, SafeValueQuery};
 use crate::{
-    Checker, ExpansionContext, FactSpan, Locator, Rule, ShellDialect, Violation, WordOccurrenceRef,
+    Checker, Diagnostic, Edit, ExpansionContext, FactSpan, Fix, FixAvailability, Locator, Rule,
+    ShellDialect, Violation, WordOccurrenceRef,
 };
 
 pub struct UnquotedExpansion;
 
 impl Violation for UnquotedExpansion {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::UnquotedExpansion
     }
 
     fn message(&self) -> String {
         "quote parameter expansions to avoid word splitting and globbing".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("quote the parameter expansion".to_owned())
     }
 }
 
@@ -84,7 +91,12 @@ pub fn unquoted_expansion(checker: &mut Checker) {
         }
     }
     for span in spans {
-        checker.report_dedup(UnquotedExpansion, span);
+        checker.report_diagnostic_dedup(Diagnostic::new(UnquotedExpansion, span).with_fix(
+            Fix::unsafe_edit(Edit::replacement(
+                format!("\"{}\"", span.slice(source)),
+                span,
+            )),
+        ));
     }
 }
 

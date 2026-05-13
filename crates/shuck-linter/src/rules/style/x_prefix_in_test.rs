@@ -1,13 +1,15 @@
 use shuck_ast::Span;
 
 use crate::{
-    Checker, ConditionalNodeFact, ConditionalOperatorFamily, Rule, SimpleTestSyntax, Violation,
-    leading_literal_word_prefix,
+    Checker, ConditionalNodeFact, ConditionalOperatorFamily, Diagnostic, Edit, Fix,
+    FixAvailability, Rule, SimpleTestSyntax, Violation, leading_literal_word_prefix,
 };
 
 pub struct XPrefixInTest;
 
 impl Violation for XPrefixInTest {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::XPrefixInTest
     }
@@ -15,30 +17,49 @@ impl Violation for XPrefixInTest {
     fn message(&self) -> String {
         "this comparison uses the legacy x-prefix idiom".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("remove the x-prefix comparison padding".to_owned())
+    }
 }
 
 pub fn x_prefix_in_test(checker: &mut Checker) {
     let source = checker.source();
-    let spans = checker
+    let reports = checker
         .facts()
         .commands()
         .iter()
         .flat_map(|fact| {
-            let mut spans = Vec::new();
+            let mut reports = Vec::new();
             if let Some(simple_test) = fact.simple_test() {
-                spans.extend(simple_test_spans(simple_test, source));
+                reports.extend(simple_test_reports(simple_test, source));
             }
             if let Some(conditional) = fact.conditional() {
-                spans.extend(conditional_spans(conditional, source));
+                reports.extend(conditional_reports(conditional, source));
             }
-            spans
+            reports
         })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || XPrefixInTest);
+    for report in reports {
+        let diagnostic = Diagnostic::new(XPrefixInTest, report.diagnostic_span);
+        checker.report_diagnostic_dedup(match x_prefix_fix(source, &report) {
+            Some(fix) => diagnostic.with_fix(fix),
+            None => diagnostic,
+        });
+    }
 }
 
-fn simple_test_spans(simple_test: &crate::SimpleTestFact<'_>, source: &str) -> Vec<Span> {
+struct XPrefixComparisonReport {
+    diagnostic_span: Span,
+    left_span: Span,
+    right_span: Span,
+}
+
+fn simple_test_reports(
+    simple_test: &crate::SimpleTestFact<'_>,
+    source: &str,
+) -> Vec<XPrefixComparisonReport> {
     if simple_test.syntax() != SimpleTestSyntax::Test
         && simple_test.syntax() != SimpleTestSyntax::Bracket
     {
@@ -49,13 +70,21 @@ fn simple_test_spans(simple_test: &crate::SimpleTestFact<'_>, source: &str) -> V
         .string_binary_expression_words(source)
         .into_iter()
         .filter_map(|(left, _operator, right)| {
-            (word_has_x_prefix(left, source) && word_has_x_prefix(right, source))
-                .then_some(left.span)
+            (word_has_x_prefix(left, source) && word_has_x_prefix(right, source)).then_some(
+                XPrefixComparisonReport {
+                    diagnostic_span: left.span,
+                    left_span: left.span,
+                    right_span: right.span,
+                },
+            )
         })
         .collect()
 }
 
-fn conditional_spans(conditional: &crate::ConditionalFact<'_>, source: &str) -> Vec<Span> {
+fn conditional_reports(
+    conditional: &crate::ConditionalFact<'_>,
+    source: &str,
+) -> Vec<XPrefixComparisonReport> {
     conditional
         .nodes()
         .iter()
@@ -66,9 +95,12 @@ fn conditional_spans(conditional: &crate::ConditionalFact<'_>, source: &str) -> 
                 if conditional_operand_has_x_prefix(binary.left(), source)
                     && conditional_operand_has_x_prefix(binary.right(), source)
                 {
-                    binary.left().word().map(|word| word.span).or_else(|| {
-                        let span = binary.left().expression().span();
-                        Some(span)
+                    let left_span = conditional_operand_span(binary.left());
+                    let right_span = conditional_operand_span(binary.right());
+                    Some(XPrefixComparisonReport {
+                        diagnostic_span: left_span,
+                        left_span,
+                        right_span,
                     })
                 } else {
                     None
@@ -80,6 +112,13 @@ fn conditional_spans(conditional: &crate::ConditionalFact<'_>, source: &str) -> 
             | ConditionalNodeFact::Other(_) => None,
         })
         .collect()
+}
+
+fn conditional_operand_span(operand: crate::ConditionalOperandFact<'_>) -> Span {
+    operand
+        .word()
+        .map(|word| word.span)
+        .unwrap_or_else(|| operand.expression().span())
 }
 
 fn conditional_operand_has_x_prefix(
@@ -100,10 +139,61 @@ fn has_legacy_x_prefix(text: &str) -> bool {
     matches!(text.as_bytes().first(), Some(b'x' | b'X'))
 }
 
+fn x_prefix_fix(source: &str, report: &XPrefixComparisonReport) -> Option<Fix> {
+    Some(Fix::unsafe_edits([
+        Edit::replacement(
+            x_prefix_operand_replacement(source, report.left_span)?,
+            report.left_span,
+        ),
+        Edit::replacement(
+            x_prefix_operand_replacement(source, report.right_span)?,
+            report.right_span,
+        ),
+    ]))
+}
+
+fn x_prefix_operand_replacement(source: &str, span: Span) -> Option<String> {
+    let text = span.slice(source);
+    let (body, quote_style) = strip_simple_quotes(text).unwrap_or((text, QuoteStyle::Unquoted));
+    if quote_style == QuoteStyle::Unquoted && text.bytes().any(|byte| matches!(byte, b'\'' | b'"'))
+    {
+        return None;
+    }
+
+    let without_prefix = body
+        .char_indices()
+        .nth(1)
+        .map_or("", |(offset, _)| &body[offset..]);
+    Some(match quote_style {
+        QuoteStyle::Single => format!("'{without_prefix}'"),
+        QuoteStyle::Double | QuoteStyle::Unquoted => {
+            format!("\"{}\"", without_prefix.replace('"', "\\\""))
+        }
+    })
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QuoteStyle {
+    Single,
+    Double,
+    Unquoted,
+}
+
+fn strip_simple_quotes(text: &str) -> Option<(&str, QuoteStyle)> {
+    text.strip_prefix('"')
+        .and_then(|inner| inner.strip_suffix('"'))
+        .map(|inner| (inner, QuoteStyle::Double))
+        .or_else(|| {
+            text.strip_prefix('\'')
+                .and_then(|inner| inner.strip_suffix('\''))
+                .map(|inner| (inner, QuoteStyle::Single))
+        })
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn reports_x_prefix_comparisons_in_simple_tests_and_conditionals() {
@@ -164,5 +254,39 @@ test \"x$browser\" != \"x\"
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::XPrefixInTest));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_remove_x_prefixes_from_both_operands() {
+        let source = "#!/bin/bash\n[ \"x$browser\" = \"x\" ]\n[[ X = Xbar ]]\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::XPrefixInTest),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/bash\n[ \"$browser\" = \"\" ]\n[[ \"\" = \"bar\" ]]\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_without_expanding_single_quoted_operands() {
+        let source = "#!/bin/bash\n[ 'x$HOME' = 'x' ]\n[ 'x$(cmd)' = 'x' ]\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::XPrefixInTest),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/bash\n[ '$HOME' = '' ]\n[ '$(cmd)' = '' ]\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 }

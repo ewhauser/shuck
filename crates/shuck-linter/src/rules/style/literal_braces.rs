@@ -1,8 +1,10 @@
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct LiteralBraces;
 
 impl Violation for LiteralBraces {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::LiteralBraces
     }
@@ -10,16 +12,27 @@ impl Violation for LiteralBraces {
     fn message(&self) -> String {
         "literal braces may be interpreted as brace syntax".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("escape the literal brace".to_owned())
+    }
 }
 
 pub fn literal_braces(checker: &mut Checker) {
-    checker.report_fact_slice_dedup(|facts| facts.literal_brace_spans(), || LiteralBraces);
+    checker.report_fact_diagnostics_dedup(|facts, report| {
+        for span in facts.literal_brace_spans().iter().copied() {
+            report(
+                Diagnostic::new(LiteralBraces, span)
+                    .with_fix(Fix::safe_edit(Edit::insertion(span.start.offset, "\\"))),
+            );
+        }
+    });
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule, ShellDialect};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_literal_unquoted_brace_pair_edges() {
@@ -29,6 +42,20 @@ mod tests {
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.start.column, 11);
         assert_eq!(diagnostics[1].span.start.column, 13);
+    }
+
+    #[test]
+    fn applies_safe_fix_to_literal_braces() {
+        let source = "#!/bin/bash\necho HEAD@{1}\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::LiteralBraces),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(result.fixed_source, "#!/bin/bash\necho HEAD@\\{1\\}\n");
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]
