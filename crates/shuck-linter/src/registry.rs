@@ -118,6 +118,7 @@ declare_rules! {
     ("C033", Category::Correctness, Severity::Error, IndentedHeredocClose),
     ("C025", Category::Correctness, Severity::Warning, PositionalTenBraces),
     ("C027", Category::Correctness, Severity::Warning, BareDoneWord),
+    ("C034", Category::Correctness, Severity::Error, UnterminatedIf),
     ("C035", Category::Correctness, Severity::Error, MissingFi),
     ("C036", Category::Correctness, Severity::Error, BrokenTestEnd),
     ("C037", Category::Correctness, Severity::Error, BrokenTestParse),
@@ -825,6 +826,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-086" => Some(Rule::PositionalTenBraces),
         "SH-091" => Some(Rule::BareDoneWord),
         "SH-100" => Some(Rule::MissingSpaceBeforeBracketClose),
+        "SH-105" => Some(Rule::UnterminatedIf),
         "SH-106" => Some(Rule::MissingFi),
         "SH-107" => Some(Rule::FunctionParamsInSh),
         "SH-109" => Some(Rule::BrokenTestEnd),
@@ -1195,6 +1197,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-086"), Some(Rule::PositionalTenBraces));
         assert_eq!(code_to_rule("C027"), Some(Rule::BareDoneWord));
         assert_eq!(code_to_rule("SH-091"), Some(Rule::BareDoneWord));
+        assert_eq!(code_to_rule("C034"), Some(Rule::UnterminatedIf));
+        assert_eq!(code_to_rule("SH-105"), Some(Rule::UnterminatedIf));
         assert_eq!(code_to_rule("C035"), Some(Rule::MissingFi));
         assert_eq!(code_to_rule("SH-106"), Some(Rule::MissingFi));
         assert_eq!(code_to_rule("C036"), Some(Rule::BrokenTestEnd));

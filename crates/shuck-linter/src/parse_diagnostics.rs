@@ -1,5 +1,6 @@
 use shuck_ast::{File, Position, Span};
 use shuck_parser::parser::{ParseDiagnostic, ParseResult};
+use std::collections::VecDeque;
 
 use crate::Locator;
 
@@ -11,6 +12,7 @@ use crate::rules::correctness::loop_without_end::LoopWithoutEnd;
 use crate::rules::correctness::missing_done_in_for_loop::MissingDoneInForLoop;
 use crate::rules::correctness::missing_fi::MissingFi;
 use crate::rules::correctness::stray_closing_keyword::StrayClosingKeyword;
+use crate::rules::correctness::unterminated_if::UnterminatedIf;
 use crate::rules::correctness::until_missing_do::UntilMissingDo;
 use crate::rules::portability::function_params_in_sh::FunctionParamsInSh;
 use crate::rules::portability::targets_non_zsh_shell;
@@ -83,6 +85,12 @@ pub(crate) fn collect_parse_rule_diagnostics(
     {
         diagnostics
             .push(Diagnostic::new(MissingFi, eof_point(file)).with_fix(missing_fi_fix(source)));
+    }
+    if enabled_rules.contains(crate::Rule::UnterminatedIf)
+        && is_c034_shell(shell)
+        && let Some(span) = unterminated_if_span(locator, source, parse_diagnostics)
+    {
+        diagnostics.push(Diagnostic::new(UnterminatedIf, span));
     }
     if enabled_rules.contains(crate::Rule::IfMissingThen)
         && let Some(span) = if_missing_then_span(locator, parse_diagnostics)
@@ -450,6 +458,674 @@ fn split_case_group_alternatives(text: &str) -> Option<Vec<&str>> {
 
 fn is_missing_fi_error(message: &str) -> bool {
     message.starts_with("expected 'fi'")
+}
+
+fn unterminated_if_span(
+    locator: Locator<'_>,
+    source: &str,
+    parse_diagnostics: &[ParseDiagnostic],
+) -> Option<Span> {
+    if !parse_diagnostics
+        .iter()
+        .any(|diagnostic| is_missing_fi_error(&diagnostic.message))
+    {
+        return None;
+    }
+
+    let (_line, _column, offset) = unterminated_if_position_from_source(source)?;
+    let start = locator.position_at_offset(offset)?;
+    Some(Span::from_positions(start, start))
+}
+
+#[derive(Debug, Clone, Copy)]
+struct IfFrame {
+    line: usize,
+    column: usize,
+    offset: usize,
+    has_then: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PendingHeredoc {
+    delimiter: String,
+    strip_tabs: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShellMultilineState {
+    Code,
+    SingleQuote,
+    DoubleQuote,
+    Backtick,
+    DollarExpansion(DollarExpansionState),
+}
+
+impl ShellMultilineState {
+    fn is_code(self) -> bool {
+        self == Self::Code
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DollarExpansionState {
+    open: u8,
+    close: u8,
+    depth: usize,
+}
+
+fn unterminated_if_position_from_source(source: &str) -> Option<(usize, usize, usize)> {
+    let mut stack = Vec::new();
+    let mut continued_line = String::new();
+    let mut continued_line_offsets = Vec::new();
+    let mut logical_start_line = None;
+    let mut logical_start_offset = None;
+    let mut pending_heredocs = VecDeque::<PendingHeredoc>::new();
+    let mut lexical_state = ShellMultilineState::Code;
+    let mut source_offset = 0usize;
+
+    for (index, raw_line) in source.split_inclusive('\n').enumerate() {
+        let line_number = index + 1;
+        let line_start_offset = source_offset;
+        source_offset += raw_line.len();
+        let line = raw_line
+            .strip_suffix('\n')
+            .unwrap_or(raw_line)
+            .strip_suffix('\r')
+            .unwrap_or_else(|| raw_line.strip_suffix('\n').unwrap_or(raw_line));
+        if let Some(pending) = pending_heredocs.front() {
+            if line_matches_heredoc_delimiter(line, pending) {
+                pending_heredocs.pop_front();
+            }
+            continue;
+        }
+
+        let trimmed_end = line.trim_end();
+        let has_continuation = raw_line.ends_with('\n') && line_ends_with_escaped_newline(line);
+
+        if has_continuation || !continued_line.is_empty() {
+            if !continued_line.is_empty() {
+                push_logical_line_segment(
+                    &mut continued_line,
+                    &mut continued_line_offsets,
+                    trimmed_end,
+                    line_start_offset,
+                );
+            } else {
+                logical_start_line = Some(line_number);
+                logical_start_offset = Some(line_start_offset);
+                push_logical_line_segment(
+                    &mut continued_line,
+                    &mut continued_line_offsets,
+                    trimmed_end,
+                    line_start_offset,
+                );
+            }
+
+            if has_continuation {
+                continued_line.pop();
+                continued_line_offsets.pop();
+                continue;
+            }
+
+            let logical_line = continued_line.trim_end();
+            scan_if_logical_line(
+                &mut stack,
+                &mut pending_heredocs,
+                &mut lexical_state,
+                logical_line,
+                logical_start_line.unwrap_or(line_number),
+                logical_start_offset.unwrap_or(line_start_offset),
+                Some(&continued_line_offsets[..logical_line.len()]),
+            );
+            continued_line.clear();
+            continued_line_offsets.clear();
+            logical_start_line = None;
+            logical_start_offset = None;
+        } else {
+            scan_if_logical_line(
+                &mut stack,
+                &mut pending_heredocs,
+                &mut lexical_state,
+                trimmed_end,
+                line_number,
+                line_start_offset,
+                None,
+            );
+        }
+    }
+
+    if !continued_line.is_empty() {
+        let logical_line = continued_line.trim_end();
+        scan_if_logical_line(
+            &mut stack,
+            &mut pending_heredocs,
+            &mut lexical_state,
+            logical_line,
+            logical_start_line.unwrap_or_else(|| source.lines().count().max(1)),
+            logical_start_offset.unwrap_or(source.len().saturating_sub(logical_line.len())),
+            Some(&continued_line_offsets[..logical_line.len()]),
+        );
+    }
+
+    let frame = stack.iter().rev().find(|frame| frame.has_then).copied()?;
+    Some((frame.line, frame.column, frame.offset))
+}
+
+fn push_logical_line_segment(
+    logical_line: &mut String,
+    logical_line_offsets: &mut Vec<usize>,
+    segment: &str,
+    segment_start_offset: usize,
+) {
+    logical_line.push_str(segment);
+    logical_line_offsets.extend((0..segment.len()).map(|offset| segment_start_offset + offset));
+}
+
+fn scan_if_logical_line(
+    stack: &mut Vec<IfFrame>,
+    pending_heredocs: &mut VecDeque<PendingHeredoc>,
+    lexical_state: &mut ShellMultilineState,
+    logical_line: &str,
+    line_number: usize,
+    line_start_offset: usize,
+    source_offsets: Option<&[usize]>,
+) {
+    let starts_in_code = lexical_state.is_code();
+    if starts_in_code && !line_has_multiline_sensitive_start(logical_line) {
+        update_if_stack(
+            stack,
+            logical_line,
+            logical_line,
+            line_number,
+            line_start_offset,
+            source_offsets,
+        );
+        pending_heredocs.extend(heredoc_delimiters_in_line(logical_line));
+        return;
+    }
+
+    let masked_line = mask_non_code_text(lexical_state, logical_line);
+    update_if_stack(
+        stack,
+        &masked_line,
+        logical_line,
+        line_number,
+        line_start_offset,
+        source_offsets,
+    );
+    pending_heredocs.extend(heredoc_delimiters_in_scanned_code_line(
+        &masked_line,
+        logical_line,
+    ));
+}
+
+fn line_has_multiline_sensitive_start(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    bytes.iter().enumerate().any(|(index, byte)| {
+        matches!(*byte, b'\'' | b'"' | b'`')
+            || (*byte == b'$' && matches!(bytes.get(index + 1), Some(b'{' | b'(' | b'[')))
+    })
+}
+
+fn mask_non_code_text(state: &mut ShellMultilineState, line: &str) -> String {
+    let bytes = line.as_bytes();
+    let mut masked = bytes.to_vec();
+    let mut index = 0usize;
+    let mut comment_can_start = true;
+
+    while index < bytes.len() {
+        match *state {
+            ShellMultilineState::Code => match bytes[index] {
+                b'#' if comment_can_start => break,
+                b'\'' => {
+                    let (end, closed) = single_quote_end(bytes, index + 1);
+                    mask_span(&mut masked, index, end);
+                    *state = if closed {
+                        ShellMultilineState::Code
+                    } else {
+                        ShellMultilineState::SingleQuote
+                    };
+                    comment_can_start = false;
+                    index = end;
+                }
+                b'"' => {
+                    let (end, closed) = double_quote_end(bytes, index + 1);
+                    mask_span(&mut masked, index, end);
+                    *state = if closed {
+                        ShellMultilineState::Code
+                    } else {
+                        ShellMultilineState::DoubleQuote
+                    };
+                    comment_can_start = false;
+                    index = end;
+                }
+                b'`' => {
+                    let (end, closed) = backtick_end(bytes, index + 1);
+                    mask_span(&mut masked, index, end);
+                    *state = if closed {
+                        ShellMultilineState::Code
+                    } else {
+                        ShellMultilineState::Backtick
+                    };
+                    comment_can_start = false;
+                    index = end;
+                }
+                b'$' => {
+                    if starts_command_substitution(bytes, index) {
+                        index += 2;
+                    } else if let Some((expansion, content_start)) =
+                        dollar_expansion_start(bytes, index)
+                    {
+                        let (end, next_state) = mask_dollar_expansion(
+                            &mut masked,
+                            bytes,
+                            index,
+                            content_start,
+                            expansion,
+                        );
+                        *state = next_state
+                            .map(ShellMultilineState::DollarExpansion)
+                            .unwrap_or(ShellMultilineState::Code);
+                        index = end;
+                    } else {
+                        index += 1;
+                    }
+                    comment_can_start = false;
+                }
+                b'\\' => {
+                    index = (index + 2).min(bytes.len());
+                    comment_can_start = false;
+                }
+                byte if byte.is_ascii_whitespace() || is_shell_word_separator(byte as char) => {
+                    comment_can_start = true;
+                    index += 1;
+                }
+                _ => {
+                    comment_can_start = false;
+                    index += 1;
+                }
+            },
+            ShellMultilineState::SingleQuote => {
+                let (end, closed) = single_quote_end(bytes, index);
+                mask_span(&mut masked, index, end);
+                *state = if closed {
+                    ShellMultilineState::Code
+                } else {
+                    ShellMultilineState::SingleQuote
+                };
+                comment_can_start = false;
+                index = end;
+            }
+            ShellMultilineState::DoubleQuote => {
+                let (end, closed) = double_quote_end(bytes, index);
+                mask_span(&mut masked, index, end);
+                *state = if closed {
+                    ShellMultilineState::Code
+                } else {
+                    ShellMultilineState::DoubleQuote
+                };
+                comment_can_start = false;
+                index = end;
+            }
+            ShellMultilineState::Backtick => {
+                let (end, closed) = backtick_end(bytes, index);
+                mask_span(&mut masked, index, end);
+                *state = if closed {
+                    ShellMultilineState::Code
+                } else {
+                    ShellMultilineState::Backtick
+                };
+                comment_can_start = false;
+                index = end;
+            }
+            ShellMultilineState::DollarExpansion(expansion) => {
+                let (end, next_state) =
+                    mask_dollar_expansion(&mut masked, bytes, index, index, expansion);
+                *state = next_state
+                    .map(ShellMultilineState::DollarExpansion)
+                    .unwrap_or(ShellMultilineState::Code);
+                comment_can_start = false;
+                index = end;
+            }
+        }
+    }
+
+    // SAFETY: every byte copied from `line` is either left unchanged from valid UTF-8
+    // or replaced with ASCII `x`, so the masked buffer remains valid UTF-8.
+    unsafe { String::from_utf8_unchecked(masked) }
+}
+
+fn mask_span(masked: &mut [u8], start: usize, end: usize) {
+    for byte in &mut masked[start..end] {
+        *byte = b'x';
+    }
+}
+
+fn dollar_expansion_start(bytes: &[u8], index: usize) -> Option<(DollarExpansionState, usize)> {
+    let next = bytes.get(index + 1).copied()?;
+    let (open, close) = match next {
+        b'{' => (b'{', b'}'),
+        b'(' if bytes.get(index + 2) == Some(&b'(') => (b'(', b')'),
+        b'[' => (b'[', b']'),
+        _ => return None,
+    };
+    Some((
+        DollarExpansionState {
+            open,
+            close,
+            depth: 1,
+        },
+        index + 2,
+    ))
+}
+
+fn starts_command_substitution(bytes: &[u8], index: usize) -> bool {
+    bytes.get(index + 1) == Some(&b'(') && bytes.get(index + 2) != Some(&b'(')
+}
+
+fn mask_dollar_expansion(
+    masked: &mut [u8],
+    bytes: &[u8],
+    start: usize,
+    mut index: usize,
+    mut expansion: DollarExpansionState,
+) -> (usize, Option<DollarExpansionState>) {
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\'' => index = skip_single_quoted_text(bytes, index + 1),
+            b'"' => index = skip_double_quoted_text(bytes, index + 1),
+            b'`' => index = skip_backtick_text(bytes, index + 1),
+            b'\\' => index = (index + 2).min(bytes.len()),
+            byte if byte == expansion.open => {
+                expansion.depth += 1;
+                index += 1;
+            }
+            byte if byte == expansion.close => {
+                expansion.depth -= 1;
+                index += 1;
+                if expansion.depth == 0 {
+                    mask_span(masked, start, index);
+                    return (index, None);
+                }
+            }
+            _ => index += 1,
+        }
+    }
+
+    mask_span(masked, start, bytes.len());
+    (bytes.len(), Some(expansion))
+}
+
+fn single_quote_end(bytes: &[u8], mut index: usize) -> (usize, bool) {
+    while index < bytes.len() {
+        if bytes[index] == b'\'' {
+            return (index + 1, true);
+        }
+        index += 1;
+    }
+    (bytes.len(), false)
+}
+
+fn double_quote_end(bytes: &[u8], mut index: usize) -> (usize, bool) {
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index = (index + 2).min(bytes.len()),
+            b'"' => return (index + 1, true),
+            _ => index += 1,
+        }
+    }
+    (bytes.len(), false)
+}
+
+fn backtick_end(bytes: &[u8], mut index: usize) -> (usize, bool) {
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index = (index + 2).min(bytes.len()),
+            b'`' => return (index + 1, true),
+            _ => index += 1,
+        }
+    }
+    (bytes.len(), false)
+}
+
+fn line_ends_with_escaped_newline(line: &str) -> bool {
+    line.as_bytes()
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'\\')
+        .count()
+        % 2
+        == 1
+}
+
+fn line_matches_heredoc_delimiter(line: &str, pending: &PendingHeredoc) -> bool {
+    let candidate = if pending.strip_tabs {
+        line.trim_start_matches('\t')
+    } else {
+        line
+    };
+    candidate == pending.delimiter
+}
+
+fn heredoc_delimiters_in_line(line: &str) -> Vec<PendingHeredoc> {
+    heredoc_delimiters_in_scanned_code_line(line, line)
+}
+
+fn heredoc_delimiters_in_scanned_code_line(
+    scan_line: &str,
+    delimiter_line: &str,
+) -> Vec<PendingHeredoc> {
+    let scan_line = shell_code_before_comment(scan_line);
+    let bytes = scan_line.as_bytes();
+    let mut delimiters = Vec::new();
+    let mut index = 0usize;
+
+    while index + 1 < bytes.len() {
+        match bytes[index] {
+            b'\'' => index = skip_single_quoted_text(bytes, index + 1),
+            b'"' => index = skip_double_quoted_text(bytes, index + 1),
+            b'`' => index = skip_backtick_text(bytes, index + 1),
+            b'\\' => index = (index + 2).min(bytes.len()),
+            b'$' => index = skip_dollar_expansion_text(bytes, index),
+            b'<' if bytes[index + 1] == b'<' => {
+                let mut cursor = index + 2;
+                let strip_tabs = bytes.get(cursor) == Some(&b'-');
+                if strip_tabs {
+                    cursor += 1;
+                }
+                while matches!(bytes.get(cursor), Some(byte) if byte.is_ascii_whitespace()) {
+                    cursor += 1;
+                }
+
+                if let Some((delimiter, end)) = parse_heredoc_delimiter(delimiter_line, cursor) {
+                    delimiters.push(PendingHeredoc {
+                        delimiter,
+                        strip_tabs,
+                    });
+                    index = end;
+                } else {
+                    index = cursor;
+                }
+            }
+            _ => index += 1,
+        }
+    }
+
+    delimiters
+}
+
+fn parse_heredoc_delimiter(line: &str, start: usize) -> Option<(String, usize)> {
+    let bytes = line.as_bytes();
+    if start >= bytes.len() {
+        return None;
+    }
+
+    let mut delimiter = String::new();
+    let mut index = start;
+    while index < bytes.len() {
+        let ch = line[index..].chars().next()?;
+        if ch.is_ascii_whitespace() || is_shell_word_separator(ch) {
+            break;
+        }
+
+        match ch {
+            '\'' => {
+                index += ch.len_utf8();
+                while index < bytes.len() {
+                    let quoted = line[index..].chars().next()?;
+                    index += quoted.len_utf8();
+                    if quoted == '\'' {
+                        break;
+                    }
+                    delimiter.push(quoted);
+                }
+            }
+            '"' => {
+                index += ch.len_utf8();
+                while index < bytes.len() {
+                    let quoted = line[index..].chars().next()?;
+                    index += quoted.len_utf8();
+                    if quoted == '"' {
+                        break;
+                    }
+                    if quoted == '\\'
+                        && let Some(escaped) = line[index..].chars().next()
+                    {
+                        index += escaped.len_utf8();
+                        delimiter.push(escaped);
+                    } else {
+                        delimiter.push(quoted);
+                    }
+                }
+            }
+            '\\' => {
+                index += ch.len_utf8();
+                if let Some(escaped) = line[index..].chars().next() {
+                    index += escaped.len_utf8();
+                    delimiter.push(escaped);
+                }
+            }
+            _ => {
+                index += ch.len_utf8();
+                delimiter.push(ch);
+            }
+        }
+    }
+
+    (!delimiter.is_empty()).then_some((delimiter, index))
+}
+
+fn skip_single_quoted_text(bytes: &[u8], mut index: usize) -> usize {
+    while index < bytes.len() {
+        if bytes[index] == b'\'' {
+            return index + 1;
+        }
+        index += 1;
+    }
+    bytes.len()
+}
+
+fn skip_double_quoted_text(bytes: &[u8], mut index: usize) -> usize {
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index = (index + 2).min(bytes.len()),
+            b'"' => return index + 1,
+            _ => index += 1,
+        }
+    }
+    bytes.len()
+}
+
+fn skip_backtick_text(bytes: &[u8], mut index: usize) -> usize {
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index = (index + 2).min(bytes.len()),
+            b'`' => return index + 1,
+            _ => index += 1,
+        }
+    }
+    bytes.len()
+}
+
+fn skip_dollar_expansion_text(bytes: &[u8], index: usize) -> usize {
+    let Some(next) = bytes.get(index + 1).copied() else {
+        return bytes.len();
+    };
+
+    match next {
+        b'{' => skip_balanced_text(bytes, index + 2, b'{', b'}'),
+        b'(' => skip_balanced_text(bytes, index + 2, b'(', b')'),
+        b'[' => skip_balanced_text(bytes, index + 2, b'[', b']'),
+        _ => index + 1,
+    }
+}
+
+fn skip_balanced_text(bytes: &[u8], mut index: usize, open: u8, close: u8) -> usize {
+    let mut depth = 1usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\'' => index = skip_single_quoted_text(bytes, index + 1),
+            b'"' => index = skip_double_quoted_text(bytes, index + 1),
+            b'`' => index = skip_backtick_text(bytes, index + 1),
+            b'\\' => index = (index + 2).min(bytes.len()),
+            b'$' => index = skip_dollar_expansion_text(bytes, index),
+            byte if byte == open => {
+                depth += 1;
+                index += 1;
+            }
+            byte if byte == close => {
+                depth -= 1;
+                index += 1;
+                if depth == 0 {
+                    return index;
+                }
+            }
+            _ => index += 1,
+        }
+    }
+    bytes.len()
+}
+
+fn update_if_stack(
+    stack: &mut Vec<IfFrame>,
+    scan_line: &str,
+    original_line: &str,
+    line_number: usize,
+    line_start_offset: usize,
+    source_offsets: Option<&[usize]>,
+) {
+    for (word, start_index) in shell_like_command_word_positions(scan_line) {
+        match word {
+            "if" => stack.push(IfFrame {
+                line: line_number,
+                column: original_line[..start_index].chars().count() + 1,
+                offset: source_offsets
+                    .and_then(|offsets| offsets.get(start_index))
+                    .copied()
+                    .unwrap_or(line_start_offset + start_index),
+                has_then: false,
+            }),
+            "then" => {
+                if let Some(frame) = stack.last_mut() {
+                    frame.has_then = true;
+                }
+            }
+            "fi" => {
+                stack.pop();
+            }
+            _ => {}
+        }
+    }
+}
+
+fn shell_like_command_word_positions(line: &str) -> impl Iterator<Item = (&str, usize)> {
+    let line = shell_code_before_comment(line);
+    ShellLikeCommandWordPositions {
+        line,
+        index: 0,
+        at_command_start: true,
+        after_time_prefix: false,
+    }
 }
 
 fn missing_fi_fix(source: &str) -> Fix {
@@ -832,60 +1508,7 @@ fn previous_line_has_shell_comment(source: &str, line_end: usize) -> bool {
 }
 
 fn line_has_shell_comment(line: &str) -> bool {
-    let bytes = line.as_bytes();
-    let mut index = 0usize;
-    let mut comment_can_start = true;
-    let mut in_single_quotes = false;
-    let mut in_double_quotes = false;
-    let mut double_quote_escape = false;
-
-    while index < bytes.len() {
-        let byte = bytes[index];
-
-        if in_single_quotes {
-            if byte == b'\'' {
-                in_single_quotes = false;
-            }
-            index += 1;
-            continue;
-        }
-
-        if in_double_quotes {
-            if double_quote_escape {
-                double_quote_escape = false;
-            } else if byte == b'\\' {
-                double_quote_escape = true;
-            } else if byte == b'"' {
-                in_double_quotes = false;
-            }
-            index += 1;
-            continue;
-        }
-
-        match byte {
-            b'#' if comment_can_start => return true,
-            b'\'' => {
-                in_single_quotes = true;
-                comment_can_start = false;
-            }
-            b'"' => {
-                in_double_quotes = true;
-                comment_can_start = false;
-            }
-            b'\\' => {
-                index += 1;
-                comment_can_start = false;
-            }
-            byte if byte.is_ascii_whitespace() || is_shell_word_separator(byte as char) => {
-                comment_can_start = true;
-            }
-            _ => comment_can_start = false,
-        }
-
-        index += 1;
-    }
-
-    false
+    shell_code_before_comment(line).len() < line.len()
 }
 
 fn dangling_else_span(parse_diagnostics: &[ParseDiagnostic]) -> Option<Span> {
@@ -1207,8 +1830,13 @@ fn missing_done_loop_kind_from_source(source: &str) -> Option<bool> {
     loop_stack.last().copied()
 }
 
-fn shell_like_words(line: &str) -> ShellLikeWords<'_> {
-    ShellLikeWords {
+fn shell_like_words(line: &str) -> impl Iterator<Item = &str> {
+    shell_like_word_positions(line).map(|(word, _)| word)
+}
+
+fn shell_like_word_positions(line: &str) -> ShellLikeWordPositions<'_> {
+    let line = shell_code_before_comment(line);
+    ShellLikeWordPositions {
         line,
         iter: line.char_indices(),
         start: None,
@@ -1216,15 +1844,239 @@ fn shell_like_words(line: &str) -> ShellLikeWords<'_> {
     }
 }
 
-struct ShellLikeWords<'a> {
+fn shell_code_before_comment(line: &str) -> &str {
+    let bytes = line.as_bytes();
+    let mut index = 0usize;
+    let mut comment_can_start = true;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut double_quote_escape = false;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+
+        if in_single_quotes {
+            if byte == b'\'' {
+                in_single_quotes = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if in_double_quotes {
+            if double_quote_escape {
+                double_quote_escape = false;
+            } else if byte == b'\\' {
+                double_quote_escape = true;
+            } else if byte == b'"' {
+                in_double_quotes = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        match byte {
+            b'#' if comment_can_start => return &line[..index],
+            b'\'' => {
+                in_single_quotes = true;
+                comment_can_start = false;
+            }
+            b'"' => {
+                in_double_quotes = true;
+                comment_can_start = false;
+            }
+            b'\\' => {
+                index += 1;
+                comment_can_start = false;
+            }
+            b'$' => {
+                index = skip_dollar_expansion_text(bytes, index);
+                comment_can_start = false;
+                continue;
+            }
+            byte if byte.is_ascii_whitespace() || is_shell_word_separator(byte as char) => {
+                comment_can_start = true;
+            }
+            _ => comment_can_start = false,
+        }
+
+        index += 1;
+    }
+
+    line
+}
+
+struct ShellLikeCommandWordPositions<'a> {
+    line: &'a str,
+    index: usize,
+    at_command_start: bool,
+    after_time_prefix: bool,
+}
+
+impl<'a> Iterator for ShellLikeCommandWordPositions<'a> {
+    type Item = (&'a str, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let bytes = self.line.as_bytes();
+
+        while self.index < bytes.len() {
+            match bytes[self.index] {
+                b' ' | b'\t' | b'\r' | b'\n' => {
+                    self.index += 1;
+                }
+                b'(' if self.at_command_start && bytes.get(self.index + 1) == Some(&b'(') => {
+                    self.index = skip_balanced_text(bytes, self.index + 1, b'(', b')');
+                    self.at_command_start = false;
+                    self.after_time_prefix = false;
+                }
+                b';' | b'|' | b'&' | b'(' | b')' | b'{' | b'}' => {
+                    self.at_command_start = true;
+                    self.after_time_prefix = false;
+                    self.index += 1;
+                }
+                b'!' if self.at_command_start && bang_is_command_prefix(bytes, self.index) => {
+                    self.index += 1;
+                }
+                b'\'' => {
+                    self.index = skip_single_quoted_text(bytes, self.index + 1);
+                    self.at_command_start = false;
+                    self.after_time_prefix = false;
+                }
+                b'"' => {
+                    self.index = skip_double_quoted_text(bytes, self.index + 1);
+                    self.at_command_start = false;
+                    self.after_time_prefix = false;
+                }
+                b'`' => {
+                    self.index = skip_backtick_text(bytes, self.index + 1);
+                    self.at_command_start = false;
+                    self.after_time_prefix = false;
+                }
+                b'$' => {
+                    if starts_command_substitution(bytes, self.index) {
+                        self.index += 2;
+                        self.at_command_start = true;
+                        self.after_time_prefix = false;
+                    } else {
+                        self.index = skip_dollar_expansion_text(bytes, self.index);
+                        self.at_command_start = false;
+                        self.after_time_prefix = false;
+                    }
+                }
+                b'<' | b'>' if bytes.get(self.index + 1) == Some(&b'(') => {
+                    self.index += 2;
+                    self.index = skip_balanced_text(bytes, self.index, b'(', b')');
+                    self.at_command_start = false;
+                    self.after_time_prefix = false;
+                }
+                b'\\' => {
+                    self.index = (self.index + 2).min(bytes.len());
+                    self.at_command_start = false;
+                    self.after_time_prefix = false;
+                }
+                b'-' if self.at_command_start && self.after_time_prefix => {
+                    let start = self.index;
+                    while self.index < bytes.len()
+                        && !bytes[self.index].is_ascii_whitespace()
+                        && !is_shell_word_separator(bytes[self.index] as char)
+                    {
+                        self.index += 1;
+                    }
+                    if &self.line[start..self.index] != "-p" {
+                        self.at_command_start = false;
+                        self.after_time_prefix = false;
+                    }
+                }
+                byte if byte.is_ascii_alphanumeric() || byte == b'_' => {
+                    let start = self.index;
+                    while self.index < bytes.len()
+                        && (bytes[self.index].is_ascii_alphanumeric() || bytes[self.index] == b'_')
+                    {
+                        self.index += 1;
+                    }
+                    let is_command_word = self.at_command_start;
+                    let is_assignment_word = bytes.get(self.index) == Some(&b'=');
+                    let word = &self.line[start..self.index];
+                    let is_case_pattern_label =
+                        is_command_word && word_starts_case_pattern_label(bytes, self.index);
+                    if is_case_pattern_label {
+                        self.at_command_start = false;
+                        self.after_time_prefix = false;
+                        continue;
+                    }
+                    self.after_time_prefix =
+                        is_command_word && !is_assignment_word && command_word_is_time_prefix(word);
+                    self.at_command_start = is_command_word
+                        && !is_assignment_word
+                        && (command_word_opens_clause_context(word) || self.after_time_prefix);
+                    if is_command_word && !is_assignment_word {
+                        return Some((word, start));
+                    }
+                }
+                _ => {
+                    self.index += 1;
+                    self.at_command_start = false;
+                    self.after_time_prefix = false;
+                }
+            }
+        }
+
+        None
+    }
+}
+
+fn bang_is_command_prefix(bytes: &[u8], index: usize) -> bool {
+    bytes
+        .get(index + 1)
+        .is_none_or(|byte| byte.is_ascii_whitespace())
+}
+
+fn command_word_opens_clause_context(word: &str) -> bool {
+    matches!(word, "then" | "do" | "else" | "elif")
+}
+
+fn command_word_is_time_prefix(word: &str) -> bool {
+    word == "time"
+}
+
+fn word_starts_case_pattern_label(bytes: &[u8], mut index: usize) -> bool {
+    loop {
+        while index < bytes.len() && matches!(bytes[index], b' ' | b'\t') {
+            index += 1;
+        }
+
+        let Some(byte) = bytes.get(index).copied() else {
+            return false;
+        };
+        match byte {
+            b')' => return true,
+            b'|' => {
+                if bytes.get(index + 1) == Some(&b'|') {
+                    return false;
+                }
+                index += 1;
+            }
+            b';' | b'&' | b'\r' | b'\n' => return false,
+            b'\'' => index = skip_single_quoted_text(bytes, index + 1),
+            b'"' => index = skip_double_quoted_text(bytes, index + 1),
+            b'`' => index = skip_backtick_text(bytes, index + 1),
+            b'$' => index = skip_dollar_expansion_text(bytes, index),
+            b'\\' => index = (index + 2).min(bytes.len()),
+            other if is_shell_word_separator(other as char) && other != b'|' => return false,
+            _ => index += 1,
+        }
+    }
+}
+
+struct ShellLikeWordPositions<'a> {
     line: &'a str,
     iter: std::str::CharIndices<'a>,
     start: Option<usize>,
     finished: bool,
 }
 
-impl<'a> Iterator for ShellLikeWords<'a> {
-    type Item = &'a str;
+impl<'a> Iterator for ShellLikeWordPositions<'a> {
+    type Item = (&'a str, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.finished {
@@ -1232,22 +2084,130 @@ impl<'a> Iterator for ShellLikeWords<'a> {
         }
         loop {
             match self.iter.next() {
-                Some((index, ch)) => {
-                    if ch.is_ascii_alphanumeric() || ch == '_' {
+                Some((index, ch)) => match ch {
+                    '\'' | '"' | '`' => {
+                        self.start = None;
+                        self.skip_quoted(ch);
+                    }
+                    '$' => {
+                        self.start = None;
+                        self.skip_dollar_expansion();
+                    }
+                    '<' | '>' if self.next_char_is('(') => {
+                        self.start = None;
+                        self.iter.next();
+                        self.skip_balanced('(', ')');
+                    }
+                    '\\' => {
+                        self.start = None;
+                        self.iter.next();
+                    }
+                    _ if ch.is_ascii_alphanumeric() || ch == '_' => {
                         if self.start.is_none() {
                             self.start = Some(index);
                         }
-                    } else if let Some(word_start) = self.start.take() {
-                        return Some(&self.line[word_start..index]);
                     }
-                }
+                    _ => {
+                        if let Some(word_start) = self.start.take() {
+                            return Some((&self.line[word_start..index], word_start));
+                        }
+                    }
+                },
                 None => {
                     self.finished = true;
-                    return self.start.take().map(|word_start| &self.line[word_start..]);
+                    return self
+                        .start
+                        .take()
+                        .map(|word_start| (&self.line[word_start..], word_start));
                 }
             }
         }
     }
+}
+
+impl ShellLikeWordPositions<'_> {
+    fn next_char_is(&self, expected: char) -> bool {
+        matches!(self.iter.clone().next(), Some((_, ch)) if ch == expected)
+    }
+
+    fn skip_quoted(&mut self, quote: char) {
+        while let Some((_, ch)) = self.iter.next() {
+            if quote != '\'' && ch == '\\' {
+                self.iter.next();
+                continue;
+            }
+            if ch == quote {
+                break;
+            }
+        }
+    }
+
+    fn skip_dollar_expansion(&mut self) {
+        let Some((_, ch)) = self.iter.clone().next() else {
+            return;
+        };
+
+        match ch {
+            '{' => {
+                self.iter.next();
+                self.skip_balanced('{', '}');
+            }
+            '(' => {
+                self.iter.next();
+                self.skip_balanced('(', ')');
+            }
+            '[' => {
+                self.iter.next();
+                self.skip_balanced('[', ']');
+            }
+            _ if is_shell_name_start(ch) => {
+                self.iter.next();
+                self.skip_shell_name_tail();
+            }
+            _ => {
+                self.iter.next();
+            }
+        }
+    }
+
+    fn skip_balanced(&mut self, open: char, close: char) {
+        let mut depth = 1usize;
+
+        while let Some((_, ch)) = self.iter.next() {
+            match ch {
+                '\'' | '"' | '`' => self.skip_quoted(ch),
+                '$' => self.skip_dollar_expansion(),
+                '\\' => {
+                    self.iter.next();
+                }
+                _ if ch == open => depth += 1,
+                _ if ch == close => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn skip_shell_name_tail(&mut self) {
+        while let Some((_, ch)) = self.iter.clone().next() {
+            if !is_shell_name_char(ch) {
+                break;
+            }
+            self.iter.next();
+        }
+    }
+}
+
+fn is_shell_name_start(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphabetic()
+}
+
+fn is_shell_name_char(ch: char) -> bool {
+    is_shell_name_start(ch) || ch.is_ascii_digit()
 }
 
 fn is_x037_shell(shell: ShellDialect) -> bool {
@@ -1258,6 +2218,13 @@ fn is_x037_shell(shell: ShellDialect) -> bool {
 }
 
 fn is_c016_shell(shell: ShellDialect) -> bool {
+    matches!(
+        shell,
+        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
+    )
+}
+
+fn is_c034_shell(shell: ShellDialect) -> bool {
     matches!(
         shell,
         ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
@@ -1365,7 +2332,7 @@ mod tests {
     use super::{
         collect_parse_rule_diagnostics as collect_parse_rule_diagnostics_impl,
         if_bracket_glued_span_on_line, is_expected_command_error, line_contains_shell_word,
-        line_has_command_leading_word,
+        line_has_command_leading_word, unterminated_if_position_from_source,
     };
     use crate::{
         Applicability, Diagnostic, LinterSemanticArtifacts, LinterSettings, Locator, Rule, RuleSet,
@@ -1418,6 +2385,608 @@ mod tests {
             diagnostics[0].fix_title.as_deref(),
             Some("append a closing `fi`")
         );
+    }
+
+    #[test]
+    fn maps_missing_fi_parse_error_to_c034_at_opening_if() {
+        let source = "#!/bin/sh\nif true; then\n  :\n";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_does_not_run_for_zsh_sources() {
+        let source = "#!/usr/bin/env zsh\nif true; then\n  :\n";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Zsh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn c034_handles_hash_in_parameter_expansion_before_then() {
+        let source = "#!/bin/sh\nif [ \"${x#foo}\" = \"$x\" ]; then\n  :\n";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_handles_length_parameter_expansion_before_then() {
+        let source = "#!/bin/sh\nif [ ${#x} -gt 0 ]; then\n  :\n";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_ignores_closing_keywords_inside_comments() {
+        let source = "#!/bin/sh\nif true; then\n  : # fi\n";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_ignores_control_keywords_inside_quotes() {
+        let source = "#!/bin/sh\nif true; then\n  printf '%s\\n' \"fi\" 'then'\n";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_ignores_control_keywords_inside_multiline_quotes() {
+        let source = "#!/bin/sh\nif true; then\n  printf \"\nfi\n\"\n";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_scans_commands_after_closing_multiline_quotes() {
+        let source = "#!/bin/sh\nprintf \"\n\" ; if true; then\n  :\n";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.column, 5);
+    }
+
+    #[test]
+    fn c034_tracks_heredocs_after_closing_multiline_quotes() {
+        let source = "\
+#!/bin/sh
+if true; then
+printf \"
+\" ; cat <<'EOF'
+fi
+EOF
+  :
+";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_ignores_control_keywords_inside_heredoc_payloads() {
+        let source = "\
+#!/bin/sh
+if true; then
+  cat <<EOF
+fi
+EOF
+  :
+";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_ignores_control_keywords_in_case_pattern_labels() {
+        let source = "\
+#!/bin/sh
+if outer; then
+  case \"$value\" in
+    fi) echo no ;;
+  esac
+";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_ignores_control_keywords_in_case_alternation_labels() {
+        let source = "\
+#!/bin/sh
+if outer; then
+  case \"$value\" in
+    fi|foo) echo no ;;
+  esac
+";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_ignores_control_keywords_inside_expansions() {
+        let source = "\
+#!/bin/sh
+if true; then
+  : ${value:-fi} $(printf fi) $fi $(( fi + 1 ))
+";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_ignores_control_keywords_inside_multiline_expansions() {
+        let source = "\
+#!/bin/sh
+if true; then
+  : $((
+fi + 1
+))
+";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_tracks_if_inside_command_substitution() {
+        let source = "\
+#!/bin/sh
+x=$(if true; then
+  :
+)
+";
+        let if_offset = source
+            .find("if true")
+            .expect("fixture has a command substitution if");
+
+        assert_eq!(
+            unterminated_if_position_from_source(source),
+            Some((2, 5, if_offset))
+        );
+    }
+
+    #[test]
+    fn c034_ignores_control_keywords_inside_arithmetic_commands() {
+        let source = "\
+#!/bin/bash
+if true; then
+  (( fi += 1 ))
+";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Bash,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_handles_even_trailing_backslashes_before_closing_keyword_words() {
+        let source = "\
+#!/bin/sh
+if true; then
+  echo foo\\\\
+  echo fi
+";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_ignores_assignment_words_named_like_control_keywords() {
+        let source = "\
+#!/bin/sh
+if true; then
+  fi=1
+";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_keeps_command_start_after_bang_prefixes() {
+        let source = "\
+#!/bin/sh
+if true; then
+  ! if inner; then
+    :
+  fi
+";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_keeps_command_start_after_clause_bang_prefixes() {
+        let source = "\
+#!/bin/sh
+if outer; then ! if inner; then
+  :
+fi
+";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_keeps_command_start_after_time_prefixes() {
+        let source = "\
+#!/bin/bash
+if outer; then
+  time if inner; then
+    :
+  fi
+";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Bash,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_keeps_command_start_after_time_p_option() {
+        let source = "\
+#!/bin/bash
+if outer; then
+  time -p if inner; then
+    :
+  fi
+";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Bash,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_tracks_nested_if_after_then_on_same_line() {
+        let source = "\
+#!/bin/sh
+if outer; then if inner; then :; fi
+";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn c034_tracks_if_after_brace_group_openers() {
+        let source = "\
+#!/bin/sh
+f() { if true; then
+  :
+}
+";
+        let if_offset = source.find("if true").expect("fixture has an if token");
+
+        assert_eq!(
+            unterminated_if_position_from_source(source),
+            Some((2, 7, if_offset))
+        );
+    }
+
+    #[test]
+    fn c034_uses_byte_offset_after_non_ascii_prefix_text() {
+        let source = "#!/bin/sh\necho é; if true; then\n  :\n";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 9);
+    }
+
+    #[test]
+    fn c034_preserves_tokens_split_by_escaped_newline() {
+        let source = "#!/bin/sh\ni\\\nf true; then\n  :\n";
+        let if_offset = source.find("i\\").expect("fixture has split if token");
+
+        assert_eq!(
+            unterminated_if_position_from_source(source),
+            Some((2, 1, if_offset))
+        );
+    }
+
+    #[test]
+    fn c034_reports_the_unclosed_nested_if() {
+        let source = "\
+#!/bin/sh
+if outer; then
+  if inner; then
+    :
+";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.column, 3);
+    }
+
+    #[test]
+    fn c034_reports_the_outer_if_when_inner_block_is_closed() {
+        let source = "\
+#!/bin/sh
+if outer; then
+  if inner; then
+    :
+  fi
+";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::UnterminatedIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
     }
 
     #[test]

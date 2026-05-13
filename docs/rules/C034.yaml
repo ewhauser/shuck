@@ -3,8 +3,8 @@ legacy_name: unterminated-if
 new_category: Correctness
 new_code: C034
 runtime_kind: ast
-shellcheck_code: null
-shellcheck_level: null
+shellcheck_code: SC1046
+shellcheck_level: error
 shells:
   - sh
   - bash
