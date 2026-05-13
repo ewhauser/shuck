@@ -23,16 +23,25 @@ pub fn c_style_for_arithmetic_in_sh(checker: &mut Checker) {
         return;
     }
 
+    let source = checker.source();
     checker.report_fact_diagnostics(|facts, report| {
-        let fix_facts = facts.arithmetic_update_operator_fix_facts();
+        let mut fix_facts = facts
+            .arithmetic_update_operator_fix_facts()
+            .iter()
+            .peekable();
         for span in facts.arithmetic_update_operator_spans().iter().copied() {
             let diagnostic = Diagnostic::new(CStyleForArithmeticInSh, span);
-            let diagnostic = match fix_facts.iter().find(|fact| fact.diagnostic_span() == span) {
-                Some(fact) => diagnostic.with_fix(Fix::unsafe_edit(Edit::replacement(
-                    fact.replacement(),
+            let diagnostic = if fix_facts
+                .peek()
+                .is_some_and(|fact| fact.diagnostic_span() == span)
+            {
+                let fact = fix_facts.next().expect("peeked arithmetic fix fact");
+                diagnostic.with_fix(Fix::unsafe_edit(Edit::replacement(
+                    fact.replacement(source),
                     fact.replacement_span(),
-                ))),
-                None => diagnostic,
+                )))
+            } else {
+                diagnostic
             };
             report(diagnostic);
         }

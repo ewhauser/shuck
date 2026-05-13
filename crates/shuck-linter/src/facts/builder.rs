@@ -483,7 +483,14 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             .sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
         arithmetic_update_operator_spans.dedup();
         let arithmetic_update_operator_fix_facts =
-            build_arithmetic_update_operator_fix_facts(&arithmetic_update_operator_spans, self.source);
+            if matches!(self.shell, ShellDialect::Sh | ShellDialect::Dash) {
+                build_arithmetic_update_operator_fix_facts(
+                    &arithmetic_update_operator_spans,
+                    self.source,
+                )
+            } else {
+                Vec::new()
+            };
         arithmetic_literal_spans.sort_unstable_by_key(|(span, kind)| {
             (span.start.offset, span.end.offset, *kind)
         });

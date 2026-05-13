@@ -1743,19 +1743,41 @@ fn collect_arithmetic_lvalue_update_operator_spans(
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
+enum ArithmeticUpdateOperatorKind {
+    Increment,
+    Decrement,
+}
+
+impl ArithmeticUpdateOperatorKind {
+    fn replacement_operator(self) -> &'static str {
+        match self {
+            Self::Increment => "+",
+            Self::Decrement => "-",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct ArithmeticUpdateOperatorFixFact {
     diagnostic_span: Span,
     replacement_span: Span,
-    replacement: Box<str>,
+    operand_span: Span,
+    operator: ArithmeticUpdateOperatorKind,
 }
 
 impl ArithmeticUpdateOperatorFixFact {
-    fn new(diagnostic_span: Span, replacement_span: Span, replacement: Box<str>) -> Self {
+    fn new(
+        diagnostic_span: Span,
+        replacement_span: Span,
+        operand_span: Span,
+        operator: ArithmeticUpdateOperatorKind,
+    ) -> Self {
         Self {
             diagnostic_span,
             replacement_span,
-            replacement,
+            operand_span,
+            operator,
         }
     }
 
@@ -1767,8 +1789,10 @@ impl ArithmeticUpdateOperatorFixFact {
         self.replacement_span
     }
 
-    pub fn replacement(&self) -> &str {
-        &self.replacement
+    pub fn replacement(&self, source: &str) -> String {
+        let operand = self.operand_span.slice(source);
+        let operator = self.operator.replacement_operator();
+        format!("({operand} = {operand} {operator} 1)")
     }
 }
 
@@ -1789,26 +1813,26 @@ fn arithmetic_update_operator_fix_fact(
 ) -> Option<ArithmeticUpdateOperatorFixFact> {
     let operator = diagnostic_span.slice(source);
     let operator = match operator {
-        "++" => "+",
-        "--" => "-",
+        "++" => ArithmeticUpdateOperatorKind::Increment,
+        "--" => ArithmeticUpdateOperatorKind::Decrement,
         _ => return None,
     };
 
     if let Some(operand_span) = arithmetic_prefix_update_operand_span(diagnostic_span, source) {
-        let operand = operand_span.slice(source);
         return Some(ArithmeticUpdateOperatorFixFact::new(
             diagnostic_span,
             Span::from_positions(diagnostic_span.start, operand_span.end),
-            format!("({operand} = {operand} {operator} 1)").into_boxed_str(),
+            operand_span,
+            operator,
         ));
     }
 
     let operand_span = arithmetic_postfix_update_operand_span(diagnostic_span, source)?;
-    let operand = operand_span.slice(source);
     Some(ArithmeticUpdateOperatorFixFact::new(
         diagnostic_span,
         Span::from_positions(operand_span.start, diagnostic_span.end),
-        format!("({operand} = {operand} {operator} 1)").into_boxed_str(),
+        operand_span,
+        operator,
     ))
 }
 
