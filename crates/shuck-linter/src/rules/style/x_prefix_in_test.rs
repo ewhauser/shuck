@@ -42,10 +42,11 @@ pub fn x_prefix_in_test(checker: &mut Checker) {
         .collect::<Vec<_>>();
 
     for report in reports {
-        checker.report_diagnostic_dedup(
-            Diagnostic::new(XPrefixInTest, report.diagnostic_span)
-                .with_fix(x_prefix_fix(source, &report)),
-        );
+        let diagnostic = Diagnostic::new(XPrefixInTest, report.diagnostic_span);
+        checker.report_diagnostic_dedup(match x_prefix_fix(source, &report) {
+            Some(fix) => diagnostic.with_fix(fix),
+            None => diagnostic,
+        });
     }
 }
 
@@ -138,35 +139,54 @@ fn has_legacy_x_prefix(text: &str) -> bool {
     matches!(text.as_bytes().first(), Some(b'x' | b'X'))
 }
 
-fn x_prefix_fix(source: &str, report: &XPrefixComparisonReport) -> Fix {
-    Fix::unsafe_edits([
+fn x_prefix_fix(source: &str, report: &XPrefixComparisonReport) -> Option<Fix> {
+    Some(Fix::unsafe_edits([
         Edit::replacement(
-            x_prefix_operand_replacement(source, report.left_span),
+            x_prefix_operand_replacement(source, report.left_span)?,
             report.left_span,
         ),
         Edit::replacement(
-            x_prefix_operand_replacement(source, report.right_span),
+            x_prefix_operand_replacement(source, report.right_span)?,
             report.right_span,
         ),
-    ])
+    ]))
 }
 
-fn x_prefix_operand_replacement(source: &str, span: Span) -> String {
+fn x_prefix_operand_replacement(source: &str, span: Span) -> Option<String> {
     let text = span.slice(source);
-    let body = strip_simple_quotes(text).unwrap_or(text);
+    let (body, quote_style) = strip_simple_quotes(text).unwrap_or((text, QuoteStyle::Unquoted));
+    if quote_style == QuoteStyle::Unquoted && text.bytes().any(|byte| matches!(byte, b'\'' | b'"'))
+    {
+        return None;
+    }
+
     let without_prefix = body
         .char_indices()
         .nth(1)
         .map_or("", |(offset, _)| &body[offset..]);
-    format!("\"{}\"", without_prefix.replace('"', "\\\""))
+    Some(match quote_style {
+        QuoteStyle::Single => format!("'{without_prefix}'"),
+        QuoteStyle::Double | QuoteStyle::Unquoted => {
+            format!("\"{}\"", without_prefix.replace('"', "\\\""))
+        }
+    })
 }
 
-fn strip_simple_quotes(text: &str) -> Option<&str> {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QuoteStyle {
+    Single,
+    Double,
+    Unquoted,
+}
+
+fn strip_simple_quotes(text: &str) -> Option<(&str, QuoteStyle)> {
     text.strip_prefix('"')
         .and_then(|inner| inner.strip_suffix('"'))
+        .map(|inner| (inner, QuoteStyle::Double))
         .or_else(|| {
             text.strip_prefix('\'')
                 .and_then(|inner| inner.strip_suffix('\''))
+                .map(|inner| (inner, QuoteStyle::Single))
         })
 }
 
@@ -249,6 +269,23 @@ test \"x$browser\" != \"x\"
         assert_eq!(
             result.fixed_source,
             "#!/bin/bash\n[ \"$browser\" = \"\" ]\n[[ \"\" = \"bar\" ]]\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_without_expanding_single_quoted_operands() {
+        let source = "#!/bin/bash\n[ 'x$HOME' = 'x' ]\n[ 'x$(cmd)' = 'x' ]\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::XPrefixInTest),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/bash\n[ '$HOME' = '' ]\n[ '$(cmd)' = '' ]\n"
         );
         assert!(result.fixed_diagnostics.is_empty());
     }

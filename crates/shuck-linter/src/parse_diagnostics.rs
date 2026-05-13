@@ -746,6 +746,9 @@ fn linebreak_before_and_fix(locator: Locator<'_>, span: Span) -> Option<Fix> {
     if source.as_bytes().get(insert_offset) != Some(&b'\n') {
         return None;
     }
+    if previous_line_has_shell_comment(source, insert_offset) {
+        return None;
+    }
 
     let operator = span.slice(source);
     let rest = source.get(span.end.offset..)?;
@@ -758,6 +761,70 @@ fn linebreak_before_and_fix(locator: Locator<'_>, span: Span) -> Option<Fix> {
         Edit::insertion(insert_offset, format!(" {operator}")),
         Edit::deletion_at(span.start.offset, span.end.offset + trailing_ws_len),
     ]))
+}
+
+fn previous_line_has_shell_comment(source: &str, line_end: usize) -> bool {
+    let line_start = source[..line_end]
+        .rfind('\n')
+        .map_or(0, |offset| offset + 1);
+    line_has_shell_comment(&source[line_start..line_end])
+}
+
+fn line_has_shell_comment(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    let mut index = 0usize;
+    let mut comment_can_start = true;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut double_quote_escape = false;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+
+        if in_single_quotes {
+            if byte == b'\'' {
+                in_single_quotes = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if in_double_quotes {
+            if double_quote_escape {
+                double_quote_escape = false;
+            } else if byte == b'\\' {
+                double_quote_escape = true;
+            } else if byte == b'"' {
+                in_double_quotes = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        match byte {
+            b'#' if comment_can_start => return true,
+            b'\'' => {
+                in_single_quotes = true;
+                comment_can_start = false;
+            }
+            b'"' => {
+                in_double_quotes = true;
+                comment_can_start = false;
+            }
+            b'\\' => {
+                index += 1;
+                comment_can_start = false;
+            }
+            byte if byte.is_ascii_whitespace() || is_shell_word_separator(byte as char) => {
+                comment_can_start = true;
+            }
+            _ => comment_can_start = false,
+        }
+
+        index += 1;
+    }
+
+    false
 }
 
 fn dangling_else_span(parse_diagnostics: &[ParseDiagnostic]) -> Option<Span> {
@@ -2029,6 +2096,28 @@ fi
         assert_eq!(
             apply_fixes(source, &diagnostics, Applicability::Safe).code,
             "#!/bin/bash\ntrue &&\necho x\n"
+        );
+    }
+
+    #[test]
+    fn skips_linebreak_before_and_fix_after_trailing_comment_for_s072() {
+        let source = "#!/bin/bash\ntrue # note\n&& echo x\n";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::LinebreakBeforeAnd);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Bash,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::LinebreakBeforeAnd);
+        assert!(diagnostics[0].fix.is_none());
+        assert_eq!(
+            apply_fixes(source, &diagnostics, Applicability::Safe).code,
+            source
         );
     }
 
