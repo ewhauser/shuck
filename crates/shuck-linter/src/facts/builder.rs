@@ -1148,8 +1148,9 @@ fn previous_line_ends_with_control_operator(source: &str, line_start: usize) -> 
         .lines()
         .rev()
         .map(|line| {
-            line_without_trailing_comment(line)
-                .trim_end_matches([' ', '\t'])
+            let line = line_without_trailing_comment(line).trim_end_matches([' ', '\t']);
+            line.strip_suffix('\\')
+                .map_or(line, |continued| continued.trim_end_matches([' ', '\t']))
         })
         .find(|line| !line.is_empty())
         .is_some_and(|line| line.ends_with('|') || line.ends_with("|&") || line.ends_with("&&"))
