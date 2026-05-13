@@ -115,6 +115,7 @@ mod shell_quoting_reuse;
 pub mod single_quoted_literal;
 pub mod space_after_hash_bang;
 pub mod spaced_assignment;
+pub mod spacey_assign;
 pub mod status_capture_after_branch_test;
 pub mod stderr_before_stdout_redirect;
 pub mod stray_closing_keyword;
@@ -212,6 +213,7 @@ mod tests {
     #[test_case(Rule::ArithmeticRedirectionTarget, Path::new("C050.sh"))]
     #[test_case(Rule::DuplicateRedirect, Path::new("C051.sh"))]
     #[test_case(Rule::AssignSpecialZero, Path::new("C052.sh"))]
+    #[test_case(Rule::SpaceyAssign, Path::new("C053.sh"))]
     #[test_case(Rule::BareSlashMarker, Path::new("C054.sh"))]
     #[test_case(Rule::PatternWithVariable, Path::new("C055.sh"))]
     #[test_case(Rule::StatusCaptureAfterBranchTest, Path::new("C056.sh"))]

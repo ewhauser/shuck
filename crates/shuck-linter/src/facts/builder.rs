@@ -984,6 +984,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 jammed_test_bracket_facts: OnceLock::new(),
                 assignment_like_command_name_spans,
                 assign_special_zero_spans: OnceLock::new(),
+                spacey_assignment_spans: OnceLock::new(),
                 bare_command_name_assignment_spans,
             },
             words: WordFactStore {

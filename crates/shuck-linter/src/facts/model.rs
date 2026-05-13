@@ -51,6 +51,7 @@ pub(crate) struct CommandFactStore<'a> {
     pub(in crate::facts) jammed_test_bracket_facts: OnceLock<Vec<(Span, usize)>>,
     pub(in crate::facts) assignment_like_command_name_spans: Vec<Span>,
     pub(in crate::facts) assign_special_zero_spans: OnceLock<Vec<Span>>,
+    pub(in crate::facts) spacey_assignment_spans: OnceLock<Vec<Span>>,
     pub(in crate::facts) bare_command_name_assignment_spans: Vec<Span>,
 }
 
@@ -720,6 +721,15 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
                     self.facts.source_facts.source,
                 )
             })
+    }
+
+    pub(crate) fn spacey_assignment_spans(self) -> &'facts [Span] {
+        self.facts.command.spacey_assignment_spans.get_or_init(|| {
+            build_spacey_assignment_spans(
+                &self.facts.command.commands,
+                self.facts.source_facts.source,
+            )
+        })
     }
 
     pub(crate) fn bare_command_name_assignment_spans(self) -> &'facts [Span] {
