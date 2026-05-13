@@ -81,6 +81,7 @@ pub mod missing_bracket_space;
 pub mod missing_done_in_for_loop;
 pub mod missing_fi;
 pub mod missing_semicolon_before_brace;
+pub mod missing_space_before_bracket_close;
 pub mod mixed_and_or_in_condition;
 pub mod nested_parameter_expansion;
 pub mod non_absolute_shebang;
@@ -180,6 +181,7 @@ mod tests {
     #[test_case(Rule::LeadingZeroArithmetic, Path::new("C023.sh"))]
     #[test_case(Rule::AssignmentSpacing, Path::new("C024.sh"))]
     #[test_case(Rule::MissingBracketSpace, Path::new("C030.sh"))]
+    #[test_case(Rule::MissingSpaceBeforeBracketClose, Path::new("C031.sh"))]
     #[test_case(Rule::PositionalTenBraces, Path::new("C025.sh"))]
     #[test_case(Rule::BareDoneWord, Path::new("C027.sh"))]
     #[test_case(Rule::MissingFi, Path::new("C035.sh"))]

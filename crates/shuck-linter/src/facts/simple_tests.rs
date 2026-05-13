@@ -329,6 +329,95 @@ pub(crate) fn build_glued_closing_bracket_insert_offset(
         .map(|operand| operand.span.end.offset - 1)
 }
 
+pub(crate) fn build_missing_space_before_bracket_close_fact(
+    command: &Command,
+    source: &str,
+    locator: Locator<'_>,
+) -> Option<(Span, usize)> {
+    let (diagnostic_offset, insert_offset) =
+        missing_space_before_bracket_close_offsets(command, source)?;
+    let position = locator.position_at_offset(diagnostic_offset)?;
+    Some((Span::from_positions(position, position), insert_offset))
+}
+
+fn missing_space_before_bracket_close_offsets(
+    command: &Command,
+    source: &str,
+) -> Option<(usize, usize)> {
+    match command {
+        Command::Simple(command) => {
+            missing_space_before_simple_bracket_close_offsets(command, source)
+        }
+        Command::Compound(CompoundCommand::Conditional(command)) => {
+            missing_space_before_conditional_bracket_close_offsets(command, source)
+        }
+        Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => None,
+    }
+}
+
+fn missing_space_before_simple_bracket_close_offsets(
+    command: &SimpleCommand,
+    source: &str,
+) -> Option<(usize, usize)> {
+    let name_text = command.name.span.slice(source);
+    if !name_text.starts_with('[') {
+        return None;
+    }
+
+    if let Some(offsets) = missing_space_before_bracket_close_word_offsets(&command.name, source) {
+        return Some(offsets);
+    }
+
+    for arg in &command.args {
+        let text = arg.span.slice(source);
+        if matches!(text, "]" | "]]") {
+            return None;
+        }
+        if let Some(offsets) = missing_space_before_bracket_close_word_offsets(arg, source) {
+            return Some(offsets);
+        }
+    }
+
+    None
+}
+
+fn missing_space_before_conditional_bracket_close_offsets(
+    command: &ConditionalCommand,
+    source: &str,
+) -> Option<(usize, usize)> {
+    let insert_offset = command.right_bracket_span.start.offset;
+    let previous = source[..insert_offset].chars().next_back()?;
+    if previous.is_whitespace() || previous == ')' {
+        return None;
+    }
+
+    Some((command.right_bracket_span.end.offset, insert_offset))
+}
+
+fn missing_space_before_bracket_close_word_offsets(
+    word: &Word,
+    source: &str,
+) -> Option<(usize, usize)> {
+    let text = word.span.slice(source);
+    if matches!(text, "[" | "[[" | "]" | "]]") || !text.ends_with(']') {
+        return None;
+    }
+
+    let close_run_len = text
+        .chars()
+        .rev()
+        .take_while(|ch| *ch == ']')
+        .map(char::len_utf8)
+        .sum::<usize>();
+    let insert_offset = word.span.end.offset.checked_sub(close_run_len)?;
+    Some((word.span.end.offset, insert_offset))
+}
+
 pub(crate) fn build_glued_closing_bracket_operand_word<'a>(
     command: &'a Command,
     source: &str,
