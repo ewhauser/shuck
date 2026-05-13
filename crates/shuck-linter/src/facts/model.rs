@@ -64,6 +64,7 @@ pub(crate) struct WordFactStore<'a> {
     pub(in crate::facts) arithmetic_score_line_spans: Vec<Span>,
     pub(in crate::facts) dollar_in_arithmetic_spans: Vec<Span>,
     pub(in crate::facts) arithmetic_expansion_spans: Vec<Span>,
+    pub(in crate::facts) arithmetic_index_subscript_spans: Vec<Span>,
     pub(in crate::facts) arithmetic_command_substitution_spans: Vec<Span>,
     pub(in crate::facts) arithmetic_only_suppressed_subscript_spans: Vec<Span>,
     pub(in crate::facts) single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
@@ -1096,6 +1097,10 @@ impl<'facts, 'a> WordFacts<'facts, 'a> {
 
     pub(crate) fn arithmetic_expansion_spans(self) -> &'facts [Span] {
         &self.facts.words.arithmetic_expansion_spans
+    }
+
+    pub(crate) fn arithmetic_index_subscript_spans(self) -> &'facts [Span] {
+        &self.facts.words.arithmetic_index_subscript_spans
     }
 
     pub fn single_quoted_fragments(self) -> &'facts [SingleQuotedFragmentFact] {

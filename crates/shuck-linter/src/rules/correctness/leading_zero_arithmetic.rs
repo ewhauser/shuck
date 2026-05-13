@@ -32,6 +32,7 @@ pub fn leading_zero_arithmetic(checker: &mut Checker) {
     let word_facts = checker.facts().words();
     let suppressed_subscript_spans = word_facts.arithmetic_only_suppressed_subscript_spans();
     let arithmetic_expansion_spans = word_facts.arithmetic_expansion_spans();
+    let arithmetic_index_subscript_spans = word_facts.arithmetic_index_subscript_spans();
     let arithmetic_command_substitution_spans = word_facts.arithmetic_command_substitution_spans();
 
     let diagnostics = word_facts
@@ -51,6 +52,7 @@ pub fn leading_zero_arithmetic(checker: &mut Checker) {
                 fact.span(),
                 suppressed_subscript_spans,
                 arithmetic_expansion_spans,
+                arithmetic_index_subscript_spans,
             )
         })
         .map(|fact| diagnostic_for_leading_zero(fact.span(), source))
@@ -102,9 +104,11 @@ fn is_plain_suppressed_subscript_literal(
     span: Span,
     suppressed_subscript_spans: &[Span],
     arithmetic_expansion_spans: &[Span],
+    arithmetic_index_subscript_spans: &[Span],
 ) -> bool {
     span_is_within_any(span, suppressed_subscript_spans)
         && !span_is_within_any(span, arithmetic_expansion_spans)
+        && !span_is_within_any(span, arithmetic_index_subscript_spans)
 }
 
 fn span_is_within_any(span: Span, containers: &[Span]) -> bool {
@@ -167,6 +171,32 @@ printf '%s\n' \"${value:-$((008))}\"
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "08");
+    }
+
+    #[test]
+    fn reports_invalid_octal_literals_in_conditional_arithmetic() {
+        let source = "\
+#!/bin/bash
+declare -a values
+declare -A checksums
+[[ 08 -lt 10 ]]
+[[ 010 -lt 11 ]]
+[[ -v values[09] ]]
+[[ -v checksums[09] ]]
+[[ $(printf '%s' 1)08 -lt 200 ]]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LeadingZeroArithmetic),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["08", "09"]
+        );
     }
 
     #[test]

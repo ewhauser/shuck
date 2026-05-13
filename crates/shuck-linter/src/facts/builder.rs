@@ -24,6 +24,7 @@ pub(crate) struct ArithmeticFactSummary {
     pub(crate) arithmetic_score_line_spans: Vec<Span>,
     pub(crate) dollar_in_arithmetic_spans: Vec<Span>,
     pub(crate) arithmetic_expansion_spans: Vec<Span>,
+    pub(crate) arithmetic_index_subscript_spans: Vec<Span>,
     pub(crate) arithmetic_command_substitution_spans: Vec<Span>,
     pub(crate) arithmetic_only_suppressed_subscript_spans: Vec<Span>,
 }
@@ -471,6 +472,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             .sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
         arithmetic_update_operator_spans.dedup();
         sort_and_dedup_spans(&mut arithmetic_summary.arithmetic_expansion_spans);
+        sort_and_dedup_spans(&mut arithmetic_summary.arithmetic_index_subscript_spans);
         let arithmetic_update_operator_fix_facts =
             if matches!(self.shell, ShellDialect::Sh | ShellDialect::Dash) {
                 build_arithmetic_update_operator_fix_facts(
@@ -993,6 +995,8 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 arithmetic_score_line_spans: arithmetic_summary.arithmetic_score_line_spans,
                 dollar_in_arithmetic_spans: arithmetic_summary.dollar_in_arithmetic_spans,
                 arithmetic_expansion_spans: arithmetic_summary.arithmetic_expansion_spans,
+                arithmetic_index_subscript_spans: arithmetic_summary
+                    .arithmetic_index_subscript_spans,
                 arithmetic_command_substitution_spans: arithmetic_summary
                     .arithmetic_command_substitution_spans,
                 arithmetic_only_suppressed_subscript_spans,

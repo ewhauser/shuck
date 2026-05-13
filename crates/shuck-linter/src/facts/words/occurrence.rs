@@ -1898,6 +1898,18 @@ pub(crate) fn simple_command_word_at(command: &SimpleCommand, index: usize) -> &
     }
 }
 
+fn conditional_binary_op_is_arithmetic(op: ConditionalBinaryOp) -> bool {
+    matches!(
+        op,
+        ConditionalBinaryOp::ArithmeticEq
+            | ConditionalBinaryOp::ArithmeticNe
+            | ConditionalBinaryOp::ArithmeticLe
+            | ConditionalBinaryOp::ArithmeticGe
+            | ConditionalBinaryOp::ArithmeticLt
+            | ConditionalBinaryOp::ArithmeticGt
+    )
+}
+
 fn collect_split_sensitive_unquoted_command_substitution_spans(
     word: &Word,
     source: &str,
@@ -2186,6 +2198,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                             self.semantic.shell_profile().dialect,
                         ),
                     );
+                    self.collect_conditional_arithmetic_context_words(&command.expression);
                 }
                 CompoundCommand::Arithmetic(command) => {
                     if let Some(expression) = &command.expr_ast {
@@ -2945,8 +2958,20 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 );
             }
             ConditionalExpr::VarRef(reference) => {
+                let indexed_semantics = self.subscript_uses_index_arithmetic_semantics(
+                    Some(&reference.name),
+                    Some(reference.name_span),
+                    reference.subscript.as_deref(),
+                );
                 self.surface
                     .record_arithmetic_only_suppressed_subscript(reference.subscript.as_deref());
+                if indexed_semantics
+                    && let Some(subscript) = reference.subscript.as_deref()
+                {
+                    self.arithmetic
+                        .arithmetic_index_subscript_spans
+                        .push(subscript.span());
+                }
                 visit_var_ref_subscript_words_with_source(reference, self.source, &mut |word| {
                     self.push_word_with_surface(
                         word,
@@ -2955,6 +2980,53 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                         surface_context,
                     );
                 });
+            }
+        }
+    }
+
+    fn collect_conditional_arithmetic_context_words(&mut self, expression: &ConditionalExpr) {
+        match expression {
+            ConditionalExpr::Binary(expr) => {
+                if conditional_binary_op_is_arithmetic(expr.op) {
+                    self.collect_conditional_arithmetic_operand_context(&expr.left);
+                    self.collect_conditional_arithmetic_operand_context(&expr.right);
+                } else {
+                    self.collect_conditional_arithmetic_context_words(&expr.left);
+                    self.collect_conditional_arithmetic_context_words(&expr.right);
+                }
+            }
+            ConditionalExpr::Unary(expr) => {
+                self.collect_conditional_arithmetic_context_words(&expr.expr);
+            }
+            ConditionalExpr::Parenthesized(expr) => {
+                self.collect_conditional_arithmetic_context_words(&expr.expr);
+            }
+            ConditionalExpr::Word(_)
+            | ConditionalExpr::Regex(_)
+            | ConditionalExpr::Pattern(_)
+            | ConditionalExpr::VarRef(_) => {}
+        }
+    }
+
+    fn collect_conditional_arithmetic_operand_context(&mut self, expression: &ConditionalExpr) {
+        match expression {
+            ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+                collect_arithmetic_context_spans_in_word(
+                    word,
+                    self.source,
+                    false,
+                    &mut self.arithmetic.dollar_in_arithmetic_spans,
+                    &mut self.arithmetic.arithmetic_command_substitution_spans,
+                );
+            }
+            ConditionalExpr::Parenthesized(expr) => {
+                self.collect_conditional_arithmetic_operand_context(&expr.expr);
+            }
+            ConditionalExpr::Binary(_)
+            | ConditionalExpr::Unary(_)
+            | ConditionalExpr::Pattern(_)
+            | ConditionalExpr::VarRef(_) => {
+                self.collect_conditional_arithmetic_context_words(expression);
             }
         }
     }
