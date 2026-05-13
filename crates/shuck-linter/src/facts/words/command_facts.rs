@@ -283,7 +283,7 @@ fn contains_unquoted_comment_start(text: &str) -> bool {
                 in_double_quotes = true;
                 comment_can_start = false;
             }
-            ' ' | '\t' => comment_can_start = true,
+            ' ' | '\t' | '\n' | '\r' => comment_can_start = true,
             '|' | '&' | ';' | '(' | ')' | '<' | '>' => comment_can_start = true,
             _ => comment_can_start = false,
         }

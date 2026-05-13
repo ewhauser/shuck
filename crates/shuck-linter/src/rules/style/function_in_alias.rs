@@ -183,6 +183,16 @@ alias function='echo $1'
     }
 
     #[test]
+    fn leaves_multiline_comment_alias_bodies_unfixed() {
+        let source = "#!/bin/sh\nalias greet='echo $1\n# note'\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionInAlias));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "greet='echo $1\n# note'");
+        assert!(diagnostics[0].fix.is_none());
+    }
+
+    #[test]
     fn ignores_aliases_without_static_positional_parameters() {
         let source = "\
 #!/bin/sh
