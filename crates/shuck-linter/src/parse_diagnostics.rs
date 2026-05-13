@@ -245,6 +245,7 @@ fn simple_case_pattern_start(source: &str, line_start: usize, group_start: usize
     let mut index = group_start;
     let mut depth = 0usize;
     let mut escaped = false;
+    let mut in_bracket = false;
 
     while index > line_start {
         index -= 1;
@@ -257,7 +258,12 @@ fn simple_case_pattern_start(source: &str, line_start: usize, group_start: usize
             escaped = true;
             continue;
         }
+        if in_bracket {
+            in_bracket = byte != b'[';
+            continue;
+        }
         match byte {
+            b']' => in_bracket = true,
             b')' => depth += 1,
             b'(' => {
                 depth = depth.saturating_sub(1);
@@ -2419,6 +2425,37 @@ fi
                 "#!/bin/sh\n",
                 "case \"$x\" in\n",
                 "  foo_a_c|foo_a_d|foo_b_c|foo_b_d) echo match ;;\n",
+                "esac\n",
+            )
+        );
+    }
+
+    #[test]
+    fn expands_embedded_case_group_after_bracket_class_pipe() {
+        let source = concat!(
+            "#!/bin/sh\n",
+            "case \"$x\" in\n",
+            "  foo_[a|b](c|d)) echo match ;;\n",
+            "esac\n",
+        );
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::ExtglobInCasePattern);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ExtglobInCasePattern);
+        assert_eq!(
+            apply_fixes(source, &diagnostics, Applicability::Safe).code,
+            concat!(
+                "#!/bin/sh\n",
+                "case \"$x\" in\n",
+                "  foo_[a|b]c|foo_[a|b]d) echo match ;;\n",
                 "esac\n",
             )
         );

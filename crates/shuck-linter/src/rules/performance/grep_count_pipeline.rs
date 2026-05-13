@@ -31,15 +31,17 @@ pub fn grep_count_pipeline(checker: &mut Checker) {
         .collect::<Vec<_>>();
 
     for report in reports {
-        checker.report_diagnostic_dedup(
-            Diagnostic::new(GrepCountPipeline, report.diagnostic_span).with_fix(report.fix),
-        );
+        let diagnostic = Diagnostic::new(GrepCountPipeline, report.diagnostic_span);
+        checker.report_diagnostic_dedup(match report.fix {
+            Some(fix) => diagnostic.with_fix(fix),
+            None => diagnostic,
+        });
     }
 }
 
 struct GrepCountPipelineReport {
     diagnostic_span: Span,
-    fix: Fix,
+    fix: Option<Fix>,
 }
 
 fn unsafe_grep_count_pipeline_reports(
@@ -68,13 +70,17 @@ fn unsafe_grep_count_pipeline_reports(
                 return None;
             }
 
-            if !wc_uses_only_line_count(right, checker.source()) {
+            if !wc_uses_line_count(right, checker.source()) {
                 return None;
             }
 
             Some(GrepCountPipelineReport {
                 diagnostic_span: command_body_span(left)?,
-                fix: grep_count_pipeline_fix(checker.source(), left, right, operator.span())?,
+                fix: wc_uses_only_line_count(right, checker.source())
+                    .then(|| {
+                        grep_count_pipeline_fix(checker.source(), left, right, operator.span())
+                    })
+                    .flatten(),
             })
         })
         .collect()
@@ -117,6 +123,14 @@ fn command_body_span(fact: CommandFactRef<'_, '_>) -> Option<Span> {
 
 fn is_raw_utility_named(fact: CommandFactRef<'_, '_>, name: &str) -> bool {
     fact.literal_name() == Some(name) && fact.wrappers().is_empty()
+}
+
+fn wc_uses_line_count(fact: CommandFactRef<'_, '_>, source: &str) -> bool {
+    fact.body_args().iter().any(|word| {
+        static_word_text(word, source).is_some_and(|text| {
+            text == "-l" || text == "--lines" || (text.starts_with('-') && text[1..].contains('l'))
+        })
+    })
 }
 
 fn wc_uses_only_line_count(fact: CommandFactRef<'_, '_>, source: &str) -> bool {
@@ -242,8 +256,15 @@ grep foo file | wc -cl
 grep foo file | wc -l other.txt
 grep foo file | wc -l > count
 ";
-        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GrepCountPipeline));
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::GrepCountPipeline),
+            Applicability::Unsafe,
+        );
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(result.diagnostics.len(), 3);
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert_eq!(result.fixed_diagnostics.len(), 3);
     }
 }
