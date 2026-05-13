@@ -58,6 +58,8 @@ struct EffectiveRuleOptions {
     s078_allowed_shells: Vec<String>,
     s079_allowed_forms: Vec<String>,
     s079_allowed_paths: Vec<String>,
+    s080_max_lines: usize,
+    s080_count: String,
     s084_require_globals: bool,
     s084_require_arguments: bool,
     s084_require_outputs: bool,
@@ -193,6 +195,8 @@ impl EffectiveRuleOptions {
             s078_allowed_shells: rule_options.s078.allowed_shells.clone(),
             s079_allowed_forms: rule_options.s079.allowed_forms.clone(),
             s079_allowed_paths: rule_options.s079.allowed_paths.clone(),
+            s080_max_lines: rule_options.s080.max_lines,
+            s080_count: rule_options.s080.count.clone(),
             s084_require_globals: rule_options.s084.require_globals,
             s084_require_arguments: rule_options.s084.require_arguments,
             s084_require_outputs: rule_options.s084.require_outputs,
@@ -220,6 +224,8 @@ impl CacheKey for EffectiveRuleOptions {
         self.s078_allowed_shells.cache_key(state);
         self.s079_allowed_forms.cache_key(state);
         self.s079_allowed_paths.cache_key(state);
+        self.s080_max_lines.cache_key(state);
+        self.s080_count.cache_key(state);
         self.s084_require_globals.cache_key(state);
         self.s084_require_arguments.cache_key(state);
         self.s084_require_outputs.cache_key(state);
@@ -863,7 +869,7 @@ pub(super) fn resolve_project_check_settings(
         parse_lint_zsh_plugin_layer(&config.lint),
         parse_cli_zsh_plugin_layer(cli_zsh_plugins),
     ];
-    let rule_options = linter_rule_options_for_lint_config(&config.lint);
+    let rule_options = linter_rule_options_for_lint_config(&config.lint)?;
 
     let mut enabled_rules = LinterSettings::default_rules();
     let mut fixable_rules = RuleSet::all();
@@ -963,7 +969,9 @@ pub(super) fn resolve_project_check_settings(
     })
 }
 
-fn linter_rule_options_for_lint_config(lint: &LintConfig) -> shuck_linter::LinterRuleOptions {
+fn linter_rule_options_for_lint_config(
+    lint: &LintConfig,
+) -> Result<shuck_linter::LinterRuleOptions> {
     let mut rule_options = shuck_linter::LinterRuleOptions::default();
     if let Some(value) = lint
         .rule_options
@@ -1004,6 +1012,23 @@ fn linter_rule_options_for_lint_config(lint: &LintConfig) -> shuck_linter::Linte
         .and_then(|s079| s079.allowed_paths.as_ref())
     {
         rule_options.s079.allowed_paths.clone_from(value);
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.s080.as_ref())
+        .and_then(|s080| s080.max_lines)
+    {
+        rule_options.s080.max_lines = value;
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.s080.as_ref())
+        .and_then(|s080| s080.count.as_ref())
+    {
+        validate_s080_count_mode(value)?;
+        rule_options.s080.count.clone_from(value);
     }
     if let Some(value) = lint
         .rule_options
@@ -1110,7 +1135,17 @@ fn linter_rule_options_for_lint_config(lint: &LintConfig) -> shuck_linter::Linte
         rule_options.c161.ignore_after_source = value;
     }
 
-    rule_options
+    Ok(rule_options)
+}
+
+fn validate_s080_count_mode(value: &str) -> Result<()> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "physical" | "non-comment-non-blank" => Ok(()),
+        _ => Err(anyhow!(
+            "unsupported `[lint.rule-options.s080].count` value `{}`; expected one of: physical, non-comment-non-blank",
+            value
+        )),
+    }
 }
 
 fn resolve_ambient_contracts(
@@ -1916,6 +1951,29 @@ mod tests {
             settings.linter_settings.rules,
             LinterSettings::default_rules().union(&NamedGroup::Google.rule_set())
         );
+    }
+
+    #[test]
+    fn config_rejects_unknown_s080_count_modes() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[lint.rule-options.s080]\ncount = 'non-comment-nonblank'\n",
+        )
+        .unwrap();
+
+        let err = resolve_project_check_settings(
+            &ProjectRoot {
+                storage_root: tempdir.path().to_path_buf(),
+                canonical_root: fs::canonicalize(tempdir.path()).unwrap(),
+            },
+            &ConfigArguments::default(),
+            &RuleSelectionArgs::default(),
+            &ZshPluginArgs::default(),
+        )
+        .unwrap_err();
+
+        assert!(format!("{err:#}").contains("unsupported `[lint.rule-options.s080].count` value"));
     }
 
     #[test]

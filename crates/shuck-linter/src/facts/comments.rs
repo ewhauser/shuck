@@ -59,6 +59,58 @@ pub enum ShebangInvocationForm {
     Other,
 }
 
+pub(crate) fn build_script_line_count_fact(
+    source: &str,
+    line_index: &LineIndex,
+    comment_index: &CommentIndex,
+) -> ScriptLineCountFact {
+    let physical_lines = physical_source_line_count(source);
+    let non_comment_non_blank_lines = (1..=line_index.line_count())
+        .filter_map(|line_number| {
+            source_line(source, line_index, line_number).map(|line| (line_number, line))
+        })
+        .filter(|(line_number, line)| source_line_counts_as_code(*line_number, line, comment_index))
+        .count();
+    let report_span = source_line(source, line_index, 1)
+        .map(|line| line_span(1, line.offset, line.text))
+        .unwrap_or_else(|| Span::at(Position::new()));
+
+    ScriptLineCountFact {
+        physical_lines,
+        non_comment_non_blank_lines,
+        report_span,
+    }
+}
+
+fn physical_source_line_count(source: &str) -> usize {
+    if source.is_empty() {
+        return 0;
+    }
+
+    let newline_count = source.bytes().filter(|byte| *byte == b'\n').count();
+    if source.as_bytes().last() == Some(&b'\n') {
+        newline_count
+    } else {
+        newline_count + 1
+    }
+}
+
+fn source_line_counts_as_code(
+    line_number: usize,
+    line: &SourceLine<'_>,
+    comment_index: &CommentIndex,
+) -> bool {
+    let trimmed = line.text.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    !comment_index
+        .comments_on_line(line_number)
+        .iter()
+        .any(|comment| comment.is_own_line)
+}
+
 #[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn build_shebang_header_facts(locator: Locator<'_>) -> ShebangHeaderFacts {
     let source = locator.source();

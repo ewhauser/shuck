@@ -153,7 +153,8 @@ pub use self::{
     lists::{ListFact, ListOperatorFact, ListSegmentKind, MixedShortCircuitKind},
     loop_headers::{ForHeaderFact, LoopHeaderWordFact, SelectHeaderFact},
     model::{
-        AssignmentFacts, CommandFactQueries, CompatFacts, LinterFacts, SourceFacts, WordFacts,
+        AssignmentFacts, CommandFactQueries, CompatFacts, LinterFacts, ScriptLineCountFact,
+        SourceFacts, WordFacts,
     },
     pipelines::{PipelineFact, PipelineOperatorFact, PipelineSegmentFact},
     redirects::{RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis, RedirectTargetKind},

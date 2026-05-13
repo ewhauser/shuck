@@ -1283,6 +1283,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ShebangFormPolicy) {
             rules::style::shebang_form_policy::shebang_form_policy(self);
         }
+        if self.is_rule_enabled(Rule::ScriptSizeThreshold) {
+            rules::style::script_size_threshold::script_size_threshold(self);
+        }
         if self.is_rule_enabled(Rule::NonAbsoluteShebang) {
             rules::correctness::non_absolute_shebang::non_absolute_shebang(self);
         }

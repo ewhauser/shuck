@@ -144,6 +144,7 @@ pub(crate) struct SourceFactStore<'a> {
     pub(in crate::facts) line_index: &'a LineIndex,
     pub(in crate::facts) comment_index: &'a CommentIndex,
     pub(in crate::facts) shell: ShellDialect,
+    pub(in crate::facts) script_line_count: OnceLock<ScriptLineCountFact>,
     pub(in crate::facts) indented_shebang_span: Option<Span>,
     pub(in crate::facts) indented_shebang_indent_span: Option<Span>,
     pub(in crate::facts) space_after_hash_bang_span: Option<Span>,
@@ -216,6 +217,27 @@ pub struct SourceFacts<'facts, 'a> {
 #[derive(Clone, Copy)]
 pub struct CompatFacts<'facts, 'a> {
     facts: &'facts LinterFacts<'a>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScriptLineCountFact {
+    pub(in crate::facts) physical_lines: usize,
+    pub(in crate::facts) non_comment_non_blank_lines: usize,
+    pub(in crate::facts) report_span: Span,
+}
+
+impl ScriptLineCountFact {
+    pub fn physical_lines(self) -> usize {
+        self.physical_lines
+    }
+
+    pub fn non_comment_non_blank_lines(self) -> usize {
+        self.non_comment_non_blank_lines
+    }
+
+    pub fn report_span(self) -> Span {
+        self.report_span
+    }
 }
 
 impl<'a> LinterFacts<'a> {
@@ -1031,6 +1053,16 @@ impl<'facts, 'a> SourceFacts<'facts, 'a> {
 
     pub(crate) fn shell(self) -> ShellDialect {
         self.facts.source_facts.shell
+    }
+
+    pub(crate) fn script_line_count(self) -> ScriptLineCountFact {
+        *self.facts.source_facts.script_line_count.get_or_init(|| {
+            build_script_line_count_fact(
+                self.facts.source_facts.source,
+                self.facts.source_facts.line_index,
+                self.facts.source_facts.comment_index,
+            )
+        })
     }
 
     pub(crate) fn indented_shebang_span(self) -> Option<Span> {
