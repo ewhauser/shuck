@@ -105,6 +105,23 @@ mod tests {
     }
 
     #[test]
+    fn applies_unsafe_fix_to_spaced_array_subscript_updates() {
+        let source = "#!/bin/sh\n((++arr [i]))\n((arr [j]--))\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::CStyleForArithmeticInSh),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/sh\n(((arr [i] = arr [i] + 1)))\n(((arr [j] = arr [j] - 1)))\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
     fn anchors_on_update_operators_inside_arithmetic_expansions() {
         let source = "#!/bin/sh\necho \"$((++i)) $((j--))\"\n";
         let diagnostics = test_snippet(

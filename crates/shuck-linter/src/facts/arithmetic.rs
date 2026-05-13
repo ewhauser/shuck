@@ -1853,8 +1853,9 @@ fn arithmetic_postfix_update_operand_span(operator_span: Span, source: &str) -> 
 
 fn scan_arithmetic_lvalue_end(source: &str, start: usize) -> Option<usize> {
     let mut end = scan_identifier_end(source, start)?;
-    if source[end..].starts_with('[') {
-        end = scan_balanced_bracket_end(source, end)?;
+    let subscript_start = skip_horizontal_space_forward(source, end);
+    if source[subscript_start..].starts_with('[') {
+        end = scan_balanced_bracket_end(source, subscript_start)?;
     }
     Some(end)
 }
@@ -1865,7 +1866,8 @@ fn scan_arithmetic_lvalue_start(source: &str, end: usize) -> Option<usize> {
     }
     let mut start = if source[..end].ends_with(']') {
         let open = scan_balanced_bracket_start(source, end - 1)?;
-        scan_identifier_start(source, open)?
+        let identifier_end = skip_horizontal_space_backward(source, open);
+        scan_identifier_start(source, identifier_end)?
     } else {
         scan_identifier_start(source, end)?
     };
@@ -1873,6 +1875,25 @@ fn scan_arithmetic_lvalue_start(source: &str, end: usize) -> Option<usize> {
         start = scan_identifier_start(source, end)?;
     }
     Some(start)
+}
+
+fn skip_horizontal_space_forward(source: &str, mut offset: usize) -> usize {
+    let bytes = source.as_bytes();
+    while bytes
+        .get(offset)
+        .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+    {
+        offset += 1;
+    }
+    offset
+}
+
+fn skip_horizontal_space_backward(source: &str, mut offset: usize) -> usize {
+    let bytes = source.as_bytes();
+    while offset > 0 && matches!(bytes[offset - 1], b' ' | b'\t') {
+        offset -= 1;
+    }
+    offset
 }
 
 fn scan_identifier_end(source: &str, start: usize) -> Option<usize> {
