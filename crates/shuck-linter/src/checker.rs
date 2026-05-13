@@ -1180,6 +1180,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::MissingSpaceBeforeBracketClose) {
             rules::correctness::missing_space_before_bracket_close::missing_space_before_bracket_close(self);
         }
+        if self.is_rule_enabled(Rule::JammedTestBracket) {
+            rules::correctness::jammed_test_bracket::jammed_test_bracket(self);
+        }
         if self.is_rule_enabled(Rule::EscapedNegationInTest) {
             rules::correctness::escaped_negation_in_test::escaped_negation_in_test(self);
         }

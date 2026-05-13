@@ -468,6 +468,37 @@ fn unescaped_final_closing_bracket_len(text: &str) -> Option<usize> {
         .then_some(1)
 }
 
+pub(crate) fn build_jammed_test_bracket_fact(
+    command: &Command,
+    source: &str,
+) -> Option<(Span, usize)> {
+    let Command::Simple(command) = command else {
+        return None;
+    };
+    let name_text = command.name.span.slice(source);
+    let bracket_len = if name_text.starts_with("[[") {
+        "[[".len()
+    } else if name_text.starts_with('[') {
+        "[".len()
+    } else {
+        return None;
+    };
+    if name_text.len() == bracket_len {
+        return None;
+    }
+
+    let start = command.name.span.start;
+    let end = Position {
+        offset: start.offset + bracket_len,
+        line: start.line,
+        column: start.column + bracket_len,
+    };
+    Some((
+        Span::from_positions(start, end),
+        command.name.span.start.offset + bracket_len,
+    ))
+}
+
 pub(crate) fn build_glued_closing_bracket_operand_word<'a>(
     command: &'a Command,
     source: &str,

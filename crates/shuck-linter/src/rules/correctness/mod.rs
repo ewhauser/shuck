@@ -68,6 +68,7 @@ pub mod if_missing_then;
 pub mod ifs_set_to_literal_backslash_n;
 pub mod indented_shebang;
 pub mod invalid_exit_status;
+pub mod jammed_test_bracket;
 pub mod leading_glob_argument;
 pub mod leading_zero_arithmetic;
 pub mod line_oriented_input;
@@ -184,6 +185,7 @@ mod tests {
     #[test_case(Rule::AssignmentSpacing, Path::new("C024.sh"))]
     #[test_case(Rule::MissingBracketSpace, Path::new("C030.sh"))]
     #[test_case(Rule::MissingSpaceBeforeBracketClose, Path::new("C031.sh"))]
+    #[test_case(Rule::JammedTestBracket, Path::new("C032.sh"))]
     #[test_case(Rule::PositionalTenBraces, Path::new("C025.sh"))]
     #[test_case(Rule::BareDoneWord, Path::new("C027.sh"))]
     #[test_case(Rule::MissingFi, Path::new("C035.sh"))]
