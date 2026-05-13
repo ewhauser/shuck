@@ -13,6 +13,7 @@ pub mod backtick_in_command_position;
 pub mod bad_redirection_fd_order;
 pub mod bad_var_name;
 pub mod bare_closing_brace;
+pub mod bare_done_word;
 pub mod bare_slash_marker;
 pub mod broken_assoc_key;
 mod broken_test_common;
@@ -179,6 +180,7 @@ mod tests {
     #[test_case(Rule::AssignmentSpacing, Path::new("C024.sh"))]
     #[test_case(Rule::MissingBracketSpace, Path::new("C030.sh"))]
     #[test_case(Rule::PositionalTenBraces, Path::new("C025.sh"))]
+    #[test_case(Rule::BareDoneWord, Path::new("C027.sh"))]
     #[test_case(Rule::MissingFi, Path::new("C035.sh"))]
     #[test_case(Rule::BrokenTestEnd, Path::new("C036.sh"))]
     #[test_case(Rule::BrokenTestParse, Path::new("C037.sh"))]

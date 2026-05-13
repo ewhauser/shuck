@@ -871,6 +871,8 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         );
         let brace_variable_before_bracket_spans =
             build_brace_variable_before_bracket_spans(&word_nodes, &word_occurrences, source);
+        let bare_done_word_spans =
+            build_bare_done_word_spans(&commands, &word_nodes, &word_occurrences, source);
         let alias_definition_expansion_spans = build_alias_definition_expansion_spans(
             &commands,
             &fact_store,
@@ -992,6 +994,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 word_index,
                 array_assignment_split_word_ids,
                 brace_variable_before_bracket_spans,
+                bare_done_word_spans,
                 array_index_arithmetic_spans: arithmetic_summary.array_index_arithmetic_spans,
                 arithmetic_score_line_spans: arithmetic_summary.arithmetic_score_line_spans,
                 dollar_in_arithmetic_spans: arithmetic_summary.dollar_in_arithmetic_spans,
