@@ -1,8 +1,7 @@
 use std::path::Path;
 
 use shuck_ast::Span;
-use shuck_indexer::Indexer;
-use shuck_linter::{Diagnostic, LinterSettings, ShellCheckCodeMap, lint_file};
+use shuck_linter::{AnalysisRequest, Diagnostic, LinterSettings, ShellCheckCodeMap};
 use shuck_parser::{ShellDialect as ParseDialect, parser::Parser};
 
 pub(crate) const LINT_CASES: [LintCase; 4] = [
@@ -64,17 +63,13 @@ pub(crate) fn lint_source_with_recovery(
     dialect: ParseDialect,
 ) -> Vec<Diagnostic> {
     let parse_result = Parser::with_dialect(source, dialect).parse();
-    let indexer = Indexer::new(source, &parse_result);
     let settings = match path {
         Some(path) => LinterSettings::default().with_analyzed_paths([path.to_path_buf()]),
         None => LinterSettings::default(),
     };
-    lint_file(
-        &parse_result,
-        source,
-        &indexer,
-        &settings,
-        &ShellCheckCodeMap::default(),
-        path,
-    )
+    let shellcheck_map = ShellCheckCodeMap::default();
+    AnalysisRequest::from_parse_result(&parse_result, source, &settings)
+        .with_optional_source_path(path)
+        .with_shellcheck_map(&shellcheck_map)
+        .lint()
 }

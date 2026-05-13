@@ -4,7 +4,7 @@ use super::inert::{
 };
 use super::*;
 
-impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
+impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
     pub(super) fn visit_words(
         &mut self,
         words: &'a [Word],

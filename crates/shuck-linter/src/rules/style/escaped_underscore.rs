@@ -123,29 +123,22 @@ fn is_regular_plain_word_escape_target(byte: u8) -> bool {
 mod tests {
     use std::path::Path;
 
-    use shuck_indexer::Indexer;
     use shuck_parser::parser::{Parser, ShellDialect as ParseDialect};
 
     use super::FIX_TITLE;
     use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
     use crate::{
-        Applicability, Diagnostic, LinterSettings, Rule, ShellDialect, assert_diagnostics_diff,
-        lint_file,
+        AnalysisRequest, Applicability, Diagnostic, LinterSettings, Rule, ShellDialect,
+        assert_diagnostics_diff,
     };
 
     fn test_posix_snippet_at_path(path: &Path, source: &str) -> Vec<Diagnostic> {
         let parse_result = Parser::with_dialect(source, ParseDialect::Posix).parse();
-        let indexer = Indexer::new(source, &parse_result);
         let settings =
             LinterSettings::for_rule(Rule::EscapedUnderscore).with_shell(ShellDialect::Sh);
-        lint_file(
-            &parse_result,
-            source,
-            &indexer,
-            &settings,
-            &crate::ShellCheckCodeMap::default(),
-            Some(path),
-        )
+        AnalysisRequest::from_parse_result(&parse_result, source, &settings)
+            .with_source_path(path)
+            .lint()
     }
 
     #[test]

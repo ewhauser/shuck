@@ -51,7 +51,7 @@ This gives each category 999 rule slots — more than enough. The scheme is exte
 crates/shuck-linter/
 ├── Cargo.toml
 └── src/
-    ├── lib.rs              # Public API: analyze_file(), lint_file(), lint_file_at_path*, LinterSettings
+    ├── lib.rs              # Public API: AnalysisRequest, analyze(), lint(), LinterSettings
     ├── registry.rs         # Rule enum, Category enum, code→rule mapping
     ├── rule_set.rs         # Bitset of enabled rules
     ├── rule_selector.rs    # Parsing user selections ("SHC", "SHC001")
@@ -586,33 +586,10 @@ The top-level entry point consumed by the CLI:
 
 ```rust
 /// Lint an existing parse result and return diagnostics.
-pub fn lint_file(
-    parse_result: &ParseResult,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
-    source_path: Option<&Path>,
-) -> Vec<Diagnostic> {
-    let analysis = analyze_file_at_path(
-        &parse_result.file,
-        source,
-        indexer,
-        settings,
-        source_path,
-    );
-    let mut diagnostics = analysis.diagnostics;
-
-    // Add parse-aware rule diagnostics, then apply severity overrides,
-    // suppression filtering, per-file ignores, and stable ordering.
-    diagnostics.extend(collect_parse_rule_diagnostics(parse_result, source, settings));
-    for diag in &mut diagnostics {
-        if let Some(&severity) = settings.severity_overrides.get(&diag.rule) {
-            diag.severity = severity;
-        }
-    }
-    diagnostics
-}
+let diagnostics = AnalysisRequest::from_parse_result(parse_result, source, settings)
+    .with_source_path(path)
+    .with_shellcheck_map(shellcheck_map)
+    .lint();
 ```
 
 ### Data Flow (End-to-End)
@@ -622,13 +599,12 @@ How the linter fits into `shuck check`:
 ```
 Source text
     → shuck-parser::Parser::parse()       → ParseOutput (Script + Comments)
-    → shuck-indexer::Indexer::new()        → Indexer
-    → shuck-linter::lint_file()
+    → shuck-linter::AnalysisRequest::from_parse_result(...).lint()
                                              → Vec<Diagnostic>
     → CLI formats and prints diagnostics
 ```
 
-The CLI owns the pipeline. The linter is a pure function over parsed input, source text, an indexer, and settings. It performs no I/O, caching, or output formatting.
+The CLI owns the pipeline. The linter is a pure function over parsed input, source text, and settings. The request builds the positional index it needs internally, and the linter performs no I/O, caching, or output formatting.
 
 ## Alternatives Considered
 
@@ -662,8 +638,8 @@ Once implemented, verify with:
 
 - **Rule registration**: `Rule::iter().count()` returns the expected number of rules, and every rule has a unique code.
 - **Prefix selection**: `RuleSelector::from_str("C").unwrap().into_rule_set()` contains exactly the correctness rules. Same for other prefixes.
-- **Diagnostic output**: `lint_file()` on a script with a known undefined variable produces a diagnostic with `rule == Rule::UndefinedVariable`, `severity == Severity::Error`, and the correct span.
+- **Diagnostic output**: `AnalysisRequest::from_parse_result(...).lint()` on a script with a known undefined variable produces a diagnostic with `rule == Rule::UndefinedVariable`, `severity == Severity::Error`, and the correct span.
 - **Rule gating**: A `LinterSettings` with only `C001` enabled produces diagnostics only for that rule, even on a script that would trigger others.
 - **Severity override**: Setting `severity_overrides[Rule::UnquotedExpansion] = Severity::Hint` produces a diagnostic with `Severity::Hint`.
 - **Sort order**: Diagnostics are returned sorted by source position.
-- **No-op on empty rule set**: `lint_file()` with `RuleSet::EMPTY` returns an empty vec without running any checks.
+- **No-op on empty rule set**: `AnalysisRequest::from_parse_result(...).lint()` with `RuleSet::EMPTY` returns an empty vec without running any checks.

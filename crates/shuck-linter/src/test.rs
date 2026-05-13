@@ -2,12 +2,11 @@ use std::fmt::Write;
 use std::fs;
 use std::path::Path;
 
-use shuck_indexer::Indexer;
 use shuck_parser::parser::{ParseResult, Parser};
 use similar::TextDiff;
 
 use crate::{
-    Applicability, Diagnostic, LinterSettings, ShellDialect, apply_fixes, lint_file_with_directives,
+    AnalysisRequest, Applicability, Diagnostic, LinterSettings, ShellDialect, apply_fixes,
 };
 
 fn infer_shell(source: &str, settings: &LinterSettings, path: Option<&Path>) -> ShellDialect {
@@ -34,10 +33,11 @@ pub struct FixTestResult {
 /// Lint a source string directly (no file needed).
 pub fn test_snippet(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
     let parse_result = parse_for_lint(source, settings, None);
-    let indexer = Indexer::new(source, &parse_result);
     // Fixture and rule-focused test helpers ignore inline directives by default so
     // embedded ShellCheck suppressions do not silently mask the rule under test.
-    lint_file_with_directives(&parse_result, source, &indexer, settings, &[], None)
+    AnalysisRequest::from_parse_result(&parse_result, source, settings)
+        .without_suppressions()
+        .lint()
 }
 
 /// Lint a source string while preserving an explicit path for path-sensitive rules.
@@ -47,8 +47,10 @@ pub fn test_snippet_at_path(
     settings: &LinterSettings,
 ) -> Vec<Diagnostic> {
     let parse_result = parse_for_lint(source, settings, Some(path));
-    let indexer = Indexer::new(source, &parse_result);
-    lint_file_with_directives(&parse_result, source, &indexer, settings, &[], Some(path))
+    AnalysisRequest::from_parse_result(&parse_result, source, settings)
+        .with_source_path(path)
+        .without_suppressions()
+        .lint()
 }
 
 pub fn test_snippet_with_fix(

@@ -218,7 +218,7 @@ criterion_group!(benches, bench_parse);
 criterion_main!(benches);
 ```
 
-The lexer, semantic, and linter benches follow the same structure, benchmarking `Lexer::new(source).collect::<Vec<_>>()`, `SemanticModel::build(...)`, and the full `lint_file()` pipeline respectively.
+The lexer, semantic, and linter benches follow the same structure, benchmarking `Lexer::new(source).collect::<Vec<_>>()`, `SemanticModel::build(...)`, and the full `AnalysisRequest::from_parse_result(...).lint()` pipeline respectively.
 
 #### Memory Allocator
 

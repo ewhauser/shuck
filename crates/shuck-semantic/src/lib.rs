@@ -2350,7 +2350,7 @@ fn file_entry_contract_can_consume_exact_binding(binding: &Binding) -> bool {
 pub fn build_with_observer<'a>(
     file: &'a File,
     source: &'a str,
-    indexer: &'a Indexer,
+    indexer: &Indexer,
     observer: &mut dyn TraversalObserver<'a>,
 ) -> SemanticModel {
     build_with_observer_with_options(
@@ -2366,7 +2366,7 @@ pub fn build_with_observer<'a>(
 pub fn build_with_observer_with_options<'a>(
     file: &'a File,
     source: &'a str,
-    indexer: &'a Indexer,
+    indexer: &Indexer,
     observer: &mut dyn TraversalObserver<'a>,
     options: SemanticBuildOptions<'_>,
 ) -> SemanticModel {
@@ -2377,7 +2377,7 @@ pub fn build_with_observer_with_options<'a>(
 pub fn build_with_observer_at_path<'a>(
     file: &'a File,
     source: &'a str,
-    indexer: &'a Indexer,
+    indexer: &Indexer,
     observer: &mut dyn TraversalObserver<'a>,
     source_path: Option<&Path>,
 ) -> SemanticModel {
@@ -2388,7 +2388,7 @@ pub fn build_with_observer_at_path<'a>(
 pub fn build_with_observer_at_path_with_resolver<'a>(
     file: &'a File,
     source: &'a str,
-    indexer: &'a Indexer,
+    indexer: &Indexer,
     observer: &mut dyn TraversalObserver<'a>,
     source_path: Option<&Path>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
@@ -2415,7 +2415,7 @@ pub fn build_with_observer_at_path_with_resolver<'a>(
 fn build_semantic_model<'a>(
     file: &'a File,
     source: &'a str,
-    indexer: &'a Indexer,
+    indexer: &Indexer,
     observer: &mut dyn TraversalObserver<'a>,
     options: SemanticBuildOptions<'_>,
 ) -> SemanticModel {
@@ -2486,7 +2486,7 @@ fn build_semantic_model<'a>(
 pub(crate) fn build_semantic_model_base<'a, 'observer>(
     file: &'a File,
     source: &'a str,
-    indexer: &'a Indexer,
+    indexer: &Indexer,
     observer: &'observer mut dyn TraversalObserver<'a>,
     source_path: Option<&Path>,
     shell_profile: Option<ShellProfile>,

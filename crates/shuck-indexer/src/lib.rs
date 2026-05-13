@@ -31,7 +31,7 @@ pub use line_index::LineIndex;
 /// Structural region indexes over parsed shell source.
 pub use region_index::{RegionIndex, RegionKind};
 
-use shuck_ast::TextSize;
+use shuck_ast::{File, TextSize};
 use shuck_parser::parser::ParseResult;
 
 /// Pre-computed positional and structural index over a parsed shell script.
@@ -60,9 +60,17 @@ impl Indexer {
     /// source text can make line and region queries meaningless, even though the
     /// constructor defensively avoids panicking on malformed comment ranges.
     pub fn new(source: &str, output: &ParseResult) -> Self {
+        Self::for_file(source, &output.file)
+    }
+
+    /// Build all indexes from an already parsed file and the original source text.
+    ///
+    /// `source` must be the exact text used to produce `file`; ranges in the
+    /// AST are interpreted as byte offsets into that string.
+    pub fn for_file(source: &str, file: &File) -> Self {
         let line_index = LineIndex::new(source);
-        let comment_index = CommentIndex::new(source, &line_index, &output.file);
-        let region_index = RegionIndex::new(source, &output.file);
+        let comment_index = CommentIndex::new(source, &line_index, file);
+        let region_index = RegionIndex::new(source, file);
         let continuation_lines =
             collect_continuation_lines(&line_index, &comment_index, &region_index);
 

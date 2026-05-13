@@ -74,10 +74,10 @@ pub(crate) struct BuildOutput {
     pub(crate) heuristic_unused_assignments: Vec<BindingId>,
 }
 
-pub(crate) struct SemanticModelBuilder<'a, 'observer> {
+pub(crate) struct SemanticModelBuilder<'a, 'idx, 'observer> {
     source: &'a str,
     file_entry_contract_collector: Option<&'observer mut dyn FileEntryContractCollector>,
-    line_index: &'a LineIndex,
+    line_index: &'idx LineIndex,
     shell_profile: ShellProfile,
     observer: &'observer mut dyn TraversalObserver<'a>,
     scopes: Vec<Scope>,
@@ -209,11 +209,11 @@ mod traversal;
 mod words;
 mod zsh_effects;
 
-impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
+impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
     pub(crate) fn build(
         file: &'a File,
         source: &'a str,
-        indexer: &'a Indexer,
+        indexer: &'idx Indexer,
         observer: &'observer mut dyn TraversalObserver<'a>,
         file_entry_contract_collector: Option<&'observer mut dyn FileEntryContractCollector>,
         bash_runtime_vars_enabled: bool,

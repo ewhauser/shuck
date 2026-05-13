@@ -1,7 +1,7 @@
 use super::zsh_effects::recorded_command_info;
 use super::*;
 
-impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
+impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
     pub(super) fn flow_context(flow: FlowState) -> FlowContext {
         FlowContext {
             in_function: flow.in_function,

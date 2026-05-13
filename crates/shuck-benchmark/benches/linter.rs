@@ -4,7 +4,8 @@ use std::time::Duration;
 use shuck_benchmark::{benchmark_cases, configure_benchmark_allocator, parse_fixture};
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    LinterFacts, LinterSemanticArtifacts, LinterSettings, RuleSet, ShellCheckCodeMap, lint_file,
+    AnalysisRequest, LinterFacts, LinterSemanticArtifacts, LinterSettings, RuleSet,
+    ShellCheckCodeMap,
 };
 use shuck_parser::parser::ParseResult;
 
@@ -36,8 +37,9 @@ fn lint_source(
     shellcheck_map: &ShellCheckCodeMap,
 ) -> usize {
     let output = parse_fixture(source);
-    let indexer = Indexer::new(source, &output);
-    let diagnostics = lint_file(&output, source, &indexer, settings, shellcheck_map, None);
+    let diagnostics = AnalysisRequest::from_parse_result(&output, source, settings)
+        .with_shellcheck_map(shellcheck_map)
+        .lint();
 
     black_box(diagnostics.len())
 }

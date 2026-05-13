@@ -1,6 +1,6 @@
 use super::*;
 
-impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
+impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
     pub(super) fn visit_assignment_reads_into(
         &mut self,
         assignment: &'a Assignment,
@@ -325,7 +325,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 }
 
 fn assignment_source_path_template_for_binding(
-    builder: &SemanticModelBuilder<'_, '_>,
+    builder: &SemanticModelBuilder<'_, '_, '_>,
     assignment: &Assignment,
 ) -> Option<SourcePathTemplate> {
     let AssignmentValue::Scalar(word) = &assignment.value else {

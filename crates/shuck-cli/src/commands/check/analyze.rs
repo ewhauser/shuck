@@ -3,7 +3,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
-use shuck_indexer::Indexer;
 use shuck_linter::{Applicability, LinterSettings, RuleSet, ShellCheckCodeMap, ShellDialect};
 use shuck_parser::{
     Error as ParseError,
@@ -157,17 +156,11 @@ pub(super) fn collect_lint_diagnostics(
     shellcheck_map: &ShellCheckCodeMap,
     source_path: &Path,
 ) -> shuck_linter::AnalysisResult {
-    let indexer = Indexer::new(source, parse_result);
-    shuck_linter::analyze_file_at_path_with_resolver_and_parse_result_with_plugin_resolver(
-        parse_result,
-        source,
-        &indexer,
-        linter_settings,
-        shellcheck_map,
-        Some(source_path),
-        None,
-        plugin_resolver,
-    )
+    shuck_linter::AnalysisRequest::from_parse_result(parse_result, source, linter_settings)
+        .with_source_path(source_path)
+        .with_shellcheck_map(shellcheck_map)
+        .with_optional_plugin_resolver(plugin_resolver)
+        .analyze()
 }
 pub(super) fn read_shared_source(path: &Path) -> Result<Arc<str>> {
     Ok(Arc::<str>::from(fs::read_to_string(path)?))
