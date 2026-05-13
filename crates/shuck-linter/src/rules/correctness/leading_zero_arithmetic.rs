@@ -84,20 +84,42 @@ fn is_adjacent_to_runtime_expansion(
     span: Span,
     command_substitution_spans: &[Span],
 ) -> bool {
-    let Some(previous) = span
-        .start
-        .offset
-        .checked_sub(1)
-        .and_then(|offset| source.as_bytes().get(offset))
-    else {
+    let Some(previous_offset) = previous_non_quote_offset(source, span.start.offset) else {
+        return false;
+    };
+    let Some(previous) = source.as_bytes().get(previous_offset) else {
         return false;
     };
 
     *previous == b'}'
         || *previous == b'`'
-        || command_substitution_spans
-            .iter()
-            .any(|substitution| substitution.end.offset == span.start.offset)
+        || command_substitution_spans.iter().any(|substitution| {
+            quote_only_between(source, substitution.end.offset, span.start.offset)
+        })
+}
+
+fn previous_non_quote_offset(source: &str, end_offset: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut offset = end_offset.checked_sub(1)?;
+    loop {
+        let byte = *bytes.get(offset)?;
+        if !is_quote_byte(byte) {
+            return Some(offset);
+        }
+        offset = offset.checked_sub(1)?;
+    }
+}
+
+fn quote_only_between(source: &str, start_offset: usize, end_offset: usize) -> bool {
+    start_offset <= end_offset
+        && source
+            .as_bytes()
+            .get(start_offset..end_offset)
+            .is_some_and(|bytes| bytes.iter().all(|byte| is_quote_byte(*byte)))
+}
+
+fn is_quote_byte(byte: u8) -> bool {
+    matches!(byte, b'\'' | b'"')
 }
 
 fn is_plain_suppressed_subscript_literal(
@@ -185,6 +207,8 @@ declare -A checksums
 [[ -v checksums[09] ]]
 [[ $(printf '%s' 08) -lt 10 ]]
 [[ $(printf '%s' 1)08 -lt 200 ]]
+[[ \"$(printf '%s' 1)08\" -lt 200 ]]
+[[ \"$(printf '%s' 1)\"08 -lt 200 ]]
 ";
         let diagnostics = test_snippet(
             source,
@@ -207,6 +231,8 @@ declare -A checksums
 count=3
 : $(( ${count}08 / 2 ))
 : $(( $(printf '%s' 1)08 / 2 ))
+: $(( \"$(printf '%s' 1)08\" / 2 ))
+: $(( \"$(printf '%s' 1)\"08 / 2 ))
 declare -A checksums
 checksums[008]=value
 ";

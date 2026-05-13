@@ -737,11 +737,7 @@ pub(crate) fn collect_arithmetic_context_spans_in_word(
         dollar_spans.push(word.span);
     }
 
-    for part in &word.parts {
-        if let WordPart::CommandSubstitution { .. } = &part.kind {
-            command_substitution_spans.push(part.span);
-        }
-    }
+    collect_arithmetic_context_command_substitution_spans(&word.parts, command_substitution_spans);
 
     collect_arithmetic_expansion_spans_from_parts(
         &word.parts,
@@ -750,6 +746,37 @@ pub(crate) fn collect_arithmetic_context_spans_in_word(
         dollar_spans,
         command_substitution_spans,
     );
+}
+
+fn collect_arithmetic_context_command_substitution_spans(
+    parts: &[WordPartNode],
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::CommandSubstitution { .. } => spans.push(part.span),
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_arithmetic_context_command_substitution_spans(parts, spans);
+            }
+            WordPart::Literal(_)
+            | WordPart::SingleQuoted { .. }
+            | WordPart::Variable(_)
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => {}
+        }
+    }
 }
 
 pub(crate) fn collect_arithmetic_spans_in_parameter_operator(
