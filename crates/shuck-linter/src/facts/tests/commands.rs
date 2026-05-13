@@ -633,11 +633,25 @@ ssh host cmd '-t' \"$USER\"
             Some(1)
         );
         assert_eq!(
+            ssh_commands[0]
+                .options()
+                .ssh()
+                .map(|ssh| ssh.remote_command_arg_span().slice(source)),
+            Some("\"echo $HOME\"")
+        );
+        assert_eq!(
             ssh_commands[1]
                 .options()
                 .ssh()
                 .map(|ssh| ssh.local_expansion_spans().len()),
             Some(1)
+        );
+        assert_eq!(
+            ssh_commands[1]
+                .options()
+                .ssh()
+                .map(|ssh| ssh.remote_command_arg_span().slice(source)),
+            Some("\"echo $USER\"")
         );
         assert!(ssh_commands[2].options().ssh().is_none());
         assert!(ssh_commands[3].options().ssh().is_none());

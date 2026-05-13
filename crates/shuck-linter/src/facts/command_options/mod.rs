@@ -212,10 +212,15 @@ impl RmCommandFacts {
 
 #[derive(Debug, Clone)]
 pub struct SshCommandFacts {
+    remote_command_arg_span: Span,
     local_expansion_spans: Box<[Span]>,
 }
 
 impl SshCommandFacts {
+    pub fn remote_command_arg_span(&self) -> Span {
+        self.remote_command_arg_span
+    }
+
     pub fn local_expansion_spans(&self) -> &[Span] {
         &self.local_expansion_spans
     }

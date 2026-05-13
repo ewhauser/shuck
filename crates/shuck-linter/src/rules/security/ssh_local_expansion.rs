@@ -1,8 +1,12 @@
-use crate::{Checker, Rule, Violation};
+use shuck_ast::Span;
+
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct SshLocalExpansion;
 
 impl Violation for SshLocalExpansion {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::SshLocalExpansion
     }
@@ -10,24 +14,51 @@ impl Violation for SshLocalExpansion {
     fn message(&self) -> String {
         "ssh command text is expanded locally before the remote shell sees it".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("single-quote the remote command".to_owned())
+    }
 }
 
 pub fn ssh_local_expansion(checker: &mut Checker) {
-    let spans = checker
+    let source = checker.source();
+    let diagnostics = checker
         .facts()
         .commands()
         .iter()
         .filter_map(|fact| fact.options().ssh())
-        .flat_map(|fact| fact.local_expansion_spans().iter().copied())
+        .flat_map(|fact| {
+            fact.local_expansion_spans().iter().copied().map(|span| {
+                Diagnostic::new(SshLocalExpansion, span)
+                    .with_fix(remote_command_fix(source, fact.remote_command_arg_span()))
+            })
+        })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || SshLocalExpansion);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
+}
+
+fn remote_command_fix(source: &str, span: Span) -> Fix {
+    let replacement = single_quoted_remote_command(span.slice(source)).unwrap_or_else(|| {
+        format!(
+            "'{}'",
+            span.slice(source).trim_matches('"').replace('\'', "'\\''")
+        )
+    });
+    Fix::unsafe_edit(Edit::replacement(replacement, span))
+}
+
+fn single_quoted_remote_command(text: &str) -> Option<String> {
+    let body = text.strip_prefix('"')?.strip_suffix('"')?;
+    Some(format!("'{}'", body.replace('\'', "'\\''")))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn ignores_expansions_in_destination_arguments() {
@@ -119,5 +150,22 @@ URL=$(ssh \"$host\" url \"$REPO\")
 
         assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
         assert_eq!(diagnostics[0].span.slice(source), "$REPO");
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_single_quote_remote_command_argument() {
+        let source = "#!/bin/sh\nssh \"$host\" \"echo $HOME\"\nssh host \"printf '%s\\n' $USER\"\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SshLocalExpansion),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/sh\nssh \"$host\" 'echo $HOME'\nssh host 'printf '\\''%s\\n'\\'' $USER'\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 }
