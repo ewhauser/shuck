@@ -391,6 +391,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::FunctionBodyWithoutBraces) {
             rules::style::function_body_without_braces::function_body_without_braces(self);
         }
+        if self.is_rule_enabled(Rule::MissingFunctionDoc) {
+            rules::style::missing_function_doc::missing_function_doc(self);
+        }
         if self.is_rule_enabled(Rule::FunctionDocContent) {
             rules::style::function_doc_content::function_doc_content(self);
         }

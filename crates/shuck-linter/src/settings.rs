@@ -41,6 +41,8 @@ pub struct LinterRuleOptions {
     pub s081: S081RuleOptions,
     /// Behavior overrides for `S082`.
     pub s082: S082RuleOptions,
+    /// Behavior overrides for `S083`.
+    pub s083: S083RuleOptions,
     /// Behavior overrides for `S084`.
     pub s084: S084RuleOptions,
     /// Behavior overrides for `S085`.
@@ -169,6 +171,32 @@ impl Default for S082RuleOptions {
     }
 }
 
+/// Which functions require a leading documentation comment for `S083`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum S083FunctionDocRequirement {
+    All,
+    Exported,
+    #[default]
+    Long,
+    Parameterized,
+}
+
+/// Behavior overrides for `S083` missing function documentation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct S083RuleOptions {
+    pub require_for: S083FunctionDocRequirement,
+    pub long_function_line_threshold: usize,
+}
+
+impl Default for S083RuleOptions {
+    fn default() -> Self {
+        Self {
+            require_for: S083FunctionDocRequirement::Long,
+            long_function_line_threshold: 10,
+        }
+    }
+}
+
 /// Behavior overrides for `S084` function documentation content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct S084RuleOptions {
@@ -209,6 +237,7 @@ impl Default for S085RuleOptions {
         }
     }
 }
+
 /// Behavior overrides for `C158` implicit global assignment analysis.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct C158RuleOptions {
@@ -500,6 +529,16 @@ impl LinterSettings {
 
     pub fn with_s082_require_message(mut self, value: bool) -> Self {
         self.rule_options.s082.require_message = value;
+        self
+    }
+
+    pub fn with_s083_require_for(mut self, value: S083FunctionDocRequirement) -> Self {
+        self.rule_options.s083.require_for = value;
+        self
+    }
+
+    pub fn with_s083_long_function_line_threshold(mut self, value: usize) -> Self {
+        self.rule_options.s083.long_function_line_threshold = value;
         self
     }
 

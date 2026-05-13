@@ -109,7 +109,8 @@ pub use settings::{
     AmbientShellOptions, C001RuleOptions, C063RuleOptions, C158RuleOptions, C159RuleOptions,
     C160RuleOptions, C161RuleOptions, C162RuleOptions, CompiledPerFileIgnoreList,
     LinterRuleOptions, LinterSettings, PerFileIgnore, S078RuleOptions, S079RuleOptions,
-    S080RuleOptions, S081RuleOptions, S082RuleOptions, S084RuleOptions, S085RuleOptions,
+    S080RuleOptions, S081RuleOptions, S082RuleOptions, S083FunctionDocRequirement, S083RuleOptions,
+    S084RuleOptions, S085RuleOptions,
 };
 /// Shell dialect selection used by the linter.
 pub use shell::ShellDialect;

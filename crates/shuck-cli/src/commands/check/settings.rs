@@ -64,6 +64,8 @@ struct EffectiveRuleOptions {
     s082_kinds: Vec<String>,
     s082_require_owner: bool,
     s082_require_message: bool,
+    s083_require_for: u8,
+    s083_long_function_line_threshold: usize,
     s084_require_globals: bool,
     s084_require_arguments: bool,
     s084_require_outputs: bool,
@@ -205,6 +207,8 @@ impl EffectiveRuleOptions {
             s082_kinds: rule_options.s082.kinds.clone(),
             s082_require_owner: rule_options.s082.require_owner,
             s082_require_message: rule_options.s082.require_message,
+            s083_require_for: s083_require_for_cache_value(rule_options.s083.require_for),
+            s083_long_function_line_threshold: rule_options.s083.long_function_line_threshold,
             s084_require_globals: rule_options.s084.require_globals,
             s084_require_arguments: rule_options.s084.require_arguments,
             s084_require_outputs: rule_options.s084.require_outputs,
@@ -238,6 +242,8 @@ impl CacheKey for EffectiveRuleOptions {
         self.s082_kinds.cache_key(state);
         self.s082_require_owner.cache_key(state);
         self.s082_require_message.cache_key(state);
+        self.s083_require_for.cache_key(state);
+        self.s083_long_function_line_threshold.cache_key(state);
         self.s084_require_globals.cache_key(state);
         self.s084_require_arguments.cache_key(state);
         self.s084_require_outputs.cache_key(state);
@@ -251,6 +257,15 @@ impl CacheKey for EffectiveRuleOptions {
         self.c160_allowed_anchors.cache_key(state);
         self.c161_ignore_after_source.cache_key(state);
         self.c162_treat_as_masking.cache_key(state);
+    }
+}
+
+fn s083_require_for_cache_value(value: shuck_linter::S083FunctionDocRequirement) -> u8 {
+    match value {
+        shuck_linter::S083FunctionDocRequirement::All => 0,
+        shuck_linter::S083FunctionDocRequirement::Exported => 1,
+        shuck_linter::S083FunctionDocRequirement::Long => 2,
+        shuck_linter::S083FunctionDocRequirement::Parameterized => 3,
     }
 }
 
@@ -1113,6 +1128,35 @@ fn linter_rule_options_for_lint_config(
         .and_then(|c162| c162.treat_as_masking.as_ref())
     {
         rule_options.c162.treat_as_masking = value.clone();
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.s083.as_ref())
+        .and_then(|s083| s083.require_for)
+    {
+        rule_options.s083.require_for = match value {
+            shuck_config::S083RequireForConfig::All => {
+                shuck_linter::S083FunctionDocRequirement::All
+            }
+            shuck_config::S083RequireForConfig::Exported => {
+                shuck_linter::S083FunctionDocRequirement::Exported
+            }
+            shuck_config::S083RequireForConfig::Long => {
+                shuck_linter::S083FunctionDocRequirement::Long
+            }
+            shuck_config::S083RequireForConfig::Parameterized => {
+                shuck_linter::S083FunctionDocRequirement::Parameterized
+            }
+        };
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.s083.as_ref())
+        .and_then(|s083| s083.long_function_line_threshold)
+    {
+        rule_options.s083.long_function_line_threshold = value;
     }
     if let Some(value) = lint
         .rule_options

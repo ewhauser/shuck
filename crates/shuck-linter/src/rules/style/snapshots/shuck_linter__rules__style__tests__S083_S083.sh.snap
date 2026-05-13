@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/style/mod.rs
+---
+S083 add a leading comment block for function `do_work`
+ --> <source>:2:1
+  |
+2 | do_work() {
+  |

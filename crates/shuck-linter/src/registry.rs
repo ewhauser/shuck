@@ -717,6 +717,7 @@ declare_rules! {
     ("S080", Category::Style, Severity::Warning, ScriptSizeThreshold),
     ("S081", Category::Style, Severity::Warning, MissingFileDescription),
     ("S082", Category::Style, Severity::Warning, TodoFormat),
+    ("S083", Category::Style, Severity::Warning, MissingFunctionDoc),
     ("S084", Category::Style, Severity::Warning, FunctionDocContent),
     ("S085", Category::Style, Severity::Warning, MissingMainEntrypoint),
 }
