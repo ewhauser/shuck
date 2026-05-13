@@ -238,6 +238,7 @@ pub(crate) fn collect_wrapped_arithmetic_spans_in_word(
     word: &Word,
     source: &str,
     dollar_spans: &mut Vec<Span>,
+    arithmetic_expansion_spans: &mut Vec<Span>,
     command_substitution_spans: &mut Vec<Span>,
 ) {
     let text = word.span.slice(source);
@@ -275,6 +276,12 @@ pub(crate) fn collect_wrapped_arithmetic_spans_in_word(
                 }
                 b')' => {
                     if depth == 1 && cursor + 1 < bytes.len() && bytes[cursor + 1] == b')' {
+                        let expansion_start = word.span.start.advanced_by(&text[..index]);
+                        let expansion_end =
+                            expansion_start.advanced_by(&text[index..cursor + 2]);
+                        arithmetic_expansion_spans
+                            .push(Span::from_positions(expansion_start, expansion_end));
+
                         let expr_start = index + 3;
                         let expr_end = cursor;
                         let start = word.span.start.advanced_by(&text[..expr_start]);

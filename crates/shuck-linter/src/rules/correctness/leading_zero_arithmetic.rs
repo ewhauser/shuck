@@ -31,6 +31,7 @@ pub fn leading_zero_arithmetic(checker: &mut Checker) {
     let source = checker.source();
     let word_facts = checker.facts().words();
     let suppressed_subscript_spans = word_facts.arithmetic_only_suppressed_subscript_spans();
+    let arithmetic_expansion_spans = word_facts.arithmetic_expansion_spans();
     let arithmetic_command_substitution_spans = word_facts.arithmetic_command_substitution_spans();
 
     let diagnostics = word_facts
@@ -46,7 +47,11 @@ pub fn leading_zero_arithmetic(checker: &mut Checker) {
             )
         })
         .filter(|fact| {
-            !is_plain_suppressed_subscript_literal(source, fact.span(), suppressed_subscript_spans)
+            !is_plain_suppressed_subscript_literal(
+                fact.span(),
+                suppressed_subscript_spans,
+                arithmetic_expansion_spans,
+            )
         })
         .map(|fact| diagnostic_for_leading_zero(fact.span(), source))
         .collect::<Vec<_>>();
@@ -94,28 +99,12 @@ fn is_adjacent_to_runtime_expansion(
 }
 
 fn is_plain_suppressed_subscript_literal(
-    source: &str,
     span: Span,
     suppressed_subscript_spans: &[Span],
+    arithmetic_expansion_spans: &[Span],
 ) -> bool {
     span_is_within_any(span, suppressed_subscript_spans)
-        && !span_is_inside_wrapped_arithmetic_expansion(source, span)
-}
-
-fn span_is_inside_wrapped_arithmetic_expansion(source: &str, span: Span) -> bool {
-    let mut search_end = span.start.offset;
-    while let Some(open) = source[..search_end].rfind("$((") {
-        let body_start = open + 3;
-        let Some(relative_close) = source[body_start..].find("))") else {
-            return false;
-        };
-        let close = body_start + relative_close + "))".len();
-        if span.end.offset <= close {
-            return true;
-        }
-        search_end = open;
-    }
-    false
+        && !span_is_within_any(span, arithmetic_expansion_spans)
 }
 
 fn span_is_within_any(span: Span, containers: &[Span]) -> bool {
@@ -212,6 +201,23 @@ checksums[$((08))]=value
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "08");
+    }
+
+    #[test]
+    fn ignores_plain_associative_keys_near_unrelated_arithmetic_text() {
+        let source = "\
+#!/bin/bash
+# $((
+declare -A checksums
+checksums[008]=value
+printf '%s\\n' \"))\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LeadingZeroArithmetic),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
