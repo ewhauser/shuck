@@ -862,6 +862,8 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         );
         let assignment_like_command_name_spans =
             build_assignment_like_command_name_spans(&commands, self.source);
+        let escaped_dash_command_name_spans =
+            build_escaped_dash_command_name_spans(self.source, self._indexer);
         let bare_command_name_assignment_spans = build_bare_command_name_assignment_spans(
             &commands,
             &word_nodes,
@@ -1083,6 +1085,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 errexit_enabled_anywhere,
                 commented_continuation_comment_spans,
                 comment_double_quote_nesting_spans,
+                escaped_dash_command_name_spans,
                 trailing_directive_comment_spans,
                 backtick_substitution_spans,
                 backtick_escaped_parameters,

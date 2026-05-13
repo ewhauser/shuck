@@ -363,6 +363,41 @@ pub(crate) fn build_commented_continuation_comment_spans(
         .collect()
 }
 
+pub(crate) fn build_escaped_dash_command_name_spans(source: &str, indexer: &Indexer) -> Vec<Span> {
+    let line_index = indexer.line_index();
+
+    (1..=line_index.line_count())
+        .filter_map(|line_number| {
+            let source_line = source_line(source, line_index, line_number)?;
+            let line = source_line.text;
+            let marker_start = line
+                .len()
+                .saturating_sub(line.trim_start_matches(char::is_whitespace).len());
+            let rest = &line[marker_start..];
+            if !rest.starts_with("\\-") {
+                return None;
+            }
+
+            let marker_offset = source_line.offset + marker_start;
+            let marker_text_size = TextSize::from(marker_offset as u32);
+            if indexer.region_index().is_heredoc(marker_text_size)
+                || indexer.region_index().is_quoted(marker_text_size)
+            {
+                return None;
+            }
+
+            let marker_len = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            Some(line_slice_span(
+                line_number,
+                source_line.offset,
+                line,
+                marker_start,
+                marker_len,
+            ))
+        })
+        .collect()
+}
+
 pub(crate) fn build_comment_double_quote_nesting_spans(
     source: &str,
     indexer: &Indexer,

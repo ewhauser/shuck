@@ -34,6 +34,7 @@ pub mod constant_case_subject;
 pub mod constant_comparison_test;
 pub mod continue_outside_loop_in_function;
 pub mod dangling_else;
+pub mod diff_marker_line;
 pub mod dollar_question_after_command;
 pub mod double_paren_grouping;
 pub mod duplicate_redirect;
@@ -202,6 +203,7 @@ mod tests {
     #[test_case(Rule::CPrototypeFragment, Path::new("C042.sh"))]
     #[test_case(Rule::BadRedirectionFdOrder, Path::new("C043.sh"))]
     #[test_case(Rule::BareGlobCommandPath, Path::new("C044.sh"))]
+    #[test_case(Rule::DiffMarkerLine, Path::new("C045.sh"))]
     #[test_case(Rule::PipeToKill, Path::new("C046.sh"))]
     #[test_case(Rule::InvalidExitStatus, Path::new("C047.sh"))]
     #[test_case(Rule::CasePatternVar, Path::new("C048.sh"))]

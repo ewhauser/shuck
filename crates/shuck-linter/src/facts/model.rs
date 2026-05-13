@@ -153,6 +153,7 @@ pub(crate) struct SourceFactStore<'a> {
     pub(in crate::facts) errexit_enabled_anywhere: bool,
     pub(in crate::facts) commented_continuation_comment_spans: Vec<Span>,
     pub(in crate::facts) comment_double_quote_nesting_spans: Vec<Span>,
+    pub(in crate::facts) escaped_dash_command_name_spans: Vec<Span>,
     pub(in crate::facts) trailing_directive_comment_spans: Vec<Span>,
     pub(in crate::facts) backtick_substitution_spans: Vec<Span>,
     pub(in crate::facts) backtick_escaped_parameters: Vec<BacktickEscapedParameter>,
@@ -1020,6 +1021,10 @@ impl<'facts, 'a> SourceFacts<'facts, 'a> {
 
     pub(crate) fn comment_double_quote_nesting_spans(self) -> &'facts [Span] {
         &self.facts.source_facts.comment_double_quote_nesting_spans
+    }
+
+    pub(crate) fn escaped_dash_command_name_spans(self) -> &'facts [Span] {
+        &self.facts.source_facts.escaped_dash_command_name_spans
     }
 
     pub(crate) fn trailing_directive_comment_spans(self) -> &'facts [Span] {

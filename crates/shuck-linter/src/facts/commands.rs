@@ -381,6 +381,37 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
         }
     }
 
+    pub fn command_name_starts_with_literal_dash(self, source: &str) -> bool {
+        let Some(word) = self.command_name_word() else {
+            return false;
+        };
+        let Some(first) = word.parts.first() else {
+            return false;
+        };
+
+        match &first.kind {
+            WordPart::Literal(text) => {
+                text.as_str(source, first.span).starts_with('-')
+                    || static_word_text(word, source).is_some_and(|text| text.starts_with('-'))
+            }
+            _ => {
+                !word.has_quoted_parts()
+                    && self.literal_name().is_some_and(|name| name.starts_with('-'))
+            }
+        }
+    }
+
+    pub fn command_name_follows_escaped_semicolon(self, source: &str) -> bool {
+        let Some(word) = self.command_name_word() else {
+            return false;
+        };
+        let Some(before) = source.get(..word.span.start.offset) else {
+            return false;
+        };
+
+        before.trim_end_matches([' ', '\t']).ends_with("\\;")
+    }
+
     pub fn command_name_word_unquoted_glob_spans(self, source: &str) -> Vec<Span> {
         let Some(word) = self.command_name_word() else {
             return Vec::new();
