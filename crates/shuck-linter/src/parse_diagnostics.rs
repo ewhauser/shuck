@@ -378,14 +378,20 @@ fn combine_alternatives(prefixes: &[String], suffixes: &[String]) -> Vec<String>
 fn matching_group_close(text: &str, open: usize) -> Option<usize> {
     let mut depth = 0usize;
     let mut escaped = false;
+    let mut in_bracket = false;
     for (relative, ch) in text[open..].char_indices() {
         let index = open + relative;
         if escaped {
             escaped = false;
             continue;
         }
+        if in_bracket {
+            in_bracket = ch != ']';
+            continue;
+        }
         match ch {
             '\\' => escaped = true,
+            '[' => in_bracket = true,
             '(' => depth += 1,
             ')' => {
                 depth = depth.checked_sub(1)?;
@@ -404,14 +410,20 @@ fn split_case_group_alternatives(text: &str) -> Option<Vec<&str>> {
     let mut start = 0usize;
     let mut depth = 0usize;
     let mut escaped = false;
+    let mut in_bracket = false;
 
     for (index, ch) in text.char_indices() {
         if escaped {
             escaped = false;
             continue;
         }
+        if in_bracket {
+            in_bracket = ch != ']';
+            continue;
+        }
         match ch {
             '\\' => escaped = true,
+            '[' => in_bracket = true,
             '(' => depth += 1,
             ')' => depth = depth.checked_sub(1)?,
             '|' if depth == 0 => {
@@ -2456,6 +2468,37 @@ fi
                 "#!/bin/sh\n",
                 "case \"$x\" in\n",
                 "  foo_[a|b]c|foo_[a|b]d) echo match ;;\n",
+                "esac\n",
+            )
+        );
+    }
+
+    #[test]
+    fn expands_case_group_alternatives_around_bracket_class_pipe() {
+        let source = concat!(
+            "#!/bin/sh\n",
+            "case \"$x\" in\n",
+            "  foo_([a|b]|c)) echo match ;;\n",
+            "esac\n",
+        );
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::ExtglobInCasePattern);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ExtglobInCasePattern);
+        assert_eq!(
+            apply_fixes(source, &diagnostics, Applicability::Safe).code,
+            concat!(
+                "#!/bin/sh\n",
+                "case \"$x\" in\n",
+                "  foo_[a|b]|foo_c) echo match ;;\n",
                 "esac\n",
             )
         );
