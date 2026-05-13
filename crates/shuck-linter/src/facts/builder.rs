@@ -125,8 +125,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let mut surface_fragments = SurfaceFragmentSink::new(self.source);
         let mut functions = Vec::with_capacity(capacity.functions);
         let mut function_body_without_braces_spans = Vec::new();
-        let redundant_return_status_spans =
-            build_redundant_return_status_spans(&self.file.body, self.source);
+        let mut redundant_return_status_spans = Vec::new();
         let mut getopts_cases = Vec::new();
         let mut condition_status_capture_spans = Vec::new();
         let mut precise_function_guard_suppressions = Vec::new();
@@ -382,6 +381,27 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 }
 
                 if !nested_word_command {
+                    match visit.command {
+                        Command::Function(function) => {
+                            collect_redundant_return_status_spans_in_function_body(
+                                &function.body,
+                                self.source,
+                                &mut redundant_return_status_spans,
+                            );
+                        }
+                        Command::AnonymousFunction(function) => {
+                            collect_redundant_return_status_spans_in_function_body(
+                                &function.body,
+                                self.source,
+                                &mut redundant_return_status_spans,
+                            );
+                        }
+                        Command::Simple(_)
+                        | Command::Builtin(_)
+                        | Command::Decl(_)
+                        | Command::Binary(_)
+                        | Command::Compound(_) => {}
+                    }
                     collect_condition_status_capture_from_direct_body_sequences(
                         visit.command,
                         self.source,
@@ -483,6 +503,9 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         arithmetic_update_operator_spans
             .sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
         arithmetic_update_operator_spans.dedup();
+        redundant_return_status_spans
+            .sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+        redundant_return_status_spans.dedup_by_key(|span| FactSpan::new(*span));
         arithmetic_literal_spans.sort_unstable_by_key(|(span, kind)| {
             (span.start.offset, span.end.offset, *kind)
         });
