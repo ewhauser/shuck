@@ -1286,6 +1286,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ScriptSizeThreshold) {
             rules::style::script_size_threshold::script_size_threshold(self);
         }
+        if self.is_rule_enabled(Rule::MissingFileDescription) {
+            rules::style::missing_file_description::missing_file_description(self);
+        }
         if self.is_rule_enabled(Rule::NonAbsoluteShebang) {
             rules::correctness::non_absolute_shebang::non_absolute_shebang(self);
         }

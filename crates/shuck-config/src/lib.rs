@@ -61,7 +61,8 @@ const CONFIG_OVERRIDE_LINT_ZSH_PLUGIN_KEYS: &[&str] = &[
     "entrypoints",
 ];
 const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &[
-    "c001", "c063", "s078", "s079", "s080", "s084", "s085", "c158", "c159", "c160", "c161", "c162",
+    "c001", "c063", "s078", "s079", "s080", "s081", "s084", "s085", "c158", "c159", "c160", "c161",
+    "c162",
 ];
 const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
     &["treat-indirect-expansion-targets-as-used"];
@@ -70,6 +71,7 @@ const CONFIG_OVERRIDE_S078_RULE_OPTION_KEYS: &[&str] = &["allowed-shells"];
 const CONFIG_OVERRIDE_S079_RULE_OPTION_KEYS: &[&str] = &["allowed-forms", "allowed-paths"];
 const CONFIG_OVERRIDE_S080_RULE_OPTION_KEYS: &[&str] = &["max-lines", "count"];
 const CONFIG_OVERRIDE_S080_COUNT_VALUES: &[&str] = &["physical", "non-comment-non-blank"];
+const CONFIG_OVERRIDE_S081_RULE_OPTION_KEYS: &[&str] = &["ignore-shebang-only-files"];
 const CONFIG_OVERRIDE_S084_RULE_OPTION_KEYS: &[&str] = &[
     "require-globals",
     "require-arguments",
@@ -347,6 +349,8 @@ pub struct LintRuleOptionsConfig {
     pub s079: Option<S079RuleOptionsConfig>,
     /// Options for rule S080.
     pub s080: Option<S080RuleOptionsConfig>,
+    /// Options for rule S081.
+    pub s081: Option<S081RuleOptionsConfig>,
     /// Options for rule S084.
     pub s084: Option<S084RuleOptionsConfig>,
     /// Options for rule S085.
@@ -379,6 +383,9 @@ impl LintRuleOptionsConfig {
         }
         if let Some(s080) = overrides.s080 {
             self.s080.get_or_insert_default().apply_overrides(s080);
+        }
+        if let Some(s081) = overrides.s081 {
+            self.s081.get_or_insert_default().apply_overrides(s081);
         }
         if let Some(s084) = overrides.s084 {
             self.s084.get_or_insert_default().apply_overrides(s084);
@@ -492,6 +499,22 @@ impl S080RuleOptionsConfig {
         }
         if overrides.count.is_some() {
             self.count = overrides.count;
+        }
+    }
+}
+
+/// Options for rule S081.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct S081RuleOptionsConfig {
+    /// Whether files that contain only a shebang are exempt from the rule.
+    pub ignore_shebang_only_files: Option<bool>,
+}
+
+impl S081RuleOptionsConfig {
+    fn apply_overrides(&mut self, overrides: Self) {
+        if overrides.ignore_shebang_only_files.is_some() {
+            self.ignore_shebang_only_files = overrides.ignore_shebang_only_files;
         }
     }
 }
@@ -973,6 +996,18 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
                                 example: r#"count = "non-comment-non-blank""#,
                             },
                         ],
+                        sections: &[],
+                    },
+                    ConfigSectionMetadata {
+                        key: "s081",
+                        docs: "Behavior overrides for `S081` file description comments.",
+                        fields: &[ConfigFieldMetadata {
+                            key: "ignore-shebang-only-files",
+                            docs: "Do not report scripts whose only content is a shebang line.",
+                            default: "false",
+                            value_type: "bool",
+                            example: "ignore-shebang-only-files = true",
+                        }],
                         sections: &[],
                     },
                     ConfigSectionMetadata {
@@ -1790,6 +1825,9 @@ fn validate_lint_rule_options_override(value: &toml::Value) -> std::result::Resu
     if let Some(s080_value) = rule_options.get("s080") {
         validate_s080_rule_options_override(s080_value)?;
     }
+    if let Some(s081_value) = rule_options.get("s081") {
+        validate_s081_rule_options_override(s081_value)?;
+    }
     if let Some(s084_value) = rule_options.get("s084") {
         validate_s084_rule_options_override(s084_value)?;
     }
@@ -1922,6 +1960,22 @@ fn validate_s084_rule_options_override(value: &toml::Value) -> std::result::Resu
             return Err(format!(
                 "unsupported `[lint.rule-options.s084]` option `{key}`; expected one of: {}",
                 CONFIG_OVERRIDE_S084_RULE_OPTION_KEYS.join(", ")
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_s081_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let s081 = value
+        .as_table()
+        .ok_or_else(|| "`[lint.rule-options.s081]` must be a TOML table".to_owned())?;
+    for key in s081.keys() {
+        if !CONFIG_OVERRIDE_S081_RULE_OPTION_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.rule-options.s081]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_S081_RULE_OPTION_KEYS.join(", ")
             ));
         }
     }
@@ -2308,6 +2362,22 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_validate_supported_s081_rule_option_keys() {
+        let config =
+            parse_config_override("lint.rule-options.s081.ignore-shebang-only-files = true")
+                .unwrap();
+        assert_eq!(
+            config
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.s081.as_ref())
+                .and_then(|s081| s081.ignore_shebang_only_files),
+            Some(true)
+        );
+    }
+
+    #[test]
     fn inline_config_overrides_validate_supported_s084_rule_option_keys() {
         let config = parse_config_override(
             "lint.rule-options.s084.require-globals = false\n\
@@ -2554,6 +2624,12 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_reject_unknown_s081_rule_option_keys() {
+        let err = parse_config_override("lint.rule-options.s081.preview = true").unwrap_err();
+        assert!(err.contains("unsupported `[lint.rule-options.s081]` option `preview`"));
+    }
+
+    #[test]
     fn inline_config_overrides_reject_unknown_s084_rule_option_keys() {
         let err = parse_config_override("lint.rule-options.s084.preview = true").unwrap_err();
         assert!(err.contains("unsupported `[lint.rule-options.s084]` option `preview`"));
@@ -2755,6 +2831,40 @@ mod tests {
                 .and_then(|options| options.s080.as_ref())
                 .and_then(|s080| s080.max_lines),
             Some(80)
+        );
+    }
+
+    #[test]
+    fn s081_rule_option_config_arguments_allow_last_override_to_win() {
+        let tempdir = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override(
+                        "lint.rule-options.s081.ignore-shebang-only-files = true",
+                    )
+                    .unwrap(),
+                )),
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override(
+                        "lint.rule-options.s081.ignore-shebang-only-files = false",
+                    )
+                    .unwrap(),
+                )),
+            ],
+            false,
+        )
+        .unwrap();
+
+        let loaded = load_project_config(tempdir.path(), &config).unwrap();
+        assert_eq!(
+            loaded
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.s081.as_ref())
+                .and_then(|s081| s081.ignore_shebang_only_files),
+            Some(false)
         );
     }
 

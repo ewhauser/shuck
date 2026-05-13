@@ -46,6 +46,7 @@ pub mod loop_from_command_output;
 pub mod ls_grep_pipeline;
 pub mod ls_in_substitution;
 pub mod ls_piped_to_xargs;
+pub mod missing_file_description;
 pub mod missing_main_entrypoint;
 pub mod missing_shebang_line;
 pub mod mixed_quote_word;
@@ -174,6 +175,7 @@ mod tests {
     #[test_case(Rule::ShebangShellPolicy, Path::new("S078.sh"))]
     #[test_case(Rule::ShebangFormPolicy, Path::new("S079.sh"))]
     #[test_case(Rule::ScriptSizeThreshold, Path::new("S080.sh"))]
+    #[test_case(Rule::MissingFileDescription, Path::new("S081.sh"))]
     #[test_case(Rule::FunctionDocContent, Path::new("S084.sh"))]
     #[test_case(Rule::MissingMainEntrypoint, Path::new("S085.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {

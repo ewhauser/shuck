@@ -157,6 +157,8 @@ pub(crate) struct SourceFactStore<'a> {
     pub(in crate::facts) non_absolute_shebang_span: Option<Span>,
     pub(in crate::facts) shebang_interpreter: OnceLock<Option<ShebangInterpreterFact>>,
     pub(in crate::facts) shebang_invocation: OnceLock<Option<ShebangInvocationFact>>,
+    pub(in crate::facts) missing_file_description_comment:
+        OnceLock<Option<FileDescriptionCommentFact>>,
     pub(in crate::facts) errexit_enabled_anywhere: bool,
     pub(in crate::facts) region_index: &'a RegionIndex,
     pub(in crate::facts) commented_continuation_comment_spans: Vec<Span>,
@@ -237,6 +239,22 @@ impl ScriptLineCountFact {
 
     pub fn report_span(self) -> Span {
         self.report_span
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileDescriptionCommentFact {
+    pub(in crate::facts) span: Span,
+    pub(in crate::facts) shebang_only_file: bool,
+}
+
+impl FileDescriptionCommentFact {
+    pub fn span(self) -> Span {
+        self.span
+    }
+
+    pub fn is_shebang_only_file(self) -> bool {
+        self.shebang_only_file
     }
 }
 
@@ -1133,6 +1151,19 @@ impl<'facts, 'a> SourceFacts<'facts, 'a> {
                 )
             })
             .as_ref()
+    }
+
+    pub(crate) fn missing_file_description_comment(self) -> Option<FileDescriptionCommentFact> {
+        *self
+            .facts
+            .source_facts
+            .missing_file_description_comment
+            .get_or_init(|| {
+                build_missing_file_description_comment_fact(
+                    self.facts.source_facts.source,
+                    self.facts.source_facts.line_index,
+                )
+            })
     }
 
     pub(crate) fn errexit_enabled_anywhere(self) -> bool {
