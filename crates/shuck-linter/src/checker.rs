@@ -403,6 +403,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UntrackedSourceFile) {
             rules::correctness::untracked_source_file::untracked_source_file(self);
         }
+        if self.is_rule_enabled(Rule::UnanchoredSourcePath) {
+            rules::correctness::unanchored_source_path::unanchored_source_path(self);
+        }
     }
 
     fn check_command_facts(&mut self) {

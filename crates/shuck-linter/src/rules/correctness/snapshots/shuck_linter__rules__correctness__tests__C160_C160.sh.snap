@@ -1,0 +1,44 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C160 source path is relative to the current directory; anchor it to the script directory
+ --> <source>:3:8
+  |
+3 | source ./lib.sh
+  |
+
+C160 source path is relative to the current directory; anchor it to the script directory
+ --> <source>:4:3
+  |
+4 | . ../env.sh
+  |
+
+C160 source path is relative to the current directory; anchor it to the script directory
+ --> <source>:5:8
+  |
+5 | source "lib/defaults.sh"
+  |
+
+C160 source path is relative to the current directory; anchor it to the script directory
+  --> <source>:13:8
+   |
+13 | source "${BASH_SOURCE[0]%/*}suffix/not-anchored.sh"
+   |
+
+C160 source path is relative to the current directory; anchor it to the script directory
+  --> <source>:14:8
+   |
+14 | source '${BASH_SOURCE[0]%/*}/single-quoted.sh'
+   |
+
+C160 source path is relative to the current directory; anchor it to the script directory
+  --> <source>:16:8
+   |
+16 | source '$(select_source_file)'
+   |
+
+C160 source path is relative to the current directory; anchor it to the script directory
+  --> <source>:17:8
+   |
+17 | source ~${USER}/dynamic-home.sh
+   |

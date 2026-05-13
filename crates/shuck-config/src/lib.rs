@@ -61,7 +61,7 @@ const CONFIG_OVERRIDE_LINT_ZSH_PLUGIN_KEYS: &[&str] = &[
     "entrypoints",
 ];
 const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] =
-    &["c001", "c063", "s084", "s085", "c158", "c159"];
+    &["c001", "c063", "s084", "s085", "c158", "c159", "c160"];
 const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
     &["treat-indirect-expansion-targets-as-used"];
 const CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS: &[&str] = &["report-unreached-nested-definitions"];
@@ -81,6 +81,7 @@ const CONFIG_OVERRIDE_C158_RULE_OPTION_KEYS: &[&str] = &[
     "treat-export-as-intentional",
 ];
 const CONFIG_OVERRIDE_C159_RULE_OPTION_KEYS: &[&str] = &["allow-conditional-init"];
+const CONFIG_OVERRIDE_C160_RULE_OPTION_KEYS: &[&str] = &["allowed-anchors"];
 const CONFIG_OVERRIDE_RUN_KEYS: &[&str] = &["shell", "shell-version", "shells"];
 const CONFIG_OVERRIDE_RUN_SHELL_NAMES: &[&str] =
     &["bash", "gbash", "bashkit", "zsh", "dash", "mksh", "busybox"];
@@ -341,6 +342,8 @@ pub struct LintRuleOptionsConfig {
     pub c158: Option<C158RuleOptionsConfig>,
     /// Options for rule C159.
     pub c159: Option<C159RuleOptionsConfig>,
+    /// Options for rule C160.
+    pub c160: Option<C160RuleOptionsConfig>,
 }
 
 impl LintRuleOptionsConfig {
@@ -362,6 +365,9 @@ impl LintRuleOptionsConfig {
         }
         if let Some(c159) = overrides.c159 {
             self.c159.get_or_insert_default().apply_overrides(c159);
+        }
+        if let Some(c160) = overrides.c160 {
+            self.c160.get_or_insert_default().apply_overrides(c160);
         }
     }
 }
@@ -489,6 +495,22 @@ impl C159RuleOptionsConfig {
     fn apply_overrides(&mut self, overrides: Self) {
         if overrides.allow_conditional_init.is_some() {
             self.allow_conditional_init = overrides.allow_conditional_init;
+        }
+    }
+}
+
+/// Options for rule C160.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct C160RuleOptionsConfig {
+    /// Variable anchors treated as safe roots for sourced relative paths.
+    pub allowed_anchors: Option<Vec<String>>,
+}
+
+impl C160RuleOptionsConfig {
+    fn apply_overrides(&mut self, overrides: Self) {
+        if overrides.allowed_anchors.is_some() {
+            self.allowed_anchors = overrides.allowed_anchors;
         }
     }
 }
@@ -869,6 +891,18 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
                             default: "true",
                             value_type: "bool",
                             example: "allow-conditional-init = false",
+                        }],
+                        sections: &[],
+                    },
+                    ConfigSectionMetadata {
+                        key: "c160",
+                        docs: "Behavior overrides for `C160` unanchored source path analysis.",
+                        fields: &[ConfigFieldMetadata {
+                            key: "allowed-anchors",
+                            docs: "Path prefix expressions accepted as script-directory anchors for source or dot commands.",
+                            default: r#"["${BASH_SOURCE[0]%/*}", "$(dirname \"$0\")", "$(dirname \"${BASH_SOURCE[0]}\")"]"#,
+                            value_type: "list[string]",
+                            example: r#"allowed-anchors = ["$SCRIPT_DIR"]"#,
                         }],
                         sections: &[],
                     },
@@ -1558,6 +1592,9 @@ fn validate_lint_rule_options_override(value: &toml::Value) -> std::result::Resu
     if let Some(c159_value) = rule_options.get("c159") {
         validate_c159_rule_options_override(c159_value)?;
     }
+    if let Some(c160_value) = rule_options.get("c160") {
+        validate_c160_rule_options_override(c160_value)?;
+    }
 
     Ok(())
 }
@@ -1650,6 +1687,22 @@ fn validate_c159_rule_options_override(value: &toml::Value) -> std::result::Resu
             return Err(format!(
                 "unsupported `[lint.rule-options.c159]` option `{key}`; expected one of: {}",
                 CONFIG_OVERRIDE_C159_RULE_OPTION_KEYS.join(", ")
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_c160_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let c160 = value
+        .as_table()
+        .ok_or_else(|| "`[lint.rule-options.c160]` must be a TOML table".to_owned())?;
+    for key in c160.keys() {
+        if !CONFIG_OVERRIDE_C160_RULE_OPTION_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.rule-options.c160]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_C160_RULE_OPTION_KEYS.join(", ")
             ));
         }
     }
@@ -1971,6 +2024,23 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_validate_supported_c160_rule_option_keys() {
+        let config =
+            parse_config_override("lint.rule-options.c160.allowed-anchors = ['$SCRIPT_DIR']")
+                .unwrap();
+        assert_eq!(
+            config
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.c160.as_ref())
+                .and_then(|c160| c160.allowed_anchors.as_ref())
+                .map(Vec::as_slice),
+            Some(&["$SCRIPT_DIR".to_owned()][..])
+        );
+    }
+
+    #[test]
     fn inline_config_overrides_validate_supported_zsh_plugin_keys() {
         let config = parse_config_override(
             "lint.zsh.plugins.resolution = false\n\
@@ -2081,6 +2151,12 @@ mod tests {
     fn inline_config_overrides_reject_unknown_c159_rule_option_keys() {
         let err = parse_config_override("lint.rule-options.c159.preview = true").unwrap_err();
         assert!(err.contains("unsupported `[lint.rule-options.c159]` option `preview`"));
+    }
+
+    #[test]
+    fn inline_config_overrides_reject_unknown_c160_rule_option_keys() {
+        let err = parse_config_override("lint.rule-options.c160.preview = true").unwrap_err();
+        assert!(err.contains("unsupported `[lint.rule-options.c160]` option `preview`"));
     }
 
     #[test]
@@ -2309,6 +2385,41 @@ mod tests {
                 .and_then(|options| options.c159.as_ref())
                 .and_then(|c159| c159.allow_conditional_init),
             Some(true)
+        );
+    }
+
+    #[test]
+    fn c160_rule_option_config_arguments_allow_last_override_to_win() {
+        let tempdir = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override(
+                        "lint.rule-options.c160.allowed-anchors = ['$SCRIPT_DIR']",
+                    )
+                    .unwrap(),
+                )),
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override(
+                        "lint.rule-options.c160.allowed-anchors = ['$REPO_ROOT']",
+                    )
+                    .unwrap(),
+                )),
+            ],
+            false,
+        )
+        .unwrap();
+
+        let loaded = load_project_config(tempdir.path(), &config).unwrap();
+        assert_eq!(
+            loaded
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.c160.as_ref())
+                .and_then(|c160| c160.allowed_anchors.as_ref())
+                .map(Vec::as_slice),
+            Some(&["$REPO_ROOT".to_owned()][..])
         );
     }
 
