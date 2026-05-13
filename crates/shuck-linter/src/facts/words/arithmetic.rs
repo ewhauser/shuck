@@ -1,10 +1,10 @@
-pub(super) fn is_scannable_simple_arithmetic_subscript_text(text: &str) -> bool {
+pub(crate) fn is_scannable_simple_arithmetic_subscript_text(text: &str) -> bool {
     let trimmed = text.trim();
     !trimmed.is_empty()
         && (is_shell_variable_name(trimmed) || trimmed.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
-pub(super) fn is_simple_arithmetic_reference_subscript(subscript: &Subscript, source: &str) -> bool {
+pub(crate) fn is_simple_arithmetic_reference_subscript(subscript: &Subscript, source: &str) -> bool {
     subscript.selector().is_none()
         && !subscript.syntax_text(source).contains('$')
         && matches!(
@@ -13,7 +13,7 @@ pub(super) fn is_simple_arithmetic_reference_subscript(subscript: &Subscript, so
         )
 }
 
-pub(super) fn is_arithmetic_variable_reference_word(word: &Word, source: &str) -> bool {
+pub(crate) fn is_arithmetic_variable_reference_word(word: &Word, source: &str) -> bool {
     matches!(word.parts.as_slice(), [part] if match &part.kind {
         WordPart::Variable(name) => is_shell_variable_name(name.as_str()),
         WordPart::Parameter(parameter) => matches!(
@@ -31,7 +31,7 @@ pub(super) fn is_arithmetic_variable_reference_word(word: &Word, source: &str) -
     })
 }
 
-pub(super) fn collect_arithmetic_command_spans(
+pub(crate) fn collect_arithmetic_command_spans(
     expression: &ArithmeticExprNode,
     source: &str,
     dollar_spans: &mut Vec<Span>,
@@ -48,7 +48,7 @@ pub(super) fn collect_arithmetic_command_spans(
     });
 }
 
-pub(super) fn collect_slice_arithmetic_expression_spans(
+pub(crate) fn collect_slice_arithmetic_expression_spans(
     expression: &ArithmeticExprNode,
     source: &str,
     dollar_spans: &mut Vec<Span>,
@@ -70,7 +70,7 @@ pub(super) fn collect_slice_arithmetic_expression_spans(
     });
 }
 
-pub(super) fn collect_arithmetic_spans_in_fragment(
+pub(crate) fn collect_arithmetic_spans_in_fragment(
     word: Option<&Word>,
     text: Option<&SourceText>,
     source: &str,
@@ -101,7 +101,7 @@ pub(super) fn collect_arithmetic_spans_in_fragment(
     );
 }
 
-pub(super) fn collect_dollar_prefixed_arithmetic_variable_spans(
+pub(crate) fn collect_dollar_prefixed_arithmetic_variable_spans(
     span: Span,
     source: &str,
     spans: &mut Vec<Span>,
@@ -187,7 +187,7 @@ pub(super) fn collect_dollar_prefixed_arithmetic_variable_spans(
     }
 }
 
-pub(super) fn collect_dollar_prefixed_indexed_subscript_word_spans(
+pub(crate) fn collect_dollar_prefixed_indexed_subscript_word_spans(
     word: &Word,
     source: &str,
     spans: &mut Vec<Span>,
@@ -234,7 +234,7 @@ pub(super) fn collect_dollar_prefixed_indexed_subscript_word_spans(
     }
 }
 
-pub(super) fn collect_wrapped_arithmetic_spans_in_word(
+pub(crate) fn collect_wrapped_arithmetic_spans_in_word(
     word: &Word,
     source: &str,
     dollar_spans: &mut Vec<Span>,
@@ -310,7 +310,7 @@ pub(super) fn collect_wrapped_arithmetic_spans_in_word(
     }
 }
 
-pub(super) fn collect_wrapped_arithmetic_command_substitution_spans(
+pub(crate) fn collect_wrapped_arithmetic_command_substitution_spans(
     span: Span,
     source: &str,
     spans: &mut Vec<Span>,
@@ -339,7 +339,7 @@ pub(super) fn collect_wrapped_arithmetic_command_substitution_spans(
     }
 }
 
-pub(super) fn is_unescaped_dollar(bytes: &[u8], index: usize) -> bool {
+pub(crate) fn is_unescaped_dollar(bytes: &[u8], index: usize) -> bool {
     if bytes.get(index) != Some(&b'$') {
         return false;
     }
@@ -354,7 +354,7 @@ pub(super) fn is_unescaped_dollar(bytes: &[u8], index: usize) -> bool {
     backslash_count.is_multiple_of(2)
 }
 
-pub(super) fn find_command_substitution_end(text: &str, start: usize) -> Option<usize> {
+pub(crate) fn find_command_substitution_end(text: &str, start: usize) -> Option<usize> {
     let bytes = text.as_bytes();
     let mut paren_depth = 0usize;
     let mut cursor = start + 2;
@@ -418,7 +418,7 @@ pub(super) fn find_command_substitution_end(text: &str, start: usize) -> Option<
     None
 }
 
-pub(super) fn find_wrapped_arithmetic_end(text: &str, start: usize) -> Option<usize> {
+pub(crate) fn find_wrapped_arithmetic_end(text: &str, start: usize) -> Option<usize> {
     let bytes = text.as_bytes();
     let mut paren_depth = 0usize;
     let mut cursor = start + 3;
@@ -484,7 +484,7 @@ pub(super) fn find_wrapped_arithmetic_end(text: &str, start: usize) -> Option<us
     None
 }
 
-pub(super) fn find_process_substitution_end(text: &str, start: usize) -> Option<usize> {
+pub(crate) fn find_process_substitution_end(text: &str, start: usize) -> Option<usize> {
     let bytes = text.as_bytes();
     let mut paren_depth = 0usize;
     let mut cursor = start + 2;
@@ -548,7 +548,7 @@ pub(super) fn find_process_substitution_end(text: &str, start: usize) -> Option<
     None
 }
 
-pub(super) fn skip_single_quoted(bytes: &[u8], start: usize) -> Option<usize> {
+pub(crate) fn skip_single_quoted(bytes: &[u8], start: usize) -> Option<usize> {
     let mut cursor = start;
     while cursor < bytes.len() {
         if bytes[cursor] == b'\'' {
@@ -559,7 +559,7 @@ pub(super) fn skip_single_quoted(bytes: &[u8], start: usize) -> Option<usize> {
     None
 }
 
-pub(super) fn skip_double_quoted(text: &str, start: usize) -> Option<usize> {
+pub(crate) fn skip_double_quoted(text: &str, start: usize) -> Option<usize> {
     let bytes = text.as_bytes();
     let mut cursor = start;
 
@@ -596,7 +596,7 @@ pub(super) fn skip_double_quoted(text: &str, start: usize) -> Option<usize> {
     None
 }
 
-pub(super) fn skip_backticks(bytes: &[u8], start: usize) -> Option<usize> {
+pub(crate) fn skip_backticks(bytes: &[u8], start: usize) -> Option<usize> {
     let mut cursor = start;
     while cursor < bytes.len() {
         if bytes[cursor] == b'\\' {
@@ -611,11 +611,11 @@ pub(super) fn skip_backticks(bytes: &[u8], start: usize) -> Option<usize> {
     None
 }
 
-pub(super) fn word_needs_wrapped_arithmetic_fallback(word: &Word, source: &str) -> bool {
+pub(crate) fn word_needs_wrapped_arithmetic_fallback(word: &Word, source: &str) -> bool {
     parts_need_wrapped_arithmetic_fallback(&word.parts, source)
 }
 
-pub(super) fn parts_need_wrapped_arithmetic_fallback(parts: &[WordPartNode], source: &str) -> bool {
+pub(crate) fn parts_need_wrapped_arithmetic_fallback(parts: &[WordPartNode], source: &str) -> bool {
     parts.iter().any(|part| match &part.kind {
         WordPart::DoubleQuoted { parts, .. } => {
             parts_need_wrapped_arithmetic_fallback(parts, source)
@@ -637,7 +637,7 @@ pub(super) fn parts_need_wrapped_arithmetic_fallback(parts: &[WordPartNode], sou
     })
 }
 
-pub(super) fn parameter_needs_wrapped_arithmetic_fallback(
+pub(crate) fn parameter_needs_wrapped_arithmetic_fallback(
     parameter: &ParameterExpansion,
     source: &str,
 ) -> bool {
@@ -658,7 +658,7 @@ pub(super) fn parameter_needs_wrapped_arithmetic_fallback(
     }
 }
 
-pub(super) fn collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
+pub(crate) fn collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
     parts: &[WordPartNode],
     source: &str,
     dollar_spans: &mut Vec<Span>,
@@ -719,7 +719,7 @@ pub(super) fn collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
     }
 }
 
-pub(super) fn collect_arithmetic_context_spans_in_word(
+pub(crate) fn collect_arithmetic_context_spans_in_word(
     word: &Word,
     source: &str,
     collect_dollar_spans: bool,
@@ -745,7 +745,7 @@ pub(super) fn collect_arithmetic_context_spans_in_word(
     );
 }
 
-pub(super) fn collect_arithmetic_spans_in_parameter_operator(
+pub(crate) fn collect_arithmetic_spans_in_parameter_operator(
     operator: &ParameterOp,
     source: &str,
     collect_dollar_spans: bool,
@@ -782,7 +782,7 @@ pub(super) fn collect_arithmetic_spans_in_parameter_operator(
     }
 }
 
-pub(super) fn collect_arithmetic_summary_spans_in_word(
+pub(crate) fn collect_arithmetic_summary_spans_in_word(
     word: &Word,
     source: &str,
     collect_dollar_spans: bool,
@@ -962,7 +962,7 @@ impl<'word> WordSubtreeVisitor<'word> for ArithmeticSummarySpanVisitor<'_, '_> {
     }
 }
 
-pub(super) fn collect_arithmetic_expansion_spans_from_parts(
+pub(crate) fn collect_arithmetic_expansion_spans_from_parts(
     parts: &[WordPartNode],
     source: &str,
     collect_dollar_spans: bool,
@@ -1119,7 +1119,7 @@ pub(super) fn collect_arithmetic_expansion_spans_from_parts(
     }
 }
 
-pub(super) fn collect_arithmetic_update_operator_spans_from_parts(
+pub(crate) fn collect_arithmetic_update_operator_spans_from_parts(
     parts: &[WordPartNode],
     semantic: &SemanticModel,
     source: &str,
@@ -1130,7 +1130,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_from_parts(
     );
 }
 
-pub(super) fn collect_arithmetic_update_operator_spans_from_parts_with_nested_commands(
+pub(crate) fn collect_arithmetic_update_operator_spans_from_parts_with_nested_commands(
     parts: &[WordPartNode],
     semantic: &SemanticModel,
     semantic_artifacts: &LinterSemanticArtifacts<'_>,
@@ -1147,7 +1147,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_from_parts_with_nested_co
     );
 }
 
-pub(super) fn collect_arithmetic_update_operator_spans_from_parts_impl(
+pub(crate) fn collect_arithmetic_update_operator_spans_from_parts_impl(
     parts: &[WordPartNode],
     semantic: &SemanticModel,
     semantic_artifacts: Option<&LinterSemanticArtifacts<'_>>,
@@ -1304,7 +1304,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_from_parts_impl(
     }
 }
 
-pub(super) fn collect_arithmetic_update_operator_spans_in_var_ref(
+pub(crate) fn collect_arithmetic_update_operator_spans_in_var_ref(
     reference: &VarRef,
     semantic: &SemanticModel,
     source: &str,
@@ -1315,7 +1315,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_var_ref(
     );
 }
 
-pub(super) fn collect_arithmetic_update_operator_spans_in_var_ref_impl(
+pub(crate) fn collect_arithmetic_update_operator_spans_in_var_ref_impl(
     reference: &VarRef,
     semantic: &SemanticModel,
     semantic_artifacts: Option<&LinterSemanticArtifacts<'_>>,
@@ -1342,7 +1342,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_var_ref_impl(
     });
 }
 
-pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_with_nested_commands(
+pub(crate) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_with_nested_commands(
     parameter: &ParameterExpansion,
     semantic: &SemanticModel,
     semantic_artifacts: &LinterSemanticArtifacts<'_>,
@@ -1359,7 +1359,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_wi
     );
 }
 
-pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
+pub(crate) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
     parameter: &ParameterExpansion,
     semantic: &SemanticModel,
     semantic_artifacts: Option<&LinterSemanticArtifacts<'_>>,
@@ -1529,7 +1529,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_im
     }
 }
 
-pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_operator_impl(
+pub(crate) fn collect_arithmetic_update_operator_spans_in_parameter_operator_impl(
     operator: &ParameterOp,
     semantic: &SemanticModel,
     semantic_artifacts: Option<&LinterSemanticArtifacts<'_>>,
@@ -1568,7 +1568,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_operator_imp
     }
 }
 
-pub(super) fn collect_arithmetic_spans_in_var_ref(
+pub(crate) fn collect_arithmetic_spans_in_var_ref(
     reference: &VarRef,
     source: &str,
     _collect_dollar_spans: bool,
@@ -1591,7 +1591,7 @@ pub(super) fn collect_arithmetic_spans_in_var_ref(
     });
 }
 
-pub(super) fn collect_arithmetic_spans_in_parameter_expansion(
+pub(crate) fn collect_arithmetic_spans_in_parameter_expansion(
     parameter: &ParameterExpansion,
     source: &str,
     collect_dollar_spans: bool,

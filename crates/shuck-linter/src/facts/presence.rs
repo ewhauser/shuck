@@ -33,17 +33,17 @@ impl PresenceTestNameFact {
 }
 
 #[derive(Debug, Default)]
-pub(super) struct PresenceTestedNames {
-    pub(super) global_names: FxHashSet<Name>,
-    pub(super) nested_command_spans_by_name: FxHashMap<Name, Vec<Span>>,
-    pub(super) c006_global_names: FxHashSet<Name>,
-    pub(super) c006_nested_command_spans_by_name: FxHashMap<Name, Vec<Span>>,
-    pub(super) references_by_name: FxHashMap<Name, Vec<PresenceTestReferenceFact>>,
-    pub(super) names_by_name: FxHashMap<Name, Vec<PresenceTestNameFact>>,
+pub(crate) struct PresenceTestedNames {
+    pub(crate) global_names: FxHashSet<Name>,
+    pub(crate) nested_command_spans_by_name: FxHashMap<Name, Vec<Span>>,
+    pub(crate) c006_global_names: FxHashSet<Name>,
+    pub(crate) c006_nested_command_spans_by_name: FxHashMap<Name, Vec<Span>>,
+    pub(crate) references_by_name: FxHashMap<Name, Vec<PresenceTestReferenceFact>>,
+    pub(crate) names_by_name: FxHashMap<Name, Vec<PresenceTestNameFact>>,
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-pub(super) fn build_presence_tested_names(
+pub(crate) fn build_presence_tested_names(
     commands: &[CommandFact<'_>],
     source: &str,
     semantic: &SemanticModel,

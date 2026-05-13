@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Debug, Clone)]
 pub struct DeclarationAssignmentProbe {
     kind: DeclarationKind,
@@ -44,7 +46,7 @@ pub struct BindingValueFact<'a> {
 }
 
 #[derive(Debug, Clone)]
-enum BindingValueKind<'a> {
+pub(crate) enum BindingValueKind<'a> {
     Scalar(&'a Word),
     Loop(Box<[&'a Word]>),
 }
@@ -129,7 +131,7 @@ impl<'a> BindingValueFact<'a> {
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_bare_command_name_assignment_spans<'a>(
+pub(crate) fn build_bare_command_name_assignment_spans<'a>(
     commands: &[CommandFact<'a>],
     word_nodes: &[WordNode<'a>],
     word_occurrences: &[WordOccurrence],
@@ -151,7 +153,7 @@ fn build_bare_command_name_assignment_spans<'a>(
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_assignment_like_command_name_spans<'a>(
+pub(crate) fn build_assignment_like_command_name_spans<'a>(
     commands: &[CommandFact<'a>],
     source: &str,
 ) -> Vec<Span> {
@@ -164,7 +166,7 @@ fn build_assignment_like_command_name_spans<'a>(
     spans
 }
 
-fn collect_assignment_like_command_name_spans_in_command(
+pub(crate) fn collect_assignment_like_command_name_spans_in_command(
     fact: &CommandFact<'_>,
     source: &str,
     spans: &mut Vec<Span>,
@@ -193,13 +195,17 @@ fn collect_assignment_like_command_name_spans_in_command(
     }
 }
 
-fn collect_assignment_like_command_name_span(word: &Word, source: &str, spans: &mut Vec<Span>) {
+pub(crate) fn collect_assignment_like_command_name_span(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
     if let Some(span) = assignment_like_command_name_span(word, source) {
         spans.push(span);
     }
 }
 
-fn assignment_like_command_name_span(word: &Word, source: &str) -> Option<Span> {
+pub(crate) fn assignment_like_command_name_span(word: &Word, source: &str) -> Option<Span> {
     let prefix = leading_literal_word_prefix(word, source);
     let target_end = prefix.find("+=").or_else(|| prefix.find('='))?;
     let target = &prefix[..target_end];
@@ -214,7 +220,7 @@ fn assignment_like_command_name_span(word: &Word, source: &str) -> Option<Span> 
     }
 }
 
-fn zsh_declaration_brace_assignment_target(
+pub(crate) fn zsh_declaration_brace_assignment_target(
     word: &Word,
     source: &str,
     behavior: &ShellBehaviorAt<'_>,
@@ -234,7 +240,7 @@ fn zsh_declaration_brace_assignment_target(
         .any(|brace| brace.expands() && brace.span.end.offset <= target_end_offset)
 }
 
-fn bare_command_name_assignment_span<'a>(
+pub(crate) fn bare_command_name_assignment_span<'a>(
     command: &CommandFact<'a>,
     word_nodes: &[WordNode<'a>],
     word_occurrences: &[WordOccurrence],
@@ -278,7 +284,8 @@ fn bare_command_name_assignment_span<'a>(
         WordFactContext::Expansion(ExpansionContext::AssignmentValue),
     )?;
     let analysis = occurrence_analysis(word_nodes, fact);
-    if analysis.quote != WordQuote::Unquoted || analysis.literalness != WordLiteralness::FixedLiteral
+    if analysis.quote != WordQuote::Unquoted
+        || analysis.literalness != WordLiteralness::FixedLiteral
     {
         return None;
     }
@@ -295,7 +302,7 @@ fn bare_command_name_assignment_span<'a>(
     })
 }
 
-fn anchored_assignment_command_span(
+pub(crate) fn anchored_assignment_command_span(
     command: &CommandFact<'_>,
     assignment: &Assignment,
     source: &str,
@@ -327,7 +334,7 @@ fn anchored_assignment_command_span(
     }
 }
 
-fn assignment_target_span(assignment: &Assignment) -> Span {
+pub(crate) fn assignment_target_span(assignment: &Assignment) -> Span {
     assignment.target.subscript.as_deref().map_or_else(
         || assignment.target.name_span,
         |subscript| {
@@ -339,7 +346,10 @@ fn assignment_target_span(assignment: &Assignment) -> Span {
     )
 }
 
-fn is_bare_command_name_assignment_value(text: &str, zsh_options: Option<&ZshOptionState>) -> bool {
+pub(crate) fn is_bare_command_name_assignment_value(
+    text: &str,
+    zsh_options: Option<&ZshOptionState>,
+) -> bool {
     let text = zsh_literal_assignment_value_for_command_name_check(text, zsh_options);
     matches!(
         text,
@@ -449,7 +459,7 @@ fn is_bare_command_name_assignment_value(text: &str, zsh_options: Option<&ZshOpt
     )
 }
 
-fn zsh_literal_assignment_value_for_command_name_check<'a>(
+pub(crate) fn zsh_literal_assignment_value_for_command_name_check<'a>(
     text: &'a str,
     zsh_options: Option<&ZshOptionState>,
 ) -> &'a str {
@@ -466,10 +476,10 @@ fn zsh_literal_assignment_value_for_command_name_check<'a>(
 }
 
 #[derive(Debug, Default)]
-struct EnvPrefixScopeSpans {
-    assignment_scope_spans: Vec<Span>,
-    expansion_scope_spans: Vec<Span>,
-    expansion_fix_facts: Vec<EnvPrefixExpansionFixFact>,
+pub(crate) struct EnvPrefixScopeSpans {
+    pub(crate) assignment_scope_spans: Vec<Span>,
+    pub(crate) expansion_scope_spans: Vec<Span>,
+    pub(crate) expansion_fix_facts: Vec<EnvPrefixExpansionFixFact>,
 }
 
 #[derive(Debug, Clone)]
@@ -494,7 +504,7 @@ impl EnvPrefixExpansionFixFact {
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_env_prefix_scope_spans(
+pub(crate) fn build_env_prefix_scope_spans(
     source: &str,
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
@@ -686,14 +696,17 @@ fn build_env_prefix_scope_spans(
     scope_spans
         .expansion_scope_spans
         .sort_by_key(|span| (span.start.offset, span.end.offset));
-    scope_spans
-        .expansion_fix_facts
-        .sort_by_key(|fact| (fact.diagnostic_span.start.offset, fact.diagnostic_span.end.offset));
+    scope_spans.expansion_fix_facts.sort_by_key(|fact| {
+        (
+            fact.diagnostic_span.start.offset,
+            fact.diagnostic_span.end.offset,
+        )
+    });
     scope_spans
 }
 
 #[derive(Debug, Clone)]
-struct EnvPrefixExpansionFixSeed {
+pub(crate) struct EnvPrefixExpansionFixSeed {
     assignment_spans: Vec<Span>,
     delete_span: Span,
 }
@@ -708,13 +721,16 @@ impl EnvPrefixExpansionFixSeed {
     }
 }
 
-fn env_prefix_expansion_fix_seed(
+pub(crate) fn env_prefix_expansion_fix_seed(
     source: &str,
     assignments: &[Assignment],
 ) -> Option<EnvPrefixExpansionFixSeed> {
     let first_assignment = assignments.first()?;
     let last_assignment = assignments.last()?;
-    let prefix = source.get(line_start_offset(source, first_assignment.span.start.offset)..first_assignment.span.start.offset)?;
+    let prefix = source.get(
+        line_start_offset(source, first_assignment.span.start.offset)
+            ..first_assignment.span.start.offset,
+    )?;
     if !prefix.bytes().all(|byte| matches!(byte, b' ' | b'\t')) {
         return None;
     }
@@ -733,13 +749,13 @@ fn env_prefix_expansion_fix_seed(
     })
 }
 
-fn line_start_offset(source: &str, offset: usize) -> usize {
+pub(crate) fn line_start_offset(source: &str, offset: usize) -> usize {
     source[..offset]
         .rfind('\n')
         .map_or(0, |newline| newline + '\n'.len_utf8())
 }
 
-fn skip_env_prefix_separator(source: &str, start: Position) -> Option<Position> {
+pub(crate) fn skip_env_prefix_separator(source: &str, start: Position) -> Option<Position> {
     let mut position = start;
     let mut tail = source.get(start.offset..)?;
     while let Some(ch) = tail.chars().next() {
@@ -764,14 +780,14 @@ fn skip_env_prefix_separator(source: &str, start: Position) -> Option<Position> 
 }
 
 #[derive(Debug, Clone, Copy)]
-struct BrokenLegacyBracketTail {
+pub(crate) struct BrokenLegacyBracketTail {
     assignment_index: usize,
     synthetic_word_count: usize,
 }
 
-type EnvPrefixReferenceSpanVisitor<'a> = dyn FnMut(Span) -> ControlFlow<()> + 'a;
+pub(crate) type EnvPrefixReferenceSpanVisitor<'a> = dyn FnMut(Span) -> ControlFlow<()> + 'a;
 
-fn command_is_assignment_only(fact: &CommandFact<'_>, source: &str) -> bool {
+pub(crate) fn command_is_assignment_only(fact: &CommandFact<'_>, source: &str) -> bool {
     match fact.command() {
         Command::Simple(command) if !command.assignments.is_empty() => {
             fact.literal_name() == Some("")
@@ -788,7 +804,7 @@ fn command_is_assignment_only(fact: &CommandFact<'_>, source: &str) -> bool {
     }
 }
 
-fn broken_legacy_bracket_tail(
+pub(crate) fn broken_legacy_bracket_tail(
     command: &SimpleCommand,
     source: &str,
 ) -> Option<BrokenLegacyBracketTail> {
@@ -808,7 +824,7 @@ fn broken_legacy_bracket_tail(
     })
 }
 
-fn assignment_is_broken_legacy_bracket_arithmetic(assignment: &Assignment) -> bool {
+pub(crate) fn assignment_is_broken_legacy_bracket_arithmetic(assignment: &Assignment) -> bool {
     let AssignmentValue::Scalar(word) = &assignment.value else {
         return false;
     };
@@ -825,7 +841,7 @@ fn assignment_is_broken_legacy_bracket_arithmetic(assignment: &Assignment) -> bo
     )
 }
 
-fn assignment_mentions_name_outside_nested_commands(
+pub(crate) fn assignment_mentions_name_outside_nested_commands(
     semantic: &SemanticModel,
     command_span: Span,
     assignment: &Assignment,
@@ -841,7 +857,7 @@ fn assignment_mentions_name_outside_nested_commands(
     .is_break()
 }
 
-fn command_body_mentions_name_outside_nested_commands(
+pub(crate) fn command_body_mentions_name_outside_nested_commands(
     semantic: &SemanticModel,
     fact: &CommandFact<'_>,
     source: &str,
@@ -857,7 +873,7 @@ fn command_body_mentions_name_outside_nested_commands(
     .is_break()
 }
 
-pub(super) fn simple_command_body_words<'a>(
+pub(crate) fn simple_command_body_words<'a>(
     command: &'a SimpleCommand,
     source: &'a str,
 ) -> impl Iterator<Item = &'a Word> {
@@ -868,7 +884,7 @@ pub(super) fn simple_command_body_words<'a>(
         .skip(skip)
 }
 
-fn broken_legacy_bracket_tail_mentions_name(
+pub(crate) fn broken_legacy_bracket_tail_mentions_name(
     semantic: &SemanticModel,
     command_span: Span,
     command: &SimpleCommand,
@@ -886,7 +902,7 @@ fn broken_legacy_bracket_tail_mentions_name(
     .is_break()
 }
 
-fn visit_assignment_reference_spans_outside_nested_commands(
+pub(crate) fn visit_assignment_reference_spans_outside_nested_commands(
     semantic: &SemanticModel,
     command_span: Span,
     assignment: &Assignment,
@@ -902,7 +918,7 @@ fn visit_assignment_reference_spans_outside_nested_commands(
     )
 }
 
-fn visit_command_body_reference_spans_outside_nested_commands(
+pub(crate) fn visit_command_body_reference_spans_outside_nested_commands(
     semantic: &SemanticModel,
     fact: &CommandFact<'_>,
     source: &str,
@@ -967,7 +983,7 @@ fn visit_command_body_reference_spans_outside_nested_commands(
     ControlFlow::Continue(())
 }
 
-fn visit_broken_legacy_bracket_tail_reference_spans(
+pub(crate) fn visit_broken_legacy_bracket_tail_reference_spans(
     semantic: &SemanticModel,
     command_span: Span,
     command: &SimpleCommand,
@@ -982,7 +998,7 @@ fn visit_broken_legacy_bracket_tail_reference_spans(
     visit_named_command_reference_spans_in_subspan(semantic, command_span, span, name, visit)
 }
 
-fn broken_legacy_bracket_tail_span(
+pub(crate) fn broken_legacy_bracket_tail_span(
     command: &SimpleCommand,
     tail: BrokenLegacyBracketTail,
 ) -> Option<Span> {
@@ -994,7 +1010,7 @@ fn broken_legacy_bracket_tail_span(
     Some(Span::from_positions(first.span.start, last.span.end))
 }
 
-fn builtin_words(command: &BuiltinCommand) -> Vec<&Word> {
+pub(crate) fn builtin_words(command: &BuiltinCommand) -> Vec<&Word> {
     let mut words = Vec::new();
     match command {
         BuiltinCommand::Break(command) => {
@@ -1025,7 +1041,7 @@ fn builtin_words(command: &BuiltinCommand) -> Vec<&Word> {
     words
 }
 
-fn visit_named_command_reference_spans_in_subspan(
+pub(crate) fn visit_named_command_reference_spans_in_subspan(
     semantic: &SemanticModel,
     command_span: Span,
     subspan: Span,
@@ -1033,7 +1049,8 @@ fn visit_named_command_reference_spans_in_subspan(
     visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
     for reference in semantic.references_in_command_span(command_span, subspan) {
-        if &reference.name == name && reference_kind_counts_as_env_prefix_command_read(reference.kind)
+        if &reference.name == name
+            && reference_kind_counts_as_env_prefix_command_read(reference.kind)
         {
             visit(reference.span)?;
         }
@@ -1042,7 +1059,9 @@ fn visit_named_command_reference_spans_in_subspan(
     ControlFlow::Continue(())
 }
 
-fn reference_kind_counts_as_env_prefix_command_read(kind: shuck_semantic::ReferenceKind) -> bool {
+pub(crate) fn reference_kind_counts_as_env_prefix_command_read(
+    kind: shuck_semantic::ReferenceKind,
+) -> bool {
     matches!(
         kind,
         shuck_semantic::ReferenceKind::Expansion
@@ -1058,7 +1077,7 @@ fn reference_kind_counts_as_env_prefix_command_read(kind: shuck_semantic::Refere
     )
 }
 
-fn assignment_is_identity_self_copy(assignment: &Assignment) -> bool {
+pub(crate) fn assignment_is_identity_self_copy(assignment: &Assignment) -> bool {
     if assignment.append {
         return false;
     }
@@ -1069,14 +1088,14 @@ fn assignment_is_identity_self_copy(assignment: &Assignment) -> bool {
     word_is_identity_self_copy(word, &assignment.target.name)
 }
 
-fn word_is_identity_self_copy(word: &Word, name: &Name) -> bool {
+pub(crate) fn word_is_identity_self_copy(word: &Word, name: &Name) -> bool {
     let [part] = word.parts.as_slice() else {
         return false;
     };
     word_part_is_identity_self_copy(&part.kind, name)
 }
 
-fn word_part_is_identity_self_copy(part: &WordPart, name: &Name) -> bool {
+pub(crate) fn word_part_is_identity_self_copy(part: &WordPart, name: &Name) -> bool {
     match part {
         WordPart::Variable(variable) => variable == name,
         WordPart::DoubleQuoted { parts, .. } => {
@@ -1090,7 +1109,10 @@ fn word_part_is_identity_self_copy(part: &WordPart, name: &Name) -> bool {
     }
 }
 
-fn parameter_is_plain_access_to_name(parameter: &ParameterExpansion, name: &Name) -> bool {
+pub(crate) fn parameter_is_plain_access_to_name(
+    parameter: &ParameterExpansion,
+    name: &Name,
+) -> bool {
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
             if reference.subscript.is_none() =>
@@ -1107,7 +1129,11 @@ fn parameter_is_plain_access_to_name(parameter: &ParameterExpansion, name: &Name
     }
 }
 
-fn push_fact_span(span: Span, spans: &mut Vec<Span>, seen: &mut FxHashSet<FactSpan>) -> bool {
+pub(crate) fn push_fact_span(
+    span: Span,
+    spans: &mut Vec<Span>,
+    seen: &mut FxHashSet<FactSpan>,
+) -> bool {
     let key = FactSpan::new(span);
     if seen.insert(key) {
         spans.push(span);
@@ -1117,7 +1143,7 @@ fn push_fact_span(span: Span, spans: &mut Vec<Span>, seen: &mut FxHashSet<FactSp
     }
 }
 
-fn push_env_prefix_expansion_fact(
+pub(crate) fn push_env_prefix_expansion_fact(
     span: Span,
     fix_seed: Option<&EnvPrefixExpansionFixSeed>,
     spans: &mut Vec<Span>,
@@ -1133,8 +1159,7 @@ fn push_env_prefix_expansion_fact(
     }
 }
 
-
-fn build_plus_equals_assignment_spans(commands: &[CommandFact<'_>]) -> Vec<Span> {
+pub(crate) fn build_plus_equals_assignment_spans(commands: &[CommandFact<'_>]) -> Vec<Span> {
     let mut spans = Vec::new();
 
     for fact in commands {
@@ -1144,7 +1169,10 @@ fn build_plus_equals_assignment_spans(commands: &[CommandFact<'_>]) -> Vec<Span>
     spans
 }
 
-fn collect_plus_equals_assignment_spans_in_command(command: &Command, spans: &mut Vec<Span>) {
+pub(crate) fn collect_plus_equals_assignment_spans_in_command(
+    command: &Command,
+    spans: &mut Vec<Span>,
+) {
     match command {
         Command::Simple(command) => {
             collect_plus_equals_assignment_spans_in_assignments(&command.assignments, spans);
@@ -1178,7 +1206,7 @@ fn collect_plus_equals_assignment_spans_in_command(command: &Command, spans: &mu
     }
 }
 
-fn collect_plus_equals_assignment_spans_in_assignments(
+pub(crate) fn collect_plus_equals_assignment_spans_in_assignments(
     assignments: &[Assignment],
     spans: &mut Vec<Span>,
 ) {
@@ -1187,7 +1215,7 @@ fn collect_plus_equals_assignment_spans_in_assignments(
     }
 }
 
-fn collect_plus_equals_assignment_span(assignment: &Assignment, spans: &mut Vec<Span>) {
+pub(crate) fn collect_plus_equals_assignment_span(assignment: &Assignment, spans: &mut Vec<Span>) {
     if !assignment.append {
         return;
     }
@@ -1202,7 +1230,7 @@ fn collect_plus_equals_assignment_span(assignment: &Assignment, spans: &mut Vec<
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_nonpersistent_assignment_spans(
+pub(crate) fn build_nonpersistent_assignment_spans(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     commands: &[CommandFact<'_>],
@@ -1220,8 +1248,8 @@ fn build_nonpersistent_assignment_spans(
             scope: read.scope,
         })
         .collect();
-    let analysis = semantic.analyze_nonpersistent_assignments(
-        &NonpersistentAssignmentAnalysisContext {
+    let analysis =
+        semantic.analyze_nonpersistent_assignments(&NonpersistentAssignmentAnalysisContext {
             options: NonpersistentAssignmentAnalysisOptions {
                 suppress_bash_pipefail_pipeline_side_effects,
                 require_return_use_same_execution_context: suppress_zsh_nested_subshell_noise,
@@ -1229,8 +1257,7 @@ fn build_nonpersistent_assignment_spans(
             },
             commands: command_contexts,
             extra_reads: prompt_runtime_reads,
-        },
-    );
+        });
     let mut candidate_effects = Vec::new();
     for effect in analysis.effects {
         if arithmetic_only_suppressed_subscript_spans
@@ -1327,7 +1354,7 @@ fn build_nonpersistent_assignment_spans(
     }
 }
 
-fn nonpersistent_assignment_reaches_later_use(
+pub(crate) fn nonpersistent_assignment_reaches_later_use(
     semantic: &SemanticModel,
     effect: &shuck_semantic::NonpersistentAssignmentEffect,
 ) -> bool {
@@ -1351,7 +1378,7 @@ fn nonpersistent_assignment_reaches_later_use(
     true
 }
 
-fn zsh_later_use_is_parameter_subscript_flag(source: &str, span: Span) -> bool {
+pub(crate) fn zsh_later_use_is_parameter_subscript_flag(source: &str, span: Span) -> bool {
     if span.start.offset + 1 != span.end.offset {
         return false;
     }
@@ -1382,7 +1409,7 @@ fn zsh_later_use_is_parameter_subscript_flag(source: &str, span: Span) -> bool {
     true
 }
 
-fn nonpersistent_reset_site_covers_later_use(
+pub(crate) fn nonpersistent_reset_site_covers_later_use(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     effect: &shuck_semantic::NonpersistentAssignmentEffect,
@@ -1416,19 +1443,20 @@ fn nonpersistent_reset_site_covers_later_use(
     }
 
     let assignment_scope = semantic.binding(effect.assignment_binding).scope;
-    let entry = semantic_analysis
-        .flow_entry_block_for_binding_scopes(&[assignment_scope], effect.later_use_span.start.offset);
-    later_use_blocks
-        .iter()
-        .copied()
-        .all(|target| semantic_analysis.blocks_cover_all_paths_to_block(entry, target, &reset_blocks))
+    let entry = semantic_analysis.flow_entry_block_for_binding_scopes(
+        &[assignment_scope],
+        effect.later_use_span.start.offset,
+    );
+    later_use_blocks.iter().copied().all(|target| {
+        semantic_analysis.blocks_cover_all_paths_to_block(entry, target, &reset_blocks)
+    })
 }
 
-fn span_contains(outer: Span, inner: Span) -> bool {
+pub(crate) fn span_contains(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
 }
 
-fn build_subshell_loop_assignment_report_spans(
+pub(crate) fn build_subshell_loop_assignment_report_spans(
     commands: &[CommandFact<'_>],
 ) -> FxHashMap<FactSpan, Span> {
     let mut spans = FxHashMap::default();
@@ -1456,11 +1484,11 @@ fn build_subshell_loop_assignment_report_spans(
     spans
 }
 
-fn leading_keyword_span(command_span: Span, keyword: &str) -> Span {
+pub(crate) fn leading_keyword_span(command_span: Span, keyword: &str) -> Span {
     Span::from_positions(command_span.start, command_span.start.advanced_by(keyword))
 }
 
-fn subshell_assignment_report_span(
+pub(crate) fn subshell_assignment_report_span(
     binding: &Binding,
     loop_assignment_spans: &FxHashMap<FactSpan, Span>,
 ) -> Span {
@@ -1474,20 +1502,20 @@ fn subshell_assignment_report_span(
 }
 
 #[derive(Debug, Default)]
-struct NonpersistentAssignmentSpans {
-    subshell_assignment_sites: Vec<NamedSpan>,
-    subshell_later_use_sites: Vec<NamedSpan>,
+pub(crate) struct NonpersistentAssignmentSpans {
+    pub(crate) subshell_assignment_sites: Vec<NamedSpan>,
+    pub(crate) subshell_later_use_sites: Vec<NamedSpan>,
 }
 
 #[derive(Debug, Clone)]
-struct NonpersistentAssignmentExtraResetSite {
+pub(crate) struct NonpersistentAssignmentExtraResetSite {
     name: Name,
     span: Span,
     flow_span: Span,
     command_id: CommandId,
 }
 
-fn build_nonpersistent_assignment_extra_reset_sites(
+pub(crate) fn build_nonpersistent_assignment_extra_reset_sites(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     commands: &[CommandFact<'_>],
@@ -1516,7 +1544,8 @@ fn build_nonpersistent_assignment_extra_reset_sites(
             continue;
         };
         let can_call_relevant_helper = helper_function_names.contains(command_name);
-        let can_set_reply_by_name = needs_reply_reset && zsh_helper_name_can_set_reply(command_name);
+        let can_set_reply_by_name =
+            needs_reply_reset && zsh_helper_name_can_set_reply(command_name);
         if !can_call_relevant_helper && !can_set_reply_by_name {
             continue;
         }
@@ -1528,7 +1557,8 @@ fn build_nonpersistent_assignment_extra_reset_sites(
             && reply_function_names
                 .as_ref()
                 .is_some_and(|names| names.contains(command_name));
-        let resolved_function_scope = (can_call_relevant_helper || reply_name_may_resolve_to_function)
+        let resolved_function_scope = (can_call_relevant_helper
+            || reply_name_may_resolve_to_function)
             .then(|| resolved_function_scope_for_command(semantic, semantic_analysis, command))
             .flatten();
 
@@ -1560,11 +1590,13 @@ fn build_nonpersistent_assignment_extra_reset_sites(
 
         let flow_span = reset_flow_span_for_command(semantic, semantic_analysis, command, source);
         if let Some(names) = names {
-            resets.extend(names.iter().cloned().map(|name| NonpersistentAssignmentExtraResetSite {
-                name,
-                span: call_name_span,
-                flow_span,
-                command_id: command.id(),
+            resets.extend(names.iter().cloned().map(|name| {
+                NonpersistentAssignmentExtraResetSite {
+                    name,
+                    span: call_name_span,
+                    flow_span,
+                    command_id: command.id(),
+                }
             }));
         }
 
@@ -1599,7 +1631,12 @@ fn build_nonpersistent_assignment_extra_reset_sites(
             .cmp(right.name.as_str())
             .then_with(|| left.span.start.offset.cmp(&right.span.start.offset))
             .then_with(|| left.span.end.offset.cmp(&right.span.end.offset))
-            .then_with(|| left.flow_span.start.offset.cmp(&right.flow_span.start.offset))
+            .then_with(|| {
+                left.flow_span
+                    .start
+                    .offset
+                    .cmp(&right.flow_span.start.offset)
+            })
             .then_with(|| left.flow_span.end.offset.cmp(&right.flow_span.end.offset))
             .then_with(|| left.command_id.index().cmp(&right.command_id.index()))
     });
@@ -1612,7 +1649,7 @@ fn build_nonpersistent_assignment_extra_reset_sites(
     resets
 }
 
-fn reset_flow_span_for_command(
+pub(crate) fn reset_flow_span_for_command(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     command: &CommandFact<'_>,
@@ -1645,7 +1682,7 @@ fn reset_flow_span_for_command(
     pipeline_span.unwrap_or(command_span)
 }
 
-fn zsh_reply_helper_reset_span(command: &CommandFact<'_>) -> Option<Span> {
+pub(crate) fn zsh_reply_helper_reset_span(command: &CommandFact<'_>) -> Option<Span> {
     let name = command.effective_or_literal_name()?;
     if !zsh_helper_name_can_set_reply(name) {
         return None;
@@ -1654,11 +1691,11 @@ fn zsh_reply_helper_reset_span(command: &CommandFact<'_>) -> Option<Span> {
     Some(command.body_name_word()?.span)
 }
 
-fn zsh_helper_name_can_set_reply(name: &str) -> bool {
+pub(crate) fn zsh_helper_name_can_set_reply(name: &str) -> bool {
     (name.starts_with('.') && name != "." && name != "..") || name.starts_with('_')
 }
 
-fn helper_output_names_by_scope(
+pub(crate) fn helper_output_names_by_scope(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     needed_names: &FxHashSet<Name>,
@@ -1690,7 +1727,7 @@ fn helper_output_names_by_scope(
     names_by_scope
 }
 
-fn helper_function_names_for_scopes(
+pub(crate) fn helper_function_names_for_scopes(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     helper_output_names_by_scope: &FxHashMap<ScopeId, Vec<Name>>,
@@ -1719,7 +1756,7 @@ fn helper_function_names_for_scopes(
     function_names
 }
 
-fn function_definition_names(semantic: &SemanticModel) -> FxHashSet<Name> {
+pub(crate) fn function_definition_names(semantic: &SemanticModel) -> FxHashSet<Name> {
     semantic
         .bindings()
         .iter()
@@ -1728,7 +1765,7 @@ fn function_definition_names(semantic: &SemanticModel) -> FxHashSet<Name> {
         .collect()
 }
 
-fn helper_binding_can_reset_parent_scope(
+pub(crate) fn helper_binding_can_reset_parent_scope(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     binding: &Binding,
@@ -1751,11 +1788,9 @@ fn helper_binding_can_reset_parent_scope(
         | BindingKind::GetoptsTarget
         | BindingKind::ZparseoptsTarget
         | BindingKind::ArithmeticAssignment => true,
-        BindingKind::Declaration(_) => {
-            binding
-                .attributes
-                .contains(BindingAttributes::DECLARATION_INITIALIZED)
-        }
+        BindingKind::Declaration(_) => binding
+            .attributes
+            .contains(BindingAttributes::DECLARATION_INITIALIZED),
         BindingKind::LoopVariable
         | BindingKind::FunctionDefinition
         | BindingKind::Nameref
@@ -1763,7 +1798,7 @@ fn helper_binding_can_reset_parent_scope(
     }
 }
 
-fn binding_command_is_unconditional_in_function(
+pub(crate) fn binding_command_is_unconditional_in_function(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     binding: &Binding,
@@ -1775,7 +1810,7 @@ fn binding_command_is_unconditional_in_function(
     command_is_unconditional_in_function(semantic, semantic_analysis, current)
 }
 
-fn command_is_unconditional_in_function(
+pub(crate) fn command_is_unconditional_in_function(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     mut current: CommandId,
@@ -1801,7 +1836,7 @@ fn command_is_unconditional_in_function(
     true
 }
 
-fn command_has_reachable_cfg_block(
+pub(crate) fn command_has_reachable_cfg_block(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     command_id: CommandId,
@@ -1812,7 +1847,7 @@ fn command_has_reachable_cfg_block(
         .any(|block| !semantic_analysis.block_is_unreachable(*block))
 }
 
-fn zsh_set_a_outparam_positions_by_scope(
+pub(crate) fn zsh_set_a_outparam_positions_by_scope(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     commands: &[CommandFact<'_>],
@@ -1848,7 +1883,7 @@ fn zsh_set_a_outparam_positions_by_scope(
     positions_by_scope
 }
 
-fn zsh_set_a_outparam_positions(args: &[&Word], source: &str) -> Vec<usize> {
+pub(crate) fn zsh_set_a_outparam_positions(args: &[&Word], source: &str) -> Vec<usize> {
     let mut positions = Vec::new();
     let mut saw_array_flag = false;
 
@@ -1870,7 +1905,7 @@ fn zsh_set_a_outparam_positions(args: &[&Word], source: &str) -> Vec<usize> {
     positions
 }
 
-fn positional_outparam_index_from_word_text(text: &str) -> Option<usize> {
+pub(crate) fn positional_outparam_index_from_word_text(text: &str) -> Option<usize> {
     positional_outparam_index(text).or_else(|| {
         text.strip_prefix('"')
             .and_then(|inner| inner.strip_suffix('"'))
@@ -1878,7 +1913,7 @@ fn positional_outparam_index_from_word_text(text: &str) -> Option<usize> {
     })
 }
 
-fn positional_outparam_index(text: &str) -> Option<usize> {
+pub(crate) fn positional_outparam_index(text: &str) -> Option<usize> {
     let parameter = text
         .strip_prefix("${")
         .and_then(|inner| inner.strip_suffix('}'))
@@ -1887,7 +1922,7 @@ fn positional_outparam_index(text: &str) -> Option<usize> {
     (index > 0).then_some(index)
 }
 
-fn resolved_function_scope_for_command(
+pub(crate) fn resolved_function_scope_for_command(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     command: &CommandFact<'_>,
@@ -1917,7 +1952,7 @@ fn resolved_function_scope_for_command(
     Some((scope, name_span))
 }
 
-fn fallback_function_binding_is_callable_from_function_body(
+pub(crate) fn fallback_function_binding_is_callable_from_function_body(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     command: &CommandFact<'_>,
@@ -1944,7 +1979,7 @@ fn fallback_function_binding_is_callable_from_function_body(
     )
 }
 
-fn function_scope_may_run_before_offset(
+pub(crate) fn function_scope_may_run_before_offset(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     function_scope: ScopeId,
@@ -1956,20 +1991,23 @@ fn function_scope_may_run_before_offset(
         .is_some_and(|(_, bindings)| {
             bindings.iter().copied().any(|function_binding| {
                 let name = &semantic.binding(function_binding).name;
-                semantic_analysis
-                    .resolved_function_call_sites(name)
-                    .any(|(site, resolved_binding)| {
+                semantic_analysis.resolved_function_call_sites(name).any(
+                    |(site, resolved_binding)| {
                         resolved_binding == function_binding && site.name_span.start.offset < offset
-                    })
+                    },
+                )
             })
         })
 }
 
-fn command_is_inside_function_body(semantic: &SemanticModel, scope: ScopeId) -> bool {
+pub(crate) fn command_is_inside_function_body(semantic: &SemanticModel, scope: ScopeId) -> bool {
     enclosing_function_scope(semantic, scope).is_some()
 }
 
-fn enclosing_function_scope(semantic: &SemanticModel, scope: ScopeId) -> Option<ScopeId> {
+pub(crate) fn enclosing_function_scope(
+    semantic: &SemanticModel,
+    scope: ScopeId,
+) -> Option<ScopeId> {
     if matches!(semantic.scope_kind(scope), ScopeKind::Function(_)) {
         return Some(scope);
     }
@@ -1979,12 +2017,15 @@ fn enclosing_function_scope(semantic: &SemanticModel, scope: ScopeId) -> Option<
         .find(|scope| matches!(semantic.scope_kind(*scope), ScopeKind::Function(_)))
 }
 
-fn command_runs_in_persistent_shell_context(
+pub(crate) fn command_runs_in_persistent_shell_context(
     semantic: &SemanticModel,
     command: &CommandFact<'_>,
     source: &str,
 ) -> bool {
-    if matches!(command.stmt().terminator, Some(StmtTerminator::Background(_))) {
+    if matches!(
+        command.stmt().terminator,
+        Some(StmtTerminator::Background(_))
+    ) {
         return false;
     }
 
@@ -2001,7 +2042,7 @@ fn command_runs_in_persistent_shell_context(
         && zsh_pipeline_tail_runs_in_current_shell(command, semantic, source)
 }
 
-fn zsh_pipeline_tail_runs_in_current_shell(
+pub(crate) fn zsh_pipeline_tail_runs_in_current_shell(
     command: &CommandFact<'_>,
     semantic: &SemanticModel,
     source: &str,
@@ -2012,7 +2053,9 @@ fn zsh_pipeline_tail_runs_in_current_shell(
     if command
         .shell_behavior()
         .zsh_options()
-        .is_some_and(|options| *options == ZshOptionState::for_emulate(shuck_semantic::ZshEmulationMode::Sh))
+        .is_some_and(|options| {
+            *options == ZshOptionState::for_emulate(shuck_semantic::ZshEmulationMode::Sh)
+        })
     {
         return false;
     }
@@ -2021,7 +2064,7 @@ fn zsh_pipeline_tail_runs_in_current_shell(
         || command_is_textual_pipeline_tail_operand(command.span(), source)
 }
 
-fn command_is_pipeline_tail_operand(
+pub(crate) fn command_is_pipeline_tail_operand(
     semantic: &SemanticModel,
     mut current: CommandId,
     source: &str,
@@ -2043,7 +2086,7 @@ fn command_is_pipeline_tail_operand(
     saw_pipeline_parent
 }
 
-fn binary_child_pipe_tail_relation(
+pub(crate) fn binary_child_pipe_tail_relation(
     semantic: &SemanticModel,
     parent: CommandId,
     child: CommandId,
@@ -2061,7 +2104,7 @@ fn binary_child_pipe_tail_relation(
     text_ends_with_pipeline_operator(before_child).then_some(true)
 }
 
-fn command_is_textual_pipeline_tail_operand(command_span: Span, source: &str) -> bool {
+pub(crate) fn command_is_textual_pipeline_tail_operand(command_span: Span, source: &str) -> bool {
     let before_command = &source[..command_span.start.offset];
     let before_command = before_command.trim_end();
     if !text_ends_with_pipeline_operator(before_command) {
@@ -2073,15 +2116,15 @@ fn command_is_textual_pipeline_tail_operand(command_span: Span, source: &str) ->
     !after_command.starts_with('|')
 }
 
-fn text_ends_with_pipeline_operator(text: &str) -> bool {
+pub(crate) fn text_ends_with_pipeline_operator(text: &str) -> bool {
     text.ends_with("|&") || (text.ends_with('|') && !text.ends_with("||"))
 }
 
-fn text_starts_with_pipeline_operator(text: &str) -> Option<()> {
+pub(crate) fn text_starts_with_pipeline_operator(text: &str) -> Option<()> {
     (text.starts_with("|&") || (text.starts_with('|') && !text.starts_with("||"))).then_some(())
 }
 
-fn reset_site_control_ancestors_contain_later_use(
+pub(crate) fn reset_site_control_ancestors_contain_later_use(
     semantic: &SemanticModel,
     command_id: CommandId,
     later_use_span: Span,
@@ -2106,7 +2149,7 @@ fn reset_site_control_ancestors_contain_later_use(
     true
 }
 
-fn reset_site_is_always_run_binary_operand(
+pub(crate) fn reset_site_is_always_run_binary_operand(
     semantic: &SemanticModel,
     parent: CommandId,
     child: CommandId,
@@ -2118,7 +2161,7 @@ fn reset_site_is_always_run_binary_operand(
     semantic.command_syntax_span(parent).start == semantic.command_syntax_span(child).start
 }
 
-fn command_kind_may_skip_child(kind: CommandKind) -> bool {
+pub(crate) fn command_kind_may_skip_child(kind: CommandKind) -> bool {
     match kind {
         CommandKind::Binary => true,
         CommandKind::Compound(
@@ -2149,7 +2192,7 @@ fn command_kind_may_skip_child(kind: CommandKind) -> bool {
     }
 }
 
-fn build_nonpersistent_assignment_command_contexts(
+pub(crate) fn build_nonpersistent_assignment_command_contexts(
     commands: &[CommandFact<'_>],
 ) -> Vec<NonpersistentAssignmentCommandContext> {
     commands
@@ -2170,13 +2213,13 @@ fn build_nonpersistent_assignment_command_contexts(
         .collect()
 }
 
-struct PromptRuntimeRead {
+pub(crate) struct PromptRuntimeRead {
     name: Name,
     span: Span,
     scope: ScopeId,
 }
 
-fn build_prompt_runtime_read_spans(
+pub(crate) fn build_prompt_runtime_read_spans(
     commands: &[CommandFact<'_>],
     source: &str,
 ) -> Vec<PromptRuntimeRead> {
@@ -2199,7 +2242,7 @@ fn build_prompt_runtime_read_spans(
     reads
 }
 
-fn collect_prompt_runtime_reads_from_assignment(
+pub(crate) fn collect_prompt_runtime_reads_from_assignment(
     assignment: &Assignment,
     scope: ScopeId,
     source: &str,
@@ -2222,7 +2265,7 @@ fn collect_prompt_runtime_reads_from_assignment(
     }
 }
 
-fn escaped_braced_parameter_names(text: &str) -> Vec<String> {
+pub(crate) fn escaped_braced_parameter_names(text: &str) -> Vec<String> {
     let mut names = Vec::new();
     let mut index = 0;
 
@@ -2253,7 +2296,7 @@ fn escaped_braced_parameter_names(text: &str) -> Vec<String> {
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_innermost_command_ids_by_offset(
+pub(crate) fn build_innermost_command_ids_by_offset(
     commands: &[CommandFact<'_>],
     mut offsets: Vec<usize>,
 ) -> CommandOffsetLookup {
@@ -2297,17 +2340,17 @@ fn build_innermost_command_ids_by_offset(
 }
 
 #[derive(Debug, Default, Clone)]
-struct CommandOffsetLookup {
+pub(crate) struct CommandOffsetLookup {
     entries: Vec<CommandOffsetLookupEntry>,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct CommandOffsetLookupEntry {
+pub(crate) struct CommandOffsetLookupEntry {
     offset: usize,
     id: CommandId,
 }
 
-fn precomputed_command_id_for_offset(
+pub(crate) fn precomputed_command_id_for_offset(
     command_ids_by_offset: &CommandOffsetLookup,
     offset: usize,
 ) -> Option<CommandId> {
@@ -2319,12 +2362,12 @@ fn precomputed_command_id_for_offset(
 }
 
 #[derive(Debug, Clone, Copy)]
-struct OpenCommand {
+pub(crate) struct OpenCommand {
     end_offset: usize,
     id: CommandId,
 }
 
-fn pop_finished_commands(active_commands: &mut Vec<OpenCommand>, offset: usize) {
+pub(crate) fn pop_finished_commands(active_commands: &mut Vec<OpenCommand>, offset: usize) {
     while active_commands
         .last()
         .is_some_and(|command| command.end_offset < offset)
@@ -2333,7 +2376,10 @@ fn pop_finished_commands(active_commands: &mut Vec<OpenCommand>, offset: usize) 
     }
 }
 
-fn build_dollar_question_after_command_spans(commands: &StmtSeq, source: &str) -> Vec<Span> {
+pub(crate) fn build_dollar_question_after_command_spans(
+    commands: &StmtSeq,
+    source: &str,
+) -> Vec<Span> {
     let mut spans = Vec::new();
     BodyShapeAnalyzer::new(source).visit_status_available_sites(commands, true, &mut |site| {
         match site {
@@ -2355,8 +2401,7 @@ fn build_dollar_question_after_command_spans(commands: &StmtSeq, source: &str) -
     spans
 }
 
-
-fn build_declaration_assignment_probes<'a>(
+pub(crate) fn build_declaration_assignment_probes<'a>(
     command: &'a Command,
     normalized: &NormalizedCommand<'a>,
     semantic: &SemanticModel,
@@ -2377,11 +2422,7 @@ fn build_declaration_assignment_probes<'a>(
                     readonly_flag: declaration.readonly_flag,
                     target_name: assignment.target.name.as_str().into(),
                     target_name_span: assignment.target.name_span,
-                    has_command_substitution: word_has_command_substitution(
-                        word,
-                        source,
-                        behavior,
-                    ),
+                    has_command_substitution: word_has_command_substitution(word, source, behavior),
                     status_capture: word_is_standalone_status_capture(word),
                 })
             })
@@ -2429,7 +2470,7 @@ fn build_declaration_assignment_probes<'a>(
         .collect()
 }
 
-fn declaration_kind_from_semantic(builtin: DeclarationBuiltin) -> DeclarationKind {
+pub(crate) fn declaration_kind_from_semantic(builtin: DeclarationBuiltin) -> DeclarationKind {
     match builtin {
         DeclarationBuiltin::Export => DeclarationKind::Export,
         DeclarationBuiltin::Local => DeclarationKind::Local,
@@ -2439,7 +2480,7 @@ fn declaration_kind_from_semantic(builtin: DeclarationBuiltin) -> DeclarationKin
     }
 }
 
-fn semantic_declaration_readonly_flag(declaration: &Declaration) -> bool {
+pub(crate) fn semantic_declaration_readonly_flag(declaration: &Declaration) -> bool {
     if !matches!(
         declaration.builtin,
         DeclarationBuiltin::Local | DeclarationBuiltin::Declare | DeclarationBuiltin::Typeset
@@ -2457,28 +2498,27 @@ fn semantic_declaration_readonly_flag(declaration: &Declaration) -> bool {
     })
 }
 
-fn word_for_declaration_value_span(command: &Command, span: Span) -> Option<&Word> {
+pub(crate) fn word_for_declaration_value_span(command: &Command, span: Span) -> Option<&Word> {
     let Command::Simple(command) = command else {
         return None;
     };
 
-    command
-        .args
-        .iter()
-        .find(|word| span.start.offset >= word.span.start.offset && span.end.offset <= word.span.end.offset)
+    command.args.iter().find(|word| {
+        span.start.offset >= word.span.start.offset && span.end.offset <= word.span.end.offset
+    })
 }
 
-fn word_span_is_standalone_status_capture(word: &Word, span: Span) -> bool {
+pub(crate) fn word_span_is_standalone_status_capture(word: &Word, span: Span) -> bool {
     let parts = word_parts_in_span(word, span);
     matches!(parts.as_slice(), [part] if part_is_standalone_status_capture(&part.kind))
 }
 
-fn word_span_is_standalone_status_or_pid_capture(word: &Word, span: Span) -> bool {
+pub(crate) fn word_span_is_standalone_status_or_pid_capture(word: &Word, span: Span) -> bool {
     let parts = word_parts_in_span(word, span);
     matches!(parts.as_slice(), [part] if part_is_standalone_status_or_pid_capture(&part.kind))
 }
 
-fn word_parts_in_span(word: &Word, span: Span) -> Vec<&WordPartNode> {
+pub(crate) fn word_parts_in_span(word: &Word, span: Span) -> Vec<&WordPartNode> {
     word.parts
         .iter()
         .filter(|part| {
@@ -2487,7 +2527,7 @@ fn word_parts_in_span(word: &Word, span: Span) -> Vec<&WordPartNode> {
         .collect()
 }
 
-fn part_is_standalone_status_capture(part: &WordPart) -> bool {
+pub(crate) fn part_is_standalone_status_capture(part: &WordPart) -> bool {
     match part {
         WordPart::Variable(name) => name.as_str() == "?",
         WordPart::DoubleQuoted { parts, .. } => {
@@ -2502,11 +2542,11 @@ fn part_is_standalone_status_capture(part: &WordPart) -> bool {
     }
 }
 
-fn word_is_standalone_status_or_pid_capture(word: &Word) -> bool {
+pub(crate) fn word_is_standalone_status_or_pid_capture(word: &Word) -> bool {
     matches!(word.parts.as_slice(), [part] if part_is_standalone_status_or_pid_capture(&part.kind))
 }
 
-fn part_is_standalone_status_or_pid_capture(part: &WordPart) -> bool {
+pub(crate) fn part_is_standalone_status_or_pid_capture(part: &WordPart) -> bool {
     match part {
         WordPart::Variable(name) => matches!(name.as_str(), "?" | "!"),
         WordPart::DoubleQuoted { parts, .. } => {
@@ -2524,7 +2564,7 @@ fn part_is_standalone_status_or_pid_capture(part: &WordPart) -> bool {
     }
 }
 
-fn word_has_command_substitution(
+pub(crate) fn word_has_command_substitution(
     word: &Word,
     source: &str,
     behavior: &ShellBehaviorAt<'_>,
@@ -2533,13 +2573,13 @@ fn word_has_command_substitution(
         .has_command_substitution()
 }
 
-fn word_zsh_selectorless_subscript_value_base_names(word: &Word, source: &str) -> Box<[Name]> {
+pub(crate) fn word_zsh_selectorless_subscript_value_base_names(
+    word: &Word,
+    source: &str,
+) -> Box<[Name]> {
     let mut base_names = Vec::new();
-    if word_part_nodes_are_zsh_selectorless_subscript_value(
-        &word.parts,
-        source,
-        &mut base_names,
-    ) && !base_names.is_empty()
+    if word_part_nodes_are_zsh_selectorless_subscript_value(&word.parts, source, &mut base_names)
+        && !base_names.is_empty()
     {
         base_names.into_boxed_slice()
     } else {
@@ -2547,7 +2587,7 @@ fn word_zsh_selectorless_subscript_value_base_names(word: &Word, source: &str) -
     }
 }
 
-fn word_part_nodes_are_zsh_selectorless_subscript_value(
+pub(crate) fn word_part_nodes_are_zsh_selectorless_subscript_value(
     parts: &[WordPartNode],
     source: &str,
     base_names: &mut Vec<Name>,
@@ -2564,18 +2604,14 @@ fn word_part_nodes_are_zsh_selectorless_subscript_value(
             base_names.push(name.clone());
             continue;
         }
-        if !word_part_is_zsh_selectorless_subscript_value(
-            &part.kind,
-            source,
-            base_names,
-        ) {
+        if !word_part_is_zsh_selectorless_subscript_value(&part.kind, source, base_names) {
             return false;
         }
     }
     true
 }
 
-fn word_part_is_zsh_selectorless_subscript_value(
+pub(crate) fn word_part_is_zsh_selectorless_subscript_value(
     part: &WordPart,
     source: &str,
     base_names: &mut Vec<Name>,
@@ -2611,14 +2647,14 @@ fn word_part_is_zsh_selectorless_subscript_value(
     }
 }
 
-fn literal_starts_with_zsh_subscript(text: &str) -> bool {
+pub(crate) fn literal_starts_with_zsh_subscript(text: &str) -> bool {
     let Some(rest) = text.strip_prefix('[') else {
         return false;
     };
     rest.contains(']')
 }
 
-fn parameter_is_zsh_selectorless_subscript_value(
+pub(crate) fn parameter_is_zsh_selectorless_subscript_value(
     parameter: &ParameterExpansion,
     base_names: &mut Vec<Name>,
 ) -> bool {
@@ -2662,14 +2698,14 @@ fn parameter_is_zsh_selectorless_subscript_value(
     }
 }
 
-fn var_ref_has_selectorless_subscript(reference: &VarRef) -> bool {
+pub(crate) fn var_ref_has_selectorless_subscript(reference: &VarRef) -> bool {
     reference
         .subscript
         .as_deref()
         .is_some_and(|subscript| subscript.selector().is_none())
 }
 
-fn advance_escaped_char_boundary(text: &str, start: usize) -> usize {
+pub(crate) fn advance_escaped_char_boundary(text: &str, start: usize) -> usize {
     let next = start + '\\'.len_utf8();
     if next >= text.len() {
         return next;
@@ -2678,7 +2714,7 @@ fn advance_escaped_char_boundary(text: &str, start: usize) -> usize {
     next + text[next..].chars().next().map_or(0, char::len_utf8)
 }
 
-fn collect_binding_values<'a>(
+pub(crate) fn collect_binding_values<'a>(
     command: &'a Command,
     semantic: &SemanticModel,
     source: &str,
@@ -2796,14 +2832,14 @@ fn collect_binding_values<'a>(
     }
 }
 
-fn binding_value_definition_id_for_span(
+pub(crate) fn binding_value_definition_id_for_span(
     semantic: &SemanticModel,
     span: Span,
 ) -> Option<BindingId> {
     semantic.binding_for_definition_span(span)
 }
 
-fn binding_value_visible_id_for_name(
+pub(crate) fn binding_value_visible_id_for_name(
     semantic: &SemanticModel,
     name: &Name,
     span: Span,
@@ -2813,7 +2849,7 @@ fn binding_value_visible_id_for_name(
         .map(|binding| binding.id)
 }
 
-fn annotate_conditional_assignment_value_paths<'a>(
+pub(crate) fn annotate_conditional_assignment_value_paths<'a>(
     semantic: &SemanticModel,
     lists: &[ListFact<'a>],
     binding_values: &mut FxHashMap<BindingId, BindingValueFact<'a>>,
@@ -2865,7 +2901,7 @@ fn annotate_conditional_assignment_value_paths<'a>(
     }
 }
 
-fn list_has_conditional_assignment_shortcuts(list: &ListFact<'_>) -> bool {
+pub(crate) fn list_has_conditional_assignment_shortcuts(list: &ListFact<'_>) -> bool {
     if list.mixed_short_circuit_kind() == Some(MixedShortCircuitKind::AssignmentTernary) {
         return true;
     }

@@ -1,4 +1,4 @@
-pub(super) fn build_function_in_alias_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
+pub(crate) fn build_function_in_alias_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
     let mut spans = commands
         .iter()
         .filter(|fact| fact.effective_name_is("alias"))
@@ -10,7 +10,7 @@ pub(super) fn build_function_in_alias_spans(commands: &[CommandFact<'_>], source
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-pub(super) fn build_alias_definition_expansion_spans(
+pub(crate) fn build_alias_definition_expansion_spans(
     commands: &[CommandFact<'_>],
     fact_store: &FactStore<'_>,
     nodes: &[WordNode<'_>],
@@ -51,7 +51,7 @@ pub(super) fn build_alias_definition_expansion_spans(
     spans
 }
 
-pub(super) fn alias_definition_word_groups_for_command<'a>(
+pub(crate) fn alias_definition_word_groups_for_command<'a>(
     command: &'a CommandFact<'a>,
     source: &str,
 ) -> Vec<&'a [&'a Word]> {
@@ -82,17 +82,17 @@ pub(super) fn alias_definition_word_groups_for_command<'a>(
     definition_words
 }
 
-pub(super) fn word_contains_literal_equals(word: &Word, source: &str) -> bool {
+pub(crate) fn word_contains_literal_equals(word: &Word, source: &str) -> bool {
     word_chars_outside_expansions(word, source).any(|(_, ch)| ch == '=')
 }
 
-pub(super) fn word_ends_with_literal_equals(word: &Word, source: &str) -> bool {
+pub(crate) fn word_ends_with_literal_equals(word: &Word, source: &str) -> bool {
     word_chars_outside_expansions(word, source)
         .last()
         .is_some_and(|(_, ch)| ch == '=')
 }
 
-pub(super) fn word_chars_outside_expansions<'a>(
+pub(crate) fn word_chars_outside_expansions<'a>(
     word: &'a Word,
     source: &'a str,
 ) -> impl Iterator<Item = (usize, char)> + 'a {
@@ -117,7 +117,7 @@ pub(super) fn word_chars_outside_expansions<'a>(
     })
 }
 
-pub(super) fn function_in_alias_definition_span(words: &[&Word], source: &str) -> Option<Span> {
+pub(crate) fn function_in_alias_definition_span(words: &[&Word], source: &str) -> Option<Span> {
     let definition = static_alias_definition_text(words, source)?;
     let (_, value) = definition.split_once('=').unwrap_or(("", &definition));
     let end = words.last()?.span.end;
@@ -125,7 +125,7 @@ pub(super) fn function_in_alias_definition_span(words: &[&Word], source: &str) -
         .then(|| Span::from_positions(words[0].span.start, end))
 }
 
-pub(super) fn static_alias_definition_text(words: &[&Word], source: &str) -> Option<String> {
+pub(crate) fn static_alias_definition_text(words: &[&Word], source: &str) -> Option<String> {
     let mut text = String::new();
     for word in words {
         text.push_str(&static_word_text(word, source)?);
@@ -133,7 +133,7 @@ pub(super) fn static_alias_definition_text(words: &[&Word], source: &str) -> Opt
     Some(text)
 }
 
-pub(super) fn contains_positional_parameter_reference(value: &str) -> bool {
+pub(crate) fn contains_positional_parameter_reference(value: &str) -> bool {
     let bytes = value.as_bytes();
     let mut index = 0usize;
     let mut in_single_quotes = false;
@@ -192,7 +192,7 @@ pub(super) fn contains_positional_parameter_reference(value: &str) -> bool {
     false
 }
 
-pub(super) fn starts_comment(value: &str, hash: usize) -> bool {
+pub(crate) fn starts_comment(value: &str, hash: usize) -> bool {
     hash == 0
         || value.as_bytes()[hash - 1].is_ascii_whitespace()
         || matches!(
@@ -201,7 +201,7 @@ pub(super) fn starts_comment(value: &str, hash: usize) -> bool {
         )
 }
 
-pub(super) fn is_escaped_dollar(value: &str, dollar: usize) -> bool {
+pub(crate) fn is_escaped_dollar(value: &str, dollar: usize) -> bool {
     let bytes = value.as_bytes();
     let mut cursor = dollar;
     let mut backslashes = 0usize;
@@ -214,7 +214,7 @@ pub(super) fn is_escaped_dollar(value: &str, dollar: usize) -> bool {
     backslashes % 2 == 1
 }
 
-pub(super) fn braced_parameter_starts_with_positional(value: &str, index: usize) -> bool {
+pub(crate) fn braced_parameter_starts_with_positional(value: &str, index: usize) -> bool {
     let bytes = value.as_bytes();
     let Some(first) = bytes.get(index).copied() else {
         return false;
@@ -231,11 +231,11 @@ pub(super) fn braced_parameter_starts_with_positional(value: &str, index: usize)
             .is_some_and(is_positional_parameter_start)
 }
 
-pub(super) fn is_positional_parameter_start(byte: u8) -> bool {
+pub(crate) fn is_positional_parameter_start(byte: u8) -> bool {
     byte.is_ascii_digit() || matches!(byte, b'@' | b'*')
 }
 
-pub(super) fn build_echo_backslash_escape_word_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
+pub(crate) fn build_echo_backslash_escape_word_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
     let mut spans = commands
         .iter()
         .filter(|fact| fact.effective_name_is("echo") && fact.wrappers().is_empty())
@@ -250,18 +250,18 @@ pub(super) fn build_echo_backslash_escape_word_spans(commands: &[CommandFact<'_>
     spans
 }
 
-pub(super) fn echo_uses_escape_interpreting_flag(command: &CommandFact<'_>) -> bool {
+pub(crate) fn echo_uses_escape_interpreting_flag(command: &CommandFact<'_>) -> bool {
     command
         .options()
         .echo()
         .is_some_and(|echo| echo.uses_escape_interpreting_flag())
 }
 
-pub(super) fn word_contains_echo_backslash_escape(word: &Word, source: &str) -> bool {
+pub(crate) fn word_contains_echo_backslash_escape(word: &Word, source: &str) -> bool {
     word_parts_contain_echo_backslash_escape(&word.parts, source, false)
 }
 
-pub(super) fn word_parts_contain_echo_backslash_escape(
+pub(crate) fn word_parts_contain_echo_backslash_escape(
     parts: &[WordPartNode],
     source: &str,
     in_double_quotes: bool,
@@ -300,18 +300,18 @@ pub(super) fn word_parts_contain_echo_backslash_escape(
         })
 }
 
-pub(super) fn echo_escape_is_core_family(byte: u8) -> bool {
+pub(crate) fn echo_escape_is_core_family(byte: u8) -> bool {
     matches!(
         byte,
         b'a' | b'b' | b'e' | b'f' | b'n' | b'r' | b't' | b'v' | b'x' | b'0'..=b'9'
     )
 }
 
-pub(super) fn echo_escape_is_quote_like(byte: u8) -> bool {
+pub(crate) fn echo_escape_is_quote_like(byte: u8) -> bool {
     matches!(byte, b'`' | b'\'')
 }
 
-pub(super) fn literal_double_backslash_touches_double_quoted_fragment(
+pub(crate) fn literal_double_backslash_touches_double_quoted_fragment(
     parts: &[WordPartNode],
     index: usize,
     rendered_text: &str,
@@ -327,14 +327,14 @@ pub(super) fn literal_double_backslash_touches_double_quoted_fragment(
                 .is_some_and(|part| matches!(part.kind, WordPart::DoubleQuoted { .. })))
 }
 
-pub(super) fn leading_backslash_count(text: &str) -> usize {
+pub(crate) fn leading_backslash_count(text: &str) -> usize {
     text.as_bytes()
         .iter()
         .take_while(|byte| **byte == b'\\')
         .count()
 }
 
-pub(super) fn trailing_backslash_count(text: &str) -> usize {
+pub(crate) fn trailing_backslash_count(text: &str) -> usize {
     text.as_bytes()
         .iter()
         .rev()
@@ -342,7 +342,7 @@ pub(super) fn trailing_backslash_count(text: &str) -> usize {
         .count()
 }
 
-pub(super) fn text_contains_echo_double_backslash(text: &str) -> bool {
+pub(crate) fn text_contains_echo_double_backslash(text: &str) -> bool {
     let bytes = text.as_bytes();
     let mut index = 0usize;
 
@@ -367,7 +367,7 @@ pub(super) fn text_contains_echo_double_backslash(text: &str) -> bool {
     false
 }
 
-pub(super) fn text_contains_echo_backslash_escape(text: &str, is_sensitive: fn(u8) -> bool) -> bool {
+pub(crate) fn text_contains_echo_backslash_escape(text: &str, is_sensitive: fn(u8) -> bool) -> bool {
     let bytes = text.as_bytes();
     let mut index = 0usize;
 
@@ -395,17 +395,17 @@ pub(super) fn text_contains_echo_backslash_escape(text: &str, is_sensitive: fn(u
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct WordFactLookup<'facts, 'a> {
-    pub(super) nodes: &'facts [WordNode<'a>],
-    pub(super) occurrences: &'facts [WordOccurrence],
-    pub(super) word_index: &'facts FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
-    pub(super) fact_store: &'facts FactStore<'a>,
-    pub(super) source: &'a str,
-    pub(super) line_index: &'facts LineIndex,
+pub(crate) struct WordFactLookup<'facts, 'a> {
+    pub(crate) nodes: &'facts [WordNode<'a>],
+    pub(crate) occurrences: &'facts [WordOccurrence],
+    pub(crate) word_index: &'facts FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
+    pub(crate) fact_store: &'facts FactStore<'a>,
+    pub(crate) source: &'a str,
+    pub(crate) line_index: &'facts LineIndex,
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-pub(super) fn build_echo_to_sed_substitution_spans<'a>(
+pub(crate) fn build_echo_to_sed_substitution_spans<'a>(
     commands: CommandFacts<'_, 'a>,
     pipelines: &[PipelineFact<'a>],
     backticks: &[BacktickFragmentFact],
@@ -442,7 +442,7 @@ pub(super) fn build_echo_to_sed_substitution_spans<'a>(
     spans
 }
 
-pub(super) fn sc2001_like_pipeline_span<'a>(
+pub(crate) fn sc2001_like_pipeline_span<'a>(
     commands: CommandFacts<'_, 'a>,
     pipeline: &PipelineFact<'a>,
     backtick_commands: &BacktickCommandIndex,
@@ -540,7 +540,7 @@ pub(super) fn sc2001_like_pipeline_span<'a>(
     ))
 }
 
-pub(super) fn sc2001_like_here_string_span(
+pub(crate) fn sc2001_like_here_string_span(
     command: CommandFactRef<'_, '_>,
     backtick_commands: &BacktickCommandIndex,
     source: &str,
@@ -570,11 +570,11 @@ pub(super) fn sc2001_like_here_string_span(
     command_span_with_redirects_and_shellcheck_tail(command, source)
 }
 
-pub(super) fn command_is_plain_named(command: CommandFactRef<'_, '_>, name: &str) -> bool {
+pub(crate) fn command_is_plain_named(command: CommandFactRef<'_, '_>, name: &str) -> bool {
     command.effective_name_is(name) && command.wrappers().is_empty()
 }
 
-pub(super) fn sc2001_like_backtick_pipeline_span(
+pub(crate) fn sc2001_like_backtick_pipeline_span(
     commands: CommandFacts<'_, '_>,
     pipeline: &PipelineFact<'_>,
     sed_command: CommandFactRef<'_, '_>,
@@ -588,7 +588,7 @@ pub(super) fn sc2001_like_backtick_pipeline_span(
     Some(Span::from_positions(start, end))
 }
 
-pub(super) fn sc2001_like_backtick_command_span(
+pub(crate) fn sc2001_like_backtick_command_span(
     command: CommandFactRef<'_, '_>,
     source: &str,
     line_index: &LineIndex,
@@ -598,7 +598,7 @@ pub(super) fn sc2001_like_backtick_command_span(
     Some(Span::from_positions(start, end))
 }
 
-pub(super) fn sc2001_like_backtick_sed_script_end(
+pub(crate) fn sc2001_like_backtick_sed_script_end(
     args: &[&Word],
     source: &str,
     line_index: &LineIndex,
@@ -627,7 +627,7 @@ pub(super) fn sc2001_like_backtick_sed_script_end(
     Locator::new(source, line_index).position_at_offset(end_offset)
 }
 
-pub(super) fn backtick_sed_script_content_end_offset(text: &str, end_offset: usize) -> Option<usize> {
+pub(crate) fn backtick_sed_script_content_end_offset(text: &str, end_offset: usize) -> Option<usize> {
     if text.len() >= 4 && text.starts_with("\\\"") && text.ends_with("\\\"") {
         end_offset.checked_sub(2)
     } else if text.len() >= 2
@@ -640,7 +640,7 @@ pub(super) fn backtick_sed_script_content_end_offset(text: &str, end_offset: usi
     }
 }
 
-pub(super) fn sc2001_like_backtick_sed_script_trim_chars(
+pub(crate) fn sc2001_like_backtick_sed_script_trim_chars(
     script_words: &[&Word],
     source: &str,
 ) -> Option<usize> {
@@ -687,7 +687,7 @@ pub(super) fn sc2001_like_backtick_sed_script_trim_chars(
     Some(trim_chars)
 }
 
-pub(super) fn backtick_sed_script_uses_escaped_double_quotes(script_words: &[&Word], source: &str) -> bool {
+pub(crate) fn backtick_sed_script_uses_escaped_double_quotes(script_words: &[&Word], source: &str) -> bool {
     match script_words {
         [script] => {
             let text = script.span.slice(source);
@@ -701,7 +701,7 @@ pub(super) fn backtick_sed_script_uses_escaped_double_quotes(script_words: &[&Wo
     }
 }
 
-pub(super) fn rewind_offset_by_chars(source: &str, mut offset: usize, count: usize) -> Option<usize> {
+pub(crate) fn rewind_offset_by_chars(source: &str, mut offset: usize, count: usize) -> Option<usize> {
     if offset > source.len() || !source.is_char_boundary(offset) {
         return None;
     }
@@ -715,7 +715,7 @@ pub(super) fn rewind_offset_by_chars(source: &str, mut offset: usize, count: usi
     Some(offset)
 }
 
-pub(super) fn command_has_sc2001_like_sed_script(
+pub(crate) fn command_has_sc2001_like_sed_script(
     command: CommandFactRef<'_, '_>,
     backtick_commands: &BacktickCommandIndex,
     source: &str,
@@ -732,7 +732,7 @@ pub(super) fn command_has_sc2001_like_sed_script(
             ))
 }
 
-pub(super) struct BacktickCommandIndex {
+pub(crate) struct BacktickCommandIndex {
     command_ids: DenseCommandIdSet,
 }
 
@@ -753,7 +753,7 @@ impl BacktickCommandIndex {
 }
 
 
-pub(super) fn parse_wait_command(args: &[&Word], source: &str) -> WaitCommandFacts {
+pub(crate) fn parse_wait_command(args: &[&Word], source: &str) -> WaitCommandFacts {
     let mut option_spans = Vec::new();
     let mut index = 0;
 
@@ -783,7 +783,7 @@ pub(super) fn parse_wait_command(args: &[&Word], source: &str) -> WaitCommandFac
     }
 }
 
-pub(super) fn wait_option_consumes_argument(text: &str) -> bool {
+pub(crate) fn wait_option_consumes_argument(text: &str) -> bool {
     let Some(flags) = text.strip_prefix('-') else {
         return false;
     };
@@ -794,7 +794,7 @@ pub(super) fn wait_option_consumes_argument(text: &str) -> bool {
     p_index + 1 == flags.len()
 }
 
-pub(super) fn parse_mapfile_command(
+pub(crate) fn parse_mapfile_command(
     args: &[&Word],
     semantic: &LinterSemanticArtifacts<'_>,
     source: &str,
@@ -868,11 +868,11 @@ pub(super) fn parse_mapfile_command(
     }
 }
 
-pub(super) fn mapfile_option_takes_argument(flag: char) -> bool {
+pub(crate) fn mapfile_option_takes_argument(flag: char) -> bool {
     matches!(flag, 'u' | 'C' | 'c' | 'd' | 'n' | 'O' | 's')
 }
 
-pub(super) fn parse_expr_command(args: &[&Word], source: &str) -> Option<ExprCommandFacts> {
+pub(crate) fn parse_expr_command(args: &[&Word], source: &str) -> Option<ExprCommandFacts> {
     let (string_helper_kind, string_helper_span) = expr_string_helper(args, source)
         .map_or((None, None), |(kind, span)| (Some(kind), Some(span)));
 
@@ -883,7 +883,7 @@ pub(super) fn parse_expr_command(args: &[&Word], source: &str) -> Option<ExprCom
     })
 }
 
-pub(super) fn expr_uses_string_form(args: &[&Word], source: &str) -> bool {
+pub(crate) fn expr_uses_string_form(args: &[&Word], source: &str) -> bool {
     matches!(
         args.first()
             .and_then(|word| static_word_text(word, source))
@@ -896,7 +896,7 @@ pub(super) fn expr_uses_string_form(args: &[&Word], source: &str) -> bool {
         .is_some_and(|text| matches!(text, ":" | "=" | "!=" | "<" | ">" | "<=" | ">=" | "=="))
 }
 
-pub(super) fn expr_string_helper(args: &[&Word], source: &str) -> Option<(ExprStringHelperKind, Span)> {
+pub(crate) fn expr_string_helper(args: &[&Word], source: &str) -> Option<(ExprStringHelperKind, Span)> {
     let word = args.first()?;
     let kind = match static_word_text(word, source).as_deref() {
         Some("length") => ExprStringHelperKind::Length,
@@ -909,7 +909,7 @@ pub(super) fn expr_string_helper(args: &[&Word], source: &str) -> Option<(ExprSt
     Some((kind, word.span))
 }
 
-pub(super) fn parse_exit_command<'a>(command: &'a Command, source: &str) -> Option<ExitCommandFacts<'a>> {
+pub(crate) fn parse_exit_command<'a>(command: &'a Command, source: &str) -> Option<ExitCommandFacts<'a>> {
     let Command::Builtin(BuiltinCommand::Exit(exit)) = command else {
         return None;
     };
@@ -933,11 +933,11 @@ pub(super) fn parse_exit_command<'a>(command: &'a Command, source: &str) -> Opti
     })
 }
 
-pub(super) fn word_contains_literal_content(word: &Word, source: &str) -> bool {
+pub(crate) fn word_contains_literal_content(word: &Word, source: &str) -> bool {
     word_parts_contain_literal_content(&word.parts, source)
 }
 
-pub(super) fn word_parts_contain_literal_content(parts: &[WordPartNode], source: &str) -> bool {
+pub(crate) fn word_parts_contain_literal_content(parts: &[WordPartNode], source: &str) -> bool {
     parts.iter().any(|part| match &part.kind {
         WordPart::Literal(text) => !text.as_str(source, part.span).is_empty(),
         WordPart::SingleQuoted { value, .. } => !value.slice(source).is_empty(),
@@ -961,7 +961,7 @@ pub(super) fn word_parts_contain_literal_content(parts: &[WordPartNode], source:
     })
 }
 
-pub(super) fn detect_sudo_family_invoker(
+pub(crate) fn detect_sudo_family_invoker(
     command: &Command,
     normalized: &NormalizedCommand<'_>,
     source: &str,
@@ -988,7 +988,7 @@ pub(super) fn detect_sudo_family_invoker(
         .last()
 }
 
-pub(super) fn single_quoted_literal_exempt_argument(
+pub(crate) fn single_quoted_literal_exempt_argument(
     command_name: Option<&str>,
     shell_dialect: shuck_parser::ShellDialect,
     args: &[Word],
@@ -1207,11 +1207,11 @@ fn p10k_prompt_segment_expansion_argument(relative_arg_index: usize) -> bool {
     matches!(relative_arg_index, 5 | 6)
 }
 
-pub(super) fn single_quoted_literal_exempt_here_string(command_name: Option<&str>) -> bool {
+pub(crate) fn single_quoted_literal_exempt_here_string(command_name: Option<&str>) -> bool {
     matches!(command_name, Some("sh" | "bash" | "dash" | "ksh" | "zsh"))
 }
 
-pub(super) fn single_quoted_literal_instructional_output_argument(
+pub(crate) fn single_quoted_literal_instructional_output_argument(
     command_name: Option<&str>,
     redirects: &[Redirect],
     inherited_output_sinks: &FxHashMap<i32, CommandOutputSink>,
@@ -1260,16 +1260,16 @@ fn command_redirects_stdout_to_file(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum CommandOutputSink {
+pub(crate) enum CommandOutputSink {
     File,
     Other,
 }
 
-pub(super) fn output_sink_state_defaults() -> FxHashMap<i32, CommandOutputSink> {
+pub(crate) fn output_sink_state_defaults() -> FxHashMap<i32, CommandOutputSink> {
     FxHashMap::from_iter([(1, CommandOutputSink::Other), (2, CommandOutputSink::Other)])
 }
 
-pub(super) fn apply_output_redirects(
+pub(crate) fn apply_output_redirects(
     redirects: &[Redirect],
     source: &str,
     shell_behavior: &ShellBehaviorAt<'_>,
@@ -1345,7 +1345,7 @@ fn redirected_output_fd(redirect: &Redirect) -> Option<i32> {
     }
 }
 
-pub(super) fn printf_assigns_to_variable(args: &[Word], arg_index: usize, source: &str) -> bool {
+pub(crate) fn printf_assigns_to_variable(args: &[Word], arg_index: usize, source: &str) -> bool {
     match args.first().and_then(|word| static_word_text(word, source)) {
         Some(text) if text == "-v" => arg_index >= 2,
         Some(text) if text.starts_with("-v") && text.len() > 2 => arg_index >= 1,
@@ -1465,14 +1465,14 @@ fn byte_is_escaped(bytes: &[u8], index: usize) -> bool {
     backslashes % 2 == 1
 }
 
-pub(super) fn shell_command_argument_index(args: &[Word], source: &str) -> Option<usize> {
+pub(crate) fn shell_command_argument_index(args: &[Word], source: &str) -> Option<usize> {
     args.windows(2).enumerate().find_map(|(index, pair)| {
         let flag = static_word_text(&pair[0], source)?;
         shell_flag_contains_command_string(flag.as_ref()).then_some(index + 1)
     })
 }
 
-pub(super) fn awk_literal_argument_index(args: &[Word], source: &str) -> Vec<usize> {
+pub(crate) fn awk_literal_argument_index(args: &[Word], source: &str) -> Vec<usize> {
     let mut result = Vec::new();
     let mut index = 0usize;
     while index < args.len() {
@@ -1529,7 +1529,7 @@ pub(super) fn awk_literal_argument_index(args: &[Word], source: &str) -> Vec<usi
     result
 }
 
-pub(super) fn jq_literal_argument_index(args: &[Word], source: &str) -> Vec<usize> {
+pub(crate) fn jq_literal_argument_index(args: &[Word], source: &str) -> Vec<usize> {
     let mut result = Vec::new();
     let mut index = 0usize;
     while index < args.len() {
@@ -1564,7 +1564,7 @@ pub(super) fn jq_literal_argument_index(args: &[Word], source: &str) -> Vec<usiz
     result
 }
 
-pub(super) fn perl_program_argument_index(args: &[Word], source: &str) -> Vec<usize> {
+pub(crate) fn perl_program_argument_index(args: &[Word], source: &str) -> Vec<usize> {
     args.windows(2)
         .enumerate()
         .filter_map(|(index, pair)| {
@@ -1574,19 +1574,19 @@ pub(super) fn perl_program_argument_index(args: &[Word], source: &str) -> Vec<us
         .collect()
 }
 
-pub(super) fn perl_option_takes_program_argument(option: &str) -> bool {
+pub(crate) fn perl_option_takes_program_argument(option: &str) -> bool {
     matches!(option, "-e" | "-E")
         || (option.starts_with('-')
             && !option.starts_with("--")
             && option.chars().any(|character| matches!(character, 'e' | 'E')))
 }
 
-pub(super) fn rename_program_argument_index(args: &[Word], source: &str) -> Option<usize> {
+pub(crate) fn rename_program_argument_index(args: &[Word], source: &str) -> Option<usize> {
     args.iter()
         .position(|word| static_word_text(word, source).is_none_or(|text| !text.starts_with('-')))
 }
 
-pub(super) fn ssh_remote_command_argument_index(args: &[Word], source: &str) -> Option<usize> {
+pub(crate) fn ssh_remote_command_argument_index(args: &[Word], source: &str) -> Option<usize> {
     let mut index = 0usize;
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
@@ -1613,7 +1613,7 @@ pub(super) fn ssh_remote_command_argument_index(args: &[Word], source: &str) -> 
     args.get(index + 1).map(|_| index + 1)
 }
 
-pub(super) fn rg_pattern_argument_index(args: &[Word], source: &str) -> Option<usize> {
+pub(crate) fn rg_pattern_argument_index(args: &[Word], source: &str) -> Option<usize> {
     let mut index = 0usize;
     while index < args.len() {
         let text = static_word_text(&args[index], source)?;
@@ -1636,7 +1636,7 @@ pub(super) fn rg_pattern_argument_index(args: &[Word], source: &str) -> Option<u
     None
 }
 
-pub(super) fn rg_option_consumes_next_argument(option: &str) -> bool {
+pub(crate) fn rg_option_consumes_next_argument(option: &str) -> bool {
     matches!(
         option,
         "-A" | "--after-context"
@@ -1659,7 +1659,7 @@ pub(super) fn rg_option_consumes_next_argument(option: &str) -> bool {
     )
 }
 
-pub(super) fn container_shell_command_argument_index(args: &[Word], source: &str) -> Option<usize> {
+pub(crate) fn container_shell_command_argument_index(args: &[Word], source: &str) -> Option<usize> {
     let run_index = args
         .iter()
         .position(|word| static_word_text(word, source).as_deref() == Some("run"))?;
@@ -1713,11 +1713,11 @@ pub(super) fn container_shell_command_argument_index(args: &[Word], source: &str
         .map(|relative| shell_index + 1 + relative)
 }
 
-pub(super) fn shell_command_name(name: &str) -> bool {
+pub(crate) fn shell_command_name(name: &str) -> bool {
     matches!(name, "sh" | "bash" | "dash" | "ksh" | "zsh")
 }
 
-pub(super) fn container_run_option_consumes_next_argument(option: &str) -> bool {
+pub(crate) fn container_run_option_consumes_next_argument(option: &str) -> bool {
     matches!(
         option,
         "-a" | "--attach"
@@ -1770,14 +1770,14 @@ pub(super) fn container_run_option_consumes_next_argument(option: &str) -> bool 
     )
 }
 
-pub(super) fn format_option_argument_index(args: &[Word], source: &str) -> Option<usize> {
+pub(crate) fn format_option_argument_index(args: &[Word], source: &str) -> Option<usize> {
     args.windows(2).enumerate().find_map(|(index, pair)| {
         let flag = static_word_text(&pair[0], source)?;
         matches!(flag.as_ref(), "-f" | "--format" | "--template").then_some(index + 1)
     })
 }
 
-pub(super) fn format_option_value_word(args: &[Word], arg_index: usize, source: &str) -> bool {
+pub(crate) fn format_option_value_word(args: &[Word], arg_index: usize, source: &str) -> bool {
     static_word_text(&args[arg_index], source).is_some_and(|text| {
         matches!(
             text.as_ref(),
@@ -1786,14 +1786,14 @@ pub(super) fn format_option_value_word(args: &[Word], arg_index: usize, source: 
     })
 }
 
-pub(super) fn dpkg_query_format_argument_index(args: &[Word], source: &str) -> Option<usize> {
+pub(crate) fn dpkg_query_format_argument_index(args: &[Word], source: &str) -> Option<usize> {
     args.windows(2).enumerate().find_map(|(index, pair)| {
         let flag = static_word_text(&pair[0], source)?;
         matches!(flag.as_ref(), "-f" | "--showformat").then_some(index + 1)
     })
 }
 
-pub(super) fn dpkg_query_format_option_value_word(args: &[Word], arg_index: usize, source: &str) -> bool {
+pub(crate) fn dpkg_query_format_option_value_word(args: &[Word], arg_index: usize, source: &str) -> bool {
     static_word_text(&args[arg_index], source).is_some_and(|text| {
         text.starts_with("-f=")
             || text.starts_with("--showformat=")
@@ -1801,14 +1801,14 @@ pub(super) fn dpkg_query_format_option_value_word(args: &[Word], arg_index: usiz
     })
 }
 
-pub(super) fn xprop_value_argument_index(args: &[Word], source: &str) -> Option<usize> {
+pub(crate) fn xprop_value_argument_index(args: &[Word], source: &str) -> Option<usize> {
     args.windows(3).enumerate().find_map(|(index, triple)| {
         let flag = static_word_text(&triple[0], source)?;
         (flag.as_ref() == "-set").then_some(index + 2)
     })
 }
 
-pub(super) fn trap_action_word<'a>(command: &'a Command, source: &str) -> Option<&'a Word> {
+pub(crate) fn trap_action_word<'a>(command: &'a Command, source: &str) -> Option<&'a Word> {
     let Command::Simple(command) = command else {
         return None;
     };
@@ -1816,7 +1816,7 @@ pub(super) fn trap_action_word<'a>(command: &'a Command, source: &str) -> Option
     trap_action_word_from_simple_command(command, source)
 }
 
-pub(super) fn trap_action_word_from_simple_command<'a>(
+pub(crate) fn trap_action_word_from_simple_command<'a>(
     command: &'a SimpleCommand,
     source: &str,
 ) -> Option<&'a Word> {

@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConditionalOperatorFamily {
     StringUnary,
@@ -43,7 +45,7 @@ impl<'a> ConditionalOperandFact<'a> {
     }
 }
 
-fn word_is_optional_first_positional_parameter(word: &Word) -> bool {
+pub(crate) fn word_is_optional_first_positional_parameter(word: &Word) -> bool {
     let [part] = word.parts.as_slice() else {
         return false;
     };
@@ -51,7 +53,7 @@ fn word_is_optional_first_positional_parameter(word: &Word) -> bool {
     word_part_is_optional_first_positional_parameter(&part.kind)
 }
 
-fn word_part_is_optional_first_positional_parameter(part: &WordPart) -> bool {
+pub(crate) fn word_part_is_optional_first_positional_parameter(part: &WordPart) -> bool {
     match part {
         WordPart::Variable(name) => name.as_str() == "1",
         WordPart::DoubleQuoted { parts, .. } => {
@@ -65,8 +67,10 @@ fn word_part_is_optional_first_positional_parameter(part: &WordPart) -> bool {
             reference,
             operator,
             ..
-        } => reference_is_first_positional_parameter(reference)
-            && matches!(operator.as_ref(), ParameterOp::UseDefault),
+        } => {
+            reference_is_first_positional_parameter(reference)
+                && matches!(operator.as_ref(), ParameterOp::UseDefault)
+        }
         WordPart::Literal(_)
         | WordPart::ZshQualifiedGlob(_)
         | WordPart::SingleQuoted { .. }
@@ -85,7 +89,7 @@ fn word_part_is_optional_first_positional_parameter(part: &WordPart) -> bool {
     }
 }
 
-fn parameter_is_optional_first_positional(parameter: &ParameterExpansion) -> bool {
+pub(crate) fn parameter_is_optional_first_positional(parameter: &ParameterExpansion) -> bool {
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
             reference_is_first_positional_parameter(reference)
@@ -128,7 +132,7 @@ fn parameter_is_optional_first_positional(parameter: &ParameterExpansion) -> boo
     }
 }
 
-fn reference_is_first_positional_parameter(reference: &VarRef) -> bool {
+pub(crate) fn reference_is_first_positional_parameter(reference: &VarRef) -> bool {
     reference.subscript.is_none() && reference.name.as_str() == "1"
 }
 
@@ -303,10 +307,7 @@ pub(crate) struct ConditionalExpressionVisit<'a> {
 }
 
 impl<'a> ConditionalExpressionVisit<'a> {
-    pub(crate) fn new(
-        expression: &'a ConditionalExpr,
-        parent_in_same_logical_group: bool,
-    ) -> Self {
+    pub(crate) fn new(expression: &'a ConditionalExpr, parent_in_same_logical_group: bool) -> Self {
         Self {
             expression,
             parent_in_same_logical_group,
@@ -314,7 +315,7 @@ impl<'a> ConditionalExpressionVisit<'a> {
     }
 }
 
-fn collect_command_substitution_command_span(
+pub(crate) fn collect_command_substitution_command_span(
     command: &Command,
     source: &str,
     spans: &mut Vec<Span>,
@@ -327,7 +328,7 @@ fn collect_command_substitution_command_span(
     }
 }
 
-fn collect_c107_status_spans_in_simple_test(
+pub(crate) fn collect_c107_status_spans_in_simple_test(
     command: &shuck_ast::SimpleCommand,
     source: &str,
     spans: &mut Vec<Span>,
@@ -372,7 +373,7 @@ fn collect_c107_status_spans_in_simple_test(
     }
 }
 
-fn collect_c107_status_spans_in_conditional_expr(
+pub(crate) fn collect_c107_status_spans_in_conditional_expr(
     expression: &ConditionalExpr,
     source: &str,
     spans: &mut Vec<Span>,
@@ -382,7 +383,10 @@ fn collect_c107_status_spans_in_conditional_expr(
     }
 }
 
-fn c107_conditional_expr_status_span(expression: &ConditionalExpr, source: &str) -> Option<Span> {
+pub(crate) fn c107_conditional_expr_status_span(
+    expression: &ConditionalExpr,
+    source: &str,
+) -> Option<Span> {
     match expression {
         ConditionalExpr::Binary(expression) => {
             if matches!(
@@ -428,7 +432,7 @@ fn c107_conditional_expr_status_span(expression: &ConditionalExpr, source: &str)
     }
 }
 
-fn c107_conditional_operand_status_span(expression: &ConditionalExpr) -> Option<Span> {
+pub(crate) fn c107_conditional_operand_status_span(expression: &ConditionalExpr) -> Option<Span> {
     match expression {
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => c107_status_word_span(word),
         ConditionalExpr::Pattern(pattern) => {
@@ -454,7 +458,10 @@ fn c107_conditional_operand_status_span(expression: &ConditionalExpr) -> Option<
     }
 }
 
-fn c107_conditional_expr_is_zero_literal(expression: &ConditionalExpr, source: &str) -> bool {
+pub(crate) fn c107_conditional_expr_is_zero_literal(
+    expression: &ConditionalExpr,
+    source: &str,
+) -> bool {
     match expression {
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
             c107_word_is_zero_literal(word, source)
@@ -470,7 +477,7 @@ fn c107_conditional_expr_is_zero_literal(expression: &ConditionalExpr, source: &
     }
 }
 
-fn collect_c107_status_spans_in_arithmetic_command(
+pub(crate) fn collect_c107_status_spans_in_arithmetic_command(
     command: &shuck_ast::ArithmeticCommand,
     source: &str,
     spans: &mut Vec<Span>,
@@ -484,7 +491,7 @@ fn collect_c107_status_spans_in_arithmetic_command(
     }
 }
 
-fn c107_arithmetic_expr_status_span(
+pub(crate) fn c107_arithmetic_expr_status_span(
     expression: &shuck_ast::ArithmeticExprNode,
     source: &str,
 ) -> Option<Span> {
@@ -521,7 +528,9 @@ fn c107_arithmetic_expr_status_span(
     }
 }
 
-fn c107_arithmetic_operand_status_span(expression: &shuck_ast::ArithmeticExprNode) -> Option<Span> {
+pub(crate) fn c107_arithmetic_operand_status_span(
+    expression: &shuck_ast::ArithmeticExprNode,
+) -> Option<Span> {
     match &expression.kind {
         shuck_ast::ArithmeticExpr::ShellWord(word) => c107_status_word_span(word),
         shuck_ast::ArithmeticExpr::Parenthesized { expression } => {
@@ -532,7 +541,7 @@ fn c107_arithmetic_operand_status_span(expression: &shuck_ast::ArithmeticExprNod
     }
 }
 
-fn c107_arithmetic_expr_is_zero_literal(
+pub(crate) fn c107_arithmetic_expr_is_zero_literal(
     expression: &shuck_ast::ArithmeticExprNode,
     source: &str,
 ) -> bool {
@@ -549,15 +558,15 @@ fn c107_arithmetic_expr_is_zero_literal(
     }
 }
 
-fn c107_status_word_span(word: &Word) -> Option<Span> {
+pub(crate) fn c107_status_word_span(word: &Word) -> Option<Span> {
     word_is_standalone_status_capture(word).then_some(word.span)
 }
 
-fn c107_word_is_zero_literal(word: &Word, source: &str) -> bool {
+pub(crate) fn c107_word_is_zero_literal(word: &Word, source: &str) -> bool {
     static_word_text(word, source).as_deref() == Some("0")
 }
 
-fn c107_pattern_is_zero_literal(pattern: &Pattern, source: &str) -> bool {
+pub(crate) fn c107_pattern_is_zero_literal(pattern: &Pattern, source: &str) -> bool {
     match pattern.parts.as_slice() {
         [part] => match &part.kind {
             PatternPart::Literal(text) => text.as_str(source, part.span) == "0",
@@ -571,7 +580,7 @@ fn c107_pattern_is_zero_literal(pattern: &Pattern, source: &str) -> bool {
     }
 }
 
-fn collect_condition_status_capture_from_body(
+pub(crate) fn collect_condition_status_capture_from_body(
     condition: &StmtSeq,
     body: &StmtSeq,
     source: &str,
@@ -596,7 +605,7 @@ fn collect_condition_status_capture_from_body(
     spans.extend(stmt_spans);
 }
 
-pub(super) fn collect_condition_status_capture_from_sequence(
+pub(crate) fn collect_condition_status_capture_from_sequence(
     commands: &StmtSeq,
     source: &str,
     spans: &mut Vec<Span>,
@@ -641,7 +650,7 @@ pub(super) fn collect_condition_status_capture_from_sequence(
     }
 }
 
-pub(super) fn collect_condition_status_capture_from_direct_body_sequences(
+pub(crate) fn collect_condition_status_capture_from_direct_body_sequences(
     command: &Command,
     source: &str,
     spans: &mut Vec<Span>,
@@ -694,7 +703,7 @@ pub(super) fn collect_condition_status_capture_from_direct_body_sequences(
     }
 }
 
-fn collect_condition_status_capture_from_sequence_segment(
+pub(crate) fn collect_condition_status_capture_from_sequence_segment(
     commands: &[Stmt],
     source: &str,
     spans: &mut Vec<Span>,
@@ -708,10 +717,7 @@ fn collect_condition_status_capture_from_sequence_segment(
         if let Some(before_previous) = body_topology.previous_sibling(index) {
             recent.push(before_previous, source);
         }
-        let tail_has_test = tail_contains_test
-            .get(index + 2)
-            .copied()
-            .unwrap_or(false);
+        let tail_has_test = tail_contains_test.get(index + 2).copied().unwrap_or(false);
         let effective_tail_has_test = trailing_tail_has_test || tail_has_test;
         let in_tbegin_region = recent.seen_tbegin;
 
@@ -742,9 +748,7 @@ fn collect_condition_status_capture_from_sequence_segment(
             continue;
         }
 
-        if in_tbegin_region
-            && recent.has_prior_non_status_capture_pair
-        {
+        if in_tbegin_region && recent.has_prior_non_status_capture_pair {
             continue;
         }
 
@@ -755,7 +759,7 @@ fn collect_condition_status_capture_from_sequence_segment(
 }
 
 #[derive(Default)]
-struct RecentSequenceStatus<'a> {
+pub(crate) struct RecentSequenceStatus<'a> {
     seen_tbegin: bool,
     status_capture_count: usize,
     contains_status_based_test: bool,
@@ -792,7 +796,7 @@ impl<'a> RecentSequenceStatus<'a> {
     }
 }
 
-fn sequence_tail_test_index(commands: &[Stmt], source: &str) -> Vec<bool> {
+pub(crate) fn sequence_tail_test_index(commands: &[Stmt], source: &str) -> Vec<bool> {
     let mut suffix = vec![false; commands.len() + 1];
     for (index, stmt) in commands.iter().enumerate().rev() {
         suffix[index] = suffix[index + 1] || stmt_terminals_are_test_commands(stmt, source);
@@ -800,7 +804,7 @@ fn sequence_tail_test_index(commands: &[Stmt], source: &str) -> Vec<bool> {
     suffix
 }
 
-fn branch_body_status_capture_is_exempt(
+pub(crate) fn branch_body_status_capture_is_exempt(
     first_stmt: &Stmt,
     body: &StmtSeq,
     source: &str,
@@ -817,7 +821,7 @@ fn branch_body_status_capture_is_exempt(
     false
 }
 
-fn branch_body_preserves_status_in_plain_assignment(
+pub(crate) fn branch_body_preserves_status_in_plain_assignment(
     first_stmt: &Stmt,
     _body: &StmtSeq,
     source: &str,
@@ -833,22 +837,23 @@ fn branch_body_preserves_status_in_plain_assignment(
     true
 }
 
-fn branch_body_logs_status_then_immediately_exits(
+pub(crate) fn branch_body_logs_status_then_immediately_exits(
     first_stmt: &Stmt,
     body: &StmtSeq,
     source: &str,
     stmt_spans: &[Span],
 ) -> bool {
-    if stmt_spans.is_empty()
-        || stmt_contains_unquoted_standalone_status_capture(first_stmt, source)
+    if stmt_spans.is_empty() || stmt_contains_unquoted_standalone_status_capture(first_stmt, source)
     {
         return false;
     }
 
-    body.iter().nth(1).is_some_and(stmt_is_exit_or_return_builtin)
+    body.iter()
+        .nth(1)
+        .is_some_and(stmt_is_exit_or_return_builtin)
 }
 
-fn collect_precise_function_return_guard_suppressions_in_seq(
+pub(crate) fn collect_precise_function_return_guard_suppressions_in_seq(
     commands: &StmtSeq,
     source: &str,
     spans: &mut Vec<Span>,
@@ -875,7 +880,7 @@ fn collect_precise_function_return_guard_suppressions_in_seq(
     }
 }
 
-fn collect_precise_function_return_guard_suppressions_from_direct_body_sequences(
+pub(crate) fn collect_precise_function_return_guard_suppressions_from_direct_body_sequences(
     command: &Command,
     source: &str,
     spans: &mut Vec<Span>,
@@ -988,21 +993,21 @@ fn collect_precise_function_return_guard_suppressions_from_direct_body_sequences
     }
 }
 
-fn condition_terminals_are_test_commands(condition: &StmtSeq, source: &str) -> bool {
+pub(crate) fn condition_terminals_are_test_commands(condition: &StmtSeq, source: &str) -> bool {
     condition
         .last()
         .is_some_and(|stmt| stmt_terminals_are_test_commands(stmt, source))
 }
 
-fn stmt_is_standalone_non_status_test_command(stmt: &Stmt, source: &str) -> bool {
+pub(crate) fn stmt_is_standalone_non_status_test_command(stmt: &Stmt, source: &str) -> bool {
     stmt_terminals_are_test_commands(stmt, source) && !stmt_contains_status_capture(stmt, source)
 }
 
-fn stmt_is_status_based_test_command(stmt: &Stmt, source: &str) -> bool {
+pub(crate) fn stmt_is_status_based_test_command(stmt: &Stmt, source: &str) -> bool {
     stmt_terminals_are_test_commands(stmt, source) && stmt_contains_status_capture(stmt, source)
 }
 
-fn stmt_is_unary_test_return_status_guard(stmt: &Stmt, source: &str) -> bool {
+pub(crate) fn stmt_is_unary_test_return_status_guard(stmt: &Stmt, source: &str) -> bool {
     let Command::Binary(command) = &stmt.command else {
         return false;
     };
@@ -1011,7 +1016,7 @@ fn stmt_is_unary_test_return_status_guard(stmt: &Stmt, source: &str) -> bool {
         && stmt_is_return_status_command(&command.right, source)
 }
 
-fn stmt_is_test_return_status_guard(stmt: &Stmt, source: &str) -> bool {
+pub(crate) fn stmt_is_test_return_status_guard(stmt: &Stmt, source: &str) -> bool {
     let Command::Binary(command) = &stmt.command else {
         return false;
     };
@@ -1020,7 +1025,7 @@ fn stmt_is_test_return_status_guard(stmt: &Stmt, source: &str) -> bool {
         && stmt_is_return_status_command(&command.right, source)
 }
 
-fn stmt_is_non_test_return_status_guard(stmt: &Stmt, source: &str) -> bool {
+pub(crate) fn stmt_is_non_test_return_status_guard(stmt: &Stmt, source: &str) -> bool {
     let Command::Binary(command) = &stmt.command else {
         return false;
     };
@@ -1029,7 +1034,7 @@ fn stmt_is_non_test_return_status_guard(stmt: &Stmt, source: &str) -> bool {
         && stmt_is_return_status_command(&command.right, source)
 }
 
-fn stmt_is_return_status_command(stmt: &Stmt, source: &str) -> bool {
+pub(crate) fn stmt_is_return_status_command(stmt: &Stmt, source: &str) -> bool {
     if stmt.negated || !stmt.redirects.is_empty() {
         return false;
     }
@@ -1053,7 +1058,7 @@ fn stmt_is_return_status_command(stmt: &Stmt, source: &str) -> bool {
     }
 }
 
-fn stmt_is_simple_unary_test_command(stmt: &Stmt, source: &str) -> bool {
+pub(crate) fn stmt_is_simple_unary_test_command(stmt: &Stmt, source: &str) -> bool {
     if stmt.negated {
         return false;
     }
@@ -1091,7 +1096,7 @@ fn stmt_is_simple_unary_test_command(stmt: &Stmt, source: &str) -> bool {
     }
 }
 
-fn stmt_assignment_only_scalar_literal_name<'a>(
+pub(crate) fn stmt_assignment_only_scalar_literal_name<'a>(
     stmt: &'a Stmt,
     source: &str,
     expected: &str,
@@ -1106,7 +1111,7 @@ fn stmt_assignment_only_scalar_literal_name<'a>(
     (static_word_text(word, source).as_deref() == Some(expected)).then_some(name)
 }
 
-fn word_is_name_reference(word: &Word, name: &Name) -> bool {
+pub(crate) fn word_is_name_reference(word: &Word, name: &Name) -> bool {
     matches!(
         word.parts.as_slice(),
         [WordPartNode {
@@ -1126,19 +1131,19 @@ fn word_is_name_reference(word: &Word, name: &Name) -> bool {
     )
 }
 
-fn stmt_contains_status_capture(stmt: &Stmt, source: &str) -> bool {
+pub(crate) fn stmt_contains_status_capture(stmt: &Stmt, source: &str) -> bool {
     let mut spans = Vec::new();
     collect_status_parameter_spans_in_stmt(stmt, source, &mut spans);
     !spans.is_empty()
 }
 
-fn stmt_contains_unquoted_standalone_status_capture(stmt: &Stmt, source: &str) -> bool {
+pub(crate) fn stmt_contains_unquoted_standalone_status_capture(stmt: &Stmt, source: &str) -> bool {
     let mut spans = Vec::new();
     collect_unquoted_standalone_status_parameter_spans_in_stmt(stmt, source, &mut spans);
     !spans.is_empty()
 }
 
-fn stmt_starts_sequence_barrier(stmt: &Stmt) -> bool {
+pub(crate) fn stmt_starts_sequence_barrier(stmt: &Stmt) -> bool {
     matches!(
         &stmt.command,
         Command::Compound(
@@ -1153,7 +1158,7 @@ fn stmt_starts_sequence_barrier(stmt: &Stmt) -> bool {
     )
 }
 
-fn stmt_is_named_simple_command(stmt: &Stmt, source: &str, name: &str) -> bool {
+pub(crate) fn stmt_is_named_simple_command(stmt: &Stmt, source: &str, name: &str) -> bool {
     matches!(
         &stmt.command,
         Command::Simple(command)
@@ -1161,7 +1166,7 @@ fn stmt_is_named_simple_command(stmt: &Stmt, source: &str, name: &str) -> bool {
     )
 }
 
-fn stmt_plain_assignment_only_name(stmt: &Stmt) -> Option<&Name> {
+pub(crate) fn stmt_plain_assignment_only_name(stmt: &Stmt) -> Option<&Name> {
     if stmt.negated || !stmt.redirects.is_empty() {
         return None;
     }
@@ -1179,7 +1184,7 @@ fn stmt_plain_assignment_only_name(stmt: &Stmt) -> Option<&Name> {
     Some(&command.assignments[0].target.name)
 }
 
-fn stmt_is_assignment_only_unquoted_status_capture(stmt: &Stmt) -> bool {
+pub(crate) fn stmt_is_assignment_only_unquoted_status_capture(stmt: &Stmt) -> bool {
     if stmt.negated || !stmt.redirects.is_empty() {
         return false;
     }
@@ -1197,21 +1202,21 @@ fn stmt_is_assignment_only_unquoted_status_capture(stmt: &Stmt) -> bool {
             .all(|assignment| assignment_value_is_unquoted_status_capture(&assignment.value))
 }
 
-fn assignment_value_is_unquoted_status_capture(value: &AssignmentValue) -> bool {
+pub(crate) fn assignment_value_is_unquoted_status_capture(value: &AssignmentValue) -> bool {
     match value {
         AssignmentValue::Scalar(word) => word_is_unquoted_standalone_status_capture(word),
         AssignmentValue::Compound(_) => false,
     }
 }
 
-fn stmt_is_exit_or_return_builtin(stmt: &Stmt) -> bool {
+pub(crate) fn stmt_is_exit_or_return_builtin(stmt: &Stmt) -> bool {
     matches!(
         stmt.command,
         Command::Builtin(BuiltinCommand::Exit(_) | BuiltinCommand::Return(_))
     )
 }
 
-fn stmt_is_plain_command_with_standalone_status_argument(stmt: &Stmt) -> bool {
+pub(crate) fn stmt_is_plain_command_with_standalone_status_argument(stmt: &Stmt) -> bool {
     if stmt.negated || !stmt.redirects.is_empty() {
         return false;
     }
@@ -1234,8 +1239,7 @@ fn stmt_is_plain_command_with_standalone_status_argument(stmt: &Stmt) -> bool {
                 .code
                 .as_ref()
                 .is_some_and(word_is_unquoted_standalone_status_capture),
-            BuiltinCommand::Break(_)
-            | BuiltinCommand::Continue(_) => false,
+            BuiltinCommand::Break(_) | BuiltinCommand::Continue(_) => false,
         },
         Command::Decl(_)
         | Command::Binary(_)
@@ -1245,7 +1249,7 @@ fn stmt_is_plain_command_with_standalone_status_argument(stmt: &Stmt) -> bool {
     }
 }
 
-fn word_is_unquoted_standalone_status_capture(word: &Word) -> bool {
+pub(crate) fn word_is_unquoted_standalone_status_capture(word: &Word) -> bool {
     matches!(
         word.parts.as_slice(),
         [WordPartNode {
@@ -1265,7 +1269,7 @@ fn word_is_unquoted_standalone_status_capture(word: &Word) -> bool {
     )
 }
 
-fn stmt_terminals_are_test_commands(stmt: &Stmt, source: &str) -> bool {
+pub(crate) fn stmt_terminals_are_test_commands(stmt: &Stmt, source: &str) -> bool {
     if stmt.negated {
         return false;
     }
@@ -1273,16 +1277,14 @@ fn stmt_terminals_are_test_commands(stmt: &Stmt, source: &str) -> bool {
     command_terminals_are_test_commands(&stmt.command, source)
 }
 
-fn command_terminals_are_test_commands(command: &Command, source: &str) -> bool {
+pub(crate) fn command_terminals_are_test_commands(command: &Command, source: &str) -> bool {
     match command {
         Command::Simple(command) => matches!(
             static_word_text(&command.name, source).as_deref(),
             Some("[") | Some("test")
         ),
         Command::Compound(CompoundCommand::Conditional(_)) => true,
-        Command::Binary(command) => {
-            logical_list_segments_are_test_commands(command, source)
-        }
+        Command::Binary(command) => logical_list_segments_are_test_commands(command, source),
         Command::Builtin(_)
         | Command::Decl(_)
         | Command::Compound(_)
@@ -1291,13 +1293,20 @@ fn command_terminals_are_test_commands(command: &Command, source: &str) -> bool 
     }
 }
 
-fn logical_list_segments_are_test_commands(command: &BinaryCommand, source: &str) -> bool {
+pub(crate) fn logical_list_segments_are_test_commands(
+    command: &BinaryCommand,
+    source: &str,
+) -> bool {
     matches!(command.op, BinaryOp::And | BinaryOp::Or)
         && stmt_terminals_are_test_commands(&command.left, source)
         && stmt_terminals_are_test_commands(&command.right, source)
 }
 
-fn collect_status_parameter_spans_in_stmt(stmt: &Stmt, source: &str, spans: &mut Vec<Span>) {
+pub(crate) fn collect_status_parameter_spans_in_stmt(
+    stmt: &Stmt,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
     collect_status_parameter_spans_in_command(&stmt.command, source, spans);
     for redirect in &stmt.redirects {
         if let Some(word) = redirect.word_target() {
@@ -1306,7 +1315,7 @@ fn collect_status_parameter_spans_in_stmt(stmt: &Stmt, source: &str, spans: &mut
     }
 }
 
-fn collect_status_parameter_spans_in_return_guard_stmt(
+pub(crate) fn collect_status_parameter_spans_in_return_guard_stmt(
     stmt: &Stmt,
     source: &str,
     spans: &mut Vec<Span>,
@@ -1319,7 +1328,7 @@ fn collect_status_parameter_spans_in_return_guard_stmt(
     collect_status_parameter_spans_in_stmt(stmt, source, spans);
 }
 
-fn collect_unquoted_standalone_status_parameter_spans_in_stmt(
+pub(crate) fn collect_unquoted_standalone_status_parameter_spans_in_stmt(
     stmt: &Stmt,
     source: &str,
     spans: &mut Vec<Span>,
@@ -1332,7 +1341,7 @@ fn collect_unquoted_standalone_status_parameter_spans_in_stmt(
     }
 }
 
-fn collect_unquoted_standalone_status_parameter_spans_in_command(
+pub(crate) fn collect_unquoted_standalone_status_parameter_spans_in_command(
     command: &Command,
     source: &str,
     spans: &mut Vec<Span>,
@@ -1360,8 +1369,7 @@ fn collect_unquoted_standalone_status_parameter_spans_in_command(
                     collect_unquoted_standalone_status_parameter_spans_in_word(word, spans);
                 }
             }
-            BuiltinCommand::Break(_)
-            | BuiltinCommand::Continue(_) => {}
+            BuiltinCommand::Break(_) | BuiltinCommand::Continue(_) => {}
         },
         Command::Decl(command) => {
             collect_unquoted_standalone_status_parameter_spans_in_assignments(
@@ -1378,30 +1386,24 @@ fn collect_unquoted_standalone_status_parameter_spans_in_command(
         }
         Command::Compound(command) => match command {
             CompoundCommand::Case(command) => {
-                if let Some(first_stmt) = command
-                    .cases
-                    .iter()
-                    .find_map(|case| case.body.first())
-                {
+                if let Some(first_stmt) = command.cases.iter().find_map(|case| case.body.first()) {
                     collect_unquoted_standalone_status_parameter_spans_in_stmt(
-                        first_stmt,
-                        source,
-                        spans,
+                        first_stmt, source, spans,
                     );
                 }
             }
             CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => {
                 if let Some(first_stmt) = body.first() {
                     collect_unquoted_standalone_status_parameter_spans_in_stmt(
-                        first_stmt,
-                        source,
-                        spans,
+                        first_stmt, source, spans,
                     );
                 }
             }
             CompoundCommand::Time(command) => {
                 if let Some(inner) = &command.command {
-                    collect_unquoted_standalone_status_parameter_spans_in_stmt(inner, source, spans);
+                    collect_unquoted_standalone_status_parameter_spans_in_stmt(
+                        inner, source, spans,
+                    );
                 }
             }
             CompoundCommand::If(_)
@@ -1418,14 +1420,17 @@ fn collect_unquoted_standalone_status_parameter_spans_in_command(
             | CompoundCommand::Always(_) => {}
         },
         Command::Binary(command) => {
-            collect_unquoted_standalone_status_parameter_spans_in_stmt(&command.left, source, spans);
+            collect_unquoted_standalone_status_parameter_spans_in_stmt(
+                &command.left,
+                source,
+                spans,
+            );
         }
-        Command::Function(_)
-        | Command::AnonymousFunction(_) => {}
+        Command::Function(_) | Command::AnonymousFunction(_) => {}
     }
 }
 
-fn collect_unquoted_standalone_status_parameter_spans_in_assignments(
+pub(crate) fn collect_unquoted_standalone_status_parameter_spans_in_assignments(
     assignments: &[Assignment],
     spans: &mut Vec<Span>,
 ) {
@@ -1434,7 +1439,7 @@ fn collect_unquoted_standalone_status_parameter_spans_in_assignments(
     }
 }
 
-fn collect_unquoted_standalone_status_parameter_spans_in_assignment(
+pub(crate) fn collect_unquoted_standalone_status_parameter_spans_in_assignment(
     assignment: &Assignment,
     spans: &mut Vec<Span>,
 ) {
@@ -1446,13 +1451,16 @@ fn collect_unquoted_standalone_status_parameter_spans_in_assignment(
     }
 }
 
-fn collect_unquoted_standalone_status_parameter_spans_in_word(word: &Word, spans: &mut Vec<Span>) {
+pub(crate) fn collect_unquoted_standalone_status_parameter_spans_in_word(
+    word: &Word,
+    spans: &mut Vec<Span>,
+) {
     if word_is_unquoted_standalone_status_capture(word) {
         spans.push(word.span);
     }
 }
 
-fn collect_status_parameter_spans_in_command(
+pub(crate) fn collect_status_parameter_spans_in_command(
     command: &Command,
     source: &str,
     spans: &mut Vec<Span>,
@@ -1588,7 +1596,7 @@ fn collect_status_parameter_spans_in_command(
     }
 }
 
-fn collect_status_parameter_spans_in_assignments(
+pub(crate) fn collect_status_parameter_spans_in_assignments(
     assignments: &[Assignment],
     source: &str,
     spans: &mut Vec<Span>,
@@ -1598,7 +1606,7 @@ fn collect_status_parameter_spans_in_assignments(
     }
 }
 
-fn collect_status_parameter_spans_in_assignment(
+pub(crate) fn collect_status_parameter_spans_in_assignment(
     assignment: &Assignment,
     source: &str,
     spans: &mut Vec<Span>,
@@ -1626,7 +1634,7 @@ fn collect_status_parameter_spans_in_assignment(
     }
 }
 
-fn collect_status_parameter_spans_in_var_ref(
+pub(crate) fn collect_status_parameter_spans_in_var_ref(
     reference: &VarRef,
     source: &str,
     spans: &mut Vec<Span>,
@@ -1640,13 +1648,17 @@ fn collect_status_parameter_spans_in_var_ref(
     });
 }
 
-fn collect_status_parameter_spans_in_word(word: &Word, source: &str, spans: &mut Vec<Span>) {
+pub(crate) fn collect_status_parameter_spans_in_word(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
     for part in &word.parts {
         collect_status_parameter_spans_in_word_part(part, source, spans);
     }
 }
 
-fn collect_status_parameter_spans_in_word_part(
+pub(crate) fn collect_status_parameter_spans_in_word_part(
     part: &WordPartNode,
     source: &str,
     spans: &mut Vec<Span>,
@@ -1760,7 +1772,7 @@ fn collect_status_parameter_spans_in_word_part(
     }
 }
 
-fn collect_status_parameter_spans_in_parameter_expansion(
+pub(crate) fn collect_status_parameter_spans_in_parameter_expansion(
     parameter: &shuck_ast::ParameterExpansion,
     source: &str,
     spans: &mut Vec<Span>,
@@ -1885,7 +1897,7 @@ fn collect_status_parameter_spans_in_parameter_expansion(
     }
 }
 
-fn collect_status_parameter_spans_in_zsh_target(
+pub(crate) fn collect_status_parameter_spans_in_zsh_target(
     target: &ZshExpansionTarget,
     source: &str,
     spans: &mut Vec<Span>,
@@ -1904,7 +1916,7 @@ fn collect_status_parameter_spans_in_zsh_target(
     }
 }
 
-fn collect_status_parameter_spans_in_conditional_expr(
+pub(crate) fn collect_status_parameter_spans_in_conditional_expr(
     expression: &ConditionalExpr,
     source: &str,
     spans: &mut Vec<Span>,
@@ -1936,7 +1948,7 @@ fn collect_status_parameter_spans_in_conditional_expr(
     }
 }
 
-fn collect_status_parameter_spans_in_fragment(
+pub(crate) fn collect_status_parameter_spans_in_fragment(
     word: Option<&Word>,
     text: Option<&SourceText>,
     source: &str,
@@ -1959,7 +1971,7 @@ fn collect_status_parameter_spans_in_fragment(
     collect_status_parameter_spans_in_word(word, source, spans);
 }
 
-fn build_conditional_fact<'a>(
+pub(crate) fn build_conditional_fact<'a>(
     expression_visits: &[ConditionalExpressionVisit<'a>],
     source: &str,
 ) -> Option<ConditionalFact<'a>> {
@@ -1984,7 +1996,7 @@ fn build_conditional_fact<'a>(
     })
 }
 
-fn command_name_is_plain_command_substitution(word: &Word, source: &str) -> bool {
+pub(crate) fn command_name_is_plain_command_substitution(word: &Word, source: &str) -> bool {
     let analysis = analyze_word(word, source, None);
     analysis.substitution_shape == WordSubstitutionShape::Plain
         && analysis.quote == WordQuote::Unquoted
@@ -2000,7 +2012,7 @@ fn command_name_is_plain_command_substitution(word: &Word, source: &str) -> bool
         )
 }
 
-fn collect_mixed_logical_operator(
+pub(crate) fn collect_mixed_logical_operator(
     expression: &ConditionalExpr,
     parent_in_same_logical_group: bool,
     operators: &mut Vec<ConditionalMixedLogicalOperatorFact>,
@@ -2026,10 +2038,10 @@ fn collect_mixed_logical_operator(
     }
 }
 
-const LOGICAL_AND_MASK: u8 = 0b01;
-const LOGICAL_OR_MASK: u8 = 0b10;
+pub(crate) const LOGICAL_AND_MASK: u8 = 0b01;
+pub(crate) const LOGICAL_OR_MASK: u8 = 0b10;
 
-fn mixed_logical_grouped_subexpression_spans(
+pub(crate) fn mixed_logical_grouped_subexpression_spans(
     expression: &ConditionalExpr,
     group_op: ConditionalBinaryOp,
 ) -> Vec<Span> {
@@ -2038,7 +2050,7 @@ fn mixed_logical_grouped_subexpression_spans(
     spans
 }
 
-fn collect_mixed_logical_grouped_subexpression_spans(
+pub(crate) fn collect_mixed_logical_grouped_subexpression_spans(
     expression: &ConditionalExpr,
     group_op: ConditionalBinaryOp,
     spans: &mut Vec<Span>,
@@ -2059,7 +2071,7 @@ fn collect_mixed_logical_grouped_subexpression_spans(
     collect_mixed_logical_grouped_subexpression_spans(&binary.right, group_op, spans);
 }
 
-fn logical_operator_mask(expression: &ConditionalExpr) -> u8 {
+pub(crate) fn logical_operator_mask(expression: &ConditionalExpr) -> u8 {
     match expression {
         ConditionalExpr::Parenthesized(_) => 0,
         ConditionalExpr::Unary(unary) => logical_operator_mask(&unary.expr),
@@ -2079,11 +2091,11 @@ fn logical_operator_mask(expression: &ConditionalExpr) -> u8 {
     }
 }
 
-fn conditional_binary_op_is_logical(operator: ConditionalBinaryOp) -> bool {
+pub(crate) fn conditional_binary_op_is_logical(operator: ConditionalBinaryOp) -> bool {
     matches!(operator, ConditionalBinaryOp::And | ConditionalBinaryOp::Or)
 }
 
-fn build_conditional_node<'a>(
+pub(crate) fn build_conditional_node<'a>(
     expression: &'a ConditionalExpr,
     source: &str,
 ) -> ConditionalNodeFact<'a> {
@@ -2112,7 +2124,7 @@ fn build_conditional_node<'a>(
     }
 }
 
-fn build_conditional_operand_fact<'a>(
+pub(crate) fn build_conditional_operand_fact<'a>(
     expression: &'a ConditionalExpr,
     source: &str,
 ) -> ConditionalOperandFact<'a> {
@@ -2134,7 +2146,7 @@ fn build_conditional_operand_fact<'a>(
     }
 }
 
-fn conditional_pattern_single_word(pattern: &Pattern) -> Option<&Word> {
+pub(crate) fn conditional_pattern_single_word(pattern: &Pattern) -> Option<&Word> {
     match pattern.parts.as_slice() {
         [part] => match &part.kind {
             PatternPart::Word(word) => Some(word),
@@ -2148,7 +2160,9 @@ fn conditional_pattern_single_word(pattern: &Pattern) -> Option<&Word> {
     }
 }
 
-fn strip_parenthesized_conditionals(mut expression: &ConditionalExpr) -> &ConditionalExpr {
+pub(crate) fn strip_parenthesized_conditionals(
+    mut expression: &ConditionalExpr,
+) -> &ConditionalExpr {
     while let ConditionalExpr::Parenthesized(parenthesized) = expression {
         expression = &parenthesized.expr;
     }
@@ -2156,7 +2170,9 @@ fn strip_parenthesized_conditionals(mut expression: &ConditionalExpr) -> &Condit
     expression
 }
 
-fn conditional_unary_operator_family(operator: ConditionalUnaryOp) -> ConditionalOperatorFamily {
+pub(crate) fn conditional_unary_operator_family(
+    operator: ConditionalUnaryOp,
+) -> ConditionalOperatorFamily {
     if matches!(
         operator,
         ConditionalUnaryOp::EmptyString | ConditionalUnaryOp::NonEmptyString
@@ -2167,7 +2183,9 @@ fn conditional_unary_operator_family(operator: ConditionalUnaryOp) -> Conditiona
     }
 }
 
-fn conditional_binary_operator_family(operator: ConditionalBinaryOp) -> ConditionalOperatorFamily {
+pub(crate) fn conditional_binary_operator_family(
+    operator: ConditionalBinaryOp,
+) -> ConditionalOperatorFamily {
     match operator {
         ConditionalBinaryOp::RegexMatch => ConditionalOperatorFamily::Regex,
         ConditionalBinaryOp::And | ConditionalBinaryOp::Or => ConditionalOperatorFamily::Logical,

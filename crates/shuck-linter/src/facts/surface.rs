@@ -96,7 +96,7 @@ pub struct CasePatternExpansionFact {
 }
 
 impl CasePatternExpansionFact {
-    pub(super) fn new(span: Span, replacement: Box<str>) -> Self {
+    pub(crate) fn new(span: Span, replacement: Box<str>) -> Self {
         Self { span, replacement }
     }
 
@@ -161,7 +161,7 @@ pub struct ArithmeticLiteralFact {
 }
 
 impl ArithmeticLiteralFact {
-    pub(super) fn new(
+    pub(crate) fn new(
         span: Span,
         kind: ArithmeticLiteralKind,
         behavior: ArithmeticLiteralBehavior,
@@ -253,11 +253,11 @@ pub enum IndexedArrayReferenceFragmentFact {
 }
 
 impl IndexedArrayReferenceFragmentFact {
-    pub(super) fn new(span: Span, plain: bool) -> Self {
+    pub(crate) fn new(span: Span, plain: bool) -> Self {
         Self::Ambiguous(IndexedArrayReferenceFragment { span, plain })
     }
 
-    pub(super) fn with_plain(mut self, plain: bool) -> Self {
+    pub(crate) fn with_plain(mut self, plain: bool) -> Self {
         match &mut self {
             Self::OneBased(fragment)
             | Self::ZeroBased(fragment)
@@ -267,7 +267,7 @@ impl IndexedArrayReferenceFragmentFact {
         self
     }
 
-    pub(super) fn with_subscript_index_behavior(self, behavior: SubscriptIndexBehavior) -> Self {
+    pub(crate) fn with_subscript_index_behavior(self, behavior: SubscriptIndexBehavior) -> Self {
         let fragment = match self {
             Self::OneBased(fragment)
             | Self::ZeroBased(fragment)
@@ -443,37 +443,37 @@ impl PositionalParameterTrimFragmentFact {
 }
 
 #[derive(Debug, Default)]
-pub(super) struct SurfaceFragmentFacts {
-    pub(super) single_quoted: Vec<SingleQuotedFragmentFact>,
-    pub(super) dollar_double_quoted: Vec<DollarDoubleQuotedFragmentFact>,
-    pub(super) open_double_quotes: Vec<OpenDoubleQuoteFragmentFact>,
-    pub(super) suspect_closing_quotes: Vec<SuspectClosingQuoteFragmentFact>,
-    pub(super) backticks: Vec<BacktickFragmentFact>,
-    pub(super) legacy_arithmetic: Vec<LegacyArithmeticFragmentFact>,
-    pub(super) positional_parameters: Vec<PositionalParameterFragmentFact>,
-    pub(super) positional_parameter_operator_spans: Vec<Span>,
-    pub(super) unicode_smart_quote_spans: Vec<Span>,
-    pub(super) pattern_exactly_one_extglob_spans: Vec<Span>,
-    pub(super) pattern_charclass_spans: Vec<Span>,
-    pub(super) parameter_pattern_spans: Vec<Span>,
-    pub(super) nested_pattern_charclass_spans: Vec<Span>,
-    pub(super) nested_parameter_expansions: Vec<NestedParameterExpansionFragmentFact>,
-    pub(super) indirect_expansions: Vec<IndirectExpansionFragmentFact>,
-    pub(super) indexed_array_references: Vec<IndexedArrayReferenceFragmentFact>,
-    pub(super) plain_unindexed_references: Vec<Span>,
-    pub(super) parameter_pattern_special_targets: Vec<ParameterPatternSpecialTargetFragmentFact>,
-    pub(super) zsh_parameter_index_flags: Vec<ZshParameterIndexFlagFragmentFact>,
-    pub(super) substring_expansions: Vec<SubstringExpansionFragmentFact>,
-    pub(super) case_modifications: Vec<CaseModificationFragmentFact>,
-    pub(super) replacement_expansions: Vec<ReplacementExpansionFragmentFact>,
-    pub(super) positional_parameter_trims: Vec<PositionalParameterTrimFragmentFact>,
-    pub(super) suppressed_subscript_spans: Vec<Span>,
-    pub(super) subscript_later_suppression_spans: Vec<Span>,
-    pub(super) arithmetic_only_suppressed_subscript_spans: Vec<Span>,
+pub(crate) struct SurfaceFragmentFacts {
+    pub(crate) single_quoted: Vec<SingleQuotedFragmentFact>,
+    pub(crate) dollar_double_quoted: Vec<DollarDoubleQuotedFragmentFact>,
+    pub(crate) open_double_quotes: Vec<OpenDoubleQuoteFragmentFact>,
+    pub(crate) suspect_closing_quotes: Vec<SuspectClosingQuoteFragmentFact>,
+    pub(crate) backticks: Vec<BacktickFragmentFact>,
+    pub(crate) legacy_arithmetic: Vec<LegacyArithmeticFragmentFact>,
+    pub(crate) positional_parameters: Vec<PositionalParameterFragmentFact>,
+    pub(crate) positional_parameter_operator_spans: Vec<Span>,
+    pub(crate) unicode_smart_quote_spans: Vec<Span>,
+    pub(crate) pattern_exactly_one_extglob_spans: Vec<Span>,
+    pub(crate) pattern_charclass_spans: Vec<Span>,
+    pub(crate) parameter_pattern_spans: Vec<Span>,
+    pub(crate) nested_pattern_charclass_spans: Vec<Span>,
+    pub(crate) nested_parameter_expansions: Vec<NestedParameterExpansionFragmentFact>,
+    pub(crate) indirect_expansions: Vec<IndirectExpansionFragmentFact>,
+    pub(crate) indexed_array_references: Vec<IndexedArrayReferenceFragmentFact>,
+    pub(crate) plain_unindexed_references: Vec<Span>,
+    pub(crate) parameter_pattern_special_targets: Vec<ParameterPatternSpecialTargetFragmentFact>,
+    pub(crate) zsh_parameter_index_flags: Vec<ZshParameterIndexFlagFragmentFact>,
+    pub(crate) substring_expansions: Vec<SubstringExpansionFragmentFact>,
+    pub(crate) case_modifications: Vec<CaseModificationFragmentFact>,
+    pub(crate) replacement_expansions: Vec<ReplacementExpansionFragmentFact>,
+    pub(crate) positional_parameter_trims: Vec<PositionalParameterTrimFragmentFact>,
+    pub(crate) suppressed_subscript_spans: Vec<Span>,
+    pub(crate) subscript_later_suppression_spans: Vec<Span>,
+    pub(crate) arithmetic_only_suppressed_subscript_spans: Vec<Span>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub(super) struct SurfaceScanContext<'a> {
+pub(crate) struct SurfaceScanContext<'a> {
     command_name: Option<&'a str>,
     assignment_target: Option<&'a str>,
     shell_dialect: shuck_parser::ShellDialect,
@@ -487,7 +487,7 @@ pub(super) struct SurfaceScanContext<'a> {
 }
 
 impl<'a> SurfaceScanContext<'a> {
-    pub(super) fn new(
+    pub(crate) fn new(
         command_name: Option<&'a str>,
         nested_word_command: bool,
         shell_dialect: shuck_parser::ShellDialect,
@@ -503,53 +503,53 @@ impl<'a> SurfaceScanContext<'a> {
         }
     }
 
-    pub(super) fn command_name(&self) -> Option<&'a str> {
+    pub(crate) fn command_name(&self) -> Option<&'a str> {
         self.command_name
     }
 
-    pub(super) fn with_assignment_target(self, assignment_target: &'a str) -> Self {
+    pub(crate) fn with_assignment_target(self, assignment_target: &'a str) -> Self {
         Self {
             assignment_target: Some(assignment_target),
             ..self
         }
     }
 
-    pub(super) fn variable_set_operand(self) -> Self {
+    pub(crate) fn variable_set_operand(self) -> Self {
         Self {
             variable_set_operand: true,
             ..self
         }
     }
 
-    pub(super) fn literal_expansion_exempt(self) -> Self {
+    pub(crate) fn literal_expansion_exempt(self) -> Self {
         Self {
             literal_expansion_exempt: true,
             ..self
         }
     }
 
-    pub(super) fn guarded_parameter_operand(self) -> Self {
+    pub(crate) fn guarded_parameter_operand(self) -> Self {
         Self {
             guarded_parameter_operand: true,
             ..self
         }
     }
 
-    pub(super) fn without_open_double_quote_scan(self) -> Self {
+    pub(crate) fn without_open_double_quote_scan(self) -> Self {
         Self {
             collect_open_double_quotes: false,
             ..self
         }
     }
 
-    pub(super) fn without_command_name(self) -> Self {
+    pub(crate) fn without_command_name(self) -> Self {
         Self {
             command_name: None,
             ..self
         }
     }
 
-    pub(super) fn with_pattern_charclass_scan(self) -> Self {
+    pub(crate) fn with_pattern_charclass_scan(self) -> Self {
         Self {
             collect_pattern_charclasses: true,
             ..self
@@ -557,7 +557,7 @@ impl<'a> SurfaceScanContext<'a> {
     }
 }
 
-pub(super) struct SurfaceFragmentSink<'a> {
+pub(crate) struct SurfaceFragmentSink<'a> {
     source: &'a str,
     facts: SurfaceFragmentFacts,
     zsh_parameter_index_flag_scratch: Vec<Span>,
@@ -567,7 +567,7 @@ pub(super) struct SurfaceFragmentSink<'a> {
 }
 
 impl<'a> SurfaceFragmentSink<'a> {
-    pub(super) fn new(source: &'a str) -> Self {
+    pub(crate) fn new(source: &'a str) -> Self {
         Self {
             source,
             facts: SurfaceFragmentFacts::default(),
@@ -579,7 +579,7 @@ impl<'a> SurfaceFragmentSink<'a> {
     }
 
     #[cfg_attr(shuck_profiling, inline(never))]
-    pub(super) fn finish(mut self) -> SurfaceFragmentFacts {
+    pub(crate) fn finish(mut self) -> SurfaceFragmentFacts {
         self.facts
             .plain_unindexed_references
             .sort_by_key(|span| (span.start.offset, span.end.offset));
@@ -739,7 +739,7 @@ impl<'a> SurfaceFragmentSink<'a> {
             .push(PositionalParameterTrimFragmentFact { span });
     }
 
-    pub(super) fn collect_word(&mut self, word: &Word, context: SurfaceScanContext<'_>) -> bool {
+    pub(crate) fn collect_word(&mut self, word: &Word, context: SurfaceScanContext<'_>) -> bool {
         let open_double_quote_count = self.facts.open_double_quotes.len();
         let context = if zsh_delayed_eval_word_is_exempt(word, self.source, context) {
             context.literal_expansion_exempt()
@@ -779,7 +779,7 @@ impl<'a> SurfaceFragmentSink<'a> {
         self.facts.open_double_quotes.len() > open_double_quote_count
     }
 
-    pub(super) fn collect_heredoc_body(
+    pub(crate) fn collect_heredoc_body(
         &mut self,
         body: &HeredocBody,
         context: SurfaceScanContext<'_>,
@@ -787,7 +787,7 @@ impl<'a> SurfaceFragmentSink<'a> {
         self.collect_heredoc_body_parts(&body.parts, context);
     }
 
-    pub(super) fn record_unset_array_target_word(&mut self, word: &Word) {
+    pub(crate) fn record_unset_array_target_word(&mut self, word: &Word) {
         if word_looks_like_unset_array_target(word, self.source) {
             self.facts.suppressed_subscript_spans.push(word.span);
         }
@@ -828,7 +828,7 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
     }
 
-    pub(super) fn collect_split_suspect_closing_quote_fragment_in_words(&mut self, words: &[Word]) {
+    pub(crate) fn collect_split_suspect_closing_quote_fragment_in_words(&mut self, words: &[Word]) {
         for (index, word) in words.iter().enumerate() {
             let has_later_words = index + 1 < words.len();
             self.split_suspect_closing_quote_scratch.clear();
@@ -1278,11 +1278,11 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
     }
 
-    pub(super) fn collect_pattern(&mut self, pattern: &Pattern, context: SurfaceScanContext<'_>) {
+    pub(crate) fn collect_pattern(&mut self, pattern: &Pattern, context: SurfaceScanContext<'_>) {
         self.collect_pattern_impl(pattern, context, true);
     }
 
-    pub(super) fn collect_pattern_structure(
+    pub(crate) fn collect_pattern_structure(
         &mut self,
         pattern: &Pattern,
         context: SurfaceScanContext<'_>,
@@ -1545,7 +1545,7 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
     }
 
-    pub(super) fn record_var_ref_subscript(
+    pub(crate) fn record_var_ref_subscript(
         &mut self,
         reference: &VarRef,
         suppresses_later_references: bool,
@@ -1563,7 +1563,7 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
     }
 
-    pub(super) fn record_arithmetic_only_suppressed_subscript(
+    pub(crate) fn record_arithmetic_only_suppressed_subscript(
         &mut self,
         subscript: Option<&Subscript>,
     ) {
@@ -2610,7 +2610,7 @@ fn is_right_operand_neighbor(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$' | '(' | '[' | '{' | '"' | '\'')
 }
 
-pub(super) fn build_suppressed_subscript_reference_spans(
+pub(crate) fn build_suppressed_subscript_reference_spans(
     semantic: &SemanticModel,
     suppressed_subscript_spans: &[Span],
     arithmetic_only_suppressed_subscript_spans: &[Span],
@@ -2631,7 +2631,7 @@ pub(super) fn build_suppressed_subscript_reference_spans(
     spans
 }
 
-pub(super) fn build_subscript_later_suppression_reference_spans(
+pub(crate) fn build_subscript_later_suppression_reference_spans(
     semantic: &SemanticModel,
     subscript_later_suppression_spans: &[Span],
 ) -> FxHashSet<FactSpan> {
@@ -2710,7 +2710,7 @@ pub(crate) fn rewrite_word_as_single_double_quoted_string(
     rendered.into_boxed_str()
 }
 
-pub(super) fn rewrite_pattern_as_single_double_quoted_string(
+pub(crate) fn rewrite_pattern_as_single_double_quoted_string(
     pattern: &Pattern,
     source: &str,
 ) -> Box<str> {
@@ -2825,7 +2825,7 @@ fn word_part_syntax(part: &WordPartNode, source: &str) -> String {
     .render_syntax(source)
 }
 
-pub(super) fn word_has_reopened_double_quote_window(
+pub(crate) fn word_has_reopened_double_quote_window(
     word: &Word,
     source: &str,
     command_name: Option<&str>,
@@ -3127,7 +3127,7 @@ fn contains_nested_parameter_marker(text: &str) -> bool {
 fn is_bourne_nested_parameter_start(char: char) -> bool {
     matches!(char, '_' | '@' | '*' | '#' | '?' | '$' | '!' | '-') || char.is_ascii_alphanumeric()
 }
-pub(super) fn simple_command_variable_set_operand<'a>(
+pub(crate) fn simple_command_variable_set_operand<'a>(
     command: &'a SimpleCommand,
     source: &str,
 ) -> Option<&'a Word> {

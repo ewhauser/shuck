@@ -88,7 +88,7 @@ impl ConditionalPortabilityFacts {
     }
 }
 
-pub(super) struct ConditionalPortabilityInputs<'a> {
+pub(crate) struct ConditionalPortabilityInputs<'a> {
     pub word_nodes: &'a [WordNode<'a>],
     pub word_occurrences: &'a [WordOccurrence],
     pub pattern_exactly_one_extglob_spans: &'a [Span],
@@ -98,7 +98,7 @@ pub(super) struct ConditionalPortabilityInputs<'a> {
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-pub(super) fn build_conditional_portability_facts<'a>(
+pub(crate) fn build_conditional_portability_facts<'a>(
     commands: &[CommandFact<'a>],
     elif_condition_command_ids: &DenseCommandIdSet,
     inputs: ConditionalPortabilityInputs<'a>,

@@ -1,5 +1,7 @@
+use super::*;
+
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_literal_brace_spans(
+pub(crate) fn build_literal_brace_spans(
     nodes: &[WordNode<'_>],
     occurrences: &[WordOccurrence],
     commands: CommandFacts<'_, '_>,
@@ -65,7 +67,7 @@ fn build_literal_brace_spans(
 }
 
 #[derive(Default)]
-struct LiteralBraceScratch {
+pub(crate) struct LiteralBraceScratch {
     processed_word_nodes: Vec<bool>,
     dynamic_exclusions: Vec<DynamicBraceExcludedSpan>,
     raw_escaped_exclusions: Vec<DynamicBraceExcludedSpan>,
@@ -77,7 +79,7 @@ struct LiteralBraceScratch {
     escaped_parameter_stack: Vec<usize>,
 }
 
-fn collect_literal_brace_spans_for_word(
+pub(crate) fn collect_literal_brace_spans_for_word(
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
     fact_store: &FactStore<'_>,
@@ -168,7 +170,7 @@ fn collect_literal_brace_spans_for_word(
     );
 }
 
-fn literal_brace_word_span_is_reportable(
+pub(crate) fn literal_brace_word_span_is_reportable(
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
     fact_store: &FactStore<'_>,
@@ -182,7 +184,7 @@ fn literal_brace_word_span_is_reportable(
         && !word_span_is_inside_command_substitution(nodes, fact, fact_store, span)
 }
 
-fn word_span_is_inside_command_substitution(
+pub(crate) fn word_span_is_inside_command_substitution(
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
     fact_store: &FactStore<'_>,
@@ -196,7 +198,7 @@ fn word_span_is_inside_command_substitution(
         .any(|substitution| contains_span(substitution, span))
 }
 
-fn is_find_exec_placeholder_word(
+pub(crate) fn is_find_exec_placeholder_word(
     commands: CommandFacts<'_, '_>,
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
@@ -222,7 +224,7 @@ fn is_find_exec_placeholder_word(
     }) || line_has_find_exec_placeholder_context(locator, occurrence_span(nodes, fact))
 }
 
-fn is_find_exec_command(command: CommandFactRef<'_, '_>, source: &str) -> bool {
+pub(crate) fn is_find_exec_command(command: CommandFactRef<'_, '_>, source: &str) -> bool {
     let is_find = command.static_utility_name_is("find")
         || command.body_name_word().is_some_and(|name_word| {
             name_word
@@ -250,7 +252,10 @@ fn is_find_exec_command(command: CommandFactRef<'_, '_>, source: &str) -> bool {
     has_exec_flag && has_exec_terminator
 }
 
-fn line_has_find_exec_placeholder_context(locator: Locator<'_>, brace_span: Span) -> bool {
+pub(crate) fn line_has_find_exec_placeholder_context(
+    locator: Locator<'_>,
+    brace_span: Span,
+) -> bool {
     let source = locator.source();
     let Some(line_range) = locator.line_range(brace_span.start.line) else {
         return false;
@@ -270,10 +275,9 @@ fn line_has_find_exec_placeholder_context(locator: Locator<'_>, brace_span: Span
     let prefix = &line_text[..relative_start];
     let suffix = &line_text[relative_end..];
     let first_word = shellish_words(prefix).next();
-    let has_exec_flag_before = shellish_words(prefix)
-        .any(|word| matches!(word, "-exec" | "-execdir" | "-ok" | "-okdir"));
-    let has_exec_terminator_after = shellish_words(suffix)
-        .any(|word| matches!(word, "+" | "\\;"));
+    let has_exec_flag_before =
+        shellish_words(prefix).any(|word| matches!(word, "-exec" | "-execdir" | "-ok" | "-okdir"));
+    let has_exec_terminator_after = shellish_words(suffix).any(|word| matches!(word, "+" | "\\;"));
 
     first_word
         .and_then(|word| word.rsplit('/').next())
@@ -282,7 +286,7 @@ fn line_has_find_exec_placeholder_context(locator: Locator<'_>, brace_span: Span
         && has_exec_terminator_after
 }
 
-fn is_xargs_replacement_word(
+pub(crate) fn is_xargs_replacement_word(
     commands: CommandFacts<'_, '_>,
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
@@ -300,7 +304,7 @@ fn is_xargs_replacement_word(
     xargs_replacement_spans_contain(command.body_args(), source, occurrence_span(nodes, fact))
 }
 
-fn xargs_replacement_spans_contain(args: &[&Word], source: &str, target: Span) -> bool {
+pub(crate) fn xargs_replacement_spans_contain(args: &[&Word], source: &str, target: Span) -> bool {
     let mut index = 0usize;
 
     while let Some(word) = args.get(index) {
@@ -393,7 +397,7 @@ fn xargs_replacement_spans_contain(args: &[&Word], source: &str, target: Span) -
     false
 }
 
-struct ShellishWords<'a> {
+pub(crate) struct ShellishWords<'a> {
     text: &'a str,
     cursor: usize,
 }
@@ -428,11 +432,11 @@ impl<'a> Iterator for ShellishWords<'a> {
     }
 }
 
-fn shellish_words(text: &str) -> ShellishWords<'_> {
+pub(crate) fn shellish_words(text: &str) -> ShellishWords<'_> {
     ShellishWords { text, cursor: 0 }
 }
 
-fn collect_brace_character_spans(
+pub(crate) fn collect_brace_character_spans(
     span: Span,
     source: &str,
     out: &mut Vec<Span>,
@@ -455,7 +459,7 @@ fn collect_brace_character_spans(
     }
 }
 
-fn brace_span_has_escaped_dollar_prefix(span: Span, source: &str) -> bool {
+pub(crate) fn brace_span_has_escaped_dollar_prefix(span: Span, source: &str) -> bool {
     let span_text = span.slice(source);
     if span_text.starts_with("${") {
         return has_odd_backslash_run_before(source, span.start.offset);
@@ -464,7 +468,10 @@ fn brace_span_has_escaped_dollar_prefix(span: Span, source: &str) -> bool {
     has_escaped_dollar_before(source, span.start.offset)
 }
 
-fn brace_syntax_with_whitespace_is_literal(brace: shuck_ast::BraceSyntax, source: &str) -> bool {
+pub(crate) fn brace_syntax_with_whitespace_is_literal(
+    brace: shuck_ast::BraceSyntax,
+    source: &str,
+) -> bool {
     if !matches!(brace.kind, BraceSyntaxKind::Expansion(_)) {
         return false;
     }
@@ -549,11 +556,11 @@ fn brace_syntax_with_whitespace_is_literal(brace: shuck_ast::BraceSyntax, source
     false
 }
 
-fn word_is_empty_brace_pair_variant(word: &Word, source: &str) -> bool {
+pub(crate) fn word_is_empty_brace_pair_variant(word: &Word, source: &str) -> bool {
     matches!(word.span.slice(source), "{}" | "\\{\\}")
 }
 
-fn collect_unclassified_literal_brace_spans(
+pub(crate) fn collect_unclassified_literal_brace_spans(
     word: &Word,
     source: &str,
     excluded: &mut Vec<DynamicBraceExcludedSpan>,
@@ -639,7 +646,7 @@ fn collect_unclassified_literal_brace_spans(
     }
 }
 
-fn collect_uncovered_command_brace_spans(
+pub(crate) fn collect_uncovered_command_brace_spans(
     commands: CommandFacts<'_, '_>,
     locator: Locator<'_>,
     heredoc_ranges: &[TextRange],
@@ -738,7 +745,7 @@ fn collect_uncovered_command_brace_spans(
     }
 }
 
-fn redirect_fd_var_brace_span(redirect: &Redirect, source: &str) -> Option<Span> {
+pub(crate) fn redirect_fd_var_brace_span(redirect: &Redirect, source: &str) -> Option<Span> {
     let fd_var_span = redirect.fd_var_span?;
     let start_offset = fd_var_span.start.offset.checked_sub('{'.len_utf8())?;
     let end_offset = fd_var_span.end.offset.checked_add('}'.len_utf8())?;
@@ -764,25 +771,25 @@ fn redirect_fd_var_brace_span(redirect: &Redirect, source: &str) -> Option<Span>
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RawLiteralBraceScanMode {
+pub(crate) enum RawLiteralBraceScanMode {
     All,
     UnmatchedOnly,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RawLiteralBraceQuoteState {
+pub(crate) enum RawLiteralBraceQuoteState {
     Single,
     Double,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct RawLiteralBraceScan<'a> {
+pub(crate) struct RawLiteralBraceScan<'a> {
     locator: Locator<'a>,
     mode: RawLiteralBraceScanMode,
     excluded_ranges: &'a [TextRange],
 }
 
-fn collect_raw_literal_brace_spans(
+pub(crate) fn collect_raw_literal_brace_spans(
     scan: RawLiteralBraceScan<'_>,
     scan_start: usize,
     scan_end: usize,
@@ -791,16 +798,14 @@ fn collect_raw_literal_brace_spans(
     unmatched_opens: &mut Vec<Span>,
 ) {
     relevant_excluded.clear();
-    relevant_excluded.extend(scan.excluded_ranges
-        .iter()
-        .filter_map(|range| {
-            let start = usize::from(range.start());
-            let end = usize::from(range.end());
-            if end <= scan_start || start >= scan_end {
-                return None;
-            }
-            Some((start.max(scan_start), end.min(scan_end)))
-        }));
+    relevant_excluded.extend(scan.excluded_ranges.iter().filter_map(|range| {
+        let start = usize::from(range.start());
+        let end = usize::from(range.end());
+        if end <= scan_start || start >= scan_end {
+            return None;
+        }
+        Some((start.max(scan_start), end.min(scan_end)))
+    }));
     relevant_excluded.sort_unstable_by_key(|&(start, end)| (start, end));
 
     unmatched_opens.clear();
@@ -833,7 +838,7 @@ fn collect_raw_literal_brace_spans(
     }
 }
 
-fn collect_raw_literal_brace_spans_without_exclusions(
+pub(crate) fn collect_raw_literal_brace_spans_without_exclusions(
     scan: RawLiteralBraceScan<'_>,
     scan_start: usize,
     scan_end: usize,
@@ -956,7 +961,7 @@ fn collect_raw_literal_brace_spans_without_exclusions(
     }
 }
 
-fn brace_at_command_start(text: &str, index: usize, ch: char) -> bool {
+pub(crate) fn brace_at_command_start(text: &str, index: usize, ch: char) -> bool {
     match ch {
         '{' => opening_brace_starts_shell_group(text, index),
         '}' => closing_brace_ends_shell_group(text, index),
@@ -964,7 +969,7 @@ fn brace_at_command_start(text: &str, index: usize, ch: char) -> bool {
     }
 }
 
-fn literal_brace_syntax_looks_like_active_expansion(
+pub(crate) fn literal_brace_syntax_looks_like_active_expansion(
     brace: shuck_ast::BraceSyntax,
     source: &str,
 ) -> bool {
@@ -976,7 +981,7 @@ fn literal_brace_syntax_looks_like_active_expansion(
     brace_text_has_unescaped_comma_or_sequence(text) && !text.chars().any(char::is_whitespace)
 }
 
-fn brace_text_has_unescaped_comma_or_sequence(text: &str) -> bool {
+pub(crate) fn brace_text_has_unescaped_comma_or_sequence(text: &str) -> bool {
     let Some(inner) = text
         .strip_prefix('{')
         .and_then(|rest| rest.strip_suffix('}'))
@@ -1006,7 +1011,7 @@ fn brace_text_has_unescaped_comma_or_sequence(text: &str) -> bool {
     false
 }
 
-fn opening_brace_starts_shell_group(text: &str, index: usize) -> bool {
+pub(crate) fn opening_brace_starts_shell_group(text: &str, index: usize) -> bool {
     let Some(next) = text[index + '{'.len_utf8()..].chars().next() else {
         return false;
     };
@@ -1030,7 +1035,7 @@ fn opening_brace_starts_shell_group(text: &str, index: usize) -> bool {
     }
 }
 
-fn closing_brace_ends_shell_group(text: &str, index: usize) -> bool {
+pub(crate) fn closing_brace_ends_shell_group(text: &str, index: usize) -> bool {
     let prefix = text[..index].trim_end_matches([' ', '\t']);
     let Some(last) = prefix.chars().next_back() else {
         return true;
@@ -1043,7 +1048,7 @@ fn closing_brace_ends_shell_group(text: &str, index: usize) -> bool {
     }
 }
 
-fn collect_unmatched_command_substitution_brace_spans(
+pub(crate) fn collect_unmatched_command_substitution_brace_spans(
     commands: CommandFacts<'_, '_>,
     locator: Locator<'_>,
     heredoc_ranges: &[TextRange],
@@ -1078,7 +1083,10 @@ fn collect_unmatched_command_substitution_brace_spans(
     }
 }
 
-fn command_substitution_body_offsets(span: Span, source: &str) -> Option<(Span, usize, usize)> {
+pub(crate) fn command_substitution_body_offsets(
+    span: Span,
+    source: &str,
+) -> Option<(Span, usize, usize)> {
     let text = span.slice(source);
     if text.starts_with("$(") && text.ends_with(')') && text.len() >= 3 {
         return Some((
@@ -1098,7 +1106,7 @@ fn command_substitution_body_offsets(span: Span, source: &str) -> Option<(Span, 
 }
 
 #[derive(Debug, Clone, Copy)]
-struct LiteralBraceCandidate {
+pub(crate) struct LiteralBraceCandidate {
     open_offset: usize,
     after_escaped_dollar: bool,
     has_excluded_content_inside: bool,
@@ -1107,25 +1115,25 @@ struct LiteralBraceCandidate {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DynamicBraceExcludedSpanKind {
+pub(crate) enum DynamicBraceExcludedSpanKind {
     Quoted,
     RuntimeShellSyntax,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct DynamicBraceExcludedSpan {
+pub(crate) struct DynamicBraceExcludedSpan {
     start_offset: usize,
     end_offset: usize,
     kind: DynamicBraceExcludedSpanKind,
 }
 
-struct EscapedParameterBraceEdgeScratch<'a> {
+pub(crate) struct EscapedParameterBraceEdgeScratch<'a> {
     literal_stack: &'a mut Vec<LiteralBraceCandidate>,
     raw_escaped_exclusions: &'a mut Vec<DynamicBraceExcludedSpan>,
     escaped_parameter_stack: &'a mut Vec<usize>,
 }
 
-fn collect_escaped_parameter_expansion_brace_edge_spans(
+pub(crate) fn collect_escaped_parameter_expansion_brace_edge_spans(
     word: &Word,
     source: &str,
     excluded: &[DynamicBraceExcludedSpan],
@@ -1275,7 +1283,7 @@ fn collect_escaped_parameter_expansion_brace_edge_spans(
     );
 }
 
-fn excluded_runtime_syntax_has_escaped_dollar_prefix(
+pub(crate) fn excluded_runtime_syntax_has_escaped_dollar_prefix(
     text: &str,
     start_offset: usize,
     end_offset: usize,
@@ -1296,7 +1304,7 @@ fn excluded_runtime_syntax_has_escaped_dollar_prefix(
     false
 }
 
-fn has_odd_backslash_run_before(text: &str, offset: usize) -> bool {
+pub(crate) fn has_odd_backslash_run_before(text: &str, offset: usize) -> bool {
     let offset = offset.min(text.len());
     text[..offset]
         .chars()
@@ -1307,7 +1315,7 @@ fn has_odd_backslash_run_before(text: &str, offset: usize) -> bool {
         == 1
 }
 
-fn has_escaped_dollar_before(text: &str, offset: usize) -> bool {
+pub(crate) fn has_escaped_dollar_before(text: &str, offset: usize) -> bool {
     let offset = offset.min(text.len());
     let prefix = &text[..offset];
     let Some((dollar_offset, '$')) = prefix.char_indices().next_back() else {
@@ -1317,7 +1325,7 @@ fn has_escaped_dollar_before(text: &str, offset: usize) -> bool {
     has_odd_backslash_run_before(text, dollar_offset)
 }
 
-fn collect_dynamic_brace_exclusions(
+pub(crate) fn collect_dynamic_brace_exclusions(
     parts: &[WordPartNode],
     word_base_offset: usize,
     source: &str,
@@ -1374,7 +1382,7 @@ fn collect_dynamic_brace_exclusions(
     }
 }
 
-fn runtime_shell_dynamic_brace_exclusion(
+pub(crate) fn runtime_shell_dynamic_brace_exclusion(
     part: &WordPartNode,
     word_base_offset: usize,
     region_index: &RegionIndex,
@@ -1398,7 +1406,10 @@ fn runtime_shell_dynamic_brace_exclusion(
     }
 }
 
-fn find_runtime_parameter_closing_brace(text: &str, start_offset: usize) -> Option<usize> {
+pub(crate) fn find_runtime_parameter_closing_brace(
+    text: &str,
+    start_offset: usize,
+) -> Option<usize> {
     if start_offset >= text.len() || !text[start_offset..].starts_with("${") {
         return None;
     }
@@ -1455,7 +1466,7 @@ fn find_runtime_parameter_closing_brace(text: &str, start_offset: usize) -> Opti
     None
 }
 
-fn collect_raw_escaped_parameter_brace_edge_spans(
+pub(crate) fn collect_raw_escaped_parameter_brace_edge_spans(
     word: &Word,
     source: &str,
     excluded: &mut Vec<DynamicBraceExcludedSpan>,
@@ -1545,7 +1556,7 @@ fn collect_raw_escaped_parameter_brace_edge_spans(
     }
 }
 
-fn brace_pair_matches_nonliteral_syntax(
+pub(crate) fn brace_pair_matches_nonliteral_syntax(
     word: &Word,
     open_offset: usize,
     close_offset: usize,
@@ -1560,7 +1571,7 @@ fn brace_pair_matches_nonliteral_syntax(
     })
 }
 
-fn collect_raw_escaped_parameter_exclusions(
+pub(crate) fn collect_raw_escaped_parameter_exclusions(
     parts: &[WordPartNode],
     word_base_offset: usize,
     source: &str,
@@ -1602,7 +1613,7 @@ fn collect_raw_escaped_parameter_exclusions(
     }
 }
 
-fn is_inline_shellcheck_directive(comment_text: &str) -> bool {
+pub(crate) fn is_inline_shellcheck_directive(comment_text: &str) -> bool {
     let body = comment_text
         .trim_start()
         .trim_start_matches('#')
@@ -1641,12 +1652,14 @@ fn is_inline_shellcheck_directive(comment_text: &str) -> bool {
     let Some(remainder) = strip_prefix_ignore_ascii_case(body, "shuck:") else {
         return false;
     };
-    let body = remainder.split_once('#').map_or(remainder, |(before, _)| before);
+    let body = remainder
+        .split_once('#')
+        .map_or(remainder, |(before, _)| before);
     strip_prefix_ignore_ascii_case(body.trim(), "disable=")
         .is_some_and(|value| !value.trim().is_empty())
 }
 
-fn strip_prefix_ignore_ascii_case<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+pub(crate) fn strip_prefix_ignore_ascii_case<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
     let candidate = text.get(..prefix.len())?;
     candidate
         .eq_ignore_ascii_case(prefix)

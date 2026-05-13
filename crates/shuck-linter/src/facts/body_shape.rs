@@ -1,3 +1,5 @@
+use super::*;
+
 // Shared body-shape predicates for condition/status facts.
 //
 // This file owns repeated command/body shape questions, but it intentionally leaves diagnostic span
@@ -8,12 +10,12 @@
 /// Keep this focused on repeated structural questions across condition/status facts. If a predicate
 /// needs command-specific wording, exact fix spans, or assignment policy, expose only the shared
 /// shape here and keep the payload-specific decision in the owning fact.
-pub(super) struct BodyShapeAnalyzer<'source> {
+pub(crate) struct BodyShapeAnalyzer<'source> {
     source: &'source str,
 }
 
 /// A syntax payload where the previous command status is available for inspection.
-pub(super) enum StatusAvailableSite<'a> {
+pub(crate) enum StatusAvailableSite<'a> {
     /// A simple command whose test-style operands can inspect `$?`.
     SimpleTest(&'a SimpleCommand),
     /// A `[[ ... ]]` expression whose operands can inspect `$?`.
@@ -24,19 +26,19 @@ pub(super) enum StatusAvailableSite<'a> {
 
 impl<'source> BodyShapeAnalyzer<'source> {
     /// Creates an analyzer bound to the source text used by syntax classifiers.
-    pub(super) fn new(source: &'source str) -> Self {
+    pub(crate) fn new(source: &'source str) -> Self {
         Self { source }
     }
 
     /// Returns whether any statement in `commands` or its nested bodies terminates in a test.
-    pub(super) fn sequence_tail_contains_nested_test_command(&self, commands: &[Stmt]) -> bool {
+    pub(crate) fn sequence_tail_contains_nested_test_command(&self, commands: &[Stmt]) -> bool {
         commands
             .iter()
             .any(|stmt| self.stmt_or_nested_sequence_contains_test_command(stmt))
     }
 
     /// Returns whether `stmt` itself or a nested statement sequence contains a terminal test.
-    pub(super) fn stmt_or_nested_sequence_contains_test_command(&self, stmt: &Stmt) -> bool {
+    pub(crate) fn stmt_or_nested_sequence_contains_test_command(&self, stmt: &Stmt) -> bool {
         if stmt_terminals_are_test_commands(stmt, self.source) {
             return true;
         }
@@ -46,76 +48,75 @@ impl<'source> BodyShapeAnalyzer<'source> {
                 self.stmt_or_nested_sequence_contains_test_command(&command.left)
                     || self.stmt_or_nested_sequence_contains_test_command(&command.right)
             }
-            Command::Compound(command) => match command {
-                CompoundCommand::If(command) => {
-                    condition_terminals_are_test_commands(&command.condition, self.source)
-                        || command
-                            .then_branch
-                            .iter()
-                            .any(|stmt| self.stmt_or_nested_sequence_contains_test_command(stmt))
-                        || command.elif_branches.iter().any(|(condition, branch)| {
-                            condition_terminals_are_test_commands(condition, self.source)
-                                || branch.iter().any(|stmt| {
+            Command::Compound(command) => {
+                match command {
+                    CompoundCommand::If(command) => {
+                        condition_terminals_are_test_commands(&command.condition, self.source)
+                            || command.then_branch.iter().any(|stmt| {
+                                self.stmt_or_nested_sequence_contains_test_command(stmt)
+                            })
+                            || command.elif_branches.iter().any(|(condition, branch)| {
+                                condition_terminals_are_test_commands(condition, self.source)
+                                    || branch.iter().any(|stmt| {
+                                        self.stmt_or_nested_sequence_contains_test_command(stmt)
+                                    })
+                            })
+                            || command.else_branch.as_ref().is_some_and(|branch| {
+                                branch.iter().any(|stmt| {
                                     self.stmt_or_nested_sequence_contains_test_command(stmt)
                                 })
-                        })
-                        || command.else_branch.as_ref().is_some_and(|branch| {
-                            branch
-                                .iter()
-                                .any(|stmt| self.stmt_or_nested_sequence_contains_test_command(stmt))
-                        })
-                }
-                CompoundCommand::While(command) => {
-                    condition_terminals_are_test_commands(&command.condition, self.source)
-                        || command
-                            .body
-                            .iter()
-                            .any(|stmt| self.stmt_or_nested_sequence_contains_test_command(stmt))
-                }
-                CompoundCommand::Until(command) => {
-                    condition_terminals_are_test_commands(&command.condition, self.source)
-                        || command
-                            .body
-                            .iter()
-                            .any(|stmt| self.stmt_or_nested_sequence_contains_test_command(stmt))
-                }
-                CompoundCommand::For(command) => command
-                    .body
-                    .iter()
-                    .any(|stmt| self.stmt_or_nested_sequence_contains_test_command(stmt)),
-                CompoundCommand::Select(command) => command
-                    .body
-                    .iter()
-                    .any(|stmt| self.stmt_or_nested_sequence_contains_test_command(stmt)),
-                CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => body
-                    .iter()
-                    .any(|stmt| self.stmt_or_nested_sequence_contains_test_command(stmt)),
-                CompoundCommand::Time(command) => command
-                    .command
-                    .as_ref()
-                    .is_some_and(|stmt| self.stmt_or_nested_sequence_contains_test_command(stmt)),
-                CompoundCommand::Always(command) => {
-                    command
+                            })
+                    }
+                    CompoundCommand::While(command) => {
+                        condition_terminals_are_test_commands(&command.condition, self.source)
+                            || command.body.iter().any(|stmt| {
+                                self.stmt_or_nested_sequence_contains_test_command(stmt)
+                            })
+                    }
+                    CompoundCommand::Until(command) => {
+                        condition_terminals_are_test_commands(&command.condition, self.source)
+                            || command.body.iter().any(|stmt| {
+                                self.stmt_or_nested_sequence_contains_test_command(stmt)
+                            })
+                    }
+                    CompoundCommand::For(command) => command
                         .body
                         .iter()
-                        .any(|stmt| self.stmt_or_nested_sequence_contains_test_command(stmt))
-                        || command
-                            .always_body
+                        .any(|stmt| self.stmt_or_nested_sequence_contains_test_command(stmt)),
+                    CompoundCommand::Select(command) => command
+                        .body
+                        .iter()
+                        .any(|stmt| self.stmt_or_nested_sequence_contains_test_command(stmt)),
+                    CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => body
+                        .iter()
+                        .any(|stmt| self.stmt_or_nested_sequence_contains_test_command(stmt)),
+                    CompoundCommand::Time(command) => {
+                        command.command.as_ref().is_some_and(|stmt| {
+                            self.stmt_or_nested_sequence_contains_test_command(stmt)
+                        })
+                    }
+                    CompoundCommand::Always(command) => {
+                        command
+                            .body
                             .iter()
                             .any(|stmt| self.stmt_or_nested_sequence_contains_test_command(stmt))
+                            || command.always_body.iter().any(|stmt| {
+                                self.stmt_or_nested_sequence_contains_test_command(stmt)
+                            })
+                    }
+                    CompoundCommand::Case(command) => command.cases.iter().any(|case| {
+                        case.body
+                            .iter()
+                            .any(|stmt| self.stmt_or_nested_sequence_contains_test_command(stmt))
+                    }),
+                    CompoundCommand::Conditional(_)
+                    | CompoundCommand::Repeat(_)
+                    | CompoundCommand::Foreach(_)
+                    | CompoundCommand::ArithmeticFor(_)
+                    | CompoundCommand::Arithmetic(_)
+                    | CompoundCommand::Coproc(_) => false,
                 }
-                CompoundCommand::Case(command) => command.cases.iter().any(|case| {
-                    case.body
-                        .iter()
-                        .any(|stmt| self.stmt_or_nested_sequence_contains_test_command(stmt))
-                }),
-                CompoundCommand::Conditional(_)
-                | CompoundCommand::Repeat(_)
-                | CompoundCommand::Foreach(_)
-                | CompoundCommand::ArithmeticFor(_)
-                | CompoundCommand::Arithmetic(_)
-                | CompoundCommand::Coproc(_) => false,
-            },
+            }
             Command::Function(function) => {
                 self.stmt_or_nested_sequence_contains_test_command(&function.body)
             }
@@ -130,7 +131,7 @@ impl<'source> BodyShapeAnalyzer<'source> {
     ///
     /// The analyzer owns the sibling/body traversal; the status span collector remains in
     /// `conditionals.rs` because it owns the exact payload scan and diagnostic spans.
-    pub(super) fn collect_status_test_followup_chains_with_sibling_tail(
+    pub(crate) fn collect_status_test_followup_chains_with_sibling_tail(
         &self,
         commands: &StmtSeq,
         spans: &mut Vec<Span>,
@@ -146,7 +147,7 @@ impl<'source> BodyShapeAnalyzer<'source> {
     /// The traversal owns status-availability propagation through bodies, branches, lists, and
     /// function bodies. Callers keep payload-specific span extraction local by matching on the
     /// returned site.
-    pub(super) fn visit_status_available_sites<'a>(
+    pub(crate) fn visit_status_available_sites<'a>(
         &self,
         commands: &'a StmtSeq,
         status_available: bool,
@@ -156,7 +157,7 @@ impl<'source> BodyShapeAnalyzer<'source> {
     }
 
     /// Returns whether `stmt` is a logical chain with a status-based test followed by non-test work.
-    pub(super) fn stmt_is_status_test_followup_chain(&self, stmt: &Stmt) -> bool {
+    pub(crate) fn stmt_is_status_test_followup_chain(&self, stmt: &Stmt) -> bool {
         let Command::Binary(command) = &stmt.command else {
             return false;
         };
@@ -173,7 +174,7 @@ impl<'source> BodyShapeAnalyzer<'source> {
     }
 
     /// Returns whether `commands[index]` starts a return guard using a later status accumulator.
-    pub(super) fn stmt_starts_status_accumulator_return_guard(
+    pub(crate) fn stmt_starts_status_accumulator_return_guard(
         &self,
         index: usize,
         commands: &[Stmt],
@@ -193,7 +194,7 @@ impl<'source> BodyShapeAnalyzer<'source> {
     }
 
     /// Returns whether `stmt` assigns an unquoted `$?` capture to `name`.
-    pub(super) fn stmt_contains_status_capture_assignment_to_name(
+    pub(crate) fn stmt_contains_status_capture_assignment_to_name(
         &self,
         stmt: &Stmt,
         name: &Name,
@@ -235,7 +236,7 @@ impl<'source> BodyShapeAnalyzer<'source> {
     }
 
     /// Returns whether `stmt` directly or through a transparent grouping returns `name`.
-    pub(super) fn stmt_returns_name(&self, stmt: &Stmt, name: &Name) -> bool {
+    pub(crate) fn stmt_returns_name(&self, stmt: &Stmt, name: &Name) -> bool {
         match &stmt.command {
             Command::Builtin(BuiltinCommand::Return(command)) => command
                 .code
@@ -406,11 +407,7 @@ impl<'source> BodyShapeAnalyzer<'source> {
                 }
             },
             Command::Binary(command) => {
-                self.visit_status_available_sites_in_stmt(
-                    &command.left,
-                    status_available,
-                    visitor,
-                );
+                self.visit_status_available_sites_in_stmt(&command.left, status_available, visitor);
                 self.visit_status_available_sites_in_stmt(&command.right, true, visitor);
             }
             Command::Function(command) => {

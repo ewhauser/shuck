@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Debug, Clone, Copy)]
 pub struct CaseItemFact<'a> {
     item: &'a CaseItem,
@@ -135,8 +137,7 @@ impl GetoptsCaseFact {
     }
 }
 
-
-pub(super) fn build_case_item_facts<'a>(
+pub(crate) fn build_case_item_facts<'a>(
     commands: &[CommandFact<'a>],
     source: &str,
 ) -> Vec<CaseItemFact<'a>> {
@@ -158,8 +159,7 @@ pub(super) fn build_case_item_facts<'a>(
         .collect()
 }
 
-
-fn pattern_contains_word_or_group(pattern: &Pattern) -> bool {
+pub(crate) fn pattern_contains_word_or_group(pattern: &Pattern) -> bool {
     pattern.parts.iter().any(|part| match &part.kind {
         PatternPart::Word(_) => true,
         PatternPart::Group { patterns, .. } => patterns.iter().any(pattern_contains_word_or_group),
@@ -171,7 +171,7 @@ fn pattern_contains_word_or_group(pattern: &Pattern) -> bool {
 }
 
 #[derive(Debug, Clone)]
-struct StaticCasePatternMatcher {
+pub(crate) struct StaticCasePatternMatcher {
     tokens: Vec<CasePatternToken>,
     min_len: usize,
     max_len: Option<usize>,
@@ -183,7 +183,7 @@ struct StaticCasePatternMatcher {
 }
 
 #[derive(Debug, Clone)]
-struct StaticCasePatternBitNfa {
+pub(crate) struct StaticCasePatternBitNfa {
     accept: u128,
     start: u128,
     any_char: u128,
@@ -273,7 +273,7 @@ impl StaticCasePatternBitNfa {
 }
 
 #[derive(Debug, Clone)]
-struct StaticCasePatternSummary {
+pub(crate) struct StaticCasePatternSummary {
     min_len: usize,
     max_len: Option<usize>,
     literal_prefix: Box<str>,
@@ -283,22 +283,22 @@ struct StaticCasePatternSummary {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CasePatternToken {
+pub(crate) enum CasePatternToken {
     Literal(char),
     AnyChar,
     AnyString,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CasePatternSymbol {
+pub(crate) enum CasePatternSymbol {
     Literal(char),
     Other,
 }
 
-type CasePatternStates = SmallVec<[usize; 8]>;
+pub(crate) type CasePatternStates = SmallVec<[usize; 8]>;
 
 #[derive(Debug, Clone)]
-struct ReachableCasePattern {
+pub(crate) struct ReachableCasePattern {
     span: Span,
     matcher: StaticCasePatternMatcher,
 }
@@ -563,16 +563,12 @@ impl StaticCasePatternMatcher {
         if matches!(other.max_len, Some(max) if max < self.min_len) {
             return false;
         }
-        if !literal_prefixes_compatible(
-            self.literal_prefix.as_ref(),
-            other.literal_prefix.as_ref(),
-        ) {
+        if !literal_prefixes_compatible(self.literal_prefix.as_ref(), other.literal_prefix.as_ref())
+        {
             return false;
         }
-        if !literal_suffixes_compatible(
-            self.literal_suffix.as_ref(),
-            other.literal_suffix.as_ref(),
-        ) {
+        if !literal_suffixes_compatible(self.literal_suffix.as_ref(), other.literal_suffix.as_ref())
+        {
             return false;
         }
         true
@@ -683,7 +679,7 @@ pub mod benchmark {
     }
 }
 
-fn subsumes_fixed_length_fast_path(
+pub(crate) fn subsumes_fixed_length_fast_path(
     left: &StaticCasePatternMatcher,
     right: &StaticCasePatternMatcher,
 ) -> Option<bool> {
@@ -708,7 +704,7 @@ fn subsumes_fixed_length_fast_path(
     Some(result)
 }
 
-fn glob_simple_form(matcher: &StaticCasePatternMatcher) -> Option<bool> {
+pub(crate) fn glob_simple_form(matcher: &StaticCasePatternMatcher) -> Option<bool> {
     let mut star_count = 0u32;
     for token in &matcher.tokens {
         match token {
@@ -725,14 +721,14 @@ fn glob_simple_form(matcher: &StaticCasePatternMatcher) -> Option<bool> {
     Some(star_count == 1)
 }
 
-fn both_have_simple_glob_form(
+pub(crate) fn both_have_simple_glob_form(
     left: &StaticCasePatternMatcher,
     right: &StaticCasePatternMatcher,
 ) -> bool {
     glob_simple_form(left).is_some() && glob_simple_form(right).is_some()
 }
 
-fn intersects_simple_glob_fast_path(
+pub(crate) fn intersects_simple_glob_fast_path(
     left: &StaticCasePatternMatcher,
     right: &StaticCasePatternMatcher,
 ) -> Option<bool> {
@@ -752,7 +748,7 @@ fn intersects_simple_glob_fast_path(
     })
 }
 
-fn intersects_fixed_length_fast_path(
+pub(crate) fn intersects_fixed_length_fast_path(
     left: &StaticCasePatternMatcher,
     right: &StaticCasePatternMatcher,
 ) -> Option<bool> {
@@ -777,16 +773,18 @@ fn intersects_fixed_length_fast_path(
 }
 
 #[inline]
-fn literal_prefixes_compatible(left: &str, right: &str) -> bool {
+pub(crate) fn literal_prefixes_compatible(left: &str, right: &str) -> bool {
     left.is_empty() || right.is_empty() || left.starts_with(right) || right.starts_with(left)
 }
 
 #[inline]
-fn literal_suffixes_compatible(left: &str, right: &str) -> bool {
+pub(crate) fn literal_suffixes_compatible(left: &str, right: &str) -> bool {
     left.is_empty() || right.is_empty() || left.ends_with(right) || right.ends_with(left)
 }
 
-fn summarize_static_case_pattern_tokens(tokens: &[CasePatternToken]) -> StaticCasePatternSummary {
+pub(crate) fn summarize_static_case_pattern_tokens(
+    tokens: &[CasePatternToken],
+) -> StaticCasePatternSummary {
     let mut min_len = 0usize;
     let mut max_len = Some(0usize);
     let mut literal_prefix = String::new();
@@ -851,7 +849,7 @@ fn summarize_static_case_pattern_tokens(tokens: &[CasePatternToken]) -> StaticCa
     }
 }
 
-fn case_pattern_epsilon_closure(
+pub(crate) fn case_pattern_epsilon_closure(
     tokens: &[CasePatternToken],
     seeds: impl IntoIterator<Item = usize>,
 ) -> CasePatternStates {
@@ -874,11 +872,11 @@ fn case_pattern_epsilon_closure(
     states
 }
 
-fn case_pattern_states_from_slice(states: &[usize]) -> CasePatternStates {
+pub(crate) fn case_pattern_states_from_slice(states: &[usize]) -> CasePatternStates {
     states.iter().copied().collect()
 }
 
-fn push_case_pattern_state(
+pub(crate) fn push_case_pattern_state(
     seen: &mut [bool],
     states: &mut CasePatternStates,
     stack: &mut CasePatternStates,
@@ -893,7 +891,7 @@ fn push_case_pattern_state(
     }
 }
 
-fn merged_case_pattern_symbols(left: &[char], right: &[char]) -> Vec<CasePatternSymbol> {
+pub(crate) fn merged_case_pattern_symbols(left: &[char], right: &[char]) -> Vec<CasePatternSymbol> {
     let mut symbols = Vec::with_capacity(left.len() + right.len() + 1);
     let mut left_index = 0usize;
     let mut right_index = 0usize;
@@ -927,7 +925,7 @@ fn merged_case_pattern_symbols(left: &[char], right: &[char]) -> Vec<CasePattern
     symbols
 }
 
-fn ensure_case_pattern_is_statically_analyzable(
+pub(crate) fn ensure_case_pattern_is_statically_analyzable(
     pattern: &Pattern,
     source: &str,
     behavior: &ShellBehaviorAt<'_>,
@@ -952,14 +950,13 @@ fn ensure_case_pattern_is_statically_analyzable(
     Some(())
 }
 
-fn pattern_operator_may_be_active(behavior: shuck_semantic::PatternOperatorBehavior) -> bool {
-    !matches!(
-        behavior,
-        shuck_semantic::PatternOperatorBehavior::Disabled
-    )
+pub(crate) fn pattern_operator_may_be_active(
+    behavior: shuck_semantic::PatternOperatorBehavior,
+) -> bool {
+    !matches!(behavior, shuck_semantic::PatternOperatorBehavior::Disabled)
 }
 
-fn text_has_unquoted_zsh_extended_glob_operator(text: &str) -> bool {
+pub(crate) fn text_has_unquoted_zsh_extended_glob_operator(text: &str) -> bool {
     let bytes = text.as_bytes();
     let mut index = 0usize;
     let mut in_single_quotes = false;
@@ -988,7 +985,7 @@ fn text_has_unquoted_zsh_extended_glob_operator(text: &str) -> bool {
     false
 }
 
-fn collect_static_case_pattern_tokens(
+pub(crate) fn collect_static_case_pattern_tokens(
     pattern_syntax: &str,
     out: &mut Vec<CasePatternToken>,
 ) -> Option<()> {
@@ -1049,7 +1046,7 @@ fn collect_static_case_pattern_tokens(
     Some(())
 }
 
-fn collect_static_case_subject_tokens(
+pub(crate) fn collect_static_case_subject_tokens(
     parts: &[WordPartNode],
     source: &str,
     out: &mut Vec<CasePatternToken>,
@@ -1095,11 +1092,11 @@ fn collect_static_case_subject_tokens(
     Some(())
 }
 
-fn push_case_pattern_literal_tokens_char(ch: char, out: &mut Vec<CasePatternToken>) {
+pub(crate) fn push_case_pattern_literal_tokens_char(ch: char, out: &mut Vec<CasePatternToken>) {
     out.push(CasePatternToken::Literal(ch));
 }
 
-fn push_case_pattern_token(out: &mut Vec<CasePatternToken>, token: CasePatternToken) {
+pub(crate) fn push_case_pattern_token(out: &mut Vec<CasePatternToken>, token: CasePatternToken) {
     if matches!(token, CasePatternToken::AnyString)
         && matches!(out.last(), Some(CasePatternToken::AnyString))
     {
@@ -1109,7 +1106,7 @@ fn push_case_pattern_token(out: &mut Vec<CasePatternToken>, token: CasePatternTo
     out.push(token);
 }
 
-fn build_case_pattern_shadow_facts(
+pub(crate) fn build_case_pattern_shadow_facts(
     commands: &[CommandFact<'_>],
     source: &str,
 ) -> Vec<CasePatternShadowFact> {
@@ -1177,7 +1174,10 @@ fn build_case_pattern_shadow_facts(
     shadows
 }
 
-fn build_case_pattern_impossible_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
+pub(crate) fn build_case_pattern_impossible_spans(
+    commands: &[CommandFact<'_>],
+    source: &str,
+) -> Vec<Span> {
     let mut spans = Vec::new();
 
     for fact in commands {
@@ -1210,13 +1210,13 @@ fn build_case_pattern_impossible_spans(commands: &[CommandFact<'_>], source: &st
 }
 
 #[derive(Debug, Clone)]
-struct ParsedGetoptsCommand {
+pub(crate) struct ParsedGetoptsCommand {
     declared_options: Vec<GetoptsOptionSpec>,
     target_name: Name,
 }
 
 #[derive(Debug, Clone)]
-struct GetoptsCaseMatch {
+pub(crate) struct GetoptsCaseMatch {
     case_span: Span,
     handled_case_labels: Vec<GetoptsCaseLabelFact>,
     invalid_case_pattern_spans: Vec<Span>,
@@ -1224,7 +1224,7 @@ struct GetoptsCaseMatch {
     has_unknown_coverage: bool,
 }
 
-fn build_getopts_case_fact_for_while(
+pub(crate) fn build_getopts_case_fact_for_while(
     command: &WhileCommand,
     source: &str,
 ) -> Option<GetoptsCaseFact> {
@@ -1275,7 +1275,7 @@ fn build_getopts_case_fact_for_while(
     })
 }
 
-fn parse_getopts_command_from_condition(
+pub(crate) fn parse_getopts_command_from_condition(
     condition: &StmtSeq,
     source: &str,
 ) -> Option<ParsedGetoptsCommand> {
@@ -1299,7 +1299,7 @@ fn parse_getopts_command_from_condition(
     })
 }
 
-fn parse_getopts_option_specs(option_string: &str) -> Vec<GetoptsOptionSpec> {
+pub(crate) fn parse_getopts_option_specs(option_string: &str) -> Vec<GetoptsOptionSpec> {
     let mut specs = Vec::new();
     let mut seen = FxHashSet::default();
     let mut chars = option_string.chars().peekable();
@@ -1329,7 +1329,7 @@ fn parse_getopts_option_specs(option_string: &str) -> Vec<GetoptsOptionSpec> {
     specs
 }
 
-fn first_getopts_case_match(
+pub(crate) fn first_getopts_case_match(
     body: &StmtSeq,
     target_name: &str,
     source: &str,
@@ -1337,7 +1337,7 @@ fn first_getopts_case_match(
     first_getopts_case_match_in_commands(body, target_name, source)
 }
 
-fn first_getopts_case_match_in_commands(
+pub(crate) fn first_getopts_case_match_in_commands(
     commands: &StmtSeq,
     target_name: &str,
     source: &str,
@@ -1347,7 +1347,7 @@ fn first_getopts_case_match_in_commands(
         .find_map(|stmt| first_getopts_case_match_in_command(&stmt.command, target_name, source))
 }
 
-fn first_getopts_case_match_in_command(
+pub(crate) fn first_getopts_case_match_in_command(
     command: &Command,
     target_name: &str,
     source: &str,
@@ -1381,7 +1381,7 @@ fn first_getopts_case_match_in_command(
     }
 }
 
-fn build_getopts_case_match(command: &CaseCommand, source: &str) -> GetoptsCaseMatch {
+pub(crate) fn build_getopts_case_match(command: &CaseCommand, source: &str) -> GetoptsCaseMatch {
     let mut has_fallback_pattern = false;
     let mut has_unknown_coverage = false;
     let mut invalid_case_pattern_spans = Vec::new();
@@ -1416,7 +1416,7 @@ fn build_getopts_case_match(command: &CaseCommand, source: &str) -> GetoptsCaseM
     }
 }
 
-fn trim_trailing_case_span(span: Span, source: &str) -> Span {
+pub(crate) fn trim_trailing_case_span(span: Span, source: &str) -> Span {
     let text = span.slice(source);
     let mut line_start = 0;
     let mut last_code_end = 0;
@@ -1444,7 +1444,7 @@ fn trim_trailing_case_span(span: Span, source: &str) -> Span {
     Span::from_positions(span.start, span.start.advanced_by(&text[..last_code_end]))
 }
 
-fn trim_case_line_comment(line: &str) -> &str {
+pub(crate) fn trim_case_line_comment(line: &str) -> &str {
     for (index, ch) in line.char_indices() {
         if ch == '#'
             && line[..index]
@@ -1459,14 +1459,17 @@ fn trim_case_line_comment(line: &str) -> &str {
     line
 }
 
-enum GetoptsCasePatternKind {
+pub(crate) enum GetoptsCasePatternKind {
     Fallback,
     SingleLabel(GetoptsCaseLabelFact),
     InvalidStaticPattern(Span),
     UnknownCoverage,
 }
 
-fn classify_getopts_case_pattern(pattern: &Pattern, source: &str) -> GetoptsCasePatternKind {
+pub(crate) fn classify_getopts_case_pattern(
+    pattern: &Pattern,
+    source: &str,
+) -> GetoptsCasePatternKind {
     if getopts_case_pattern_is_fallback(pattern, source) {
         return GetoptsCasePatternKind::Fallback;
     }
@@ -1490,7 +1493,7 @@ fn classify_getopts_case_pattern(pattern: &Pattern, source: &str) -> GetoptsCase
     })
 }
 
-fn getopts_case_pattern_is_fallback(pattern: &Pattern, source: &str) -> bool {
+pub(crate) fn getopts_case_pattern_is_fallback(pattern: &Pattern, source: &str) -> bool {
     let mut tokens = Vec::new();
     if collect_static_case_pattern_tokens(pattern.span.slice(source), &mut tokens).is_none() {
         return false;
@@ -1502,7 +1505,7 @@ fn getopts_case_pattern_is_fallback(pattern: &Pattern, source: &str) -> bool {
     )
 }
 
-fn static_case_pattern_text(pattern: &Pattern, source: &str) -> Option<String> {
+pub(crate) fn static_case_pattern_text(pattern: &Pattern, source: &str) -> Option<String> {
     let behavior = ShellBehaviorAt::for_dialect(shuck_semantic::ShellDialect::Bash);
     ensure_case_pattern_is_statically_analyzable(pattern, source, &behavior)?;
 
@@ -1517,6 +1520,6 @@ fn static_case_pattern_text(pattern: &Pattern, source: &str) -> Option<String> {
         .collect()
 }
 
-fn case_subject_variable_name(word: &Word) -> Option<&str> {
+pub(crate) fn case_subject_variable_name(word: &Word) -> Option<&str> {
     standalone_variable_name_from_word_parts(&word.parts)
 }

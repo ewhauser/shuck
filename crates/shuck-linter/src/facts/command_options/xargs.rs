@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn parse_xargs_command<'a>(args: &[&'a Word], source: &str) -> XargsCommandFacts<'a> {
+pub(crate) fn parse_xargs_command<'a>(args: &[&'a Word], source: &str) -> XargsCommandFacts<'a> {
     let mut uses_null_input = false;
     let mut max_procs = None;
     let mut zero_digit_option_word = false;

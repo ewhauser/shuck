@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RedirectTargetKind {
     File,
@@ -102,7 +104,7 @@ impl ComparablePath {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct ComparableNameKey(Box<str>);
+pub(crate) struct ComparableNameKey(pub(crate) Box<str>);
 
 impl ComparableNameKey {
     pub(crate) fn as_str(&self) -> &str {
@@ -119,9 +121,9 @@ pub(crate) enum ComparableNameUseKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ComparableNameUse {
-    span: Span,
-    key: ComparableNameKey,
-    kind: ComparableNameUseKind,
+    pub(crate) span: Span,
+    pub(crate) key: ComparableNameKey,
+    pub(crate) kind: ComparableNameUseKind,
 }
 
 impl ComparableNameUse {
@@ -137,7 +139,7 @@ impl ComparableNameUse {
         self.kind
     }
 
-    fn mark_derived(&mut self) {
+    pub(crate) fn mark_derived(&mut self) {
         self.kind = ComparableNameUseKind::Derived;
     }
 }
@@ -256,7 +258,7 @@ pub(crate) fn comparable_heredoc_name_uses(
     uses.into_boxed_slice()
 }
 
-fn collect_command_substitution_comparable_name_uses_in_parts(
+pub(crate) fn collect_command_substitution_comparable_name_uses_in_parts(
     parts: &[WordPartNode],
     semantic: Option<&LinterSemanticArtifacts<'_>>,
     source: &str,
@@ -343,7 +345,7 @@ fn collect_command_substitution_comparable_name_uses_in_parts(
     }
 }
 
-fn collect_command_substitution_comparable_name_uses(
+pub(crate) fn collect_command_substitution_comparable_name_uses(
     body: &StmtSeq,
     semantic: Option<&LinterSemanticArtifacts<'_>>,
     source: &str,
@@ -354,7 +356,8 @@ fn collect_command_substitution_comparable_name_uses(
         return;
     };
     visit_command_substitution_candidate_words(body, semantic, source, &mut |word| {
-        if !allow_quoted_derived_words && analyze_word(word, source, None).quote == WordQuote::FullyQuoted
+        if !allow_quoted_derived_words
+            && analyze_word(word, source, None).quote == WordQuote::FullyQuoted
         {
             return;
         }
@@ -365,7 +368,10 @@ fn collect_command_substitution_comparable_name_uses(
     });
 }
 
-fn standalone_comparable_name_use(word: &Word, source: &str) -> Option<ComparableNameUse> {
+pub(crate) fn standalone_comparable_name_use(
+    word: &Word,
+    source: &str,
+) -> Option<ComparableNameUse> {
     if let Some(text) = static_word_text(word, source)
         && comparable_name_text(text.as_ref())
         && analyze_word(word, source, None).quote == WordQuote::Unquoted
@@ -380,7 +386,7 @@ fn standalone_comparable_name_use(word: &Word, source: &str) -> Option<Comparabl
     })
 }
 
-fn literal_comparable_name_use(span: Span, text: &str) -> ComparableNameUse {
+pub(crate) fn literal_comparable_name_use(span: Span, text: &str) -> ComparableNameUse {
     ComparableNameUse {
         span,
         key: ComparableNameKey(text.into()),
@@ -388,7 +394,7 @@ fn literal_comparable_name_use(span: Span, text: &str) -> ComparableNameUse {
     }
 }
 
-fn comparable_name_uses_with_quoted_literals(
+pub(crate) fn comparable_name_uses_with_quoted_literals(
     word: &Word,
     semantic: Option<&LinterSemanticArtifacts<'_>>,
     source: &str,
@@ -403,14 +409,14 @@ fn comparable_name_uses_with_quoted_literals(
     uses.into_boxed_slice()
 }
 
-fn standalone_comparable_parameter_name(parts: &[WordPartNode]) -> Option<&str> {
+pub(crate) fn standalone_comparable_parameter_name(parts: &[WordPartNode]) -> Option<&str> {
     match parts {
         [part] => comparable_name_from_word_part(part),
         _ => None,
     }
 }
 
-fn comparable_name_from_word_part(part: &WordPartNode) -> Option<&str> {
+pub(crate) fn comparable_name_from_word_part(part: &WordPartNode) -> Option<&str> {
     match &part.kind {
         WordPart::Variable(name) if comparable_name_text(name.as_str()) => Some(name.as_str()),
         WordPart::Parameter(parameter) => comparable_name_from_parameter(parameter),
@@ -419,7 +425,7 @@ fn comparable_name_from_word_part(part: &WordPartNode) -> Option<&str> {
     }
 }
 
-fn comparable_name_from_parameter(parameter: &ParameterExpansion) -> Option<&str> {
+pub(crate) fn comparable_name_from_parameter(parameter: &ParameterExpansion) -> Option<&str> {
     match parameter.bourne()? {
         BourneParameterExpansion::Access { reference }
             if reference.subscript.is_none() && comparable_name_text(reference.name.as_str()) =>
@@ -430,16 +436,16 @@ fn comparable_name_from_parameter(parameter: &ParameterExpansion) -> Option<&str
     }
 }
 
-fn comparable_name_text(text: &str) -> bool {
+pub(crate) fn comparable_name_text(text: &str) -> bool {
     is_shell_variable_name(text)
 }
 
-fn dedup_comparable_name_uses(uses: &mut Vec<ComparableNameUse>) {
+pub(crate) fn dedup_comparable_name_uses(uses: &mut Vec<ComparableNameUse>) {
     let mut seen = FxHashSet::<(ComparableNameKey, FactSpan)>::default();
     uses.retain(|name_use| seen.insert((name_use.key.clone(), FactSpan::new(name_use.span))));
 }
 
-fn heredoc_variable_name_span(span: Span, locator: Locator<'_>) -> Span {
+pub(crate) fn heredoc_variable_name_span(span: Span, locator: Locator<'_>) -> Span {
     let source = locator.source();
     let Some(text) = source.get(span.start.offset..span.end.offset) else {
         return span;
@@ -454,7 +460,7 @@ fn heredoc_variable_name_span(span: Span, locator: Locator<'_>) -> Span {
     Span::from_positions(start, span.end)
 }
 
-fn comparable_path_key_is_special_device(key: &ComparablePathKey) -> bool {
+pub(crate) fn comparable_path_key_is_special_device(key: &ComparablePathKey) -> bool {
     let ComparablePathKey::Literal(path) = key else {
         return false;
     };
@@ -470,7 +476,7 @@ fn comparable_path_key_is_special_device(key: &ComparablePathKey) -> bool {
             .is_some_and(|suffix| suffix.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
-fn comparable_path_key_from_parts(
+pub(crate) fn comparable_path_key_from_parts(
     parts: &[WordPartNode],
     source: &str,
 ) -> Option<ComparablePathKey> {
@@ -487,7 +493,7 @@ fn comparable_path_key_from_parts(
     }
 }
 
-fn push_comparable_path_parts(
+pub(crate) fn push_comparable_path_parts(
     part: &WordPartNode,
     source: &str,
     components: &mut Vec<ComparablePathPart>,
@@ -541,7 +547,7 @@ fn push_comparable_path_parts(
     }
 }
 
-fn push_comparable_literal(text: &str, components: &mut Vec<ComparablePathPart>) {
+pub(crate) fn push_comparable_literal(text: &str, components: &mut Vec<ComparablePathPart>) {
     if text.is_empty() {
         return;
     }
@@ -556,7 +562,7 @@ fn push_comparable_literal(text: &str, components: &mut Vec<ComparablePathPart>)
     }
 }
 
-fn is_comparable_parameter_name(name: &str) -> bool {
+pub(crate) fn is_comparable_parameter_name(name: &str) -> bool {
     let mut chars = name.chars();
     match chars.next() {
         Some(first) if first == '_' || first.is_ascii_alphabetic() => {}
@@ -663,7 +669,7 @@ pub(crate) fn analyze_redirect_target(
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_redirect_facts<'a>(
+pub(crate) fn build_redirect_facts<'a>(
     redirects: &'a [Redirect],
     semantic: Option<&LinterSemanticArtifacts<'a>>,
     locator: Locator<'_>,
@@ -690,23 +696,19 @@ fn build_redirect_facts<'a>(
                         );
                     }
                     spans
-            })
-            .into_boxed_slice(),
+                })
+                .into_boxed_slice(),
             analysis: analyze_redirect_target(redirect, source, Some(behavior)),
             comparable_path: redirect.word_target().and_then(|word| {
                 ExpansionContext::from_redirect_kind(redirect.kind)
                     .and_then(|context| comparable_path(word, source, context, Some(behavior)))
             }),
-            comparable_name_uses: comparable_redirect_name_uses(
-                redirect,
-                semantic,
-                locator,
-            ),
+            comparable_name_uses: comparable_redirect_name_uses(redirect, semantic, locator),
         })
         .collect()
 }
 
-fn comparable_redirect_name_uses(
+pub(crate) fn comparable_redirect_name_uses(
     redirect: &Redirect,
     semantic: Option<&LinterSemanticArtifacts<'_>>,
     locator: Locator<'_>,
@@ -739,14 +741,14 @@ fn comparable_redirect_name_uses(
     comparable_heredoc_name_uses(&heredoc.body, semantic, locator)
 }
 
-fn brace_fd_redirection_span(redirect: &Redirect, source: &str) -> Option<Span> {
+pub(crate) fn brace_fd_redirection_span(redirect: &Redirect, source: &str) -> Option<Span> {
     let brace_span = redirect_fd_var_brace_span(redirect, source)?;
     let gap = source.get(brace_span.end.offset..redirect.span.start.offset)?;
     brace_fd_gap_allows_attachment(gap)
         .then(|| Span::from_positions(brace_span.start, redirect.span.end))
 }
 
-fn brace_fd_gap_allows_attachment(gap: &str) -> bool {
+pub(crate) fn brace_fd_gap_allows_attachment(gap: &str) -> bool {
     if gap.is_empty() {
         return true;
     }
@@ -767,7 +769,7 @@ fn brace_fd_gap_allows_attachment(gap: &str) -> bool {
     true
 }
 
-fn redirect_operator_span(redirect: &Redirect) -> Span {
+pub(crate) fn redirect_operator_span(redirect: &Redirect) -> Span {
     let operator_start = redirect
         .fd_var_span
         .map(|span| span.end)
@@ -783,7 +785,7 @@ fn redirect_operator_span(redirect: &Redirect) -> Span {
     Span::from_positions(operator_start, operator_end)
 }
 
-fn redirect_operator_text(kind: RedirectKind) -> &'static str {
+pub(crate) fn redirect_operator_text(kind: RedirectKind) -> &'static str {
     match kind {
         RedirectKind::Output => ">",
         RedirectKind::Clobber => ">|",

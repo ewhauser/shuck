@@ -1,4 +1,33 @@
+use super::{
+    assignments::DeclarationAssignmentProbe,
+    command_options::PathWordFact,
+    commands::CommandFact,
+    redirects::{ComparableNameUse, RedirectFact},
+    substitutions::SubstitutionFact,
+};
+use rustc_hash::FxHashMap;
+use shuck_ast::{Command, IdRange, ListArena, Name, Redirect, Span, Stmt};
+use shuck_semantic::SemanticModel;
+use smallvec::SmallVec;
+
 pub use shuck_semantic::CommandId;
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CommandVisit<'a> {
+    pub(crate) stmt: &'a Stmt,
+    pub(crate) command: &'a Command,
+    pub(crate) redirects: &'a [Redirect],
+}
+
+impl<'a> CommandVisit<'a> {
+    pub(crate) fn new(stmt: &'a Stmt) -> Self {
+        Self {
+            stmt,
+            command: &stmt.command,
+            redirects: &stmt.redirects,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FactSpan {
@@ -25,11 +54,11 @@ impl From<Span> for FactSpan {
 pub struct WordNodeId(u32);
 
 impl WordNodeId {
-    fn new(index: usize) -> Self {
+    pub(crate) fn new(index: usize) -> Self {
         Self(fact_id_index_to_u32(index, "word node id"))
     }
 
-    fn index(self) -> usize {
+    pub(crate) fn index(self) -> usize {
         self.0 as usize
     }
 }
@@ -38,11 +67,11 @@ impl WordNodeId {
 pub struct WordOccurrenceId(u32);
 
 impl WordOccurrenceId {
-    fn new(index: usize) -> Self {
+    pub(crate) fn new(index: usize) -> Self {
         Self(fact_id_index_to_u32(index, "word occurrence id"))
     }
 
-    fn index(self) -> usize {
+    pub(crate) fn index(self) -> usize {
         self.0 as usize
     }
 }
@@ -62,7 +91,7 @@ fn fact_id_index_overflow(kind: &'static str) -> ! {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum CommandLookupKind {
+pub(crate) enum CommandLookupKind {
     Simple,
     Builtin(BuiltinLookupKind),
     Decl,
@@ -73,7 +102,7 @@ enum CommandLookupKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum BuiltinLookupKind {
+pub(crate) enum BuiltinLookupKind {
     Break,
     Continue,
     Return,
@@ -81,7 +110,7 @@ enum BuiltinLookupKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum CompoundLookupKind {
+pub(crate) enum CompoundLookupKind {
     If,
     For,
     Repeat,
@@ -101,28 +130,28 @@ enum CompoundLookupKind {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct CommandLookupEntry {
-    kind: CommandLookupKind,
-    id: CommandId,
+pub(crate) struct CommandLookupEntry {
+    pub(crate) kind: CommandLookupKind,
+    pub(crate) id: CommandId,
 }
 
-type CommandLookupIndex = FxHashMap<FactSpan, SmallVec<[CommandLookupEntry; 1]>>;
+pub(crate) type CommandLookupIndex = FxHashMap<FactSpan, SmallVec<[CommandLookupEntry; 1]>>;
 
 #[derive(Debug, Clone, Default)]
-pub(super) struct DenseCommandIdSet {
+pub(crate) struct DenseCommandIdSet {
     words: Vec<u64>,
 }
 
 impl DenseCommandIdSet {
     const BITS: usize = u64::BITS as usize;
 
-    pub(super) fn with_capacity(command_count: usize) -> Self {
+    pub(crate) fn with_capacity(command_count: usize) -> Self {
         Self {
             words: vec![0; command_count.div_ceil(Self::BITS)],
         }
     }
 
-    pub(super) fn insert(&mut self, id: CommandId) {
+    pub(crate) fn insert(&mut self, id: CommandId) {
         let index = id.index();
         let word = index / Self::BITS;
         let bit = index % Self::BITS;
@@ -132,7 +161,7 @@ impl DenseCommandIdSet {
         self.words[word] |= 1u64 << bit;
     }
 
-    pub(super) fn contains(&self, id: CommandId) -> bool {
+    pub(crate) fn contains(&self, id: CommandId) -> bool {
         let index = id.index();
         let word = index / Self::BITS;
         let bit = index % Self::BITS;
@@ -143,17 +172,17 @@ impl DenseCommandIdSet {
 }
 
 #[derive(Debug, Clone)]
-struct FactStore<'a> {
-    redirect_facts: ListArena<RedirectFact<'a>>,
-    substitution_facts: ListArena<SubstitutionFact>,
-    scope_read_source_words: ListArena<PathWordFact<'a>>,
-    scope_name_read_uses: ListArena<ComparableNameUse>,
-    scope_heredoc_name_read_uses: ListArena<ComparableNameUse>,
-    scope_name_write_uses: ListArena<ComparableNameUse>,
-    declaration_assignment_probes: ListArena<DeclarationAssignmentProbe>,
-    word_occurrence_ids: ListArena<WordOccurrenceId>,
-    word_occurrence_ids_by_command: Vec<IdRange<WordOccurrenceId>>,
-    word_spans: ListArena<Span>,
+pub(crate) struct FactStore<'a> {
+    pub(crate) redirect_facts: ListArena<RedirectFact<'a>>,
+    pub(crate) substitution_facts: ListArena<SubstitutionFact>,
+    pub(crate) scope_read_source_words: ListArena<PathWordFact<'a>>,
+    pub(crate) scope_name_read_uses: ListArena<ComparableNameUse>,
+    pub(crate) scope_heredoc_name_read_uses: ListArena<ComparableNameUse>,
+    pub(crate) scope_name_write_uses: ListArena<ComparableNameUse>,
+    pub(crate) declaration_assignment_probes: ListArena<DeclarationAssignmentProbe>,
+    pub(crate) word_occurrence_ids: ListArena<WordOccurrenceId>,
+    pub(crate) word_occurrence_ids_by_command: Vec<IdRange<WordOccurrenceId>>,
+    pub(crate) word_spans: ListArena<Span>,
 }
 
 #[derive(Debug, Clone)]
@@ -163,7 +192,7 @@ pub(crate) struct CommandChildIndex {
 }
 
 impl CommandChildIndex {
-    fn from_semantic_syntax_backed_children(
+    pub(crate) fn from_semantic_syntax_backed_children(
         semantic: &SemanticModel,
         command_fact_indices_by_id: &[Option<usize>],
     ) -> Self {
@@ -197,7 +226,7 @@ impl CommandChildIndex {
         Self { ids, by_parent }
     }
 
-    fn child_ids(&self, id: CommandId) -> &[CommandId] {
+    pub(crate) fn child_ids(&self, id: CommandId) -> &[CommandId] {
         self.by_parent
             .get(id.index())
             .copied()
@@ -212,7 +241,7 @@ fn command_fact_exists(command_fact_indices_by_id: &[Option<usize>], id: Command
 }
 
 impl<'a> FactStore<'a> {
-    fn empty() -> Self {
+    pub(crate) fn empty() -> Self {
         Self {
             redirect_facts: ListArena::new(),
             substitution_facts: ListArena::new(),
@@ -227,60 +256,72 @@ impl<'a> FactStore<'a> {
         }
     }
 
-    fn redirect_facts(&self, range: IdRange<RedirectFact<'a>>) -> &[RedirectFact<'a>] {
+    pub(crate) fn redirect_facts(&self, range: IdRange<RedirectFact<'a>>) -> &[RedirectFact<'a>] {
         self.redirect_facts.get(range)
     }
 
-    fn substitution_facts(&self, range: IdRange<SubstitutionFact>) -> &[SubstitutionFact] {
+    pub(crate) fn substitution_facts(
+        &self,
+        range: IdRange<SubstitutionFact>,
+    ) -> &[SubstitutionFact] {
         self.substitution_facts.get(range)
     }
 
-    fn scope_read_source_words(&self, range: IdRange<PathWordFact<'a>>) -> &[PathWordFact<'a>] {
+    pub(crate) fn scope_read_source_words(
+        &self,
+        range: IdRange<PathWordFact<'a>>,
+    ) -> &[PathWordFact<'a>] {
         self.scope_read_source_words.get(range)
     }
 
-    fn scope_name_read_uses(&self, range: IdRange<ComparableNameUse>) -> &[ComparableNameUse] {
+    pub(crate) fn scope_name_read_uses(
+        &self,
+        range: IdRange<ComparableNameUse>,
+    ) -> &[ComparableNameUse] {
         self.scope_name_read_uses.get(range)
     }
 
-    fn scope_heredoc_name_read_uses(
+    pub(crate) fn scope_heredoc_name_read_uses(
         &self,
         range: IdRange<ComparableNameUse>,
     ) -> &[ComparableNameUse] {
         self.scope_heredoc_name_read_uses.get(range)
     }
 
-    fn scope_name_write_uses(&self, range: IdRange<ComparableNameUse>) -> &[ComparableNameUse] {
+    pub(crate) fn scope_name_write_uses(
+        &self,
+        range: IdRange<ComparableNameUse>,
+    ) -> &[ComparableNameUse] {
         self.scope_name_write_uses.get(range)
     }
 
-    fn declaration_assignment_probes(
+    pub(crate) fn declaration_assignment_probes(
         &self,
         range: IdRange<DeclarationAssignmentProbe>,
     ) -> &[DeclarationAssignmentProbe] {
         self.declaration_assignment_probes.get(range)
     }
 
-    fn word_occurrence_ids_for_command(&self, id: CommandId) -> &[WordOccurrenceId] {
+    pub(crate) fn word_occurrence_ids_for_command(&self, id: CommandId) -> &[WordOccurrenceId] {
         self.word_occurrence_ids_by_command
             .get(id.index())
             .copied()
             .map_or(&[], |range| self.word_occurrence_ids.get(range))
     }
 
-    fn word_spans(&self, range: IdRange<Span>) -> &[Span] {
+    pub(crate) fn word_spans(&self, range: IdRange<Span>) -> &[Span] {
         self.word_spans.get(range)
     }
 }
 
 #[derive(Clone, Copy)]
 pub struct CommandFactRef<'facts, 'a> {
-    fact: &'facts CommandFact<'a>,
-    store: &'facts FactStore<'a>,
+    pub(crate) fact: &'facts CommandFact<'a>,
+    pub(crate) store: &'facts FactStore<'a>,
 }
 
 impl<'facts, 'a> CommandFactRef<'facts, 'a> {
-    fn new(fact: &'facts CommandFact<'a>, store: &'facts FactStore<'a>) -> Self {
+    pub(crate) fn new(fact: &'facts CommandFact<'a>, store: &'facts FactStore<'a>) -> Self {
         Self { fact, store }
     }
 }
@@ -301,13 +342,13 @@ impl<'facts, 'a> std::ops::Deref for CommandFactRef<'facts, 'a> {
 
 #[derive(Clone, Copy)]
 pub struct CommandFacts<'facts, 'a> {
-    commands: &'facts [CommandFact<'a>],
-    store: &'facts FactStore<'a>,
-    indices_by_id: &'facts [Option<usize>],
+    pub(crate) commands: &'facts [CommandFact<'a>],
+    pub(crate) store: &'facts FactStore<'a>,
+    pub(crate) indices_by_id: &'facts [Option<usize>],
 }
 
 impl<'facts, 'a> CommandFacts<'facts, 'a> {
-    fn new(
+    pub(crate) fn new(
         commands: &'facts [CommandFact<'a>],
         store: &'facts FactStore<'a>,
         indices_by_id: &'facts [Option<usize>],

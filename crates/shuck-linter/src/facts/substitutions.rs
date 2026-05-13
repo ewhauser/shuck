@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandSubstitutionKind {
     Command,
@@ -149,13 +151,13 @@ impl SubstitutionFact {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct HostedSubstitutionOccurrence<'a> {
+pub(crate) struct HostedSubstitutionOccurrence<'a> {
     occurrence: SubstitutionOccurrence<'a>,
     host_word_span: Span,
     host_kind: SubstitutionHostKind,
 }
 
-fn collect_substitution_occurrences_for_command<'a>(
+pub(crate) fn collect_substitution_occurrences_for_command<'a>(
     command: &'a Command,
     redirects: &'a [Redirect],
     source: &'a str,
@@ -192,7 +194,7 @@ fn collect_substitution_occurrences_for_command<'a>(
 
 #[cfg_attr(shuck_profiling, inline(never))]
 #[allow(clippy::too_many_arguments)]
-fn populate_substitution_fact_ranges<'a>(
+pub(crate) fn populate_substitution_fact_ranges<'a>(
     commands: &mut [CommandFact<'a>],
     fact_store: &mut FactStore<'a>,
     command_fact_indices_by_id: &[Option<usize>],
@@ -209,8 +211,7 @@ fn populate_substitution_fact_ranges<'a>(
             .get(command_id_index)
             .unwrap_or(&empty);
         let substitutions = {
-            let command_facts =
-                CommandFacts::new(commands, fact_store, command_fact_indices_by_id);
+            let command_facts = CommandFacts::new(commands, fact_store, command_fact_indices_by_id);
             let fact = command_facts
                 .get(index)
                 .expect("command index should resolve while populating substitution facts");
@@ -228,7 +229,7 @@ fn populate_substitution_fact_ranges<'a>(
     }
 }
 
-fn build_command_substitution_facts<'a>(
+pub(crate) fn build_command_substitution_facts<'a>(
     fact: CommandFactRef<'_, 'a>,
     commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
@@ -303,7 +304,7 @@ fn build_command_substitution_facts<'a>(
 }
 
 #[derive(Clone, Copy)]
-struct SubstitutionFactBuildContext<'a, 'b> {
+pub(crate) struct SubstitutionFactBuildContext<'a, 'b> {
     commands: CommandFacts<'b, 'a>,
     command_relationships: CommandRelationshipContext<'b, 'a>,
     host_command_id: CommandId,
@@ -312,7 +313,7 @@ struct SubstitutionFactBuildContext<'a, 'b> {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct SubstitutionOccurrence<'a> {
+pub(crate) struct SubstitutionOccurrence<'a> {
     body: &'a StmtSeq,
     span: Span,
     kind: CommandSubstitutionKind,
@@ -320,7 +321,7 @@ struct SubstitutionOccurrence<'a> {
     unquoted_in_host: bool,
 }
 
-fn collect_word_substitution_occurrences<'a>(
+pub(crate) fn collect_word_substitution_occurrences<'a>(
     parts: &'a [WordPartNode],
     quoted: bool,
     occurrences: &mut Vec<SubstitutionOccurrence<'a>>,
@@ -331,7 +332,11 @@ fn collect_word_substitution_occurrences<'a>(
                 collect_word_substitution_occurrences(parts, true, occurrences);
             }
             WordPart::ArithmeticExpansion { expression_ast, .. } => {
-                visit_arithmetic_words_in_expression(expression_ast.as_deref(), quoted, occurrences);
+                visit_arithmetic_words_in_expression(
+                    expression_ast.as_deref(),
+                    quoted,
+                    occurrences,
+                );
             }
             WordPart::CommandSubstitution { body, syntax } => {
                 occurrences.push(SubstitutionOccurrence {
@@ -374,7 +379,7 @@ fn collect_word_substitution_occurrences<'a>(
     }
 }
 
-fn collect_heredoc_body_substitution_occurrences<'a>(
+pub(crate) fn collect_heredoc_body_substitution_occurrences<'a>(
     parts: &'a [shuck_ast::HeredocBodyPartNode],
     occurrences: &mut Vec<SubstitutionOccurrence<'a>>,
 ) {
@@ -399,7 +404,7 @@ fn collect_heredoc_body_substitution_occurrences<'a>(
     }
 }
 
-fn visit_arithmetic_words_in_expression<'a>(
+pub(crate) fn visit_arithmetic_words_in_expression<'a>(
     expression: Option<&'a ArithmeticExprNode>,
     quoted: bool,
     occurrences: &mut Vec<SubstitutionOccurrence<'a>>,
@@ -411,7 +416,7 @@ fn visit_arithmetic_words_in_expression<'a>(
     collect_arithmetic_word_substitution_occurrences(expression, quoted, occurrences);
 }
 
-fn collect_arithmetic_word_substitution_occurrences<'a>(
+pub(crate) fn collect_arithmetic_word_substitution_occurrences<'a>(
     expression: &'a ArithmeticExprNode,
     quoted: bool,
     occurrences: &mut Vec<SubstitutionOccurrence<'a>>,
@@ -450,7 +455,7 @@ fn collect_arithmetic_word_substitution_occurrences<'a>(
     }
 }
 
-fn collect_arithmetic_lvalue_substitution_occurrences<'a>(
+pub(crate) fn collect_arithmetic_lvalue_substitution_occurrences<'a>(
     target: &'a ArithmeticLvalue,
     quoted: bool,
     occurrences: &mut Vec<SubstitutionOccurrence<'a>>,
@@ -464,7 +469,7 @@ fn collect_arithmetic_lvalue_substitution_occurrences<'a>(
 }
 
 #[derive(Debug, Clone)]
-struct SubstitutionBodyFacts {
+pub(crate) struct SubstitutionBodyFacts {
     stdout_intent: SubstitutionOutputIntent,
     terminal_stdout_intent: SubstitutionOutputIntent,
     has_stdout_redirect: bool,
@@ -483,7 +488,7 @@ struct SubstitutionBodyFacts {
 }
 
 #[derive(Debug, Clone)]
-struct RedirectSummary {
+pub(crate) struct RedirectSummary {
     stdout_intent: SubstitutionOutputIntent,
     terminal_stdout_intent: SubstitutionOutputIntent,
     has_stdout_redirect: bool,
@@ -491,7 +496,7 @@ struct RedirectSummary {
     stdout_dev_null_redirect_spans: Vec<Span>,
 }
 
-fn classify_substitution_body<'a>(
+pub(crate) fn classify_substitution_body<'a>(
     body: &'a StmtSeq,
     commands: CommandFacts<'_, 'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
@@ -511,7 +516,8 @@ fn classify_substitution_body<'a>(
             body_has_commands = true;
             body_command_count += 1;
             if body_command_count == 1 {
-                bash_file_slurp = is_bash_file_slurp_command(visit.command, visit.redirects, source);
+                bash_file_slurp =
+                    is_bash_file_slurp_command(visit.command, visit.redirects, source);
             } else {
                 bash_file_slurp = false;
             }
@@ -566,7 +572,7 @@ fn classify_substitution_body<'a>(
     }
 }
 
-fn summarize_stmt_seq_redirects<'a>(
+pub(crate) fn summarize_stmt_seq_redirects<'a>(
     body: &'a StmtSeq,
     parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
@@ -583,13 +589,8 @@ fn summarize_stmt_seq_redirects<'a>(
     let mut saw_stmt = false;
 
     for stmt in &body.stmts {
-        let stmt_summary = summarize_stmt_redirects(
-            stmt,
-            parent_id,
-            commands,
-            command_relationships,
-            locator,
-        );
+        let stmt_summary =
+            summarize_stmt_redirects(stmt, parent_id, commands, command_relationships, locator);
         summary = merge_redirect_summaries(summary, stmt_summary, saw_stmt);
         saw_stmt = true;
     }
@@ -597,7 +598,7 @@ fn summarize_stmt_seq_redirects<'a>(
     summary
 }
 
-fn summarize_stmt_redirects<'a>(
+pub(crate) fn summarize_stmt_redirects<'a>(
     stmt: &'a Stmt,
     parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
@@ -661,17 +662,11 @@ fn summarize_stmt_redirects<'a>(
             | CompoundCommand::Time(_)
             | CompoundCommand::Coproc(_)
             | CompoundCommand::Always(_),
-        ) => summarize_command_redirects(
-            stmt,
-            parent_id,
-            commands,
-            command_relationships,
-            locator,
-        ),
+        ) => summarize_command_redirects(stmt, parent_id, commands, command_relationships, locator),
     }
 }
 
-fn summarize_command_redirects<'a>(
+pub(crate) fn summarize_command_redirects<'a>(
     stmt: &Stmt,
     parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
@@ -691,7 +686,10 @@ fn summarize_command_redirects<'a>(
     }
 }
 
-fn summarize_redirect_facts(redirects: &[RedirectFact<'_>], source: &str) -> RedirectSummary {
+pub(crate) fn summarize_redirect_facts(
+    redirects: &[RedirectFact<'_>],
+    source: &str,
+) -> RedirectSummary {
     let state = classify_redirect_facts(redirects);
     RedirectSummary {
         stdout_intent: state.stdout_intent,
@@ -702,13 +700,15 @@ fn summarize_redirect_facts(redirects: &[RedirectFact<'_>], source: &str) -> Red
     }
 }
 
-fn merge_redirect_summaries(
+pub(crate) fn merge_redirect_summaries(
     mut current: RedirectSummary,
     next: RedirectSummary,
     saw_existing: bool,
 ) -> RedirectSummary {
     current.has_stdout_redirect |= next.has_stdout_redirect;
-    current.stdout_redirect_spans.extend(next.stdout_redirect_spans);
+    current
+        .stdout_redirect_spans
+        .extend(next.stdout_redirect_spans);
     current
         .stdout_dev_null_redirect_spans
         .extend(next.stdout_dev_null_redirect_spans);
@@ -726,19 +726,19 @@ fn merge_redirect_summaries(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OutputSink {
+pub(crate) enum OutputSink {
     Captured,
     DevNull,
     Other,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RedirectState {
+pub(crate) struct RedirectState {
     stdout_intent: SubstitutionOutputIntent,
     has_stdout_redirect: bool,
 }
 
-fn classify_redirect_facts(redirects: &[RedirectFact<'_>]) -> RedirectState {
+pub(crate) fn classify_redirect_facts(redirects: &[RedirectFact<'_>]) -> RedirectState {
     let mut fds = FxHashMap::from_iter([(1, OutputSink::Captured), (2, OutputSink::Other)]);
     let mut has_stdout_redirect = false;
 
@@ -789,7 +789,10 @@ fn classify_redirect_facts(redirects: &[RedirectFact<'_>]) -> RedirectState {
     }
 }
 
-fn stdout_redirect_spans_for_fix(redirects: &[RedirectFact<'_>], source: &str) -> Vec<Span> {
+pub(crate) fn stdout_redirect_spans_for_fix(
+    redirects: &[RedirectFact<'_>],
+    source: &str,
+) -> Vec<Span> {
     redirects
         .iter()
         .filter(|redirect| redirect_matches_substitution_warning(redirect, source))
@@ -797,7 +800,7 @@ fn stdout_redirect_spans_for_fix(redirects: &[RedirectFact<'_>], source: &str) -
         .collect()
 }
 
-fn stdout_dev_null_redirect_spans_for_fix(
+pub(crate) fn stdout_dev_null_redirect_spans_for_fix(
     redirects: &[RedirectFact<'_>],
     source: &str,
 ) -> Vec<Span> {
@@ -810,7 +813,7 @@ fn stdout_dev_null_redirect_spans_for_fix(
         .collect()
 }
 
-fn redirect_affects_stdout(redirect: &RedirectFact<'_>) -> bool {
+pub(crate) fn redirect_affects_stdout(redirect: &RedirectFact<'_>) -> bool {
     match redirect.redirect().kind {
         RedirectKind::Output
         | RedirectKind::Clobber
@@ -826,11 +829,11 @@ fn redirect_affects_stdout(redirect: &RedirectFact<'_>) -> bool {
     }
 }
 
-fn redirect_targets_stdout_dev_null(redirect: &RedirectFact<'_>) -> bool {
+pub(crate) fn redirect_targets_stdout_dev_null(redirect: &RedirectFact<'_>) -> bool {
     redirect_affects_stdout(redirect) && redirect_file_sink(redirect) == OutputSink::DevNull
 }
 
-fn redirect_targets_stdout_dev_null_for_substitution_warning(
+pub(crate) fn redirect_targets_stdout_dev_null_for_substitution_warning(
     redirect: &RedirectFact<'_>,
     source: &str,
 ) -> bool {
@@ -838,14 +841,22 @@ fn redirect_targets_stdout_dev_null_for_substitution_warning(
         && redirect_targets_stdout_dev_null(redirect)
 }
 
-fn redirect_matches_substitution_warning(redirect: &RedirectFact<'_>, source: &str) -> bool {
+pub(crate) fn redirect_matches_substitution_warning(
+    redirect: &RedirectFact<'_>,
+    source: &str,
+) -> bool {
     match redirect.redirect().kind {
         RedirectKind::Output | RedirectKind::Clobber | RedirectKind::Append => {
             redirect.redirect().fd.unwrap_or(1) == 1
         }
         RedirectKind::DupOutput => {
             redirect.redirect().fd.unwrap_or(1) == 1
-                && redirect.redirect().span.slice(source).trim_start().starts_with(">&")
+                && redirect
+                    .redirect()
+                    .span
+                    .slice(source)
+                    .trim_start()
+                    .starts_with(">&")
                 && dup_stdout_target_redirects_capture_away(redirect, source)
         }
         RedirectKind::Input
@@ -858,7 +869,10 @@ fn redirect_matches_substitution_warning(redirect: &RedirectFact<'_>, source: &s
     }
 }
 
-fn dup_stdout_target_redirects_capture_away(redirect: &RedirectFact<'_>, source: &str) -> bool {
+pub(crate) fn dup_stdout_target_redirects_capture_away(
+    redirect: &RedirectFact<'_>,
+    source: &str,
+) -> bool {
     let Some(target) = redirect.target_span().map(|span| span.slice(source).trim()) else {
         return false;
     };
@@ -866,7 +880,7 @@ fn dup_stdout_target_redirects_capture_away(redirect: &RedirectFact<'_>, source:
     target == "-" || (target.chars().all(|ch| ch.is_ascii_digit()) && target != "1")
 }
 
-fn substitution_body_contains_echo(body: &StmtSeq, source: &str) -> bool {
+pub(crate) fn substitution_body_contains_echo(body: &StmtSeq, source: &str) -> bool {
     let [stmt] = body.stmts.as_slice() else {
         return false;
     };
@@ -913,12 +927,12 @@ fn substitution_body_contains_echo(body: &StmtSeq, source: &str) -> bool {
         .all(|word| !word_contains_unquoted_glob_or_brace(word, source))
 }
 
-fn command_name_word_matches_source(word: &Word, source: &str, name: &str) -> bool {
+pub(crate) fn command_name_word_matches_source(word: &Word, source: &str, name: &str) -> bool {
     static_command_name_text(word, source).is_some_and(|decoded| decoded == name)
         && source_span_static_command_name(word.span, source).as_deref() == Some(name)
 }
 
-fn source_span_static_command_name(span: Span, source: &str) -> Option<String> {
+pub(crate) fn source_span_static_command_name(span: Span, source: &str) -> Option<String> {
     let mut chars = span.slice(source).trim().chars().peekable();
     let mut decoded = String::new();
     let mut quote = None;
@@ -954,10 +968,13 @@ fn source_span_static_command_name(span: Span, source: &str) -> Option<String> {
         }
     }
 
-    quote.is_none().then_some(decoded).filter(|text| !text.is_empty())
+    quote
+        .is_none()
+        .then_some(decoded)
+        .filter(|text| !text.is_empty())
 }
 
-fn append_backslash_escaped_char(
+pub(crate) fn append_backslash_escaped_char(
     chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
     decoded: &mut String,
 ) -> Option<()> {
@@ -969,7 +986,7 @@ fn append_backslash_escaped_char(
     Some(())
 }
 
-fn word_is_command_substitution_only(word: &Word) -> bool {
+pub(crate) fn word_is_command_substitution_only(word: &Word) -> bool {
     match word.parts.as_slice() {
         [
             WordPartNode {
@@ -993,12 +1010,12 @@ fn word_is_command_substitution_only(word: &Word) -> bool {
     }
 }
 
-fn word_has_leading_dynamic_dash_literal(word: &Word, source: &str) -> bool {
+pub(crate) fn word_has_leading_dynamic_dash_literal(word: &Word, source: &str) -> bool {
     let mut saw_dynamic = false;
     leading_dynamic_dash_literal_in_parts(&word.parts, source, &mut saw_dynamic).unwrap_or(false)
 }
 
-fn leading_dynamic_dash_literal_in_parts(
+pub(crate) fn leading_dynamic_dash_literal_in_parts(
     parts: &[WordPartNode],
     source: &str,
     saw_dynamic: &mut bool,
@@ -1048,7 +1065,7 @@ fn leading_dynamic_dash_literal_in_parts(
     None
 }
 
-fn substitution_body_processed_ls_pipeline_spans<'a>(
+pub(crate) fn substitution_body_processed_ls_pipeline_spans<'a>(
     body: &'a StmtSeq,
     parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
@@ -1074,7 +1091,7 @@ fn substitution_body_processed_ls_pipeline_spans<'a>(
     spans
 }
 
-fn collect_processed_ls_pipeline_spans_in_stmt<'a>(
+pub(crate) fn collect_processed_ls_pipeline_spans_in_stmt<'a>(
     stmt: &'a Stmt,
     parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
@@ -1097,24 +1114,27 @@ fn collect_processed_ls_pipeline_spans_in_stmt<'a>(
         let pipeline_id = command_relationships
             .child_or_lookup_fact(parent_id, stmt)
             .map_or(parent_id, CommandFact::id);
-        if stmt_is_raw_ls(pair[0], pipeline_id, commands, command_relationships, source)
-            && !stmt_static_utility_name_is(
-                pair[1],
-                pipeline_id,
-                commands,
-                command_relationships,
-                source,
-                "grep",
-            )
-            && !stmt_static_utility_name_is(
-                pair[1],
-                pipeline_id,
-                commands,
-                command_relationships,
-                source,
-                "xargs",
-            )
-        {
+        if stmt_is_raw_ls(
+            pair[0],
+            pipeline_id,
+            commands,
+            command_relationships,
+            source,
+        ) && !stmt_static_utility_name_is(
+            pair[1],
+            pipeline_id,
+            commands,
+            command_relationships,
+            source,
+            "grep",
+        ) && !stmt_static_utility_name_is(
+            pair[1],
+            pipeline_id,
+            commands,
+            command_relationships,
+            source,
+            "xargs",
+        ) {
             spans.push(ls_command_span_before_pipe(
                 pair[0],
                 operators[index],
@@ -1127,7 +1147,7 @@ fn collect_processed_ls_pipeline_spans_in_stmt<'a>(
     }
 }
 
-fn collect_pipeline_parts<'a>(
+pub(crate) fn collect_pipeline_parts<'a>(
     command: &'a BinaryCommand,
     segments: &mut Vec<&'a Stmt>,
     operators: &mut Vec<Span>,
@@ -1135,10 +1155,13 @@ fn collect_pipeline_parts<'a>(
     let Some(chain) = BinaryCommandChain::pipeline(command) else {
         return;
     };
-    chain.visit_parts(|stmt| segments.push(stmt), |command| operators.push(command.op_span));
+    chain.visit_parts(
+        |stmt| segments.push(stmt),
+        |command| operators.push(command.op_span),
+    );
 }
 
-fn stmt_is_raw_ls<'a>(
+pub(crate) fn stmt_is_raw_ls<'a>(
     stmt: &'a Stmt,
     parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
@@ -1157,7 +1180,7 @@ fn stmt_is_raw_ls<'a>(
     normalized.literal_name.as_deref() == Some("ls") && normalized.wrappers.is_empty()
 }
 
-fn stmt_static_utility_name_is<'a>(
+pub(crate) fn stmt_static_utility_name_is<'a>(
     stmt: &'a Stmt,
     parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
@@ -1176,7 +1199,7 @@ fn stmt_static_utility_name_is<'a>(
     command::normalize_command(&stmt.command, source).effective_or_literal_name() == Some(name)
 }
 
-fn ls_command_span_before_pipe<'a>(
+pub(crate) fn ls_command_span_before_pipe<'a>(
     stmt: &'a Stmt,
     operator_span: Span,
     parent_id: CommandId,
@@ -1202,7 +1225,7 @@ fn ls_command_span_before_pipe<'a>(
     }
 }
 
-fn substitution_body_contains_grep<'a>(
+pub(crate) fn substitution_body_contains_grep<'a>(
     body: &'a StmtSeq,
     commands: CommandFacts<'_, 'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
@@ -1213,7 +1236,7 @@ fn substitution_body_contains_grep<'a>(
         .is_some_and(|fact| command_fact_is_grep_family(fact, source))
 }
 
-fn substitution_body_terminal_command_fact<'facts, 'a>(
+pub(crate) fn substitution_body_terminal_command_fact<'facts, 'a>(
     body: &'a StmtSeq,
     commands: CommandFacts<'facts, 'a>,
     command_relationships: CommandRelationshipContext<'facts, 'a>,
@@ -1274,7 +1297,7 @@ fn substitution_body_terminal_command_fact<'facts, 'a>(
     }
 }
 
-fn command_fact_is_grep_family(fact: CommandFactRef<'_, '_>, source: &str) -> bool {
+pub(crate) fn command_fact_is_grep_family(fact: CommandFactRef<'_, '_>, source: &str) -> bool {
     if fact
         .effective_or_literal_name()
         .is_some_and(command_name_is_grep_family)
@@ -1289,15 +1312,15 @@ fn command_fact_is_grep_family(fact: CommandFactRef<'_, '_>, source: &str) -> bo
     })
 }
 
-fn command_name_is_grep_family(name: &str) -> bool {
+pub(crate) fn command_name_is_grep_family(name: &str) -> bool {
     matches!(name, "grep" | "egrep" | "fgrep")
 }
 
-fn word_contains_unquoted_glob_or_brace(word: &Word, source: &str) -> bool {
+pub(crate) fn word_contains_unquoted_glob_or_brace(word: &Word, source: &str) -> bool {
     word_parts_contain_unquoted_glob_or_brace(&word.parts, source, false)
 }
 
-fn word_parts_contain_unquoted_glob_or_brace(
+pub(crate) fn word_parts_contain_unquoted_glob_or_brace(
     parts: &[WordPartNode],
     source: &str,
     in_double_quotes: bool,
@@ -1342,7 +1365,7 @@ fn word_parts_contain_unquoted_glob_or_brace(
     false
 }
 
-fn redirect_file_sink(redirect: &RedirectFact<'_>) -> OutputSink {
+pub(crate) fn redirect_file_sink(redirect: &RedirectFact<'_>) -> OutputSink {
     match redirect.analysis() {
         Some(analysis) if analysis.is_definitely_dev_null() => OutputSink::DevNull,
         Some(_) => OutputSink::Other,
@@ -1350,7 +1373,7 @@ fn redirect_file_sink(redirect: &RedirectFact<'_>) -> OutputSink {
     }
 }
 
-fn redirect_dup_output_sink(
+pub(crate) fn redirect_dup_output_sink(
     redirect: &RedirectFact<'_>,
     fds: &FxHashMap<i32, OutputSink>,
 ) -> OutputSink {
@@ -1364,7 +1387,7 @@ fn redirect_dup_output_sink(
     *fds.get(&fd).unwrap_or(&OutputSink::Other)
 }
 
-fn visit_command_words_for_substitutions(
+pub(crate) fn visit_command_words_for_substitutions(
     command: &Command,
     redirects: &[Redirect],
     source: &str,
@@ -1436,7 +1459,11 @@ fn visit_command_words_for_substitutions(
     }
 }
 
-fn is_bash_file_slurp_command(command: &Command, redirects: &[Redirect], source: &str) -> bool {
+pub(crate) fn is_bash_file_slurp_command(
+    command: &Command,
+    redirects: &[Redirect],
+    source: &str,
+) -> bool {
     let Command::Simple(command) = command else {
         return false;
     };
@@ -1457,7 +1484,7 @@ fn is_bash_file_slurp_command(command: &Command, redirects: &[Redirect], source:
     )
 }
 
-fn visit_command_argument_words_for_substitutions<'a>(
+pub(crate) fn visit_command_argument_words_for_substitutions<'a>(
     command: &'a Command,
     source: &str,
     visitor: &mut impl FnMut(&'a Word),
@@ -1514,7 +1541,7 @@ fn visit_command_argument_words_for_substitutions<'a>(
     }
 }
 
-fn visit_heredoc_bodies_for_substitutions<'a>(
+pub(crate) fn visit_heredoc_bodies_for_substitutions<'a>(
     redirects: &'a [Redirect],
     visitor: &mut impl FnMut(&'a shuck_ast::HeredocBody),
 ) {
@@ -1528,7 +1555,7 @@ fn visit_heredoc_bodies_for_substitutions<'a>(
     }
 }
 
-fn emit_assignment_substitution_words<'a>(
+pub(crate) fn emit_assignment_substitution_words<'a>(
     assignment: &'a Assignment,
     scalar_kind: SubstitutionHostKind,
     source: &'a str,
@@ -1548,8 +1575,7 @@ fn emit_assignment_substitution_words<'a>(
             for element in &array.elements {
                 match element {
                     ArrayElem::Sequential(word) => visitor(SubstitutionHostKind::Other, word),
-                    ArrayElem::Keyed { key, value }
-                    | ArrayElem::KeyedAppend { key, value } => {
+                    ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
                         visit_subscript_words(Some(key), source, &mut |word| {
                             visitor(SubstitutionHostKind::ArrayKeySubscript, word);
                         });
@@ -1561,7 +1587,7 @@ fn emit_assignment_substitution_words<'a>(
     }
 }
 
-fn visit_command_substitution_inputs<'a>(
+pub(crate) fn visit_command_substitution_inputs<'a>(
     command: &'a Command,
     redirects: &'a [Redirect],
     source: &'a str,
@@ -1741,7 +1767,7 @@ fn visit_command_substitution_inputs<'a>(
     }
 }
 
-fn visit_assignments_for_substitutions(
+pub(crate) fn visit_assignments_for_substitutions(
     assignments: &[shuck_ast::Assignment],
     source: &str,
     visitor: &mut impl FnMut(&Word),
@@ -1767,7 +1793,7 @@ fn visit_assignments_for_substitutions(
     }
 }
 
-fn visit_builtin_words_for_substitutions(
+pub(crate) fn visit_builtin_words_for_substitutions(
     command: &BuiltinCommand,
     source: &str,
     visitor: &mut impl FnMut(&Word),
@@ -1804,7 +1830,7 @@ fn visit_builtin_words_for_substitutions(
     }
 }
 
-fn visit_decl_operand_words_for_substitutions(
+pub(crate) fn visit_decl_operand_words_for_substitutions(
     operand: &DeclOperand,
     source: &str,
     visitor: &mut impl FnMut(&Word),
@@ -1820,13 +1846,16 @@ fn visit_decl_operand_words_for_substitutions(
     }
 }
 
-fn visit_words_for_substitutions<'a>(words: &'a [Word], visitor: &mut impl FnMut(&'a Word)) {
+pub(crate) fn visit_words_for_substitutions<'a>(
+    words: &'a [Word],
+    visitor: &mut impl FnMut(&'a Word),
+) {
     for word in words {
         visitor(word);
     }
 }
 
-fn visit_patterns_for_substitutions<'a>(
+pub(crate) fn visit_patterns_for_substitutions<'a>(
     patterns: &'a [Pattern],
     visitor: &mut impl FnMut(&'a Word),
 ) {
@@ -1835,7 +1864,7 @@ fn visit_patterns_for_substitutions<'a>(
     }
 }
 
-fn visit_pattern_for_substitutions<'a>(
+pub(crate) fn visit_pattern_for_substitutions<'a>(
     pattern: &'a Pattern,
     visitor: &mut impl FnMut(&'a Word),
 ) {
@@ -1853,7 +1882,7 @@ fn visit_pattern_for_substitutions<'a>(
     }
 }
 
-fn visit_conditional_words_for_substitutions<'a>(
+pub(crate) fn visit_conditional_words_for_substitutions<'a>(
     expression: &'a ConditionalExpr,
     source: &'a str,
     visitor: &mut impl FnMut(&'a Word),

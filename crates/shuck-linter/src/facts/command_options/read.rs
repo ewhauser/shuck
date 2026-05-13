@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn read_uses_raw_input(args: &[&Word], source: &str) -> bool {
+pub(crate) fn read_uses_raw_input(args: &[&Word], source: &str) -> bool {
     let mut index = 0usize;
     let mut pending_dynamic_option_arg = false;
 
@@ -56,7 +56,7 @@ pub(super) fn read_uses_raw_input(args: &[&Word], source: &str) -> bool {
     false
 }
 
-pub(super) fn read_target_name_uses(
+pub(crate) fn read_target_name_uses(
     args: &[&Word],
     semantic: &LinterSemanticArtifacts<'_>,
     source: &str,
@@ -64,7 +64,7 @@ pub(super) fn read_target_name_uses(
     read_name_uses(args, semantic, source).0
 }
 
-pub(super) fn read_array_target_name_uses(
+pub(crate) fn read_array_target_name_uses(
     args: &[&Word],
     semantic: &LinterSemanticArtifacts<'_>,
     source: &str,

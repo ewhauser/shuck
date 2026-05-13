@@ -6,16 +6,16 @@ use super::{
 };
 use crate::facts::{occurrence_span, occurrence_word};
 
-pub(super) struct EscapeScanContext<'a> {
-    pub(super) source: &'a str,
+pub(crate) struct EscapeScanContext<'a> {
+    pub(crate) source: &'a str,
 }
 
-pub(super) struct EscapeScanInputs<'a> {
-    pub(super) pattern_literal_spans: &'a [Span],
-    pub(super) pattern_charclass_spans: &'a [Span],
-    pub(super) parameter_pattern_spans: &'a [Span],
-    pub(super) single_quoted_fragments: &'a [SingleQuotedFragmentFact],
-    pub(super) backtick_fragments: &'a [BacktickFragmentFact],
+pub(crate) struct EscapeScanInputs<'a> {
+    pub(crate) pattern_literal_spans: &'a [Span],
+    pub(crate) pattern_charclass_spans: &'a [Span],
+    pub(crate) parameter_pattern_spans: &'a [Span],
+    pub(crate) single_quoted_fragments: &'a [SingleQuotedFragmentFact],
+    pub(crate) backtick_fragments: &'a [BacktickFragmentFact],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,7 +74,7 @@ struct EscapeScanMatchContext {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct SingleQuotedFragmentBounds {
+pub(crate) struct SingleQuotedFragmentBounds {
     start: usize,
     end: usize,
 }
@@ -97,7 +97,7 @@ fn build_sorted_single_quoted_bounds(
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-pub(super) fn build_escape_scan_matches(
+pub(crate) fn build_escape_scan_matches(
     commands: &[CommandFact<'_>],
     command_fact_indices_by_id: &[Option<usize>],
     nodes: &[WordNode<'_>],

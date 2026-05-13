@@ -1,7 +1,10 @@
-fn build_plain_unindexed_array_reference_facts(
+use super::*;
+
+pub(crate) fn build_plain_unindexed_array_reference_facts(
     facts: &LinterFacts<'_>,
 ) -> Vec<PlainUnindexedArrayReferenceFact> {
     let candidate_references = facts
+        .words
         .plain_unindexed_reference_spans
         .iter()
         .copied()
@@ -20,7 +23,7 @@ fn build_plain_unindexed_array_reference_facts(
         .collect()
 }
 
-struct PlainUnindexedArrayReferenceContext<'a, 'src> {
+pub(crate) struct PlainUnindexedArrayReferenceContext<'a, 'src> {
     facts: &'a LinterFacts<'src>,
     semantic: &'a SemanticModel,
     simple_command_ancestors_by_offset: FxHashMap<usize, Vec<SimpleCommandAncestor>>,
@@ -84,8 +87,11 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
         reference: &Reference,
         policy: shuck_semantic::ArrayReferencePolicy,
     ) -> bool {
-        if self.facts.shell != ShellDialect::Zsh
-            || matches!(policy, shuck_semantic::ArrayReferencePolicy::RequiresExplicitSelector)
+        if self.facts.source_facts.shell != ShellDialect::Zsh
+            || matches!(
+                policy,
+                shuck_semantic::ArrayReferencePolicy::RequiresExplicitSelector
+            )
         {
             return false;
         }
@@ -106,7 +112,7 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
         &self,
         reference: &Reference,
     ) -> shuck_semantic::ArrayReferencePolicy {
-        if self.facts.shell != ShellDialect::Zsh {
+        if self.facts.source_facts.shell != ShellDialect::Zsh {
             return shuck_semantic::ArrayReferencePolicy::RequiresExplicitSelector;
         }
 
@@ -134,20 +140,21 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
         !matches!(
             self.array_reference_policy(reference),
             shuck_semantic::ArrayReferencePolicy::RequiresExplicitSelector
+        ) && matches!(
+            reference.kind,
+            shuck_semantic::ReferenceKind::ConditionalOperand
         )
-            && matches!(reference.kind, shuck_semantic::ReferenceKind::ConditionalOperand)
     }
 
     fn reference_is_zsh_presence_test(&self, reference: &Reference) -> bool {
         !matches!(
             self.array_reference_policy(reference),
             shuck_semantic::ArrayReferencePolicy::RequiresExplicitSelector
-        )
-            && self
-                .facts
-                .presence_test_references(&reference.name)
-                .iter()
-                .any(|test| test.reference_id() == reference.id)
+        ) && self
+            .facts
+            .presence_test_references(&reference.name)
+            .iter()
+            .any(|test| test.reference_id() == reference.id)
     }
 
     fn reference_has_prior_presence_test(&mut self, reference: &Reference) -> bool {
@@ -207,7 +214,11 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
         *self
             .resolved_binding_ids
             .entry(reference_id)
-            .or_insert_with(|| self.semantic.resolved_binding(reference_id).map(|binding| binding.id))
+            .or_insert_with(|| {
+                self.semantic
+                    .resolved_binding(reference_id)
+                    .map(|binding| binding.id)
+            })
     }
 
     fn same_command_candidate_writer_bindings(&mut self, name: &Name) -> &[BindingId] {
@@ -282,16 +293,16 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
 }
 
 #[derive(Clone, Copy)]
-struct SimpleCommandAncestor {
+pub(crate) struct SimpleCommandAncestor {
     id: CommandId,
     assignment_only: bool,
 }
 
-fn span_is_within(outer: Span, inner: Span) -> bool {
+pub(crate) fn span_is_within(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
 }
 
-fn loop_header_word_quote(facts: &LinterFacts<'_>, span: Span) -> Option<WordQuote> {
+pub(crate) fn loop_header_word_quote(facts: &LinterFacts<'_>, span: Span) -> Option<WordQuote> {
     facts
         .for_headers()
         .iter()
@@ -306,14 +317,20 @@ fn loop_header_word_quote(facts: &LinterFacts<'_>, span: Span) -> Option<WordQuo
         .map(|word| word.classification().quote)
 }
 
-fn binding_suppresses_same_command_array_read(binding: &Binding, assignment_only: bool) -> bool {
+pub(crate) fn binding_suppresses_same_command_array_read(
+    binding: &Binding,
+    assignment_only: bool,
+) -> bool {
     matches!(binding.kind, BindingKind::MapfileTarget)
         || (matches!(binding.kind, BindingKind::ReadTarget)
             && binding.attributes.contains(BindingAttributes::ARRAY))
         || (matches!(binding.kind, BindingKind::ArrayAssignment) && assignment_only)
 }
 
-fn collect_use_replacement_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
+pub(crate) fn collect_use_replacement_expansion_spans(
+    parts: &[WordPartNode],
+    spans: &mut Vec<Span>,
+) {
     for part in parts {
         match &part.kind {
             WordPart::DoubleQuoted { .. }
@@ -347,7 +364,7 @@ fn collect_use_replacement_expansion_spans(parts: &[WordPartNode], spans: &mut V
     }
 }
 
-fn parameter_uses_replacement_operator(parameter: &ParameterExpansion) -> bool {
+pub(crate) fn parameter_uses_replacement_operator(parameter: &ParameterExpansion) -> bool {
     let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
         return false;
     };
@@ -370,8 +387,11 @@ fn parameter_uses_replacement_operator(parameter: &ParameterExpansion) -> bool {
     }
 }
 
-
-fn collect_broken_assoc_key_spans(command: &Command, source: &str, spans: &mut Vec<Span>) {
+pub(crate) fn collect_broken_assoc_key_spans(
+    command: &Command,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
     for assignment in command_assignments(command) {
         collect_broken_assoc_key_spans_in_assignment(assignment, source, spans);
     }
@@ -384,7 +404,7 @@ fn collect_broken_assoc_key_spans(command: &Command, source: &str, spans: &mut V
     }
 }
 
-fn collect_broken_assoc_key_spans_in_assignment(
+pub(crate) fn collect_broken_assoc_key_spans_in_assignment(
     assignment: &Assignment,
     source: &str,
     spans: &mut Vec<Span>,
@@ -406,7 +426,7 @@ fn collect_broken_assoc_key_spans_in_assignment(
     }
 }
 
-fn has_unclosed_assoc_key_prefix(word: &Word, source: &str) -> bool {
+pub(crate) fn has_unclosed_assoc_key_prefix(word: &Word, source: &str) -> bool {
     let text = word.span.slice(source);
     if !text.starts_with('[') {
         return false;
@@ -478,7 +498,7 @@ fn has_unclosed_assoc_key_prefix(word: &Word, source: &str) -> bool {
     saw_equals
 }
 
-fn collect_comma_array_assignment_spans(
+pub(crate) fn collect_comma_array_assignment_spans(
     command: &Command,
     source: &str,
     shell: ShellDialect,
@@ -501,7 +521,7 @@ fn collect_comma_array_assignment_spans(
     }
 }
 
-fn collect_ifs_literal_backslash_assignment_value_spans(
+pub(crate) fn collect_ifs_literal_backslash_assignment_value_spans(
     command: &Command,
     source: &str,
     spans: &mut Vec<Span>,
@@ -522,7 +542,7 @@ fn collect_ifs_literal_backslash_assignment_value_spans(
     }
 }
 
-fn ifs_literal_backslash_assignment_value_span(
+pub(crate) fn ifs_literal_backslash_assignment_value_span(
     assignment: &Assignment,
     source: &str,
 ) -> Option<Span> {
@@ -542,7 +562,7 @@ fn ifs_literal_backslash_assignment_value_span(
         .then_some(word.span)
 }
 
-fn comma_array_assignment_span(
+pub(crate) fn comma_array_assignment_span(
     assignment: &Assignment,
     source: &str,
     shell: ShellDialect,
@@ -558,7 +578,7 @@ fn comma_array_assignment_span(
     compound_assignment_paren_span(assignment, source)
 }
 
-fn array_value_has_unquoted_comma(
+pub(crate) fn array_value_has_unquoted_comma(
     assignment: &Assignment,
     array: &shuck_ast::ArrayExpr,
     source: &str,
@@ -575,7 +595,10 @@ fn array_value_has_unquoted_comma(
     })
 }
 
-fn assignment_target_has_assoc_context(assignment: &Assignment, semantic: &SemanticModel) -> bool {
+pub(crate) fn assignment_target_has_assoc_context(
+    assignment: &Assignment,
+    semantic: &SemanticModel,
+) -> bool {
     semantic
         .binding_for_definition_span(assignment.target.name_span)
         .is_some_and(|binding| {
@@ -596,7 +619,10 @@ fn assignment_target_has_assoc_context(assignment: &Assignment, semantic: &Seman
             })
 }
 
-fn zsh_option_map_value_allows_comma(value: &shuck_ast::ArrayValueWord, source: &str) -> bool {
+pub(crate) fn zsh_option_map_value_allows_comma(
+    value: &shuck_ast::ArrayValueWord,
+    source: &str,
+) -> bool {
     let Some(text) = static_word_text(value, source) else {
         return false;
     };
@@ -609,7 +635,7 @@ fn zsh_option_map_value_allows_comma(value: &shuck_ast::ArrayValueWord, source: 
     parts.len() > 1 && parts.iter().copied().all(zsh_option_alias_part)
 }
 
-fn zsh_option_alias_part(part: &str) -> bool {
+pub(crate) fn zsh_option_alias_part(part: &str) -> bool {
     part.starts_with('-')
         && part.len() > 1
         && part
@@ -618,7 +644,10 @@ fn zsh_option_alias_part(part: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
-fn compound_assignment_paren_span(assignment: &Assignment, source: &str) -> Option<Span> {
+pub(crate) fn compound_assignment_paren_span(
+    assignment: &Assignment,
+    source: &str,
+) -> Option<Span> {
     let AssignmentValue::Compound(_) = &assignment.value else {
         return None;
     };

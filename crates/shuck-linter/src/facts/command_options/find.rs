@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn parse_find_exec_shell_command(
+pub(crate) fn parse_find_exec_shell_command(
     command: &Command,
     source: &str,
 ) -> Option<FindExecShellCommandFacts> {
@@ -82,7 +82,7 @@ fn find_exec_shell_command_spans(args: &[&Word], source: &str) -> Vec<Span> {
         .collect()
 }
 
-pub(super) fn parse_find_exec_argument_word_spans(command: &Command, source: &str) -> Vec<Span> {
+pub(crate) fn parse_find_exec_argument_word_spans(command: &Command, source: &str) -> Vec<Span> {
     let Command::Simple(command) = command else {
         return Vec::new();
     };
@@ -151,7 +151,7 @@ fn is_find_exec_semicolon_terminator(word: &Word, source: &str) -> bool {
     }
 }
 
-pub(super) fn find_command_args<'a>(
+pub(crate) fn find_command_args<'a>(
     command: &'a Command,
     normalized: &'a NormalizedCommand<'a>,
     source: &'a str,
@@ -185,7 +185,7 @@ where
     }
 }
 
-pub(super) fn parse_find_command<'a>(
+pub(crate) fn parse_find_command<'a>(
     args: impl IntoIterator<Item = &'a Word>,
     source: &str,
     behavior: &ShellBehaviorAt<'_>,

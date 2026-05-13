@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Debug, Clone, Copy)]
 pub struct StatementFact {
     body_span: Span,
@@ -20,7 +22,7 @@ impl StatementFact {
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-pub(super) fn build_statement_facts<'a>(
+pub(crate) fn build_statement_facts<'a>(
     commands: &[CommandFact<'a>],
     semantic: &SemanticModel,
 ) -> Vec<StatementFact> {
@@ -30,8 +32,7 @@ pub(super) fn build_statement_facts<'a>(
         .statement_sequence_commands()
         .iter()
         .filter_map(|statement| {
-            let command_id =
-                command_ids_by_stmt_span.get(&FactSpan::new(statement.stmt_span()))?;
+            let command_id = command_ids_by_stmt_span.get(&FactSpan::new(statement.stmt_span()))?;
             Some(StatementFact {
                 body_span: statement.body_span(),
                 stmt_span: statement.stmt_span(),
@@ -41,7 +42,9 @@ pub(super) fn build_statement_facts<'a>(
         .collect()
 }
 
-fn build_command_ids_by_stmt_span(commands: &[CommandFact<'_>]) -> FxHashMap<FactSpan, CommandId> {
+pub(crate) fn build_command_ids_by_stmt_span(
+    commands: &[CommandFact<'_>],
+) -> FxHashMap<FactSpan, CommandId> {
     let mut command_ids_by_stmt_span =
         FxHashMap::with_capacity_and_hasher(commands.len(), Default::default());
 

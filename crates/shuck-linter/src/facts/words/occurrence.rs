@@ -1,55 +1,55 @@
 #[derive(Debug)]
 pub struct WordNode<'a> {
-    pub(super) key: FactSpan,
-    pub(super) word: &'a Word,
-    pub(super) analysis: ExpansionAnalysis,
-    pub(super) derived: WordNodeDerived<'a>,
+    pub(crate) key: FactSpan,
+    pub(crate) word: &'a Word,
+    pub(crate) analysis: ExpansionAnalysis,
+    pub(crate) derived: WordNodeDerived<'a>,
 }
 
 #[derive(Debug)]
-pub(super) struct WordNodeDerived<'a> {
-    pub(super) static_text: Option<&'a str>,
-    pub(super) trailing_literal_char: Option<char>,
-    pub(super) starts_with_extglob: bool,
-    pub(super) has_literal_affixes: bool,
-    pub(super) contains_shell_quoting_literals: bool,
-    pub(super) safe_value_plain_scalar_reference_name: Option<Name>,
-    pub(super) safe_value_special_parameter_access: bool,
-    pub(super) safe_value_contains_special_parameter_slice: bool,
-    pub(super) nested_escaped_parameter_template_body_spans: IdRange<Span>,
-    pub(super) active_expansion_spans: IdRange<Span>,
-    pub(super) scalar_expansion_spans: IdRange<Span>,
-    pub(super) unquoted_scalar_expansion_spans: IdRange<Span>,
-    pub(super) array_expansion_spans: IdRange<Span>,
-    pub(super) all_elements_array_expansion_spans: IdRange<Span>,
-    pub(super) direct_all_elements_array_expansion_spans: IdRange<Span>,
-    pub(super) unquoted_all_elements_array_expansion_spans: IdRange<Span>,
-    pub(super) unquoted_array_expansion_spans: IdRange<Span>,
-    pub(super) command_substitution_spans: IdRange<Span>,
-    pub(super) unquoted_command_substitution_spans: IdRange<Span>,
-    pub(super) unquoted_dollar_paren_command_substitution_spans: IdRange<Span>,
-    pub(super) double_quoted_expansion_spans: IdRange<Span>,
-    pub(super) unquoted_literal_between_double_quoted_segments_spans: IdRange<Span>,
+pub(crate) struct WordNodeDerived<'a> {
+    pub(crate) static_text: Option<&'a str>,
+    pub(crate) trailing_literal_char: Option<char>,
+    pub(crate) starts_with_extglob: bool,
+    pub(crate) has_literal_affixes: bool,
+    pub(crate) contains_shell_quoting_literals: bool,
+    pub(crate) safe_value_plain_scalar_reference_name: Option<Name>,
+    pub(crate) safe_value_special_parameter_access: bool,
+    pub(crate) safe_value_contains_special_parameter_slice: bool,
+    pub(crate) nested_escaped_parameter_template_body_spans: IdRange<Span>,
+    pub(crate) active_expansion_spans: IdRange<Span>,
+    pub(crate) scalar_expansion_spans: IdRange<Span>,
+    pub(crate) unquoted_scalar_expansion_spans: IdRange<Span>,
+    pub(crate) array_expansion_spans: IdRange<Span>,
+    pub(crate) all_elements_array_expansion_spans: IdRange<Span>,
+    pub(crate) direct_all_elements_array_expansion_spans: IdRange<Span>,
+    pub(crate) unquoted_all_elements_array_expansion_spans: IdRange<Span>,
+    pub(crate) unquoted_array_expansion_spans: IdRange<Span>,
+    pub(crate) command_substitution_spans: IdRange<Span>,
+    pub(crate) unquoted_command_substitution_spans: IdRange<Span>,
+    pub(crate) unquoted_dollar_paren_command_substitution_spans: IdRange<Span>,
+    pub(crate) double_quoted_expansion_spans: IdRange<Span>,
+    pub(crate) unquoted_literal_between_double_quoted_segments_spans: IdRange<Span>,
 }
 
 #[derive(Debug)]
 pub struct WordOccurrence {
-    pub(super) node_id: WordNodeId,
-    pub(super) command_id: CommandId,
-    pub(super) nested_word_command: bool,
-    pub(super) context: WordFactContext,
-    pub(super) host_kind: WordFactHostKind,
-    pub(super) runtime_literal: RuntimeLiteralAnalysis,
-    pub(super) operand_class: Option<TestOperandClass>,
-    pub(super) enclosing_expansion_context: Option<ExpansionContext>,
-    pub(super) split_sensitive_unquoted_command_substitution_spans: IdRange<Span>,
-    pub(super) array_assignment_split_scalar_expansion_spans: IdRange<Span>,
+    pub(crate) node_id: WordNodeId,
+    pub(crate) command_id: CommandId,
+    pub(crate) nested_word_command: bool,
+    pub(crate) context: WordFactContext,
+    pub(crate) host_kind: WordFactHostKind,
+    pub(crate) runtime_literal: RuntimeLiteralAnalysis,
+    pub(crate) operand_class: Option<TestOperandClass>,
+    pub(crate) enclosing_expansion_context: Option<ExpansionContext>,
+    pub(crate) split_sensitive_unquoted_command_substitution_spans: IdRange<Span>,
+    pub(crate) array_assignment_split_scalar_expansion_spans: IdRange<Span>,
 }
 
 #[derive(Clone, Copy)]
 pub struct WordOccurrenceRef<'facts, 'a> {
-    pub(super) facts: &'facts LinterFacts<'a>,
-    pub(super) id: WordOccurrenceId,
+    pub(crate) facts: &'facts LinterFacts<'a>,
+    pub(crate) id: WordOccurrenceId,
 }
 
 pub struct WordOccurrenceIter<'facts, 'a> {
@@ -58,13 +58,13 @@ pub struct WordOccurrenceIter<'facts, 'a> {
     filter: WordOccurrenceFilter,
 }
 
-pub(super) enum WordOccurrenceIterSource<'facts> {
+pub(crate) enum WordOccurrenceIterSource<'facts> {
     All { next: usize },
     Ids(std::slice::Iter<'facts, WordOccurrenceId>),
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum WordOccurrenceFilter {
+pub(crate) enum WordOccurrenceFilter {
     Any,
     NonArithmetic,
     ArithmeticCommand,
@@ -74,7 +74,7 @@ pub(super) enum WordOccurrenceFilter {
 }
 
 impl<'facts, 'a> WordOccurrenceIter<'facts, 'a> {
-    pub(super) fn all(facts: &'facts LinterFacts<'a>, filter: WordOccurrenceFilter) -> Self {
+    pub(crate) fn all(facts: &'facts LinterFacts<'a>, filter: WordOccurrenceFilter) -> Self {
         Self {
             facts,
             source: WordOccurrenceIterSource::All { next: 0 },
@@ -82,7 +82,7 @@ impl<'facts, 'a> WordOccurrenceIter<'facts, 'a> {
         }
     }
 
-    pub(super) fn ids(
+    pub(crate) fn ids(
         facts: &'facts LinterFacts<'a>,
         ids: &'facts [WordOccurrenceId],
         filter: WordOccurrenceFilter,
@@ -131,7 +131,7 @@ impl<'facts, 'a> Iterator for WordOccurrenceIter<'facts, 'a> {
                 WordOccurrenceIterSource::All { next } => {
                     let id = WordOccurrenceId::new(*next);
                     *next += 1;
-                    (id.index() < self.facts.word_occurrences.len()).then_some(id)
+                    (id.index() < self.facts.words.word_occurrences.len()).then_some(id)
                 }
                 WordOccurrenceIterSource::Ids(ids) => ids.next().copied(),
             }?;
@@ -156,7 +156,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.facts.word_node_derived(self.occurrence().node_id)
     }
 
-    pub(super) fn word(self) -> &'a Word {
+    pub(crate) fn word(self) -> &'a Word {
         self.node().word
     }
 
@@ -334,7 +334,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     }
 
     pub fn static_text(self) -> Option<Cow<'a, str>> {
-        self.static_text_from_source(self.facts.source)
+        self.static_text_from_source(self.facts.source_facts.source)
     }
 
     pub fn static_text_cow(self, source: &'a str) -> Option<Cow<'a, str>> {
@@ -409,7 +409,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     }
 
     pub fn active_expansion_spans(self) -> &'facts [Span] {
-        self.facts.fact_store.word_spans(self.derived().active_expansion_spans)
+        self.facts.command.fact_store.word_spans(self.derived().active_expansion_spans)
     }
 
     pub fn expansion_span_is_zsh_force_glob_parameter(self, span: Span) -> bool {
@@ -425,75 +425,86 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     }
 
     pub fn scalar_expansion_spans(self) -> &'facts [Span] {
-        self.facts.fact_store.word_spans(self.derived().scalar_expansion_spans)
+        self.facts.command.fact_store.word_spans(self.derived().scalar_expansion_spans)
     }
 
     pub fn unquoted_scalar_expansion_spans(self) -> &'facts [Span] {
         self.facts
+            .command
             .fact_store
             .word_spans(self.derived().unquoted_scalar_expansion_spans)
     }
 
     pub fn array_assignment_split_scalar_expansion_spans(self) -> &'facts [Span] {
         self.facts
+            .command
             .fact_store
             .word_spans(self.occurrence().array_assignment_split_scalar_expansion_spans)
     }
 
     pub fn array_expansion_spans(self) -> &'facts [Span] {
-        self.facts.fact_store.word_spans(self.derived().array_expansion_spans)
+        self.facts.command.fact_store.word_spans(self.derived().array_expansion_spans)
     }
 
     pub fn all_elements_array_expansion_spans(self) -> &'facts [Span] {
         self.facts
+            .command
             .fact_store
             .word_spans(self.derived().all_elements_array_expansion_spans)
     }
 
     pub fn direct_all_elements_array_expansion_spans(self) -> &'facts [Span] {
         self.facts
+            .command
             .fact_store
             .word_spans(self.derived().direct_all_elements_array_expansion_spans)
     }
 
     pub fn unquoted_all_elements_array_expansion_spans(self) -> &'facts [Span] {
         self.facts
+            .command
             .fact_store
             .word_spans(self.derived().unquoted_all_elements_array_expansion_spans)
     }
 
     pub fn unquoted_array_expansion_spans(self) -> &'facts [Span] {
         self.facts
+            .command
             .fact_store
             .word_spans(self.derived().unquoted_array_expansion_spans)
     }
 
     pub fn command_substitution_spans(self) -> &'facts [Span] {
         self.facts
+            .command
             .fact_store
             .word_spans(self.derived().command_substitution_spans)
     }
 
     pub fn unquoted_command_substitution_spans(self) -> &'facts [Span] {
         self.facts
+            .command
             .fact_store
             .word_spans(self.derived().unquoted_command_substitution_spans)
     }
 
     pub fn split_sensitive_unquoted_command_substitution_spans(self) -> &'facts [Span] {
         self.facts
+            .command
             .fact_store
             .word_spans(self.occurrence().split_sensitive_unquoted_command_substitution_spans)
     }
 
     pub fn unquoted_dollar_paren_command_substitution_spans(self) -> &'facts [Span] {
         self.facts
+            .command
             .fact_store
             .word_spans(self.derived().unquoted_dollar_paren_command_substitution_spans)
     }
 
     pub fn double_quoted_expansion_spans(self) -> &'facts [Span] {
         self.facts
+            .command
             .fact_store
             .word_spans(self.derived().double_quoted_expansion_spans)
     }
@@ -504,6 +515,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
 
     pub fn unquoted_literal_between_double_quoted_segments_spans(self) -> &'facts [Span] {
         self.facts
+            .command
             .fact_store
             .word_spans(self.derived().unquoted_literal_between_double_quoted_segments_spans)
     }
@@ -771,7 +783,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     }
 }
 
-pub(super) fn shellcheck_parameter_span_inside_escaped_quotes(
+pub(crate) fn shellcheck_parameter_span_inside_escaped_quotes(
     span: Span,
     locator: Locator<'_>,
 ) -> Option<Span> {
@@ -822,7 +834,7 @@ pub(super) fn shellcheck_parameter_span_inside_escaped_quotes(
     Some(Span::from_positions(start, end))
 }
 
-pub(super) fn parameter_expansion_end_offset(source: &str, dollar_offset: usize) -> Option<usize> {
+pub(crate) fn parameter_expansion_end_offset(source: &str, dollar_offset: usize) -> Option<usize> {
     let after_dollar = dollar_offset + '$'.len_utf8();
     let bytes = source.as_bytes();
     if bytes.get(after_dollar) == Some(&b'{') {
@@ -847,7 +859,7 @@ pub(super) fn parameter_expansion_end_offset(source: &str, dollar_offset: usize)
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-pub(super) fn build_brace_variable_before_bracket_spans<'a>(
+pub(crate) fn build_brace_variable_before_bracket_spans<'a>(
     nodes: &[WordNode<'a>],
     occurrences: &[WordOccurrence],
     source: &str,
@@ -869,39 +881,39 @@ pub(super) fn build_brace_variable_before_bracket_spans<'a>(
     spans
 }
 
-pub(super) fn contains_template_placeholder_text_in_word(text: &str) -> bool {
+pub(crate) fn contains_template_placeholder_text_in_word(text: &str) -> bool {
     let Some(start) = text.find("{{") else {
         return false;
     };
     text[start + 2..].contains("}}")
 }
 
-pub(super) fn occurrence_word<'a>(nodes: &[WordNode<'a>], occurrence: &WordOccurrence) -> &'a Word {
+pub(crate) fn occurrence_word<'a>(nodes: &[WordNode<'a>], occurrence: &WordOccurrence) -> &'a Word {
     nodes[occurrence.node_id.index()].word
 }
 
-pub(super) fn occurrence_key(nodes: &[WordNode<'_>], occurrence: &WordOccurrence) -> FactSpan {
+pub(crate) fn occurrence_key(nodes: &[WordNode<'_>], occurrence: &WordOccurrence) -> FactSpan {
     nodes[occurrence.node_id.index()].key
 }
 
-pub(super) fn occurrence_span(nodes: &[WordNode<'_>], occurrence: &WordOccurrence) -> Span {
+pub(crate) fn occurrence_span(nodes: &[WordNode<'_>], occurrence: &WordOccurrence) -> Span {
     occurrence_word(nodes, occurrence).span
 }
 
-pub(super) fn occurrence_analysis(
+pub(crate) fn occurrence_analysis(
     nodes: &[WordNode<'_>],
     occurrence: &WordOccurrence,
 ) -> ExpansionAnalysis {
     nodes[occurrence.node_id.index()].analysis
 }
 
-pub(super) fn word_node_derived<'node, 'word>(
+pub(crate) fn word_node_derived<'node, 'word>(
     node: &'node WordNode<'word>,
 ) -> &'node WordNodeDerived<'word> {
     &node.derived
 }
 
-pub(super) fn word_is_plain_scalar_reference(word: &Word) -> bool {
+pub(crate) fn word_is_plain_scalar_reference(word: &Word) -> bool {
     word_is_plain_reference(word, false)
 }
 
@@ -950,18 +962,18 @@ fn safe_value_plain_scalar_reference_name_from_part(part: &WordPart) -> Option<N
     }
 }
 
-pub(super) fn word_is_plain_parameter_reference(word: &Word) -> bool {
+pub(crate) fn word_is_plain_parameter_reference(word: &Word) -> bool {
     word_is_plain_reference(word, true)
 }
 
-pub(super) fn word_is_plain_reference(word: &Word, allow_all_elements_parameters: bool) -> bool {
+pub(crate) fn word_is_plain_reference(word: &Word, allow_all_elements_parameters: bool) -> bool {
     let [part] = word.parts.as_slice() else {
         return false;
     };
     word_part_is_plain_reference(&part.kind, allow_all_elements_parameters)
 }
 
-pub(super) fn word_part_is_plain_reference(part: &WordPart, allow_all_elements_parameters: bool) -> bool {
+pub(crate) fn word_part_is_plain_reference(part: &WordPart, allow_all_elements_parameters: bool) -> bool {
     match part {
         WordPart::Variable(name) => {
             allow_all_elements_parameters || !matches!(name.as_str(), "@" | "*")
@@ -979,7 +991,7 @@ pub(super) fn word_part_is_plain_reference(part: &WordPart, allow_all_elements_p
     }
 }
 
-pub(super) fn parameter_is_plain_reference(
+pub(crate) fn parameter_is_plain_reference(
     parameter: &ParameterExpansion,
     allow_all_elements_parameters: bool,
 ) -> bool {
@@ -1009,14 +1021,14 @@ pub(super) fn parameter_is_plain_reference(
     }
 }
 
-pub(super) fn word_is_direct_numeric_expansion(word: &Word) -> bool {
+pub(crate) fn word_is_direct_numeric_expansion(word: &Word) -> bool {
     let [part] = word.parts.as_slice() else {
         return false;
     };
     word_part_is_direct_numeric_expansion(&part.kind)
 }
 
-pub(super) fn word_part_is_direct_numeric_expansion(part: &WordPart) -> bool {
+pub(crate) fn word_part_is_direct_numeric_expansion(part: &WordPart) -> bool {
     match part {
         WordPart::DoubleQuoted { parts, .. } => {
             let [part] = parts.as_slice() else {
@@ -1030,7 +1042,7 @@ pub(super) fn word_part_is_direct_numeric_expansion(part: &WordPart) -> bool {
     }
 }
 
-pub(super) fn parameter_is_direct_numeric_expansion(parameter: &ParameterExpansion) -> bool {
+pub(crate) fn parameter_is_direct_numeric_expansion(parameter: &ParameterExpansion) -> bool {
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length { .. }) => true,
         ParameterExpansionSyntax::Zsh(syntax) => syntax.length_prefix.is_some(),
@@ -1131,7 +1143,7 @@ fn safe_value_special_parameter_slice_reference(reference: &VarRef) -> bool {
 }
 
 
-pub(super) fn build_unquoted_command_argument_use_offsets(
+pub(crate) fn build_unquoted_command_argument_use_offsets(
     semantic: &SemanticModel,
     nodes: &[WordNode<'_>],
     occurrences: &[WordOccurrence],
@@ -1310,7 +1322,7 @@ fn visible_name_is_array_like(
 
 #[cfg_attr(shuck_profiling, inline(never))]
 #[allow(clippy::too_many_arguments)]
-pub(super) fn build_word_facts_for_command<'a>(
+pub(crate) fn build_word_facts_for_command<'a>(
     visit: CommandVisit<'a>,
     source: &'a str,
     locator: Locator<'a>,
@@ -1335,61 +1347,61 @@ pub(super) fn build_word_facts_for_command<'a>(
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct WordFactCommandContext {
-    pub(super) command_id: CommandId,
-    pub(super) nested_word_command: bool,
-    pub(super) scope: ScopeId,
+pub(crate) struct WordFactCommandContext {
+    pub(crate) command_id: CommandId,
+    pub(crate) nested_word_command: bool,
+    pub(crate) scope: ScopeId,
 }
 
-pub(super) struct WordFactOutputs<'out, 'a> {
-    pub(super) command_visits_by_id: &'out [Option<CommandVisit<'a>>],
-    pub(super) word_nodes: &'out mut Vec<WordNode<'a>>,
-    pub(super) word_spans: &'out mut ListArena<Span>,
-    pub(super) word_span_scratch: &'out mut Vec<Span>,
-    pub(super) word_node_ids_by_span: &'out mut FxHashMap<FactSpan, WordNodeId>,
-    pub(super) word_occurrences: &'out mut Vec<WordOccurrence>,
-    pub(super) pending_arithmetic_word_occurrences:
+pub(crate) struct WordFactOutputs<'out, 'a> {
+    pub(crate) command_visits_by_id: &'out [Option<CommandVisit<'a>>],
+    pub(crate) word_nodes: &'out mut Vec<WordNode<'a>>,
+    pub(crate) word_spans: &'out mut ListArena<Span>,
+    pub(crate) word_span_scratch: &'out mut Vec<Span>,
+    pub(crate) word_node_ids_by_span: &'out mut FxHashMap<FactSpan, WordNodeId>,
+    pub(crate) word_occurrences: &'out mut Vec<WordOccurrence>,
+    pub(crate) pending_arithmetic_word_occurrences:
         &'out mut Vec<PendingArithmeticWordOccurrence>,
-    pub(super) pending_parameter_operand_word_occurrences:
+    pub(crate) pending_parameter_operand_word_occurrences:
         &'out mut Vec<PendingParameterOperandWordOccurrence>,
-    pub(super) compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
-    pub(super) array_assignment_split_word_ids: &'out mut Vec<WordOccurrenceId>,
-    pub(super) seen_word_occurrences: &'out mut FxHashSet<WordOccurrenceSeenKey>,
-    pub(super) seen_pending_arithmetic_word_occurrences:
+    pub(crate) compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
+    pub(crate) array_assignment_split_word_ids: &'out mut Vec<WordOccurrenceId>,
+    pub(crate) seen_word_occurrences: &'out mut FxHashSet<WordOccurrenceSeenKey>,
+    pub(crate) seen_pending_arithmetic_word_occurrences:
         &'out mut FxHashSet<PendingArithmeticSeenKey>,
-    pub(super) seen_pending_parameter_operand_word_occurrences:
+    pub(crate) seen_pending_parameter_operand_word_occurrences:
         &'out mut FxHashSet<PendingParameterOperandSeenKey>,
-    pub(super) assoc_binding_visibility_memo:
+    pub(crate) assoc_binding_visibility_memo:
         &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
-    pub(super) semantic_analysis: &'out SemanticAnalysis<'a>,
-    pub(super) case_pattern_expansions: &'out mut Vec<CasePatternExpansionFact>,
-    pub(super) pattern_literal_spans: &'out mut Vec<Span>,
-    pub(super) arithmetic: &'out mut ArithmeticFactSummary,
-    pub(super) surface: &'out mut SurfaceFragmentSink<'a>,
+    pub(crate) semantic_analysis: &'out SemanticAnalysis<'a>,
+    pub(crate) case_pattern_expansions: &'out mut Vec<CasePatternExpansionFact>,
+    pub(crate) pattern_literal_spans: &'out mut Vec<Span>,
+    pub(crate) arithmetic: &'out mut ArithmeticFactSummary,
+    pub(crate) surface: &'out mut SurfaceFragmentSink<'a>,
 }
 
-pub(super) struct PendingArithmeticWordOccurrence {
-    pub(super) node_id: WordNodeId,
-    pub(super) command_id: CommandId,
-    pub(super) nested_word_command: bool,
-    pub(super) host_kind: WordFactHostKind,
-    pub(super) enclosing_expansion_context: ExpansionContext,
+pub(crate) struct PendingArithmeticWordOccurrence {
+    pub(crate) node_id: WordNodeId,
+    pub(crate) command_id: CommandId,
+    pub(crate) nested_word_command: bool,
+    pub(crate) host_kind: WordFactHostKind,
+    pub(crate) enclosing_expansion_context: ExpansionContext,
 }
 
-pub(super) struct PendingParameterOperandWordOccurrence {
-    pub(super) node_id: WordNodeId,
-    pub(super) command_id: CommandId,
-    pub(super) nested_word_command: bool,
-    pub(super) host_kind: WordFactHostKind,
-    pub(super) enclosing_expansion_context: ExpansionContext,
+pub(crate) struct PendingParameterOperandWordOccurrence {
+    pub(crate) node_id: WordNodeId,
+    pub(crate) command_id: CommandId,
+    pub(crate) nested_word_command: bool,
+    pub(crate) host_kind: WordFactHostKind,
+    pub(crate) enclosing_expansion_context: ExpansionContext,
 }
 
-pub(super) type WordOccurrenceSeenKey = (FactSpan, WordFactContext, WordFactHostKind);
-pub(super) type PendingArithmeticSeenKey = (FactSpan, ExpansionContext, WordFactHostKind);
-pub(super) type PendingParameterOperandSeenKey =
+pub(crate) type WordOccurrenceSeenKey = (FactSpan, WordFactContext, WordFactHostKind);
+pub(crate) type PendingArithmeticSeenKey = (FactSpan, ExpansionContext, WordFactHostKind);
+pub(crate) type PendingParameterOperandSeenKey =
     (FactSpan, ExpansionContext, WordFactHostKind);
 
-pub(super) fn derive_word_fact_data<'a>(
+pub(crate) fn derive_word_fact_data<'a>(
     word: &'a Word,
     locator: Locator<'a>,
     shell_dialect: shuck_semantic::ShellDialect,
@@ -1739,7 +1751,7 @@ impl DerivedWordTraversalVisitor<'_> {
     }
 }
 
-pub(super) fn push_word_span_list(
+pub(crate) fn push_word_span_list(
     span_store: &mut ListArena<Span>,
     scratch: &mut Vec<Span>,
     collect: impl FnOnce(&mut Vec<Span>),
@@ -1749,7 +1761,7 @@ pub(super) fn push_word_span_list(
     span_store.push_many(scratch.drain(..))
 }
 
-pub(super) fn push_needed_word_span_list(
+pub(crate) fn push_needed_word_span_list(
     span_store: &mut ListArena<Span>,
     scratch: &mut Vec<Span>,
     needed: bool,
@@ -1762,11 +1774,11 @@ pub(super) fn push_needed_word_span_list(
     }
 }
 
-pub(super) fn word_may_have_runtime_expansion_spans(word: &Word) -> bool {
+pub(crate) fn word_may_have_runtime_expansion_spans(word: &Word) -> bool {
     word_parts_may_have_runtime_expansion_spans(&word.parts)
 }
 
-pub(super) fn word_parts_may_have_runtime_expansion_spans(parts: &[WordPartNode]) -> bool {
+pub(crate) fn word_parts_may_have_runtime_expansion_spans(parts: &[WordPartNode]) -> bool {
     parts.iter().any(|part| match &part.kind {
         WordPart::Literal(_) | WordPart::SingleQuoted { .. } => false,
         WordPart::DoubleQuoted { parts, .. } => word_parts_may_have_runtime_expansion_spans(parts),
@@ -1774,11 +1786,11 @@ pub(super) fn word_parts_may_have_runtime_expansion_spans(parts: &[WordPartNode]
     })
 }
 
-pub(super) fn word_may_have_command_substitution_spans(word: &Word) -> bool {
+pub(crate) fn word_may_have_command_substitution_spans(word: &Word) -> bool {
     word_parts_may_have_command_substitution_spans(&word.parts)
 }
 
-pub(super) fn word_parts_may_have_command_substitution_spans(parts: &[WordPartNode]) -> bool {
+pub(crate) fn word_parts_may_have_command_substitution_spans(parts: &[WordPartNode]) -> bool {
     parts.iter().any(|part| match &part.kind {
         WordPart::DoubleQuoted { parts, .. } => word_parts_may_have_command_substitution_spans(parts),
         WordPart::CommandSubstitution { .. } => true,
@@ -1786,7 +1798,7 @@ pub(super) fn word_parts_may_have_command_substitution_spans(parts: &[WordPartNo
     })
 }
 
-pub(super) fn word_may_have_unquoted_literal_between_double_quoted_segments_spans(
+pub(crate) fn word_may_have_unquoted_literal_between_double_quoted_segments_spans(
     word: &Word,
     source: &str,
 ) -> bool {
@@ -1826,14 +1838,14 @@ pub(super) fn word_may_have_unquoted_literal_between_double_quoted_segments_span
         || mixed_quote_following_line_join_suffix_after_word(word, source).is_some()
 }
 
-pub(super) fn borrowed_static_word_text<'a>(word: &'a Word, source: &'a str) -> Option<&'a str> {
+pub(crate) fn borrowed_static_word_text<'a>(word: &'a Word, source: &'a str) -> Option<&'a str> {
     let [part] = word.parts.as_slice() else {
         return None;
     };
     borrowed_static_word_part_text(part, source)
 }
 
-pub(super) fn borrowed_static_word_part_text<'a>(
+pub(crate) fn borrowed_static_word_part_text<'a>(
     part: &'a WordPartNode,
     source: &'a str,
 ) -> Option<&'a str> {
@@ -1850,11 +1862,11 @@ pub(super) fn borrowed_static_word_part_text<'a>(
     }
 }
 
-pub(super) fn word_trailing_literal_char(word: &Word, source: &str) -> Option<char> {
+pub(crate) fn word_trailing_literal_char(word: &Word, source: &str) -> Option<char> {
     trailing_literal_char_in_parts(&word.parts, source)
 }
 
-pub(super) fn trailing_literal_char_in_parts(parts: &[WordPartNode], source: &str) -> Option<char> {
+pub(crate) fn trailing_literal_char_in_parts(parts: &[WordPartNode], source: &str) -> Option<char> {
     let part = parts.last()?;
 
     match &part.kind {
@@ -1880,7 +1892,7 @@ pub(super) fn trailing_literal_char_in_parts(parts: &[WordPartNode], source: &st
     }
 }
 
-pub(super) struct WordFactCollector<'out, 'a, 'norm> {
+pub(crate) struct WordFactCollector<'out, 'a, 'norm> {
     source: &'a str,
     locator: Locator<'a>,
     semantic: &'a SemanticModel,
@@ -1913,7 +1925,7 @@ pub(super) struct WordFactCollector<'out, 'a, 'norm> {
     surface: &'out mut SurfaceFragmentSink<'a>,
 }
 
-pub(super) fn simple_command_wrapper_target_index(command: &SimpleCommand, source: &str) -> Option<usize> {
+pub(crate) fn simple_command_wrapper_target_index(command: &SimpleCommand, source: &str) -> Option<usize> {
     let command_name = static_command_name_text(&command.name, source)?;
     let word_count = 1 + command.args.len();
     match static_command_wrapper_target_index(word_count, 0, command_name.as_ref(), |index| {
@@ -1924,7 +1936,7 @@ pub(super) fn simple_command_wrapper_target_index(command: &SimpleCommand, sourc
     }
 }
 
-pub(super) fn simple_command_word_at(command: &SimpleCommand, index: usize) -> &Word {
+pub(crate) fn simple_command_word_at(command: &SimpleCommand, index: usize) -> &Word {
     if index == 0 {
         &command.name
     } else {
