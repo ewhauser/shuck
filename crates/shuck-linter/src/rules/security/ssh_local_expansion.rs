@@ -52,7 +52,30 @@ fn remote_command_fix(source: &str, span: Span) -> Fix {
 
 fn single_quoted_remote_command(text: &str) -> Option<String> {
     let body = text.strip_prefix('"')?.strip_suffix('"')?;
+    let body = decode_double_quoted_body(body);
     Some(format!("'{}'", body.replace('\'', "'\\''")))
+}
+
+fn decode_double_quoted_body(body: &str) -> String {
+    let mut decoded = String::with_capacity(body.len());
+    let mut chars = body.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            decoded.push(ch);
+            continue;
+        }
+
+        match chars.next() {
+            Some(ch @ ('$' | '`' | '"' | '\\')) => decoded.push(ch),
+            Some('\n') => {}
+            Some(ch) => {
+                decoded.push('\\');
+                decoded.push(ch);
+            }
+            None => decoded.push('\\'),
+        }
+    }
+    decoded
 }
 
 #[cfg(test)]
@@ -165,6 +188,23 @@ URL=$(ssh \"$host\" url \"$REPO\")
         assert_eq!(
             result.fixed_source,
             "#!/bin/sh\nssh \"$host\" 'echo $HOME'\nssh host 'printf '\\''%s\\n'\\'' $USER'\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn decodes_double_quote_escapes_when_fixing_remote_command() {
+        let source = "#!/bin/sh\nssh host \"printf \\\"%s\\\" $USER \\$HOME \\\\tmp\"\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SshLocalExpansion),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/sh\nssh host 'printf \"%s\" $USER $HOME \\tmp'\n"
         );
         assert!(result.fixed_diagnostics.is_empty());
     }
