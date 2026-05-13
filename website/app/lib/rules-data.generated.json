@@ -1381,10 +1381,10 @@
       "ksh"
     ],
     "shellcheckCode": "SC2261",
-    "implemented": false,
-    "status": "planned",
+    "implemented": true,
+    "status": "implemented",
     "hasKnownShellcheckDivergences": false,
-    "severity": null,
+    "severity": "Error",
     "fixStatus": "planned",
     "fixAvailability": "none",
     "fixSafety": "unsafe",

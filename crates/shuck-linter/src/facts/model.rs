@@ -589,6 +589,15 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
             })
     }
 
+    pub(crate) fn duplicate_redirect_spans(self) -> Vec<Span> {
+        let source = self.facts.source_facts.source;
+        self.facts
+            .commands()
+            .iter()
+            .flat_map(|command| duplicate_redirect_spans(command.redirect_facts(), source))
+            .collect()
+    }
+
     pub(crate) fn statement_facts(self) -> &'facts [StatementFact] {
         &self.facts.command.statement_facts
     }

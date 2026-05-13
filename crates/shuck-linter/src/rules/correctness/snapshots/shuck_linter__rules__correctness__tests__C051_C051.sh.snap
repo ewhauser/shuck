@@ -1,0 +1,110 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C051 multiple redirects target the same descriptor
+ --> <source>:4:3
+  |
+4 | : >/tmp/first >/tmp/second
+  |
+
+C051 multiple redirects target the same descriptor
+ --> <source>:4:15
+  |
+4 | : >/tmp/first >/tmp/second
+  |
+
+C051 multiple redirects target the same descriptor
+ --> <source>:7:4
+  |
+7 | : 2>/tmp/first 2>/tmp/second
+  |
+
+C051 multiple redirects target the same descriptor
+ --> <source>:7:17
+  |
+7 | : 2>/tmp/first 2>/tmp/second
+  |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:10:5
+   |
+10 | cat </tmp/first </tmp/second
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:10:17
+   |
+10 | cat </tmp/first </tmp/second
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:13:7
+   |
+13 | cat <<EOF </tmp/input
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:13:11
+   |
+13 | cat <<EOF </tmp/input
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:18:4
+   |
+18 | : &>/tmp/all >/tmp/stdout
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:18:14
+   |
+18 | : &>/tmp/all >/tmp/stdout
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:21:4
+   |
+21 | : &>/tmp/first &>/tmp/second
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:21:4
+   |
+21 | : &>/tmp/first &>/tmp/second
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:21:17
+   |
+21 | : &>/tmp/first &>/tmp/second
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:21:17
+   |
+21 | : &>/tmp/first &>/tmp/second
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:24:3
+   |
+24 | : >&/tmp/all 2>/tmp/stderr
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:24:15
+   |
+24 | : >&/tmp/all 2>/tmp/stderr
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:27:4
+   |
+27 | : 2>&/tmp/stderr 2>/tmp/next
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:27:19
+   |
+27 | : 2>&/tmp/stderr 2>/tmp/next
+   |

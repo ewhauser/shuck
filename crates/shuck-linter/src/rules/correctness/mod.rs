@@ -35,6 +35,7 @@ pub mod continue_outside_loop_in_function;
 pub mod dangling_else;
 pub mod dollar_question_after_command;
 pub mod double_paren_grouping;
+pub mod duplicate_redirect;
 pub mod dynamic_source_path;
 pub mod else_if;
 pub mod else_without_then;
@@ -196,6 +197,7 @@ mod tests {
     #[test_case(Rule::CasePatternVar, Path::new("C048.sh"))]
     #[test_case(Rule::TautologyChain, Path::new("C049.sh"))]
     #[test_case(Rule::ArithmeticRedirectionTarget, Path::new("C050.sh"))]
+    #[test_case(Rule::DuplicateRedirect, Path::new("C051.sh"))]
     #[test_case(Rule::BareSlashMarker, Path::new("C054.sh"))]
     #[test_case(Rule::PatternWithVariable, Path::new("C055.sh"))]
     #[test_case(Rule::StatusCaptureAfterBranchTest, Path::new("C056.sh"))]

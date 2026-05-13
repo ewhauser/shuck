@@ -128,6 +128,7 @@ mod tests {
         assert_eq!(map.resolve("SC2096"), Some(Rule::DuplicateShebangFlag));
         assert_eq!(map.resolve("SC2318"), Some(Rule::LocalCrossReference));
         assert_eq!(map.resolve("SC2252"), Some(Rule::TautologyChain));
+        assert_eq!(map.resolve("SC2261"), Some(Rule::DuplicateRedirect));
         assert_eq!(map.resolve("SC2260"), Some(Rule::RedirectBeforePipe));
         assert_eq!(
             map.resolve("SC1087"),
