@@ -22,6 +22,7 @@ pub(super) fn parse_ssh_command(args: &[&Word], source: &str) -> Option<SshComma
         .collect::<Vec<_>>();
 
     (!local_expansion_spans.is_empty()).then_some(SshCommandFacts {
+        remote_command_arg_span: last_remote_arg.span,
         local_expansion_spans: local_expansion_spans.into_boxed_slice(),
     })
 }
