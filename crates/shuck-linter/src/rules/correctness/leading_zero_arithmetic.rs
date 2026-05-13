@@ -31,20 +31,23 @@ pub fn leading_zero_arithmetic(checker: &mut Checker) {
     let source = checker.source();
     let word_facts = checker.facts().words();
     let suppressed_subscript_spans = word_facts.arithmetic_only_suppressed_subscript_spans();
-    let substring_spans = word_facts
-        .substring_expansion_fragments()
-        .iter()
-        .map(|fragment| fragment.span())
-        .collect::<Vec<_>>();
+    let arithmetic_command_substitution_spans = word_facts.arithmetic_command_substitution_spans();
 
     let diagnostics = word_facts
         .arithmetic_literal_facts()
         .iter()
         .filter(|fact| fact.kind() == ArithmeticLiteralKind::LeadingZeroInteger)
         .filter(|fact| contains_invalid_octal_digit(fact.span().slice(source)))
-        .filter(|fact| !is_adjacent_to_runtime_expansion(source, fact.span()))
-        .filter(|fact| !span_is_within_any(fact.span(), suppressed_subscript_spans))
-        .filter(|fact| !span_is_within_any(fact.span(), &substring_spans))
+        .filter(|fact| {
+            !is_adjacent_to_runtime_expansion(
+                source,
+                fact.span(),
+                arithmetic_command_substitution_spans,
+            )
+        })
+        .filter(|fact| {
+            !is_plain_suppressed_subscript_literal(source, fact.span(), suppressed_subscript_spans)
+        })
         .map(|fact| diagnostic_for_leading_zero(fact.span(), source))
         .collect::<Vec<_>>();
 
@@ -69,7 +72,11 @@ fn contains_invalid_octal_digit(text: &str) -> bool {
     text.bytes().any(|byte| matches!(byte, b'8' | b'9'))
 }
 
-fn is_adjacent_to_runtime_expansion(source: &str, span: Span) -> bool {
+fn is_adjacent_to_runtime_expansion(
+    source: &str,
+    span: Span,
+    command_substitution_spans: &[Span],
+) -> bool {
     let Some(previous) = span
         .start
         .offset
@@ -79,7 +86,36 @@ fn is_adjacent_to_runtime_expansion(source: &str, span: Span) -> bool {
         return false;
     };
 
-    matches!(previous, b'}' | b')')
+    *previous == b'}'
+        || *previous == b'`'
+        || command_substitution_spans
+            .iter()
+            .any(|substitution| substitution.end.offset == span.start.offset)
+}
+
+fn is_plain_suppressed_subscript_literal(
+    source: &str,
+    span: Span,
+    suppressed_subscript_spans: &[Span],
+) -> bool {
+    span_is_within_any(span, suppressed_subscript_spans)
+        && !span_is_inside_wrapped_arithmetic_expansion(source, span)
+}
+
+fn span_is_inside_wrapped_arithmetic_expansion(source: &str, span: Span) -> bool {
+    let mut search_end = span.start.offset;
+    while let Some(open) = source[..search_end].rfind("$((") {
+        let body_start = open + 3;
+        let Some(relative_close) = source[body_start..].find("))") else {
+            return false;
+        };
+        let close = body_start + relative_close + "))".len();
+        if span.end.offset <= close {
+            return true;
+        }
+        search_end = open;
+    }
+    false
 }
 
 fn span_is_within_any(span: Span, containers: &[Span]) -> bool {
@@ -123,7 +159,6 @@ printf '%s\n' \"${value:-$((008))}\"
         let source = "\
 #!/bin/bash
 : $((0 + 7 + 010 + 000 + 0x10 + 10#08))
-printf '%s\n' \"${value:018:1}\"
 ";
         let diagnostics = test_snippet(
             source,
@@ -131,6 +166,18 @@ printf '%s\n' \"${value:018:1}\"
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn reports_invalid_octal_literals_inside_substring_arithmetic() {
+        let source = "#!/bin/bash\nprintf '%s\n' \"${value:$((08)):1}\"\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LeadingZeroArithmetic),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "08");
     }
 
     #[test]
@@ -149,6 +196,40 @@ checksums[008]=value
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn reports_arithmetic_expansions_inside_associative_subscripts() {
+        let source = "\
+#!/bin/bash
+declare -A checksums
+checksums[$((08))]=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LeadingZeroArithmetic),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "08");
+    }
+
+    #[test]
+    fn distinguishes_runtime_substitutions_from_arithmetic_grouping() {
+        let source = "\
+#!/bin/bash
+: $(( $(printf '%s' 1)08 / 2 ))
+: $(( `printf '%s' 1`09 / 2 ))
+: $(( (1)08 / 2 ))
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LeadingZeroArithmetic),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.slice(source), "08");
     }
 
     #[test]

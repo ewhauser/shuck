@@ -798,8 +798,13 @@ pub(crate) fn collect_base_prefix_spans_in_subscript(
     source: &str,
     spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
 ) {
-    if let Some(expression) = subscript.and_then(|subscript| subscript.arithmetic_ast.as_ref()) {
+    let Some(subscript) = subscript else {
+        return;
+    };
+    if let Some(expression) = subscript.arithmetic_ast.as_ref() {
         collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+    } else if let Some(word) = subscript.word_ast() {
+        collect_base_prefix_spans_in_word(word, source, spans);
     }
 }
 

@@ -20,13 +20,19 @@ C023 this arithmetic literal is not valid octal
 6 | values[018]=x
   |
 
+C023 this arithmetic literal is not valid octal
+  --> <source>:11:24
+   |
+11 | printf '%s\n' "${value:018:1}"
+   |
 
-Applied fixes: 3
+
+Applied fixes: 4
 
 Diff:
 --- before
 +++ after
-@@ -1,9 +1,9 @@
+@@ -1,14 +1,14 @@
  #!/bin/bash
  
 -: $((08))
@@ -39,6 +45,12 @@ Diff:
  
  : $((0))
  : $((10#08))
+ : $((0x10))
+-printf '%s\n' "${value:018:1}"
++printf '%s\n' "${value:18:1}"
+ count=3
+ : $(( ${count}08 / 2 ))
+ declare -A checksums
 
 Fixed source:
 #!/bin/bash
@@ -51,11 +63,9 @@ values[18]=x
 : $((0))
 : $((10#08))
 : $((0x10))
-printf '%s\n' "${value:018:1}"
-
+printf '%s\n' "${value:18:1}"
 count=3
 : $(( ${count}08 / 2 ))
-
 declare -A checksums
 checksums[008]=value
 
