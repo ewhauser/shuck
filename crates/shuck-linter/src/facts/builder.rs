@@ -824,6 +824,8 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 &structural_command_ids,
                 source,
             );
+        let positional_parameter_trim_fix_facts =
+            build_positional_parameter_trim_fix_facts(&positional_parameter_trims, &commands, source);
         let word_index = build_word_occurrence_index(
             &commands,
             &word_nodes,
@@ -1084,9 +1086,61 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             case_modification_fragments: case_modifications,
             replacement_expansion_fragments: replacement_expansions,
             positional_parameter_trim_fragments: positional_parameter_trims,
+            positional_parameter_trim_fix_facts,
             conditional_portability,
         }
     }
+}
+
+fn build_positional_parameter_trim_fix_facts(
+    fragments: &[PositionalParameterTrimFragmentFact],
+    commands: &[CommandFact<'_>],
+    source: &str,
+) -> Vec<PositionalParameterTrimFixFact> {
+    fragments
+        .iter()
+        .filter_map(|fragment| positional_parameter_trim_fix_fact(*fragment, commands, source))
+        .collect()
+}
+
+fn positional_parameter_trim_fix_fact(
+    fragment: PositionalParameterTrimFragmentFact,
+    commands: &[CommandFact<'_>],
+    source: &str,
+) -> Option<PositionalParameterTrimFixFact> {
+    let text = fragment.span().slice(source);
+    let (target, rest) = text
+        .strip_prefix("${*")
+        .map(|rest| ('*', rest))
+        .or_else(|| text.strip_prefix("${@").map(|rest| ('@', rest)))?;
+    let command = commands
+        .iter()
+        .filter(|command| {
+            !command.is_nested_word_command()
+                && span_contains_trim_fragment(command.span(), fragment.span())
+                && command.span().start.line == fragment.span().start.line
+        })
+        .min_by_key(|command| command.span().end.offset - command.span().start.offset)?;
+    let line_start = source[..command.span().start.offset]
+        .rfind('\n')
+        .map_or(0, |offset| offset + 1);
+    let indent = &source[line_start..command.span().start.offset];
+    if !indent.bytes().all(|byte| matches!(byte, b' ' | b'\t')) {
+        return None;
+    }
+
+    let temp_name = "_shuck_positional_params";
+    Some(PositionalParameterTrimFixFact::new(
+        fragment.span(),
+        line_start,
+        format!("{indent}{temp_name}=${target}\n").into_boxed_str(),
+        fragment.span(),
+        format!("${{{temp_name}{rest}").into_boxed_str(),
+    ))
+}
+
+fn span_contains_trim_fragment(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
