@@ -20,6 +20,7 @@ pub fn zsh_parameter_index_flag(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .words()
         .zsh_parameter_index_flag_fragments()
         .iter()
         .map(|fragment| fragment.span())

@@ -20,7 +20,11 @@ impl Violation for TrailingDirective {
 
 pub fn trailing_directive(checker: &mut Checker) {
     let locator = checker.locator();
-    let spans = checker.facts().trailing_directive_comment_spans().to_vec();
+    let spans = checker
+        .facts()
+        .source_facts()
+        .trailing_directive_comment_spans()
+        .to_vec();
     for span in spans {
         let mut diagnostic = Diagnostic::new(TrailingDirective, span);
         if let Some(fix) = trailing_directive_fix(locator, span) {

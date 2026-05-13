@@ -29,12 +29,14 @@ pub fn unquoted_grep_regex(checker: &mut Checker) {
         .flat_map(|grep| grep.patterns().iter())
         .filter(|pattern| {
             facts
+                .words()
                 .any_word_fact(pattern.word().span)
                 .is_some_and(|fact| !fact.active_literal_glob_spans(source).is_empty())
         })
         .map(|pattern| {
             let span = pattern.span();
             let replacement = facts
+                .words()
                 .any_word_fact(span)
                 .expect("grep pattern span should map to a word fact")
                 .single_double_quoted_replacement(source);

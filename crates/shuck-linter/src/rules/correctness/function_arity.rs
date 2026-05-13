@@ -12,9 +12,11 @@ pub(crate) fn zsh_function_arity_is_externally_defined(
     checker.shell() == ShellDialect::Zsh
         && (checker
             .facts()
+            .command_facts()
             .function_is_external_entrypoint(function_scope)
             || checker
                 .facts()
+                .command_facts()
                 .function_positional_parameter_facts(function_scope)
                 .required_arg_count()
                 == 0
@@ -27,6 +29,7 @@ fn zsh_function_has_optional_first_positional_parameter(
 ) -> bool {
     let positional = checker
         .facts()
+        .command_facts()
         .function_positional_parameter_facts(function_scope);
     if positional.required_arg_count() != 1 {
         return false;

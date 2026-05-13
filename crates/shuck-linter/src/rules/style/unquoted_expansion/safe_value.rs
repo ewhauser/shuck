@@ -202,7 +202,7 @@ impl<'a> SafeValueIndex<'a> {
         if self.span_is_after_unconditional_inline_terminator(word.span) {
             return false;
         }
-        let Some(fact) = self.facts.any_word_fact(word.span) else {
+        let Some(fact) = self.facts.words().any_word_fact(word.span) else {
             return false;
         };
         let analysis = fact.analysis();
@@ -266,7 +266,7 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn word_fact(&self, word: &Word) -> Option<crate::WordOccurrenceRef<'_, 'a>> {
-        self.facts.any_word_fact(word.span)
+        self.facts.words().any_word_fact(word.span)
     }
 
     fn word_plain_scalar_reference_name(&self, word: &Word) -> Option<Name> {
@@ -421,6 +421,7 @@ impl<'a> SafeValueIndex<'a> {
                 }
                 let Some(word) = self
                     .facts
+                    .assignments()
                     .binding_value(binding_id)
                     .and_then(|value| value.scalar_word())
                 else {
@@ -430,12 +431,16 @@ impl<'a> SafeValueIndex<'a> {
                     return false;
                 }
 
-                self.facts.any_word_fact(word.span).is_some_and(|fact| {
-                    fact.command_substitution_spans()
-                        .iter()
-                        .copied()
-                        .any(|command_substitution| span_contains(command_substitution, span))
-                }) && !self.span_is_inside_loop_context(span)
+                self.facts
+                    .words()
+                    .any_word_fact(word.span)
+                    .is_some_and(|fact| {
+                        fact.command_substitution_spans()
+                            .iter()
+                            .copied()
+                            .any(|command_substitution| span_contains(command_substitution, span))
+                    })
+                    && !self.span_is_inside_loop_context(span)
                     && !self.span_is_inside_if_condition(span)
                     && {
                         self.binding_value_stack.push(binding_id);
@@ -483,6 +488,7 @@ impl<'a> SafeValueIndex<'a> {
             }
             let setup_atom = self
                 .facts
+                .assignments()
                 .binding_value(binding_id)
                 .and_then(|value| value.scalar_word())
                 .and_then(|word| static_word_text(word, self.source))
@@ -506,32 +512,39 @@ impl<'a> SafeValueIndex<'a> {
         self.semantic.bindings().iter().any(|binding| {
             let Some(word) = self
                 .facts
+                .assignments()
                 .binding_value(binding.id)
                 .and_then(|value| value.scalar_word())
             else {
                 return false;
             };
             span_contains(word.span, span)
-                && self.facts.any_word_fact(word.span).is_some_and(|fact| {
-                    fact.command_substitution_spans()
-                        .iter()
-                        .copied()
-                        .any(|command_substitution| span_contains(command_substitution, span))
-                })
+                && self
+                    .facts
+                    .words()
+                    .any_word_fact(word.span)
+                    .is_some_and(|fact| {
+                        fact.command_substitution_spans()
+                            .iter()
+                            .copied()
+                            .any(|command_substitution| span_contains(command_substitution, span))
+                    })
         })
     }
 
     fn span_is_inside_loop_context(&self, span: Span) -> bool {
         let mut current = self
             .facts
+            .command_facts()
             .innermost_command_id_at(span.start.offset)
             .or_else(|| {
                 self.facts
+                    .command_facts()
                     .innermost_command_id_containing_offset(span.start.offset)
             });
         while let Some(command_id) = current {
             if matches!(
-                self.facts.command(command_id).command(),
+                self.facts.command_facts().command(command_id).command(),
                 Command::Compound(
                     CompoundCommand::For(_)
                         | CompoundCommand::Repeat(_)
@@ -544,7 +557,7 @@ impl<'a> SafeValueIndex<'a> {
             ) {
                 return true;
             }
-            current = self.facts.command_parent_id(command_id);
+            current = self.facts.command_facts().command_parent_id(command_id);
         }
 
         false
@@ -553,14 +566,16 @@ impl<'a> SafeValueIndex<'a> {
     fn span_is_inside_if_condition(&self, span: Span) -> bool {
         let mut current = self
             .facts
+            .command_facts()
             .innermost_command_id_at(span.start.offset)
             .or_else(|| {
                 self.facts
+                    .command_facts()
                     .innermost_command_id_containing_offset(span.start.offset)
             });
         while let Some(command_id) = current {
             if let Command::Compound(CompoundCommand::If(command)) =
-                self.facts.command(command_id).command()
+                self.facts.command_facts().command(command_id).command()
                 && (span_contains(command.condition.span, span)
                     || command
                         .elif_branches
@@ -569,7 +584,7 @@ impl<'a> SafeValueIndex<'a> {
             {
                 return true;
             }
-            current = self.facts.command_parent_id(command_id);
+            current = self.facts.command_facts().command_parent_id(command_id);
         }
 
         false
@@ -623,7 +638,10 @@ impl<'a> SafeValueIndex<'a> {
         word: &Word,
         context: ExpansionContext,
     ) -> bool {
-        let behavior = self.facts.expansion_behavior_at(word.span.start.offset);
+        let behavior = self
+            .facts
+            .command_facts()
+            .expansion_behavior_at(word.span.start.offset);
         let runtime = analyze_literal_runtime(word, self.source, context, Some(&behavior));
         if !runtime.is_runtime_sensitive() {
             return false;
@@ -927,6 +945,7 @@ impl<'a> SafeValueIndex<'a> {
             .ancestor_scopes(self.semantic.scope_at(offset))
             .find(|scope| {
                 self.facts
+                    .command_facts()
                     .function_cli_dispatch_facts(*scope)
                     .exported_from_case_cli()
             })
@@ -935,6 +954,7 @@ impl<'a> SafeValueIndex<'a> {
     fn case_cli_reachable_function_scope_at(&self, offset: usize) -> Option<ScopeId> {
         let scope = self.analysis.enclosing_function_scope_at(offset)?;
         self.facts
+            .command_facts()
             .is_case_cli_reachable_function_scope(scope)
             .then_some(scope)
     }
@@ -952,6 +972,7 @@ impl<'a> SafeValueIndex<'a> {
         };
 
         self.facts
+            .command_facts()
             .function_cli_dispatch_facts(scope)
             .exported_from_case_cli()
             || self.static_caller_is_case_cli_exported(scope, &mut FxHashSet::default())
@@ -971,6 +992,7 @@ impl<'a> SafeValueIndex<'a> {
             .into_iter()
             .any(|(caller_scope, _)| {
                 self.facts
+                    .command_facts()
                     .function_cli_dispatch_facts(caller_scope)
                     .exported_from_case_cli()
                     || self.static_caller_is_case_cli_exported(caller_scope, seen)
@@ -1013,13 +1035,15 @@ impl<'a> SafeValueIndex<'a> {
 
     fn span_is_exit_or_return_argument(&self, at: Span) -> bool {
         self.facts
+            .command_facts()
             .innermost_command_id_at(at.start.offset)
             .or_else(|| {
                 self.facts
+                    .command_facts()
                     .innermost_command_id_containing_offset(at.start.offset)
             })
             .is_some_and(|command_id| {
-                let command = self.facts.command(command_id);
+                let command = self.facts.command_facts().command(command_id);
                 match command.command() {
                     Command::Builtin(BuiltinCommand::Exit(command)) => {
                         command
@@ -1054,13 +1078,15 @@ impl<'a> SafeValueIndex<'a> {
 
     fn span_is_return_argument(&self, at: Span) -> bool {
         self.facts
+            .command_facts()
             .innermost_command_id_at(at.start.offset)
             .or_else(|| {
                 self.facts
+                    .command_facts()
                     .innermost_command_id_containing_offset(at.start.offset)
             })
             .is_some_and(|command_id| {
-                let command = self.facts.command(command_id);
+                let command = self.facts.command_facts().command(command_id);
                 match command.command() {
                     Command::Builtin(BuiltinCommand::Return(command)) => {
                         command
@@ -1097,28 +1123,32 @@ impl<'a> SafeValueIndex<'a> {
         at: Span,
     ) -> bool {
         let binding = self.semantic.binding(binding_id);
-        self.facts.function_headers().iter().any(|header| {
-            function_has_terminal_exit(header.function())
-                && header
-                    .call_arity()
-                    .zero_arg_call_spans()
-                    .iter()
-                    .filter_map(|call_span| self.command_for_name_word_span(*call_span))
-                    .any(|command| {
-                        !command.is_nested_word_command()
-                            && command.body_args().is_empty()
-                            && self.command_runs_in_unconditional_flow(command.id(), at)
-                            && {
-                                let call_span = command.span_in_source(self.source);
-                                self.definition_command_resolves_at_call(
-                                    header.command_id(),
-                                    call_span,
-                                ) && call_span.end.offset <= at.start.offset
-                                    && (call_span.start.offset >= binding.span.end.offset
-                                        || call_span.end.offset <= binding.span.start.offset)
-                            }
-                    })
-        })
+        self.facts
+            .command_facts()
+            .function_headers()
+            .iter()
+            .any(|header| {
+                function_has_terminal_exit(header.function())
+                    && header
+                        .call_arity()
+                        .zero_arg_call_spans()
+                        .iter()
+                        .filter_map(|call_span| self.command_for_name_word_span(*call_span))
+                        .any(|command| {
+                            !command.is_nested_word_command()
+                                && command.body_args().is_empty()
+                                && self.command_runs_in_unconditional_flow(command.id(), at)
+                                && {
+                                    let call_span = command.span_in_source(self.source);
+                                    self.definition_command_resolves_at_call(
+                                        header.command_id(),
+                                        call_span,
+                                    ) && call_span.end.offset <= at.start.offset
+                                        && (call_span.start.offset >= binding.span.end.offset
+                                            || call_span.end.offset <= binding.span.start.offset)
+                                }
+                        })
+            })
     }
 
     fn span_is_after_unconditional_inline_terminator(&self, at: Span) -> bool {
@@ -1138,7 +1168,7 @@ impl<'a> SafeValueIndex<'a> {
         command_id: crate::facts::CommandId,
         call_span: Span,
     ) -> bool {
-        let command = self.facts.command(command_id);
+        let command = self.facts.command_facts().command(command_id);
         let command_scope = self.enclosing_function_scope_at(command.span().start.offset);
         let call_scope = self.enclosing_function_scope_at(call_span.start.offset);
         if command_scope.is_some() && command_scope != call_scope {
@@ -1148,12 +1178,12 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         }
 
-        let mut parent_id = self.facts.command_parent_id(command_id);
+        let mut parent_id = self.facts.command_facts().command_parent_id(command_id);
         while let Some(id) = parent_id {
-            if self.facts.command_is_dominance_barrier(id) {
+            if self.facts.command_facts().command_is_dominance_barrier(id) {
                 return false;
             }
-            parent_id = self.facts.command_parent_id(id);
+            parent_id = self.facts.command_facts().command_parent_id(id);
         }
         true
     }
@@ -1167,7 +1197,7 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         }
 
-        let command = self.facts.command(command_id);
+        let command = self.facts.command_facts().command(command_id);
         let definition_scope = self.enclosing_function_scope_at(command.span().start.offset);
         let call_scope = self.enclosing_function_scope_at(call_span.start.offset);
 
@@ -1182,14 +1212,16 @@ impl<'a> SafeValueIndex<'a> {
         &self,
         span: Span,
     ) -> Option<crate::facts::CommandFactRef<'a, 'a>> {
-        self.facts.command_for_name_word_span(span)
+        self.facts.command_facts().command_for_name_word_span(span)
     }
 
     fn function_definition_command_for_scope(
         &self,
         scope: ScopeId,
     ) -> Option<crate::facts::CommandFactRef<'a, 'a>> {
-        self.facts.function_definition_command(scope)
+        self.facts
+            .command_facts()
+            .function_definition_command(scope)
     }
 
     fn function_scope_resolves_at_call_site(&self, callee_scope: ScopeId, site: &CallSite) -> bool {
@@ -1309,7 +1341,7 @@ impl<'a> SafeValueIndex<'a> {
         let target_function = self.named_function_kind(target_scope)?;
         let mut first_key: Option<S001FunctionEventKey> = None;
 
-        for command in self.facts.structural_commands() {
+        for command in self.facts.command_facts().structural_commands() {
             if !command.options().unset().is_some_and(|unset| {
                 target_function
                     .static_names()
@@ -1354,12 +1386,12 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn command_has_dominance_barrier_ancestor(&self, command_id: crate::facts::CommandId) -> bool {
-        let mut current = self.facts.command_parent_id(command_id);
+        let mut current = self.facts.command_facts().command_parent_id(command_id);
         while let Some(id) = current {
-            if self.facts.command_is_dominance_barrier(id) {
+            if self.facts.command_facts().command_is_dominance_barrier(id) {
                 return true;
             }
-            current = self.facts.command_parent_id(id);
+            current = self.facts.command_facts().command_parent_id(id);
         }
         false
     }
@@ -1369,7 +1401,7 @@ impl<'a> SafeValueIndex<'a> {
         command_id: crate::facts::CommandId,
         reference_at: Span,
     ) -> bool {
-        let command = self.facts.command(command_id);
+        let command = self.facts.command_facts().command(command_id);
         if self.enclosing_function_scope_at(command.span().start.offset)
             != self.enclosing_function_scope_at(reference_at.start.offset)
         {
@@ -1379,12 +1411,12 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         }
 
-        let mut parent_id = self.facts.command_parent_id(command_id);
+        let mut parent_id = self.facts.command_facts().command_parent_id(command_id);
         while let Some(id) = parent_id {
-            if self.facts.command_is_dominance_barrier(id) {
+            if self.facts.command_facts().command_is_dominance_barrier(id) {
                 return false;
             }
-            parent_id = self.facts.command_parent_id(id);
+            parent_id = self.facts.command_facts().command_parent_id(id);
         }
         true
     }
@@ -1393,12 +1425,12 @@ impl<'a> SafeValueIndex<'a> {
         let mut current = Some(command_id);
         while let Some(id) = current {
             if matches!(
-                self.facts.command(id).stmt().terminator,
+                self.facts.command_facts().command(id).stmt().terminator,
                 Some(StmtTerminator::Background(_))
             ) {
                 return true;
             }
-            current = self.facts.command_parent_id(id);
+            current = self.facts.command_facts().command_parent_id(id);
         }
         false
     }
@@ -1409,6 +1441,7 @@ impl<'a> SafeValueIndex<'a> {
 
     fn binding_is_quoted_static_literal(&self, binding_id: BindingId) -> bool {
         self.facts
+            .assignments()
             .binding_value(binding_id)
             .and_then(|value| value.scalar_word())
             .is_some_and(|word| {
@@ -1429,6 +1462,7 @@ impl<'a> SafeValueIndex<'a> {
             }
         ) && self
             .facts
+            .assignments()
             .binding_value(binding_id)
             .and_then(|value| value.scalar_word())
             .and_then(|word| static_word_text(word, self.source))
@@ -1481,6 +1515,7 @@ impl<'a> SafeValueIndex<'a> {
             }
             let Some(text) = self
                 .facts
+                .assignments()
                 .binding_value(binding_id)
                 .and_then(|value| value.scalar_word())
                 .and_then(|word| static_word_text(word, self.source))
@@ -1566,7 +1601,7 @@ impl<'a> SafeValueIndex<'a> {
             }
             first_binding_start = first_binding_start.min(binding.span.start.offset);
 
-            let Some(value) = self.facts.binding_value(binding_id) else {
+            let Some(value) = self.facts.assignments().binding_value(binding_id) else {
                 return false;
             };
             if !value.conditional_assignment_shortcut() {
@@ -1650,9 +1685,15 @@ impl<'a> SafeValueIndex<'a> {
         if !matches!(
             binding.kind,
             BindingKind::Assignment | BindingKind::Declaration(_)
-        ) || self.facts.binding_value(binding_id).is_some_and(|value| {
-            value.one_sided_short_circuit_assignment() || value.conditional_assignment_shortcut()
-        }) {
+        ) || self
+            .facts
+            .assignments()
+            .binding_value(binding_id)
+            .is_some_and(|value| {
+                value.one_sided_short_circuit_assignment()
+                    || value.conditional_assignment_shortcut()
+            })
+        {
             return None;
         }
 
@@ -1739,6 +1780,7 @@ impl<'a> SafeValueIndex<'a> {
         }
         if self
             .facts
+            .assignments()
             .binding_value(binding_id)
             .and_then(|value| value.scalar_word())
             .and_then(|word| static_word_text(word, self.source))
@@ -1789,6 +1831,7 @@ impl<'a> SafeValueIndex<'a> {
     ) -> Option<FieldSafeBindingClass> {
         let text = self
             .facts
+            .assignments()
             .binding_value(binding_id)
             .and_then(|value| value.scalar_word())
             .and_then(|word| static_word_text(word, self.source))?;
@@ -1813,6 +1856,7 @@ impl<'a> SafeValueIndex<'a> {
 
         let word = self
             .facts
+            .assignments()
             .binding_value(binding_id)
             .and_then(|value| value.scalar_word())?;
         let target_name = self.word_plain_scalar_reference_name(word)?;
@@ -1880,7 +1924,7 @@ impl<'a> SafeValueIndex<'a> {
                 } else if self.binding_is_name_only_declaration(binding_id) {
                     true
                 } else {
-                    let binding_value = self.facts.binding_value(binding_id);
+                    let binding_value = self.facts.assignments().binding_value(binding_id);
                     let scalar_word = binding_value.and_then(|value| value.scalar_word());
                     let case_cli_status_capture_stays_unsafe = case_cli_scope
                         == Some(binding.scope)
@@ -1912,6 +1956,7 @@ impl<'a> SafeValueIndex<'a> {
             } => {
                 let words = self
                     .facts
+                    .assignments()
                     .binding_value(binding_id)
                     .and_then(|value| value.loop_words())
                     .map(|words| words.to_vec());
@@ -2006,6 +2051,7 @@ impl<'a> SafeValueIndex<'a> {
         };
         let Some(word) = self
             .facts
+            .assignments()
             .binding_value(binding_id)
             .and_then(|value| value.scalar_word())
         else {
@@ -2197,6 +2243,7 @@ impl<'a> SafeValueIndex<'a> {
 
     fn binding_value_is_standalone_status_capture(&self, binding_id: BindingId) -> bool {
         self.facts
+            .assignments()
             .binding_value(binding_id)
             .is_some_and(|value| value.standalone_status_or_pid_capture())
     }
@@ -2254,7 +2301,7 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn status_capture_binding_is_in_short_circuit_branch(&self, span: Span) -> bool {
-        self.facts.lists().iter().any(|list| {
+        self.facts.command_facts().lists().iter().any(|list| {
             list.segments()
                 .iter()
                 .skip(1)
@@ -2273,17 +2320,20 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         }
 
-        self.facts.structural_commands().any(|command| {
-            command.span().end.offset <= at.start.offset
-                && self.command_blocks_cover_all_paths_to_reference(command, name, at)
-                && !case_cli_scope.is_some_and(|scope| {
-                    self.offset_is_in_scope_or_descendant(command.span().start.offset, scope)
-                })
-                && command
-                    .declaration_assignment_probes()
-                    .iter()
-                    .any(|probe| probe.status_capture() && probe.target_name() == name.as_str())
-        })
+        self.facts
+            .command_facts()
+            .structural_commands()
+            .any(|command| {
+                command.span().end.offset <= at.start.offset
+                    && self.command_blocks_cover_all_paths_to_reference(command, name, at)
+                    && !case_cli_scope.is_some_and(|scope| {
+                        self.offset_is_in_scope_or_descendant(command.span().start.offset, scope)
+                    })
+                    && command
+                        .declaration_assignment_probes()
+                        .iter()
+                        .any(|probe| probe.status_capture() && probe.target_name() == name.as_str())
+            })
     }
 
     fn offset_is_in_scope_or_descendant(&self, offset: usize, ancestor_scope: ScopeId) -> bool {
@@ -2348,12 +2398,15 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn unset_command_covers_reference(&self, name: &Name, at: Span) -> bool {
-        self.facts.unset_commands_for_name(name).any(|command| {
-            command.span().end.offset <= at.start.offset
-                && self.command_runs_in_persistent_shell_context(command.id())
-                && self.command_runs_in_unconditional_flow(command.id(), at)
-                && self.command_blocks_cover_all_paths_to_reference(command, name, at)
-        })
+        self.facts
+            .assignments()
+            .unset_commands_for_name(name)
+            .any(|command| {
+                command.span().end.offset <= at.start.offset
+                    && self.command_runs_in_persistent_shell_context(command.id())
+                    && self.command_runs_in_unconditional_flow(command.id(), at)
+                    && self.command_blocks_cover_all_paths_to_reference(command, name, at)
+            })
     }
 
     fn binding_is_cleared_by_dominating_unset(
@@ -2363,20 +2416,23 @@ impl<'a> SafeValueIndex<'a> {
         at: Span,
     ) -> bool {
         let binding = self.semantic.binding(binding_id);
-        self.facts.unset_commands_for_name(name).any(|command| {
-            command.span().start.offset >= binding.span.end.offset
-                && command.span().end.offset <= at.start.offset
-                && self.command_runs_in_persistent_shell_context(command.id())
-                && !self.command_is_in_background_context(command.id())
-                && self.command_blocks_cover_all_paths_to_reference(command, name, at)
-        })
+        self.facts
+            .assignments()
+            .unset_commands_for_name(name)
+            .any(|command| {
+                command.span().start.offset >= binding.span.end.offset
+                    && command.span().end.offset <= at.start.offset
+                    && self.command_runs_in_persistent_shell_context(command.id())
+                    && !self.command_is_in_background_context(command.id())
+                    && self.command_blocks_cover_all_paths_to_reference(command, name, at)
+            })
     }
 
     fn command_runs_in_persistent_shell_context(
         &self,
         command_id: crate::facts::CommandId,
     ) -> bool {
-        let command = self.facts.command(command_id);
+        let command = self.facts.command_facts().command(command_id);
 
         self.semantic
             .ancestor_scopes(command.scope())
@@ -2453,17 +2509,27 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn loop_variable_reference_stays_within_body(&self, definition_span: Span, at: Span) -> bool {
-        self.facts.for_headers().iter().any(|header| {
-            header
-                .command()
-                .targets
+        self.facts
+            .command_facts()
+            .for_headers()
+            .iter()
+            .any(|header| {
+                header
+                    .command()
+                    .targets
+                    .iter()
+                    .any(|target| target.span == definition_span)
+                    && span_contains(header.command().body.span, at)
+            })
+            || self
+                .facts
+                .command_facts()
+                .select_headers()
                 .iter()
-                .any(|target| target.span == definition_span)
-                && span_contains(header.command().body.span, at)
-        }) || self.facts.select_headers().iter().any(|header| {
-            header.command().variable_span == definition_span
-                && span_contains(header.command().body.span, at)
-        })
+                .any(|header| {
+                    header.command().variable_span == definition_span
+                        && span_contains(header.command().body.span, at)
+                })
     }
 
     fn loop_variable_reference_stays_within_static_callers(
@@ -2622,6 +2688,7 @@ impl<'a> SafeValueIndex<'a> {
         };
         if self
             .facts
+            .command_facts()
             .is_case_cli_reachable_function_scope(helper_scope)
             || !self.named_function_call_sites(helper_scope).is_empty()
         {
@@ -3157,27 +3224,33 @@ impl<'a> SafeValueIndex<'a> {
         let call_span = self
             .command_for_name_word_span(at)
             .map_or(at, |command| command.span());
-        let Some(mut command_id) = self.facts.innermost_command_id_at(call_span.start.offset)
+        let Some(mut command_id) = self
+            .facts
+            .command_facts()
+            .innermost_command_id_at(call_span.start.offset)
         else {
             return false;
         };
-        while self.facts.command(command_id).span() != call_span {
-            let Some(parent_id) = self.facts.command_parent_id(command_id) else {
+        while self.facts.command_facts().command(command_id).span() != call_span {
+            let Some(parent_id) = self.facts.command_facts().command_parent_id(command_id) else {
                 return false;
             };
             command_id = parent_id;
         }
 
-        let mut current = self.facts.command_parent_id(command_id);
+        let mut current = self.facts.command_facts().command_parent_id(command_id);
         while let Some(command_id) = current {
-            let command = self.facts.command(command_id);
+            let command = self.facts.command_facts().command(command_id);
             if command.span().start.offset < call_span.start.offset
                 && call_span.end.offset <= command.span().end.offset
-                && self.facts.command_is_dominance_barrier(command_id)
+                && self
+                    .facts
+                    .command_facts()
+                    .command_is_dominance_barrier(command_id)
             {
                 return true;
             }
-            current = self.facts.command_parent_id(command_id);
+            current = self.facts.command_facts().command_parent_id(command_id);
         }
 
         false
@@ -3326,6 +3399,7 @@ impl<'a> SafeValueIndex<'a> {
 
     fn function_scope_end_span(&self, scope: ScopeId) -> Option<Span> {
         self.facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| header.function_scope() == Some(scope))
@@ -3372,29 +3446,35 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         }
 
-        let Some(mut command_id) = self.facts.innermost_command_id_at(call_span.start.offset)
+        let Some(mut command_id) = self
+            .facts
+            .command_facts()
+            .innermost_command_id_at(call_span.start.offset)
         else {
             return true;
         };
-        while self.facts.command(command_id).span() != call_span {
-            let Some(parent_id) = self.facts.command_parent_id(command_id) else {
+        while self.facts.command_facts().command(command_id).span() != call_span {
+            let Some(parent_id) = self.facts.command_facts().command_parent_id(command_id) else {
                 return true;
             };
             command_id = parent_id;
         }
 
-        let mut current = self.facts.command_parent_id(command_id);
+        let mut current = self.facts.command_facts().command_parent_id(command_id);
         while let Some(command_id) = current {
-            let command = self.facts.command(command_id);
+            let command = self.facts.command_facts().command(command_id);
             if command.span().end.offset > limit_offset {
                 break;
             }
             if command.span().start.offset < call_span.start.offset
-                && self.facts.command_is_dominance_barrier(command_id)
+                && self
+                    .facts
+                    .command_facts()
+                    .command_is_dominance_barrier(command_id)
             {
                 return false;
             }
-            current = self.facts.command_parent_id(command_id);
+            current = self.facts.command_facts().command_parent_id(command_id);
         }
 
         true
@@ -3404,21 +3484,25 @@ impl<'a> SafeValueIndex<'a> {
         let binding = self.semantic.binding(binding_id);
         let Some(mut current) = self
             .facts
+            .command_facts()
             .innermost_command_id_at(binding.span.start.offset)
-            .and_then(|id| self.facts.command_parent_id(id))
+            .and_then(|id| self.facts.command_facts().command_parent_id(id))
         else {
             return false;
         };
 
         loop {
-            let command = self.facts.command(current);
-            if self.facts.command_is_dominance_barrier(current)
+            let command = self.facts.command_facts().command(current);
+            if self
+                .facts
+                .command_facts()
+                .command_is_dominance_barrier(current)
                 && command.span().end.offset <= at.start.offset
             {
                 return true;
             }
 
-            let Some(parent_id) = self.facts.command_parent_id(current) else {
+            let Some(parent_id) = self.facts.command_facts().command_parent_id(current) else {
                 return false;
             };
             current = parent_id;
@@ -3427,6 +3511,7 @@ impl<'a> SafeValueIndex<'a> {
 
     fn binding_is_one_sided_short_circuit_assignment(&self, binding_id: BindingId) -> bool {
         self.facts
+            .assignments()
             .binding_value(binding_id)
             .is_some_and(|value| value.one_sided_short_circuit_assignment())
     }
@@ -3577,6 +3662,7 @@ impl<'a> SafeValueIndex<'a> {
         at: Span,
     ) -> FxHashSet<BlockId> {
         self.facts
+            .assignments()
             .unset_commands_for_name(name)
             .filter(|command| {
                 command.span().end.offset <= at.start.offset
@@ -3596,14 +3682,14 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn command_is_in_boolean_list(&self, command_id: crate::facts::CommandId) -> bool {
-        let mut current = self.facts.command_parent_id(command_id);
+        let mut current = self.facts.command_facts().command_parent_id(command_id);
         while let Some(id) = current {
-            if let Command::Binary(binary) = self.facts.command(id).command()
+            if let Command::Binary(binary) = self.facts.command_facts().command(id).command()
                 && matches!(binary.op, BinaryOp::And | BinaryOp::Or)
             {
                 return true;
             }
-            current = self.facts.command_parent_id(id);
+            current = self.facts.command_facts().command_parent_id(id);
         }
         false
     }
@@ -3649,13 +3735,15 @@ impl<'a> SafeValueIndex<'a> {
 
         let command_id = self
             .facts
+            .command_facts()
             .innermost_command_id_at(at.start.offset)
             .or_else(|| {
                 self.facts
+                    .command_facts()
                     .innermost_command_id_containing_offset(at.start.offset)
             })?;
         self.analysis
-            .block_ids_for_span(self.facts.command(command_id).span())
+            .block_ids_for_span(self.facts.command_facts().command(command_id).span())
             .first()
             .copied()
     }
@@ -3894,6 +3982,7 @@ impl<'a> SafeValueIndex<'a> {
         bindings.into_iter().all(|binding_id| {
             let Some(word) = self
                 .facts
+                .assignments()
                 .binding_value(binding_id)
                 .and_then(|value| value.scalar_word())
             else {
@@ -4023,13 +4112,18 @@ impl<'a> SafeValueIndex<'a> {
         if bindings.iter().copied().any(|binding_id| {
             (self.binding_is_one_sided_short_circuit_assignment(binding_id)
                 && !self.binding_assigns_static_integer_literal(binding_id))
-                || self.facts.binding_value(binding_id).is_some_and(|value| {
-                    value.conditional_assignment_shortcut()
-                        && !self.binding_assigns_static_integer_literal(binding_id)
-                        || value.scalar_word().is_some_and(|word| {
-                            static_word_text(word, self.source).is_some_and(|text| text.is_empty())
-                        })
-                })
+                || self
+                    .facts
+                    .assignments()
+                    .binding_value(binding_id)
+                    .is_some_and(|value| {
+                        value.conditional_assignment_shortcut()
+                            && !self.binding_assigns_static_integer_literal(binding_id)
+                            || value.scalar_word().is_some_and(|word| {
+                                static_word_text(word, self.source)
+                                    .is_some_and(|text| text.is_empty())
+                            })
+                    })
         }) {
             return false;
         }
@@ -4056,6 +4150,7 @@ impl<'a> SafeValueIndex<'a> {
 
         let Some(word) = self
             .facts
+            .assignments()
             .binding_value(binding_id)
             .and_then(|value| value.scalar_word())
         else {
@@ -4067,6 +4162,7 @@ impl<'a> SafeValueIndex<'a> {
 
     fn binding_assigns_static_integer_literal(&self, binding_id: BindingId) -> bool {
         self.facts
+            .assignments()
             .binding_value(binding_id)
             .and_then(|value| value.scalar_word())
             .is_some_and(|word| word_static_text_is_shell_integer(word, self.source))
@@ -4080,13 +4176,17 @@ impl<'a> SafeValueIndex<'a> {
         if bindings.is_empty()
             || bindings.iter().copied().any(|binding_id| {
                 self.binding_is_one_sided_short_circuit_assignment(binding_id)
-                    || self.facts.binding_value(binding_id).is_some_and(|value| {
-                        value.conditional_assignment_shortcut()
-                            || value.scalar_word().is_some_and(|word| {
-                                static_word_text(word, self.source)
-                                    .is_some_and(|text| text.is_empty())
-                            })
-                    })
+                    || self
+                        .facts
+                        .assignments()
+                        .binding_value(binding_id)
+                        .is_some_and(|value| {
+                            value.conditional_assignment_shortcut()
+                                || value.scalar_word().is_some_and(|word| {
+                                    static_word_text(word, self.source)
+                                        .is_some_and(|text| text.is_empty())
+                                })
+                        })
             })
         {
             return false;
@@ -4113,6 +4213,7 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         self.facts
+            .assignments()
             .binding_value(binding_id)
             .and_then(|value| value.scalar_word())
             .is_some_and(word_is_arithmetic_expansion)
@@ -4149,6 +4250,7 @@ impl<'a> SafeValueIndex<'a> {
 
         let Some(word) = self
             .facts
+            .assignments()
             .binding_value(binding_id)
             .and_then(|value| value.scalar_word())
         else {
@@ -4734,6 +4836,7 @@ f() {
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -4761,6 +4864,7 @@ f() {
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -4822,6 +4926,7 @@ done
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let unsafe_words = facts
+            .words()
             .word_facts()
             .iter()
             .filter(|fact| {
@@ -4837,6 +4942,7 @@ done
         );
 
         let safe_words = facts
+            .words()
             .word_facts()
             .iter()
             .filter(|fact| {
@@ -4873,6 +4979,7 @@ iptables $flag -t nat -N chain
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let short_circuit_word = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -4881,6 +4988,7 @@ iptables $flag -t nat -N chain
             })
             .expect("expected short-circuit command argument");
         let if_else_word = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -4914,6 +5022,7 @@ done
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let loop_words = facts
+            .words()
             .word_facts()
             .iter()
             .filter(|fact| {
@@ -4951,6 +5060,7 @@ f() {
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -4983,6 +5093,7 @@ done
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5018,6 +5129,7 @@ fi
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let validate_uses = facts
+            .words()
             .word_facts()
             .iter()
             .filter(|fact| {
@@ -5053,6 +5165,7 @@ f() {
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5094,6 +5207,7 @@ f() {
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let validate_uses = facts
+            .words()
             .word_facts()
             .iter()
             .filter(|fact| {
@@ -5149,6 +5263,7 @@ printf '%s\\n' vm-${disk_ext_with_default:-}
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let maybe_uninitialized = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5157,6 +5272,7 @@ printf '%s\\n' vm-${disk_ext_with_default:-}
             })
             .expect("expected maybe-uninitialized command argument");
         let explicit_default = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5266,6 +5382,7 @@ value=\"$(free ${humanreadable} | awk '{print $2}')\"
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5293,6 +5410,7 @@ done
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let after_loop_use = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5352,6 +5470,7 @@ echo \"MD5SUM=\\\"$( md5sum $PRGNAM-$VERSION.tar.xz | cut -d' ' -f1 )\\\"\"
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let version_use = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5386,6 +5505,7 @@ config() {
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5442,6 +5562,7 @@ printf '%s\\n' $opt hi
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let unsafe_words = facts
+            .words()
             .word_facts()
             .iter()
             .filter(|fact| {
@@ -5454,6 +5575,7 @@ printf '%s\\n' $opt hi
             })
             .collect::<Vec<_>>();
         let safe_words = facts
+            .words()
             .word_facts()
             .iter()
             .filter(|fact| {
@@ -5505,6 +5627,7 @@ GetAMI
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5543,6 +5666,7 @@ GetAMI
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5600,6 +5724,7 @@ fn_backup_compression
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5637,6 +5762,7 @@ exit $?
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let command_name = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5645,6 +5771,7 @@ exit $?
             })
             .expect("expected dynamic command-name fact");
         let command_arg = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5682,6 +5809,7 @@ esac
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let command_name = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5690,6 +5818,7 @@ esac
             })
             .expect("expected dynamic command-name fact");
         let command_arg = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5724,6 +5853,7 @@ exit $?
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let dispatched_use = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5781,6 +5911,7 @@ exit $?
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let command_arg = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5814,6 +5945,7 @@ exit 0
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let command_arg = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5851,6 +5983,7 @@ exit $?
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let command_arg = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5886,6 +6019,7 @@ exit $?
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let command_arg = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5922,6 +6056,7 @@ exit $?
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let command_name = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5930,6 +6065,7 @@ exit $?
             })
             .expect("expected nested command-substitution command name");
         let command_arg = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5961,6 +6097,7 @@ exit 0
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let command_arg = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -5991,6 +6128,7 @@ outer() {
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let command_arg = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6029,6 +6167,7 @@ fi
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let command_arg = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6063,6 +6202,7 @@ exit $?
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let indirect_use = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6106,6 +6246,7 @@ unsafe_path
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6148,6 +6289,7 @@ done
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let unsafe_words = facts
+            .words()
             .word_facts()
             .iter()
             .filter(|fact| {
@@ -6185,6 +6327,7 @@ do_start
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6227,6 +6370,7 @@ run_make
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6261,6 +6405,7 @@ render() {
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6292,6 +6437,7 @@ move_up $count
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6329,6 +6475,7 @@ render() {
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6379,6 +6526,7 @@ main() {
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6415,6 +6563,7 @@ render() {
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6451,6 +6600,7 @@ render() {
         let safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6501,6 +6651,7 @@ render() {
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6538,6 +6689,7 @@ clean_caller() {
         let safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6576,6 +6728,7 @@ openssl dgst -sha${sig:2} file
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6608,6 +6761,7 @@ run() {
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6656,6 +6810,7 @@ safe_path_b
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6697,6 +6852,7 @@ fi
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6736,6 +6892,7 @@ read_disc
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6780,6 +6937,7 @@ printf '%s\\n' $pkgname
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6805,6 +6963,7 @@ bash ${debug:+\"-x\"} script
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6830,6 +6989,7 @@ printf '%s\\n' ${debug:+\"a b\"}
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6860,6 +7020,7 @@ openssl dgst -sha${sig:2} payload
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6896,6 +7057,7 @@ openssl dgst -sha${sig:2} payload
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6924,6 +7086,7 @@ echo /tmp/$SAFE
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -6961,6 +7124,7 @@ fi
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -7007,6 +7171,7 @@ echo x >> ${OPENBSD_CONTENTS}
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
         let exit_header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -7017,6 +7182,7 @@ echo x >> ${OPENBSD_CONTENTS}
             .expect("expected Exit function header");
 
         let nested_argument = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -7026,6 +7192,7 @@ echo x >> ${OPENBSD_CONTENTS}
             })
             .expect("expected nested command argument fact");
         let redirect_target = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -7062,6 +7229,7 @@ helper() {
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {
@@ -7086,6 +7254,7 @@ helper() (
         let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -7112,6 +7281,7 @@ helper() {
         let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -7137,6 +7307,7 @@ helper() {
         let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -7162,6 +7333,7 @@ helper() {
         let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -7187,6 +7359,7 @@ helper() {
         let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -7216,6 +7389,7 @@ helper() {
         let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -7244,6 +7418,7 @@ helper() {
         let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -7272,6 +7447,7 @@ helper() {
         let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -7298,6 +7474,7 @@ helper() {
         let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -7328,6 +7505,7 @@ helper() {
         let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -7358,6 +7536,7 @@ Exit() { exit 0; }
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
         let target = facts
+            .words()
             .word_facts()
             .iter()
             .find(|fact| {

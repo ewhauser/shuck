@@ -25,6 +25,7 @@ pub fn stderr_before_stdout_redirect(checker: &mut Checker) {
     let source = checker.source();
     let pipeline_producer_command_ids = checker
         .facts()
+        .command_facts()
         .pipelines()
         .iter()
         .flat_map(|pipeline| {
@@ -38,6 +39,7 @@ pub fn stderr_before_stdout_redirect(checker: &mut Checker) {
 
     let diagnostics = checker
         .facts()
+        .command_facts()
         .structural_commands()
         .filter(|fact| !pipeline_producer_command_ids.contains(&fact.id()))
         .flat_map(|fact| {

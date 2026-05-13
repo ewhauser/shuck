@@ -31,6 +31,7 @@ pub fn single_quoted_literal(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .single_quoted_fragments()
         .iter()
         .filter_map(|fragment| {

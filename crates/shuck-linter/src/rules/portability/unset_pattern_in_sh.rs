@@ -24,6 +24,7 @@ pub fn unset_pattern_in_sh(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .command_facts()
         .structural_commands()
         .filter(|fact| fact.effective_name_is("unset"))
         .filter_map(|fact| fact.options().unset())

@@ -189,6 +189,7 @@ fn simple_test_unary_file_test_span(
 
 fn reportable_glob_span(word: &Word, facts: &LinterFacts<'_>, source: &str) -> Option<Span> {
     facts
+        .words()
         .any_word_fact(word.span)
         .is_some_and(|fact| !fact.active_literal_glob_spans(source).is_empty())
         .then_some(word.span)

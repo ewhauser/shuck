@@ -14,7 +14,7 @@ impl Violation for DollarQuestionAfterCommand {
 
 pub fn dollar_question_after_command(checker: &mut Checker) {
     checker.report_fact_slice(
-        |facts| facts.dollar_question_after_command_spans(),
+        |facts| facts.source_facts().dollar_question_after_command_spans(),
         || DollarQuestionAfterCommand,
     );
 }

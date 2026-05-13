@@ -38,6 +38,7 @@ pub fn echoed_command_substitution(checker: &mut Checker) {
 
             checker
                 .facts()
+                .words()
                 .word_fact(
                     word.span,
                     WordFactContext::Expansion(ExpansionContext::CommandArgument),

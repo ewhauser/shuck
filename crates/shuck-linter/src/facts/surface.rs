@@ -2631,6 +2631,7 @@ pub(crate) fn build_suppressed_subscript_reference_spans(
     spans
 }
 
+#[cfg(test)]
 pub(crate) fn build_subscript_later_suppression_reference_spans(
     semantic: &SemanticModel,
     subscript_later_suppression_spans: &[Span],

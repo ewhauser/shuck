@@ -20,7 +20,7 @@ impl Violation for LiteralBraces {
 
 pub fn literal_braces(checker: &mut Checker) {
     checker.report_fact_diagnostics_dedup(|facts, report| {
-        for span in facts.literal_brace_spans().iter().copied() {
+        for span in facts.words().literal_brace_spans().iter().copied() {
             report(
                 Diagnostic::new(LiteralBraces, span)
                     .with_fix(Fix::safe_edit(Edit::insertion(span.start.offset, "\\"))),

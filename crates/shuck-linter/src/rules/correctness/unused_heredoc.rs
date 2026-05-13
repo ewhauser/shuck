@@ -22,7 +22,11 @@ impl Violation for UnusedHeredoc {
 
 pub fn unused_heredoc(checker: &mut Checker) {
     let locator = checker.locator();
-    let spans = checker.facts().unused_heredoc_spans().to_vec();
+    let spans = checker
+        .facts()
+        .source_facts()
+        .unused_heredoc_spans()
+        .to_vec();
     for span in spans {
         let mut diagnostic = Diagnostic::new(UnusedHeredoc, span);
         if let Some(fix) = unused_heredoc_fix(locator, span) {

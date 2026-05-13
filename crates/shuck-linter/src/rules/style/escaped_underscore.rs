@@ -25,6 +25,7 @@ impl Violation for EscapedUnderscore {
 pub fn escaped_underscore(checker: &mut Checker) {
     let escapes = checker
         .facts()
+        .words()
         .escape_scan_matches()
         .iter()
         .copied()

@@ -28,6 +28,7 @@ pub fn hyphenated_function_name(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .command_facts()
         .function_headers()
         .iter()
         .flat_map(|header| {

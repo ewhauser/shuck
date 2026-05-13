@@ -34,6 +34,7 @@ pub fn default_value_in_colon_assign(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .expansion_word_facts(ExpansionContext::CommandArgument)
         .filter(|fact| colon_command_ids.contains(&fact.command_id()))
         .flat_map(|fact| fact.unquoted_assign_default_spans())

@@ -23,6 +23,7 @@ pub fn template_brace_in_command(checker: &mut Checker) {
         .filter_map(|command| {
             let span = command.body_word_span()?;
             let trailing_literal_char = facts
+                .words()
                 .any_word_fact(span)
                 .and_then(|word| word.trailing_literal_char());
             let suspicious_word_shape = command.body_word_contains_template_placeholder(source)

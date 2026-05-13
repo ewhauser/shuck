@@ -24,6 +24,7 @@ pub fn misquoted_heredoc_close(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .source_facts()
         .misquoted_heredoc_close_spans()
         .iter()
         .copied()

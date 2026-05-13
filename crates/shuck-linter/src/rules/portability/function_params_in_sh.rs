@@ -21,7 +21,7 @@ pub fn function_params_in_sh(checker: &mut Checker) {
     }
 
     checker.report_fact_slice_dedup(
-        |facts| facts.function_parameter_fallback_spans(),
+        |facts| facts.command_facts().function_parameter_fallback_spans(),
         || FunctionParamsInSh,
     );
 }

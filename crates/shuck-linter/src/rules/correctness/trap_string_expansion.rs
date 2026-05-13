@@ -25,6 +25,7 @@ pub fn trap_string_expansion(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .expansion_word_facts(ExpansionContext::TrapAction)
         .filter(|fact| fact.classification().quote == WordQuote::FullyQuoted)
         .flat_map(|fact| trap_string_expansion_diagnostics(fact, source))

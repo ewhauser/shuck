@@ -87,7 +87,7 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
         reference: &Reference,
         policy: shuck_semantic::ArrayReferencePolicy,
     ) -> bool {
-        if self.facts.source_facts.shell != ShellDialect::Zsh
+        if self.facts.source_facts().shell() != ShellDialect::Zsh
             || matches!(
                 policy,
                 shuck_semantic::ArrayReferencePolicy::RequiresExplicitSelector
@@ -96,12 +96,12 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
             return false;
         }
 
-        self.facts.word_facts().any(|word| {
-            self.facts.is_compound_assignment_value_word(word)
+        self.facts.words().word_facts().any(|word| {
+            self.facts.words().is_compound_assignment_value_word(word)
                 && self
                     .semantic
                     .references_in_command_span(
-                        self.facts.command(word.command_id()).span(),
+                        self.facts.command_facts().command(word.command_id()).span(),
                         word.span(),
                     )
                     .any(|direct_reference| direct_reference.id == reference.id)
@@ -112,7 +112,7 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
         &self,
         reference: &Reference,
     ) -> shuck_semantic::ArrayReferencePolicy {
-        if self.facts.source_facts.shell != ShellDialect::Zsh {
+        if self.facts.source_facts().shell() != ShellDialect::Zsh {
             return shuck_semantic::ArrayReferencePolicy::RequiresExplicitSelector;
         }
 
@@ -152,6 +152,7 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
             shuck_semantic::ArrayReferencePolicy::RequiresExplicitSelector
         ) && self
             .facts
+            .assignments()
             .presence_test_references(&reference.name)
             .iter()
             .any(|test| test.reference_id() == reference.id)
@@ -177,7 +178,7 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
         if !self.presence_test_ends_by_name_binding.contains_key(name) {
             let mut by_binding = FxHashMap::<Option<BindingId>, Vec<usize>>::default();
 
-            for test in self.facts.presence_test_references(name) {
+            for test in self.facts.assignments().presence_test_references(name) {
                 let binding_id = self.resolved_binding_id(test.reference_id());
                 by_binding
                     .entry(binding_id)
@@ -185,7 +186,7 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
                     .push(test.command_span().end.offset);
             }
 
-            for test in self.facts.presence_test_names(name) {
+            for test in self.facts.assignments().presence_test_names(name) {
                 let binding_id = self
                     .semantic
                     .visible_binding(name, test.tested_span())
@@ -252,16 +253,19 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
             .entry(offset)
             .or_insert_with(|| {
                 let mut ancestors = Vec::new();
-                let mut current = self.facts.innermost_command_id_containing_offset(offset);
+                let mut current = self
+                    .facts
+                    .command_facts()
+                    .innermost_command_id_containing_offset(offset);
                 while let Some(command_id) = current {
-                    let command = self.facts.command(command_id);
+                    let command = self.facts.command_facts().command(command_id);
                     if matches!(command.command(), Command::Simple(_)) {
                         ancestors.push(SimpleCommandAncestor {
                             id: command_id,
                             assignment_only: command.literal_name() == Some(""),
                         });
                     }
-                    current = self.facts.command_parent_id(command_id);
+                    current = self.facts.command_facts().command_parent_id(command_id);
                 }
                 ancestors
             })
@@ -304,11 +308,13 @@ pub(crate) fn span_is_within(outer: Span, inner: Span) -> bool {
 
 pub(crate) fn loop_header_word_quote(facts: &LinterFacts<'_>, span: Span) -> Option<WordQuote> {
     facts
+        .command_facts()
         .for_headers()
         .iter()
         .flat_map(|header| header.words().iter())
         .chain(
             facts
+                .command_facts()
                 .select_headers()
                 .iter()
                 .flat_map(|header| header.words().iter()),

@@ -24,6 +24,7 @@ pub fn command_output_array_split(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .array_assignment_split_word_facts()
         .flat_map(|fact| {
             fact.split_sensitive_unquoted_command_substitution_spans()

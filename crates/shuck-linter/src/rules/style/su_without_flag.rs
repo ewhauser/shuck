@@ -16,6 +16,7 @@ impl Violation for SuWithoutFlag {
 pub fn su_without_flag(checker: &mut Checker) {
     let piped_command_ids = checker
         .facts()
+        .command_facts()
         .pipelines()
         .iter()
         .flat_map(|pipeline| {

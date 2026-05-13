@@ -17,6 +17,7 @@ impl Violation for ExportWithPositionalParams {
 pub fn export_with_positional_params(checker: &mut Checker) {
     let export_ids = checker
         .facts()
+        .command_facts()
         .structural_commands()
         .filter(|fact| fact.effective_name_is("export"))
         .map(|fact| fact.id())
@@ -24,6 +25,7 @@ pub fn export_with_positional_params(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .words()
         .expansion_word_facts(ExpansionContext::CommandArgument)
         .filter(|fact| export_ids.contains(&fact.command_id()))
         .filter(|fact| fact.is_plain_parameter_reference())

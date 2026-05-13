@@ -19,6 +19,7 @@ pub fn array_reference(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .words()
         .indexed_array_reference_fragments()
         .iter()
         .filter_map(|fragment| match fragment {

@@ -20,6 +20,7 @@ pub fn multi_var_for_loop(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .command_facts()
         .for_headers()
         .iter()
         .filter_map(|fact| fact.command().targets.get(1).map(|target| target.span))

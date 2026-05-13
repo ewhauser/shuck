@@ -15,12 +15,19 @@ impl Violation for LsGrepPipeline {
 pub fn ls_grep_pipeline(checker: &mut Checker) {
     let spans = checker
         .facts()
+        .command_facts()
         .pipelines()
         .iter()
         .flat_map(|pipeline| {
             pipeline.segments().windows(2).filter_map(|pair| {
-                let left = checker.facts().command(pair[0].command_id());
-                let right = checker.facts().command(pair[1].command_id());
+                let left = checker
+                    .facts()
+                    .command_facts()
+                    .command(pair[0].command_id());
+                let right = checker
+                    .facts()
+                    .command_facts()
+                    .command(pair[1].command_id());
 
                 if !is_raw_utility_named(left, "ls") || !is_raw_utility_named(right, "grep") {
                     return None;

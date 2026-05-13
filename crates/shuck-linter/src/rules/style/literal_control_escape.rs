@@ -16,6 +16,7 @@ impl Violation for LiteralControlEscape {
 pub fn literal_control_escape(checker: &mut Checker) {
     let spans = checker
         .facts()
+        .words()
         .escape_scan_matches()
         .iter()
         .copied()

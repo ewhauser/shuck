@@ -7,6 +7,7 @@ fn function_header_fact_span_in_source_stops_at_header() {
 
     with_facts(source, None, |_, facts| {
         let header = facts
+            .command_facts()
             .function_headers()
             .first()
             .expect("expected function header fact");
@@ -24,6 +25,7 @@ fn function_header_fact_tracks_binding_scope_and_call_arity() {
 
     with_facts(source, None, |_, facts| {
         let header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -52,6 +54,7 @@ fn function_definition_command_lookup_returns_header_command() {
 
     with_facts(source, None, |_, facts| {
         let header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -64,6 +67,7 @@ fn function_definition_command_lookup_returns_header_command() {
             .function_scope()
             .expect("expected greet function scope");
         let definition_command = facts
+            .command_facts()
             .function_definition_command(scope)
             .expect("expected definition command");
 
@@ -78,6 +82,7 @@ fn command_for_name_word_span_resolves_definition_and_call_commands() {
 
     with_facts(source, None, |_, facts| {
         let header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -86,17 +91,19 @@ fn command_for_name_word_span_resolves_definition_and_call_commands() {
                     .is_some_and(|(name, _)| name == "greet")
             })
             .expect("expected greet header fact");
-        let definition_command = facts.command(header.command_id());
+        let definition_command = facts.command_facts().command(header.command_id());
         let call_name_span = header.call_arity().zero_arg_call_spans()[0];
 
         assert_eq!(
             facts
+                .command_facts()
                 .command_for_name_word_span(definition_command.span())
                 .map(|command| command.id()),
             Some(header.command_id())
         );
         assert_eq!(
             facts
+                .command_facts()
                 .command_for_name_word_span(call_name_span)
                 .and_then(|command| command.body_name_word().map(|word| word.span.slice(source))),
             Some("greet")
@@ -117,6 +124,7 @@ BUILD_VERSION=\"${BUILD_VERSION:-\"$(GetBuildVersion \"${BUILD_REVISION}\")\"}\"
 
     with_facts(source, None, |_, facts| {
         let header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -144,6 +152,7 @@ greet
 
     with_facts(source, None, |_, facts| {
         let header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -175,6 +184,7 @@ greet
 
     with_facts(source, None, |_, facts| {
         let header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -205,6 +215,7 @@ value=\"`greet`\"
 
     with_facts(source, None, |_, facts| {
         let header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -238,6 +249,7 @@ EOF
 
     with_facts(source, None, |_, facts| {
         let header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -274,6 +286,7 @@ exit $?
     with_facts(source, None, |_, facts| {
         for name in ["start", "stop"] {
             let header = facts
+                .command_facts()
                 .function_headers()
                 .iter()
                 .find(|header| {
@@ -283,7 +296,7 @@ exit $?
                 })
                 .expect("expected dispatched function header");
             let scope = header.function_scope().expect("expected function scope");
-            let dispatch = facts.function_cli_dispatch_facts(scope);
+            let dispatch = facts.command_facts().function_cli_dispatch_facts(scope);
 
             assert!(
                 dispatch.exported_from_case_cli(),
@@ -314,6 +327,7 @@ late() { echo later; }
 
     with_facts(source, None, |_, facts| {
         let start = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -323,6 +337,7 @@ late() { echo later; }
             })
             .expect("expected start header fact");
         let late = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -332,10 +347,10 @@ late() { echo later; }
             })
             .expect("expected late header fact");
 
-        assert!(facts.is_case_cli_reachable_function_scope(
+        assert!(facts.command_facts().is_case_cli_reachable_function_scope(
             start.function_scope().expect("expected start scope")
         ));
-        assert!(!facts.is_case_cli_reachable_function_scope(
+        assert!(!facts.command_facts().is_case_cli_reachable_function_scope(
             late.function_scope().expect("expected late scope")
         ));
     });
@@ -361,6 +376,7 @@ function {
         ShellDialect::Zsh,
         |_, facts| {
             let helper = facts
+                .command_facts()
                 .function_headers()
                 .iter()
                 .find(|header| {
@@ -370,7 +386,7 @@ function {
                 })
                 .expect("expected helper header fact");
 
-            assert!(facts.is_case_cli_reachable_function_scope(
+            assert!(facts.command_facts().is_case_cli_reachable_function_scope(
                 helper.function_scope().expect("expected helper scope")
             ));
         },
@@ -390,6 +406,7 @@ exit 0
 
     with_facts(source, None, |_, facts| {
         let header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -402,6 +419,7 @@ exit 0
 
         assert!(
             facts
+                .command_facts()
                 .function_cli_dispatch_facts(scope)
                 .exported_from_case_cli()
         );
@@ -420,6 +438,7 @@ esac
 
     with_facts(source, None, |_, facts| {
         let header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -432,6 +451,7 @@ esac
 
         assert!(
             !facts
+                .command_facts()
                 .function_cli_dispatch_facts(scope)
                 .exported_from_case_cli()
         );
@@ -451,6 +471,7 @@ exit $?
 
     with_facts(source, None, |_, facts| {
         let header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -463,6 +484,7 @@ exit $?
 
         assert!(
             !facts
+                .command_facts()
                 .function_cli_dispatch_facts(scope)
                 .exported_from_case_cli()
         );
@@ -483,6 +505,7 @@ start() { echo hi; }
 
     with_facts(source, None, |_, facts| {
         let header = facts
+            .command_facts()
             .function_headers()
             .iter()
             .find(|header| {
@@ -495,6 +518,7 @@ start() { echo hi; }
 
         assert!(
             !facts
+                .command_facts()
                 .function_cli_dispatch_facts(scope)
                 .exported_from_case_cli()
         );
@@ -565,6 +589,7 @@ o() {
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .command_facts()
                 .function_body_without_braces_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -580,6 +605,7 @@ o() {
         );
         assert_eq!(
             facts
+                .command_facts()
                 .redundant_return_status_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -607,7 +633,11 @@ complete -F _comp_cmd_later later
         let flagged_lines = facts
             .commands()
             .iter()
-            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .filter(|command| {
+                facts
+                    .command_facts()
+                    .command_is_in_completion_registered_function(command.id())
+            })
             .map(|command| command.span().start.line)
             .collect::<Vec<_>>();
 
@@ -630,7 +660,11 @@ compdef __grunt grunt
         let flagged_lines = facts
             .commands()
             .iter()
-            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .filter(|command| {
+                facts
+                    .command_facts()
+                    .command_is_in_completion_registered_function(command.id())
+            })
             .map(|command| command.span().start.line)
             .collect::<Vec<_>>();
 
@@ -655,7 +689,11 @@ setup_completion() {
         let flagged_lines = facts
             .commands()
             .iter()
-            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .filter(|command| {
+                facts
+                    .command_facts()
+                    .command_is_in_completion_registered_function(command.id())
+            })
             .map(|command| command.span().start.line)
             .collect::<Vec<_>>();
 
@@ -679,7 +717,11 @@ compdef __grunt grunt
         let flagged_lines = facts
             .commands()
             .iter()
-            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .filter(|command| {
+                facts
+                    .command_facts()
+                    .command_is_in_completion_registered_function(command.id())
+            })
             .map(|command| command.span().start.line)
             .collect::<Vec<_>>();
 
@@ -701,7 +743,11 @@ compdef __grunt=grunt
         let flagged_lines = facts
             .commands()
             .iter()
-            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .filter(|command| {
+                facts
+                    .command_facts()
+                    .command_is_in_completion_registered_function(command.id())
+            })
             .map(|command| command.span().start.line)
             .collect::<Vec<_>>();
 
@@ -723,7 +769,11 @@ compdef -d grunt
         let flagged_lines = facts
             .commands()
             .iter()
-            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .filter(|command| {
+                facts
+                    .command_facts()
+                    .command_is_in_completion_registered_function(command.id())
+            })
             .map(|command| command.span().start.line)
             .collect::<Vec<_>>();
 
@@ -745,7 +795,11 @@ __grunt() {
         let flagged_lines = facts
             .commands()
             .iter()
-            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .filter(|command| {
+                facts
+                    .command_facts()
+                    .command_is_in_completion_registered_function(command.id())
+            })
             .map(|command| command.span().start.line)
             .collect::<Vec<_>>();
 
@@ -767,7 +821,11 @@ compdef -P 'grunt-*' __grunt grunt
         let flagged_lines = facts
             .commands()
             .iter()
-            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .filter(|command| {
+                facts
+                    .command_facts()
+                    .command_is_in_completion_registered_function(command.id())
+            })
             .map(|command| command.span().start.line)
             .collect::<Vec<_>>();
 
@@ -790,7 +848,11 @@ compdef -P 'grunt-*' -N __grunt grunt
         let flagged_lines = facts
             .commands()
             .iter()
-            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .filter(|command| {
+                facts
+                    .command_facts()
+                    .command_is_in_completion_registered_function(command.id())
+            })
             .map(|command| command.span().start.line)
             .collect::<Vec<_>>();
 
@@ -813,7 +875,11 @@ __grunt() {
         let flagged_lines = facts
             .commands()
             .iter()
-            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .filter(|command| {
+                facts
+                    .command_facts()
+                    .command_is_in_completion_registered_function(command.id())
+            })
             .map(|command| command.span().start.line)
             .collect::<Vec<_>>();
 
@@ -883,11 +949,13 @@ setup_hook() { add-zsh-hook precmd latent_hook_impl; }
         ShellDialect::Zsh,
         |_, facts| {
             let external_names = facts
+                .command_facts()
                 .function_headers()
                 .iter()
                 .filter_map(|header| {
                     let scope = header.function_scope()?;
                     facts
+                        .command_facts()
                         .function_is_external_entrypoint(scope)
                         .then(|| header.static_name_entry().map(|(name, _)| name.as_str()))
                         .flatten()

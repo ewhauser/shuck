@@ -22,6 +22,7 @@ pub fn zsh_prompt_bracket(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .words()
         .word_facts()
         .iter()
         .flat_map(|fact| prompt_bracket_spans(fact.span().slice(checker.source()), fact.span()))

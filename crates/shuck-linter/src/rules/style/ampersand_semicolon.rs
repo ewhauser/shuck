@@ -20,7 +20,12 @@ impl Violation for AmpersandSemicolon {
 
 pub fn ampersand_semicolon(checker: &mut Checker) {
     checker.report_fact_diagnostics_dedup(|facts, report| {
-        for span in facts.background_semicolon_spans().iter().copied() {
+        for span in facts
+            .command_facts()
+            .background_semicolon_spans()
+            .iter()
+            .copied()
+        {
             report(
                 Diagnostic::new(AmpersandSemicolon, span)
                     .with_fix(Fix::safe_edit(Edit::deletion(span))),

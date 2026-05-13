@@ -232,6 +232,7 @@ fn word_fact_has_plain_command_substitution(
 ) -> bool {
     checker
         .facts()
+        .words()
         .word_fact(
             word_span,
             WordFactContext::Expansion(ExpansionContext::CommandArgument),

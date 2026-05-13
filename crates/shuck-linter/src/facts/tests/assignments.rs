@@ -16,6 +16,7 @@ fn indexes_scalar_bindings_from_assignments_and_declarations() {
     let first_binding_id = semantic.bindings_for(&Name::from("foo"))[0];
     assert_eq!(
         facts
+            .assignments()
             .binding_value(first_binding_id)
             .and_then(|value| value.scalar_word())
             .map(|word| word.span.slice(source)),
@@ -32,6 +33,7 @@ fn indexes_scalar_bindings_from_assignments_and_declarations() {
     let second_binding_id = semantic.bindings_for(&Name::from("bar"))[0];
     assert_eq!(
         facts
+            .assignments()
             .binding_value(second_binding_id)
             .and_then(|value| value.scalar_word())
             .map(|word| word.span.slice(source)),
@@ -66,6 +68,7 @@ pid=$!
         let binding_id = semantic.bindings_for(&Name::from(name))[0];
         assert!(
             facts
+                .assignments()
                 .binding_value(binding_id)
                 .is_some_and(|value| value.standalone_status_or_pid_capture()),
             "expected {name} binding value to be a status or pid capture"
@@ -94,6 +97,7 @@ fn indexes_loop_bindings_from_for_words() {
 
     assert_eq!(
         facts
+            .assignments()
             .binding_value(loop_binding_id)
             .and_then(|value| value.loop_words())
             .expect("expected loop binding values")
@@ -126,6 +130,7 @@ one_sided='-b' || one_sided='-y'
         .copied()
         .map(|binding_id| {
             facts
+                .assignments()
                 .binding_value(binding_id)
                 .expect("expected w binding value fact")
                 .conditional_assignment_shortcut()
@@ -139,6 +144,7 @@ one_sided='-b' || one_sided='-y'
         .copied()
         .map(|binding_id| {
             facts
+                .assignments()
                 .binding_value(binding_id)
                 .expect("expected opt binding value fact")
                 .conditional_assignment_shortcut()
@@ -152,6 +158,7 @@ one_sided='-b' || one_sided='-y'
         .copied()
         .map(|binding_id| {
             facts
+                .assignments()
                 .binding_value(binding_id)
                 .expect("expected flag binding value fact")
                 .conditional_assignment_shortcut()
@@ -165,6 +172,7 @@ one_sided='-b' || one_sided='-y'
         .copied()
         .map(|binding_id| {
             facts
+                .assignments()
                 .binding_value(binding_id)
                 .expect("expected one_sided binding value fact")
                 .one_sided_short_circuit_assignment()
@@ -190,6 +198,7 @@ printf '%s\\n' \"$foo\"
     assert_eq!(foo_bindings.len(), 1);
     assert_eq!(
         facts
+            .assignments()
             .binding_value(foo_bindings[0])
             .and_then(|value| value.scalar_word())
             .map(|word| word.span.slice(source)),
@@ -234,6 +243,7 @@ f() {
 
     assert_eq!(
         facts
+            .assignments()
             .binding_value(shadow_binding)
             .and_then(|value| value.scalar_word())
             .map(|word| word.span.slice(source)),
@@ -241,6 +251,7 @@ f() {
     );
     assert_eq!(
         facts
+            .assignments()
             .binding_value(local_binding)
             .and_then(|value| value.scalar_word())
             .map(|word| word.span.slice(source)),
@@ -263,6 +274,7 @@ complex[$((i+=1))]+=x
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .assignments()
                 .plus_equals_assignment_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -287,6 +299,7 @@ name+=still_ok
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .command_facts()
                 .assignment_like_command_name_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -325,6 +338,7 @@ maybe==grep run
         |_, facts| {
             assert_eq!(
                 facts
+                    .command_facts()
                     .bare_command_name_assignment_spans()
                     .iter()
                     .map(|span| span.slice(source))
@@ -346,7 +360,10 @@ rvm_info="
 
     with_facts(source, None, |_, facts| {
         assert!(
-            facts.assignment_like_command_name_spans().is_empty(),
+            facts
+                .command_facts()
+                .assignment_like_command_name_spans()
+                .is_empty(),
             "quoted arrow text should not look like an assignment command name"
         );
     });
@@ -362,6 +379,7 @@ fn collects_broken_assoc_key_spans_from_compound_array_assignments() {
 
     assert_eq!(
         facts
+            .assignments()
             .broken_assoc_key_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -380,6 +398,7 @@ fn collects_comma_array_assignment_spans_from_compound_values() {
 
     assert_eq!(
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -410,6 +429,7 @@ IFS=$'\\n'
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .assignments()
                 .ifs_literal_backslash_assignment_value_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -428,9 +448,13 @@ fn ignores_commas_after_even_backslashes_before_quote_regions() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -447,9 +471,13 @@ fn ignores_commas_inside_ansi_c_quoted_array_elements() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -466,9 +494,13 @@ fn ignores_commas_inside_quoted_command_substitution_array_elements() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -485,9 +517,13 @@ fn ignores_commas_inside_separator_started_command_substitution_comments() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -504,9 +540,13 @@ fn ignores_commas_inside_grouped_command_substitution_comments() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -523,9 +563,13 @@ fn ignores_commas_inside_compact_grouped_command_substitution_comments() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -542,9 +586,13 @@ fn ignores_commas_inside_command_substitution_case_patterns() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -562,9 +610,13 @@ fn ignores_commas_inside_piped_heredoc_command_substitution_array_elements() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -581,9 +633,13 @@ fn ignores_commas_inside_parameter_expansions_with_right_parens_in_command_subst
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -600,9 +656,13 @@ fn ignores_commas_inside_parameter_expansions_with_literal_braces() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -619,9 +679,13 @@ fn ignores_commas_inside_parameter_expansions_with_ansi_c_single_quotes() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -639,9 +703,13 @@ fn ignores_commas_inside_case_pattern_comments_after_right_parens() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -658,9 +726,13 @@ fn ignores_commas_inside_process_substitution_array_elements() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -677,9 +749,13 @@ fn ignores_commas_inside_comments_after_quoted_double_parens() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -696,9 +772,13 @@ fn ignores_commas_inside_arithmetic_shift_command_substitutions() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -733,9 +813,13 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -752,9 +836,13 @@ fn ignores_commas_inside_nested_case_patterns_in_command_substitutions() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -771,9 +859,13 @@ fn ignores_commas_inside_command_substitutions_with_plain_case_words() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -790,9 +882,13 @@ fn ignores_commas_inside_command_substitutions_with_ansi_c_single_quotes() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -809,9 +905,13 @@ fn ignores_commas_inside_command_substitutions_with_backticks() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -828,9 +928,13 @@ fn ignores_commas_inside_backticks_inside_parameter_expansions() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -847,9 +951,13 @@ fn ignores_commas_inside_process_substitutions_inside_parameter_expansions() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -866,9 +974,13 @@ fn ignores_commas_after_backticks_inside_parameter_expansions_in_command_substit
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -886,9 +998,13 @@ fn ignores_commas_after_process_substitutions_inside_parameter_expansions_in_com
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
-        facts.comma_array_assignment_spans().is_empty(),
+        facts
+            .assignments()
+            .comma_array_assignment_spans()
+            .is_empty(),
         "{:#?}",
         facts
+            .assignments()
             .comma_array_assignment_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1062,6 +1178,7 @@ fn subshell_assignment_slices(source: &str, shell: ShellDialect) -> Vec<&str> {
     );
 
     facts
+        .assignments()
         .subshell_assignment_sites()
         .iter()
         .map(|site| site.span.slice(source))
@@ -1082,6 +1199,7 @@ fn subshell_later_use_slices(source: &str, shell: ShellDialect) -> Vec<&str> {
     );
 
     facts
+        .assignments()
         .subshell_later_use_sites()
         .iter()
         .map(|site| site.span.slice(source))

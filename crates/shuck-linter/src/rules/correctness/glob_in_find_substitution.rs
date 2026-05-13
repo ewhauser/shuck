@@ -34,6 +34,7 @@ pub fn glob_in_find_substitution(checker: &mut Checker) {
         .flat_map(|find| find.glob_pattern_operand_spans().iter().copied())
         .map(|span| {
             let replacement = facts
+                .words()
                 .any_word_fact(span)
                 .expect("find pattern operand span should map to a word fact")
                 .single_double_quoted_replacement(source);

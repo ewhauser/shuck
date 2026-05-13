@@ -25,6 +25,7 @@ pub fn unset_associative_array_element(checker: &mut Checker) {
 
     for fact in checker
         .facts()
+        .command_facts()
         .structural_commands()
         .filter(|fact| fact.effective_name_is("unset"))
     {

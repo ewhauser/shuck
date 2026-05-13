@@ -24,6 +24,7 @@ pub fn positional_ten_braces(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .positional_parameter_fragments()
         .iter()
         .filter(|fragment| fragment.is_above_nine())

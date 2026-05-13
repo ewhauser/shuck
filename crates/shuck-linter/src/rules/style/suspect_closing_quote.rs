@@ -15,6 +15,7 @@ impl Violation for SuspectClosingQuote {
 pub fn suspect_closing_quote(checker: &mut Checker) {
     let spans = checker
         .facts()
+        .words()
         .suspect_closing_quote_fragments()
         .iter()
         .map(|fragment| fragment.span())

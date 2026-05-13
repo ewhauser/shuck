@@ -19,6 +19,7 @@ pub fn brace_expansion(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .words()
         .word_facts()
         .iter()
         .filter(|fact| {

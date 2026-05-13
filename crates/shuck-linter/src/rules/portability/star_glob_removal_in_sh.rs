@@ -19,6 +19,7 @@ pub fn star_glob_removal_in_sh(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .words()
         .positional_parameter_trim_fragments()
         .iter()
         .map(|fragment| fragment.span())

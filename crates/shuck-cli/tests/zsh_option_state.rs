@@ -217,6 +217,7 @@ fn run_fixture(fixture: &Fixture) -> Result<()> {
         })?;
         let word_fact = checker
             .facts()
+            .words()
             .word_fact(
                 target.span,
                 WordFactContext::Expansion(ExpansionContext::CommandArgument),
@@ -353,6 +354,7 @@ fn find_probe_command<'checker, 'ast>(
 ) -> Result<shuck_linter::CommandFactRef<'checker, 'ast>> {
     checker
         .facts()
+        .command_facts()
         .structural_commands()
         .find(|fact| {
             fact.effective_name_is(command_name)

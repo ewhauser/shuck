@@ -408,6 +408,7 @@ fn add_scope_compat_binding_candidates(index: &mut ScopeCompatIndex, checker: &C
 fn add_scope_compat_presence_test_candidates(index: &mut ScopeCompatIndex, checker: &Checker<'_>) {
     for (name, span) in checker
         .facts()
+        .assignments()
         .presence_test_candidate_spans(checker.semantic())
     {
         let name = name.as_str();
@@ -423,6 +424,7 @@ fn add_scope_compat_presence_test_candidates(index: &mut ScopeCompatIndex, check
 fn add_scope_compat_name_uses(index: &mut ScopeCompatIndex, checker: &Checker<'_>) {
     for name_use in checker
         .facts()
+        .compat()
         .possible_variable_misspelling_scope_compat_name_uses()
     {
         let name = name_use.key().as_str();
@@ -537,6 +539,7 @@ fn is_presence_tested_reference_name(
 ) -> bool {
     checker
         .facts()
+        .assignments()
         .is_presence_tested_name(&Name::from(reference_name), reference_span)
 }
 
@@ -562,6 +565,7 @@ fn looks_like_case_mismatch_reference(name: &str) -> bool {
 fn preferred_candidate_name(checker: &Checker<'_>, target_name: &str) -> Option<String> {
     checker
         .facts()
+        .assignments()
         .possible_variable_misspelling_candidate(checker.semantic(), target_name)
 }
 
@@ -587,6 +591,7 @@ fn is_assignment_target_variant_reference(
 ) -> bool {
     let Some(target_name) = checker
         .facts()
+        .assignments()
         .assignment_value_target_name_for_span(reference_span)
         .map(|name| name.as_str())
     else {
@@ -611,6 +616,7 @@ fn is_build_flag_alias_assignment_value(
 
     checker
         .facts()
+        .assignments()
         .assignment_value_target_name_for_span(reference_span)
         .map(|name| name.as_str())
         .is_some_and(|target_name| {

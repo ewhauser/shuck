@@ -19,6 +19,7 @@ pub fn bare_read(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .command_facts()
         .structural_commands()
         .filter(|fact| fact.effective_name_is("read"))
         .filter(|fact| fact.wrappers().is_empty())

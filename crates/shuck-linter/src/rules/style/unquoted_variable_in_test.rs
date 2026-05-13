@@ -44,7 +44,7 @@ pub fn unquoted_variable_in_test(checker: &mut Checker) {
             }
 
             let operand = simple_test.operands()[1];
-            let Some(word_fact) = facts.word_fact(
+            let Some(word_fact) = facts.words().word_fact(
                 operand.span,
                 WordFactContext::Expansion(ExpansionContext::CommandArgument),
             ) else {

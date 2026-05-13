@@ -26,12 +26,14 @@ pub fn pattern_with_variable(checker: &mut Checker) {
     let shell = checker.shell();
     let replacement_expansion_spans = checker
         .facts()
+        .words()
         .replacement_expansion_fragments()
         .iter()
         .map(|fragment| fragment.span())
         .collect::<Vec<_>>();
     let special_target_operand_spans = checker
         .facts()
+        .words()
         .parameter_pattern_special_target_fragments()
         .iter()
         .map(|fragment| fragment.span())
@@ -39,6 +41,7 @@ pub fn pattern_with_variable(checker: &mut Checker) {
 
     let diagnostics = checker
         .facts()
+        .words()
         .expansion_word_facts(ExpansionContext::ParameterPattern)
         .flat_map(|fact| {
             if span_is_within_any(fact.span(), &replacement_expansion_spans)

@@ -195,6 +195,7 @@ fn simple_test_quoted_pipeline_replacement(
 ) -> Option<String> {
     checker
         .facts()
+        .words()
         .word_fact(
             span,
             WordFactContext::Expansion(ExpansionContext::CommandArgument),

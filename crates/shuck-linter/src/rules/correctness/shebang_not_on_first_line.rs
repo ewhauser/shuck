@@ -22,11 +22,18 @@ pub fn shebang_not_on_first_line(checker: &mut Checker) {
     let source = checker.source();
     if let Some((span, fix_span)) = checker
         .facts()
+        .source_facts()
         .shebang_not_on_first_line_span()
-        .zip(checker.facts().shebang_not_on_first_line_fix_span())
+        .zip(
+            checker
+                .facts()
+                .source_facts()
+                .shebang_not_on_first_line_fix_span(),
+        )
     {
         let preferred_newline = checker
             .facts()
+            .source_facts()
             .shebang_not_on_first_line_preferred_newline()
             .unwrap_or("\n");
         let moved_line = moved_shebang_line(fix_span.slice(source), preferred_newline);

@@ -5,6 +5,7 @@ fn word_static_text_preserves_multi_part_literals() {
     let source = "echo foo\"bar\" 'baz'qux\n";
     with_facts(source, None, |_output, facts| {
         let mut static_args = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .map(|fact| {
                 (
@@ -28,7 +29,10 @@ fn word_static_text_preserves_multi_part_literals() {
 fn structural_commands_skip_synthetic_semantic_commands() {
     let source = "case \"$x\" in $(echo \"$v\")) ;; esac\n";
     with_facts(source, None, |_output, facts| {
-        let commands = facts.structural_commands().collect::<Vec<_>>();
+        let commands = facts
+            .command_facts()
+            .structural_commands()
+            .collect::<Vec<_>>();
 
         assert!(!commands.is_empty());
         assert!(commands.iter().all(|command| {
@@ -42,7 +46,10 @@ fn structural_commands_skip_synthetic_semantic_commands() {
             .iter()
             .find(|command| command.span().slice(source).starts_with("echo"))
             .unwrap();
-        let parent = facts.command_parent(pattern_command.id()).unwrap();
+        let parent = facts
+            .command_facts()
+            .command_parent(pattern_command.id())
+            .unwrap();
         assert!(parent.span().slice(source).starts_with("case"));
     });
 }
@@ -96,6 +103,7 @@ fn summarizes_command_options_and_invokers() {
     );
     assert_eq!(
         facts
+            .words()
             .echo_backslash_escape_word_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -741,6 +749,7 @@ fn tracks_quote_like_echo_escapes_inside_double_quotes_from_syntax_text() {
 
     assert_eq!(
         facts
+            .words()
             .echo_backslash_escape_word_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -759,6 +768,7 @@ fn tracks_echo_backslash_double_quote_escape_shapes() {
 
     assert_eq!(
         facts
+            .words()
             .echo_backslash_escape_word_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -778,7 +788,7 @@ fn ignores_json_like_backslash_quote_wrappers_around_variables() {
     let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
-    assert!(facts.echo_backslash_escape_word_spans().is_empty());
+    assert!(facts.words().echo_backslash_escape_word_spans().is_empty());
 }
 
 #[test]
@@ -798,7 +808,7 @@ echo Saved to \\\"\"$FILENAME\"\\\" \\(\"$(du -h \"$OUTPUT\" | cut -f1)\"\\)
     let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
-    assert!(facts.echo_backslash_escape_word_spans().is_empty());
+    assert!(facts.words().echo_backslash_escape_word_spans().is_empty());
 }
 
 #[test]
@@ -956,6 +966,7 @@ literal=$(sed 's/[[:space:]]*$//' <<<literal)
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .words()
                 .echo_to_sed_substitution_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -1012,7 +1023,7 @@ echo \"prefix$(printf %s foo)\" | sed 's/foo/bar/'
 ";
 
     with_facts(source, None, |_, facts| {
-        assert!(facts.echo_to_sed_substitution_spans().is_empty());
+        assert!(facts.words().echo_to_sed_substitution_spans().is_empty());
     });
 }
 
@@ -1024,7 +1035,7 @@ EC2_REGION=\"`echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e 's:\\([0-9][0-9]*\\)[a-z]*\\
 ";
 
     with_facts(source, None, |_, facts| {
-        let spans = facts.echo_to_sed_substitution_spans();
+        let spans = facts.words().echo_to_sed_substitution_spans();
         assert_eq!(spans.len(), 1);
         let span = spans[0];
         assert_eq!(span.start.line, 2);
@@ -1042,7 +1053,7 @@ A=\"`echo \\\"$A\\\" | sed 's/foo\\\\$/é/'`\"
 ";
 
     with_facts(source, None, |_, facts| {
-        let spans = facts.echo_to_sed_substitution_spans();
+        let spans = facts.words().echo_to_sed_substitution_spans();
         assert_eq!(spans.len(), 1);
         let span = spans[0];
         assert_eq!(span.start.line, 2);
@@ -1184,58 +1195,81 @@ time timed
             .expect("expected binary command");
 
         let init_parent = facts
+            .command_facts()
             .command_parent(init_if.id())
             .expect("expected if parent");
         assert!(matches!(
             init_parent.command(),
             shuck_ast::Command::Compound(shuck_ast::CompoundCommand::If(_))
         ));
-        assert!(facts.command_is_dominance_barrier(init_parent.id()));
+        assert!(
+            facts
+                .command_facts()
+                .command_is_dominance_barrier(init_parent.id())
+        );
 
         let brace_parent = facts
+            .command_facts()
             .command_parent(brace_inner.id())
             .expect("expected brace-group parent");
         assert!(matches!(
             brace_parent.command(),
             shuck_ast::Command::Compound(shuck_ast::CompoundCommand::BraceGroup(_))
         ));
-        assert!(!facts.command_is_dominance_barrier(brace_parent.id()));
+        assert!(
+            !facts
+                .command_facts()
+                .command_is_dominance_barrier(brace_parent.id())
+        );
 
         let timed_parent = facts
+            .command_facts()
             .command_parent(timed.id())
             .expect("expected time parent");
         assert!(matches!(
             timed_parent.command(),
             shuck_ast::Command::Compound(shuck_ast::CompoundCommand::Time(_))
         ));
-        assert!(!facts.command_is_dominance_barrier(timed_parent.id()));
-        assert!(facts.command_is_dominance_barrier(binary.id()));
+        assert!(
+            !facts
+                .command_facts()
+                .command_is_dominance_barrier(timed_parent.id())
+        );
+        assert!(
+            facts
+                .command_facts()
+                .command_is_dominance_barrier(binary.id())
+        );
 
         let brace_offset = source.find("brace_inner").expect("brace_inner offset");
         let right_offset = source.find("right").expect("right offset");
         assert_eq!(
             facts
+                .command_facts()
                 .innermost_command_at(brace_offset)
                 .and_then(|fact| fact.effective_name()),
             Some("brace_inner")
         );
         assert_eq!(
             facts
+                .command_facts()
                 .innermost_command_at(right_offset)
                 .and_then(|fact| fact.effective_name()),
             Some("right")
         );
         assert_eq!(
             facts
+                .command_facts()
                 .innermost_command_id_containing_offset(brace_offset + 2)
-                .map(|id| facts.command(id))
+                .map(|id| facts.command_facts().command(id))
                 .and_then(|fact| fact.effective_name()),
             Some("brace_inner")
         );
         assert_eq!(
             facts
+                .command_facts()
                 .innermost_command_id_containing_offset(right_offset + 2)
-                .map(|id| facts.command(id))
+                .map(|id| facts.command_facts().command(id))
                 .and_then(|fact| fact.effective_name()),
             Some("right")
         );
@@ -1834,6 +1868,7 @@ echo ${foo:-$((10#1))}
 
     assert_eq!(
         facts
+            .words()
             .arithmetic_literal_facts()
             .iter()
             .filter(|literal| literal.kind() == ArithmeticLiteralKind::ExplicitBasePrefix)
@@ -1873,6 +1908,7 @@ echo $((10#6))
 
     assert_eq!(
         facts
+            .words()
             .arithmetic_literal_facts()
             .iter()
             .map(|literal| {
@@ -1942,6 +1978,7 @@ echo $((010))
 
     assert_eq!(
         facts
+            .words()
             .arithmetic_literal_facts()
             .iter()
             .map(|literal| {
@@ -1985,6 +2022,7 @@ echo ${value:-$((010#7))}
 
     assert_eq!(
         facts
+            .words()
             .arithmetic_literal_facts()
             .iter()
             .map(|literal| {
@@ -2036,6 +2074,7 @@ esac
 
     assert_eq!(
         facts
+            .words()
             .arithmetic_literal_facts()
             .iter()
             .filter(|literal| literal.kind() == ArithmeticLiteralKind::ExplicitBasePrefix)
@@ -2062,6 +2101,7 @@ EOF
 
     assert_eq!(
         facts
+            .words()
             .arithmetic_update_operator_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -2085,6 +2125,7 @@ EOF
 
     assert_eq!(
         facts
+            .words()
             .arithmetic_update_operator_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -2107,6 +2148,7 @@ echo ${foo:-${1##*/}}
 
     assert!(
         facts
+            .words()
             .arithmetic_literal_facts()
             .iter()
             .all(|literal| literal.kind() != ArithmeticLiteralKind::ExplicitBasePrefix)
@@ -2128,6 +2170,7 @@ echo $((42949 - ${1#-} / 100000))
 
     assert!(
         facts
+            .words()
             .arithmetic_literal_facts()
             .iter()
             .all(|literal| literal.kind() != ArithmeticLiteralKind::ExplicitBasePrefix)
@@ -2149,6 +2192,7 @@ echo $(( ${foo:-10#1} ))
 
     assert_eq!(
         facts
+            .words()
             .arithmetic_literal_facts()
             .iter()
             .filter(|literal| literal.kind() == ArithmeticLiteralKind::ExplicitBasePrefix)
@@ -2955,7 +2999,7 @@ fn summarizes_directory_change_commands_and_errexit_hints() {
     let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
-    assert!(facts.errexit_enabled_anywhere());
+    assert!(facts.source_facts().errexit_enabled_anywhere());
 
     let directory_changes = facts
         .commands()
@@ -2992,7 +3036,7 @@ fn does_not_treat_long_shebang_options_as_errexit() {
     let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
-    assert!(!facts.errexit_enabled_anywhere());
+    assert!(!facts.source_facts().errexit_enabled_anywhere());
 }
 
 #[test]
@@ -3466,6 +3510,7 @@ fn builds_redirect_facts_with_cached_target_analysis() {
 
     with_facts(source, None, |_, facts| {
         let command = facts
+            .command_facts()
             .structural_commands()
             .find(|fact| fact.effective_name_is("echo"))
             .expect("expected echo fact");
@@ -3520,6 +3565,7 @@ fn builds_redirect_facts_with_cached_target_analysis() {
         );
 
         let pure_arithmetic = facts
+            .command_facts()
             .structural_commands()
             .filter(|fact| fact.effective_name_is("echo"))
             .nth(1)

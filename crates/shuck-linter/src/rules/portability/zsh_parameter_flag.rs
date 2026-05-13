@@ -22,6 +22,7 @@ pub fn zsh_parameter_flag(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .words()
         .word_facts()
         .iter()
         .flat_map(|fact| parameter_flag_spans(fact.span().slice(checker.source()), fact.span()))

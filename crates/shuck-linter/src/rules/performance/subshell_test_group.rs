@@ -22,9 +22,10 @@ impl Violation for SubshellTestGroup {
 
 pub fn subshell_test_group(checker: &mut Checker) {
     let source = checker.source();
-    let single_test_spans = checker.facts().single_test_subshell_spans();
+    let single_test_spans = checker.facts().command_facts().single_test_subshell_spans();
     let spans = checker
         .facts()
+        .command_facts()
         .subshell_test_group_spans()
         .iter()
         .copied()

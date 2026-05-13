@@ -90,7 +90,11 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
                 return None;
             }
 
-            checker.facts().binding_value(binding.id)?.scalar_word()?;
+            checker
+                .facts()
+                .assignments()
+                .binding_value(binding.id)?
+                .scalar_word()?;
 
             if zsh_selectorless_subscript_value_resets_scalar_history(
                 checker,
@@ -231,6 +235,7 @@ fn zsh_selectorless_subscript_value_resets_scalar_history(
         )
         && checker
             .facts()
+            .assignments()
             .binding_value(binding.id)
             .is_some_and(|value| {
                 value.zsh_selectorless_subscript_value()
@@ -367,7 +372,11 @@ fn presence_test_reset_events(
     let mut seen = HashSet::<(usize, Name)>::new();
     let mut events = Vec::new();
     for name in names {
-        for fact in checker.facts().presence_test_references(&name) {
+        for fact in checker
+            .facts()
+            .assignments()
+            .presence_test_references(&name)
+        {
             push_reset_event(
                 checker,
                 &mut events,
@@ -376,7 +385,7 @@ fn presence_test_reset_events(
                 &name,
             );
         }
-        for fact in checker.facts().presence_test_names(&name) {
+        for fact in checker.facts().assignments().presence_test_names(&name) {
             push_reset_event(
                 checker,
                 &mut events,
@@ -625,6 +634,7 @@ fn binding_command<'checker, 'ast>(
 ) -> Option<crate::facts::commands::CommandFactRef<'checker, 'ast>> {
     checker
         .facts()
+        .command_facts()
         .innermost_command_at_binding_offset(binding.span.start.offset)
         .or_else(|| {
             checker

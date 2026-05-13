@@ -31,6 +31,7 @@ pub fn base_prefix_in_arithmetic(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .arithmetic_literal_facts()
         .iter()
         .filter_map(|fact| {

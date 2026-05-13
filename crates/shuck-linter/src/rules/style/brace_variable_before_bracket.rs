@@ -28,6 +28,7 @@ pub fn brace_variable_before_bracket(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .brace_variable_before_bracket_spans()
         .iter()
         .copied()

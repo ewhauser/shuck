@@ -14,7 +14,7 @@ impl Violation for StatusCaptureAfterBranchTest {
 
 pub fn status_capture_after_branch_test(checker: &mut Checker) {
     checker.report_fact_slice(
-        |facts| facts.condition_status_capture_spans(),
+        |facts| facts.command_facts().condition_status_capture_spans(),
         || StatusCaptureAfterBranchTest,
     );
 }

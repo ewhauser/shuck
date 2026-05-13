@@ -21,6 +21,7 @@ impl Violation for CasePatternVar {
 pub fn case_pattern_var(checker: &mut Checker) {
     let diagnostics = checker
         .facts()
+        .command_facts()
         .case_pattern_expansions()
         .iter()
         .map(|fact| {

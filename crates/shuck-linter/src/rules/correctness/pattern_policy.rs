@@ -78,6 +78,7 @@ fn binding_expands_to_static_pattern_safe_literal(
 ) -> bool {
     checker
         .facts()
+        .assignments()
         .binding_value(binding_id)
         .and_then(|value| value.scalar_word())
         .and_then(|word| static_word_text(word, checker.source()))

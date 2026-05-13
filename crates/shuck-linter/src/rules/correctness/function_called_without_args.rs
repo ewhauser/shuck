@@ -24,7 +24,7 @@ pub fn function_called_without_args(checker: &mut Checker) {
     let mut reported = FxHashSet::<BindingId>::default();
     let mut violations = Vec::<(Span, CompactString)>::new();
 
-    for header in checker.facts().function_headers() {
+    for header in checker.facts().command_facts().function_headers() {
         let Some((name, _)) = header.static_name_entry() else {
             continue;
         };
@@ -41,6 +41,7 @@ pub fn function_called_without_args(checker: &mut Checker) {
 
         let positional = checker
             .facts()
+            .command_facts()
             .function_positional_parameter_facts(function_scope);
 
         if !positional.uses_positional_parameters() {

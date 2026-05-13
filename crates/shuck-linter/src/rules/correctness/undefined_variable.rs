@@ -53,12 +53,14 @@ pub fn undefined_variable(checker: &mut Checker) {
         }
         if checker
             .facts()
+            .words()
             .is_suppressed_subscript_reference(reference.span)
         {
             continue;
         }
         if checker
             .facts()
+            .source_facts()
             .is_backtick_double_escaped_parameter_reference(reference.span)
         {
             continue;
@@ -99,7 +101,12 @@ fn is_zsh_completion_context_reference(checker: &Checker<'_>, reference: &Refere
         && checker
             .semantic_analysis()
             .enclosing_function_scope_at(reference.span.start.offset)
-            .is_some_and(|scope| checker.facts().function_is_completion_registered(scope))
+            .is_some_and(|scope| {
+                checker
+                    .facts()
+                    .command_facts()
+                    .function_is_completion_registered(scope)
+            })
 }
 
 fn is_zsh_completion_context_name(name: &str) -> bool {

@@ -34,7 +34,7 @@ pub fn unquoted_path_in_mkdir(checker: &mut Checker) {
         .filter(|fact| fact.effective_name_is("mkdir"))
         .flat_map(|fact| mkdir_path_operand_spans(fact, source))
         .filter_map(|span| {
-            checker.facts().word_fact(
+            checker.facts().words().word_fact(
                 span,
                 WordFactContext::Expansion(ExpansionContext::CommandArgument),
             )

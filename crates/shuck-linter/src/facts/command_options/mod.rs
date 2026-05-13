@@ -547,10 +547,6 @@ impl FunctionPositionalParameterFacts {
         self.uses_unprotected_positional_parameters
     }
 
-    pub fn uses_unprotected_positional_parameters(&self) -> bool {
-        self.uses_unprotected_positional_parameters
-    }
-
     pub fn resets_positional_parameters(&self) -> bool {
         self.resets_positional_parameters
     }

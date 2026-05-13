@@ -25,6 +25,7 @@ impl Violation for GrepCountPipeline {
 pub fn grep_count_pipeline(checker: &mut Checker) {
     let reports = checker
         .facts()
+        .command_facts()
         .pipelines()
         .iter()
         .flat_map(|pipeline| unsafe_grep_count_pipeline_reports(checker, pipeline))
@@ -55,8 +56,14 @@ fn unsafe_grep_count_pipeline_reports(
         .filter_map(|(pair, operator)| {
             let left_segment = &pair[0];
             let right_segment = &pair[1];
-            let left = checker.facts().command(left_segment.command_id());
-            let right = checker.facts().command(right_segment.command_id());
+            let left = checker
+                .facts()
+                .command_facts()
+                .command(left_segment.command_id());
+            let right = checker
+                .facts()
+                .command_facts()
+                .command(right_segment.command_id());
 
             if !is_raw_utility_named(left, "grep") || !is_raw_utility_named(right, "wc") {
                 return None;

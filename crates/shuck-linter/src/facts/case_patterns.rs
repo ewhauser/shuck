@@ -3,17 +3,12 @@ use super::*;
 #[derive(Debug, Clone, Copy)]
 pub struct CaseItemFact<'a> {
     item: &'a CaseItem,
-    command_id: CommandId,
     case_span: Span,
 }
 
 impl<'a> CaseItemFact<'a> {
     pub fn item(&self) -> &'a CaseItem {
         self.item
-    }
-
-    pub fn command_id(&self) -> CommandId {
-        self.command_id
     }
 
     pub fn terminator(&self) -> CaseTerminator {
@@ -55,10 +50,6 @@ impl GetoptsOptionSpec {
     pub fn option(self) -> char {
         self.option
     }
-
-    pub fn requires_argument(self) -> bool {
-        self.requires_argument
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,16 +67,11 @@ impl GetoptsCaseLabelFact {
     pub fn span(self) -> Span {
         self.span
     }
-
-    pub fn is_bare_single_letter(self) -> bool {
-        self.is_bare_single_letter
-    }
 }
 
 #[derive(Debug, Clone)]
 pub struct GetoptsCaseFact {
     case_span: Span,
-    declared_options: Box<[GetoptsOptionSpec]>,
     handled_case_labels: Box<[GetoptsCaseLabelFact]>,
     unexpected_case_labels: Box<[GetoptsCaseLabelFact]>,
     invalid_case_pattern_spans: Box<[Span]>,
@@ -99,10 +85,7 @@ impl GetoptsCaseFact {
         self.case_span
     }
 
-    pub fn declared_options(&self) -> &[GetoptsOptionSpec] {
-        &self.declared_options
-    }
-
+    #[cfg(test)]
     pub fn handled_case_labels(&self) -> &[GetoptsCaseLabelFact] {
         &self.handled_case_labels
     }
@@ -115,10 +98,7 @@ impl GetoptsCaseFact {
         &self.invalid_case_pattern_spans
     }
 
-    pub fn has_fallback_pattern(&self) -> bool {
-        self.has_fallback_pattern
-    }
-
+    #[cfg(test)]
     pub fn has_unknown_coverage(&self) -> bool {
         self.has_unknown_coverage
     }
@@ -149,11 +129,12 @@ pub(crate) fn build_case_item_facts<'a>(
             };
 
             let case_span = fact.span_in_source(source);
-            Some(command.cases.iter().map(move |item| CaseItemFact {
-                item,
-                command_id: fact.id(),
-                case_span,
-            }))
+            Some(
+                command
+                    .cases
+                    .iter()
+                    .map(move |item| CaseItemFact { item, case_span }),
+            )
         })
         .flatten()
         .collect()
@@ -1265,7 +1246,6 @@ pub(crate) fn build_getopts_case_fact_for_while(
 
     Some(GetoptsCaseFact {
         case_span,
-        declared_options: parsed.declared_options.into_boxed_slice(),
         handled_case_labels: handled_case_labels.into_boxed_slice(),
         unexpected_case_labels: unexpected_case_labels.into_boxed_slice(),
         invalid_case_pattern_spans: invalid_case_pattern_spans.into_boxed_slice(),

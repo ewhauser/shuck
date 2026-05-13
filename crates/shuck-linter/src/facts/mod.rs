@@ -41,6 +41,8 @@ mod traversal;
 pub(crate) mod word_spans;
 pub(crate) mod words;
 
+#[cfg(test)]
+use self::surface::build_subscript_later_suppression_reference_spans;
 use self::word_spans::{expansion_part_spans, word_unbraced_variable_before_bracket_spans};
 use self::{
     conditional_portability::{ConditionalPortabilityInputs, build_conditional_portability_facts},
@@ -59,7 +61,6 @@ use self::{
         PositionalParameterTrimFragmentFact, ReplacementExpansionFragmentFact,
         SubstringExpansionFragmentFact, SurfaceFragmentFacts, SurfaceFragmentSink,
         SurfaceScanContext, SuspectClosingQuoteFragmentFact, ZshParameterIndexFlagFragmentFact,
-        build_subscript_later_suppression_reference_spans,
         build_suppressed_subscript_reference_spans, rewrite_pattern_as_single_double_quoted_string,
         rewrite_word_as_single_double_quoted_string,
     },
@@ -150,7 +151,9 @@ pub use self::{
     functions::{FunctionCallArityFacts, FunctionHeaderFact},
     lists::{ListFact, ListOperatorFact, ListSegmentKind, MixedShortCircuitKind},
     loop_headers::{ForHeaderFact, LoopHeaderWordFact, SelectHeaderFact},
-    model::LinterFacts,
+    model::{
+        AssignmentFacts, CommandFactQueries, CompatFacts, LinterFacts, SourceFacts, WordFacts,
+    },
     pipelines::{PipelineFact, PipelineOperatorFact, PipelineSegmentFact},
     redirects::{RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis, RedirectTargetKind},
     simple_tests::{SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax},

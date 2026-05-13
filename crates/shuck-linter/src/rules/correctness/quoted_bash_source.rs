@@ -15,6 +15,7 @@ impl Violation for QuotedBashSource {
 pub fn quoted_bash_source(checker: &mut Checker) {
     let spans = checker
         .facts()
+        .words()
         .plain_unindexed_array_references()
         .filter_map(|fact| match fact {
             PlainUnindexedArrayReferenceFact::SelectorRequired(reference) => {

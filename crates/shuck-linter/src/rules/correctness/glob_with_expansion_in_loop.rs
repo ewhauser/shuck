@@ -26,6 +26,7 @@ pub fn glob_with_expansion_in_loop(checker: &mut Checker) {
     let source = checker.source();
     let spans = checker
         .facts()
+        .words()
         .expansion_word_facts(ExpansionContext::ForList)
         .filter(|fact| {
             !fact

@@ -23,7 +23,7 @@ impl Violation for ArrayIndexArithmetic {
 pub fn array_index_arithmetic(checker: &mut Checker) {
     let source = checker.source();
     checker.report_fact_diagnostics_dedup(|facts, report| {
-        for span in facts.array_index_arithmetic_spans().iter().copied() {
+        for span in facts.words().array_index_arithmetic_spans().iter().copied() {
             if let Some(fix) = array_index_arithmetic_fix(span, source) {
                 report(Diagnostic::new(ArrayIndexArithmetic, span).with_fix(fix));
             }

@@ -17,6 +17,7 @@ impl Violation for PsGrepPipeline {
 pub fn ps_grep_pipeline(checker: &mut Checker) {
     let spans = checker
         .facts()
+        .command_facts()
         .pipelines()
         .iter()
         .flat_map(|pipeline| unsafe_ps_grep_pipeline_spans(checker, pipeline))
@@ -30,8 +31,14 @@ fn unsafe_ps_grep_pipeline_spans(checker: &Checker<'_>, pipeline: &PipelineFact<
         .segments()
         .windows(2)
         .filter_map(|pair| {
-            let left = checker.facts().command(pair[0].command_id());
-            let right = checker.facts().command(pair[1].command_id());
+            let left = checker
+                .facts()
+                .command_facts()
+                .command(pair[0].command_id());
+            let right = checker
+                .facts()
+                .command_facts()
+                .command(pair[1].command_id());
 
             if !is_raw_utility_named(left, "ps") || !is_raw_utility_named(right, "grep") {
                 return None;

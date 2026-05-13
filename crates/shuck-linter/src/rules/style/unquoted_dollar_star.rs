@@ -32,7 +32,7 @@ pub fn unquoted_dollar_star(checker: &mut Checker) {
         ExpansionContext::SelectList,
     ]
     .into_iter()
-    .flat_map(|context| checker.facts().expansion_word_facts(context))
+    .flat_map(|context| checker.facts().words().expansion_word_facts(context))
     .filter(|fact| !fact.has_literal_affixes())
     .flat_map(unquoted_star_splat_spans)
     .map(|span| {

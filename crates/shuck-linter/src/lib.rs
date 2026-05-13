@@ -83,8 +83,8 @@ pub use facts::{
 };
 /// Fact collection types and stable identifiers into those collections.
 pub use facts::{
-    CommandId, DeclarationKind, FactSpan, LinterFacts, NormalizedCommand, NormalizedDeclaration,
-    WrapperKind,
+    AssignmentFacts, CommandFactQueries, CommandId, CompatFacts, DeclarationKind, FactSpan,
+    LinterFacts, NormalizedCommand, NormalizedDeclaration, SourceFacts, WordFacts, WrapperKind,
 };
 pub(crate) use facts::{
     ComparableNameKey, ComparableNameUseKind, ComparablePathKey, ComparablePathMatchKey,

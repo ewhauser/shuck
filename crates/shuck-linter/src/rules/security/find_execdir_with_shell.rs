@@ -16,6 +16,7 @@ impl Violation for FindExecDirWithShell {
 pub fn find_execdir_with_shell(checker: &mut Checker) {
     let spans = checker
         .facts()
+        .command_facts()
         .structural_commands()
         .filter_map(|fact| fact.options().find_exec_shell())
         .flat_map(|fact| fact.shell_command_spans().iter().copied())

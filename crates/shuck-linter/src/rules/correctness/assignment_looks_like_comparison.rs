@@ -91,7 +91,7 @@ fn assignment_value_looks_like_comparison(
         return None;
     };
 
-    let fact = checker.facts().word_fact(word.span, context)?;
+    let fact = checker.facts().words().word_fact(word.span, context)?;
     if fact.classification().quote != WordQuote::Unquoted {
         return None;
     }

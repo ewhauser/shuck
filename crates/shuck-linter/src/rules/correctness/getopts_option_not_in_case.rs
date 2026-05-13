@@ -20,6 +20,7 @@ impl Violation for GetoptsOptionNotInCase {
 pub fn getopts_option_not_in_case(checker: &mut Checker) {
     let missing = checker
         .facts()
+        .command_facts()
         .getopts_cases()
         .iter()
         .flat_map(|fact| {

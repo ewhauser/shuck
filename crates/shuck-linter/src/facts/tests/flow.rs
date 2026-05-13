@@ -11,6 +11,7 @@ fn assignment_value_facts_ignore_line_continuation_backslashes_for_shell_quoting
 
     with_facts(source, None, |_, facts| {
         let fact = facts
+            .words()
             .expansion_word_facts(ExpansionContext::AssignmentValue)
             .next()
             .expect("assignment value fact should exist");
@@ -25,6 +26,7 @@ fn assignment_value_facts_keep_single_quoted_backslash_newlines_for_shell_quotin
 
     with_facts(source, None, |_, facts| {
         let fact = facts
+            .words()
             .expansion_word_facts(ExpansionContext::AssignmentValue)
             .next()
             .expect("assignment value fact should exist");
@@ -38,7 +40,7 @@ fn background_semicolon_facts_report_plain_semicolons() {
     let source = "#!/bin/bash\necho x &;\necho y & ;\n";
 
     with_facts(source, None, |_, facts| {
-        let spans = facts.background_semicolon_spans();
+        let spans = facts.command_facts().background_semicolon_spans();
 
         assert_eq!(spans.len(), 2);
         assert_eq!(spans[0].slice(source), ";");
@@ -61,7 +63,12 @@ esac
 ";
 
     with_facts(source, None, |_, facts| {
-        assert!(facts.background_semicolon_spans().is_empty());
+        assert!(
+            facts
+                .command_facts()
+                .background_semicolon_spans()
+                .is_empty()
+        );
     });
 }
 
@@ -70,7 +77,7 @@ fn redundant_echo_space_facts_capture_diagnostic_and_edit_spans() {
     let source = "#!/bin/bash\necho foo    bar    baz\necho foo  bar\n";
 
     with_facts(source, None, |_, facts| {
-        let facts = facts.redundant_echo_space_facts();
+        let facts = facts.command_facts().redundant_echo_space_facts();
 
         assert_eq!(facts.len(), 1);
         assert_eq!(
@@ -88,7 +95,12 @@ fn commented_continuation_facts_ignore_plain_comment_only_lines() {
     let source = "#!/bin/sh\necho hello \\\n  #world\n  foo\n";
 
     with_facts(source, None, |_, facts| {
-        assert!(facts.commented_continuation_comment_spans().is_empty());
+        assert!(
+            facts
+                .source_facts()
+                .commented_continuation_comment_spans()
+                .is_empty()
+        );
     });
 }
 
@@ -97,7 +109,7 @@ fn commented_continuation_facts_anchor_at_comment_backslash() {
     let source = "#!/bin/sh\necho hello \\\n  #world \\\n  foo\n";
 
     with_facts(source, None, |_, facts| {
-        let spans = facts.commented_continuation_comment_spans();
+        let spans = facts.source_facts().commented_continuation_comment_spans();
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].start.line, 3);
         assert_eq!(spans[0].start.column, 11);
@@ -118,6 +130,7 @@ fn builds_command_facts_for_wrapped_and_nested_commands() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let outer = facts
+        .command_facts()
         .structural_commands()
         .find(|fact| fact.effective_name_is("printf"))
         .expect("expected structural printf fact");
@@ -161,6 +174,7 @@ fn exposes_structural_commands_and_id_lookups() {
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let structural = facts
+        .command_facts()
         .structural_commands()
         .map(|fact| fact.effective_or_literal_name().unwrap().to_owned())
         .collect::<Vec<_>>();
@@ -174,14 +188,20 @@ fn exposes_structural_commands_and_id_lookups() {
     assert_eq!(all, vec!["echo", "printf"]);
 
     let echo_id = facts
+        .command_facts()
         .command_id_for_stmt(&output.file.body[0])
         .expect("expected command id for top-level stmt");
     assert_eq!(
-        facts.command(echo_id).effective_or_literal_name(),
+        facts
+            .command_facts()
+            .command(echo_id)
+            .effective_or_literal_name(),
         Some("echo")
     );
     assert_eq!(
-        facts.command_id_for_command(&output.file.body[0].command),
+        facts
+            .command_facts()
+            .command_id_for_command(&output.file.body[0].command),
         Some(echo_id)
     );
 }
@@ -263,8 +283,16 @@ fi
             .find(|fact| fact.span().slice(source) == "[[ -f if_path ]]")
             .expect("expected nested if condition command");
         assert!(if_nested.scope_read_source_words().is_empty());
-        assert!(facts.is_if_condition_command(if_nested.id()));
-        assert!(!facts.is_elif_condition_command(if_nested.id()));
+        assert!(
+            facts
+                .command_facts()
+                .is_if_condition_command(if_nested.id())
+        );
+        assert!(
+            !facts
+                .command_facts()
+                .is_elif_condition_command(if_nested.id())
+        );
 
         let elif_nested = facts
             .commands()
@@ -272,7 +300,11 @@ fi
             .find(|fact| fact.span().slice(source) == "[[ -f elif_path ]]")
             .expect("expected nested elif condition command");
         assert!(elif_nested.scope_read_source_words().is_empty());
-        assert!(facts.is_elif_condition_command(elif_nested.id()));
+        assert!(
+            facts
+                .command_facts()
+                .is_elif_condition_command(elif_nested.id())
+        );
     });
 }
 
@@ -359,6 +391,7 @@ fn includes_nested_jq_file_operands_in_writer_scope_reads() {
         );
 
         let cat = facts
+            .command_facts()
             .structural_commands()
             .find(|fact| fact.effective_name_is("cat"))
             .expect("expected structural cat command");
@@ -388,6 +421,7 @@ jq -Lnewmods '.x=1' \"$cfg\"
 
     with_facts(source, None, |_, facts| {
         let jq_commands = facts
+            .command_facts()
             .structural_commands()
             .filter(|fact| fact.effective_name_is("jq"))
             .collect::<Vec<_>>();
@@ -437,8 +471,16 @@ done
             .find(|fact| fact.span().slice(source) == "[[ -f if_path ]]")
             .expect("expected nested if condition command");
         assert!(if_nested.scope_read_source_words().is_empty());
-        assert!(facts.is_if_condition_command(if_nested.id()));
-        assert!(!facts.is_elif_condition_command(if_nested.id()));
+        assert!(
+            facts
+                .command_facts()
+                .is_if_condition_command(if_nested.id())
+        );
+        assert!(
+            !facts
+                .command_facts()
+                .is_elif_condition_command(if_nested.id())
+        );
 
         let elif_nested = facts
             .commands()
@@ -446,7 +488,11 @@ done
             .find(|fact| fact.span().slice(source) == "[[ -f elif_path ]]")
             .expect("expected nested elif condition command");
         assert!(elif_nested.scope_read_source_words().is_empty());
-        assert!(facts.is_elif_condition_command(elif_nested.id()));
+        assert!(
+            facts
+                .command_facts()
+                .is_elif_condition_command(elif_nested.id())
+        );
     });
 }
 
@@ -472,8 +518,16 @@ fi
             .find(|fact| fact.span().slice(source) == "[[ -f if_path ]]")
             .expect("expected nested while condition command");
         assert!(if_nested.scope_read_source_words().is_empty());
-        assert!(facts.is_if_condition_command(if_nested.id()));
-        assert!(!facts.is_elif_condition_command(if_nested.id()));
+        assert!(
+            facts
+                .command_facts()
+                .is_if_condition_command(if_nested.id())
+        );
+        assert!(
+            !facts
+                .command_facts()
+                .is_elif_condition_command(if_nested.id())
+        );
 
         let elif_nested = facts
             .commands()
@@ -481,8 +535,16 @@ fi
             .find(|fact| fact.span().slice(source) == "[[ -f elif_path ]]")
             .expect("expected nested until condition command");
         assert!(elif_nested.scope_read_source_words().is_empty());
-        assert!(facts.is_if_condition_command(elif_nested.id()));
-        assert!(facts.is_elif_condition_command(elif_nested.id()));
+        assert!(
+            facts
+                .command_facts()
+                .is_if_condition_command(elif_nested.id())
+        );
+        assert!(
+            facts
+                .command_facts()
+                .is_elif_condition_command(elif_nested.id())
+        );
     });
 }
 
@@ -525,6 +587,7 @@ done
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .command_facts()
                 .command_substitution_command_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -539,6 +602,7 @@ done
         );
         assert_eq!(
             facts
+                .command_facts()
                 .condition_status_capture_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -564,6 +628,7 @@ while [[ $? -ne 0 ]]; do break; done
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .source_facts()
                 .dollar_question_after_command_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -592,6 +657,7 @@ again=$?
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .command_facts()
                 .condition_status_capture_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -612,7 +678,10 @@ nextcmd
 
     with_facts(source, None, |_, facts| {
         assert!(
-            facts.condition_status_capture_spans().is_empty(),
+            facts
+                .command_facts()
+                .condition_status_capture_spans()
+                .is_empty(),
             "expected no C056 spans for one-off sequential test followup"
         );
     });
@@ -637,6 +706,7 @@ done
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .command_facts()
                 .condition_status_capture_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -662,6 +732,7 @@ fi
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .command_facts()
                 .condition_status_capture_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -685,6 +756,7 @@ helper() {
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .command_facts()
                 .condition_status_capture_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -728,6 +800,7 @@ tend $?
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .command_facts()
                 .condition_status_capture_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -755,6 +828,7 @@ fn collects_c056_for_shellspec_style_followup_chains_when_sibling_groups_continu
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .command_facts()
                 .condition_status_capture_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -778,6 +852,7 @@ check_status() {
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .source_facts()
                 .dollar_question_after_command_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -804,7 +879,7 @@ done
 ";
 
     with_facts(source, None, |_, facts| {
-        let [case] = facts.getopts_cases() else {
+        let [case] = facts.command_facts().getopts_cases() else {
             panic!("expected one getopts case fact");
         };
 
@@ -862,7 +937,7 @@ done
 ";
 
     with_facts(source, None, |_, facts| {
-        let cases = facts.getopts_cases();
+        let cases = facts.command_facts().getopts_cases();
         assert_eq!(cases.len(), 5);
         assert!(cases[0].missing_invalid_flag_handler());
         assert!(!cases[1].missing_invalid_flag_handler());

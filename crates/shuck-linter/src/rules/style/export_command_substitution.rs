@@ -19,7 +19,7 @@ impl Violation for ExportCommandSubstitution {
 pub fn export_command_substitution(checker: &mut Checker) {
     let mut findings = Vec::new();
 
-    for fact in checker.facts().structural_commands() {
+    for fact in checker.facts().command_facts().structural_commands() {
         for probe in fact.declaration_assignment_probes() {
             if !should_report_s010_declaration(
                 checker,

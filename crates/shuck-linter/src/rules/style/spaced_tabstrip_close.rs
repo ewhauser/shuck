@@ -24,6 +24,7 @@ pub fn spaced_tabstrip_close(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .source_facts()
         .spaced_tabstrip_close_spans()
         .iter()
         .copied()

@@ -29,12 +29,14 @@ pub(super) fn is_reportable_variable_reference(
     }
     if checker
         .facts()
+        .assignments()
         .is_c006_presence_tested_name(&reference.name, reference.span)
     {
         return false;
     }
     if checker
         .facts()
+        .words()
         .is_suppressed_subscript_reference(reference.span)
     {
         return false;
@@ -47,6 +49,7 @@ pub(super) fn is_reportable_variable_reference(
             .is_defaulting_parameter_operand_reference(reference.id)
         || checker
             .facts()
+            .assignments()
             .has_prior_c006_suppressing_reference(&reference.name, reference.span)
     {
         return false;

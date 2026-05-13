@@ -21,7 +21,7 @@ pub fn echo_backslash_escapes(checker: &mut Checker) {
     }
 
     checker.report_fact_slice_dedup(
-        |facts| facts.echo_backslash_escape_word_spans(),
+        |facts| facts.words().echo_backslash_escape_word_spans(),
         || EchoBackslashEscapes,
     );
 }

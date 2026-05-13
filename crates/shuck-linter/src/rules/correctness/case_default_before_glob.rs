@@ -25,6 +25,7 @@ pub fn case_default_before_glob(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .command_facts()
         .case_pattern_shadows()
         .iter()
         .map(|shadow| {
@@ -48,15 +49,21 @@ fn case_pattern_deletion_fix(
     pattern_span: Span,
     source: &str,
 ) -> Option<Fix> {
-    let item = checker.facts().case_items().iter().find(|item| {
-        item.item().patterns.iter().any(|pattern| {
-            pattern.span.start.offset == pattern_span.start.offset
-                && pattern.span.end.offset == pattern_span.end.offset
-        })
-    })?;
+    let item = checker
+        .facts()
+        .command_facts()
+        .case_items()
+        .iter()
+        .find(|item| {
+            item.item().patterns.iter().any(|pattern| {
+                pattern.span.start.offset == pattern_span.start.offset
+                    && pattern.span.end.offset == pattern_span.end.offset
+            })
+        })?;
 
     let shadowed_spans = checker
         .facts()
+        .command_facts()
         .case_pattern_shadows()
         .iter()
         .map(|shadow| shadow.shadowed_pattern_span())

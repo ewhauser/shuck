@@ -21,6 +21,7 @@ impl Violation for RedirectClobbersInput {
 pub fn redirect_clobbers_input(checker: &mut Checker) {
     let spans = checker
         .facts()
+        .command_facts()
         .structural_commands()
         .flat_map(clobber_spans_for_command)
         .collect::<Vec<_>>();

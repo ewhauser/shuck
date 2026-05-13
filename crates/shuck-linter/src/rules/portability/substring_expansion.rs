@@ -19,6 +19,7 @@ pub fn substring_expansion(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .words()
         .substring_expansion_fragments()
         .iter()
         .map(|fragment| fragment.span())

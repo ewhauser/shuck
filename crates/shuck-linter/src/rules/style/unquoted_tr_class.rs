@@ -33,7 +33,7 @@ pub fn unquoted_tr_class(checker: &mut Checker) {
         .filter(|fact| fact.effective_name_is("tr") && fact.wrappers().is_empty())
         .flat_map(|fact| {
             fact.body_args().iter().filter_map(|word| {
-                let word_fact = checker.facts().word_fact(
+                let word_fact = checker.facts().words().word_fact(
                     word.span,
                     WordFactContext::Expansion(ExpansionContext::CommandArgument),
                 )?;

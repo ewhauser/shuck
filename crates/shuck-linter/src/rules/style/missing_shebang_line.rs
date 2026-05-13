@@ -17,7 +17,7 @@ pub fn missing_shebang_line(checker: &mut Checker) {
         return;
     }
 
-    if let Some(span) = checker.facts().missing_shebang_line_span() {
+    if let Some(span) = checker.facts().source_facts().missing_shebang_line_span() {
         checker.report(MissingShebangLine, span);
     }
 }

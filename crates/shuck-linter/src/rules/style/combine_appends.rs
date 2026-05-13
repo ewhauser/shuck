@@ -19,12 +19,13 @@ pub fn combine_appends(checker: &mut Checker) {
     let mut bodies: FxHashMap<FactSpan, Vec<StatementFact>> = FxHashMap::default();
     let case_item_body_spans = checker
         .facts()
+        .command_facts()
         .case_items()
         .iter()
         .map(|item| FactSpan::new(item.item().body.span))
         .collect::<FxHashSet<_>>();
 
-    for fact in checker.facts().statement_facts() {
+    for fact in checker.facts().command_facts().statement_facts() {
         if case_item_body_spans.contains(&FactSpan::new(fact.body_span())) {
             continue;
         }
@@ -158,7 +159,10 @@ fn commands_for_statement<'checker, 'ast>(
     checker: &'checker Checker<'ast>,
     statement: &StatementFact,
 ) -> Vec<crate::CommandFactRef<'checker, 'ast>> {
-    let command = checker.facts().command(statement.command_id());
+    let command = checker
+        .facts()
+        .command_facts()
+        .command(statement.command_id());
     let mut command_ids = FxHashSet::default();
     let mut commands = Vec::new();
 
@@ -167,13 +171,19 @@ fn commands_for_statement<'checker, 'ast>(
 
     if let Some(pipeline) = checker
         .facts()
+        .command_facts()
         .pipelines()
         .iter()
         .find(|pipeline| pipeline.span() == command.span())
     {
         for segment in pipeline.segments() {
             if command_ids.insert(segment.command_id()) {
-                commands.push(checker.facts().command(segment.command_id()));
+                commands.push(
+                    checker
+                        .facts()
+                        .command_facts()
+                        .command(segment.command_id()),
+                );
             }
         }
     }

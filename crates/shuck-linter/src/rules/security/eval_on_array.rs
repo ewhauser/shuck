@@ -16,11 +16,13 @@ pub fn eval_on_array(checker: &mut Checker) {
     let locator = checker.locator();
     let command_arg_facts = checker
         .facts()
+        .words()
         .expansion_word_facts(ExpansionContext::CommandArgument)
         .collect::<Vec<_>>();
 
     let spans = checker
         .facts()
+        .command_facts()
         .structural_commands()
         .filter(|fact| fact.effective_name_is("eval"))
         .flat_map(|command| command.body_args())
