@@ -51,7 +51,10 @@ pub fn base_prefix_in_arithmetic(checker: &mut Checker) {
 
 fn base_prefix_fix(span: Span, source: &str) -> Option<Fix> {
     let text = span.slice(source);
-    let (_, digits) = text.split_once('#')?;
+    let (base, digits) = text.split_once('#')?;
+    if base != "10" {
+        return None;
+    }
     if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
@@ -106,6 +109,20 @@ echo ${foo:-$((10#1))}
         assert_eq!(result.fixes_applied, 1);
         assert_eq!(result.fixed_source, "#!/bin/sh\necho $((123))\n");
         assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn skips_unsafe_fix_for_non_decimal_base_prefixes() {
+        let source = "#!/bin/sh\necho $((2#10 + 16#10))\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::BasePrefixInArithmetic),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert_eq!(result.fixed_diagnostics.len(), 2);
     }
 
     #[test]
