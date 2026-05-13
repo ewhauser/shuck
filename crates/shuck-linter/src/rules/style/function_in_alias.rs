@@ -105,6 +105,9 @@ alias foo+bar='echo $1'
 alias foo-bar='echo $1'
 alias foo.bar='echo $1'
 alias 9foo='echo $1'
+alias if='echo $1'
+alias for='echo $1'
+alias function='echo $1'
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionInAlias));
 
@@ -118,6 +121,9 @@ alias 9foo='echo $1'
                 "foo-bar='echo $1'",
                 "foo.bar='echo $1'",
                 "9foo='echo $1'",
+                "if='echo $1'",
+                "for='echo $1'",
+                "function='echo $1'",
             ]
         );
         assert!(
@@ -144,6 +150,16 @@ alias 9foo='echo $1'
                 .iter()
                 .all(|diagnostic| diagnostic.fix.is_none())
         );
+    }
+
+    #[test]
+    fn leaves_wrapped_alias_commands_unfixed() {
+        let source = "#!/bin/sh\nbuiltin alias greet='echo $1'\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionInAlias));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "greet='echo $1'");
+        assert!(diagnostics[0].fix.is_none());
     }
 
     #[test]

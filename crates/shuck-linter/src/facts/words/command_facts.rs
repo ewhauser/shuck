@@ -4,7 +4,7 @@ pub(super) fn build_function_in_alias_facts(
 ) -> Vec<FunctionInAliasFact> {
     let mut facts = commands
         .iter()
-        .filter(|fact| fact.effective_name_is("alias"))
+        .filter(|fact| fact.wrappers().is_empty() && fact.effective_name_is("alias"))
         .filter_map(|fact| {
             let name_start = fact
                 .body_name_word()
@@ -209,7 +209,29 @@ fn function_in_alias_definition_span(words: &[&Word], source: &str) -> Option<Sp
 }
 
 fn literal_alias_name_is_fixable(name: &str) -> bool {
-    is_shell_variable_name(name)
+    is_shell_variable_name(name) && !is_shell_reserved_word(name)
+}
+
+fn is_shell_reserved_word(name: &str) -> bool {
+    matches!(
+        name,
+        "if" | "then"
+            | "else"
+            | "elif"
+            | "fi"
+            | "do"
+            | "done"
+            | "case"
+            | "esac"
+            | "for"
+            | "in"
+            | "while"
+            | "until"
+            | "time"
+            | "function"
+            | "select"
+            | "coproc"
+    )
 }
 
 pub(super) fn static_alias_definition_text(words: &[&Word], source: &str) -> Option<String> {
