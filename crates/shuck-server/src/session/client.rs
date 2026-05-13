@@ -11,6 +11,7 @@ use crate::server::{ConnectionSender, Event, MainLoopSender};
 pub(crate) type ClientResponseHandler =
     Box<dyn FnOnce(&Client, &mut Session, lsp_server::Response) + Send>;
 
+/// Handle used by the server to send LSP messages back to the client.
 #[derive(Clone, Debug)]
 pub struct Client {
     main_loop_sender: MainLoopSender,
@@ -18,6 +19,7 @@ pub struct Client {
 }
 
 impl Client {
+    /// Create a client handle from main-loop and LSP connection channels.
     pub fn new(main_loop_sender: MainLoopSender, client_sender: ConnectionSender) -> Self {
         Self {
             main_loop_sender,

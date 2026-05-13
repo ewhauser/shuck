@@ -1,4 +1,10 @@
-#![allow(missing_docs)]
+#![warn(missing_docs)]
+
+//! Configuration loading and override handling for Shuck commands.
+//!
+//! This crate owns the TOML shapes used by `.shuck.toml`, command-line
+//! `--config` overrides, project-root discovery, and the small metadata model
+//! used to render configuration reference docs.
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -15,6 +21,7 @@ use shuck_formatter::{IndentStyle, ShellDialect};
 use shuck_run::RunConfig;
 
 const CONFIG_FILENAMES: [&str; 2] = [".shuck.toml", "shuck.toml"];
+/// Error shown when users try to set formatter dialect in a config file.
 pub const CONFIG_DIALECT_UNSUPPORTED_ERROR: &str = "`[format].dialect` is not supported; formatter dialect is auto-discovered from the file name or shebang. Use `--dialect` for a per-run override";
 const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] = &["check", "format", "lint", "run"];
 const CONFIG_OVERRIDE_CHECK_KEYS: &[&str] = &["embedded"];
@@ -61,165 +68,253 @@ const CONFIG_OVERRIDE_RUN_KEYS: &[&str] = &["shell", "shell-version", "shells"];
 const CONFIG_OVERRIDE_RUN_SHELL_NAMES: &[&str] =
     &["bash", "gbash", "bashkit", "zsh", "dash", "mksh", "busybox"];
 
+/// Top-level Shuck configuration loaded from project config files.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct ShuckConfig {
+    /// File discovery and embedded-script checking options.
     pub check: CheckConfig,
+    /// Shell formatting options.
     pub format: FormatConfig,
+    /// Linter rule selection, contracts, and analysis options.
     pub lint: LintConfig,
+    /// Runtime shell resolution options for `shuck run`.
     pub run: RunConfig,
 }
 
+/// Configuration for file-level checking behavior.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct CheckConfig {
+    /// Whether to lint embedded shell snippets in supported host files.
     pub embedded: Option<bool>,
 }
 
+/// Configuration for shell formatting behavior.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct FormatConfig {
+    /// Deprecated formatter dialect value retained only to reject config-file use clearly.
     pub dialect: Option<toml::Value>,
+    /// Requested indentation style, such as `tab` or `space`.
     pub indent_style: Option<String>,
+    /// Requested indentation width.
     pub indent_width: Option<u8>,
+    /// Whether binary operators should begin continuation lines.
     pub binary_next_line: Option<bool>,
+    /// Whether `case` arms should receive an extra indentation level.
     pub switch_case_indent: Option<bool>,
+    /// Whether redirection operators should be surrounded by spaces.
     pub space_redirects: Option<bool>,
+    /// Whether existing horizontal padding should be preserved.
     pub keep_padding: Option<bool>,
+    /// Whether function bodies should start on the next line.
     pub function_next_line: Option<bool>,
+    /// Whether the formatter should avoid splitting lines.
     pub never_split: Option<bool>,
 }
 
+/// Configuration for lint rule selection and analysis behavior.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct LintConfig {
+    /// Rule selectors that replace the default enabled rule set.
     pub select: Option<Vec<String>>,
+    /// Rule selectors removed from the enabled rule set.
     pub ignore: Option<Vec<String>>,
+    /// Rule selectors added to the enabled rule set.
     pub extend_select: Option<Vec<String>>,
+    /// Per-file ignore selectors keyed by glob pattern.
     pub per_file_ignores: Option<BTreeMap<String, Vec<String>>>,
+    /// Per-file ignore selectors merged into existing per-file ignores.
     pub extend_per_file_ignores: Option<BTreeMap<String, Vec<String>>>,
+    /// Per-file shell dialect overrides keyed by glob pattern.
     pub per_file_shell: Option<BTreeMap<String, String>>,
+    /// Per-file shell dialect overrides merged into existing overrides.
     pub extend_per_file_shell: Option<BTreeMap<String, String>>,
+    /// Rule selectors that replace the set eligible for automatic fixes.
     pub fixable: Option<Vec<String>>,
+    /// Rule selectors excluded from automatic fixes.
     pub unfixable: Option<Vec<String>>,
+    /// Rule selectors added to the fixable set.
     pub extend_fixable: Option<Vec<String>>,
+    /// Rule-specific option values.
     pub rule_options: Option<LintRuleOptionsConfig>,
+    /// Ambient contract configuration for framework and plugin assumptions.
     pub contracts: Option<LintContractsConfig>,
+    /// Zsh-specific analysis configuration.
     pub zsh: Option<LintZshConfig>,
 }
 
+/// Configuration for ambient contracts used during lint analysis.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LintContractsConfig {
+    /// Whether built-in well-known contracts are enabled.
     pub well_known: Option<bool>,
+    /// Contract identifiers that should be disabled.
     pub disabled: Option<Vec<String>>,
+    /// User-defined contract entries.
     pub custom: Option<Vec<LintCustomContractConfig>>,
 }
 
+/// User-defined ambient contract configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LintCustomContractConfig {
+    /// Stable contract identifier.
     pub id: String,
+    /// Contract identifiers replaced by this contract.
     pub replaces: Option<Vec<String>>,
+    /// Activation condition for this contract.
     pub when: LintContractWhenConfig,
+    /// Glob patterns where this contract applies.
     pub files: Option<Vec<String>>,
+    /// Variables read by the contract before script execution.
     pub reads: Option<Vec<String>>,
+    /// Variable names consumed by the contract.
     pub consumes: Option<LintContractConsumesConfig>,
+    /// Variables or functions provided by the contract.
     pub provides: Option<LintContractProvidesConfig>,
+    /// Function-specific contract entries.
     pub functions: Option<Vec<LintContractFunctionConfig>>,
 }
 
+/// Activation condition for a user-defined contract.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub enum LintContractWhenConfig {
+    /// Always activate using a literal label.
     Always(String),
+    /// Activate when a configured framework, plugin, or theme is detected.
     Activation(LintContractActivationConfig),
 }
 
+/// Framework, plugin, or theme activation details for a contract.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LintContractActivationConfig {
     #[serde(rename = "type")]
+    /// Activation class.
     pub activation_type: LintContractActivationTypeConfig,
+    /// Optional framework name.
     pub framework: Option<String>,
+    /// Optional plugin name.
     pub plugin: Option<String>,
+    /// Optional theme name.
     pub theme: Option<String>,
 }
 
+/// Supported contract activation classes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 pub enum LintContractActivationTypeConfig {
+    /// Activate for a zsh plugin.
     #[serde(rename = "zsh_plugin")]
     ZshPlugin,
+    /// Activate for a zsh theme.
     #[serde(rename = "zsh_theme")]
     ZshTheme,
 }
 
+/// Variables consumed by an ambient contract.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LintContractConsumesConfig {
+    /// Exact variable names consumed by the contract.
     pub names: Option<Vec<String>>,
+    /// Variable-name prefixes consumed by the contract.
     pub prefixes: Option<Vec<String>>,
+    /// Whether the contract may consume any variable.
     pub all: Option<bool>,
 }
 
+/// Values provided by an ambient contract.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LintContractProvidesConfig {
+    /// Variable names provided by the contract.
     pub variables: Option<Vec<String>>,
+    /// Function names provided by the contract.
     pub functions: Option<Vec<String>>,
 }
 
+/// Function-specific ambient contract entry.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LintContractFunctionConfig {
+    /// Function name.
     pub name: String,
+    /// Variables read by the function.
     pub reads: Option<Vec<String>>,
+    /// Variables set by the function.
     pub sets: Option<Vec<String>>,
 }
 
+/// Zsh-specific lint configuration.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LintZshConfig {
+    /// Zsh plugin resolution settings.
     pub plugins: Option<ZshPluginsConfig>,
 }
 
+/// Configuration for zsh plugin and theme resolution.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct ZshPluginsConfig {
+    /// Whether plugin resolution is enabled.
     pub resolution: Option<bool>,
+    /// Named plugin root directories.
     pub roots: Option<BTreeMap<String, String>>,
+    /// Patterns that identify plugin loads.
     pub plugin_loads: Option<Vec<ZshPluginLoadConfig>>,
+    /// Patterns that identify theme loads.
     pub theme_loads: Option<Vec<ZshThemeLoadConfig>>,
+    /// Patterns that provide plugin entrypoint paths.
     pub entrypoints: Option<Vec<ZshPluginEntrypointConfig>>,
 }
 
+/// A configured zsh plugin load pattern.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct ZshPluginLoadConfig {
+    /// Pattern matched against shell source.
     pub pattern: String,
+    /// Framework name that owns the plugin.
     pub framework: String,
+    /// Plugin name.
     pub name: String,
 }
 
+/// A configured zsh theme load pattern.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct ZshThemeLoadConfig {
+    /// Pattern matched against shell source.
     pub pattern: String,
+    /// Framework name that owns the theme.
     pub framework: String,
+    /// Theme name.
     pub name: String,
 }
 
+/// A configured zsh plugin entrypoint pattern.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct ZshPluginEntrypointConfig {
+    /// Pattern matched against shell source.
     pub pattern: String,
+    /// Entrypoint paths associated with the pattern.
     pub paths: Vec<String>,
 }
 
+/// Rule-specific lint options.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LintRuleOptionsConfig {
+    /// Options for rule C001.
     pub c001: Option<C001RuleOptionsConfig>,
+    /// Options for rule C063.
     pub c063: Option<C063RuleOptionsConfig>,
 }
 
@@ -234,9 +329,11 @@ impl LintRuleOptionsConfig {
     }
 }
 
+/// Options for rule C001.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct C001RuleOptionsConfig {
+    /// Whether indirect expansion target names should count as variable usage.
     pub treat_indirect_expansion_targets_as_used: Option<bool>,
 }
 
@@ -249,9 +346,11 @@ impl C001RuleOptionsConfig {
     }
 }
 
+/// Options for rule C063.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct C063RuleOptionsConfig {
+    /// Whether nested function definitions in unreachable branches should be reported.
     pub report_unreached_nested_definitions: Option<bool>,
 }
 
@@ -264,38 +363,62 @@ impl C063RuleOptionsConfig {
     }
 }
 
+/// Partial formatter settings supplied by CLI flags or config files.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FormatSettingsPatch {
+    /// Optional dialect override.
     pub dialect: Option<ShellDialect>,
+    /// Optional indentation style override.
     pub indent_style: Option<IndentStyle>,
+    /// Optional indentation width override.
     pub indent_width: Option<u8>,
+    /// Optional binary-next-line override.
     pub binary_next_line: Option<bool>,
+    /// Optional switch-case indentation override.
     pub switch_case_indent: Option<bool>,
+    /// Optional spaced-redirection override.
     pub space_redirects: Option<bool>,
+    /// Optional padding-preservation override.
     pub keep_padding: Option<bool>,
+    /// Optional function-next-line override.
     pub function_next_line: Option<bool>,
+    /// Optional never-split override.
     pub never_split: Option<bool>,
+    /// Optional simplification override.
     pub simplify: Option<bool>,
+    /// Optional minification override.
     pub minify: Option<bool>,
 }
 
+/// Documentation metadata for a configuration section.
 #[derive(Debug, Clone, Copy)]
 pub struct ConfigSectionMetadata {
+    /// TOML key for the section.
     pub key: &'static str,
+    /// Human-readable section description.
     pub docs: &'static str,
+    /// Documented scalar fields in this section.
     pub fields: &'static [ConfigFieldMetadata],
+    /// Nested subsections.
     pub sections: &'static [ConfigSectionMetadata],
 }
 
+/// Documentation metadata for a configuration field.
 #[derive(Debug, Clone, Copy)]
 pub struct ConfigFieldMetadata {
+    /// TOML key for the field.
     pub key: &'static str,
+    /// Human-readable field description.
     pub docs: &'static str,
+    /// Display form of the default value.
     pub default: &'static str,
+    /// Display form of the accepted value type.
     pub value_type: &'static str,
+    /// Example TOML assignment.
     pub example: &'static str,
 }
 
+/// Return metadata used to render the configuration reference.
 pub fn configuration_metadata() -> &'static [ConfigSectionMetadata] {
     &CONFIGURATION_METADATA
 }
@@ -652,6 +775,7 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
     },
 ];
 
+/// Resolved command-line configuration arguments.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ConfigArguments {
     isolated: bool,
@@ -660,6 +784,7 @@ pub struct ConfigArguments {
 }
 
 impl ConfigArguments {
+    /// Parse `--config` occurrences and `--isolated` into config-loading arguments.
     pub fn from_cli(
         config_options: Vec<SingleConfigArgument>,
         isolated: bool,
@@ -717,21 +842,27 @@ You cannot specify more than one configuration file on the command line.
         })
     }
 
+    /// Return whether project-root discovery should use config files as roots.
     pub fn use_config_roots(&self) -> bool {
         !self.isolated && self.config_file.is_none()
     }
 
+    /// Return the explicitly requested config file, if one was provided.
     pub fn explicit_config_file(&self) -> Option<&Path> {
         self.config_file.as_deref()
     }
 }
 
+/// A single `--config` command-line value.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SingleConfigArgument {
+    /// Path to a config file.
     FilePath(PathBuf),
+    /// Inline TOML override value.
     SettingsOverride(Box<ShuckConfig>),
 }
 
+/// Clap value parser for [`SingleConfigArgument`].
 #[derive(Clone)]
 pub struct ConfigArgumentParser;
 
@@ -768,6 +899,10 @@ impl TypedValueParser for ConfigArgumentParser {
     }
 }
 
+/// Resolve the project root for an input path.
+///
+/// When `use_config_roots` is true, parent directories are searched for
+/// `.shuck.toml` or `shuck.toml` and the closest match becomes the root.
 pub fn resolve_project_root_for_input(input: &Path, use_config_roots: bool) -> io::Result<PathBuf> {
     let base_dir = base_dir_for_input(input)?;
     if use_config_roots {
@@ -777,6 +912,10 @@ pub fn resolve_project_root_for_input(input: &Path, use_config_roots: bool) -> i
     }
 }
 
+/// Resolve the project root for a file path with a fallback starting directory.
+///
+/// This is used for inputs such as standard input where the logical file path
+/// may differ from the current working directory.
 pub fn resolve_project_root_for_file(
     file: &Path,
     fallback_start: &Path,
@@ -793,6 +932,7 @@ pub fn resolve_project_root_for_file(
     }
 }
 
+/// Load project configuration and apply command-line overrides.
 pub fn load_project_config(
     project_root: &Path,
     config_arguments: &ConfigArguments,
@@ -812,11 +952,13 @@ pub fn load_project_config(
     Ok(config)
 }
 
+/// Apply override values to an already loaded config.
 pub fn apply_config_overrides(config: &mut ShuckConfig, overrides: ShuckConfig) {
     config.apply_overrides(overrides);
 }
 
 impl FormatConfig {
+    /// Convert formatter config-file values into a formatter settings patch.
     pub fn to_patch(&self) -> Result<FormatSettingsPatch> {
         if self.dialect.is_some() {
             return Err(anyhow!(CONFIG_DIALECT_UNSUPPORTED_ERROR));
@@ -1261,6 +1403,7 @@ A `--config` flag must either be a path to a `.toml` configuration file
     error
 }
 
+/// Parse a config-file indentation style value.
 pub fn parse_config_indent_style(value: &str) -> Result<IndentStyle> {
     match value.trim().to_ascii_lowercase().as_str() {
         "tab" => Ok(IndentStyle::Tab),
@@ -1325,6 +1468,7 @@ fn config_path_for_root(root: &Path) -> io::Result<Option<PathBuf>> {
     Ok(None)
 }
 
+/// Return the config file path located directly under `root`, if any.
 pub fn discovered_config_path_for_root(root: &Path) -> io::Result<Option<PathBuf>> {
     config_path_for_root(root)
 }

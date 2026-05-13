@@ -25,6 +25,7 @@ mod schedule;
 
 pub(crate) type Result<T> = std::result::Result<T, api::Error>;
 
+/// Initialized Shuck LSP server.
 pub struct Server {
     connection: Connection,
     client_capabilities: ClientCapabilities,
@@ -96,6 +97,7 @@ impl Server {
         })
     }
 
+    /// Run the server main loop until shutdown or error.
     pub fn run(mut self) -> crate::Result<()> {
         let panic_client = Client::new(
             self.main_loop_sender.clone(),

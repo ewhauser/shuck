@@ -50,6 +50,7 @@ pub(crate) struct ParseErrorDiagnostic {
     pub(crate) message: String,
 }
 
+/// Generate LSP diagnostics for a document snapshot.
 pub fn generate_diagnostics(snapshot: &DocumentSnapshot) -> Vec<types::Diagnostic> {
     let query = snapshot.query();
     let source = query.document().contents();

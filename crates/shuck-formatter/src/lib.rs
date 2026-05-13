@@ -5,7 +5,6 @@
 //! The previous formatter implementation has been removed so the formatter can
 //! be rebuilt from stubs.
 
-#[allow(missing_docs)]
 mod options;
 
 use std::path::Path;

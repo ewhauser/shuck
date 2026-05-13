@@ -8,6 +8,7 @@ use crate::{Client, logging};
 
 pub(crate) type WorkspaceOptionsMap = FxHashMap<Url, ClientOptions>;
 
+/// Global initialization options accepted by the Shuck LSP server.
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GlobalOptions {
@@ -18,23 +19,30 @@ pub struct GlobalOptions {
 }
 
 impl GlobalOptions {
+    /// Resolve client-provided options into runtime global settings.
     pub fn into_settings(self, client: Client) -> GlobalClientSettings {
         GlobalClientSettings::new(self.client, client)
     }
 }
 
+/// Per-client or per-workspace Shuck options supplied through LSP settings.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientOptions {
     #[serde(default)]
+    /// Lint configuration overrides.
     pub lint: Option<LintConfig>,
     #[serde(default)]
+    /// Format configuration overrides.
     pub format: Option<FormatConfig>,
     #[serde(default)]
+    /// Whether source-level fix-all actions are enabled.
     pub fix_all: Option<bool>,
     #[serde(default)]
+    /// Whether unsafe fixes may be offered.
     pub unsafe_fixes: Option<bool>,
     #[serde(default)]
+    /// Whether parser diagnostics should be shown.
     pub show_syntax_errors: Option<bool>,
 }
 
