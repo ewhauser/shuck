@@ -122,6 +122,21 @@ mod tests {
     }
 
     #[test]
+    fn leaves_complex_subscript_update_operators_unfixed() {
+        let source = "#!/bin/sh\n((++arr[$(printf ']')]))\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::CStyleForArithmeticInSh),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert_eq!(result.fixed_diagnostics.len(), 1);
+        assert_eq!(result.fixed_diagnostics[0].span.slice(source), "++");
+    }
+
+    #[test]
     fn anchors_on_update_operators_inside_arithmetic_expansions() {
         let source = "#!/bin/sh\necho \"$((++i)) $((j--))\"\n";
         let diagnostics = test_snippet(

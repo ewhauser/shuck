@@ -1934,6 +1934,7 @@ fn scan_balanced_bracket_end(source: &str, open: usize) -> Option<usize> {
                     return Some(index + 1);
                 }
             }
+            b'\'' | b'"' | b'`' | b'$' => return None,
             b'\n' => return None,
             _ => {}
         }
@@ -1956,6 +1957,7 @@ fn scan_balanced_bracket_start(source: &str, close: usize) -> Option<usize> {
                     return Some(index);
                 }
             }
+            b'\'' | b'"' | b'`' | b'$' => return None,
             b'\n' => return None,
             _ => {}
         }
