@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-repo_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+repo_root=$(CDPATH="" cd -- "$(dirname "$0")/../.." && pwd)
 shuck="$repo_root/target/release/shuck"
 timeout_runner="$repo_root/scripts/benchmarks/with_timeout.sh"
 timeout_secs=${SHUCK_FORMAT_BENCH_TIMEOUT_SECS:-3}

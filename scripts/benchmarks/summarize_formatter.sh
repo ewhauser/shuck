@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-repo_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+repo_root=$(CDPATH="" cd -- "$(dirname "$0")/../.." && pwd)
 cache_dir=${1:-"$repo_root/.cache"}
 
 if ! command -v yq >/dev/null 2>&1; then

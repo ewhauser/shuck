@@ -682,12 +682,12 @@
       "ksh"
     ],
     "shellcheckCode": "SC1007",
-    "implemented": false,
-    "status": "planned",
+    "implemented": true,
+    "status": "implemented",
     "hasKnownShellcheckDivergences": false,
-    "severity": null,
-    "fixStatus": "planned",
-    "fixAvailability": "none",
+    "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
     "fixSafety": "unsafe",
     "fixDescription": "Delete the whitespace immediately after `=` so the assignment becomes one shell word.",
     "examples": [

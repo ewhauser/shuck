@@ -1,0 +1,77 @@
+---
+source: crates/shuck-linter/src/rules/correctness/assignment_spacing.rs
+---
+Diagnostics:
+C024 a space after `=` keeps this from being one assignment word
+ --> <source>:3:5
+  |
+3 | foo= bar
+  |
+
+C024 a space after `=` keeps this from being one assignment word
+ --> <source>:4:6
+  |
+4 | foo+= append
+  |
+
+C024 a space after `=` keeps this from being one assignment word
+ --> <source>:5:3
+  |
+5 | A= B= cmd
+  |
+
+C024 a space after `=` keeps this from being one assignment word
+ --> <source>:5:6
+  |
+5 | A= B= cmd
+  |
+
+C024 a space after `=` keeps this from being one assignment word
+ --> <source>:6:13
+  |
+6 | export left= right other= value
+  |
+
+C024 a space after `=` keeps this from being one assignment word
+ --> <source>:6:26
+  |
+6 | export left= right other= value
+  |
+
+
+Applied fixes: 6
+
+Diff:
+--- before
++++ after
+@@ -1,9 +1,9 @@
+ #!/bin/sh
+ 
+-foo= bar
+-foo+= append
+-A= B= cmd
+-export left= right other= value
++foo=bar
++foo+=append
++A=B=cmd
++export left=right other=value
+ 
+ foo=bar
+ foo=
+
+Fixed source:
+#!/bin/sh
+
+foo=bar
+foo+=append
+A=B=cmd
+export left=right other=value
+
+foo=bar
+foo=
+foo =bar
+echo foo= bar
+export done=
+
+Remaining diagnostics:
+<none>

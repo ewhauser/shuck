@@ -23,7 +23,7 @@
 #   SHUCK_BENCHMARK_MANIFEST    manifest path for SHA pinning (optional)
 set -eu
 
-repo_root=${SHUCK_BENCHMARK_REPO_ROOT:-$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)}
+repo_root=${SHUCK_BENCHMARK_REPO_ROOT:-$(CDPATH="" cd -- "$(dirname "$0")/../.." && pwd)}
 manifest_file=${SHUCK_BENCHMARK_MANIFEST:-"$repo_root/.cache/large-corpus/manifest.yaml"}
 # Cache clones in $HOME so reruns reuse them. We deliberately don't follow
 # $TMPDIR — nix develop overrides it to a per-session path, which would

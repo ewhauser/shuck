@@ -1,0 +1,38 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C024 a space after `=` keeps this from being one assignment word
+ --> <source>:3:5
+  |
+3 | foo= bar
+  |
+
+C024 a space after `=` keeps this from being one assignment word
+ --> <source>:4:6
+  |
+4 | foo+= append
+  |
+
+C024 a space after `=` keeps this from being one assignment word
+ --> <source>:5:3
+  |
+5 | A= B= cmd
+  |
+
+C024 a space after `=` keeps this from being one assignment word
+ --> <source>:5:6
+  |
+5 | A= B= cmd
+  |
+
+C024 a space after `=` keeps this from being one assignment word
+ --> <source>:6:13
+  |
+6 | export left= right other= value
+  |
+
+C024 a space after `=` keeps this from being one assignment word
+ --> <source>:6:26
+  |
+6 | export left= right other= value
+  |

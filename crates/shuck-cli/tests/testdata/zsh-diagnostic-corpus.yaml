@@ -1043,6 +1043,28 @@ repos:
           line: 17
           column: 38
         classification: real
+      - path: "script/bootstrap"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 56
+          column: 19
+        end:
+          line: 56
+          column: 20
+        classification: real
+      - path: "script/bootstrap"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 56
+          column: 27
+        end:
+          line: 56
+          column: 28
+        classification: real
   - name: "ohmyzsh"
     github_url: "https://github.com/ohmyzsh/ohmyzsh.git"
     commit: "e64912e0c1eaa32181c3b5e5e4bf8042ecd0e8a7"
@@ -6964,6 +6986,83 @@ repos:
         end:
           line: 257
           column: 38
+        classification: real
+      - path: "plugins/gitfast/git-completion.bash"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 697
+          column: 15
+        end:
+          line: 697
+          column: 16
+        classification: real
+      - path: "plugins/gitfast/git-completion.bash"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 697
+          column: 21
+        end:
+          line: 697
+          column: 22
+        classification: real
+      - path: "plugins/gitfast/git-completion.bash"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 697
+          column: 26
+        end:
+          line: 697
+          column: 27
+        classification: real
+      - path: "plugins/gitfast/git-completion.bash"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 1005
+          column: 25
+        end:
+          line: 1005
+          column: 26
+        classification: real
+      - path: "plugins/gitfast/git-completion.bash"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 1129
+          column: 15
+        end:
+          line: 1129
+          column: 16
+        classification: real
+      - path: "plugins/gitfast/git-completion.bash"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 2347
+          column: 34
+        end:
+          line: 2347
+          column: 35
+        classification: real
+      - path: "tools/install.sh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 113
+          column: 10
+        end:
+          line: 113
+          column: 11
         classification: real
   - name: "powerlevel10k"
     github_url: "https://github.com/romkatv/powerlevel10k.git"
@@ -12909,6 +13008,171 @@ repos:
           line: 94
           column: 48
         classification: real
+      - path: "gitstatus/gitstatus.plugin.sh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 363
+          column: 17
+        end:
+          line: 363
+          column: 18
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 21
+          column: 18
+        end:
+          line: 21
+          column: 19
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 21
+          column: 30
+        end:
+          line: 21
+          column: 31
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 21
+          column: 39
+        end:
+          line: 21
+          column: 40
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 21
+          column: 48
+        end:
+          line: 21
+          column: 49
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 21
+          column: 63
+        end:
+          line: 21
+          column: 64
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 21
+          column: 74
+        end:
+          line: 21
+          column: 75
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 22
+          column: 13
+        end:
+          line: 22
+          column: 14
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 22
+          column: 21
+        end:
+          line: 22
+          column: 22
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 157
+          column: 31
+        end:
+          line: 157
+          column: 32
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 176
+          column: 24
+        end:
+          line: 176
+          column: 25
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 176
+          column: 38
+        end:
+          line: 176
+          column: 39
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 176
+          column: 44
+        end:
+          line: 176
+          column: 45
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 176
+          column: 53
+        end:
+          line: 176
+          column: 54
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 287
+          column: 23
+        end:
+          line: 287
+          column: 24
+        classification: real
   - name: "prezto"
     github_url: "https://github.com/sorin-ionescu/prezto.git"
     commit: "cff2d01871425b1b80710f8ec6a475c5a53145b4"
@@ -13686,6 +13950,17 @@ repos:
         end:
           line: 49
           column: 41
+        classification: real
+      - path: "hooks/post-up"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 24
+          column: 16
+        end:
+          line: 24
+          column: 17
         classification: real
   - name: "zdot"
     github_url: "https://github.com/georgeharker/zdot.git"

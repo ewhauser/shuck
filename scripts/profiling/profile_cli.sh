@@ -6,7 +6,7 @@ profile_root=${2:-.cache/profiles}
 rate=${3:-1000}
 iterations=${4:-1}
 
-repo_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+repo_root=$(CDPATH="" cd -- "$(dirname "$0")/../.." && pwd)
 output_dir="$repo_root/$profile_root/cli"
 
 case "$target_file" in
