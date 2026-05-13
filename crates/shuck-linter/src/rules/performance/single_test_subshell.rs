@@ -38,7 +38,7 @@ fn remove_outer_parens_fix(source: &str, span: Span) -> Fix {
             opening_paren_delete_start(source, span.start.offset),
             span.start.offset + 1,
         ),
-        Edit::deletion_at(close_start, closing_paren_delete_end(source, close_start)),
+        closing_paren_edit(source, close_start),
     ])
 }
 
@@ -59,9 +59,9 @@ fn opening_paren_delete_start(source: &str, open_start: usize) -> usize {
     start
 }
 
-fn closing_paren_delete_end(source: &str, close_start: usize) -> usize {
+fn closing_paren_edit(source: &str, close_start: usize) -> Edit {
     if !offset_is_indented_line_start(source, close_start) {
-        return close_start + 1;
+        return Edit::deletion_at(close_start, close_start + 1);
     }
 
     let mut end = close_start + 1;
@@ -72,11 +72,11 @@ fn closing_paren_delete_end(source: &str, close_start: usize) -> usize {
     {
         end += 1;
     }
-    if source.as_bytes().get(end) != Some(&b';') {
-        return close_start + 1;
-    }
+    let Some((operator, operator_len)) = close_cleanup_operator(source, end) else {
+        return Edit::deletion_at(close_start, close_start + 1);
+    };
 
-    end += 1;
+    end += operator_len;
     while source
         .as_bytes()
         .get(end)
@@ -84,7 +84,26 @@ fn closing_paren_delete_end(source: &str, close_start: usize) -> usize {
     {
         end += 1;
     }
-    end
+
+    if operator == ";" {
+        Edit::deletion_at(close_start, end)
+    } else {
+        let line_break = source[..close_start].rfind('\n').unwrap_or(close_start);
+        Edit::replacement_at(line_break, end, format!(" {operator} "))
+    }
+}
+
+fn close_cleanup_operator(source: &str, offset: usize) -> Option<(&str, usize)> {
+    let rest = source.get(offset..)?;
+    if rest.starts_with(';') {
+        Some((";", 1))
+    } else if rest.starts_with("&&") {
+        Some(("&&", 2))
+    } else if rest.starts_with("||") {
+        Some(("||", 2))
+    } else {
+        None
+    }
 }
 
 fn offset_is_indented_line_start(source: &str, offset: usize) -> bool {
@@ -181,5 +200,28 @@ fi
 "
         );
         assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn closing_paren_edit_joins_multiline_list_operator() {
+        let source = "\
+#!/bin/sh
+if (
+  test -f a
+)&& echo y
+then
+  :
+fi
+";
+        let close_start = source.find(")&&").expect("expected close paren");
+        let edit = super::closing_paren_edit(source, close_start);
+        let line_break = source.find("\n)&&").expect("expected close line break");
+        let echo_start = source
+            .find("echo y")
+            .expect("expected command after operator");
+
+        assert_eq!(usize::from(edit.range().start()), line_break);
+        assert_eq!(usize::from(edit.range().end()), echo_start);
+        assert_eq!(edit.content(), " && ");
     }
 }

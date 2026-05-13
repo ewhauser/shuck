@@ -40,20 +40,38 @@ pub fn if_dollar_command(checker: &mut Checker) {
 fn if_dollar_command_fix(span: Span, source: &str) -> Option<(Span, Fix)> {
     let text = span.slice(source);
     let body = text.strip_prefix("$(")?.strip_suffix(')')?;
+    let close_cleanup = command_substitution_close_cleanup(span, source);
     Some((
         span,
         Fix::unsafe_edit(Edit::replacement_at(
             span.start.offset,
-            command_substitution_replacement_end(span, source),
-            body,
+            close_cleanup.end,
+            close_cleanup.replacement_body(body),
         )),
     ))
 }
 
-fn command_substitution_replacement_end(span: Span, source: &str) -> usize {
+struct CloseCleanup<'a> {
+    end: usize,
+    list_operator: Option<&'a str>,
+}
+
+impl CloseCleanup<'_> {
+    fn replacement_body(&self, body: &str) -> String {
+        match self.list_operator {
+            Some(operator) => body_with_trailing_list_operator(body, operator),
+            None => body.to_owned(),
+        }
+    }
+}
+
+fn command_substitution_close_cleanup<'a>(span: Span, source: &'a str) -> CloseCleanup<'a> {
     let close_start = span.end.offset.saturating_sub(1);
     if !offset_is_indented_line_start(source, close_start) {
-        return span.end.offset;
+        return CloseCleanup {
+            end: span.end.offset,
+            list_operator: None,
+        };
     }
 
     let mut end = span.end.offset;
@@ -64,11 +82,14 @@ fn command_substitution_replacement_end(span: Span, source: &str) -> usize {
     {
         end += 1;
     }
-    if source.as_bytes().get(end) != Some(&b';') {
-        return span.end.offset;
-    }
+    let Some((operator, operator_len)) = close_cleanup_operator(source, end) else {
+        return CloseCleanup {
+            end: span.end.offset,
+            list_operator: None,
+        };
+    };
 
-    end += 1;
+    end += operator_len;
     while source
         .as_bytes()
         .get(end)
@@ -76,7 +97,33 @@ fn command_substitution_replacement_end(span: Span, source: &str) -> usize {
     {
         end += 1;
     }
-    end
+
+    CloseCleanup {
+        end,
+        list_operator: (operator != ";").then_some(operator),
+    }
+}
+
+fn close_cleanup_operator(source: &str, offset: usize) -> Option<(&str, usize)> {
+    let rest = source.get(offset..)?;
+    if rest.starts_with(';') {
+        Some((";", 1))
+    } else if rest.starts_with("&&") {
+        Some(("&&", 2))
+    } else if rest.starts_with("||") {
+        Some(("||", 2))
+    } else {
+        None
+    }
+}
+
+fn body_with_trailing_list_operator(body: &str, operator: &str) -> String {
+    let trimmed = body.trim_end_matches([' ', '\t']);
+    if let Some(without_newline) = trimmed.strip_suffix('\n') {
+        format!("{without_newline} {operator} ")
+    } else {
+        format!("{trimmed} {operator} ")
+    }
 }
 
 fn offset_is_indented_line_start(source: &str, offset: usize) -> bool {
@@ -199,6 +246,38 @@ fi
                 "#!/bin/bash\n",
                 "if \n",
                 "  false\n",
+                "then\n",
+                "  :\n",
+                "fi\n",
+            )
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_multiline_command_substitution_condition_with_list_operator() {
+        let source = "\
+#!/bin/bash
+if $(
+  false
+)&& echo x
+then
+  :
+fi
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::IfDollarCommand),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            concat!(
+                "#!/bin/bash\n",
+                "if \n",
+                "  false && echo x\n",
                 "then\n",
                 "  :\n",
                 "fi\n",
