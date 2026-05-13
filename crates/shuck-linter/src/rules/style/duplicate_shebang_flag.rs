@@ -13,7 +13,7 @@ impl Violation for DuplicateShebangFlag {
 }
 
 pub fn duplicate_shebang_flag(checker: &mut Checker) {
-    if let Some(span) = checker.facts().duplicate_shebang_flag_span() {
+    if let Some(span) = checker.facts().source_facts().duplicate_shebang_flag_span() {
         checker.report(DuplicateShebangFlag, span);
     }
 }

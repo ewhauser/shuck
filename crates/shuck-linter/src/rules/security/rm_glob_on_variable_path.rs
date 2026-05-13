@@ -18,6 +18,7 @@ pub fn rm_glob_on_variable_path(checker: &mut Checker) {
     let source = checker.source();
     let reportable_word_spans = checker
         .facts()
+        .words()
         .expansion_word_facts(ExpansionContext::CommandArgument)
         .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
         .filter(|fact| {
@@ -30,6 +31,7 @@ pub fn rm_glob_on_variable_path(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .command_facts()
         .structural_commands()
         .filter(|fact| fact.effective_name_is("rm"))
         .filter_map(|fact| fact.options().rm().map(|rm| (fact.id(), rm)))

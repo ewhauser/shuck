@@ -15,6 +15,7 @@ impl Violation for LegacyBackticks {
 pub fn legacy_backticks(checker: &mut Checker) {
     let spans = checker
         .facts()
+        .words()
         .backtick_fragments()
         .iter()
         .filter(|fragment| !fragment.is_empty())

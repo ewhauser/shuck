@@ -69,6 +69,7 @@ if [[ \"$@\" =~ x ]]; then :; fi
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .words()
                 .backtick_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
@@ -77,6 +78,7 @@ if [[ \"$@\" =~ x ]]; then :; fi
         );
         assert_eq!(
             facts
+                .words()
                 .legacy_arithmetic_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
@@ -85,6 +87,7 @@ if [[ \"$@\" =~ x ]]; then :; fi
         );
         assert_eq!(
             facts
+                .words()
                 .positional_parameter_fragments()
                 .iter()
                 .map(|fragment| {
@@ -143,6 +146,7 @@ if [[ \"$@\" =~ x ]]; then :; fi
         );
         assert_eq!(
             facts
+                .words()
                 .open_double_quote_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
@@ -151,6 +155,7 @@ if [[ \"$@\" =~ x ]]; then :; fi
         );
         assert_eq!(
             facts
+                .words()
                 .open_double_quote_fragments()
                 .iter()
                 .map(|fragment| fragment.replacement_span().slice(source))
@@ -159,6 +164,7 @@ if [[ \"$@\" =~ x ]]; then :; fi
         );
         assert_eq!(
             facts
+                .words()
                 .open_double_quote_fragments()
                 .iter()
                 .map(|fragment| fragment.replacement().to_owned())
@@ -167,19 +173,21 @@ if [[ \"$@\" =~ x ]]; then :; fi
         );
         assert_eq!(
             facts
+                .words()
                 .suspect_closing_quote_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
                 .collect::<Vec<_>>(),
             vec![""]
         );
-        assert_eq!(facts.positional_parameter_operator_spans().len(), 1);
-        let operator_span = facts.positional_parameter_operator_spans()[0];
+        assert_eq!(facts.words().positional_parameter_operator_spans().len(), 1);
+        let operator_span = facts.words().positional_parameter_operator_spans()[0];
         assert_eq!(operator_span.start.line, 6);
         assert_eq!(operator_span.start.column, 7);
         assert_eq!(operator_span.end, operator_span.start);
 
         let single_quoted = facts
+            .words()
             .single_quoted_fragments()
             .iter()
             .map(|fragment| {
@@ -222,6 +230,7 @@ if [[ \"$@\" =~ x ]]; then :; fi
         );
         assert_eq!(
             facts
+                .words()
                 .dollar_double_quoted_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
@@ -230,6 +239,7 @@ if [[ \"$@\" =~ x ]]; then :; fi
         );
         assert_eq!(
             facts
+                .words()
                 .indirect_expansion_fragments()
                 .iter()
                 .map(|fragment| (fragment.span().slice(source), fragment.array_keys()))
@@ -243,6 +253,7 @@ if [[ \"$@\" =~ x ]]; then :; fi
         );
         assert_eq!(
             facts
+                .words()
                 .indexed_array_reference_fragments()
                 .iter()
                 .map(|fragment| {
@@ -272,11 +283,15 @@ if [[ \"$@\" =~ x ]]; then :; fi
             ]
         );
         assert!(
-            facts.zsh_parameter_index_flag_fragments().is_empty(),
+            facts
+                .words()
+                .zsh_parameter_index_flag_fragments()
+                .is_empty(),
             "did not expect quoted-target index facts in the baseline surface fixture"
         );
         assert_eq!(
             facts
+                .words()
                 .substring_expansion_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
@@ -293,6 +308,7 @@ if [[ \"$@\" =~ x ]]; then :; fi
         );
         assert_eq!(
             facts
+                .words()
                 .case_modification_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
@@ -307,6 +323,7 @@ if [[ \"$@\" =~ x ]]; then :; fi
         );
         assert_eq!(
             facts
+                .words()
                 .replacement_expansion_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
@@ -324,12 +341,14 @@ if [[ \"$@\" =~ x ]]; then :; fi
         );
 
         let jq = facts
+            .command_facts()
             .structural_commands()
             .find(|fact| fact.static_utility_name_is("jq"))
             .expect("expected jq command fact");
         assert_eq!(jq.static_utility_name(), Some("jq"));
 
         let tail = facts
+            .command_facts()
             .pipelines()
             .first()
             .and_then(|pipeline| pipeline.last_segment())
@@ -353,7 +372,7 @@ EOF
 
     with_facts(source, None, |_, facts| {
         assert!(
-            facts.single_quoted_fragments().is_empty(),
+            facts.words().single_quoted_fragments().is_empty(),
             "expected heredoc payload quotes to stay out of single-quoted shell fragments"
         );
     });
@@ -368,6 +387,7 @@ bash --init-file \"${BASH_IT?}/bash_it.sh\" -i <<< '_bash-it-flash-term \"${#BAS
 
     with_facts(source, None, |_, facts| {
         let fragment = facts
+            .words()
             .single_quoted_fragments()
             .iter()
             .find(|fragment| {
@@ -391,6 +411,7 @@ bash > '$HOME'
 
     with_facts(source, None, |_, facts| {
         let fragment = facts
+            .words()
             .single_quoted_fragments()
             .iter()
             .find(|fragment| fragment.span().slice(source) == "'$HOME'")
@@ -418,6 +439,7 @@ printf '%s\\n' a'\\'bc
 
     with_facts(source, None, |_, facts| {
         let flagged = facts
+            .words()
             .single_quoted_fragments()
             .iter()
             .filter_map(|fragment| {
@@ -454,6 +476,7 @@ eval "$(printf '%s\n' x | "$10_rework")"
 
     with_facts(source, None, |_, facts| {
         let above_nine = facts
+            .words()
             .positional_parameter_fragments()
             .iter()
             .filter(|fragment| fragment.is_above_nine())
@@ -481,6 +504,7 @@ echo $[$[1 + 2] + 3]
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .words()
                 .legacy_arithmetic_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
@@ -516,11 +540,13 @@ LD_LIBRARY_PATH=\"$JVM_LD_LIBRARY_PATH\":\\$this_dir \\
 
     with_facts(source, None, |_, facts| {
         let open = facts
+            .words()
             .open_double_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
             .collect::<Vec<_>>();
         let close = facts
+            .words()
             .suspect_closing_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
@@ -551,8 +577,8 @@ LD_LIBRARY_PATH=\\\"\\$JVM_LD_LIBRARY_PATH\\\":\\$this_dir \\
 ";
 
     with_facts(source, None, |_, facts| {
-        assert!(facts.open_double_quote_fragments().is_empty());
-        assert!(facts.suspect_closing_quote_fragments().is_empty());
+        assert!(facts.words().open_double_quote_fragments().is_empty());
+        assert!(facts.words().suspect_closing_quote_fragments().is_empty());
     });
 }
 
@@ -567,11 +593,13 @@ say \"configure\" now
 
     with_facts(source, None, |_, facts| {
         let open = facts
+            .words()
             .open_double_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
             .collect::<Vec<_>>();
         let close = facts
+            .words()
             .suspect_closing_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
@@ -580,7 +608,7 @@ say \"configure\" now
         assert_eq!(open, vec![(2, 6)]);
         assert_eq!(close, vec![(3, 5)]);
         assert_eq!(
-            facts.open_double_quote_fragments()[0].replacement(),
+            facts.words().open_double_quote_fragments()[0].replacement(),
             "\"help text\nsay configure now\n\""
         );
     });
@@ -595,7 +623,7 @@ beta''tail'
 ";
 
     with_facts(source, None, |_, facts| {
-        let fragment = &facts.open_double_quote_fragments()[0];
+        let fragment = &facts.words().open_double_quote_fragments()[0];
 
         assert_eq!(
             fragment.replacement_span().slice(source),
@@ -615,11 +643,13 @@ line two\"\\foo\"tail\"
 
     with_facts(source, None, |_, facts| {
         let open = facts
+            .words()
             .open_double_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
             .collect::<Vec<_>>();
         let close = facts
+            .words()
             .suspect_closing_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
@@ -640,11 +670,13 @@ line two\"suffix
 
     with_facts(source, None, |_, facts| {
         let open = facts
+            .words()
             .open_double_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
             .collect::<Vec<_>>();
         let close = facts
+            .words()
             .suspect_closing_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
@@ -665,11 +697,13 @@ line two\"$suffix
 
     with_facts(source, None, |_, facts| {
         let open = facts
+            .words()
             .open_double_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
             .collect::<Vec<_>>();
         let close = facts
+            .words()
             .suspect_closing_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
@@ -690,11 +724,13 @@ line two\"$suffix
 
     with_facts(source, None, |_, facts| {
         let open = facts
+            .words()
             .open_double_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
             .collect::<Vec<_>>();
         let close = facts
+            .words()
             .suspect_closing_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
@@ -715,11 +751,13 @@ line two''tail'
 
     with_facts(source, None, |_, facts| {
         let open = facts
+            .words()
             .open_double_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
             .collect::<Vec<_>>();
         let close = facts
+            .words()
             .suspect_closing_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
@@ -747,11 +785,13 @@ enable_shared_with_static_runtimes=yes
 
     with_facts(source, None, |_, facts| {
         let open = facts
+            .words()
             .open_double_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
             .collect::<Vec<_>>();
         let close = facts
+            .words()
             .suspect_closing_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
@@ -774,11 +814,13 @@ then \"install\" later
 
     with_facts(source, None, |_, facts| {
         let open = facts
+            .words()
             .open_double_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
             .collect::<Vec<_>>();
         let close = facts
+            .words()
             .suspect_closing_quote_fragments()
             .iter()
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
@@ -799,6 +841,7 @@ fn builds_double_paren_grouping_spans() {
 
     with_facts(source, None, |_, facts| {
         let anchors = facts
+            .words()
             .double_paren_grouping_spans()
             .iter()
             .map(|span| {
@@ -827,6 +870,7 @@ echo 'hello ‘world’'
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .words()
                 .unicode_smart_quote_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -843,6 +887,7 @@ fn builds_unicode_smart_quote_spans_from_source_offsets_for_escaped_literals() {
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .words()
                 .unicode_smart_quote_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -862,7 +907,7 @@ EOF
 ";
 
     with_facts(source, None, |_, facts| {
-        assert!(facts.unicode_smart_quote_spans().is_empty());
+        assert!(facts.words().unicode_smart_quote_spans().is_empty());
     });
 }
 
@@ -876,13 +921,14 @@ case x in *[!a-zA-Z0-9._/+\\-]*) continue ;; esac
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .words()
                 .pattern_literal_spans()
                 .iter()
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["*[!a-zA-Z0-9._/+\\-]*"]
         );
-        assert!(facts.pattern_charclass_spans().is_empty());
+        assert!(facts.words().pattern_charclass_spans().is_empty());
     });
 }
 
@@ -923,24 +969,88 @@ write_target
             .any(|reference| reference.name.as_str() == name)
     };
 
-    assert!(facts.is_suppressed_subscript_reference(reference_span("read_idx")));
-    assert!(facts.is_suppressed_subscript_reference(reference_span("assoc_read_idx")));
-    assert!(facts.is_suppressed_subscript_reference(reference_span("bare_check")));
-    assert!(facts.is_suppressed_subscript_reference(reference_span("assoc_bare_key")));
+    assert!(
+        facts
+            .words()
+            .is_suppressed_subscript_reference(reference_span("read_idx"))
+    );
+    assert!(
+        facts
+            .words()
+            .is_suppressed_subscript_reference(reference_span("assoc_read_idx"))
+    );
+    assert!(
+        facts
+            .words()
+            .is_suppressed_subscript_reference(reference_span("bare_check"))
+    );
+    assert!(
+        facts
+            .words()
+            .is_suppressed_subscript_reference(reference_span("assoc_bare_key"))
+    );
     assert!(!has_reference("assoc_target_bare"));
-    assert!(!facts.is_suppressed_subscript_reference(reference_span("dynamic_check")));
-    assert!(!facts.is_suppressed_subscript_reference(reference_span("bare_target")));
-    assert!(!facts.is_suppressed_subscript_reference(reference_span("dynamic_target")));
-    assert!(!facts.is_suppressed_subscript_reference(reference_span("bare_key")));
-    assert!(!facts.is_suppressed_subscript_reference(reference_span("dynamic_key")));
-    assert!(!facts.is_suppressed_subscript_reference(reference_span("assoc_target_id")));
-    assert!(!facts.is_suppressed_subscript_reference(reference_span("assoc_dynamic_key")));
-    assert!(!facts.is_suppressed_subscript_reference(reference_span("free")));
+    assert!(
+        !facts
+            .words()
+            .is_suppressed_subscript_reference(reference_span("dynamic_check"))
+    );
+    assert!(
+        !facts
+            .words()
+            .is_suppressed_subscript_reference(reference_span("bare_target"))
+    );
+    assert!(
+        !facts
+            .words()
+            .is_suppressed_subscript_reference(reference_span("dynamic_target"))
+    );
+    assert!(
+        !facts
+            .words()
+            .is_suppressed_subscript_reference(reference_span("bare_key"))
+    );
+    assert!(
+        !facts
+            .words()
+            .is_suppressed_subscript_reference(reference_span("dynamic_key"))
+    );
+    assert!(
+        !facts
+            .words()
+            .is_suppressed_subscript_reference(reference_span("assoc_target_id"))
+    );
+    assert!(
+        !facts
+            .words()
+            .is_suppressed_subscript_reference(reference_span("assoc_dynamic_key"))
+    );
+    assert!(
+        !facts
+            .words()
+            .is_suppressed_subscript_reference(reference_span("free"))
+    );
 
-    assert!(facts.is_subscript_later_suppression_reference(reference_span("read_idx")));
-    assert!(facts.is_subscript_later_suppression_reference(reference_span("assoc_read_idx")));
-    assert!(!facts.is_subscript_later_suppression_reference(reference_span("bare_check")));
-    assert!(!facts.is_subscript_later_suppression_reference(reference_span("dynamic_check")));
+    assert!(
+        facts
+            .words()
+            .is_subscript_later_suppression_reference(reference_span("read_idx"))
+    );
+    assert!(
+        facts
+            .words()
+            .is_subscript_later_suppression_reference(reference_span("assoc_read_idx"))
+    );
+    assert!(
+        !facts
+            .words()
+            .is_subscript_later_suppression_reference(reference_span("bare_check"))
+    );
+    assert!(
+        !facts
+            .words()
+            .is_subscript_later_suppression_reference(reference_span("dynamic_check"))
+    );
 }
 
 #[test]
@@ -960,6 +1070,7 @@ printf '%s\\n' \"${arr[$((read+1))]}\"
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .words()
                 .array_index_arithmetic_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -992,6 +1103,7 @@ X=1 A=$[ $X + 1 ] true
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .assignments()
                 .env_prefix_assignment_scope_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -1011,6 +1123,7 @@ X=1 A=$[ $X + 1 ] true
         );
         assert_eq!(
             facts
+                .assignments()
                 .env_prefix_expansion_scope_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -1041,6 +1154,7 @@ foo=\"$foo\" foo=2 cmd
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .assignments()
                 .env_prefix_expansion_scope_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -1060,18 +1174,26 @@ x=1 export PS4=\"+ \\${x} \"
 
     with_facts(source, None, |_, facts| {
         assert!(
-            facts.env_prefix_assignment_scope_spans().is_empty(),
+            facts
+                .assignments()
+                .env_prefix_assignment_scope_spans()
+                .is_empty(),
             "unexpected assignment scope spans: {:?}",
             facts
+                .assignments()
                 .env_prefix_assignment_scope_spans()
                 .iter()
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>()
         );
         assert!(
-            facts.env_prefix_expansion_scope_spans().is_empty(),
+            facts
+                .assignments()
+                .env_prefix_expansion_scope_spans()
+                .is_empty(),
             "unexpected expansion scope spans: {:?}",
             facts
+                .assignments()
                 .env_prefix_expansion_scope_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -1099,6 +1221,7 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
 
     with_facts(source, None, |_, facts| {
         let case_subject = facts
+            .words()
             .case_subject_facts()
             .find(|fact| fact.span().slice(source) == "literal")
             .expect("expected case subject fact");
@@ -1106,6 +1229,7 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
         assert!(case_subject.classification().is_fixed_literal());
 
         let trap_action = facts
+            .words()
             .expansion_word_facts(ExpansionContext::TrapAction)
             .next()
             .expect("expected trap action fact");
@@ -1119,6 +1243,7 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
         );
 
         let trap_signal = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .find(|fact| fact.span().slice(source) == "${signals[@]}")
             .expect("expected trap signal argument fact");
@@ -1132,6 +1257,7 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
         );
 
         let declaration_name_subscript = facts
+            .words()
             .expansion_word_facts(ExpansionContext::DeclarationAssignmentValue)
             .find(|fact| fact.span().slice(source) == "$(printf decl-name-subscript)")
             .expect("expected declaration name subscript fact");
@@ -1149,6 +1275,7 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
         );
 
         let declaration_assignment_subscript = facts
+            .words()
             .expansion_word_facts(ExpansionContext::DeclarationAssignmentValue)
             .find(|fact| fact.span().slice(source) == "$(printf decl-subscript)")
             .expect("expected declaration assignment subscript fact");
@@ -1158,6 +1285,7 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
         );
 
         let assignment_subscript = facts
+            .words()
             .expansion_word_facts(ExpansionContext::AssignmentValue)
             .find(|fact| fact.span().slice(source) == "$(printf assign-subscript)")
             .expect("expected assignment subscript fact");
@@ -1167,12 +1295,14 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
         );
 
         let array_key = facts
+            .words()
             .expansion_word_facts(ExpansionContext::DeclarationAssignmentValue)
             .find(|fact| fact.span().slice(source) == "$(printf key-subscript)")
             .expect("expected array key fact");
         assert_eq!(array_key.host_kind(), WordFactHostKind::ArrayKeySubscript);
 
         let conditional_subscript = facts
+            .words()
             .expansion_word_facts(ExpansionContext::ConditionalVarRefSubscript)
             .find(|fact| fact.span().slice(source) == "\"$(printf cond-subscript)\"")
             .expect("expected conditional subscript fact");
@@ -1182,12 +1312,14 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
         );
 
         let parameter_pattern = facts
+            .words()
             .expansion_word_facts(ExpansionContext::ParameterPattern)
             .find(|fact| fact.span().slice(source) == "$suffix")
             .expect("expected parameter pattern fact");
         assert!(parameter_pattern.classification().is_expanded());
         assert_eq!(
             facts
+                .words()
                 .expansion_word_facts(ExpansionContext::ParameterPattern)
                 .filter(|fact| fact.span().slice(source) == "$suffix")
                 .count(),
@@ -1195,6 +1327,7 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
         );
 
         let scalar = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .find(|fact| fact.span().slice(source) == "prefix${name}suffix")
             .expect("expected mixed command argument fact");
@@ -1209,6 +1342,7 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
         );
 
         let array = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .find(|fact| fact.span().slice(source) == "${items[@]}")
             .expect("expected array argument fact");
@@ -1247,6 +1381,7 @@ esac
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .command_facts()
                 .case_pattern_impossible_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -1270,6 +1405,7 @@ fn word_facts_track_only_literal_command_trailers() {
     with_facts(source, None, |_, facts| {
         let trailing_literal_char = |text: &str| {
             facts
+                .words()
                 .word_facts()
                 .find(|fact| fact.span().slice(source) == text)
                 .and_then(|fact| fact.trailing_literal_char())
@@ -1293,6 +1429,7 @@ printf '%s\n' \"$name\" \"${name:-fallback}\" \"${@:1}\" ${@:1} \"$@\" $@
     with_facts(source, None, |_, facts| {
         let word_fact = |text: &str| {
             facts
+                .words()
                 .word_facts()
                 .find(|fact| fact.span().slice(source) == text)
                 .expect("expected word fact")
@@ -1338,10 +1475,12 @@ printf '%s\n' \"prefix $((x + 1)) suffix\" plain
 
     with_facts(source, None, |_, facts| {
         let arithmetic = facts
+            .words()
             .word_facts()
             .find(|fact| fact.span().slice(source) == "\"prefix $((x + 1)) suffix\"")
             .expect("expected arithmetic word fact");
         let plain = facts
+            .words()
             .word_facts()
             .find(|fact| fact.span().slice(source) == "plain")
             .expect("expected plain word fact");
@@ -1366,6 +1505,7 @@ esac
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .command_facts()
                 .case_pattern_expansions()
                 .iter()
                 .map(|fact| (fact.span().slice(source), fact.replacement().to_owned()))
@@ -1397,7 +1537,7 @@ esac
 ";
 
     with_facts(source, None, |_, facts| {
-        assert!(facts.case_pattern_expansions().is_empty());
+        assert!(facts.command_facts().case_pattern_expansions().is_empty());
     });
 }
 
@@ -1407,11 +1547,13 @@ fn collects_dollar_spans_for_wrapped_substring_offset_arithmetic() {
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
             .collect::<Vec<_>>();
         let words = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .map(|fact| {
                 format!(
@@ -1434,11 +1576,13 @@ fn collects_dollar_spans_for_wrapped_substring_length_arithmetic() {
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
             .collect::<Vec<_>>();
         let words = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .map(|fact| {
                 format!(
@@ -1460,6 +1604,7 @@ fn ignores_plain_substring_offset_parameter_expansions_for_dollar_in_arithmetic(
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1475,6 +1620,7 @@ fn ignores_plain_positional_slice_parameter_expansions_for_dollar_in_arithmetic(
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1490,11 +1636,13 @@ fn collects_dollar_spans_for_parameter_replacement_arithmetic() {
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
             .collect::<Vec<_>>();
         let words = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .map(|fact| {
                 format!(
@@ -1521,6 +1669,7 @@ declare -A assoc
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1541,6 +1690,7 @@ printf '%s\\n' \"${rest:$((${arr[0]}))}\"
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1565,6 +1715,7 @@ arr[${lang},27]=q
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1588,6 +1739,7 @@ assoc[$key/sfx]=z
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1608,6 +1760,7 @@ arr[\"${wash_counter}\"]=x
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1628,6 +1781,7 @@ arr[$(printf '%s' \"$i\")]=x
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1649,6 +1803,7 @@ two[$key]+=y
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1671,6 +1826,7 @@ map[$key]+=\"${values[*]}\"
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1700,6 +1856,7 @@ main
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1729,6 +1886,7 @@ main
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1758,6 +1916,7 @@ main
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1785,6 +1944,7 @@ main
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1813,6 +1973,7 @@ main
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1841,6 +2002,7 @@ main
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1871,6 +2033,7 @@ main
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1889,6 +2052,7 @@ declare -A map=([$key]=1)
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1909,6 +2073,7 @@ printf '%s\\n' \"${tools[$(($choice-1))]}\"
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1929,6 +2094,7 @@ assoc[$(($choice-1))]=x
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1944,6 +2110,7 @@ fn collects_command_substitution_spans_for_wrapped_substring_offset_arithmetic()
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .arithmetic_command_substitution_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1967,6 +2134,7 @@ done
 
     with_facts(source, None, |_, facts| {
         let nested_args = facts
+            .words()
             .word_facts()
             .filter(|fact| fact.is_nested_word_command())
             .filter(|fact| fact.host_expansion_context() == Some(ExpansionContext::CommandArgument))
@@ -1984,6 +2152,7 @@ fn ignores_quoted_dollar_words_in_arithmetic_command_contexts() {
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -1999,6 +2168,7 @@ fn indexes_pending_arithmetic_word_facts_by_span() {
 
     with_facts(source, None, |_, facts| {
         let arithmetic = facts
+            .words()
             .arithmetic_command_word_facts()
             .find(|fact| fact.span().slice(source) == "$name")
             .expect("expected arithmetic word fact");
@@ -2006,12 +2176,14 @@ fn indexes_pending_arithmetic_word_facts_by_span() {
         assert!(arithmetic.is_arithmetic_command());
         assert_eq!(
             facts
+                .words()
                 .word_fact(arithmetic.span(), arithmetic.context())
                 .map(|fact| fact.span().slice(source)),
             Some("$name")
         );
         assert_eq!(
             facts
+                .words()
                 .any_word_fact(arithmetic.span())
                 .map(|fact| fact.span().slice(source)),
             Some("$name")
@@ -2025,6 +2197,7 @@ fn indexes_parameter_operand_word_facts_by_span_without_exposing_them_in_word_fa
 
     with_facts(source, None, |_, facts| {
         let operand = facts
+            .words()
             .parameter_operand_word_facts()
             .find(|fact| fact.span().slice(source) == "$name")
             .expect("expected parameter operand word fact");
@@ -2032,18 +2205,21 @@ fn indexes_parameter_operand_word_facts_by_span_without_exposing_them_in_word_fa
         assert!(operand.is_parameter_operand());
         assert_eq!(
             facts
+                .words()
                 .word_fact(operand.span(), operand.context())
                 .map(|fact| fact.span().slice(source)),
             Some("$name")
         );
         assert_eq!(
             facts
+                .words()
                 .any_word_fact(operand.span())
                 .map(|fact| fact.span().slice(source)),
             Some("$name")
         );
         assert!(
             facts
+                .words()
                 .word_facts()
                 .all(|fact| fact.span().slice(source) != "$name"),
             "parameter operand fact should stay out of the normal word_facts stream"
@@ -2057,6 +2233,7 @@ fn indexes_arithmetic_word_facts_inside_parameter_replacement_operands() {
 
     with_facts(source, None, |_, facts| {
         let arithmetic = facts
+            .words()
             .arithmetic_command_word_facts()
             .find(|fact| fact.span().slice(source) == "$name")
             .expect("expected arithmetic word fact");
@@ -2068,6 +2245,7 @@ fn indexes_arithmetic_word_facts_inside_parameter_replacement_operands() {
         );
         assert_eq!(
             facts
+                .words()
                 .word_fact(arithmetic.span(), arithmetic.context())
                 .map(|fact| fact.span().slice(source)),
             Some("$name")
@@ -2084,14 +2262,18 @@ printf '%s\\n' \"${value:-$(( $default + 1 ))}\" \"${value:=$(( $assign + 1 ))}\
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .arithmetic_command_word_facts()
             .map(|fact| fact.span().slice(source))
             .collect::<Vec<_>>();
 
         assert_eq!(spans, vec!["$default", "$assign", "$replace", "$error"]);
-        assert!(facts.arithmetic_command_word_facts().all(|fact| {
+        assert!(facts.words().arithmetic_command_word_facts().all(|fact| {
             fact.host_expansion_context() == Some(ExpansionContext::CommandArgument)
-                && facts.word_fact(fact.span(), fact.context()).is_some()
+                && facts
+                    .words()
+                    .word_fact(fact.span(), fact.context())
+                    .is_some()
         }));
     });
 }
@@ -2109,6 +2291,7 @@ key=name
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .dollar_in_arithmetic_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -2124,6 +2307,7 @@ fn ignores_escaped_command_substitution_tokens_in_wrapped_substring_offset_arith
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .arithmetic_command_substitution_spans()
             .iter()
             .map(|span| span.slice(source))
@@ -2144,6 +2328,7 @@ fn builds_word_facts_for_zsh_qualified_globs() {
         ShellDialect::Zsh,
         |_, facts| {
             let glob = facts
+                .words()
                 .expansion_word_facts(ExpansionContext::CommandArgument)
                 .find(|fact| fact.span().slice(source) == "prefix*(.N)")
                 .expect("expected zsh glob fact");
@@ -2171,14 +2356,17 @@ print ${~~name}
         ShellDialect::Zsh,
         |_, facts| {
             let split = facts
+                .words()
                 .expansion_word_facts(ExpansionContext::CommandArgument)
                 .find(|fact| fact.span().slice(source) == "$name")
                 .expect("expected split-sensitive fact");
             let wrapped_glob = facts
+                .words()
                 .expansion_word_facts(ExpansionContext::CommandArgument)
                 .find(|fact| fact.span().slice(source) == "*")
                 .expect("expected wrapped glob fact");
             let double_tilde = facts
+                .words()
                 .expansion_word_facts(ExpansionContext::CommandArgument)
                 .find(|fact| fact.span().slice(source) == "${~~name}")
                 .expect("expected double-tilde fact");
@@ -2215,6 +2403,7 @@ print $name
         ShellDialect::Zsh,
         |_, facts| {
             let ambiguous = facts
+                .words()
                 .expansion_word_facts(ExpansionContext::CommandArgument)
                 .find(|fact| fact.span().slice(source) == "$name")
                 .expect("expected ambiguous scalar fact");
@@ -2245,10 +2434,12 @@ for item in $literal; do :; done
         ShellDialect::Zsh,
         |_, facts| {
             let glob_subst = facts
+                .words()
                 .expansion_word_facts(ExpansionContext::ForList)
                 .find(|fact| fact.span().slice(source) == "$name")
                 .expect("expected glob_subst for-list fact");
             let no_glob = facts
+                .words()
                 .expansion_word_facts(ExpansionContext::ForList)
                 .find(|fact| fact.span().slice(source) == "$literal")
                 .expect("expected no_glob for-list fact");
@@ -2287,10 +2478,12 @@ rm *
         ShellDialect::Zsh,
         |_, facts| {
             let scalar = facts
+                .words()
                 .expansion_word_facts(ExpansionContext::CommandArgument)
                 .find(|fact| fact.span().slice(source) == "$name")
                 .expect("expected scalar fact");
             let glob = facts
+                .words()
                 .expansion_word_facts(ExpansionContext::CommandArgument)
                 .find(|fact| fact.span().slice(source) == "*")
                 .expect("expected glob fact");
@@ -2328,6 +2521,7 @@ rm *
         ShellDialect::Zsh,
         |_, facts| {
             let glob = facts
+                .words()
                 .expansion_word_facts(ExpansionContext::CommandArgument)
                 .find(|fact| fact.span().slice(source) == "*")
                 .expect("expected glob fact");
@@ -2368,6 +2562,7 @@ rm *
         ShellDialect::Zsh,
         |_, facts| {
             let glob_behaviors = facts
+                .words()
                 .expansion_word_facts(ExpansionContext::CommandArgument)
                 .filter(|fact| fact.span().slice(source) == "*")
                 .map(|fact| {
@@ -2450,6 +2645,7 @@ rm ?(*.txt)
         ShellDialect::Zsh,
         |_, facts| {
             let active_spans = facts
+                .words()
                 .expansion_word_facts(ExpansionContext::CommandArgument)
                 .filter(|fact| {
                     matches!(
@@ -2498,6 +2694,7 @@ rm ?(*.txt)
             );
 
             let pathname_hazards = facts
+                .words()
                 .expansion_word_facts(ExpansionContext::CommandArgument)
                 .filter(|fact| {
                     matches!(
@@ -2534,6 +2731,7 @@ printf '%s\\n' $0 $1 $* $@
 
     with_facts(source, None, |_, facts| {
         let argument_words = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .map(|fact| fact.span().slice(source).to_owned())
             .collect::<Vec<_>>();
@@ -2554,6 +2752,7 @@ fn builds_word_facts_for_filename_builder_command_substitutions() {
 
     with_facts(source, None, |_, facts| {
         let fact = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .find(|fact| {
                 fact.span()
@@ -2592,6 +2791,7 @@ docker inspect -f '{{ if ne \"true\" (index .Config.Labels \"com.dokku.devcontai
 
     with_facts(source, None, |_, facts| {
         let fact = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .find(|fact| fact.span().slice(source) == "$(docker ps -q)")
             .expect("expected docker inspect argument fact");
@@ -2624,6 +2824,7 @@ EOF
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .words()
                 .plain_unindexed_array_references()
                 .map(|fact| match fact {
                     PlainUnindexedArrayReferenceFact::SelectorRequired(reference) => {
@@ -2667,6 +2868,7 @@ print -r -- $arr
         |_, facts| {
             assert_eq!(
                 facts
+                    .words()
                     .plain_unindexed_array_references()
                     .map(|fact| match fact {
                         PlainUnindexedArrayReferenceFact::SelectorRequired(reference) => {
@@ -2706,6 +2908,7 @@ print -r -- $arr
         |_, facts| {
             assert_eq!(
                 facts
+                    .words()
                     .plain_unindexed_array_references()
                     .map(|fact| match fact {
                         PlainUnindexedArrayReferenceFact::SelectorRequired(reference) => {
@@ -2745,6 +2948,7 @@ print -r -- $arr
         |_, facts| {
             assert_eq!(
                 facts
+                    .words()
                     .plain_unindexed_array_references()
                     .map(|fact| match fact {
                         PlainUnindexedArrayReferenceFact::SelectorRequired(reference) => {
@@ -2785,6 +2989,7 @@ print -r -- $arr
         |_, facts| {
             assert_eq!(
                 facts
+                    .words()
                     .plain_unindexed_array_references()
                     .map(|fact| match fact {
                         PlainUnindexedArrayReferenceFact::SelectorRequired(reference) => {
@@ -2828,6 +3033,7 @@ print -r -- $arr
         |_, facts| {
             assert_eq!(
                 facts
+                    .words()
                     .plain_unindexed_array_references()
                     .map(|fact| match fact {
                         PlainUnindexedArrayReferenceFact::SelectorRequired(reference) => {
@@ -2874,6 +3080,7 @@ $fn
         |_, facts| {
             assert_eq!(
                 facts
+                    .words()
                     .plain_unindexed_array_references()
                     .map(|fact| match fact {
                         PlainUnindexedArrayReferenceFact::SelectorRequired(reference) => {
@@ -2905,6 +3112,7 @@ eval \"${shims[@]}\"
 
     with_facts(source, None, |_, facts| {
         let fact = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .find(|fact| fact.span().slice(source) == "\"${shims[@]}\"")
             .expect("expected eval argument fact");
@@ -2930,6 +3138,7 @@ if [[ x == *${shims[@]}* ]]; then :; fi
 
     with_facts(source, None, |_, facts| {
         let fact = facts
+            .words()
             .expansion_word_facts(ExpansionContext::ConditionalPattern)
             .find(|fact| fact.span().slice(source) == "${shims[@]}")
             .expect("expected conditional pattern word fact");
@@ -2963,6 +3172,7 @@ eval \"conda_shim() { case \\\"\\${1##*/}\\\" in ${shims[@]} *) return 1;; esac 
 
     with_facts(source, None, |_, facts| {
         let fact = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .find(|fact| fact.span().slice(source).contains("${shims[@]}"))
             .expect("expected eval argument fact");
@@ -2995,6 +3205,7 @@ eval shellspec_join SHELLSPEC_EXPECTATION '\" \"' The ${1+'\"$@\"'}
 
     with_facts(source, None, |_, facts| {
         let fact = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .find(|fact| fact.span().slice(source).contains("${1+'\"$@\"'}"))
             .expect("expected eval argument fact");
@@ -3023,6 +3234,7 @@ printf '%s\\n' $@ ${@:2} ${items[@]} ${items[@]:1} ${!items[@]} ${items[@]/#/#} 
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .flat_map(|fact| {
                 fact.unquoted_all_elements_array_expansion_spans()
@@ -3057,6 +3269,7 @@ printf '%s\\n' \"foo\"bar\"baz\" \"foo\"-\"bar\" \"foo\"$(printf '%s' x)\"bar\" 
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
             .flat_map(|fact| {
@@ -3095,6 +3308,7 @@ export EASYRSA_REQ_SERIAL=\\\"$EASYRSA_REQ_SERIAL\\\"\\
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
             .flat_map(|fact| {
@@ -3137,6 +3351,7 @@ param_hash=\"$AWK '\"\\
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .expansion_word_facts(ExpansionContext::AssignmentValue)
             .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
             .flat_map(|fact| {
@@ -3167,6 +3382,7 @@ value=\"foo\"\\
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .expansion_word_facts(ExpansionContext::AssignmentValue)
             .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
             .flat_map(|fact| {
@@ -3191,6 +3407,7 @@ echo $(echo x # $(
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .flat_map(|fact| {
                 fact.unquoted_literal_between_double_quoted_segments_spans()
@@ -3214,6 +3431,7 @@ echo `echo x # $(
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .flat_map(|fact| {
                 fact.unquoted_literal_between_double_quoted_segments_spans()
@@ -3236,6 +3454,7 @@ echo $(printf \"%s\" \"x # $(printf y)\")\"foo\"bar\"baz\"
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .flat_map(|fact| {
                 fact.unquoted_literal_between_double_quoted_segments_spans()
@@ -3259,6 +3478,7 @@ echo <(echo x # ${
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .expansion_word_facts(ExpansionContext::CommandArgument)
             .flat_map(|fact| {
                 fact.unquoted_literal_between_double_quoted_segments_spans()
@@ -3285,6 +3505,7 @@ $cmd[0] arg
 
     with_facts(source, None, |_, facts| {
         let spans = facts
+            .words()
             .brace_variable_before_bracket_spans()
             .iter()
             .map(|span| (span.start.line, span.start.column))
@@ -3313,6 +3534,7 @@ alias runtime=$BAR
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .command_facts()
                 .function_in_alias_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -3339,6 +3561,7 @@ alias \"$a=$b\"
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .command_facts()
                 .alias_definition_expansion_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -3361,6 +3584,7 @@ arr+=($tail)
 
     with_facts(source, None, |_, facts| {
         let split_words = facts
+            .words()
             .array_assignment_split_word_facts()
             .map(|fact| fact.span().slice(source).to_owned())
             .collect::<Vec<_>>();
@@ -3382,6 +3606,7 @@ arr+=($tail)
         );
 
         let unquoted_scalar = facts
+            .words()
             .array_assignment_split_word_facts()
             .flat_map(|fact| {
                 fact.array_assignment_split_scalar_expansion_spans()
@@ -3396,6 +3621,7 @@ arr+=($tail)
         );
 
         let unquoted_array = facts
+            .words()
             .array_assignment_split_word_facts()
             .flat_map(|fact| {
                 fact.unquoted_array_expansion_spans()
@@ -3417,6 +3643,7 @@ arr=(\"$(printf '%s\\n' \"$x\")\")
 
     with_facts(source, None, |_, facts| {
         let split_facts = facts
+            .words()
             .array_assignment_split_word_facts()
             .collect::<Vec<_>>();
         assert_eq!(split_facts.len(), 1);
@@ -3448,6 +3675,7 @@ arr=($(printf '%s\\n' \"$x\" ${y} prefix$z))
 
     with_facts(source, None, |_, facts| {
         let split_facts = facts
+            .words()
             .array_assignment_split_word_facts()
             .collect::<Vec<_>>();
         assert_eq!(split_facts.len(), 1);
@@ -3487,6 +3715,7 @@ EOF
 
     with_facts(source, None, |_, facts| {
         let split_words = facts
+            .words()
             .array_assignment_split_word_facts()
             .map(|fact| fact.span().slice(source).to_owned())
             .collect::<Vec<_>>();
@@ -3519,6 +3748,7 @@ EOF
 
     with_facts(source, None, |_, facts| {
         let split_words = facts
+            .words()
             .array_assignment_split_word_facts()
             .map(|fact| fact.span().slice(source).to_owned())
             .collect::<Vec<_>>();
@@ -3554,6 +3784,7 @@ EOF
 
     with_facts(source, None, |_, facts| {
         let split_facts = facts
+            .words()
             .array_assignment_split_word_facts()
             .collect::<Vec<_>>();
 
@@ -3581,6 +3812,7 @@ arr=(${flag:+-f} ${flag:+$fallback} ${name:+\"$name\" \"$regex\"} ${items[@]+\"$
 
     with_facts(source, None, |_, facts| {
         let split_sensitive = facts
+            .words()
             .array_assignment_split_word_facts()
             .flat_map(|fact| {
                 fact.array_assignment_split_scalar_expansion_spans()
@@ -3604,6 +3836,7 @@ arr=($prefix{a,b} {a,b}$suffix {pre$inside,other})
 
     with_facts(source, None, |_, facts| {
         let split_sensitive = facts
+            .words()
             .array_assignment_split_word_facts()
             .flat_map(|fact| {
                 fact.array_assignment_split_scalar_expansion_spans()
@@ -3631,6 +3864,7 @@ arr=({pre$inside,other})
         ShellDialect::Sh,
         |_, facts| {
             let split_sensitive = facts
+                .words()
                 .array_assignment_split_word_facts()
                 .flat_map(|fact| {
                     fact.array_assignment_split_scalar_expansion_spans()
@@ -3658,6 +3892,7 @@ EOF
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .words()
                 .substring_expansion_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
@@ -3666,6 +3901,7 @@ EOF
         );
         assert_eq!(
             facts
+                .words()
                 .replacement_expansion_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
@@ -3674,6 +3910,7 @@ EOF
         );
         assert_eq!(
             facts
+                .words()
                 .case_modification_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
@@ -3695,6 +3932,7 @@ crypt=${crypt//\\//\\\\\\/}
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .words()
                 .replacement_expansion_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
@@ -3719,6 +3957,7 @@ printf '%s\\n' '${\"$bar\"[1]}'
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .words()
                 .zsh_parameter_index_flag_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
@@ -3741,6 +3980,7 @@ printf '%s\\n' ${name%$suffix} `printf backtick`
 
     with_facts(source, None, |_, facts| {
         let parameter_pattern = facts
+            .words()
             .expansion_word_facts(ExpansionContext::ParameterPattern)
             .find(|fact| fact.span().slice(source) == "$suffix")
             .expect("expected parameter pattern fact");
@@ -3748,6 +3988,7 @@ printf '%s\\n' ${name%$suffix} `printf backtick`
 
         assert_eq!(
             facts
+                .words()
                 .backtick_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
@@ -3767,6 +4008,7 @@ printf '%s\\n' \"${items[@]#$prefix/}\" \"${items[i]%$suffix}\"
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .words()
                 .indexed_array_reference_fragments()
                 .iter()
                 .map(|fragment| {
@@ -3804,6 +4046,7 @@ printf '%s\\n' ${arr[0]}
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .words()
                 .indexed_array_reference_fragments()
                 .iter()
                 .filter_map(|fragment| {
@@ -3833,6 +4076,7 @@ printf '%s\\n' ${arr[0]}
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .words()
                 .indexed_array_reference_fragments()
                 .iter()
                 .filter_map(|fragment| {
@@ -3858,6 +4102,7 @@ nested=${items[i]%${name%$suffix}}
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .words()
                 .parameter_pattern_special_target_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
@@ -3879,6 +4124,7 @@ printf '%s\\n' \"${name%%dBm*}\"
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .words()
                 .positional_parameter_trim_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
@@ -3907,6 +4153,7 @@ echo \"Resolve the conflict and run ``${PROGRAM} --continue`` plus `date`.\"
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .words()
                 .backtick_fragments()
                 .iter()
                 .map(|fragment| (fragment.span().slice(source), fragment.is_empty()))
@@ -3926,6 +4173,7 @@ fn collects_declaration_assignment_probes_for_process_substitution_subscripts() 
 
     with_facts(source, None, |_, facts| {
         let probes = facts
+            .command_facts()
             .structural_commands()
             .flat_map(|fact| fact.declaration_assignment_probes().iter())
             .map(|probe| (probe.target_name(), probe.has_command_substitution()))
@@ -3946,6 +4194,7 @@ demo() {
 
     with_facts(source, None, |_, facts| {
         let probes = facts
+            .command_facts()
             .structural_commands()
             .flat_map(|fact| fact.declaration_assignment_probes().iter())
             .map(|probe| {

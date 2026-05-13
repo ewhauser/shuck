@@ -21,7 +21,7 @@ impl Violation for SubshellLocalAssignment {
 
 pub fn subshell_local_assignment(checker: &mut Checker) {
     checker.report_fact_diagnostics(|facts, report| {
-        for site in facts.subshell_assignment_sites() {
+        for site in facts.assignments().subshell_assignment_sites() {
             report(Diagnostic::new(
                 SubshellLocalAssignment {
                     name: site.name.as_str().into(),

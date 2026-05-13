@@ -759,6 +759,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &suppressed_subscript_spans,
             &arithmetic_only_suppressed_subscript_spans,
         );
+        #[cfg(test)]
         let subscript_later_suppression_reference_spans =
             build_subscript_later_suppression_reference_spans(
                 self.semantic,
@@ -863,11 +864,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &word_occurrences,
             &word_index,
             source,
-        );
-        let unquoted_command_argument_use_offsets = build_unquoted_command_argument_use_offsets(
-            self.semantic,
-            &word_nodes,
-            &word_occurrences,
         );
         let brace_variable_before_bracket_spans =
             build_brace_variable_before_bracket_spans(&word_nodes, &word_occurrences, source);
@@ -983,12 +979,12 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             words: WordFactStore {
                 plain_unindexed_array_references: OnceLock::new(),
                 suppressed_subscript_reference_spans,
+                #[cfg(test)]
                 subscript_later_suppression_reference_spans,
                 compound_assignment_value_word_flags,
                 word_nodes,
                 word_occurrences,
                 word_index,
-                unquoted_command_argument_use_offsets,
                 array_assignment_split_word_ids,
                 brace_variable_before_bracket_spans,
                 array_index_arithmetic_spans: arithmetic_summary.array_index_arithmetic_spans,
@@ -1013,10 +1009,9 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 echo_backslash_escape_word_spans,
                 echo_to_sed_substitution_spans,
                 unicode_smart_quote_spans,
-                pattern_exactly_one_extglob_spans,
+                #[cfg(test)]
                 pattern_literal_spans,
                 pattern_charclass_spans,
-                nested_pattern_charclass_spans,
                 nested_parameter_expansion_fragments: nested_parameter_expansions,
                 indirect_expansion_fragments: indirect_expansions,
                 indexed_array_reference_fragments: indexed_array_references,

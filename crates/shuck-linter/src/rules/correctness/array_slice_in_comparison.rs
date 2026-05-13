@@ -31,7 +31,7 @@ pub fn array_slice_in_comparison(checker: &mut Checker) {
         ExpansionContext::RegexOperand,
     ]
     .into_iter()
-    .flat_map(|context| checker.facts().expansion_word_facts(context))
+    .flat_map(|context| checker.facts().words().expansion_word_facts(context))
     .filter(|fact| !fact.is_nested_word_command())
     .filter(|fact| fact.has_direct_all_elements_array_expansion_in_source(locator))
     .map(|fact| {
@@ -44,6 +44,7 @@ pub fn array_slice_in_comparison(checker: &mut Checker) {
 
     let risky_pattern_words = checker
         .facts()
+        .words()
         .expansion_word_facts(ExpansionContext::ConditionalPattern)
         .filter(|fact| !fact.is_nested_word_command())
         .filter(|fact| fact.command_substitution_spans().is_empty())

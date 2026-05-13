@@ -22,7 +22,11 @@ impl Violation for EchoHereDoc {
 
 pub fn echo_here_doc(checker: &mut Checker) {
     let locator = checker.locator();
-    let spans = checker.facts().echo_here_doc_spans().to_vec();
+    let spans = checker
+        .facts()
+        .source_facts()
+        .echo_here_doc_spans()
+        .to_vec();
     for span in spans {
         let mut diagnostic = Diagnostic::new(EchoHereDoc, span);
         if let Some(fix) = echo_here_doc_fix(locator, span) {

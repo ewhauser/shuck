@@ -24,6 +24,7 @@ pub fn single_quote_backslash(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .single_quoted_fragments()
         .iter()
         .filter_map(|fragment| single_quoted_fragment_backslash_span(fragment.span(), source))

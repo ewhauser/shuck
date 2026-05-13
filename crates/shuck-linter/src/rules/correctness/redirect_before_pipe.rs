@@ -23,6 +23,7 @@ impl Violation for RedirectBeforePipe {
 pub fn redirect_before_pipe(checker: &mut Checker) {
     let diagnostics = checker
         .facts()
+        .command_facts()
         .pipelines()
         .iter()
         .flat_map(|pipeline| redirect_diagnostics_for_pipeline(checker, pipeline))
@@ -44,7 +45,10 @@ fn redirect_diagnostics_for_pipeline(
         .zip(pipeline.operators().iter())
         .filter(|(_, operator)| operator.op() == BinaryOp::Pipe)
         .flat_map(|(segment, _)| {
-            let fact = checker.facts().command(segment.command_id());
+            let fact = checker
+                .facts()
+                .command_facts()
+                .command(segment.command_id());
             fact.redirect_facts()
                 .iter()
                 .filter_map(|redirect| {

@@ -21,6 +21,7 @@ impl Violation for OpenDoubleQuote {
 pub fn open_double_quote(checker: &mut Checker) {
     let diagnostics = checker
         .facts()
+        .words()
         .open_double_quote_fragments()
         .iter()
         .map(|fragment| {

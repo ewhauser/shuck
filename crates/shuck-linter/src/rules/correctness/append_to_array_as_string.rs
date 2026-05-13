@@ -48,7 +48,11 @@ pub fn append_to_array_as_string(checker: &mut Checker) {
                 return None;
             }
 
-            let value = checker.facts().binding_value(binding.id)?.scalar_word()?;
+            let value = checker
+                .facts()
+                .assignments()
+                .binding_value(binding.id)?
+                .scalar_word()?;
             if !leading_literal_word_prefix(value, source).starts_with(' ') {
                 return None;
             }

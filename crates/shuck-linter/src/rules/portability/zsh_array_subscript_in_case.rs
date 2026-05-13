@@ -19,7 +19,7 @@ pub fn zsh_array_subscript_in_case(checker: &mut Checker) {
     }
 
     checker.report_fact_slice_dedup(
-        |facts| facts.case_pattern_impossible_spans(),
+        |facts| facts.command_facts().case_pattern_impossible_spans(),
         || ZshArraySubscriptInCase,
     );
 }

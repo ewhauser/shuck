@@ -23,6 +23,7 @@ impl Violation for LeadingGlobArgument {
 pub fn leading_glob_argument(checker: &mut Checker) {
     let diagnostics = checker
         .facts()
+        .words()
         .expansion_word_facts(ExpansionContext::CommandArgument)
         .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
         .filter_map(|fact| reportable_glob_diagnostic(checker, fact))
@@ -37,7 +38,7 @@ fn reportable_glob_diagnostic(
     checker: &Checker<'_>,
     fact: crate::facts::words::WordOccurrenceRef<'_, '_>,
 ) -> Option<crate::Diagnostic> {
-    let command = checker.facts().command(fact.command_id());
+    let command = checker.facts().command_facts().command(fact.command_id());
     if command_exempts_glob_warning(command.effective_name()) {
         return None;
     }

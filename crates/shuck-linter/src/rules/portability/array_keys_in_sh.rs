@@ -19,6 +19,7 @@ pub fn array_keys_in_sh(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .words()
         .indirect_expansion_fragments()
         .iter()
         .filter(|fragment| fragment.array_keys())

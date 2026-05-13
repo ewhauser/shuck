@@ -33,7 +33,7 @@ pub fn unquoted_array_expansion(checker: &mut Checker) {
         ExpansionContext::SelectList,
     ]
     .into_iter()
-    .flat_map(|context| checker.facts().expansion_word_facts(context))
+    .flat_map(|context| checker.facts().words().expansion_word_facts(context))
     .flat_map(|fact| {
         fact.unquoted_all_elements_array_expansion_spans()
             .iter()
@@ -45,6 +45,7 @@ pub fn unquoted_array_expansion(checker: &mut Checker) {
         spans.extend(
             checker
                 .facts()
+                .words()
                 .expansion_word_facts(ExpansionContext::DeclarationAssignmentValue)
                 .flat_map(|fact| {
                     fact.unquoted_all_elements_array_expansion_spans()

@@ -24,6 +24,7 @@ pub fn heredoc_missing_end(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .source_facts()
         .heredoc_missing_end_spans()
         .iter()
         .copied()

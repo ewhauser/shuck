@@ -121,7 +121,7 @@ fn simple_test_word_is_bare_operator(
     word: &shuck_ast::Word,
     predicate: fn(&str) -> bool,
 ) -> bool {
-    let Some(fact) = checker.facts().word_fact(
+    let Some(fact) = checker.facts().words().word_fact(
         word.span,
         WordFactContext::Expansion(ExpansionContext::CommandArgument),
     ) else {

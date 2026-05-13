@@ -15,6 +15,7 @@ impl Violation for LineOrientedInput {
 pub fn line_oriented_input(checker: &mut Checker) {
     let spans = checker
         .facts()
+        .command_facts()
         .for_headers()
         .iter()
         .filter(|header| header.words().len() == 1)

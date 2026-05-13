@@ -20,7 +20,12 @@ impl Violation for CommentedContinuationLine {
 
 pub fn commented_continuation_line(checker: &mut Checker) {
     checker.report_fact_diagnostics_dedup(|facts, report| {
-        for span in facts.commented_continuation_comment_spans().iter().copied() {
+        for span in facts
+            .source_facts()
+            .commented_continuation_comment_spans()
+            .iter()
+            .copied()
+        {
             let backslash_offset = span
                 .start
                 .offset

@@ -199,7 +199,13 @@ macro_rules! cached_portability_rule {
 
             checker.report_fact_spans_dedup(
                 |facts, report| {
-                    for span in facts.conditional_portability().$accessor().iter().copied() {
+                    for span in facts
+                        .compat()
+                        .conditional_portability()
+                        .$accessor()
+                        .iter()
+                        .copied()
+                    {
                         report(span);
                     }
                 },
@@ -234,6 +240,7 @@ pub fn extglob_in_test(checker: &mut Checker) {
     checker.report_fact_spans_dedup(
         |facts, report| {
             for span in facts
+                .compat()
                 .conditional_portability()
                 .extglob_in_test()
                 .iter()
@@ -272,6 +279,7 @@ pub fn test_equality_operator(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .compat()
         .conditional_portability()
         .test_equality_operator()
         .iter()
@@ -298,6 +306,7 @@ pub fn caret_negation_in_bracket(checker: &mut Checker) {
 
     let diagnostics = checker
         .facts()
+        .compat()
         .conditional_portability()
         .caret_negation_in_bracket()
         .iter()
@@ -324,6 +333,7 @@ pub fn a_test_in_sh(checker: &mut Checker) {
 
     let diagnostics = checker
         .facts()
+        .compat()
         .conditional_portability()
         .a_test_in_sh()
         .iter()

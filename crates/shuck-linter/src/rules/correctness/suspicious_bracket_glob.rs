@@ -35,9 +35,16 @@ pub fn suspicious_bracket_glob(checker: &mut Checker) {
                 .is_none_or(|word| !bare_bracket_test_name(word.span.slice(source)))
         })
         .flat_map(|fact| fact.suspicious_body_name_bracket_glob_spans(source))
-        .chain(checker.facts().case_items().iter().flat_map(|item| {
-            word_spans::case_item_suspicious_bracket_glob_spans(item.item(), source)
-        }))
+        .chain(
+            checker
+                .facts()
+                .command_facts()
+                .case_items()
+                .iter()
+                .flat_map(|item| {
+                    word_spans::case_item_suspicious_bracket_glob_spans(item.item(), source)
+                }),
+        )
         .chain(
             checker
                 .facts()
@@ -54,6 +61,7 @@ pub fn suspicious_bracket_glob(checker: &mut Checker) {
         .chain(
             checker
                 .facts()
+                .words()
                 .word_facts()
                 .iter()
                 .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)

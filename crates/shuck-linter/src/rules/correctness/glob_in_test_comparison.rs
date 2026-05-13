@@ -61,6 +61,7 @@ fn diagnostic_fix(
 
     if rhs_class.is_fixed_literal()
         || facts
+            .words()
             .any_word_fact(rhs.span)
             .is_none_or(|fact| fact.active_literal_glob_spans(source).is_empty())
     {

@@ -24,6 +24,7 @@ pub fn unquoted_word_between_quotes(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .word_facts()
         .iter()
         .flat_map(|fact| fact.unquoted_word_after_single_quoted_segment_spans(source))

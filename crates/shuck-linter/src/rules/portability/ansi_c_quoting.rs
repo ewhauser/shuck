@@ -28,6 +28,7 @@ pub fn ansi_c_quoting(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .words()
         .single_quoted_fragments()
         .iter()
         .filter(|fragment| fragment.dollar_quoted())

@@ -16,6 +16,7 @@ pub fn single_iteration_loop(checker: &mut Checker) {
     let locator = checker.locator();
     let spans = checker
         .facts()
+        .command_facts()
         .for_headers()
         .iter()
         .filter(|header| !header.is_nested_word_command())
@@ -24,7 +25,7 @@ pub fn single_iteration_loop(checker: &mut Checker) {
                 return None;
             };
 
-            let fact = checker.facts().word_fact(
+            let fact = checker.facts().words().word_fact(
                 word.span(),
                 WordFactContext::Expansion(ExpansionContext::ForList),
             )?;

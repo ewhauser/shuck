@@ -24,6 +24,7 @@ pub fn spaced_assignment(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .command_facts()
         .structural_commands()
         .filter_map(|fact| fact.declaration())
         .flat_map(|declaration| spaced_assignment_diagnostics(declaration.operands, source))

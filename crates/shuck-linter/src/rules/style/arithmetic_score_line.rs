@@ -24,6 +24,7 @@ pub fn arithmetic_score_line(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .arithmetic_score_line_spans()
         .iter()
         .copied()

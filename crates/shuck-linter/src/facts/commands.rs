@@ -711,6 +711,7 @@ pub(crate) fn build_redundant_echo_space_facts(
     facts: &LinterFacts<'_>,
 ) -> Vec<RedundantEchoSpaceFact> {
     facts
+        .command_facts()
         .structural_commands()
         .filter_map(|command| redundant_echo_space_fact(command, facts.source_facts.source))
         .collect()

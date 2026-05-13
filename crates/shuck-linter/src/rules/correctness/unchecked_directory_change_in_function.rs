@@ -27,7 +27,7 @@ impl Violation for UncheckedDirectoryChangeInFunction {
 
 pub fn unchecked_directory_change_in_function(checker: &mut Checker) {
     if !supports_directory_change_rules(checker.shell())
-        || checker.facts().errexit_enabled_anywhere()
+        || checker.facts().source_facts().errexit_enabled_anywhere()
     {
         return;
     }
@@ -83,12 +83,15 @@ pub fn unchecked_directory_change_in_function(checker: &mut Checker) {
 }
 
 fn nearest_dominance_barrier(facts: &LinterFacts<'_>, id: CommandId) -> Option<CommandId> {
-    let mut parent = facts.command_parent_id(id);
+    let mut parent = facts.command_facts().command_parent_id(id);
     while let Some(parent_id) = parent {
-        if facts.command_is_dominance_barrier(parent_id) {
+        if facts
+            .command_facts()
+            .command_is_dominance_barrier(parent_id)
+        {
             return Some(parent_id);
         }
-        parent = facts.command_parent_id(parent_id);
+        parent = facts.command_facts().command_parent_id(parent_id);
     }
     None
 }

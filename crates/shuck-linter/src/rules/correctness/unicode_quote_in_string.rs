@@ -21,7 +21,7 @@ impl Violation for UnicodeQuoteInString {
 pub fn unicode_quote_in_string(checker: &mut Checker) {
     let source = checker.source();
     checker.report_fact_diagnostics_dedup(|facts, report| {
-        for span in facts.unicode_smart_quote_spans().iter().copied() {
+        for span in facts.words().unicode_smart_quote_spans().iter().copied() {
             report(
                 Diagnostic::new(UnicodeQuoteInString, span).with_fix(Fix::unsafe_edit(
                     Edit::replacement(ascii_quote_replacement(span.slice(source)), span),

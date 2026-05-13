@@ -21,7 +21,7 @@ impl Violation for SubshellSideEffect {
 
 pub fn subshell_side_effect(checker: &mut Checker) {
     checker.report_fact_diagnostics(|facts, report| {
-        for site in facts.subshell_later_use_sites() {
+        for site in facts.assignments().subshell_later_use_sites() {
             report(Diagnostic::new(
                 SubshellSideEffect {
                     name: site.name.as_str().into(),

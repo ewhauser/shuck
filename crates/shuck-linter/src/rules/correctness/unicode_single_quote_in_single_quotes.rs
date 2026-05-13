@@ -22,6 +22,7 @@ pub fn unicode_single_quote_in_single_quotes(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .single_quoted_fragments()
         .iter()
         .flat_map(|fragment| {

@@ -22,6 +22,7 @@ pub fn heredoc_closer_not_alone(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .source_facts()
         .heredoc_closer_not_alone_spans()
         .iter()
         .copied()

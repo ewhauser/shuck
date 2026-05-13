@@ -18,6 +18,7 @@ impl Violation for ChainedTestBranches {
 pub fn chained_test_branches(checker: &mut Checker) {
     let mut lists = checker
         .facts()
+        .command_facts()
         .lists()
         .iter()
         .filter(|list| matches_mixed_short_circuit(checker, list))
@@ -87,9 +88,11 @@ fn list_runs_as_if_or_elif_condition(checker: &Checker<'_>, list: &ListFact<'_>)
     list.segments().iter().all(|segment| {
         checker
             .facts()
+            .command_facts()
             .is_if_condition_command(segment.command_id())
             || checker
                 .facts()
+                .command_facts()
                 .is_elif_condition_command(segment.command_id())
     })
 }
@@ -98,6 +101,7 @@ fn list_exempts_warning(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
     if list.segments().iter().all(|segment| {
         checker
             .facts()
+            .command_facts()
             .command_is_in_completion_registered_function(segment.command_id())
     }) {
         return true;
@@ -153,6 +157,7 @@ fn matches_exempt_fallback_branch(checker: &Checker<'_>, list: &ListFact<'_>) ->
     matches!(
         checker
             .facts()
+            .command_facts()
             .command(last_segment.command_id())
             .effective_or_literal_name()
             .map(command_basename),

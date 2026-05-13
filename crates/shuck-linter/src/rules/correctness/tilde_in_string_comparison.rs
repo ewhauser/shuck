@@ -26,6 +26,7 @@ pub fn tilde_in_string_comparison(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .word_facts()
         .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
         .filter_map(|fact| word_fact_tilde_span(fact, source))

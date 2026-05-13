@@ -21,13 +21,13 @@ fn build_linter_facts(
 
     black_box(
         facts.commands().len()
-            + facts.word_facts().count()
-            + facts.single_quoted_fragments().len()
-            + facts.backtick_fragments().len()
-            + facts.pattern_charclass_spans().len()
-            + facts.substring_expansion_fragments().len()
-            + facts.case_modification_fragments().len()
-            + facts.replacement_expansion_fragments().len(),
+            + facts.words().word_facts().count()
+            + facts.words().single_quoted_fragments().len()
+            + facts.words().backtick_fragments().len()
+            + facts.words().pattern_charclass_spans().len()
+            + facts.words().substring_expansion_fragments().len()
+            + facts.words().case_modification_fragments().len()
+            + facts.words().replacement_expansion_fragments().len(),
     )
 }
 

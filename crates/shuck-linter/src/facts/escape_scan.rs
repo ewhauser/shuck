@@ -516,7 +516,7 @@ mod tests {
         let indexer = Indexer::new(source, &output);
         let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
-        visit(facts.escape_scan_matches());
+        visit(facts.words().escape_scan_matches());
     }
 
     #[test]

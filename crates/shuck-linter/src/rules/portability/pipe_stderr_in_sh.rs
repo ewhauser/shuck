@@ -25,6 +25,7 @@ pub fn pipe_stderr_in_sh(checker: &mut Checker) {
 
     let diagnostics = checker
         .facts()
+        .command_facts()
         .pipelines()
         .iter()
         .flat_map(|pipeline| pipeline.operators().iter())

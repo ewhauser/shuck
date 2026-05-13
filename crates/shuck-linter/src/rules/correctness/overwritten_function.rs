@@ -201,7 +201,7 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
     let mut top_level_loop_candidates = Vec::new();
     let mut break_offsets = Vec::new();
 
-    for fact in checker.facts().structural_commands() {
+    for fact in checker.facts().command_facts().structural_commands() {
         let offset = fact.body_span().start.offset;
         scopes_by_offset.entry(offset).or_insert(fact.scope());
         let is_function = matches!(fact.command(), shuck_ast::Command::Function(_));
@@ -243,6 +243,7 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
 
         for fact in checker
             .facts()
+            .assignments()
             .function_unset_commands_for_name(&binding.name)
         {
             let offset = fact.body_span().start.offset;
@@ -289,6 +290,7 @@ fn supplemental_function_call_candidates(checker: &Checker<'_>) -> Vec<FunctionC
 
     for fact in checker
         .facts()
+        .command_facts()
         .structural_commands()
         .filter(|fact| !matches!(fact.command(), shuck_ast::Command::Function(_)))
     {
@@ -331,6 +333,7 @@ fn first_argument_forwarding_wrappers(checker: &Checker<'_>) -> FxHashMap<Name, 
         function_scopes_invoking_positional_arguments(checker);
     checker
         .facts()
+        .command_facts()
         .function_headers()
         .iter()
         .filter_map(|header| {
@@ -373,6 +376,7 @@ fn wrapper_call_resolves_to_forwarding_binding(
 fn function_scopes_invoking_positional_arguments(checker: &Checker<'_>) -> FxHashSet<ScopeId> {
     checker
         .facts()
+        .command_facts()
         .structural_commands()
         .filter_map(|fact| {
             fact.body_word_span()
@@ -567,7 +571,7 @@ fn report_transient_shadowed_file_scope_definitions(
 
 fn transient_function_shadow_offsets_by_name(checker: &Checker<'_>) -> FxHashMap<Name, Vec<usize>> {
     let mut offsets_by_name = FxHashMap::<Name, Vec<usize>>::default();
-    for header in checker.facts().function_headers() {
+    for header in checker.facts().command_facts().function_headers() {
         let Some(scope) = header.function_scope() else {
             continue;
         };
@@ -697,15 +701,27 @@ fn unset_function_cutoff_offsets(
 }
 
 fn command_offset_is_under_dominance_barrier(checker: &Checker<'_>, offset: usize) -> bool {
-    let Some(mut command_id) = checker.facts().innermost_command_id_at(offset) else {
+    let Some(mut command_id) = checker
+        .facts()
+        .command_facts()
+        .innermost_command_id_at(offset)
+    else {
         return false;
     };
 
     loop {
-        if checker.facts().command_is_dominance_barrier(command_id) {
+        if checker
+            .facts()
+            .command_facts()
+            .command_is_dominance_barrier(command_id)
+        {
             return true;
         }
-        let Some(parent_id) = checker.facts().command_parent_id(command_id) else {
+        let Some(parent_id) = checker
+            .facts()
+            .command_facts()
+            .command_parent_id(command_id)
+        else {
             return false;
         };
         command_id = parent_id;
@@ -965,6 +981,7 @@ fn has_file_scope_script_terminator_before(checker: &Checker<'_>, before_offset:
             offset < before_offset
                 && checker
                     .facts()
+                    .command_facts()
                     .innermost_command_at(offset)
                     .map(|fact| scope_is_file_scope(checker, fact.scope()))
                     .unwrap_or_else(|| {
@@ -979,25 +996,33 @@ fn has_file_scope_termination_barrier_before(checker: &Checker<'_>, before_offse
 }
 
 fn has_file_scope_return_before(checker: &Checker<'_>, before_offset: usize) -> bool {
-    checker.facts().structural_commands().any(|fact| {
-        let offset = fact.body_span().start.offset;
-        offset < before_offset
-            && fact.effective_name_is("return")
-            && scope_is_file_scope(checker, fact.scope())
-            && !command_offset_is_under_dominance_barrier(checker, offset)
-            && !command_offset_is_unreachable(checker, offset)
-    })
+    checker
+        .facts()
+        .command_facts()
+        .structural_commands()
+        .any(|fact| {
+            let offset = fact.body_span().start.offset;
+            offset < before_offset
+                && fact.effective_name_is("return")
+                && scope_is_file_scope(checker, fact.scope())
+                && !command_offset_is_under_dominance_barrier(checker, offset)
+                && !command_offset_is_unreachable(checker, offset)
+        })
 }
 
 fn has_top_level_return_after(checker: &Checker<'_>, after_offset: usize) -> bool {
-    checker.facts().structural_commands().any(|fact| {
-        fact.body_span().start.offset > after_offset
-            && scope_is_file_scope(
-                checker,
-                checker.semantic().scope_at(fact.body_span().start.offset),
-            )
-            && fact.effective_name_is("return")
-    })
+    checker
+        .facts()
+        .command_facts()
+        .structural_commands()
+        .any(|fact| {
+            fact.body_span().start.offset > after_offset
+                && scope_is_file_scope(
+                    checker,
+                    checker.semantic().scope_at(fact.body_span().start.offset),
+                )
+                && fact.effective_name_is("return")
+        })
 }
 
 fn enclosing_function_scope_can_run_persistently(
@@ -1030,14 +1055,18 @@ fn has_direct_call_inside_enclosing_function(
 }
 
 fn has_apparent_infinite_loop_after(checker: &Checker<'_>, offset: usize) -> bool {
-    checker.facts().structural_commands().any(|fact| {
-        fact.body_span().start.offset > offset
-            && scope_is_file_scope(
-                checker,
-                checker.semantic().scope_at(fact.body_span().start.offset),
-            )
-            && command_is_apparent_infinite_loop(checker, fact.command())
-    })
+    checker
+        .facts()
+        .command_facts()
+        .structural_commands()
+        .any(|fact| {
+            fact.body_span().start.offset > offset
+                && scope_is_file_scope(
+                    checker,
+                    checker.semantic().scope_at(fact.body_span().start.offset),
+                )
+                && command_is_apparent_infinite_loop(checker, fact.command())
+        })
 }
 
 fn command_is_apparent_infinite_loop(checker: &Checker<'_>, command: &shuck_ast::Command) -> bool {
@@ -1075,14 +1104,18 @@ fn condition_text_is(source: &str, span: shuck_ast::Span, values: &[&str]) -> bo
 }
 
 fn loop_body_contains_break(checker: &Checker<'_>, body_span: shuck_ast::Span) -> bool {
-    checker.facts().structural_commands().any(|fact| {
-        fact.body_span().start.offset >= body_span.start.offset
-            && fact.body_span().end.offset <= body_span.end.offset
-            && matches!(
-                fact.command(),
-                shuck_ast::Command::Builtin(shuck_ast::BuiltinCommand::Break(_))
-            )
-    })
+    checker
+        .facts()
+        .command_facts()
+        .structural_commands()
+        .any(|fact| {
+            fact.body_span().start.offset >= body_span.start.offset
+                && fact.body_span().end.offset <= body_span.end.offset
+                && matches!(
+                    fact.command(),
+                    shuck_ast::Command::Builtin(shuck_ast::BuiltinCommand::Break(_))
+                )
+        })
 }
 
 fn enclosing_function_has_reportable_c063_diagnostic(
@@ -1095,6 +1128,7 @@ fn enclosing_function_has_reportable_c063_diagnostic(
     };
     let enclosing_bindings = checker
         .facts()
+        .command_facts()
         .function_headers()
         .iter()
         .filter(|header| header.function_scope() == Some(enclosing_scope))

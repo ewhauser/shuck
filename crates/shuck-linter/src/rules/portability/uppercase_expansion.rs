@@ -19,6 +19,7 @@ pub fn uppercase_expansion(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .words()
         .case_modification_fragments()
         .iter()
         .map(|fragment| fragment.span())

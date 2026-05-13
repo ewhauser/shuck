@@ -11,6 +11,7 @@ echo \\${${name}}/\\${fallback}
 
     with_facts(source, None, |_, facts| {
         let positions = facts
+            .words()
             .literal_brace_spans()
             .iter()
             .map(|span| (span.start.line, span.start.column))

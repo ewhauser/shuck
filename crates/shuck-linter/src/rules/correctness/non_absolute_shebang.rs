@@ -22,7 +22,7 @@ impl Violation for NonAbsoluteShebang {
 
 pub fn non_absolute_shebang(checker: &mut Checker) {
     let source = checker.source();
-    if let Some(span) = checker.facts().non_absolute_shebang_span() {
+    if let Some(span) = checker.facts().source_facts().non_absolute_shebang_span() {
         let replacement = rewrite_shebang(span.slice(source));
         checker.report_diagnostic_dedup(
             crate::Diagnostic::new(NonAbsoluteShebang, span)

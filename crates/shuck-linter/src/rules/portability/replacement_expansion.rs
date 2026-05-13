@@ -19,6 +19,7 @@ pub fn replacement_expansion(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .words()
         .replacement_expansion_fragments()
         .iter()
         .map(|fragment| fragment.span())

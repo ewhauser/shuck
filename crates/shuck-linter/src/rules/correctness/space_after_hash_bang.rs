@@ -21,8 +21,14 @@ impl Violation for SpaceAfterHashBang {
 pub fn space_after_hash_bang(checker: &mut Checker) {
     if let Some((span, whitespace_span)) = checker
         .facts()
+        .source_facts()
         .space_after_hash_bang_span()
-        .zip(checker.facts().space_after_hash_bang_whitespace_span())
+        .zip(
+            checker
+                .facts()
+                .source_facts()
+                .space_after_hash_bang_whitespace_span(),
+        )
     {
         checker.report_diagnostic_dedup(
             crate::Diagnostic::new(SpaceAfterHashBang, span)

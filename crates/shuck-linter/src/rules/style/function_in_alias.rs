@@ -13,7 +13,10 @@ impl Violation for FunctionInAlias {
 }
 
 pub fn function_in_alias(checker: &mut Checker) {
-    checker.report_fact_slice_dedup(|facts| facts.function_in_alias_spans(), || FunctionInAlias);
+    checker.report_fact_slice_dedup(
+        |facts| facts.command_facts().function_in_alias_spans(),
+        || FunctionInAlias,
+    );
 }
 
 #[cfg(test)]

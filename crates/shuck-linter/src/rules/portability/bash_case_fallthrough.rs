@@ -24,6 +24,7 @@ pub fn bash_case_fallthrough(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .command_facts()
         .case_items()
         .iter()
         .filter(|item| {

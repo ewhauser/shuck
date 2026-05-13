@@ -20,6 +20,7 @@ pub fn zsh_flag_expansion(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .words()
         .word_facts()
         .iter()
         .flat_map(|fact| fact.zsh_flag_modifier_spans())

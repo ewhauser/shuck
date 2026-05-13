@@ -28,7 +28,7 @@ impl Violation for UnreachableAfterExit {
 
 pub fn unreachable_after_exit(checker: &mut Checker) {
     let source = checker.source();
-    let short_circuit_lists = checker.facts().lists();
+    let short_circuit_lists = checker.facts().command_facts().lists();
     let commands = checker.facts().commands();
     let semantic_analysis = checker.semantic_analysis();
     let unreached_function_spans = unreached_function_definition_spans(checker);
@@ -88,6 +88,7 @@ fn statically_unreached_function_definition_spans(checker: &Checker<'_>) -> Vec<
 
     checker
         .facts()
+        .command_facts()
         .function_headers()
         .iter()
         .filter_map(|header| {
@@ -191,6 +192,7 @@ fn static_call_can_resolve_at_entry(
 fn function_bindings_by_scope(checker: &Checker<'_>) -> FxHashMap<ScopeId, BindingId> {
     checker
         .facts()
+        .command_facts()
         .function_headers()
         .iter()
         .filter_map(|header| Some((header.function_scope()?, header.binding_id()?)))
@@ -248,7 +250,11 @@ fn file_has_file_scope_exit(checker: &Checker<'_>) -> bool {
 fn file_has_top_level_exit_command(checker: &Checker<'_>) -> bool {
     checker.facts().commands().iter().any(|command| {
         command.effective_or_literal_name() == Some("exit")
-            && checker.facts().command_parent_id(command.id()).is_none()
+            && checker
+                .facts()
+                .command_facts()
+                .command_parent_id(command.id())
+                .is_none()
             && checker
                 .semantic()
                 .flow_context_at(&command.stmt().span)

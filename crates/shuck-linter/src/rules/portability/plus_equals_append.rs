@@ -21,7 +21,7 @@ pub fn plus_equals_append(checker: &mut Checker) {
     }
 
     checker.report_fact_slice_dedup(
-        |facts| facts.plus_equals_assignment_spans(),
+        |facts| facts.assignments().plus_equals_assignment_spans(),
         || PlusEqualsAppend,
     );
 }

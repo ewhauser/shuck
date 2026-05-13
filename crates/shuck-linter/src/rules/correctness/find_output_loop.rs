@@ -15,6 +15,7 @@ impl Violation for FindOutputLoop {
 pub fn find_output_loop(checker: &mut Checker) {
     let spans = checker
         .facts()
+        .command_facts()
         .for_headers()
         .iter()
         .flat_map(|header| header.words().iter())

@@ -26,6 +26,7 @@ impl Violation for FindOutputToXargs {
 pub fn find_output_to_xargs(checker: &mut Checker) {
     let diagnostics = checker
         .facts()
+        .command_facts()
         .pipelines()
         .iter()
         .flat_map(|pipeline| unsafe_find_to_xargs_diagnostics(checker, pipeline))
@@ -46,8 +47,14 @@ fn unsafe_find_to_xargs_diagnostics(
         .filter_map(|pair| {
             let left_segment = &pair[0];
             let right_segment = &pair[1];
-            let left = checker.facts().command(left_segment.command_id());
-            let right = checker.facts().command(right_segment.command_id());
+            let left = checker
+                .facts()
+                .command_facts()
+                .command(left_segment.command_id());
+            let right = checker
+                .facts()
+                .command_facts()
+                .command(right_segment.command_id());
 
             if !left_segment.effective_name_is("find") || !right_segment.effective_name_is("xargs")
             {

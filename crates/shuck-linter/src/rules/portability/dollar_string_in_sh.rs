@@ -29,6 +29,7 @@ pub fn dollar_string_in_sh(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .words()
         .dollar_double_quoted_fragments()
         .iter()
         .map(|fragment| fragment.span())

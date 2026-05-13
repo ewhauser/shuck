@@ -54,6 +54,7 @@ query {
 
     with_facts(source, None, |_, facts| {
         let header = facts
+            .command_facts()
             .for_headers()
             .first()
             .expect("expected nested for header");
@@ -275,6 +276,7 @@ test
 
     with_facts(source, None, |_, facts| {
         let commands = facts
+            .command_facts()
             .structural_commands()
             .map(|fact| (fact.span().slice(source).trim_end().to_owned(), fact))
             .collect::<Vec<_>>();
@@ -427,6 +429,7 @@ test \\! -n foo
 
     with_facts(source, None, |_, facts| {
         let commands = facts
+            .command_facts()
             .structural_commands()
             .map(|fact| (fact.span().slice(source).trim_end().to_owned(), fact))
             .collect::<Vec<_>>();
@@ -507,6 +510,7 @@ fn simple_test_fact_tracks_truthy_string_unary_and_string_binary_subexpressions(
 
     with_facts(source, None, |_, facts| {
         let commands = facts
+            .command_facts()
             .structural_commands()
             .map(|fact| (fact.span().slice(source).trim_end().to_owned(), fact))
             .collect::<Vec<_>>();
@@ -842,6 +846,7 @@ fn simple_test_fact_tracks_operator_expression_operands() {
 
     with_facts(source, None, |_, facts| {
         let commands = facts
+            .command_facts()
             .structural_commands()
             .map(|fact| (fact.span().slice(source).trim_end().to_owned(), fact))
             .collect::<Vec<_>>();
@@ -954,6 +959,7 @@ fn collects_compound_operator_spans_for_grouped_bracket_tests() {
 
     with_facts(source, None, |_, facts| {
         let tests = facts
+            .command_facts()
             .structural_commands()
             .filter_map(|fact| fact.simple_test())
             .collect::<Vec<_>>();
@@ -995,6 +1001,7 @@ fn skips_compound_operator_spans_for_malformed_grouped_bracket_tests() {
 
     with_facts(source, None, |_, facts| {
         let test = facts
+            .command_facts()
             .structural_commands()
             .find_map(|fact| fact.simple_test())
             .expect("expected malformed simple test fact");
@@ -1012,6 +1019,7 @@ fn skips_compound_operator_spans_for_quoted_negation_before_grouped_subexpressio
 
     with_facts(source, None, |_, facts| {
         let test = facts
+            .command_facts()
             .structural_commands()
             .find_map(|fact| fact.simple_test())
             .expect("expected grouped simple test fact");
@@ -1031,7 +1039,10 @@ fn records_glued_closing_bracket_operand_spans_for_unary_tests() {
 ";
 
     with_facts(source, None, |_, facts| {
-        let commands = facts.structural_commands().collect::<Vec<_>>();
+        let commands = facts
+            .command_facts()
+            .structural_commands()
+            .collect::<Vec<_>>();
         assert_eq!(commands.len(), 4);
 
         assert_eq!(
@@ -1077,7 +1088,10 @@ if [ \"$x\" = y ]; then :; fi
 ";
 
     with_facts(source, None, |_, facts| {
-        let commands = facts.structural_commands().collect::<Vec<_>>();
+        let commands = facts
+            .command_facts()
+            .structural_commands()
+            .collect::<Vec<_>>();
         let broken = commands
             .iter()
             .find(|fact| fact.static_utility_name_is("[") && fact.span().start.line == 2)
@@ -1129,6 +1143,7 @@ f() {
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .command_facts()
                 .bare_command_name_assignment_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -1160,6 +1175,7 @@ true && `echo and_redirect` 2>/dev/null
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .command_facts()
                 .backtick_command_name_spans()
                 .iter()
                 .map(|span| span.slice(source))
@@ -1188,9 +1204,9 @@ true && false || printf '%s\\n' fallback
 ";
 
     with_facts(source, None, |_, facts| {
-        assert_eq!(facts.for_headers().len(), 2);
+        assert_eq!(facts.command_facts().for_headers().len(), 2);
 
-        let top_level_for = &facts.for_headers()[0];
+        let top_level_for = &facts.command_facts().for_headers()[0];
         assert!(!top_level_for.is_nested_word_command());
         assert_eq!(top_level_for.words().len(), 3);
         assert!(top_level_for.words()[0].has_unquoted_command_substitution());
@@ -1198,16 +1214,17 @@ true && false || printf '%s\\n' fallback
         assert!(top_level_for.has_command_substitution());
         assert!(top_level_for.has_find_substitution());
 
-        let nested_for = &facts.for_headers()[1];
+        let nested_for = &facts.command_facts().for_headers()[1];
         assert!(nested_for.is_nested_word_command());
         assert!(nested_for.words()[0].has_unquoted_command_substitution());
 
-        let select = &facts.select_headers()[0];
+        let select = &facts.command_facts().select_headers()[0];
         assert_eq!(select.words().len(), 3);
         assert!(select.words()[0].has_command_substitution());
         assert!(select.words()[1].contains_find_substitution());
 
         let pipeline_segments = facts
+            .command_facts()
             .pipelines()
             .iter()
             .map(|pipeline| {
@@ -1232,7 +1249,7 @@ true && false || printf '%s\\n' fallback
             ]
         );
 
-        let first_pipeline = &facts.pipelines()[0];
+        let first_pipeline = &facts.command_facts().pipelines()[0];
         assert_eq!(
             first_pipeline
                 .operators()
@@ -1244,12 +1261,17 @@ true && false || printf '%s\\n' fallback
         let first_segment = &first_pipeline.segments()[0];
         assert_eq!(
             facts
+                .command_facts()
                 .command(first_segment.command_id())
                 .effective_or_literal_name(),
             Some("printf")
         );
 
-        let list = facts.lists().first().expect("expected list fact");
+        let list = facts
+            .command_facts()
+            .lists()
+            .first()
+            .expect("expected list fact");
         assert_eq!(
             list.operators()
                 .iter()
@@ -1291,9 +1313,10 @@ fn classifies_mixed_short_circuit_lists_by_shape() {
 ";
 
     with_facts(source, None, |_, facts| {
-        assert_eq!(facts.lists().len(), 4);
+        assert_eq!(facts.command_facts().lists().len(), 4);
         assert_eq!(
             facts
+                .command_facts()
                 .lists()
                 .iter()
                 .map(|list| list.mixed_short_circuit_kind())
@@ -1316,12 +1339,17 @@ echo \"\\\"$BUILDSCRIPT\\\" --library $(test \"${PKG_DIR%/*}\" = \"gpkg\" && ech
 ";
 
     with_facts(source, None, |_, facts| {
-        let list = facts.lists().first().expect("expected mixed list");
+        let list = facts
+            .command_facts()
+            .lists()
+            .first()
+            .expect("expected mixed list");
         let names = list
             .segments()
             .iter()
             .map(|segment| {
                 facts
+                    .command_facts()
                     .command(segment.command_id())
                     .effective_or_literal_name()
                     .map(str::to_owned)
@@ -1348,9 +1376,9 @@ true && declare -x flag=1
 ";
 
     with_facts(source, None, |_, facts| {
-        assert_eq!(facts.lists().len(), 2);
+        assert_eq!(facts.command_facts().lists().len(), 2);
 
-        let ternary = &facts.lists()[0];
+        let ternary = &facts.command_facts().lists()[0];
         assert_eq!(
             ternary.mixed_short_circuit_kind(),
             Some(crate::facts::MixedShortCircuitKind::AssignmentTernary)
@@ -1372,7 +1400,7 @@ true && declare -x flag=1
             vec![false, true, true]
         );
 
-        let shortcut = &facts.lists()[1];
+        let shortcut = &facts.command_facts().lists()[1];
         assert_eq!(
             shortcut
                 .segments()
@@ -1399,15 +1427,15 @@ for entry in $(find . -type f); do :; done
 ";
 
     with_facts(source, None, |_, facts| {
-        let words = facts.for_headers()[0].words();
+        let words = facts.command_facts().for_headers()[0].words();
         assert!(words[0].has_unquoted_command_substitution());
         assert!(words[0].contains_ls_substitution());
 
-        let command_ls = facts.for_headers()[1].words();
+        let command_ls = facts.command_facts().for_headers()[1].words();
         assert!(command_ls[0].has_unquoted_command_substitution());
         assert!(!command_ls[0].contains_ls_substitution());
 
-        let find_words = facts.for_headers()[2].words();
+        let find_words = facts.command_facts().for_headers()[2].words();
         assert!(find_words[0].has_unquoted_command_substitution());
         assert!(!find_words[0].contains_ls_substitution());
     });
@@ -1422,11 +1450,11 @@ for entry in $(command find . -type f -exec basename {} \\;); do :; done
 ";
 
     with_facts(source, None, |_, facts| {
-        let first = facts.for_headers()[0].words();
+        let first = facts.command_facts().for_headers()[0].words();
         assert!(first[0].has_unquoted_command_substitution());
         assert!(first[0].contains_find_substitution());
 
-        let second = facts.for_headers()[1].words();
+        let second = facts.command_facts().for_headers()[1].words();
         assert!(second[0].has_unquoted_command_substitution());
         assert!(second[0].contains_find_substitution());
     });
@@ -1446,6 +1474,7 @@ for entry in $(find . -type f); do :; done
 
     with_facts(source, None, |_, facts| {
         let words = facts
+            .command_facts()
             .for_headers()
             .iter()
             .map(|header| header.words()[0].contains_line_oriented_substitution())
@@ -1464,9 +1493,14 @@ for entry in $(find . -type f -exec grep -Pl '\\r$' {} \\;); do :; done
 ";
 
     with_facts(source, None, |_, facts| {
-        assert_eq!(facts.for_headers().len(), 2);
-        assert!(facts.for_headers()[0].words()[1].contains_line_oriented_substitution());
-        assert!(!facts.for_headers()[1].words()[0].contains_line_oriented_substitution());
+        assert_eq!(facts.command_facts().for_headers().len(), 2);
+        assert!(
+            facts.command_facts().for_headers()[0].words()[1].contains_line_oriented_substitution()
+        );
+        assert!(
+            !facts.command_facts().for_headers()[1].words()[0]
+                .contains_line_oriented_substitution()
+        );
     });
 }
 
@@ -1484,9 +1518,9 @@ for version ($versions); do :; done
         ParseShellDialect::Zsh,
         ShellDialect::Zsh,
         |_, facts| {
-            assert_eq!(facts.for_headers().len(), 2);
+            assert_eq!(facts.command_facts().for_headers().len(), 2);
 
-            let first = &facts.for_headers()[0];
+            let first = &facts.command_facts().for_headers()[0];
             assert_eq!(first.words().len(), 2);
             assert!(first.words()[0].has_command_substitution());
             assert_eq!(
@@ -1498,7 +1532,7 @@ for version ($versions); do :; done
                 vec!["$(printf '%s\\n' a b)", "literal"]
             );
 
-            let second = &facts.for_headers()[1];
+            let second = &facts.command_facts().for_headers()[1];
             assert_eq!(second.words().len(), 1);
             assert_eq!(second.words()[0].word().span.slice(source), "$versions");
         },
@@ -1515,6 +1549,7 @@ fn builds_conditional_facts_with_root_normalization_and_nested_inventory() {
 
     with_facts(source, None, |_, facts| {
         let conditionals = facts
+            .command_facts()
             .structural_commands()
             .filter_map(|fact| fact.conditional())
             .collect::<Vec<_>>();
@@ -1665,6 +1700,7 @@ fn keeps_parenthesized_logical_groups_separate_for_mixed_operator_detection() {
 
     with_facts(source, None, |_, facts| {
         let conditionals = facts
+            .command_facts()
             .structural_commands()
             .filter_map(|fact| fact.conditional())
             .collect::<Vec<_>>();
@@ -1728,7 +1764,7 @@ test -O \"$file\"
 ";
 
     with_facts(source, None, |_, facts| {
-        let portability = facts.conditional_portability();
+        let portability = facts.compat().conditional_portability();
 
         assert_eq!(portability.double_bracket_in_sh().len(), 9);
         assert_eq!(
@@ -1847,6 +1883,7 @@ fn array_subscript_test_follows_sc2202_simple_test_operand_positions() {
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
+                .compat()
                 .conditional_portability()
                 .array_subscript_test()
                 .iter()
@@ -1879,6 +1916,7 @@ for item in [^c]*; do :; done
 
     with_facts(source, None, |_, facts| {
         let extglobs = facts
+            .compat()
             .conditional_portability()
             .extglob_in_sh()
             .iter()
@@ -1889,6 +1927,7 @@ for item in [^c]*; do :; done
         assert!(extglobs.contains(&"@($suffix|zz)"));
 
         let caret_negations = facts
+            .compat()
             .conditional_portability()
             .caret_negation_in_bracket()
             .iter()

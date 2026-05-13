@@ -16,6 +16,7 @@ impl Violation for GetoptsInvalidFlagHandler {
 pub fn getopts_invalid_flag_handler(checker: &mut Checker) {
     let spans = checker
         .facts()
+        .command_facts()
         .getopts_cases()
         .iter()
         .filter(|fact| fact.missing_invalid_flag_handler())

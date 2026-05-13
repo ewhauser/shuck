@@ -68,6 +68,7 @@ pub(crate) enum WordOccurrenceFilter {
     Any,
     NonArithmetic,
     ArithmeticCommand,
+    #[cfg(test)]
     ParameterOperand,
     Expansion(ExpansionContext),
     CaseSubject,
@@ -99,7 +100,7 @@ impl<'facts, 'a> WordOccurrenceIter<'facts, 'a> {
     }
 
     fn accepts(&self, id: WordOccurrenceId) -> bool {
-        let occurrence = self.facts.word_occurrence(id);
+        let occurrence = self.facts.words().word_occurrence(id);
         match self.filter {
             WordOccurrenceFilter::Any => true,
             WordOccurrenceFilter::NonArithmetic => {
@@ -111,13 +112,14 @@ impl<'facts, 'a> WordOccurrenceIter<'facts, 'a> {
             WordOccurrenceFilter::ArithmeticCommand => {
                 occurrence.context == WordFactContext::ArithmeticCommand
             }
+            #[cfg(test)]
             WordOccurrenceFilter::ParameterOperand => {
                 occurrence.context == WordFactContext::ParameterOperand
             }
             WordOccurrenceFilter::Expansion(context) => {
                 occurrence.context == WordFactContext::Expansion(context)
             }
-            WordOccurrenceFilter::CaseSubject => self.facts.word_occurrence_ref(id).is_case_subject(),
+            WordOccurrenceFilter::CaseSubject => self.facts.words().word_occurrence_ref(id).is_case_subject(),
         }
     }
 }
@@ -137,7 +139,7 @@ impl<'facts, 'a> Iterator for WordOccurrenceIter<'facts, 'a> {
             }?;
 
             if self.accepts(id) {
-                return Some(self.facts.word_occurrence_ref(id));
+                return Some(self.facts.words().word_occurrence_ref(id));
             }
         }
     }
@@ -145,15 +147,15 @@ impl<'facts, 'a> Iterator for WordOccurrenceIter<'facts, 'a> {
 
 impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     fn occurrence(self) -> &'facts WordOccurrence {
-        self.facts.word_occurrence(self.id)
+        self.facts.words().word_occurrence(self.id)
     }
 
     fn node(self) -> &'facts WordNode<'a> {
-        self.facts.word_node(self.occurrence().node_id)
+        self.facts.words().word_node(self.occurrence().node_id)
     }
 
     fn derived(self) -> &'facts WordNodeDerived<'a> {
-        self.facts.word_node_derived(self.occurrence().node_id)
+        self.facts.words().word_node_derived(self.occurrence().node_id)
     }
 
     pub(crate) fn word(self) -> &'a Word {
@@ -220,8 +222,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         source: &str,
     ) -> bool {
         let Some(backtick_span) =
-            self.facts
-                .backtick_substitution_spans()
+            self.facts.source_facts().backtick_substitution_spans()
                 .iter()
                 .copied()
                 .find(|span| {
@@ -571,7 +572,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         word_spans::shellcheck_collapsed_backtick_part_span(
             adjusted,
             locator,
-            self.facts.backtick_substitution_spans(),
+            self.facts.source_facts().backtick_substitution_spans(),
         )
     }
 
@@ -579,8 +580,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         word_spans::word_has_direct_all_elements_array_expansion_in_source(
             self.word(),
             locator,
-            self.facts
-                .command(self.command_id())
+            self.facts.command_facts().command(self.command_id())
                 .shell_behavior()
                 .shell_dialect(),
         )
@@ -590,8 +590,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         word_spans::word_zsh_positional_parameter_range_spans(
             self.word(),
             locator.source(),
-            self.facts
-                .command(self.command_id())
+            self.facts.command_facts().command(self.command_id())
                 .shell_behavior()
                 .shell_dialect(),
         )
@@ -659,8 +658,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
             return true;
         }
 
-        self.facts
-            .command(self.command_id())
+        self.facts.command_facts().command(self.command_id())
             .shell_behavior()
             .shell_dialect()
             != shuck_semantic::ShellDialect::Zsh
@@ -733,8 +731,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         word_spans::word_folded_all_elements_array_span_in_source(
             self.word(),
             locator,
-            self.facts
-                .command(self.command_id())
+            self.facts.command_facts().command(self.command_id())
                 .shell_behavior()
                 .shell_dialect(),
         )
@@ -1140,49 +1137,6 @@ fn safe_value_parameter_contains_special_parameter_slice(parameter: &ParameterEx
 
 fn safe_value_special_parameter_slice_reference(reference: &VarRef) -> bool {
     matches!(reference.name.as_str(), "@" | "*")
-}
-
-
-pub(crate) fn build_unquoted_command_argument_use_offsets(
-    semantic: &SemanticModel,
-    nodes: &[WordNode<'_>],
-    occurrences: &[WordOccurrence],
-) -> FxHashMap<Name, Vec<usize>> {
-    let unquoted_command_argument_word_spans = occurrences
-        .iter()
-        .filter(|fact| {
-            fact.context == WordFactContext::Expansion(ExpansionContext::CommandArgument)
-        })
-        .filter(|fact| occurrence_analysis(nodes, fact).quote == WordQuote::Unquoted)
-        .map(|fact| occurrence_span(nodes, fact))
-        .collect::<Vec<_>>();
-    if unquoted_command_argument_word_spans.is_empty() {
-        return FxHashMap::default();
-    }
-
-    let mut offsets_by_name = FxHashMap::<Name, Vec<usize>>::default();
-    for word_span in unquoted_command_argument_word_spans {
-        for reference in semantic.references_in_span(word_span) {
-            if matches!(
-                reference.kind,
-                shuck_semantic::ReferenceKind::DeclarationName
-            ) {
-                continue;
-            }
-
-            offsets_by_name
-                .entry(reference.name.clone())
-                .or_default()
-                .push(word_span.start.offset);
-        }
-    }
-
-    for offsets in offsets_by_name.values_mut() {
-        offsets.sort_unstable();
-        offsets.dedup();
-    }
-
-    offsets_by_name
 }
 
 struct ZshArrayFanoutContext<'a, 'flow> {

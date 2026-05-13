@@ -45,8 +45,10 @@ pub fn unquoted_expansion(checker: &mut Checker) {
     let array_assignment_split_spans = collect_array_assignment_split_candidate_spans(checker);
     let numeric_test_operand_spans = collect_numeric_test_operand_spans(checker, source);
     let plain_run_first_arg_spans = collect_plain_run_first_arg_spans(checker);
-    let backtick_escaped_parameter_spans =
-        checker.facts().backtick_escaped_parameter_reference_spans();
+    let backtick_escaped_parameter_spans = checker
+        .facts()
+        .source_facts()
+        .backtick_escaped_parameter_reference_spans();
 
     let mut spans = Vec::new();
     let locator = checker.locator();
@@ -59,7 +61,7 @@ pub fn unquoted_expansion(checker: &mut Checker) {
         plain_run_first_arg_spans: &plain_run_first_arg_spans,
         backtick_escaped_parameter_spans,
     };
-    for fact in checker.facts().word_facts() {
+    for fact in checker.facts().words().word_facts() {
         collect_word_fact_reports(&report_context, &mut safe_values, &mut spans, fact);
         collect_array_assignment_split_reports(
             &mut safe_values,
@@ -69,9 +71,11 @@ pub fn unquoted_expansion(checker: &mut Checker) {
             &array_assignment_split_spans,
         );
     }
-    let arithmetic_command_substitution_spans =
-        checker.facts().arithmetic_command_substitution_spans();
-    for fact in checker.facts().arithmetic_command_word_facts() {
+    let arithmetic_command_substitution_spans = checker
+        .facts()
+        .words()
+        .arithmetic_command_substitution_spans();
+    for fact in checker.facts().words().arithmetic_command_word_facts() {
         collect_arithmetic_word_fact_reports(
             &report_context,
             &mut safe_values,
@@ -80,7 +84,7 @@ pub fn unquoted_expansion(checker: &mut Checker) {
             arithmetic_command_substitution_spans,
         );
     }
-    for escaped in checker.facts().backtick_escaped_parameters() {
+    for escaped in checker.facts().source_facts().backtick_escaped_parameters() {
         if escaped.standalone_command_name {
             continue;
         }
@@ -214,6 +218,7 @@ fn collect_plain_run_first_arg_spans(checker: &Checker) -> FxHashSet<FactSpan> {
 fn collect_array_assignment_split_candidate_spans(checker: &Checker) -> Vec<Span> {
     let mut spans = checker
         .facts()
+        .words()
         .array_assignment_split_word_facts()
         .flat_map(|fact| {
             let command_substitution_spans = fact.command_substitution_spans();

@@ -31,6 +31,7 @@ pub fn function_body_without_braces(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .command_facts()
         .function_body_without_braces_spans()
         .iter()
         .copied()

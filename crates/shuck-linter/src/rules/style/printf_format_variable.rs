@@ -27,6 +27,7 @@ pub fn printf_format_variable(checker: &mut Checker) {
         .filter_map(|word| {
             checker
                 .facts()
+                .words()
                 .word_fact(
                     word.span,
                     WordFactContext::Expansion(ExpansionContext::CommandArgument),

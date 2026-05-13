@@ -16,6 +16,7 @@ impl Violation for LoopFromCommandOutput {
 pub fn loop_from_command_output(checker: &mut Checker) {
     let spans = checker
         .facts()
+        .command_facts()
         .for_headers()
         .iter()
         .filter(|header| !header.is_nested_word_command())

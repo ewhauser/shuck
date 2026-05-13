@@ -21,6 +21,7 @@ pub fn select_loop(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .command_facts()
         .select_headers()
         .iter()
         .map(|header| keyword_span(header.span(), "select"))

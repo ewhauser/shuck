@@ -14,7 +14,7 @@ impl Violation for PositionalParamAsOperator {
 
 pub fn positional_param_as_operator(checker: &mut Checker) {
     checker.report_fact_slice_dedup(
-        |facts| facts.positional_parameter_operator_spans(),
+        |facts| facts.words().positional_parameter_operator_spans(),
         || PositionalParamAsOperator,
     );
 }

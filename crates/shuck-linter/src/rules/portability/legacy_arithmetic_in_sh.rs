@@ -28,6 +28,7 @@ pub fn legacy_arithmetic_in_sh(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .legacy_arithmetic_fragments()
         .iter()
         .filter_map(|fragment| legacy_arithmetic_fix(fragment.span(), source))

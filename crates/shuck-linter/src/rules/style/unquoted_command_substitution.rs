@@ -22,7 +22,10 @@ impl Violation for UnquotedCommandSubstitution {
 }
 
 pub fn unquoted_command_substitution(checker: &mut Checker) {
-    let arithmetic_spans = checker.facts().arithmetic_command_substitution_spans();
+    let arithmetic_spans = checker
+        .facts()
+        .words()
+        .arithmetic_command_substitution_spans();
     let pgrep_spans = checker
         .facts()
         .commands()
@@ -50,6 +53,7 @@ pub fn unquoted_command_substitution(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .word_facts()
         .iter()
         .flat_map(|fact| {

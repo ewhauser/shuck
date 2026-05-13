@@ -19,7 +19,7 @@ pub fn positional_args_in_string(checker: &mut Checker) {
         ExpansionContext::CommandArgument,
     ]
     .into_iter()
-    .flat_map(|context| checker.facts().expansion_word_facts(context))
+    .flat_map(|context| checker.facts().words().expansion_word_facts(context))
     .filter_map(|fact| fact.folded_all_elements_array_span_in_source(locator))
     .collect::<Vec<_>>();
 

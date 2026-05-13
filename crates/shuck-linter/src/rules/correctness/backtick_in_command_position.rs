@@ -20,7 +20,11 @@ impl Violation for BacktickInCommandPosition {
 
 pub fn backtick_in_command_position(checker: &mut Checker) {
     let source = checker.source();
-    let spans = checker.facts().backtick_command_name_spans().to_vec();
+    let spans = checker
+        .facts()
+        .command_facts()
+        .backtick_command_name_spans()
+        .to_vec();
 
     for span in spans {
         checker.report_diagnostic_dedup(Diagnostic::new(BacktickInCommandPosition, span).with_fix(

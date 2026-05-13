@@ -35,8 +35,8 @@ pub fn mixed_quote_word(checker: &mut Checker) {
         ExpansionContext::CasePattern,
     ]
     .into_iter()
-    .flat_map(|context| facts.expansion_word_facts(context))
-    .chain(facts.case_subject_facts())
+    .flat_map(|context| facts.words().expansion_word_facts(context))
+    .chain(facts.words().case_subject_facts())
     .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
     .flat_map(|fact| {
         let replacement_span = fact.span();

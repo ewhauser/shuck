@@ -14,7 +14,11 @@ impl Violation for IfsSetToLiteralBackslashN {
 
 pub fn ifs_set_to_literal_backslash_n(checker: &mut Checker) {
     checker.report_fact_slice_dedup(
-        |facts| facts.ifs_literal_backslash_assignment_value_spans(),
+        |facts| {
+            facts
+                .assignments()
+                .ifs_literal_backslash_assignment_value_spans()
+        },
         || IfsSetToLiteralBackslashN,
     );
 }

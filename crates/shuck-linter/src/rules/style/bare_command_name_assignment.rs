@@ -24,7 +24,12 @@ impl Violation for BareCommandNameAssignment {
 pub fn bare_command_name_assignment(checker: &mut Checker) {
     let source = checker.source();
     checker.report_fact_diagnostics_dedup(|facts, report| {
-        for span in facts.bare_command_name_assignment_spans().iter().copied() {
+        for span in facts
+            .command_facts()
+            .bare_command_name_assignment_spans()
+            .iter()
+            .copied()
+        {
             let diagnostic = Diagnostic::new(BareCommandNameAssignment, span);
             report(match quote_assignment_value_fix(span, source) {
                 Some(fix) => diagnostic.with_fix(fix),

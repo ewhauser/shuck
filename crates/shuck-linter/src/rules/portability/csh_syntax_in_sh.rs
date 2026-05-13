@@ -22,6 +22,7 @@ pub fn csh_syntax_in_sh(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .command_facts()
         .structural_commands()
         .filter(|fact| fact.effective_name_is("set"))
         .filter_map(|fact| {

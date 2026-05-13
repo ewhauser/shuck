@@ -30,6 +30,7 @@ pub fn ls_in_substitution(checker: &mut Checker) {
 fn processed_ls_pipeline_spans(checker: &Checker) -> Vec<Span> {
     let mut spans = checker
         .facts()
+        .command_facts()
         .pipelines()
         .iter()
         .flat_map(|pipeline| {
@@ -54,6 +55,7 @@ fn processed_ls_pipeline_spans(checker: &Checker) -> Vec<Span> {
             .filter(|substitution| {
                 !checker
                     .facts()
+                    .command_facts()
                     .pipelines()
                     .iter()
                     .any(|pipeline| span_contains(substitution.span(), pipeline.span()))
@@ -69,7 +71,7 @@ fn left_segment_is_s047_ls_candidate(
     checker: &Checker,
     command_id: crate::facts::CommandId,
 ) -> bool {
-    let command = checker.facts().command(command_id);
+    let command = checker.facts().command_facts().command(command_id);
 
     command.literal_name() == Some("ls") && command.wrappers().is_empty()
 }
@@ -81,6 +83,7 @@ fn pipeline_ls_command_span(
 ) -> Span {
     let command = checker
         .facts()
+        .command_facts()
         .command(pipeline.segments()[segment_index].command_id());
     let span = Span {
         start: command.span_in_source(checker.source()).start,

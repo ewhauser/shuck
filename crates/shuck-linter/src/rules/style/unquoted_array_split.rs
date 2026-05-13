@@ -24,6 +24,7 @@ pub fn unquoted_array_split(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .array_assignment_split_word_facts()
         .flat_map(|fact| {
             let candidate_spans = fact

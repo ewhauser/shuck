@@ -278,6 +278,7 @@ fn operand_is_numeric_literal(
     static_word_text(word, source).is_some_and(|text| looks_like_decimal_integer(&text))
         || checker
             .facts()
+            .words()
             .any_word_fact(word.span)
             .is_some_and(|word_fact| {
                 word_fact.is_direct_numeric_expansion()
@@ -318,6 +319,7 @@ fn binding_is_numeric_literal(checker: &Checker<'_>, binding_id: BindingId) -> b
 
     checker
         .facts()
+        .assignments()
         .binding_value(binding_id)
         .and_then(|value| value.scalar_word())
         .and_then(|word| static_word_text(word, checker.source()))

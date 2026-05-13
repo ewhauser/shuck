@@ -27,6 +27,7 @@ pub fn function_keyword_in_sh(checker: &mut Checker) {
 
     let diagnostics = checker
         .facts()
+        .command_facts()
         .function_headers()
         .iter()
         .filter(|header| header.uses_function_keyword() && header.has_trailing_parens())

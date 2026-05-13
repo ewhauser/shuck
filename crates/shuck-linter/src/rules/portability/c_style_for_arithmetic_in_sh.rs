@@ -26,10 +26,16 @@ pub fn c_style_for_arithmetic_in_sh(checker: &mut Checker) {
     let source = checker.source();
     checker.report_fact_diagnostics(|facts, report| {
         let mut fix_facts = facts
+            .words()
             .arithmetic_update_operator_fix_facts()
             .iter()
             .peekable();
-        for span in facts.arithmetic_update_operator_spans().iter().copied() {
+        for span in facts
+            .words()
+            .arithmetic_update_operator_spans()
+            .iter()
+            .copied()
+        {
             let diagnostic = Diagnostic::new(CStyleForArithmeticInSh, span);
             let diagnostic = if fix_facts
                 .peek()

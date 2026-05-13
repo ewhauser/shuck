@@ -22,7 +22,11 @@ impl Violation for SingleTestSubshell {
 
 pub fn single_test_subshell(checker: &mut Checker) {
     let source = checker.source();
-    let spans = checker.facts().single_test_subshell_spans().to_vec();
+    let spans = checker
+        .facts()
+        .command_facts()
+        .single_test_subshell_spans()
+        .to_vec();
     for span in spans {
         checker.report_diagnostic_dedup(
             Diagnostic::new(SingleTestSubshell, span)

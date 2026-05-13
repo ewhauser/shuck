@@ -40,6 +40,7 @@ pub fn unquoted_globs_in_find(checker: &mut Checker) {
 
     let diagnostics = checker
         .facts()
+        .words()
         .expansion_word_facts(ExpansionContext::CommandArgument)
         .filter(|fact| find_exec_argument_words.contains(&(fact.command_id(), fact.key())))
         .flat_map(|fact| diagnostics_for_find_exec_argument(source, fact))

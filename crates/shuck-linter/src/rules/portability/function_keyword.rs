@@ -19,6 +19,7 @@ pub fn function_keyword(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .command_facts()
         .function_headers()
         .iter()
         .filter(|header| header.uses_function_keyword() && !header.has_trailing_parens())

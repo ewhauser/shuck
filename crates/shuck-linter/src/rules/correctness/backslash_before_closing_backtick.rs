@@ -23,6 +23,7 @@ impl Violation for BackslashBeforeClosingBacktick {
 pub fn backslash_before_closing_backtick(checker: &mut Checker) {
     let spans = checker
         .facts()
+        .words()
         .backtick_fragments()
         .iter()
         .filter_map(|fragment| {

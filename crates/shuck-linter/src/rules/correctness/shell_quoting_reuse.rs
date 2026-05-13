@@ -19,7 +19,11 @@ pub(crate) fn analyze_shell_quoting_reuse(checker: &Checker<'_>) -> ShellQuoting
         .iter()
         .filter_map(|binding| {
             let context = binding_assignment_context(binding.kind)?;
-            let word = checker.facts().binding_value(binding.id)?.scalar_word()?;
+            let word = checker
+                .facts()
+                .assignments()
+                .binding_value(binding.id)?
+                .scalar_word()?;
             Some(ScalarBinding {
                 id: binding.id,
                 word,
@@ -38,6 +42,7 @@ pub(crate) fn analyze_shell_quoting_reuse(checker: &Checker<'_>) -> ShellQuoting
         .filter_map(|binding| {
             let fact = checker
                 .facts()
+                .words()
                 .word_fact(binding.word.span, binding.context)?;
             fact.contains_shell_quoting_literals().then_some(binding.id)
         })
@@ -62,7 +67,7 @@ pub(crate) fn analyze_shell_quoting_reuse(checker: &Checker<'_>) -> ShellQuoting
     let mut root_cache = FxHashMap::<BindingId, FxHashSet<BindingId>>::default();
     let mut used_root_bindings = FxHashSet::default();
     let mut use_spans = Vec::new();
-    for fact in checker.facts().word_facts() {
+    for fact in checker.facts().words().word_facts() {
         let Some(context) = fact.expansion_context() else {
             continue;
         };
@@ -169,13 +174,14 @@ fn matches_sc2090_context(context: ExpansionContext) -> bool {
 fn command_is_eval(checker: &Checker<'_>, command_id: CommandId) -> bool {
     checker
         .facts()
+        .command_facts()
         .command(command_id)
         .effective_or_literal_name()
         == Some("eval")
 }
 
 fn plain_scalar_reference_bindings(word_span: Span, checker: &Checker<'_>) -> Vec<BindingId> {
-    let Some(fact) = checker.facts().any_word_fact(word_span) else {
+    let Some(fact) = checker.facts().words().any_word_fact(word_span) else {
         return Vec::new();
     };
 

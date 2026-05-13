@@ -24,6 +24,7 @@ pub fn dollar_in_arithmetic(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .dollar_in_arithmetic_spans()
         .iter()
         .copied()

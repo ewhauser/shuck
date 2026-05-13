@@ -29,20 +29,24 @@ pub fn double_quote_nesting(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .expansion_word_facts(ExpansionContext::CommandName)
         .chain(
             checker
                 .facts()
+                .words()
                 .expansion_word_facts(ExpansionContext::CommandArgument),
         )
         .chain(
             checker
                 .facts()
+                .words()
                 .expansion_word_facts(ExpansionContext::AssignmentValue),
         )
         .chain(
             checker
                 .facts()
+                .words()
                 .expansion_word_facts(ExpansionContext::DeclarationAssignmentValue),
         )
         .flat_map(|fact| {
@@ -80,6 +84,7 @@ pub fn double_quote_nesting(checker: &mut Checker) {
         .chain(
             checker
                 .facts()
+                .source_facts()
                 .comment_double_quote_nesting_spans()
                 .iter()
                 .copied()

@@ -23,6 +23,7 @@ pub fn literal_backslash(checker: &mut Checker) {
     let facts = checker.facts();
     let diagnostics = checker
         .facts()
+        .words()
         .word_facts()
         .iter()
         .filter(|fact| is_relevant_word_context(fact.expansion_context()))
@@ -59,6 +60,7 @@ fn is_command_name_word<'a>(
     fact: crate::facts::words::WordOccurrenceRef<'_, 'a>,
 ) -> bool {
     facts
+        .command_facts()
         .command(fact.command_id())
         .body_name_word()
         .is_some_and(|word| word.span == fact.span())
@@ -70,6 +72,7 @@ fn is_unalias_argument<'a>(
 ) -> bool {
     fact.expansion_context() == Some(ExpansionContext::CommandArgument)
         && facts
+            .command_facts()
             .command(fact.command_id())
             .effective_name_is("unalias")
 }

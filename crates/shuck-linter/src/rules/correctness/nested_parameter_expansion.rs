@@ -15,6 +15,7 @@ impl Violation for NestedParameterExpansion {
 pub fn nested_parameter_expansion(checker: &mut Checker) {
     let spans = checker
         .facts()
+        .words()
         .nested_parameter_expansion_fragments()
         .iter()
         .map(|fragment| fragment.span())

@@ -15,7 +15,7 @@ impl Violation for EnvPrefixCommandOnly {
 
 pub fn env_prefix_command_only(checker: &mut Checker) {
     checker.report_fact_slice_dedup(
-        |facts| facts.env_prefix_assignment_scope_spans(),
+        |facts| facts.assignments().env_prefix_assignment_scope_spans(),
         || EnvPrefixCommandOnly,
     );
 }

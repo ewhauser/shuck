@@ -24,6 +24,7 @@ impl Violation for QuotedDollarStarLoop {
 pub fn quoted_dollar_star_loop(checker: &mut Checker) {
     let diagnostics = checker
         .facts()
+        .command_facts()
         .for_headers()
         .iter()
         .filter_map(|header| {

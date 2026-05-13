@@ -25,14 +25,21 @@ pub fn glob_assigned_to_variable(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .words()
         .expansion_word_facts(ExpansionContext::AssignmentValue)
         .chain(
             checker
                 .facts()
+                .words()
                 .expansion_word_facts(ExpansionContext::DeclarationAssignmentValue),
         )
         .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
-        .filter(|fact| !checker.facts().is_compound_assignment_value_word(*fact))
+        .filter(|fact| {
+            !checker
+                .facts()
+                .words()
+                .is_compound_assignment_value_word(*fact)
+        })
         .filter(|fact| fact.classification().quote != WordQuote::FullyQuoted)
         .filter_map(|fact| {
             let glob_spans = fact.active_literal_glob_spans(source);

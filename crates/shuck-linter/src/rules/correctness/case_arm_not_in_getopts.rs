@@ -34,6 +34,7 @@ pub fn case_arm_not_in_getopts(checker: &mut Checker) {
     let source = checker.source();
     let unexpected = checker
         .facts()
+        .command_facts()
         .getopts_cases()
         .iter()
         .flat_map(|fact| {
@@ -65,12 +66,17 @@ fn case_pattern_deletion_fix(
     source: &str,
     delete_item: bool,
 ) -> Option<Fix> {
-    let item = checker.facts().case_items().iter().find(|item| {
-        item.item().patterns.iter().any(|pattern| {
-            pattern.span.start.offset == pattern_span.start.offset
-                && pattern.span.end.offset == pattern_span.end.offset
-        })
-    })?;
+    let item = checker
+        .facts()
+        .command_facts()
+        .case_items()
+        .iter()
+        .find(|item| {
+            item.item().patterns.iter().any(|pattern| {
+                pattern.span.start.offset == pattern_span.start.offset
+                    && pattern.span.end.offset == pattern_span.end.offset
+            })
+        })?;
 
     if delete_item || item.item().patterns.len() == 1 || all_item_patterns_reported(checker, item) {
         return case_item_deletion_span(item.item(), source)
@@ -84,6 +90,7 @@ fn case_pattern_deletion_fix(
 fn all_item_patterns_reported(checker: &Checker<'_>, item: &CaseItemFact<'_>) -> bool {
     let reported_spans = checker
         .facts()
+        .command_facts()
         .getopts_cases()
         .iter()
         .flat_map(|fact| {

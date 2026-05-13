@@ -32,7 +32,7 @@ pub fn unchecked_directory_change(checker: &mut Checker) {
 pub(crate) fn unchecked_directory_change_spans(checker: &mut Checker) -> Vec<(&'static str, Span)> {
     let semantic = checker.semantic();
     let source = checker.source();
-    let errexit_enabled_somewhere = checker.facts().errexit_enabled_anywhere();
+    let errexit_enabled_somewhere = checker.facts().source_facts().errexit_enabled_anywhere();
     checker
         .facts()
         .commands()

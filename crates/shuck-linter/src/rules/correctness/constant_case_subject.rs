@@ -15,6 +15,7 @@ impl Violation for ConstantCaseSubject {
 pub fn constant_case_subject(checker: &mut Checker) {
     let spans = checker
         .facts()
+        .words()
         .case_subject_facts()
         .filter(|fact| fact.classification().is_fixed_literal())
         .map(|fact| fact.span())

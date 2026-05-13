@@ -19,11 +19,12 @@ impl Violation for IndentedShebang {
 }
 
 pub fn indented_shebang(checker: &mut Checker) {
-    if let Some((span, indent_span)) = checker
-        .facts()
-        .indented_shebang_span()
-        .zip(checker.facts().indented_shebang_indent_span())
-    {
+    if let Some((span, indent_span)) = checker.facts().source_facts().indented_shebang_span().zip(
+        checker
+            .facts()
+            .source_facts()
+            .indented_shebang_indent_span(),
+    ) {
         checker.report_diagnostic_dedup(
             crate::Diagnostic::new(IndentedShebang, span)
                 .with_fix(Fix::unsafe_edit(Edit::deletion(indent_span))),

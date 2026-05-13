@@ -16,6 +16,7 @@ pub fn bare_slash_marker(checker: &mut Checker) {
     let source = checker.source();
     let spans = checker
         .facts()
+        .command_facts()
         .structural_commands()
         .filter(|fact| fact.wrappers().is_empty())
         .filter(|fact| fact.body_args().is_empty())

@@ -20,7 +20,7 @@ impl Violation for DoubleParenGrouping {
 
 pub fn double_paren_grouping(checker: &mut Checker) {
     checker.report_fact_diagnostics_dedup(|facts, report| {
-        for span in facts.double_paren_grouping_spans().iter().copied() {
+        for span in facts.words().double_paren_grouping_spans().iter().copied() {
             report(
                 Diagnostic::new(DoubleParenGrouping, span).with_fix(Fix::unsafe_edit(
                     Edit::insertion(span.start.offset + 1, " "),

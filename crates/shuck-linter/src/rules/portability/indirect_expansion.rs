@@ -19,6 +19,7 @@ pub fn indirect_expansion(checker: &mut Checker) {
 
     let spans = checker
         .facts()
+        .words()
         .indirect_expansion_fragments()
         .iter()
         .map(|fragment| fragment.span())

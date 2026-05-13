@@ -15,6 +15,7 @@ impl Violation for PipeToKill {
 pub fn pipe_to_kill(checker: &mut Checker) {
     let spans = checker
         .facts()
+        .command_facts()
         .pipelines()
         .iter()
         .filter(|pipeline| {

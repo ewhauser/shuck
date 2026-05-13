@@ -21,6 +21,7 @@ impl Violation for RedundantSpacesInEcho {
 pub fn redundant_spaces_in_echo(checker: &mut Checker) {
     let diagnostics = checker
         .facts()
+        .command_facts()
         .redundant_echo_space_facts()
         .iter()
         .map(|fact| {

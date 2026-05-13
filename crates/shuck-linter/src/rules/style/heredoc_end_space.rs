@@ -24,6 +24,7 @@ pub fn heredoc_end_space(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .source_facts()
         .heredoc_end_space_spans()
         .iter()
         .copied()

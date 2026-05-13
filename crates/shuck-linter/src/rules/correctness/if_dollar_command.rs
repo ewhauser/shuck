@@ -25,6 +25,7 @@ pub fn if_dollar_command(checker: &mut Checker) {
     let source = checker.source();
     let diagnostics = checker
         .facts()
+        .command_facts()
         .command_substitution_command_spans()
         .iter()
         .copied()
