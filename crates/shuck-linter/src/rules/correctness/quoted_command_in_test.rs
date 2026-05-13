@@ -235,7 +235,7 @@ fn conditional_quoted_pipeline_replacement(
 }
 
 fn command_substitution_replacement(text: &str) -> String {
-    format!("\"$({})\"", text.replace('"', "\\\""))
+    format!("\"$({text})\"")
 }
 
 fn looks_like_quoted_pipeline_literal(text: &str) -> bool {
@@ -395,6 +395,29 @@ test ! -z \"modprobe | grep snd_hda\"
 [ \"$(lsmod | grep v4l2loopback)\" ]
 [ -n \"$(modprobe | grep snd)\" ]
 [[ \"$ok\" && \"$(dmesg | grep usb)\" ]]
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn preserves_inner_quotes_when_fixing_quoted_pipeline_literals() {
+        let source = "\
+#!/bin/sh
+[ \"printf \\\"%s\\\" foo | grep foo\" ]
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedCommandInTest),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/sh
+[ \"$(printf \"%s\" foo | grep foo)\" ]
 "
         );
         assert!(result.fixed_diagnostics.is_empty());

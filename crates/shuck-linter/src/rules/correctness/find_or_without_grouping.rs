@@ -224,6 +224,29 @@ find . -name a -o \\( -name b -delete \\)
     }
 
     #[test]
+    fn applies_safe_fix_to_negated_action_branches_from_operator_start() {
+        let source = "\
+find . -name a -o ! -name b -print
+find . -name a -o -not -name b -delete
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::FindOrWithoutGrouping),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "\
+find . -name a -o \\( ! -name b -print \\)
+find . -name a -o \\( -not -name b -delete \\)
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
     fn withholds_fix_for_exec_actions_that_have_arguments() {
         let source = "find . -name a -o -name b -exec rm -f {} \\;\n";
         let result = test_snippet_with_fix(

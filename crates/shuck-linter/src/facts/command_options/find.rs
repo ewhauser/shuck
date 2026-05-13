@@ -266,6 +266,11 @@ pub(super) fn parse_find_command<'a>(
             continue;
         }
 
+        if is_find_not_token(text.as_ref()) {
+            state.note_branch_prefix(word.span);
+            continue;
+        }
+
         if is_find_branch_action_token(text.as_ref()) {
             if matches!(text.as_ref(), "-fprint0" | "-printf" | "-fprintf") {
                 has_formatted_output_action = true;
@@ -377,6 +382,10 @@ impl FindGroupState {
         self.current_branch_has_explicit_and = true;
     }
 
+    fn note_branch_prefix(&mut self, span: Span) {
+        self.current_branch_start.get_or_insert(span);
+    }
+
     fn note_predicate(&mut self, span: Span) {
         self.current_branch_start.get_or_insert(span);
         self.current_branch_has_predicate = true;
@@ -442,6 +451,10 @@ fn is_find_or_token(token: &str) -> bool {
 
 fn is_find_and_token(token: &str) -> bool {
     matches!(token, "-a" | "-and" | ",")
+}
+
+fn is_find_not_token(token: &str) -> bool {
+    matches!(token, "!" | "-not")
 }
 
 fn is_find_action_token(token: &str) -> bool {
@@ -525,5 +538,5 @@ fn is_find_predicate_token(token: &str) -> bool {
         && !is_find_and_token(token)
         && !is_find_group_open_token(token)
         && !is_find_group_close_token(token)
-        && !matches!(token, "-not")
+        && !is_find_not_token(token)
 }
