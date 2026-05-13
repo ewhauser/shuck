@@ -122,6 +122,7 @@ pub struct LinterFacts<'a> {
     positional_parameter_operator_spans: Vec<Span>,
     double_paren_grouping_spans: Vec<Span>,
     arithmetic_update_operator_spans: Vec<Span>,
+    arithmetic_update_operator_fix_facts: Vec<ArithmeticUpdateOperatorFixFact>,
     arithmetic_literal_facts: Vec<ArithmeticLiteralFact>,
     escape_scan_matches: Vec<EscapeScanMatch>,
     echo_backslash_escape_word_spans: Vec<Span>,
@@ -958,6 +959,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn arithmetic_update_operator_spans(&self) -> &[Span] {
         &self.arithmetic_update_operator_spans
+    }
+
+    pub fn arithmetic_update_operator_fix_facts(&self) -> &[ArithmeticUpdateOperatorFixFact] {
+        &self.arithmetic_update_operator_fix_facts
     }
 
     pub fn arithmetic_literal_facts(&self) -> &[ArithmeticLiteralFact] {

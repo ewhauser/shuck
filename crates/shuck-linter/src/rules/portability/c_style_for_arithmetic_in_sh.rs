@@ -1,14 +1,20 @@
-use crate::{Checker, Rule, ShellDialect, Violation};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, ShellDialect, Violation};
 
 pub struct CStyleForArithmeticInSh;
 
 impl Violation for CStyleForArithmeticInSh {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
+
     fn rule() -> Rule {
         Rule::CStyleForArithmeticInSh
     }
 
     fn message(&self) -> String {
         "arithmetic `++` and `--` operators are not portable in `sh` scripts".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("rewrite the arithmetic update explicitly".to_owned())
     }
 }
 
@@ -17,16 +23,35 @@ pub fn c_style_for_arithmetic_in_sh(checker: &mut Checker) {
         return;
     }
 
-    checker.report_fact_slice(
-        |facts| facts.arithmetic_update_operator_spans(),
-        || CStyleForArithmeticInSh,
-    );
+    let source = checker.source();
+    checker.report_fact_diagnostics(|facts, report| {
+        let mut fix_facts = facts
+            .arithmetic_update_operator_fix_facts()
+            .iter()
+            .peekable();
+        for span in facts.arithmetic_update_operator_spans().iter().copied() {
+            let diagnostic = Diagnostic::new(CStyleForArithmeticInSh, span);
+            let diagnostic = if fix_facts
+                .peek()
+                .is_some_and(|fact| fact.diagnostic_span() == span)
+            {
+                let fact = fix_facts.next().expect("peeked arithmetic fix fact");
+                diagnostic.with_fix(Fix::unsafe_edit(Edit::replacement(
+                    fact.replacement(source),
+                    fact.replacement_span(),
+                )))
+            } else {
+                diagnostic
+            };
+            report(diagnostic);
+        }
+    });
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule, ShellDialect};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn anchors_on_update_operators_inside_c_style_for() {
@@ -60,6 +85,55 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["++", "--"]
         );
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_arithmetic_update_operators() {
+        let source = "#!/bin/sh\n((++i))\necho \"$((j--))\"\narr[i++]=x\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::CStyleForArithmeticInSh),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 3);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/sh\n(((i = i + 1)))\necho \"$(((j = j - 1)))\"\narr[(i = i + 1)]=x\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_spaced_array_subscript_updates() {
+        let source = "#!/bin/sh\n((++arr [i]))\n((arr [j]--))\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::CStyleForArithmeticInSh),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/sh\n(((arr [i] = arr [i] + 1)))\n(((arr [j] = arr [j] - 1)))\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_complex_subscript_update_operators_unfixed() {
+        let source = "#!/bin/sh\n((++arr[$(printf ']')]))\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::CStyleForArithmeticInSh),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert_eq!(result.fixed_diagnostics.len(), 1);
+        assert_eq!(result.fixed_diagnostics[0].span.slice(source), "++");
     }
 
     #[test]
