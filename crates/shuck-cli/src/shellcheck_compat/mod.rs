@@ -11,7 +11,6 @@ use std::process::ExitCode;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use shuck_indexer::Indexer;
 use shuck_linter::{
     LinterSettings, Rule, RuleSet, Severity, ShellCheckCodeMap, ShellCheckLevel, ShellDialect,
     rule_metadata,
@@ -931,7 +930,6 @@ fn lint_with_context(
         .unwrap_or_else(|| ShellDialect::infer(source, Some(path)));
 
     let parse_result = Parser::with_profile(source, shell.shell_profile()).parse();
-    let indexer = Indexer::new(source, &parse_result);
     let explicit = explicit_paths.into_iter().collect::<Vec<_>>();
     let resolver = CompatSourceResolver {
         cwd: canonicalize_or_clone(&std::env::current_dir().map_err(|err| {
@@ -954,24 +952,12 @@ fn lint_with_context(
         rule_options,
     };
 
-    let diagnostics = shuck_linter::lint_file_at_path_with_resolver_and_parse_result(
-        &parse_result,
-        source,
-        &indexer,
-        &settings,
-        &options.shellcheck_map,
-        Some(path),
-        Some(&resolver),
-    );
-    let analysis = shuck_linter::analyze_file_at_path_with_resolver(
-        &parse_result.file,
-        source,
-        &indexer,
-        &settings,
-        None,
-        Some(path),
-        Some(&resolver),
-    );
+    let analysis =
+        shuck_linter::AnalysisRequest::from_parse_result(&parse_result, source, &settings)
+            .with_source_path(path)
+            .with_shellcheck_map(&options.shellcheck_map)
+            .with_source_path_resolver(&resolver)
+            .analyze();
 
     let resolved_paths = analysis
         .semantic
@@ -980,7 +966,7 @@ fn lint_with_context(
         .flat_map(|source_ref| resolve_source_ref_paths(path, source_ref, &resolver))
         .collect::<BTreeSet<_>>();
 
-    Ok((diagnostics, resolved_paths))
+    Ok((analysis.diagnostics, resolved_paths))
 }
 
 fn resolve_source_ref_paths(

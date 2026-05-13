@@ -37,13 +37,12 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    use shuck_indexer::Indexer;
     use shuck_parser::parser::Parser;
     use shuck_semantic::SourcePathResolver;
     use tempfile::tempdir;
 
     use crate::test::test_snippet_at_path;
-    use crate::{LinterSettings, Rule, ShellDialect, lint_file_at_path_with_resolver};
+    use crate::{AnalysisRequest, LinterSettings, Rule, ShellDialect};
 
     struct TestSourceResolver {
         helper: PathBuf,
@@ -225,20 +224,15 @@ source \"${scriptfolder}${known_pins_dbfile}\"
         let parse_result = Parser::with_dialect(source, shuck_parser::ShellDialect::Bash)
             .parse()
             .unwrap();
-        let indexer = Indexer::new(source, &parse_result);
         let resolver = TestSourceResolver {
             helper: helper.clone(),
         };
 
-        let diagnostics = lint_file_at_path_with_resolver(
-            &parse_result.file,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
-            None,
-            Some(&main),
-            Some(&resolver),
-        );
+        let settings = LinterSettings::for_rule(Rule::UntrackedSourceFile);
+        let diagnostics = AnalysisRequest::from_file(&parse_result.file, source, &settings)
+            .with_source_path(main.as_path())
+            .with_source_path_resolver(&resolver)
+            .lint();
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
@@ -476,7 +470,6 @@ fi
         fs::write(&helper, "echo helper\n").unwrap();
 
         let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
 
         let main_path = main.clone();
         let helper_path = helper.clone();
@@ -488,15 +481,11 @@ fi
             }
         };
 
-        let diagnostics = lint_file_at_path_with_resolver(
-            &output.file,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
-            None,
-            Some(&main),
-            Some(&resolver),
-        );
+        let settings = LinterSettings::for_rule(Rule::UntrackedSourceFile);
+        let diagnostics = AnalysisRequest::from_file(&output.file, source, &settings)
+            .with_source_path(main.as_path())
+            .with_source_path_resolver(&resolver)
+            .lint();
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
@@ -565,7 +554,6 @@ source "${script_dir}/logging.zsh"
         fs::write(&helper, "echo helper\n").unwrap();
 
         let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
 
         let main_path = main.clone();
         let helper_path = helper.clone();
@@ -577,15 +565,11 @@ source "${script_dir}/logging.zsh"
             }
         };
 
-        let diagnostics = lint_file_at_path_with_resolver(
-            &output.file,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
-            None,
-            Some(&main),
-            Some(&resolver),
-        );
+        let settings = LinterSettings::for_rule(Rule::UntrackedSourceFile);
+        let diagnostics = AnalysisRequest::from_file(&output.file, source, &settings)
+            .with_source_path(main.as_path())
+            .with_source_path_resolver(&resolver)
+            .lint();
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(

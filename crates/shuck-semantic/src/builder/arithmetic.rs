@@ -1,6 +1,6 @@
 use super::*;
 
-impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
+impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
     pub(super) fn visit_conditional_expr(
         &mut self,
         command_span: Span,

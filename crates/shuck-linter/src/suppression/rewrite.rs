@@ -12,8 +12,8 @@ use shuck_parser::{
 };
 
 use crate::{
-    Diagnostic, LinterSettings, PluginResolver, Rule, ShellDialect, SourcePathResolver,
-    lint_file_with_directives, lint_file_with_directives_and_resolvers,
+    AnalysisRequest, Diagnostic, LinterSettings, PluginResolver, Rule, ShellDialect,
+    SourcePathResolver,
 };
 
 use super::{
@@ -194,27 +194,12 @@ fn analyze_source(
     let parse_result = parse_for_lint(source, shell);
     let indexer = Indexer::new(source, &parse_result);
     let directives = parse_directives(source, indexer.comment_index(), shellcheck_map);
-    let diagnostics = if source_path_resolver.is_some() || plugin_resolver.is_some() {
-        lint_file_with_directives_and_resolvers(
-            &parse_result,
-            source,
-            &indexer,
-            settings,
-            &directives,
-            source_path,
-            source_path_resolver,
-            plugin_resolver,
-        )
-    } else {
-        lint_file_with_directives(
-            &parse_result,
-            source,
-            &indexer,
-            settings,
-            &directives,
-            source_path,
-        )
-    };
+    let diagnostics = AnalysisRequest::from_parse_result(&parse_result, source, settings)
+        .with_optional_source_path(source_path)
+        .with_directives(&directives)
+        .with_optional_source_path_resolver(source_path_resolver)
+        .with_optional_plugin_resolver(plugin_resolver)
+        .lint();
     let strict_parse_error = strict_parse_error(&parse_result);
     let parse_error = strict_parse_error
         .clone()

@@ -33,8 +33,7 @@ pub fn quoted_bash_source(checker: &mut Checker) {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule, ShellDialect, lint_file_at_path};
-    use shuck_indexer::Indexer;
+    use crate::{AnalysisRequest, LinterSettings, Rule, ShellDialect};
     use shuck_parser::parser::Parser;
     use std::fs;
     use tempfile::tempdir;
@@ -712,15 +711,10 @@ TERMUX_PKG_VERSION=(\"$(. ./helper.sh; printf '%s\\n' \"$TERMUX_PKG_VERSION\")\"
 
         let source = fs::read_to_string(&main).unwrap();
         let output = Parser::new(&source).parse().unwrap();
-        let indexer = Indexer::new(&source, &output);
-        let diagnostics = lint_file_at_path(
-            &output.file,
-            &source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::QuotedBashSource),
-            None,
-            Some(&main),
-        );
+        let settings = LinterSettings::for_rule(Rule::QuotedBashSource);
+        let diagnostics = AnalysisRequest::from_file(&output.file, &source, &settings)
+            .with_source_path(main.as_path())
+            .lint();
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }

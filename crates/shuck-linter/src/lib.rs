@@ -130,7 +130,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Command, CompoundCommand, File, Span, Stmt, StmtSeq, TextSize};
 use shuck_indexer::Indexer;
 
-use shuck_parser::parser::{ParseResult, Parser};
+use shuck_parser::parser::ParseResult;
 use shuck_semantic::{
     CommandKind, CompoundCommandKind, FlowContext, PluginResolver, ScopeId, SemanticBuildOptions,
     SemanticCommandContext, SemanticModel, SourcePathResolver, TraversalObserver,
@@ -152,9 +152,208 @@ pub struct AnalysisResult {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// Request object for running linter analysis.
+///
+/// Build one from a [`ParseResult`] when lint output should include parse-aware diagnostics and
+/// inline suppression directives. Build one from a parsed [`File`] only when the caller already
+/// owns parse diagnostics and wants rule diagnostics for that AST.
+pub struct AnalysisRequest<'a> {
+    input: AnalysisInput<'a>,
+    source: &'a str,
+    indexer: Indexer,
+    settings: &'a LinterSettings,
+    source_path: Option<&'a Path>,
+    source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
+    plugin_resolver: Option<&'a (dyn PluginResolver + Send + Sync)>,
+    suppressions: SuppressionRequest<'a>,
+}
+
+enum AnalysisInput<'a> {
+    File(&'a File),
+    ParseResult(&'a ParseResult),
+}
+
+enum SuppressionRequest<'a> {
+    None,
+    DefaultShellCheckMap,
+    Index(&'a SuppressionIndex),
+    Directives(&'a [SuppressionDirective]),
+    ShellCheckMap(&'a ShellCheckCodeMap),
+}
+
+impl<'a> AnalysisRequest<'a> {
+    /// Creates a request from a parsed shell file.
+    ///
+    /// This form runs rule analysis over the provided AST without parse diagnostics or
+    /// directive-derived suppressions. Use [`AnalysisRequest::from_parse_result`] for the normal
+    /// linting path where parser diagnostics and inline suppressions should be honored.
+    pub fn from_file(file: &'a File, source: &'a str, settings: &'a LinterSettings) -> Self {
+        Self {
+            input: AnalysisInput::File(file),
+            source,
+            indexer: Indexer::for_file(source, file),
+            settings,
+            source_path: None,
+            source_path_resolver: None,
+            plugin_resolver: None,
+            suppressions: SuppressionRequest::None,
+        }
+    }
+
+    /// Creates a request from a parser result.
+    ///
+    /// This form lets [`analyze`] and [`lint`] include parse-aware diagnostics from the supplied
+    /// parser result.
+    pub fn from_parse_result(
+        parse_result: &'a ParseResult,
+        source: &'a str,
+        settings: &'a LinterSettings,
+    ) -> Self {
+        Self {
+            input: AnalysisInput::ParseResult(parse_result),
+            source,
+            indexer: Indexer::new(source, parse_result),
+            settings,
+            source_path: None,
+            source_path_resolver: None,
+            plugin_resolver: None,
+            suppressions: SuppressionRequest::DefaultShellCheckMap,
+        }
+    }
+
+    /// Sets the source path used for shell inference, source resolution, and per-file ignores.
+    pub fn with_source_path(mut self, source_path: &'a Path) -> Self {
+        self.source_path = Some(source_path);
+        self
+    }
+
+    /// Sets an optional source path used for shell inference, source resolution, and per-file ignores.
+    pub fn with_optional_source_path(mut self, source_path: Option<&'a Path>) -> Self {
+        self.source_path = source_path;
+        self
+    }
+
+    /// Sets a resolver for shell sources reached from the analyzed file.
+    pub fn with_source_path_resolver(
+        mut self,
+        source_path_resolver: &'a (dyn SourcePathResolver + Send + Sync),
+    ) -> Self {
+        self.source_path_resolver = Some(source_path_resolver);
+        self
+    }
+
+    /// Sets an optional resolver for shell sources reached from the analyzed file.
+    pub fn with_optional_source_path_resolver(
+        mut self,
+        source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
+    ) -> Self {
+        self.source_path_resolver = source_path_resolver;
+        self
+    }
+
+    /// Sets a plugin resolver used while building semantic facts.
+    pub fn with_plugin_resolver(
+        mut self,
+        plugin_resolver: &'a (dyn PluginResolver + Send + Sync),
+    ) -> Self {
+        self.plugin_resolver = Some(plugin_resolver);
+        self
+    }
+
+    /// Sets an optional plugin resolver used while building semantic facts.
+    pub fn with_optional_plugin_resolver(
+        mut self,
+        plugin_resolver: Option<&'a (dyn PluginResolver + Send + Sync)>,
+    ) -> Self {
+        self.plugin_resolver = plugin_resolver;
+        self
+    }
+
+    /// Uses an already-built suppression index for the request.
+    pub fn with_suppression_index(mut self, suppression_index: &'a SuppressionIndex) -> Self {
+        self.suppressions = SuppressionRequest::Index(suppression_index);
+        self
+    }
+
+    /// Uses an optional already-built suppression index for the request.
+    pub fn with_optional_suppression_index(
+        mut self,
+        suppression_index: Option<&'a SuppressionIndex>,
+    ) -> Self {
+        self.suppressions = suppression_index
+            .map(SuppressionRequest::Index)
+            .unwrap_or(SuppressionRequest::None);
+        self
+    }
+
+    /// Disables directive-derived and externally supplied suppressions for this request.
+    pub fn without_suppressions(mut self) -> Self {
+        self.suppressions = SuppressionRequest::None;
+        self
+    }
+
+    /// Uses already parsed suppression directives for the request.
+    pub fn with_directives(mut self, directives: &'a [SuppressionDirective]) -> Self {
+        self.suppressions = SuppressionRequest::Directives(directives);
+        self
+    }
+
+    /// Parses suppression directives using the provided compatibility-code map.
+    pub fn with_shellcheck_map(mut self, shellcheck_map: &'a ShellCheckCodeMap) -> Self {
+        self.suppressions = SuppressionRequest::ShellCheckMap(shellcheck_map);
+        self
+    }
+
+    /// Runs semantic analysis and returns both the semantic model and diagnostics.
+    pub fn analyze(self) -> AnalysisResult {
+        analyze(self)
+    }
+
+    /// Runs linting and returns diagnostics.
+    pub fn lint(self) -> Vec<Diagnostic> {
+        lint(self)
+    }
+
+    /// Returns the positional index built for this request's source and AST.
+    pub fn indexer(&self) -> &Indexer {
+        &self.indexer
+    }
+
+    fn file(&self) -> &'a File {
+        match self.input {
+            AnalysisInput::File(file) => file,
+            AnalysisInput::ParseResult(parse_result) => &parse_result.file,
+        }
+    }
+
+    fn parse_result(&self) -> Option<&'a ParseResult> {
+        match self.input {
+            AnalysisInput::File(_) => None,
+            AnalysisInput::ParseResult(parse_result) => Some(parse_result),
+        }
+    }
+}
+
+enum AppliedSuppressionIndex<'a> {
+    None,
+    Borrowed(&'a SuppressionIndex),
+    Owned(SuppressionIndex),
+}
+
+impl AppliedSuppressionIndex<'_> {
+    fn as_ref(&self) -> Option<&SuppressionIndex> {
+        match self {
+            Self::None => None,
+            Self::Borrowed(suppression_index) => Some(suppression_index),
+            Self::Owned(suppression_index) => Some(suppression_index),
+        }
+    }
+}
+
 struct LinterAnalysisResult<'a> {
     semantic: LinterSemanticArtifacts<'a>,
     diagnostics: Vec<Diagnostic>,
+    suppression_index: AppliedSuppressionIndex<'a>,
 }
 
 /// Semantic model plus linter-private traversal artifacts needed to build facts.
@@ -170,7 +369,7 @@ pub struct LinterSemanticArtifacts<'a> {
 
 impl<'a> LinterSemanticArtifacts<'a> {
     /// Builds semantic analysis artifacts for linter fact construction.
-    pub fn build(file: &'a File, source: &'a str, indexer: &'a Indexer) -> Self {
+    pub fn build(file: &'a File, source: &'a str, indexer: &Indexer) -> Self {
         Self::build_with_options(file, source, indexer, SemanticBuildOptions::default())
     }
 
@@ -178,7 +377,7 @@ impl<'a> LinterSemanticArtifacts<'a> {
     pub fn build_with_options(
         file: &'a File,
         source: &'a str,
-        indexer: &'a Indexer,
+        indexer: &Indexer,
         options: SemanticBuildOptions<'_>,
     ) -> Self {
         let mut observer = LintTraversalObserver::default();
@@ -645,199 +844,205 @@ fn build_suppression_index_from_semantic(
     ))
 }
 
-/// Builds semantic facts and linter diagnostics for a parsed file.
-pub fn analyze_file(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
-) -> AnalysisResult {
-    analyze_file_at_path(file, source, indexer, settings, suppression_index, None)
-}
-
 #[cfg(feature = "benchmarking")]
 #[doc(hidden)]
 pub use facts::benchmark::CasePatternMatcher as BenchmarkCasePatternMatcher;
 
-/// Builds semantic facts and linter diagnostics for a parsed file at an optional source path.
-pub fn analyze_file_at_path(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
-    source_path: Option<&Path>,
-) -> AnalysisResult {
-    analyze_file_at_path_with_resolver(
-        file,
-        source,
-        indexer,
-        settings,
-        suppression_index,
-        source_path,
-        None,
-    )
-}
+/// Builds semantic facts and linter diagnostics for a request.
+pub fn analyze(request: AnalysisRequest<'_>) -> AnalysisResult {
+    let shell = resolve_shell(request.settings, request.source, request.source_path);
+    let first_parse_error = request.parse_result().and_then(parse_error_position);
+    let mut result = analyze_linter(&request, shell, first_parse_error);
 
-/// Builds semantic facts and linter diagnostics with a custom source-path resolver.
-pub fn analyze_file_at_path_with_resolver(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
-    source_path: Option<&Path>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-) -> AnalysisResult {
-    analyze_file_at_path_with_resolvers(
-        file,
-        source,
-        indexer,
-        settings,
-        suppression_index,
-        source_path,
-        source_path_resolver,
-        None,
-    )
-}
+    if let Some(parse_result) = request.parse_result() {
+        add_parse_diagnostics(&mut result, &request, parse_result, shell);
+    }
+    finalize_diagnostics(&mut result, &request);
 
-/// Builds semantic facts and linter diagnostics with custom source and plugin resolvers.
-#[allow(clippy::too_many_arguments)]
-pub fn analyze_file_at_path_with_resolvers(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
-    source_path: Option<&Path>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
-) -> AnalysisResult {
-    let shell = resolve_shell(settings, source, source_path);
-    let first_parse_error = parse_error_position(&parse_for_lint(source, shell));
-
-    analyze_file_at_path_with_resolver_and_shell(
-        file,
-        source,
-        indexer,
-        settings,
-        suppression_index,
-        source_path,
-        source_path_resolver,
-        plugin_resolver,
-        shell,
-        first_parse_error,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn analyze_file_at_path_with_resolver_and_shell(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
-    source_path: Option<&Path>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
-    shell: ShellDialect,
-    first_parse_error: Option<(usize, usize)>,
-) -> AnalysisResult {
-    let result = analyze_linter_file_at_path_with_resolver_and_shell(
-        file,
-        source,
-        indexer,
-        settings,
-        suppression_index,
-        source_path,
-        source_path_resolver,
-        plugin_resolver,
-        shell,
-        first_parse_error,
-    );
     AnalysisResult {
         semantic: result.semantic.into_semantic(),
         diagnostics: result.diagnostics,
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn analyze_linter_file_at_path_with_resolver_and_shell<'a>(
-    file: &'a File,
-    source: &'a str,
-    indexer: &'a Indexer,
-    settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
-    source_path: Option<&Path>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
+/// Lints a request and returns diagnostics.
+pub fn lint(request: AnalysisRequest<'_>) -> Vec<Diagnostic> {
+    let shell = resolve_shell(request.settings, request.source, request.source_path);
+    if let Some(parse_result) = request.parse_result() {
+        let mut result = analyze_linter(&request, shell, parse_error_position(parse_result));
+        add_parse_diagnostics(&mut result, &request, parse_result, shell);
+        finalize_diagnostics(&mut result, &request);
+        return result.diagnostics;
+    }
+
+    let mut result = analyze_linter(&request, shell, None);
+    finalize_diagnostics(&mut result, &request);
+    result.diagnostics
+}
+
+fn analyze_linter<'a>(
+    request: &AnalysisRequest<'a>,
     shell: ShellDialect,
     first_parse_error: Option<(usize, usize)>,
 ) -> LinterAnalysisResult<'a> {
+    let linter_semantic_artifacts = build_linter_semantic_artifacts(request, shell);
+    let suppression_index = build_request_suppression_index(request, &linter_semantic_artifacts);
+    let checker = Checker::new(
+        request.file(),
+        request.source,
+        &linter_semantic_artifacts,
+        request.indexer(),
+        &request.settings.rules,
+        shell,
+        request.settings.ambient_shell_options,
+        request.settings.report_environment_style_names,
+        request.settings.rule_options.clone(),
+        suppression_index.as_ref(),
+        first_parse_error,
+    );
+    let diagnostics = checker.check();
+
+    LinterAnalysisResult {
+        semantic: linter_semantic_artifacts,
+        diagnostics,
+        suppression_index,
+    }
+}
+
+fn build_linter_semantic_artifacts<'a>(
+    request: &AnalysisRequest<'a>,
+    shell: ShellDialect,
+) -> LinterSemanticArtifacts<'a> {
     let mut file_entry_contract_collector =
-        settings
+        request
+            .settings
             .ambient_contracts
-            .collector(source, source_path, shell);
-    let file_entry_contract_collector_factory = settings.ambient_contracts.collector_factory();
-    let analyzed_paths_fallback =
-        source_path.map(|path| FxHashSet::from_iter([path.to_path_buf()]));
-    let analyzed_paths = settings
+            .collector(request.source, request.source_path, shell);
+    let file_entry_contract_collector_factory =
+        request.settings.ambient_contracts.collector_factory();
+    let analyzed_paths_fallback = request
+        .source_path
+        .map(|path| FxHashSet::from_iter([path.to_path_buf()]));
+    let analyzed_paths = request
+        .settings
         .analyzed_paths
         .as_deref()
         .or(analyzed_paths_fallback.as_ref());
 
     let shell_profile = shell.shell_profile();
-    let linter_semantic_artifacts = LinterSemanticArtifacts::build_with_options(
-        file,
-        source,
-        indexer,
+    LinterSemanticArtifacts::build_with_options(
+        request.file(),
+        request.source,
+        request.indexer(),
         SemanticBuildOptions {
-            source_path,
-            source_path_resolver,
-            plugin_resolver,
+            source_path: request.source_path,
+            source_path_resolver: request.source_path_resolver,
+            plugin_resolver: request.plugin_resolver,
             file_entry_contract: None,
             file_entry_contract_collector: Some(&mut file_entry_contract_collector),
             file_entry_contract_collector_factory: Some(&file_entry_contract_collector_factory),
             analyzed_paths,
             shell_profile: Some(shell_profile),
-            resolve_source_closure: settings.resolve_source_closure,
+            resolve_source_closure: request.settings.resolve_source_closure,
         },
+    )
+}
+
+fn build_request_suppression_index<'a>(
+    request: &AnalysisRequest<'a>,
+    semantic: &LinterSemanticArtifacts<'_>,
+) -> AppliedSuppressionIndex<'a> {
+    match request.suppressions {
+        SuppressionRequest::None => AppliedSuppressionIndex::None,
+        SuppressionRequest::DefaultShellCheckMap => {
+            let shellcheck_map = ShellCheckCodeMap::default();
+            let directives = parse_directives(
+                request.source,
+                request.indexer().comment_index(),
+                &shellcheck_map,
+            );
+            build_suppression_index_from_semantic(
+                &directives,
+                request.file(),
+                request.source,
+                semantic,
+            )
+            .map(AppliedSuppressionIndex::Owned)
+            .unwrap_or(AppliedSuppressionIndex::None)
+        }
+        SuppressionRequest::Index(suppression_index) => {
+            AppliedSuppressionIndex::Borrowed(suppression_index)
+        }
+        SuppressionRequest::Directives(directives) => build_suppression_index_from_semantic(
+            directives,
+            request.file(),
+            request.source,
+            semantic,
+        )
+        .map(AppliedSuppressionIndex::Owned)
+        .unwrap_or(AppliedSuppressionIndex::None),
+        SuppressionRequest::ShellCheckMap(shellcheck_map) => {
+            let directives = parse_directives(
+                request.source,
+                request.indexer().comment_index(),
+                shellcheck_map,
+            );
+            build_suppression_index_from_semantic(
+                &directives,
+                request.file(),
+                request.source,
+                semantic,
+            )
+            .map(AppliedSuppressionIndex::Owned)
+            .unwrap_or(AppliedSuppressionIndex::None)
+        }
+    }
+}
+
+fn add_parse_diagnostics(
+    result: &mut LinterAnalysisResult<'_>,
+    request: &AnalysisRequest<'_>,
+    parse_result: &ParseResult,
+    shell: ShellDialect,
+) {
+    let locator = Locator::new(request.source, request.indexer().line_index());
+    let parse_diagnostics = parse_diagnostics::collect_parse_rule_diagnostics(
+        request.file(),
+        locator,
+        Some(parse_result),
+        &result.semantic,
+        &request.settings.rules,
+        shell,
     );
-    let checker_diagnostics = {
-        let checker = Checker::new(
-            file,
-            source,
-            &linter_semantic_artifacts,
-            indexer,
-            &settings.rules,
-            shell,
-            settings.ambient_shell_options,
-            settings.report_environment_style_names,
-            settings.rule_options.clone(),
-            suppression_index,
-            first_parse_error,
-        );
-        checker.check()
-    };
-    let mut diagnostics = checker_diagnostics;
-    for diagnostic in &mut diagnostics {
-        if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
+    result.diagnostics.extend(parse_diagnostics);
+    if parse_result.is_err() {
+        sanitize_diagnostic_spans_cold(&mut result.diagnostics, locator);
+    }
+}
+
+fn finalize_diagnostics(result: &mut LinterAnalysisResult<'_>, request: &AnalysisRequest<'_>) {
+    for diagnostic in result.diagnostics.iter_mut() {
+        if let Some(&severity) = request.settings.severity_overrides.get(&diagnostic.rule) {
             diagnostic.severity = severity;
         }
     }
 
-    if let Some(suppression_index) = suppression_index {
-        filter_suppressed_diagnostics(&mut diagnostics, indexer, suppression_index);
+    if let Some(suppression_index) = result.suppression_index.as_ref() {
+        filter_suppressed_diagnostics(
+            &mut result.diagnostics,
+            request.indexer(),
+            suppression_index,
+        );
     }
-    filter_per_file_ignored_diagnostics(&mut diagnostics, settings, source_path);
+    filter_per_file_ignored_diagnostics(
+        &mut result.diagnostics,
+        request.settings,
+        request.source_path,
+    );
 
-    diagnostics
+    result
+        .diagnostics
         .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
-    LinterAnalysisResult {
-        semantic: linter_semantic_artifacts,
-        diagnostics,
-    }
 }
 
 fn resolve_shell(
@@ -850,10 +1055,6 @@ fn resolve_shell(
     } else {
         settings.shell
     }
-}
-
-fn parse_for_lint(source: &str, shell: ShellDialect) -> ParseResult {
-    Parser::with_profile(source, shell.shell_profile()).parse()
 }
 
 fn parse_error_position(parse_result: &ParseResult) -> Option<(usize, usize)> {
@@ -870,409 +1071,6 @@ fn parse_error_position(parse_result: &ParseResult) -> Option<(usize, usize)> {
         .diagnostics
         .first()
         .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
-}
-
-/// Lints a parsed file located at an optional source path.
-pub fn lint_file_at_path(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
-    source_path: Option<&Path>,
-) -> Vec<Diagnostic> {
-    lint_file_at_path_with_resolver(
-        file,
-        source,
-        indexer,
-        settings,
-        suppression_index,
-        source_path,
-        None,
-    )
-}
-
-/// Lints a parsed file with a custom source-path resolver.
-pub fn lint_file_at_path_with_resolver(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
-    source_path: Option<&Path>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-) -> Vec<Diagnostic> {
-    lint_file_at_path_with_resolvers(
-        file,
-        source,
-        indexer,
-        settings,
-        suppression_index,
-        source_path,
-        source_path_resolver,
-        None,
-    )
-}
-
-/// Lints a parsed file with custom source and plugin resolvers.
-#[allow(clippy::too_many_arguments)]
-pub fn lint_file_at_path_with_resolvers(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
-    source_path: Option<&Path>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
-) -> Vec<Diagnostic> {
-    let shell = resolve_shell(settings, source, source_path);
-    let parse_result = parse_for_lint(source, shell);
-
-    let analysis = analyze_linter_file_at_path_with_resolver_and_shell(
-        file,
-        source,
-        indexer,
-        settings,
-        suppression_index,
-        source_path,
-        source_path_resolver,
-        plugin_resolver,
-        shell,
-        parse_error_position(&parse_result),
-    );
-    let mut diagnostics = analysis.diagnostics;
-
-    let locator = Locator::new(source, indexer.line_index());
-    diagnostics.extend(parse_diagnostics::collect_parse_rule_diagnostics(
-        file,
-        locator,
-        Some(&parse_result),
-        &analysis.semantic,
-        &settings.rules,
-        shell,
-    ));
-
-    for diagnostic in &mut diagnostics {
-        if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
-            diagnostic.severity = severity;
-        }
-    }
-
-    if let Some(suppression_index) = suppression_index {
-        filter_suppressed_diagnostics(&mut diagnostics, indexer, suppression_index);
-    }
-    filter_per_file_ignored_diagnostics(&mut diagnostics, settings, source_path);
-
-    diagnostics
-        .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
-
-    diagnostics
-}
-
-/// Lints an existing parse result while preserving parse-aware diagnostics.
-#[allow(clippy::too_many_arguments)]
-pub fn lint_file_at_path_with_resolver_and_parse_result(
-    parse_result: &ParseResult,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    shellcheck_map: &ShellCheckCodeMap,
-    source_path: Option<&Path>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-) -> Vec<Diagnostic> {
-    lint_file_at_path_with_resolver_and_parse_result_with_plugin_resolver(
-        parse_result,
-        source,
-        indexer,
-        settings,
-        shellcheck_map,
-        source_path,
-        source_path_resolver,
-        None,
-    )
-}
-
-/// Lints an existing parse result while preserving parse-aware diagnostics and plugin resolution.
-#[allow(clippy::too_many_arguments)]
-pub fn lint_file_at_path_with_resolver_and_parse_result_with_plugin_resolver(
-    parse_result: &ParseResult,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    shellcheck_map: &ShellCheckCodeMap,
-    source_path: Option<&Path>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
-) -> Vec<Diagnostic> {
-    let directives = parse_directives(source, indexer.comment_index(), shellcheck_map);
-    lint_file_at_path_with_resolver_and_parse_result_and_directives(
-        parse_result,
-        source,
-        indexer,
-        settings,
-        &directives,
-        source_path,
-        source_path_resolver,
-        plugin_resolver,
-    )
-}
-
-/// Analyzes an existing parse result while preserving diagnostics and semantic dependency paths.
-#[allow(clippy::too_many_arguments)]
-pub fn analyze_file_at_path_with_resolver_and_parse_result_with_plugin_resolver(
-    parse_result: &ParseResult,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    shellcheck_map: &ShellCheckCodeMap,
-    source_path: Option<&Path>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
-) -> AnalysisResult {
-    let directives = parse_directives(source, indexer.comment_index(), shellcheck_map);
-    analyze_file_at_path_with_resolver_and_parse_result_and_directives(
-        parse_result,
-        source,
-        indexer,
-        settings,
-        &directives,
-        source_path,
-        source_path_resolver,
-        plugin_resolver,
-    )
-}
-
-/// Lints an existing parse result while deriving suppressions from parsed directives
-/// and semantic-collected command spans.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn lint_file_at_path_with_resolver_and_parse_result_and_directives(
-    parse_result: &ParseResult,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    directives: &[SuppressionDirective],
-    source_path: Option<&Path>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
-) -> Vec<Diagnostic> {
-    analyze_file_at_path_with_resolver_and_parse_result_and_directives(
-        parse_result,
-        source,
-        indexer,
-        settings,
-        directives,
-        source_path,
-        source_path_resolver,
-        plugin_resolver,
-    )
-    .diagnostics
-}
-
-#[allow(clippy::too_many_arguments)]
-fn analyze_file_at_path_with_resolver_and_parse_result_and_directives(
-    parse_result: &ParseResult,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    directives: &[SuppressionDirective],
-    source_path: Option<&Path>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
-) -> AnalysisResult {
-    let shell = resolve_shell(settings, source, source_path);
-    let locator = Locator::new(source, indexer.line_index());
-    let mut file_entry_contract_collector =
-        settings
-            .ambient_contracts
-            .collector(source, source_path, shell);
-    let file_entry_contract_collector_factory = settings.ambient_contracts.collector_factory();
-    let analyzed_paths_fallback =
-        source_path.map(|path| FxHashSet::from_iter([path.to_path_buf()]));
-    let analyzed_paths = settings
-        .analyzed_paths
-        .as_deref()
-        .or(analyzed_paths_fallback.as_ref());
-    let linter_semantic_artifacts = LinterSemanticArtifacts::build_with_options(
-        &parse_result.file,
-        source,
-        indexer,
-        SemanticBuildOptions {
-            source_path,
-            source_path_resolver,
-            plugin_resolver,
-            file_entry_contract: None,
-            file_entry_contract_collector: Some(&mut file_entry_contract_collector),
-            file_entry_contract_collector_factory: Some(&file_entry_contract_collector_factory),
-            analyzed_paths,
-            shell_profile: Some(shell.shell_profile()),
-            resolve_source_closure: settings.resolve_source_closure,
-        },
-    );
-    let suppression_index = build_suppression_index_from_semantic(
-        directives,
-        &parse_result.file,
-        source,
-        &linter_semantic_artifacts,
-    );
-    let checker = Checker::new(
-        &parse_result.file,
-        source,
-        &linter_semantic_artifacts,
-        indexer,
-        &settings.rules,
-        shell,
-        settings.ambient_shell_options,
-        settings.report_environment_style_names,
-        settings.rule_options.clone(),
-        suppression_index.as_ref(),
-        parse_error_position(parse_result),
-    );
-    let mut diagnostics = checker.check();
-
-    diagnostics.extend(parse_diagnostics::collect_parse_rule_diagnostics(
-        &parse_result.file,
-        locator,
-        Some(parse_result),
-        &linter_semantic_artifacts,
-        &settings.rules,
-        shell,
-    ));
-    if parse_result.is_err() {
-        sanitize_diagnostic_spans_cold(&mut diagnostics, locator);
-    }
-
-    for diagnostic in &mut diagnostics {
-        if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
-            diagnostic.severity = severity;
-        }
-    }
-
-    if let Some(suppression_index) = suppression_index.as_ref() {
-        filter_suppressed_diagnostics(&mut diagnostics, indexer, suppression_index);
-    }
-    filter_per_file_ignored_diagnostics(&mut diagnostics, settings, source_path);
-
-    diagnostics
-        .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
-
-    AnalysisResult {
-        semantic: linter_semantic_artifacts.into_semantic(),
-        diagnostics,
-    }
-}
-
-/// Lints an existing parse result while parsing suppression directives inside the linter.
-///
-/// This keeps directive attachment internal while we migrate it to semantic command visits.
-#[allow(clippy::too_many_arguments)]
-pub fn lint_file_at_path_with_resolver_and_parse_result_with_comment_directives(
-    parse_result: &ParseResult,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    shellcheck_map: &ShellCheckCodeMap,
-    source_path: Option<&Path>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-) -> Vec<Diagnostic> {
-    let directives = parse_directives(source, indexer.comment_index(), shellcheck_map);
-    lint_file_at_path_with_resolver_and_parse_result_and_directives(
-        parse_result,
-        source,
-        indexer,
-        settings,
-        &directives,
-        source_path,
-        source_path_resolver,
-        None,
-    )
-}
-
-/// Lints an existing parse result located at an optional source path.
-pub fn lint_file(
-    parse_result: &ParseResult,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    shellcheck_map: &ShellCheckCodeMap,
-    source_path: Option<&Path>,
-) -> Vec<Diagnostic> {
-    lint_file_at_path_with_resolver_and_parse_result(
-        parse_result,
-        source,
-        indexer,
-        settings,
-        shellcheck_map,
-        source_path,
-        None,
-    )
-}
-
-/// Lints an existing parse result while deriving suppressions from parsed directives
-/// and semantic-collected command spans.
-pub(crate) fn lint_file_with_directives(
-    parse_result: &ParseResult,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    directives: &[SuppressionDirective],
-    source_path: Option<&Path>,
-) -> Vec<Diagnostic> {
-    lint_file_with_directives_and_resolvers(
-        parse_result,
-        source,
-        indexer,
-        settings,
-        directives,
-        source_path,
-        None,
-        None,
-    )
-}
-
-/// Lints an existing parse result while deriving suppressions from parsed directives
-/// and allowing caller-provided source and plugin resolvers.
-#[allow(clippy::too_many_arguments)]
-pub fn lint_file_with_directives_and_resolvers(
-    parse_result: &ParseResult,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    directives: &[SuppressionDirective],
-    source_path: Option<&Path>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
-) -> Vec<Diagnostic> {
-    lint_file_at_path_with_resolver_and_parse_result_and_directives(
-        parse_result,
-        source,
-        indexer,
-        settings,
-        directives,
-        source_path,
-        source_path_resolver,
-        plugin_resolver,
-    )
-}
-
-/// Lints an existing parse result while parsing suppression directives inside the linter.
-pub fn lint_file_with_comment_directives(
-    parse_result: &ParseResult,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    shellcheck_map: &ShellCheckCodeMap,
-    source_path: Option<&Path>,
-) -> Vec<Diagnostic> {
-    lint_file_at_path_with_resolver_and_parse_result_with_comment_directives(
-        parse_result,
-        source,
-        indexer,
-        settings,
-        shellcheck_map,
-        source_path,
-        None,
-    )
 }
 
 fn filter_suppressed_diagnostics(
@@ -1393,7 +1191,9 @@ mod tests {
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
-        lint_file_with_directives(&output, source, &indexer, settings, &directives, None)
+        AnalysisRequest::from_parse_result(&output, source, settings)
+            .with_directives(&directives)
+            .lint()
     }
 
     fn lint_path(path: &Path, settings: &LinterSettings) -> Vec<Diagnostic> {
@@ -1405,14 +1205,10 @@ mod tests {
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
-        lint_file_with_directives(
-            &output,
-            &source,
-            &indexer,
-            settings,
-            &directives,
-            Some(path),
-        )
+        AnalysisRequest::from_parse_result(&output, &source, settings)
+            .with_source_path(path)
+            .with_directives(&directives)
+            .lint()
     }
 
     fn lint_for_rule(source: &str, rule: Rule) -> Vec<Diagnostic> {
@@ -1436,16 +1232,12 @@ mod tests {
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
-        lint_file_at_path_with_resolver_and_parse_result_and_directives(
-            &output,
-            &source,
-            &indexer,
-            &LinterSettings::for_rule(rule),
-            &directives,
-            Some(path),
-            source_path_resolver,
-            None,
-        )
+        let settings = LinterSettings::for_rule(rule);
+        AnalysisRequest::from_parse_result(&output, &source, &settings)
+            .with_source_path(path)
+            .with_directives(&directives)
+            .with_optional_source_path_resolver(source_path_resolver)
+            .lint()
     }
 
     fn lint_path_for_rule_with_plugin_resolver(
@@ -1463,16 +1255,12 @@ mod tests {
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
-        lint_file_at_path_with_resolver_and_parse_result_and_directives(
-            &output,
-            &source,
-            &indexer,
-            &LinterSettings::for_rule(rule),
-            &directives,
-            Some(path),
-            None,
-            Some(plugin_resolver),
-        )
+        let settings = LinterSettings::for_rule(rule);
+        AnalysisRequest::from_parse_result(&output, &source, &settings)
+            .with_source_path(path)
+            .with_directives(&directives)
+            .with_plugin_resolver(plugin_resolver)
+            .lint()
     }
 
     fn lint_named_source(path: &Path, source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
@@ -1483,7 +1271,10 @@ mod tests {
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
-        lint_file_with_directives(&output, source, &indexer, settings, &directives, Some(path))
+        AnalysisRequest::from_parse_result(&output, source, settings)
+            .with_source_path(path)
+            .with_directives(&directives)
+            .lint()
     }
 
     fn lint_named_source_with_parse_dialect(
@@ -1499,7 +1290,10 @@ mod tests {
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
-        lint_file_with_directives(&output, source, &indexer, settings, &directives, Some(path))
+        AnalysisRequest::from_parse_result(&output, source, settings)
+            .with_source_path(path)
+            .with_directives(&directives)
+            .lint()
     }
 
     fn runtime_prelude_source(shebang: &str) -> String {
@@ -1595,15 +1389,11 @@ mod tests {
     fn lint_file_preserves_parse_rule_diagnostics() {
         let source = "#!/bin/sh\n{ :; } always { :; }\n";
         let parse_result = Parser::new(source).parse();
-        let indexer = Indexer::new(source, &parse_result);
-        let diagnostics = lint_file(
-            &parse_result,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::ZshAlwaysBlock),
-            &ShellCheckCodeMap::default(),
-            None,
-        );
+        let settings = LinterSettings::for_rule(Rule::ZshAlwaysBlock);
+        let shellcheck_map = ShellCheckCodeMap::default();
+        let diagnostics = AnalysisRequest::from_parse_result(&parse_result, source, &settings)
+            .with_shellcheck_map(&shellcheck_map)
+            .lint();
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::ZshAlwaysBlock);
@@ -1614,14 +1404,8 @@ mod tests {
     fn analyze_file_returns_semantic_model_and_diagnostics() {
         let source = "#!/bin/bash\nvalue=ok\necho \"$value\"\n";
         let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let result = analyze_file(
-            &output.file,
-            source,
-            &indexer,
-            &LinterSettings::default(),
-            None,
-        );
+        let settings = LinterSettings::default();
+        let result = AnalysisRequest::from_file(&output.file, source, &settings).analyze();
 
         assert!(result.diagnostics.is_empty());
         assert!(!result.semantic.scopes().is_empty());
@@ -2983,15 +2767,12 @@ END
 
         for (path, dialect) in cases {
             let parse_result = Parser::with_dialect(source, dialect).parse();
-            let indexer = Indexer::new(source, &parse_result);
-            let diagnostics = lint_file(
-                &parse_result,
-                source,
-                &indexer,
-                &LinterSettings::default(),
-                &ShellCheckCodeMap::default(),
-                path,
-            );
+            let settings = LinterSettings::default();
+            let shellcheck_map = ShellCheckCodeMap::default();
+            let diagnostics = AnalysisRequest::from_parse_result(&parse_result, source, &settings)
+                .with_optional_source_path(path)
+                .with_shellcheck_map(&shellcheck_map)
+                .lint();
 
             for diagnostic in diagnostics {
                 assert!(
@@ -6463,14 +6244,10 @@ foo=1
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
-        let diagnostics = lint_file_with_directives(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::default(),
-            &directives,
-            None,
-        );
+        let settings = LinterSettings::default();
+        let diagnostics = AnalysisRequest::from_parse_result(&output, source, &settings)
+            .with_directives(&directives)
+            .lint();
         assert!(diagnostics.is_empty());
     }
 

@@ -253,42 +253,9 @@ Following ruff's post-hoc pattern, suppressions are applied **after** the checke
 
 ```rust
 /// Lint an existing parse result and return diagnostics.
-pub fn lint_file(
-    parse_result: &ParseResult,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
-    source_path: Option<&Path>,
-) -> Vec<Diagnostic> {
-    let analysis = analyze_file_at_path(
-        &parse_result.file,
-        source,
-        indexer,
-        settings,
-        source_path,
-    );
-    let mut diagnostics = analysis.diagnostics;
-
-    // Add parse-aware rule diagnostics, then apply severity overrides.
-    diagnostics.extend(collect_parse_rule_diagnostics(parse_result, source, settings));
-    for diag in &mut diagnostics {
-        if let Some(&severity) = settings.severity_overrides.get(&diag.rule) {
-            diag.severity = severity;
-        }
-    }
-
-    // Filter suppressed diagnostics
-    if let Some(suppressions) = suppression_index {
-        diagnostics.retain(|diag| {
-            let line = indexer.line_index().line_for_offset(diag.span.start());
-            !suppressions.is_suppressed(diag.rule, line)
-        });
-    }
-
-    diagnostics.sort_by_key(|d| (d.span.start.offset, d.span.end.offset));
-    diagnostics
-}
+let diagnostics = AnalysisRequest::from_parse_result(parse_result, source, settings)
+    .with_directives(&directives)
+    .lint();
 ```
 
 The directives-aware linter entry points now build the `SuppressionIndex` from semantic-collected command spans after directive parsing. This keeps suppression scoping aligned with the semantic traversal instead of requiring a second AST walk.
@@ -303,7 +270,7 @@ Source text
     → shuck-indexer::Indexer::new()        → Indexer (includes CommentIndex)
     → parse_directives()                   → Vec<SuppressionDirective>
     → shuck-semantic::SemanticModel::new() → SemanticModel
-    → shuck-linter::lint_file_with_directives()
+    → shuck-linter::AnalysisRequest::from_parse_result(...).with_directives(...).lint()
                                              → Vec<Diagnostic>  (filtered by suppressions)
     → CLI formats and prints diagnostics
 ```

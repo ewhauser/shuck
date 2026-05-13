@@ -1,6 +1,6 @@
 use super::*;
 
-impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
+impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
     pub(super) fn declaration_scope_and_attributes(
         &self,
         builtin: DeclarationBuiltin,

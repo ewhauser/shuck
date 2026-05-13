@@ -649,8 +649,8 @@ implementable in this codebase.
 
 - build a per-file plugin resolver from `ResolvedCheckSettings` and the file's
   absolute path.
-- call a resolver-aware linter entrypoint during normal `shuck check` instead
-  of the current `lint_file(..., None)` path.
+- pass the per-file plugin resolver through `AnalysisRequest` during normal
+  `shuck check`.
 - return dependency fingerprints alongside diagnostics so cache insertion and
   watch-mode refresh both see the same dependency set.
 

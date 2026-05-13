@@ -7,10 +7,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Instant;
 
-use shuck_indexer::Indexer;
 use shuck_linter::{
-    LinterSettings, RuleSelector, RuleSet, ShellCheckCodeMap, ShellDialect,
-    lint_file_at_path_with_resolver_and_parse_result,
+    AnalysisRequest, LinterSettings, RuleSelector, RuleSet, ShellCheckCodeMap, ShellDialect,
 };
 use shuck_parser::parser::Parser;
 use shuck_semantic::SourcePathResolver;
@@ -310,17 +308,12 @@ fn run_large_corpus_fixture(
         .with_shell(shell)
         .with_analyzed_paths([fixture.path.clone()]);
     let parsed = Parser::with_dialect(&source, shell.parser_dialect()).parse();
-    let indexer = Indexer::new(&source, &parsed);
     let shellcheck_map = ShellCheckCodeMap::default();
-    let diagnostics = lint_file_at_path_with_resolver_and_parse_result(
-        &parsed,
-        &source,
-        &indexer,
-        &settings,
-        &shellcheck_map,
-        Some(&fixture.path),
-        Some(resolver),
-    );
+    let diagnostics = AnalysisRequest::from_parse_result(&parsed, &source, &settings)
+        .with_source_path(fixture.path.as_path())
+        .with_shellcheck_map(&shellcheck_map)
+        .with_source_path_resolver(resolver)
+        .lint();
 
     Ok(diagnostics.len())
 }

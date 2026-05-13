@@ -1,6 +1,6 @@
 use super::*;
 
-impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
+impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
     pub(super) fn classify_special_simple_command(
         &mut self,
         name: &Name,

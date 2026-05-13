@@ -80,8 +80,7 @@ mod tests {
 
     use crate::test::test_snippet;
     use crate::{
-        LinterSettings, Rule, ShellCheckCodeMap, ShellDialect, lint_file_with_directives,
-        parse_directives,
+        AnalysisRequest, LinterSettings, Rule, ShellCheckCodeMap, ShellDialect, parse_directives,
     };
 
     #[test]
@@ -938,14 +937,10 @@ greet
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
-        let diagnostics = lint_file_with_directives(
-            &parse_result,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
-            &directives,
-            None,
-        );
+        let settings = LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam);
+        let diagnostics = AnalysisRequest::from_parse_result(&parse_result, source, &settings)
+            .with_directives(&directives)
+            .lint();
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }

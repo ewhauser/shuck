@@ -1,6 +1,6 @@
 use super::*;
 
-impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
+impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
     pub(super) fn classify_source_ref(&self, line: usize, word: &Word) -> SourceRefKind {
         if let Some(directive) = self.source_directive_for_line(line) {
             return directive;

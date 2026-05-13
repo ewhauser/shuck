@@ -507,7 +507,7 @@ A `[lint] preset = "google"` switch could enable the bundle in one line. We reje
 
 ### Filesystem-aware rules in this spec
 
-The original proposal included rules that need the executable bit, the filename, and the repo path role. These would require threading a `FileMetadata` (path, mode, project root) through `lint_file` and adding filesystem stats to the linter pipeline. We deferred them: the linter is currently a pure function over source plus an indexer, and breaking that invariant in this spec would entangle the rule additions with an API change that deserves its own design pass.
+The original proposal included rules that need the executable bit, the filename, and the repo path role. These would require threading a `FileMetadata` (path, mode, project root) through `AnalysisRequest` and adding filesystem stats to the linter pipeline. We deferred them: the linter is currently a pure function over source plus an indexer, and breaking that invariant in this spec would entangle the rule additions with an API change that deserves its own design pass.
 
 ### Cross-file analysis for sourced-file effects
 

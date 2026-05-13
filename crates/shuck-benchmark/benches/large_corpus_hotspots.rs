@@ -6,10 +6,8 @@ use std::sync::{Arc, OnceLock};
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use shuck_benchmark::configure_benchmark_allocator;
-use shuck_indexer::Indexer;
 use shuck_linter::{
-    LinterSettings, Rule, RuleSet, ShellCheckCodeMap, ShellDialect,
-    lint_file_at_path_with_resolver_and_parse_result,
+    AnalysisRequest, LinterSettings, Rule, RuleSet, ShellCheckCodeMap, ShellDialect,
 };
 use shuck_parser::parser::{ParseResult, Parser};
 use shuck_semantic::SourcePathResolver;
@@ -246,17 +244,12 @@ fn lint_large_corpus_fixture_with_settings(
         .with_shell(ShellDialect::from_name(&fixture.shell))
         .with_analyzed_paths([fixture.path.clone()]);
     let parse_result = parse_large_corpus_fixture(fixture);
-    let indexer = Indexer::new(&fixture.source, &parse_result);
     let shellcheck_map = ShellCheckCodeMap::default();
-    let diagnostics = lint_file_at_path_with_resolver_and_parse_result(
-        &parse_result,
-        &fixture.source,
-        &indexer,
-        &settings,
-        &shellcheck_map,
-        Some(&fixture.path),
-        resolver,
-    );
+    let diagnostics = AnalysisRequest::from_parse_result(&parse_result, &fixture.source, &settings)
+        .with_source_path(fixture.path.as_path())
+        .with_shellcheck_map(&shellcheck_map)
+        .with_optional_source_path_resolver(resolver)
+        .lint();
 
     black_box(diagnostics.len())
 }

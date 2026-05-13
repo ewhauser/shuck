@@ -3115,17 +3115,12 @@ fn lint_large_corpus_output(
     linter_settings: &shuck_linter::LinterSettings,
     source_path_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)>,
 ) -> Vec<shuck_linter::Diagnostic> {
-    let indexer = shuck_indexer::Indexer::new(source, parse_result);
     let shellcheck_map = shuck_linter::ShellCheckCodeMap::default();
-    shuck_linter::lint_file_at_path_with_resolver_and_parse_result(
-        parse_result,
-        source,
-        &indexer,
-        linter_settings,
-        &shellcheck_map,
-        Some(&fixture.path),
-        source_path_resolver,
-    )
+    shuck_linter::AnalysisRequest::from_parse_result(parse_result, source, linter_settings)
+        .with_source_path(fixture.path.as_path())
+        .with_shellcheck_map(&shellcheck_map)
+        .with_optional_source_path_resolver(source_path_resolver)
+        .lint()
 }
 
 fn run_shuck(

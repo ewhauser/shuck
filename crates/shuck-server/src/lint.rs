@@ -5,8 +5,8 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use shuck_indexer::LineIndex;
 use shuck_linter::{
-    Applicability, Diagnostic as ShuckDiagnostic, Edit as ShuckEdit, Fix, Severity,
-    ShellCheckCodeMap, ShellDialect,
+    AnalysisRequest, Applicability, Diagnostic as ShuckDiagnostic, Edit as ShuckEdit, Fix,
+    Severity, ShellCheckCodeMap, ShellDialect,
 };
 use shuck_parser::parser::Parser;
 
@@ -187,16 +187,15 @@ fn collect_raw_diagnostics(
     path: Option<&Path>,
 ) -> RawDocumentDiagnostics {
     let parse_result = Parser::with_profile(source, shell.shell_profile()).parse();
-    let indexer = shuck_indexer::Indexer::new(source, &parse_result);
     let shellcheck_map = ShellCheckCodeMap::default();
-    let shell_diagnostics = shuck_linter::lint_file(
+    let shell_diagnostics = AnalysisRequest::from_parse_result(
         &parse_result,
         source,
-        &indexer,
         snapshot.shuck_settings().linter(),
-        &shellcheck_map,
-        path,
-    );
+    )
+    .with_optional_source_path(path)
+    .with_shellcheck_map(&shellcheck_map)
+    .lint();
     let parse_error = parse_result.is_err().then(|| {
         let shuck_parser::Error::Parse {
             message,
