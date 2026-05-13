@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/security/mod.rs
+---
+K007 `chmod` makes a sensitive path writable by everyone
+ --> <source>:2:14
+  |
+2 | chmod -R 777 ~/.ssh
+  |

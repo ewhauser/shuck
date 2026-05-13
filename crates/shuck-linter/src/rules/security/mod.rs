@@ -1,3 +1,4 @@
+pub mod chmod_world_writable_sensitive_path;
 pub mod eval_on_array;
 pub mod find_execdir_with_shell;
 pub mod rm_glob_on_variable_path;
@@ -13,6 +14,7 @@ mod tests {
     use crate::test::test_path;
     use crate::{LinterSettings, Rule, assert_diagnostics};
 
+    #[test_case(Rule::ChmodWorldWritableSensitivePath, Path::new("K007.sh"))]
     #[test_case(Rule::FindExecDirWithShell, Path::new("K004.sh"))]
     #[test_case(Rule::RmGlobOnVariablePath, Path::new("K001.sh"))]
     #[test_case(Rule::RmRootishTarget, Path::new("K006.sh"))]

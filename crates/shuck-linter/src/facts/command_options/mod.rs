@@ -223,6 +223,24 @@ impl RmCommandFacts<'_> {
 }
 
 #[derive(Debug, Clone)]
+pub struct ChmodCommandFacts<'a> {
+    sensitive_path_words: Box<[&'a Word]>,
+    world_writable_sensitive_path_spans: OnceLock<Box<[Span]>>,
+}
+
+impl ChmodCommandFacts<'_> {
+    pub fn world_writable_sensitive_path_spans(&self, source: &str) -> &[Span] {
+        self.world_writable_sensitive_path_spans.get_or_init(|| {
+            self.sensitive_path_words
+                .iter()
+                .filter_map(|word| chmod_path_is_sensitive(word, source).then_some(word.span))
+                .collect::<Vec<_>>()
+                .into_boxed_slice()
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct SshCommandFacts {
     remote_command_arg_span: Span,
     local_expansion_spans: Box<[Span]>,
@@ -625,6 +643,7 @@ pub struct SudoFamilyCommandFacts {
 #[derive(Debug, Clone, Default)]
 pub struct CommandOptionFacts<'a> {
     rm: Option<RmCommandFacts<'a>>,
+    chmod: Option<ChmodCommandFacts<'a>>,
     ssh: Option<SshCommandFacts>,
     read: Option<ReadCommandFacts>,
     su: Option<SuCommandFacts>,
@@ -662,6 +681,10 @@ impl<'facts, 'a> CommandOptionFactsRef<'facts, 'a> {
 
     pub fn rm(self) -> Option<&'facts RmCommandFacts<'a>> {
         self.inner.and_then(CommandOptionFacts::rm)
+    }
+
+    pub fn chmod(self) -> Option<&'facts ChmodCommandFacts<'a>> {
+        self.inner.and_then(CommandOptionFacts::chmod)
     }
 
     pub fn ssh(self) -> Option<&'facts SshCommandFacts> {
@@ -764,6 +787,10 @@ impl<'a> CommandOptionFacts<'a> {
         self.rm.as_ref()
     }
 
+    pub fn chmod(&self) -> Option<&ChmodCommandFacts<'a>> {
+        self.chmod.as_ref()
+    }
+
     pub fn ssh(&self) -> Option<&SshCommandFacts> {
         self.ssh.as_ref()
     }
@@ -862,6 +889,7 @@ impl<'a> CommandOptionFacts<'a> {
 
     fn is_empty(&self) -> bool {
         self.rm.is_none()
+            && self.chmod.is_none()
             && self.ssh.is_none()
             && self.read.is_none()
             && self.su.is_none()
@@ -901,6 +929,10 @@ impl<'a> CommandOptionFacts<'a> {
                 .as_deref()
                 .is_some_and(|name| name == "rm" && normalized.wrappers.is_empty())
                 .then(|| parse_rm_command(normalized.body_args(), source))
+                .flatten(),
+            chmod: normalized
+                .effective_name_is("chmod")
+                .then(|| parse_chmod_command(normalized.body_args(), source))
                 .flatten(),
             ssh: (normalized.effective_name_is("ssh") && normalized.wrappers.is_empty())
                 .then(|| parse_ssh_command(normalized.body_args(), source))
@@ -1065,6 +1097,424 @@ fn is_tr_option(text: &str) -> bool {
         && text[1..]
             .bytes()
             .all(|byte| matches!(byte, b'c' | b'C' | b'd' | b's' | b't'))
+}
+
+fn parse_chmod_command<'a>(args: &[&'a Word], source: &str) -> Option<ChmodCommandFacts<'a>> {
+    let mode_index = chmod_mode_index(args, source)?;
+    let mode = static_word_text(args[mode_index], source)?;
+
+    if !chmod_mode_makes_other_writable(mode.as_ref()) {
+        return None;
+    }
+
+    let sensitive_path_words = args[mode_index + 1..]
+        .iter()
+        .copied()
+        .filter(|word| chmod_path_may_be_sensitive(word, source))
+        .collect::<Vec<_>>();
+
+    (!sensitive_path_words.is_empty()).then_some(ChmodCommandFacts {
+        sensitive_path_words: sensitive_path_words.into_boxed_slice(),
+        world_writable_sensitive_path_spans: OnceLock::new(),
+    })
+}
+
+fn chmod_mode_index(args: &[&Word], source: &str) -> Option<usize> {
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let text = static_word_text(word, source)?;
+
+        if text == "--" {
+            index += 1;
+            break;
+        }
+
+        if text == "--reference" || text.starts_with("--reference=") {
+            return None;
+        }
+
+        if chmod_text_is_option(text.as_ref()) {
+            index += 1;
+            continue;
+        }
+
+        break;
+    }
+
+    (index < args.len()).then_some(index)
+}
+
+fn chmod_text_is_option(text: &str) -> bool {
+    matches!(
+        text,
+        "--changes"
+            | "--silent"
+            | "--quiet"
+            | "--verbose"
+            | "--recursive"
+            | "--preserve-root"
+            | "--no-preserve-root"
+            | "--help"
+            | "--version"
+    ) || (text.starts_with('-')
+        && !text.starts_with("--")
+        && text.len() > 1
+        && text[1..]
+            .bytes()
+            .all(|byte| matches!(byte, b'R' | b'c' | b'f' | b'v' | b'H' | b'L' | b'P')))
+}
+
+fn chmod_mode_makes_other_writable(mode: &str) -> bool {
+    chmod_numeric_mode_makes_other_writable(mode) || chmod_symbolic_mode_makes_other_writable(mode)
+}
+
+fn chmod_numeric_mode_makes_other_writable(mode: &str) -> bool {
+    let (operator, digits) = match mode.as_bytes().first().copied() {
+        Some(operator @ (b'+' | b'=' | b'-')) => (Some(operator), &mode[1..]),
+        Some(_) => (None, mode),
+        None => return false,
+    };
+
+    if digits.is_empty() || !digits.bytes().all(|byte| matches!(byte, b'0'..=b'7')) {
+        return false;
+    }
+
+    let sets_other_write = digits
+        .bytes()
+        .last()
+        .and_then(|byte| char::from(byte).to_digit(8))
+        .is_some_and(|digit| digit & 0o2 != 0);
+
+    matches!(operator, None | Some(b'+' | b'=')) && sets_other_write
+}
+
+fn chmod_symbolic_mode_makes_other_writable(mode: &str) -> bool {
+    let mut state = ChmodSymbolicWriteState::default();
+    for clause in mode.split(',') {
+        state.apply_clause(clause);
+    }
+
+    state.other == Some(true)
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ChmodSymbolicWriteState {
+    user: Option<bool>,
+    group: Option<bool>,
+    other: Option<bool>,
+}
+
+impl ChmodSymbolicWriteState {
+    fn apply_clause(&mut self, clause: &str) {
+        let Some(operator_index) = clause.find(['+', '=', '-']) else {
+            return;
+        };
+
+        let (who, rest) = clause.split_at(operator_index);
+        let Some(operator) = rest.chars().next() else {
+            return;
+        };
+        let permissions = &rest[operator.len_utf8()..];
+        let targets = chmod_symbolic_targets(who);
+        if !targets.targets_any() {
+            return;
+        }
+
+        let write_value = self.permissions_write_value(permissions);
+        match operator {
+            '+' => {
+                if write_value == Some(true) {
+                    self.set_targets(targets, Some(true));
+                }
+            }
+            '-' => match write_value {
+                Some(true) => self.set_targets(targets, Some(false)),
+                None => self.set_targets(targets, None),
+                Some(false) => {}
+            },
+            '=' => self.set_targets(targets, write_value),
+            _ => {}
+        }
+    }
+
+    fn permissions_write_value(self, permissions: &str) -> Option<bool> {
+        if permissions.contains('w') {
+            return Some(true);
+        }
+
+        let mut saw_copy = false;
+        for byte in permissions.bytes() {
+            let source = match byte {
+                b'u' => self.user,
+                b'g' => self.group,
+                b'o' => self.other,
+                _ => continue,
+            };
+            saw_copy = true;
+            match source {
+                Some(true) => return Some(true),
+                None => return None,
+                Some(false) => {}
+            }
+        }
+
+        Some(false).filter(|_| !saw_copy || !permissions.is_empty())
+    }
+
+    fn set_targets(&mut self, targets: ChmodSymbolicTargets, value: Option<bool>) {
+        if targets.user {
+            self.user = value;
+        }
+        if targets.group {
+            self.group = value;
+        }
+        if targets.other {
+            self.other = value;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ChmodSymbolicTargets {
+    user: bool,
+    group: bool,
+    other: bool,
+}
+
+impl ChmodSymbolicTargets {
+    fn targets_any(self) -> bool {
+        self.user || self.group || self.other
+    }
+}
+
+fn chmod_symbolic_targets(who: &str) -> ChmodSymbolicTargets {
+    let all = who.bytes().any(|byte| byte == b'a');
+    ChmodSymbolicTargets {
+        user: all || who.bytes().any(|byte| byte == b'u'),
+        group: all || who.bytes().any(|byte| byte == b'g'),
+        other: all || who.bytes().any(|byte| byte == b'o'),
+    }
+}
+
+#[derive(Debug, Default)]
+struct ChmodPathSegment {
+    text: String,
+    has_literal_text: bool,
+    dynamic_count: usize,
+    home_param_count: usize,
+    has_other_dynamic: bool,
+}
+
+fn chmod_path_is_sensitive(word: &Word, source: &str) -> bool {
+    let segments = chmod_path_segments(word, source);
+
+    if chmod_path_has_absolute_root(&segments) {
+        return chmod_absolute_path_segments_are_sensitive(&segments[1..]);
+    }
+
+    let Some((first, tail)) = segments.split_first() else {
+        return false;
+    };
+
+    (chmod_segment_is_home_parameter(first)
+        || chmod_segment_is_unquoted_home_tilde(first, word, source))
+        && chmod_home_path_tail_is_sensitive(tail)
+}
+
+fn chmod_path_may_be_sensitive(word: &Word, source: &str) -> bool {
+    let text = word.span.slice(source);
+    text.contains('/')
+        || text.contains('~')
+        || text.contains("HOME")
+        || text.contains(".ssh")
+        || text.contains(".gnupg")
+        || text.contains(".aws")
+        || text.contains(".kube")
+        || text.contains(".docker")
+        || text.contains(".netrc")
+}
+
+fn chmod_path_segments(word: &Word, source: &str) -> Vec<ChmodPathSegment> {
+    let mut segments = vec![ChmodPathSegment::default()];
+    append_chmod_path_segments(&mut segments, &word.parts, source);
+    segments
+}
+
+fn append_chmod_path_segments(
+    segments: &mut Vec<ChmodPathSegment>,
+    parts: &[WordPartNode],
+    source: &str,
+) {
+    for part in parts {
+        append_chmod_path_part(segments, &part.kind, part.span, source);
+    }
+}
+
+fn append_chmod_path_part(
+    segments: &mut Vec<ChmodPathSegment>,
+    part: &WordPart,
+    span: Span,
+    source: &str,
+) {
+    match part {
+        WordPart::Literal(text) => append_chmod_path_literal(segments, text.as_str(source, span)),
+        WordPart::SingleQuoted {
+            value,
+            dollar: false,
+        } => append_chmod_path_literal(segments, value.slice(source)),
+        WordPart::DoubleQuoted { parts, .. } => append_chmod_path_segments(segments, parts, source),
+        WordPart::Variable(name) => mark_chmod_path_dynamic(segments, name.as_str() == "HOME"),
+        WordPart::Parameter(parameter) => {
+            mark_chmod_path_dynamic(segments, chmod_parameter_is_home_access(parameter));
+        }
+        _ => {
+            current_chmod_path_segment(segments).has_other_dynamic = true;
+        }
+    }
+}
+
+fn append_chmod_path_literal(segments: &mut Vec<ChmodPathSegment>, text: &str) {
+    for character in text.chars() {
+        if character == '/' {
+            segments.push(ChmodPathSegment::default());
+            continue;
+        }
+
+        let segment = current_chmod_path_segment(segments);
+        segment.has_literal_text = true;
+        segment.text.push(character);
+    }
+}
+
+fn current_chmod_path_segment(segments: &mut [ChmodPathSegment]) -> &mut ChmodPathSegment {
+    let Some(segment) = segments.last_mut() else {
+        unreachable!("chmod path segments always start non-empty");
+    };
+    segment
+}
+
+fn mark_chmod_path_dynamic(segments: &mut [ChmodPathSegment], is_home: bool) {
+    let segment = current_chmod_path_segment(segments);
+    segment.dynamic_count += 1;
+    segment.home_param_count += usize::from(is_home);
+}
+
+fn chmod_parameter_is_home_access(parameter: &ParameterExpansion) -> bool {
+    matches!(
+        &parameter.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+            if reference.name.as_str() == "HOME" && reference.subscript.is_none()
+    )
+}
+
+fn chmod_path_has_absolute_root(segments: &[ChmodPathSegment]) -> bool {
+    segments.first().is_some_and(chmod_segment_is_empty)
+}
+
+fn chmod_segment_is_empty(segment: &ChmodPathSegment) -> bool {
+    segment.text.is_empty()
+        && !segment.has_literal_text
+        && segment.dynamic_count == 0
+        && !segment.has_other_dynamic
+}
+
+fn chmod_segment_is_home_parameter(segment: &ChmodPathSegment) -> bool {
+    segment.home_param_count == 1
+        && segment.dynamic_count == 1
+        && !segment.has_literal_text
+        && !segment.has_other_dynamic
+        && segment.text.is_empty()
+}
+
+fn chmod_segment_is_unquoted_home_tilde(
+    segment: &ChmodPathSegment,
+    word: &Word,
+    source: &str,
+) -> bool {
+    word.span.slice(source).starts_with('~')
+        && segment.dynamic_count == 0
+        && !segment.has_other_dynamic
+        && chmod_tilde_prefix_is_home_root(&segment.text)
+}
+
+fn chmod_tilde_prefix_is_home_root(text: &str) -> bool {
+    let Some(suffix) = text.strip_prefix('~') else {
+        return false;
+    };
+
+    if suffix.starts_with(['+', '-']) {
+        return false;
+    }
+
+    !suffix.contains(['*', '?', '[', ']', '{', '}'])
+}
+
+fn chmod_absolute_path_segments_are_sensitive(segments: &[ChmodPathSegment]) -> bool {
+    let Some(components) = chmod_static_path_components(segments) else {
+        return false;
+    };
+
+    path_components_match_any_prefix(&components, CHMOD_SENSITIVE_ABSOLUTE_PREFIXES)
+}
+
+fn chmod_home_path_tail_is_sensitive(segments: &[ChmodPathSegment]) -> bool {
+    let Some(components) = chmod_static_path_components(segments) else {
+        return false;
+    };
+
+    components.is_empty()
+        || path_components_match_any_prefix(&components, CHMOD_SENSITIVE_HOME_PREFIXES)
+}
+
+fn chmod_static_path_components(segments: &[ChmodPathSegment]) -> Option<Vec<&str>> {
+    segments
+        .iter()
+        .filter(|segment| !chmod_segment_is_empty(segment))
+        .map(|segment| {
+            (segment.dynamic_count == 0 && !segment.has_other_dynamic)
+                .then_some(segment.text.as_str())
+        })
+        .collect()
+}
+
+const CHMOD_SENSITIVE_HOME_PREFIXES: &[&[&str]] = &[
+    &[".ssh"],
+    &[".gnupg"],
+    &[".aws"],
+    &[".kube"],
+    &[".docker"],
+    &[".netrc"],
+    &[".config", "gh"],
+    &[".config", "gcloud"],
+];
+
+const CHMOD_SENSITIVE_ABSOLUTE_PREFIXES: &[&[&str]] = &[
+    &["root"],
+    &["etc", "ssh"],
+    &["etc", "sudoers"],
+    &["etc", "sudoers.d"],
+    &["etc", "passwd"],
+    &["etc", "shadow"],
+    &["etc", "group"],
+    &["etc", "gshadow"],
+    &["etc", "ssl", "private"],
+    &["etc", "pki"],
+];
+
+fn path_components_match_any_prefix(components: &[&str], prefixes: &[&[&str]]) -> bool {
+    prefixes
+        .iter()
+        .any(|prefix| path_components_match_prefix(components, prefix))
+}
+
+fn path_components_match_prefix(components: &[&str], prefix: &[&str]) -> bool {
+    components.len() >= prefix.len()
+        && components
+            .iter()
+            .take(prefix.len())
+            .zip(prefix.iter())
+            .all(|(actual, expected)| actual == expected)
 }
 
 fn parse_rm_command<'a>(args: &[&'a Word], source: &str) -> Option<RmCommandFacts<'a>> {
