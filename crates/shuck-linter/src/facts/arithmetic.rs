@@ -525,9 +525,7 @@ fn collect_base_prefix_spans_in_conditional_arithmetic_operand(
 ) {
     match expression {
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
-            collect_base_prefix_spans_in_word(word, source, spans);
-            collect_base_prefix_spans_in_text(word.span, source, spans);
-            collect_leading_zero_integer_spans_in_text(word.span, source, spans);
+            collect_base_prefix_spans_in_conditional_arithmetic_word(word, source, spans);
         }
         ConditionalExpr::Parenthesized(expr) => {
             collect_base_prefix_spans_in_conditional_arithmetic_operand(&expr.expr, source, spans);
@@ -537,6 +535,51 @@ fn collect_base_prefix_spans_in_conditional_arithmetic_operand(
         }
         ConditionalExpr::Binary(_) | ConditionalExpr::Unary(_) | ConditionalExpr::Pattern(_) => {
             collect_base_prefix_spans_in_conditional_expr(expression, source, spans);
+        }
+    }
+}
+
+fn collect_base_prefix_spans_in_conditional_arithmetic_word(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    collect_base_prefix_spans_in_word(word, source, spans);
+    collect_base_prefix_spans_in_conditional_arithmetic_word_parts(&word.parts, source, spans);
+}
+
+fn collect_base_prefix_spans_in_conditional_arithmetic_word_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {
+                collect_base_prefix_spans_in_text(part.span, source, spans);
+                collect_leading_zero_integer_spans_in_text(part.span, source, spans);
+            }
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_base_prefix_spans_in_conditional_arithmetic_word_parts(
+                    parts, source, spans,
+                );
+            }
+            WordPart::ZshQualifiedGlob(_)
+            | WordPart::Variable(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. } => {}
         }
     }
 }

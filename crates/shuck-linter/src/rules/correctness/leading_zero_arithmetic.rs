@@ -183,6 +183,7 @@ declare -A checksums
 [[ 010 -lt 11 ]]
 [[ -v values[09] ]]
 [[ -v checksums[09] ]]
+[[ $(printf '%s' 08) -lt 10 ]]
 [[ $(printf '%s' 1)08 -lt 200 ]]
 ";
         let diagnostics = test_snippet(
