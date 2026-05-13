@@ -64,6 +64,7 @@ struct EffectiveRuleOptions {
     s085_main_name: String,
     c158_treat_readonly_as_documented: bool,
     c158_treat_export_as_intentional: bool,
+    c159_allow_conditional_init: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -192,6 +193,7 @@ impl EffectiveRuleOptions {
             s085_main_name: rule_options.s085.main_name.clone(),
             c158_treat_readonly_as_documented: rule_options.c158.treat_readonly_as_documented,
             c158_treat_export_as_intentional: rule_options.c158.treat_export_as_intentional,
+            c159_allow_conditional_init: rule_options.c159.allow_conditional_init,
         }
     }
 }
@@ -212,6 +214,7 @@ impl CacheKey for EffectiveRuleOptions {
         self.s085_main_name.cache_key(state);
         self.c158_treat_readonly_as_documented.cache_key(state);
         self.c158_treat_export_as_intentional.cache_key(state);
+        self.c159_allow_conditional_init.cache_key(state);
     }
 }
 
@@ -1031,6 +1034,14 @@ fn linter_rule_options_for_lint_config(lint: &LintConfig) -> shuck_linter::Linte
         .and_then(|c158| c158.treat_export_as_intentional)
     {
         rule_options.c158.treat_export_as_intentional = value;
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.c159.as_ref())
+        .and_then(|c159| c159.allow_conditional_init)
+    {
+        rule_options.c159.allow_conditional_init = value;
     }
 
     rule_options

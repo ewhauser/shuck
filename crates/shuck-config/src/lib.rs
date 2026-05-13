@@ -60,7 +60,8 @@ const CONFIG_OVERRIDE_LINT_ZSH_PLUGIN_KEYS: &[&str] = &[
     "theme-loads",
     "entrypoints",
 ];
-const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &["c001", "c063", "s084", "s085", "c158"];
+const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] =
+    &["c001", "c063", "s084", "s085", "c158", "c159"];
 const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
     &["treat-indirect-expansion-targets-as-used"];
 const CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS: &[&str] = &["report-unreached-nested-definitions"];
@@ -79,6 +80,7 @@ const CONFIG_OVERRIDE_C158_RULE_OPTION_KEYS: &[&str] = &[
     "treat-readonly-as-documented",
     "treat-export-as-intentional",
 ];
+const CONFIG_OVERRIDE_C159_RULE_OPTION_KEYS: &[&str] = &["allow-conditional-init"];
 const CONFIG_OVERRIDE_RUN_KEYS: &[&str] = &["shell", "shell-version", "shells"];
 const CONFIG_OVERRIDE_RUN_SHELL_NAMES: &[&str] =
     &["bash", "gbash", "bashkit", "zsh", "dash", "mksh", "busybox"];
@@ -337,6 +339,8 @@ pub struct LintRuleOptionsConfig {
     pub s085: Option<S085RuleOptionsConfig>,
     /// Options for rule C158.
     pub c158: Option<C158RuleOptionsConfig>,
+    /// Options for rule C159.
+    pub c159: Option<C159RuleOptionsConfig>,
 }
 
 impl LintRuleOptionsConfig {
@@ -355,6 +359,9 @@ impl LintRuleOptionsConfig {
         }
         if let Some(c158) = overrides.c158 {
             self.c158.get_or_insert_default().apply_overrides(c158);
+        }
+        if let Some(c159) = overrides.c159 {
+            self.c159.get_or_insert_default().apply_overrides(c159);
         }
     }
 }
@@ -449,7 +456,6 @@ impl S085RuleOptionsConfig {
         }
     }
 }
-
 /// Options for rule C158.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
@@ -467,6 +473,22 @@ impl C158RuleOptionsConfig {
         }
         if overrides.treat_export_as_intentional.is_some() {
             self.treat_export_as_intentional = overrides.treat_export_as_intentional;
+        }
+    }
+}
+
+/// Options for rule C159.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct C159RuleOptionsConfig {
+    /// Whether conditional initialization should suppress later mutable-global reports.
+    pub allow_conditional_init: Option<bool>,
+}
+
+impl C159RuleOptionsConfig {
+    fn apply_overrides(&mut self, overrides: Self) {
+        if overrides.allow_conditional_init.is_some() {
+            self.allow_conditional_init = overrides.allow_conditional_init;
         }
     }
 }
@@ -836,6 +858,18 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
                                 example: "treat-export-as-intentional = false",
                             },
                         ],
+                        sections: &[],
+                    },
+                    ConfigSectionMetadata {
+                        key: "c159",
+                        docs: "Behavior overrides for `C159` mutable global analysis.",
+                        fields: &[ConfigFieldMetadata {
+                            key: "allow-conditional-init",
+                            docs: "Allow self-referential default initializers such as `name=${name:-value}` without treating them as global mutations.",
+                            default: "true",
+                            value_type: "bool",
+                            example: "allow-conditional-init = false",
+                        }],
                         sections: &[],
                     },
                 ],
@@ -1521,6 +1555,9 @@ fn validate_lint_rule_options_override(value: &toml::Value) -> std::result::Resu
     if let Some(c158_value) = rule_options.get("c158") {
         validate_c158_rule_options_override(c158_value)?;
     }
+    if let Some(c159_value) = rule_options.get("c159") {
+        validate_c159_rule_options_override(c159_value)?;
+    }
 
     Ok(())
 }
@@ -1588,7 +1625,6 @@ fn validate_s085_rule_options_override(value: &toml::Value) -> std::result::Resu
 
     Ok(())
 }
-
 fn validate_c158_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
     let c158 = value
         .as_table()
@@ -1598,6 +1634,22 @@ fn validate_c158_rule_options_override(value: &toml::Value) -> std::result::Resu
             return Err(format!(
                 "unsupported `[lint.rule-options.c158]` option `{key}`; expected one of: {}",
                 CONFIG_OVERRIDE_C158_RULE_OPTION_KEYS.join(", ")
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_c159_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let c159 = value
+        .as_table()
+        .ok_or_else(|| "`[lint.rule-options.c159]` must be a TOML table".to_owned())?;
+    for key in c159.keys() {
+        if !CONFIG_OVERRIDE_C159_RULE_OPTION_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.rule-options.c159]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_C159_RULE_OPTION_KEYS.join(", ")
             ));
         }
     }
@@ -1904,6 +1956,21 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_validate_supported_c159_rule_option_keys() {
+        let config =
+            parse_config_override("lint.rule-options.c159.allow-conditional-init = false").unwrap();
+        assert_eq!(
+            config
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.c159.as_ref())
+                .and_then(|c159| c159.allow_conditional_init),
+            Some(false)
+        );
+    }
+
+    #[test]
     fn inline_config_overrides_validate_supported_zsh_plugin_keys() {
         let config = parse_config_override(
             "lint.zsh.plugins.resolution = false\n\
@@ -2008,6 +2075,12 @@ mod tests {
     fn inline_config_overrides_reject_unknown_s085_rule_option_keys() {
         let err = parse_config_override("lint.rule-options.s085.preview = true").unwrap_err();
         assert!(err.contains("unsupported `[lint.rule-options.s085]` option `preview`"));
+    }
+
+    #[test]
+    fn inline_config_overrides_reject_unknown_c159_rule_option_keys() {
+        let err = parse_config_override("lint.rule-options.c159.preview = true").unwrap_err();
+        assert!(err.contains("unsupported `[lint.rule-options.c159]` option `preview`"));
     }
 
     #[test]
@@ -2206,6 +2279,36 @@ mod tests {
                 .and_then(|options| options.c158.as_ref())
                 .and_then(|c158| c158.treat_export_as_intentional),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn c159_rule_option_config_arguments_allow_last_override_to_win() {
+        let tempdir = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.rule-options.c159.allow-conditional-init = false")
+                        .unwrap(),
+                )),
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.rule-options.c159.allow-conditional-init = true")
+                        .unwrap(),
+                )),
+            ],
+            false,
+        )
+        .unwrap();
+
+        let loaded = load_project_config(tempdir.path(), &config).unwrap();
+        assert_eq!(
+            loaded
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.c159.as_ref())
+                .and_then(|c159| c159.allow_conditional_init),
+            Some(true)
         );
     }
 

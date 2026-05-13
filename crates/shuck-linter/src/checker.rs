@@ -344,6 +344,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::CommaArrayElements) {
             rules::correctness::comma_array_elements::comma_array_elements(self);
         }
+        if self.is_rule_enabled(Rule::MutableGlobal) {
+            rules::correctness::mutable_global::mutable_global(self);
+        }
     }
 
     fn check_references(&mut self) {

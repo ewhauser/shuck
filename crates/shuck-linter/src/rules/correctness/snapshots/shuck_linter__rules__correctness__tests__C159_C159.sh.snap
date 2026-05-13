@@ -1,0 +1,26 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C159 global variable `count` is written more than once; make it readonly or keep later writes local
+ --> <source>:4:1
+  |
+4 | count=1
+  |
+
+C159 global variable `mode` is written more than once; make it readonly or keep later writes local
+ --> <source>:7:1
+  |
+7 | mode=prod
+  |
+
+C159 global variable `mode` is written more than once; make it readonly or keep later writes local
+ --> <source>:8:1
+  |
+8 | mode=${mode#d}${mode:-prod}
+  |
+
+C159 global variable `count` is written more than once; make it readonly or keep later writes local
+  --> <source>:11:3
+   |
+11 |   count=2
+   |
