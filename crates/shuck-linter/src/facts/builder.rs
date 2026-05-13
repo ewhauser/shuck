@@ -1128,6 +1128,9 @@ fn positional_parameter_trim_fix_fact(
     if !indent.bytes().all(|byte| matches!(byte, b' ' | b'\t')) {
         return None;
     }
+    if previous_line_ends_with_control_operator(source, line_start) {
+        return None;
+    }
 
     let temp_name = "_shuck_positional_params";
     Some(PositionalParameterTrimFixFact::new(
@@ -1137,6 +1140,11 @@ fn positional_parameter_trim_fix_fact(
         fragment.span(),
         format!("${{{temp_name}{rest}").into_boxed_str(),
     ))
+}
+
+fn previous_line_ends_with_control_operator(source: &str, line_start: usize) -> bool {
+    let prefix = source[..line_start].trim_end_matches(|ch| matches!(ch, ' ' | '\t' | '\n'));
+    prefix.ends_with('|') || prefix.ends_with("|&") || prefix.ends_with("&&")
 }
 
 fn span_contains_trim_fragment(outer: Span, inner: Span) -> bool {
