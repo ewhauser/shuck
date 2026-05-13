@@ -6,24 +6,24 @@
 //! `shuck-parser` produces these data structures, while crates such as `shuck-indexer`,
 //! `shuck-linter`, `shuck-semantic`, and `shuck-formatter` consume them.
 
-#[allow(missing_docs)]
+#[doc(hidden)]
 mod arena;
-#[allow(missing_docs)]
+#[doc(hidden)]
 mod ast;
-#[allow(missing_docs)]
+#[doc(hidden)]
 mod command_resolution;
-#[allow(missing_docs)]
+#[doc(hidden)]
 mod name;
-#[allow(missing_docs)]
+#[doc(hidden)]
 mod span;
-#[allow(missing_docs)]
+#[doc(hidden)]
 mod tokens;
 
 /// Compact typed arena index and list storage utilities.
 pub use arena::{IdRange, Idx, ListArena};
-/// Parsed shell AST nodes and related syntax tree types.
+#[doc(hidden)]
 pub use ast::*;
-/// Static command-resolution helpers shared by semantic analysis and lint facts.
+#[doc(hidden)]
 pub use command_resolution::*;
 /// Identifier names used throughout the shell AST.
 pub use name::Name;

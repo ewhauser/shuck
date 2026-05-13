@@ -24,6 +24,7 @@ mod options;
 mod request_queue;
 mod settings;
 
+/// Mutable LSP session state for open documents, workspaces, and settings.
 pub struct Session {
     index: index::Index,
     position_encoding: PositionEncoding,
@@ -33,6 +34,7 @@ pub struct Session {
     shutdown_requested: bool,
 }
 
+/// Immutable view of one document plus resolved settings.
 #[derive(Clone)]
 pub struct DocumentSnapshot {
     resolved_client_capabilities: Arc<ResolvedClientCapabilities>,
@@ -42,6 +44,7 @@ pub struct DocumentSnapshot {
 }
 
 impl Session {
+    /// Create a session from client capabilities, global settings, and workspaces.
     pub fn new(
         client_capabilities: &ClientCapabilities,
         position_encoding: PositionEncoding,
@@ -77,10 +80,12 @@ impl Session {
         self.shutdown_requested = requested;
     }
 
+    /// Return the document key for an LSP document URL.
     pub fn key_from_url(&self, url: Url) -> DocumentKey {
         self.index.key_from_url(url)
     }
 
+    /// Capture a document snapshot for diagnostics, hovers, or code actions.
     pub fn take_snapshot(&self, url: Url) -> Option<DocumentSnapshot> {
         let (settings, client_settings) = self
             .index
@@ -104,6 +109,7 @@ impl Session {
             .update_text_document(key, content_changes, new_version, self.encoding())
     }
 
+    /// Open or replace an in-memory text document.
     pub fn open_text_document(&mut self, url: Url, document: TextDocument) {
         self.index.open_text_document(url, document);
     }
@@ -181,6 +187,7 @@ impl DocumentSnapshot {
         self.document_ref.settings()
     }
 
+    /// Return the query object used to access the underlying document and settings.
     pub fn query(&self) -> &index::DocumentQuery {
         &self.document_ref
     }

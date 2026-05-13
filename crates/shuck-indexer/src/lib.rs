@@ -19,9 +19,7 @@
 //! only need line mapping or that already have an AST-shaped source of comments
 //! or regions.
 mod comment_index;
-#[allow(missing_docs)]
 mod line_index;
-#[allow(missing_docs)]
 mod region_index;
 
 /// Comment lookup types derived from parser output.

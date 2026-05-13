@@ -39,11 +39,16 @@ struct ProjectSettingsCacheKey {
     workspace_root: Option<PathBuf>,
 }
 
+/// Query handle for a document known to the server.
 #[derive(Clone)]
 pub enum DocumentQuery {
+    /// Open text document plus its resolved settings.
     Text {
+        /// URL of the text document.
         file_url: Url,
+        /// Current document contents and line index.
         document: Arc<TextDocument>,
+        /// Resolved Shuck settings for the document.
         settings: Arc<ShuckSettings>,
     },
 }

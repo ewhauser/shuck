@@ -10,18 +10,20 @@ use shuck_parser::parser::{ParseResult, Parser};
 #[cfg(feature = "parser-benchmarking")]
 use shuck_parser::parser::{ParseStatus, ParserBenchmarkCounters};
 
-#[allow(missing_docs)]
 /// Categorize fixtures by expected runtime so Criterion can spend
 /// more time where it is useful without making the slowest cases drag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TestCaseSpeed {
+    /// Small fixtures that can use Criterion's default-style sample count.
     Fast,
+    /// Medium fixtures that need fewer iterations.
     Normal,
+    /// Large fixtures that should use the minimum supported sample count.
     Slow,
 }
 
-#[allow(missing_docs)]
 impl TestCaseSpeed {
+    /// Return the Criterion sample size associated with this speed bucket.
     pub fn sample_size(self) -> usize {
         match self {
             Self::Fast => 100,
@@ -33,25 +35,29 @@ impl TestCaseSpeed {
 }
 
 /// Benchmark fixture source bundled with this crate.
-#[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TestFile {
+    /// Stable fixture name used in benchmark labels.
     pub name: &'static str,
+    /// Shell source text for the fixture.
     pub source: &'static str,
+    /// Runtime bucket for this fixture.
     pub speed: TestCaseSpeed,
 }
 
 /// Benchmark case made up of one or more bundled test files.
-#[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TestCase {
+    /// Stable benchmark case name.
     pub name: &'static str,
+    /// Fixture files included in this benchmark case.
     pub files: &'static [TestFile],
+    /// Runtime bucket for the aggregate case.
     pub speed: TestCaseSpeed,
 }
 
-#[allow(missing_docs)]
 impl TestCase {
+    /// Return the total source size across all files in this case.
     pub fn total_bytes(self) -> u64 {
         self.files.iter().map(|file| file.source.len() as u64).sum()
     }

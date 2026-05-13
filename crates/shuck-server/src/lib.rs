@@ -1,5 +1,11 @@
-#![allow(missing_docs)]
+#![warn(missing_docs)]
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
+
+//! Language Server Protocol support for Shuck.
+//!
+//! The primary entrypoint is [`run`], which starts the server over standard
+//! input and output. A small set of document/session types is also exposed for
+//! integration tests and embedding scenarios that need an in-memory LSP server.
 
 use std::num::NonZeroUsize;
 
@@ -31,6 +37,7 @@ pub(crate) fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+/// Run the Shuck language server over standard input and output.
 pub fn run() -> Result<()> {
     let four = NonZeroUsize::try_from(4usize)
         .map_err(|_| anyhow::anyhow!("failed to create non-zero worker count"))?;

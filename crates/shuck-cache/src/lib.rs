@@ -42,8 +42,8 @@ pub fn read_project_root_from_cache_file(path: &Path) -> io::Result<Option<PathB
 }
 
 /// Trait for values that can contribute to a deterministic package cache key.
-#[allow(missing_docs)]
 pub trait CacheKey {
+    /// Write this value into the structured cache-key hasher.
     fn cache_key(&self, state: &mut CacheKeyHasher);
 }
 
@@ -52,8 +52,8 @@ pub struct CacheKeyHasher {
     hasher: Sha256,
 }
 
-#[allow(missing_docs)]
 impl CacheKeyHasher {
+    /// Create an empty cache-key hasher.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -61,43 +61,53 @@ impl CacheKeyHasher {
         }
     }
 
+    /// Write a caller-defined domain tag into the key.
     pub fn write_tag(&mut self, tag: &[u8]) {
         self.write_bytes(tag);
     }
 
+    /// Write a boolean value into the key.
     pub fn write_bool(&mut self, value: bool) {
         self.hasher.update([u8::from(value)]);
     }
 
+    /// Write an unsigned 8-bit integer into the key.
     pub fn write_u8(&mut self, value: u8) {
         self.hasher.update([value]);
     }
 
+    /// Write an unsigned 32-bit integer into the key.
     pub fn write_u32(&mut self, value: u32) {
         self.hasher.update(value.to_le_bytes());
     }
 
+    /// Write an unsigned 64-bit integer into the key.
     pub fn write_u64(&mut self, value: u64) {
         self.hasher.update(value.to_le_bytes());
     }
 
+    /// Write an unsigned 128-bit integer into the key.
     pub fn write_u128(&mut self, value: u128) {
         self.hasher.update(value.to_le_bytes());
     }
 
+    /// Write a `usize` value into the key using a platform-independent encoding.
     pub fn write_usize(&mut self, value: usize) {
         self.write_u64(value as u64);
     }
 
+    /// Write a UTF-8 string into the key.
     pub fn write_str(&mut self, value: &str) {
         self.write_bytes(value.as_bytes());
     }
 
+    /// Write a byte slice into the key with a length prefix.
     pub fn write_bytes(&mut self, bytes: &[u8]) {
         self.write_u64(bytes.len() as u64);
         self.hasher.update(bytes);
     }
 
+    /// Finish the hasher and return a lowercase hex digest.
     #[must_use]
     pub fn finish_hex(self) -> String {
         let digest = self.hasher.finalize();
@@ -232,20 +242,26 @@ where
 }
 
 /// File metadata used to validate cached entries against a filesystem path.
-#[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FileCacheKey {
+    /// File modification time as nanoseconds since the Unix epoch.
     pub file_last_modified_ns: u128,
+    /// File creation time as nanoseconds since the Unix epoch, when available.
     pub file_created_ns: Option<u128>,
+    /// File status-change time as nanoseconds since the Unix epoch, when available.
     pub file_status_changed_ns: Option<u128>,
+    /// Platform device identifier, when available.
     pub file_device_id: Option<u64>,
+    /// Platform file identifier such as an inode, when available.
     pub file_id: Option<u64>,
+    /// Platform permission bits or readonly flag used to invalidate stale entries.
     pub file_permissions_mode: u32,
+    /// File size in bytes.
     pub file_size_bytes: u64,
 }
 
-#[allow(missing_docs)]
 impl FileCacheKey {
+    /// Read file metadata from `path` and convert it into a cache validation key.
     pub fn from_path(path: &Path) -> io::Result<Self> {
         let metadata = path.metadata()?;
         let file_last_modified_ns = system_time_ns(metadata.modified()?)?;
@@ -338,11 +354,13 @@ pub struct PackageCache<T> {
     last_seen_ms: u64,
 }
 
-#[allow(missing_docs)]
 impl<T> PackageCache<T>
 where
     T: Clone + Serialize + DeserializeOwned,
 {
+    /// Open a package cache file for a canonical project root and tool version.
+    ///
+    /// Corrupt, missing, or root-mismatched cache files are treated as empty caches.
     pub fn open(
         cache_root: &Path,
         canonical_root: PathBuf,
@@ -380,11 +398,13 @@ where
         })
     }
 
+    /// Return the on-disk path backing this package cache.
     #[must_use]
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    /// Return a cached entry when `relative_path` still matches `key`.
     pub fn get(&mut self, relative_path: &Path, key: &FileCacheKey) -> Option<T> {
         let file = self.package.files.get(relative_path)?;
         if &file.key != key {
@@ -395,11 +415,15 @@ where
         Some(file.data.clone())
     }
 
+    /// Insert or replace a cached entry for a package-relative path.
     pub fn insert(&mut self, relative_path: PathBuf, key: FileCacheKey, data: T) {
         self.seen_paths.insert(relative_path.clone());
         self.changes.insert(relative_path, Change { key, data });
     }
 
+    /// Persist touched and changed entries to disk.
+    ///
+    /// Untouched entries older than the retention window are pruned before writing.
     pub fn persist(mut self) -> io::Result<()> {
         if !self.save() {
             return Ok(());

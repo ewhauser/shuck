@@ -11,16 +11,22 @@ pub(crate) use text_document::DocumentVersion;
 pub(crate) use text_document::LanguageId;
 pub use text_document::TextDocument;
 
+/// Client/server position encoding negotiated for LSP text ranges.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PositionEncoding {
+    /// UTF-16 code-unit positions, the LSP default.
     #[default]
     UTF16,
+    /// UTF-32 code-point positions.
     UTF32,
+    /// UTF-8 byte positions.
     UTF8,
 }
 
+/// Key identifying an open document in the server index.
 #[derive(Clone, Debug)]
 pub enum DocumentKey {
+    /// Text document identified by its URI.
     Text(Url),
 }
 

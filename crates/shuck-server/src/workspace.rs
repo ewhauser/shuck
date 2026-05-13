@@ -7,10 +7,12 @@ use lsp_types::{Url, WorkspaceFolder};
 
 use crate::session::{ClientOptions, WorkspaceOptionsMap};
 
+/// Collection of workspace folders known to the LSP session.
 #[derive(Debug)]
 pub struct Workspaces(Vec<Workspace>);
 
 impl Workspaces {
+    /// Create a workspace collection from explicit workspace entries.
     pub fn new(workspaces: Vec<Workspace>) -> Self {
         Self(workspaces)
     }
@@ -67,6 +69,7 @@ impl Deref for Workspaces {
     }
 }
 
+/// One LSP workspace folder plus optional Shuck settings.
 #[derive(Debug)]
 pub struct Workspace {
     url: Url,
@@ -75,6 +78,7 @@ pub struct Workspace {
 }
 
 impl Workspace {
+    /// Create a non-default workspace for `url`.
     pub fn new(url: Url) -> Self {
         Self {
             url,
@@ -83,6 +87,7 @@ impl Workspace {
         }
     }
 
+    /// Create the default workspace for clients without workspace-folder support.
     pub fn default(url: Url) -> Self {
         Self {
             url,
@@ -91,6 +96,7 @@ impl Workspace {
         }
     }
 
+    /// Return a copy with workspace-specific client options.
     #[must_use]
     pub fn with_options(mut self, options: ClientOptions) -> Self {
         self.options = Some(options);

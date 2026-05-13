@@ -1,5 +1,3 @@
-#![allow(missing_docs)]
-
 //! Documentation generation for Shuck configuration options.
 
 use std::fmt::Write;

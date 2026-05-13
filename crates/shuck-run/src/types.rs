@@ -6,18 +6,27 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow, bail};
 use serde::Deserialize;
 
+/// Supported shell families for `shuck run`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Shell {
+    /// GNU Bash.
     Bash,
+    /// Homebrew-style GNU Bash alias.
     Gbash,
+    /// Bashkit-managed Bash.
     Bashkit,
+    /// Z shell.
     Zsh,
+    /// Debian Almquist shell or POSIX `sh`.
     Dash,
+    /// MirBSD Korn shell.
     Mksh,
+    /// BusyBox shell applet.
     Busybox,
 }
 
 impl Shell {
+    /// Return the canonical config and CLI spelling for this shell.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Bash => "bash",
@@ -30,6 +39,7 @@ impl Shell {
         }
     }
 
+    /// Parse a shell name or common alias.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.trim().to_ascii_lowercase().as_str() {
             "bash" => Some(Self::Bash),
@@ -72,6 +82,7 @@ impl fmt::Display for Shell {
     }
 }
 
+/// Parsed shell version with ordering semantics for registry selection.
 #[derive(Debug, Clone)]
 pub struct Version {
     raw: String,
@@ -81,6 +92,7 @@ pub struct Version {
 }
 
 impl Version {
+    /// Parse a version string accepted by Shuck's shell registry.
     pub fn parse(raw: &str) -> Result<Self> {
         let raw = raw.trim();
         if raw.is_empty() {
@@ -112,6 +124,7 @@ impl Version {
         })
     }
 
+    /// Return the original version string.
     pub fn as_str(&self) -> &str {
         &self.raw
     }
@@ -246,15 +259,21 @@ fn should_treat_as_prefix(raw: &str, tokens: &[VersionToken], segment_count: usi
             .all(|token| matches!(token, VersionToken::Numeric(_)))
 }
 
+/// Version requirement used when resolving or installing a shell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VersionConstraint {
+    /// Select the newest available version.
     Latest,
+    /// Select exactly this version.
     Exact(Version),
+    /// Select versions matching this dotted numeric prefix.
     ExactPrefix(Version),
+    /// Select versions satisfying every predicate.
     Range(Vec<VersionPredicate>),
 }
 
 impl VersionConstraint {
+    /// Parse `latest`, an exact version, or a comma-separated predicate range.
     pub fn parse(raw: &str) -> Result<Self> {
         let raw = raw.trim();
         if raw.eq_ignore_ascii_case("latest") {
@@ -281,6 +300,7 @@ impl VersionConstraint {
         }
     }
 
+    /// Return whether `version` satisfies this constraint.
     pub fn matches(&self, version: &Version) -> bool {
         match self {
             Self::Latest => true,
@@ -305,47 +325,72 @@ impl VersionConstraint {
     }
 }
 
+/// Managed versions available for one shell family.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AvailableShell {
+    /// Shell family.
     pub shell: Shell,
+    /// Available versions for that shell.
     pub versions: Vec<Version>,
 }
 
+/// Runtime shell settings loaded from Shuck config.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct RunConfig {
+    /// Default shell name.
     pub shell: Option<String>,
+    /// Default shell version constraint.
     pub shell_version: Option<String>,
+    /// Per-shell version constraints keyed by shell name.
     pub shells: BTreeMap<String, String>,
 }
 
+/// Concrete interpreter selected for a run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedInterpreter {
+    /// Shell family that was resolved.
     pub shell: Shell,
+    /// Shell version selected for execution.
     pub version: Version,
+    /// Filesystem path to the executable interpreter.
     pub path: PathBuf,
+    /// Where the interpreter was found.
     pub source: ResolutionSource,
 }
 
+/// Source used to resolve an interpreter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolutionSource {
+    /// Interpreter came from Shuck's managed shell cache.
     Managed,
+    /// Interpreter came from the host system.
     System,
 }
 
+/// Options controlling interpreter resolution.
 #[derive(Debug, Clone)]
 pub struct ResolveOptions<'a> {
+    /// Requested shell family.
     pub shell: Option<Shell>,
+    /// Requested shell version constraint.
     pub version: Option<VersionConstraint>,
+    /// Whether to require a system interpreter.
     pub system: bool,
+    /// Whether managed resolution may fall back to the system interpreter.
     pub implicit_system_fallback: bool,
+    /// Optional script path used for shell inference.
     pub script: Option<&'a Path>,
+    /// Optional config values used as defaults.
     pub config: Option<&'a RunConfig>,
+    /// Whether resolution should print progress details.
     pub verbose: bool,
+    /// Whether to refresh the registry before resolving.
     pub refresh_registry: bool,
 }
 
 impl<'a> ResolveOptions<'a> {
+    /// Create resolution options from the common CLI inputs.
     pub fn new(
         shell: Option<Shell>,
         version: Option<VersionConstraint>,
@@ -374,6 +419,7 @@ pub(crate) fn parse_shell_name(raw: &str) -> Result<Shell> {
     })
 }
 
+/// A single comparison predicate inside a version range.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VersionPredicate {
     operator: VersionOperator,

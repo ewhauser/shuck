@@ -5,9 +5,7 @@
 //! `shuck-parser` turns shell source text into `shuck-ast` syntax trees and also exposes a
 //! source-backed lexer for lower-level tooling.
 
-#[allow(missing_docs)]
 mod error;
-#[allow(missing_docs)]
 /// Parsing entrypoints, lexer types, and shell-profile configuration.
 pub mod parser;
 /// Shebang parsing helpers shared by Shuck crates.
