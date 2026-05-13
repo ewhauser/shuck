@@ -1,5 +1,6 @@
-use shuck_ast::{Pattern, Position, Span};
+use shuck_ast::{Pattern, Span};
 
+use super::case_item_delete::case_item_deletion_span;
 use crate::facts::CaseItemFact;
 use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
@@ -72,7 +73,7 @@ fn case_pattern_deletion_fix(
     })?;
 
     if delete_item || item.item().patterns.len() == 1 || all_item_patterns_reported(checker, item) {
-        return item_deletion_span(item.item(), source)
+        return case_item_deletion_span(item.item(), source)
             .map(|span| Fix::unsafe_edit(Edit::deletion(span)));
     }
 
@@ -99,42 +100,6 @@ fn all_item_patterns_reported(checker: &Checker<'_>, item: &CaseItemFact<'_>) ->
                 && span.end.offset == pattern.span.end.offset
         })
     })
-}
-
-fn item_deletion_span(item: &shuck_ast::CaseItem, source: &str) -> Option<Span> {
-    let first = item.patterns.first()?.span;
-    let end = item.terminator_span.unwrap_or(item.body.span).end;
-    let mut start_offset = first.start.offset;
-    while start_offset > 0 {
-        let previous = source.as_bytes()[start_offset - 1];
-        if previous == b'\n' {
-            break;
-        }
-        if !previous.is_ascii_whitespace() {
-            break;
-        }
-        start_offset -= 1;
-    }
-    let mut end_offset = end.offset;
-    while end_offset < source.len() {
-        let byte = source.as_bytes()[end_offset];
-        end_offset += 1;
-        if byte == b'\n' {
-            break;
-        }
-    }
-
-    Some(Span::from_positions(
-        Position {
-            offset: start_offset,
-            line: first.start.line,
-            column: first
-                .start
-                .column
-                .saturating_sub(first.start.offset.saturating_sub(start_offset)),
-        },
-        end.advanced_by(&source[end.offset..end_offset]),
-    ))
 }
 
 fn pattern_alternative_deletion_span(
@@ -435,6 +400,23 @@ done
 "
         );
         assert_eq!(result.fixes_applied, 3);
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unsafe_fix_for_inline_getopts_case_arm_stops_before_esac() {
+        let source = "while getopts 'a' opt; do case \"$opt\" in a) : ;; b) : ;; esac; done\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::CaseArmNotInGetopts),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "while getopts 'a' opt; do case \"$opt\" in a) : ;; esac; done\n"
+        );
         assert!(result.fixed_diagnostics.is_empty());
     }
 
