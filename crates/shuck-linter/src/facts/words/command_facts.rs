@@ -4,12 +4,16 @@ pub(super) fn build_function_in_alias_facts(
 ) -> Vec<FunctionInAliasFact> {
     let mut facts = commands
         .iter()
-        .filter(|fact| fact.wrappers().is_empty() && fact.effective_name_is("alias"))
         .filter_map(|fact| {
-            let name_start = fact
-                .body_name_word()
-                .map(|word| word.span.start)
-                .unwrap_or_else(|| fact.body_span().start);
+            if !fact.wrappers().is_empty() || !fact.effective_name_is("alias") {
+                return None;
+            }
+            let name_word = fact.body_name_word()?;
+            let name_start = name_word.span.start;
+            if name_start != fact.span().start {
+                return None;
+            }
+
             let body_args = fact.body_args();
             let definition_words = alias_definition_word_groups_for_command(fact, source);
             let [definition_words] = definition_words.as_slice() else {
