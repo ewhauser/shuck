@@ -5,16 +5,21 @@ pub(super) fn build_function_in_alias_facts(
     let mut facts = commands
         .iter()
         .filter(|fact| fact.effective_name_is("alias"))
-        .flat_map(|fact| {
+        .filter_map(|fact| {
             let name_start = fact
                 .body_name_word()
                 .map(|word| word.span.start)
                 .unwrap_or_else(|| fact.body_span().start);
-            alias_definition_word_groups_for_command(fact, source)
-                .into_iter()
-                .filter_map(move |definition_words| {
-                    function_in_alias_definition_fact(definition_words, source, name_start)
-                })
+            let body_args = fact.body_args();
+            let definition_words = alias_definition_word_groups_for_command(fact, source);
+            let [definition_words] = definition_words.as_slice() else {
+                return None;
+            };
+            if definition_words.len() != body_args.len() {
+                return None;
+            }
+
+            function_in_alias_definition_fact(definition_words, source, name_start)
         })
         .collect::<Vec<_>>();
     facts.sort_by_key(|fact| (fact.span().start.offset, fact.span().end.offset));
@@ -204,10 +209,7 @@ fn function_in_alias_definition_span(words: &[&Word], source: &str) -> Option<Sp
 }
 
 fn literal_alias_name_is_fixable(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
+    is_shell_variable_name(name)
 }
 
 pub(super) fn static_alias_definition_text(words: &[&Word], source: &str) -> Option<String> {

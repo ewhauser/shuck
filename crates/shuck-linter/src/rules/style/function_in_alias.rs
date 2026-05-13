@@ -99,12 +99,51 @@ alias escaped_then_pos='echo \\$$1'
 
     #[test]
     fn reports_non_fixable_alias_names_without_fix() {
-        let source = "#!/bin/sh\nalias foo+bar='echo $1'\n";
+        let source = "\
+#!/bin/sh
+alias foo+bar='echo $1'
+alias foo-bar='echo $1'
+alias foo.bar='echo $1'
+alias 9foo='echo $1'
+";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionInAlias));
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "foo+bar='echo $1'");
-        assert!(diagnostics[0].fix.is_none());
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "foo+bar='echo $1'",
+                "foo-bar='echo $1'",
+                "foo.bar='echo $1'",
+                "9foo='echo $1'",
+            ]
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.fix.is_none())
+        );
+    }
+
+    #[test]
+    fn leaves_multi_definition_alias_commands_unfixed() {
+        let source = "#!/bin/sh\nalias first='echo $1' second='echo $2'\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionInAlias));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["first='echo $1'", "second='echo $2'"]
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.fix.is_none())
+        );
     }
 
     #[test]
