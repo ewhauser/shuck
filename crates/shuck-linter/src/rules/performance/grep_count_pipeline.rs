@@ -7,7 +7,7 @@ use crate::{
 pub struct GrepCountPipeline;
 
 impl Violation for GrepCountPipeline {
-    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
 
     fn rule() -> Rule {
         Rule::GrepCountPipeline
