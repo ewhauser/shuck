@@ -1,0 +1,44 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C016 this control keyword has no matching opener
+ --> <source>:4:1
+  |
+4 | fi
+  |
+
+C016 this control keyword has no matching opener
+ --> <source>:7:1
+  |
+7 | done
+  |
+
+C016 this control keyword has no matching opener
+  --> <source>:10:1
+   |
+10 | esac
+   |
+
+C016 this control keyword has no matching opener
+  --> <source>:13:1
+   |
+13 | then
+   |
+
+C016 this control keyword has no matching opener
+  --> <source>:16:1
+   |
+16 | else
+   |
+
+C016 this control keyword has no matching opener
+  --> <source>:19:1
+   |
+19 | elif
+   |
+
+C016 this control keyword has no matching opener
+  --> <source>:22:1
+   |
+22 | do
+   |

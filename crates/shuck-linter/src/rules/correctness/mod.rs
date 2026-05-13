@@ -107,6 +107,7 @@ pub mod space_after_hash_bang;
 pub mod spaced_assignment;
 pub mod status_capture_after_branch_test;
 pub mod stderr_before_stdout_redirect;
+pub mod stray_closing_keyword;
 pub mod string_compared_with_eq;
 pub mod string_comparison_for_version;
 pub mod subshell_in_arithmetic;
@@ -161,6 +162,7 @@ mod tests {
     #[test_case(Rule::FindOutputLoop, Path::new("C013.sh"))]
     #[test_case(Rule::LocalTopLevel, Path::new("C014.sh"))]
     #[test_case(Rule::SudoRedirectionOrder, Path::new("C015.sh"))]
+    #[test_case(Rule::StrayClosingKeyword, Path::new("C016.sh"))]
     #[test_case(Rule::ConstantComparisonTest, Path::new("C017.sh"))]
     #[test_case(Rule::StringComparedWithEq, Path::new("C121.sh"))]
     #[test_case(Rule::AFlagInDoubleBracket, Path::new("C122.sh"))]

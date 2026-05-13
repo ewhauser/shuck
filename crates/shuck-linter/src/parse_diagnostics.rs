@@ -10,6 +10,7 @@ use crate::rules::correctness::if_missing_then::IfMissingThen;
 use crate::rules::correctness::loop_without_end::LoopWithoutEnd;
 use crate::rules::correctness::missing_done_in_for_loop::MissingDoneInForLoop;
 use crate::rules::correctness::missing_fi::MissingFi;
+use crate::rules::correctness::stray_closing_keyword::StrayClosingKeyword;
 use crate::rules::correctness::until_missing_do::UntilMissingDo;
 use crate::rules::portability::function_params_in_sh::FunctionParamsInSh;
 use crate::rules::portability::targets_non_zsh_shell;
@@ -128,6 +129,11 @@ pub(crate) fn collect_parse_rule_diagnostics(
                 Some(fix) => diagnostic.with_fix(fix),
                 None => diagnostic,
             });
+        }
+    }
+    if enabled_rules.contains(crate::Rule::StrayClosingKeyword) && is_c016_shell(shell) {
+        for span in stray_closing_keyword_spans(source, parse_diagnostics) {
+            diagnostics.push(Diagnostic::new(StrayClosingKeyword, span));
         }
     }
     if enabled_rules.contains(crate::Rule::FunctionParamsInSh)
@@ -661,6 +667,23 @@ fn is_dangling_else_error(message: &str) -> bool {
 
 fn is_expected_command_error(message: &str) -> bool {
     message.starts_with("expected command")
+}
+
+fn stray_closing_keyword_spans(source: &str, parse_diagnostics: &[ParseDiagnostic]) -> Vec<Span> {
+    parse_diagnostics
+        .iter()
+        .filter_map(|diagnostic| {
+            if !is_expected_command_error(&diagnostic.message) {
+                return None;
+            }
+
+            matches!(
+                diagnostic.span.slice(source),
+                "then" | "else" | "elif" | "fi" | "do" | "done" | "esac"
+            )
+            .then_some(diagnostic.span)
+        })
+        .collect()
 }
 
 fn is_function_parameter_syntax_error(message: &str) -> bool {
@@ -1208,6 +1231,13 @@ impl<'a> Iterator for ShellLikeWords<'a> {
 }
 
 fn is_x037_shell(shell: ShellDialect) -> bool {
+    matches!(
+        shell,
+        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
+    )
+}
+
+fn is_c016_shell(shell: ShellDialect) -> bool {
     matches!(
         shell,
         ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
