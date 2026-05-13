@@ -59,16 +59,23 @@ fn let_command_fix(source: &str, fact: crate::facts::CommandFactRef<'_, '_>) -> 
     let last_arg = args.last()?;
     let operands = args
         .iter()
-        .map(|word| {
-            word.quoted_content_span_in_source(source).map_or_else(
-                || word.span.slice(source).to_owned(),
-                |span| span.slice(source).to_owned(),
-            )
-        })
+        .map(|word| let_operand_text(source, word))
+        .filter(|operand| operand != "--")
         .collect::<Vec<_>>();
+    if operands.is_empty() {
+        return None;
+    }
+
     let replacement = format!("(( {} ))", operands.join(", "));
     let span = Span::from_positions(name.span.start, last_arg.span.end);
     Some(Fix::unsafe_edit(Edit::replacement(replacement, span)))
+}
+
+fn let_operand_text(source: &str, word: &shuck_ast::Word) -> String {
+    word.quoted_content_span_in_source(source).map_or_else(
+        || word.span.slice(source).to_owned(),
+        |span| span.slice(source).to_owned(),
+    )
 }
 
 fn let_command_span(source: &str, fact: crate::facts::CommandFactRef<'_, '_>) -> Option<Span> {
@@ -168,5 +175,33 @@ mod tests {
             "#!/usr/bin/env bash\n(( count+=1, total %= RANGE ))\n"
         );
         assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_without_option_sentinel_operand() {
+        let source = "#!/usr/bin/env bash\nlet -- i=1\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::AvoidLetBuiltin),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(result.fixed_source, "#!/usr/bin/env bash\n(( i=1 ))\n");
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn skips_unsafe_fix_for_only_option_sentinel_operand() {
+        let source = "#!/usr/bin/env bash\nlet --\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::AvoidLetBuiltin),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert_eq!(result.fixed_diagnostics.len(), 1);
     }
 }
