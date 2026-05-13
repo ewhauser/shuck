@@ -577,6 +577,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         sort_and_dedup_spans(&mut condition_status_capture_spans);
         sort_and_dedup_spans(&mut command_substitution_command_spans);
         sort_and_dedup_case_pattern_expansions(&mut case_pattern_expansions);
+        let function_in_alias_facts = build_function_in_alias_facts(&commands, self.source);
         let function_in_alias_spans = build_function_in_alias_spans(&commands, self.source);
         let function_parameter_fallback_spans = build_function_parameter_fallback_spans(
             &commands,
@@ -993,6 +994,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             function_definition_command_ids_by_scope,
             case_cli_reachable_function_scopes,
             function_in_alias_spans,
+            function_in_alias_facts,
             alias_definition_expansion_spans,
             function_body_without_braces_spans,
             function_parameter_fallback_spans,

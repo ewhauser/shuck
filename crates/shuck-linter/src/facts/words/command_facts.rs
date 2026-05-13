@@ -1,3 +1,36 @@
+pub(super) fn build_function_in_alias_facts(
+    commands: &[CommandFact<'_>],
+    source: &str,
+) -> Vec<FunctionInAliasFact> {
+    let mut facts = commands
+        .iter()
+        .filter_map(|fact| {
+            if !fact.wrappers().is_empty() || !fact.effective_name_is("alias") {
+                return None;
+            }
+            let name_word = fact.body_name_word()?;
+            let name_start = name_word.span.start;
+            if name_start != fact.span().start {
+                return None;
+            }
+
+            let body_args = fact.body_args();
+            let definition_words = alias_definition_word_groups_for_command(fact, source);
+            let [definition_words] = definition_words.as_slice() else {
+                return None;
+            };
+            if definition_words.len() != body_args.len() {
+                return None;
+            }
+
+            function_in_alias_definition_fact(definition_words, source, name_start)
+        })
+        .collect::<Vec<_>>();
+    facts.sort_by_key(|fact| (fact.span().start.offset, fact.span().end.offset));
+    facts.dedup_by_key(|fact| FactSpan::new(fact.span()));
+    facts
+}
+
 pub(super) fn build_function_in_alias_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
     let mut spans = commands
         .iter()
@@ -7,6 +40,35 @@ pub(super) fn build_function_in_alias_spans(commands: &[CommandFact<'_>], source
         .collect::<Vec<_>>();
     sort_and_dedup_spans(&mut spans);
     spans
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionInAliasFact {
+    span: Span,
+    replacement_span: Span,
+    replacement: Box<str>,
+}
+
+impl FunctionInAliasFact {
+    fn new(span: Span, replacement_span: Span, replacement: Box<str>) -> Self {
+        Self {
+            span,
+            replacement_span,
+            replacement,
+        }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn replacement_span(&self) -> Span {
+        self.replacement_span
+    }
+
+    pub fn replacement(&self) -> &str {
+        &self.replacement
+    }
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
@@ -117,12 +179,198 @@ pub(super) fn word_chars_outside_expansions<'a>(
     })
 }
 
-pub(super) fn function_in_alias_definition_span(words: &[&Word], source: &str) -> Option<Span> {
+fn function_in_alias_definition_fact(
+    words: &[&Word],
+    source: &str,
+    replacement_start: Position,
+) -> Option<FunctionInAliasFact> {
+    let definition = static_alias_definition_text(words, source)?;
+    let (name, value) = definition.split_once('=')?;
+    if !literal_alias_name_is_fixable(name)
+        || !contains_positional_parameter_reference(value)
+        || contains_unquoted_comment_start(value)
+    {
+        return None;
+    }
+
+    let span = Span::from_positions(words.first()?.span.start, words.last()?.span.end);
+    let replacement_span = Span::from_positions(replacement_start, span.end);
+    Some(FunctionInAliasFact::new(
+        span,
+        replacement_span,
+        function_in_alias_replacement(name, value)?,
+    ))
+}
+
+fn function_in_alias_definition_span(words: &[&Word], source: &str) -> Option<Span> {
     let definition = static_alias_definition_text(words, source)?;
     let (_, value) = definition.split_once('=').unwrap_or(("", &definition));
-    let end = words.last()?.span.end;
-    contains_positional_parameter_reference(value)
-        .then(|| Span::from_positions(words[0].span.start, end))
+    if !contains_positional_parameter_reference(value) {
+        return None;
+    }
+
+    Some(Span::from_positions(
+        words.first()?.span.start,
+        words.last()?.span.end,
+    ))
+}
+
+fn literal_alias_name_is_fixable(name: &str) -> bool {
+    is_shell_variable_name(name) && !is_shell_reserved_word(name) && !is_posix_special_builtin(name)
+}
+
+fn function_in_alias_replacement(name: &str, value: &str) -> Option<Box<str>> {
+    let value = value.trim();
+    if ends_with_incomplete_command_operator(value) {
+        return None;
+    }
+    let terminator = if ends_with_unescaped_command_terminator(value) {
+        ""
+    } else {
+        ";"
+    };
+    Some(format!("{name}() {{ {value}{terminator} }}").into_boxed_str())
+}
+
+fn ends_with_incomplete_command_operator(text: &str) -> bool {
+    let bytes = text.trim_end().as_bytes();
+    [
+        b"&&".as_slice(),
+        b"||",
+        b"|&",
+        b"<<<",
+        b"<<",
+        b">>",
+        b"<>",
+        b">&",
+        b"<&",
+        b">|",
+        b"|",
+        b">",
+        b"<",
+    ]
+    .iter()
+    .any(|suffix| ends_with_unescaped_suffix(bytes, suffix))
+}
+
+fn ends_with_unescaped_command_terminator(text: &str) -> bool {
+    let bytes = text.trim_end().as_bytes();
+    let Some((&last, before_last)) = bytes.split_last() else {
+        return false;
+    };
+
+    if !matches!(last, b';' | b'&') {
+        return false;
+    }
+
+    if last == b'&' && before_last.last() == Some(&b'&') {
+        return false;
+    }
+
+    !byte_is_escaped(bytes, bytes.len() - 1)
+}
+
+fn ends_with_unescaped_suffix(bytes: &[u8], suffix: &[u8]) -> bool {
+    bytes
+        .len()
+        .checked_sub(suffix.len())
+        .is_some_and(|start| bytes[start..] == *suffix && !byte_is_escaped(bytes, start))
+}
+
+fn is_shell_reserved_word(name: &str) -> bool {
+    matches!(
+        name,
+        "if" | "then"
+            | "else"
+            | "elif"
+            | "fi"
+            | "do"
+            | "done"
+            | "case"
+            | "esac"
+            | "for"
+            | "in"
+            | "while"
+            | "until"
+            | "time"
+            | "function"
+            | "select"
+            | "coproc"
+    )
+}
+
+fn is_posix_special_builtin(name: &str) -> bool {
+    matches!(
+        name,
+        ":" | "."
+            | "break"
+            | "continue"
+            | "eval"
+            | "exec"
+            | "exit"
+            | "export"
+            | "readonly"
+            | "return"
+            | "set"
+            | "shift"
+            | "times"
+            | "trap"
+            | "unset"
+    )
+}
+
+fn contains_unquoted_comment_start(text: &str) -> bool {
+    let mut escaped = false;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut comment_can_start = true;
+
+    for ch in text.chars() {
+        if escaped {
+            if ch == '\n' || ch == '\r' {
+                comment_can_start = true;
+            }
+            escaped = false;
+            continue;
+        }
+
+        if in_single_quotes {
+            if ch == '\'' {
+                in_single_quotes = false;
+            }
+            continue;
+        }
+
+        if in_double_quotes {
+            match ch {
+                '\\' => escaped = true,
+                '"' => in_double_quotes = false,
+                _ => {}
+            }
+            continue;
+        }
+
+        match ch {
+            '#' if comment_can_start => return true,
+            '\\' => {
+                escaped = true;
+                comment_can_start = false;
+            }
+            '\'' => {
+                in_single_quotes = true;
+                comment_can_start = false;
+            }
+            '"' => {
+                in_double_quotes = true;
+                comment_can_start = false;
+            }
+            ' ' | '\t' | '\n' | '\r' => comment_can_start = true,
+            '|' | '&' | ';' | '(' | ')' | '<' | '>' => comment_can_start = true,
+            _ => comment_can_start = false,
+        }
+    }
+
+    false
 }
 
 pub(super) fn static_alias_definition_text(words: &[&Word], source: &str) -> Option<String> {
