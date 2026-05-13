@@ -10,6 +10,39 @@ pub(super) fn build_function_in_alias_spans(commands: &[CommandFact<'_>], source
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
+pub(super) fn build_alias_definition_expansion_facts(
+    commands: &[CommandFact<'_>],
+    fact_store: &FactStore<'_>,
+    nodes: &[WordNode<'_>],
+    occurrences: &[WordOccurrence],
+    word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
+    source: &str,
+) -> Vec<AliasDefinitionExpansionFact> {
+    let mut facts = commands
+        .iter()
+        .filter(|fact| fact.effective_name_is("alias"))
+        .flat_map(|fact| alias_definition_word_groups_for_command(fact, source).into_iter())
+        .filter_map(|definition_words| {
+            let span = alias_definition_first_active_expansion_span(
+                definition_words,
+                fact_store,
+                nodes,
+                occurrences,
+                word_index,
+            )?;
+            Some(AliasDefinitionExpansionFact::new(
+                span,
+                alias_definition_span(definition_words)?,
+                alias_definition_single_quoted_replacement(definition_words, source)?,
+            ))
+        })
+        .collect::<Vec<_>>();
+    facts.sort_by_key(|fact| (fact.span().start.offset, fact.span().end.offset));
+    facts.dedup_by_key(|fact| FactSpan::new(fact.span()));
+    facts
+}
+
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(super) fn build_alias_definition_expansion_spans(
     commands: &[CommandFact<'_>],
     fact_store: &FactStore<'_>,
@@ -23,32 +56,121 @@ pub(super) fn build_alias_definition_expansion_spans(
         .filter(|fact| fact.effective_name_is("alias"))
         .flat_map(|fact| alias_definition_word_groups_for_command(fact, source).into_iter())
         .filter_map(|definition_words| {
-            definition_words
-                .iter()
-                .flat_map(|candidate| {
-                    word_index
-                        .get(&FactSpan::new(candidate.span))
-                        .into_iter()
-                        .flat_map(|indices| indices.iter().copied())
-                        .map(|id| &occurrences[id.index()])
-                        .filter(move |fact| {
-                            fact.context
-                                == WordFactContext::Expansion(ExpansionContext::CommandArgument)
-                                && occurrence_span(nodes, fact) == candidate.span
-                        })
-                })
-                .flat_map(|fact| {
-                    let derived = word_node_derived(&nodes[fact.node_id.index()]);
-                    fact_store
-                        .word_spans(derived.active_expansion_spans)
-                        .iter()
-                        .copied()
-                })
-                .min_by_key(|span| (span.start.offset, span.end.offset))
+            alias_definition_first_active_expansion_span(
+                definition_words,
+                fact_store,
+                nodes,
+                occurrences,
+                word_index,
+            )
         })
         .collect::<Vec<_>>();
-    sort_and_dedup_spans(&mut spans);
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.dedup_by_key(|span| FactSpan::new(*span));
     spans
+}
+
+fn alias_definition_first_active_expansion_span(
+    definition_words: &[&Word],
+    fact_store: &FactStore<'_>,
+    nodes: &[WordNode<'_>],
+    occurrences: &[WordOccurrence],
+    word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
+) -> Option<Span> {
+    definition_words
+        .iter()
+        .flat_map(|candidate| {
+            word_index
+                .get(&FactSpan::new(candidate.span))
+                .into_iter()
+                .flat_map(|indices| indices.iter().copied())
+                .map(|id| &occurrences[id.index()])
+                .filter(move |fact| {
+                    fact.context == WordFactContext::Expansion(ExpansionContext::CommandArgument)
+                        && occurrence_span(nodes, fact) == candidate.span
+                })
+        })
+        .flat_map(|fact| {
+            let derived = word_node_derived(&nodes[fact.node_id.index()]);
+            fact_store
+                .word_spans(derived.active_expansion_spans)
+                .iter()
+                .copied()
+        })
+        .min_by_key(|span| (span.start.offset, span.end.offset))
+}
+
+#[derive(Debug, Clone)]
+pub struct AliasDefinitionExpansionFact {
+    span: Span,
+    replacement_span: Span,
+    replacement: Box<str>,
+}
+
+impl AliasDefinitionExpansionFact {
+    fn new(span: Span, replacement_span: Span, replacement: Box<str>) -> Self {
+        Self {
+            span,
+            replacement_span,
+            replacement,
+        }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn replacement_span(&self) -> Span {
+        self.replacement_span
+    }
+
+    pub fn replacement(&self) -> &str {
+        &self.replacement
+    }
+}
+
+fn alias_definition_span(words: &[&Word]) -> Option<Span> {
+    Some(Span::from_positions(
+        words.first()?.span.start,
+        words.last()?.span.end,
+    ))
+}
+
+fn alias_definition_single_quoted_replacement(words: &[&Word], source: &str) -> Option<Box<str>> {
+    let span = alias_definition_span(words)?;
+    let equals_offset = alias_definition_equals_offset(words, source)?;
+    let name = source.get(span.start.offset..equals_offset)?;
+    if !literal_alias_name_is_fixable(name) {
+        return None;
+    }
+    let value = source.get(equals_offset + 1..span.end.offset)?;
+    let body = strip_simple_alias_value_quotes(value).unwrap_or(value);
+    Some(format!("{name}='{}'", body.replace('\'', "'\\''")).into_boxed_str())
+}
+
+fn alias_definition_equals_offset(words: &[&Word], source: &str) -> Option<usize> {
+    words.iter().find_map(|word| {
+        word_chars_outside_expansions(word, source)
+            .find_map(|(offset, ch)| (ch == '=').then_some(word.span.start.offset + offset))
+    })
+}
+
+fn literal_alias_name_is_fixable(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
+}
+
+fn strip_simple_alias_value_quotes(value: &str) -> Option<&str> {
+    value
+        .strip_prefix('"')
+        .and_then(|inner| inner.strip_suffix('"'))
+        .or_else(|| {
+            value
+                .strip_prefix('\'')
+                .and_then(|inner| inner.strip_suffix('\''))
+        })
 }
 
 pub(super) fn alias_definition_word_groups_for_command<'a>(

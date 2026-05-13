@@ -1,8 +1,10 @@
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct CommandSubstitutionInAlias;
 
 impl Violation for CommandSubstitutionInAlias {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
+
     fn rule() -> Rule {
         Rule::CommandSubstitutionInAlias
     }
@@ -10,19 +12,48 @@ impl Violation for CommandSubstitutionInAlias {
     fn message(&self) -> String {
         "avoid expansions in alias definitions".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("single-quote the alias definition".to_owned())
+    }
 }
 
 pub fn command_substitution_in_alias(checker: &mut Checker) {
-    checker.report_fact_slice_dedup(
-        |facts| facts.alias_definition_expansion_spans(),
-        || CommandSubstitutionInAlias,
-    );
+    let fixable_spans = checker
+        .facts()
+        .alias_definition_expansion_facts()
+        .iter()
+        .map(|fact| fact.span())
+        .collect::<Vec<_>>();
+    let diagnostics = checker
+        .facts()
+        .alias_definition_expansion_facts()
+        .iter()
+        .map(|fact| {
+            Diagnostic::new(CommandSubstitutionInAlias, fact.span()).with_fix(Fix::unsafe_edit(
+                Edit::replacement(fact.replacement(), fact.replacement_span()),
+            ))
+        })
+        .chain(
+            checker
+                .facts()
+                .alias_definition_expansion_spans()
+                .iter()
+                .copied()
+                .filter(|span| !fixable_spans.contains(span))
+                .map(|span| Diagnostic::new(CommandSubstitutionInAlias, span)),
+        )
+        .collect::<Vec<_>>();
+
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn reports_active_expansions_inside_alias_definitions() {
@@ -57,6 +88,23 @@ alias plain=printf
                 "{a,b}",
             ]
         );
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_single_quote_literal_alias_values() {
+        let source = "#!/bin/bash\nalias home=$HOME\nalias icloud=\"cd '$HOME'\"\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::CommandSubstitutionInAlias),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/bash\nalias home='$HOME'\nalias icloud='cd '\\''$HOME'\\'''\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]

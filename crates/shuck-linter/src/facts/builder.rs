@@ -884,6 +884,14 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &word_index,
             source,
         );
+        let alias_definition_expansion_facts = build_alias_definition_expansion_facts(
+            &commands,
+            &fact_store,
+            &word_nodes,
+            &word_occurrences,
+            &word_index,
+            source,
+        );
         let innermost_command_ids_by_offset = build_innermost_command_ids_by_offset(
             &commands,
             commands
@@ -994,6 +1002,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             case_cli_reachable_function_scopes,
             function_in_alias_spans,
             alias_definition_expansion_spans,
+            alias_definition_expansion_facts,
             function_body_without_braces_spans,
             function_parameter_fallback_spans,
             redundant_return_status_spans,
