@@ -132,7 +132,7 @@ pub(crate) fn collect_parse_rule_diagnostics(
         }
     }
     if enabled_rules.contains(crate::Rule::StrayClosingKeyword) && is_c016_shell(shell) {
-        for span in stray_closing_keyword_spans(source, parse_diagnostics) {
+        for span in stray_closing_keyword_spans(locator, parse_diagnostics) {
             diagnostics.push(Diagnostic::new(StrayClosingKeyword, span));
         }
     }
@@ -669,7 +669,11 @@ fn is_expected_command_error(message: &str) -> bool {
     message.starts_with("expected command")
 }
 
-fn stray_closing_keyword_spans(source: &str, parse_diagnostics: &[ParseDiagnostic]) -> Vec<Span> {
+fn stray_closing_keyword_spans(
+    locator: Locator<'_>,
+    parse_diagnostics: &[ParseDiagnostic],
+) -> Vec<Span> {
+    let source = locator.source();
     parse_diagnostics
         .iter()
         .filter_map(|diagnostic| {
@@ -677,13 +681,27 @@ fn stray_closing_keyword_spans(source: &str, parse_diagnostics: &[ParseDiagnosti
                 return None;
             }
 
-            matches!(
-                diagnostic.span.slice(source),
+            let keyword = diagnostic.span.slice(source);
+            if !matches!(
+                keyword,
                 "then" | "else" | "elif" | "fi" | "do" | "done" | "esac"
-            )
-            .then_some(diagnostic.span)
+            ) {
+                return None;
+            }
+
+            if is_more_specific_parse_diagnostic(locator, diagnostic) {
+                return None;
+            }
+
+            Some(diagnostic.span)
         })
         .collect()
+}
+
+fn is_more_specific_parse_diagnostic(locator: Locator<'_>, diagnostic: &ParseDiagnostic) -> bool {
+    let diagnostic = std::slice::from_ref(diagnostic);
+    if_missing_then_span(locator, diagnostic).is_some()
+        || until_missing_do_span(locator, diagnostic).is_some()
 }
 
 fn is_function_parameter_syntax_error(message: &str) -> bool {
@@ -2025,6 +2043,38 @@ esac
         let source = "#!/bin/sh\nuntil :\ndone\n";
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_missing_then_parse_error_for_c016() {
+        let source = "#!/bin/sh\nif true\n  echo hi\nfi\n";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::StrayClosingKeyword);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_until_missing_do_parse_error_for_c016() {
+        let source = "#!/bin/sh\nuntil :\ndone\n";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::StrayClosingKeyword);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
