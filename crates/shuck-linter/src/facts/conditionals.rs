@@ -875,6 +875,216 @@ fn collect_precise_function_return_guard_suppressions_in_seq(
     }
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
+fn build_redundant_return_status_spans(commands: &StmtSeq, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_redundant_return_status_spans_in_seq(commands, source, &mut spans);
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.dedup_by_key(|span| FactSpan::new(*span));
+    spans
+}
+
+fn collect_redundant_return_status_spans_in_seq(
+    commands: &StmtSeq,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for stmt in commands.iter() {
+        collect_redundant_return_status_spans_in_stmt(stmt, source, spans);
+    }
+}
+
+fn collect_redundant_return_status_spans_in_stmt(
+    stmt: &Stmt,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match &stmt.command {
+        Command::Function(function) => {
+            collect_redundant_return_status_spans_in_function_body(
+                &function.body,
+                source,
+                spans,
+            );
+            collect_redundant_return_status_spans_in_stmt(&function.body, source, spans);
+        }
+        Command::AnonymousFunction(function) => {
+            collect_redundant_return_status_spans_in_function_body(
+                &function.body,
+                source,
+                spans,
+            );
+            collect_redundant_return_status_spans_in_stmt(&function.body, source, spans);
+        }
+        Command::Binary(command) => {
+            collect_redundant_return_status_spans_in_stmt(&command.left, source, spans);
+            collect_redundant_return_status_spans_in_stmt(&command.right, source, spans);
+        }
+        Command::Compound(command) => match command {
+            CompoundCommand::If(command) => {
+                collect_redundant_return_status_spans_in_seq(&command.condition, source, spans);
+                collect_redundant_return_status_spans_in_seq(&command.then_branch, source, spans);
+                for (condition, branch) in &command.elif_branches {
+                    collect_redundant_return_status_spans_in_seq(condition, source, spans);
+                    collect_redundant_return_status_spans_in_seq(branch, source, spans);
+                }
+                if let Some(branch) = &command.else_branch {
+                    collect_redundant_return_status_spans_in_seq(branch, source, spans);
+                }
+            }
+            CompoundCommand::While(command) => {
+                collect_redundant_return_status_spans_in_seq(&command.condition, source, spans);
+                collect_redundant_return_status_spans_in_seq(&command.body, source, spans);
+            }
+            CompoundCommand::Until(command) => {
+                collect_redundant_return_status_spans_in_seq(&command.condition, source, spans);
+                collect_redundant_return_status_spans_in_seq(&command.body, source, spans);
+            }
+            CompoundCommand::For(command) => {
+                collect_redundant_return_status_spans_in_seq(&command.body, source, spans);
+            }
+            CompoundCommand::Select(command) => {
+                collect_redundant_return_status_spans_in_seq(&command.body, source, spans);
+            }
+            CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => {
+                collect_redundant_return_status_spans_in_seq(body, source, spans);
+            }
+            CompoundCommand::Time(command) => {
+                if let Some(command) = &command.command {
+                    collect_redundant_return_status_spans_in_stmt(command, source, spans);
+                }
+            }
+            CompoundCommand::Always(command) => {
+                collect_redundant_return_status_spans_in_seq(&command.body, source, spans);
+                collect_redundant_return_status_spans_in_seq(&command.always_body, source, spans);
+            }
+            CompoundCommand::Case(command) => {
+                for case in &command.cases {
+                    collect_redundant_return_status_spans_in_seq(&case.body, source, spans);
+                }
+            }
+            CompoundCommand::Conditional(_)
+            | CompoundCommand::Repeat(_)
+            | CompoundCommand::Foreach(_)
+            | CompoundCommand::ArithmeticFor(_)
+            | CompoundCommand::Arithmetic(_)
+            | CompoundCommand::Coproc(_) => {}
+        },
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
+    }
+}
+
+fn collect_redundant_return_status_spans_in_function_body(
+    body: &Stmt,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let Command::Compound(CompoundCommand::BraceGroup(commands)) = &body.command else {
+        return;
+    };
+    let statements = commands.as_slice();
+    let Some((tail, head)) = statements.split_last() else {
+        return;
+    };
+    let Some(previous) = head.last() else {
+        return;
+    };
+    let Some(return_span) = redundant_return_status_span(tail, source) else {
+        return;
+    };
+    if stmt_status_can_be_propagated_by_function(previous) {
+        spans.push(return_span);
+    }
+}
+
+fn redundant_return_status_span(stmt: &Stmt, source: &str) -> Option<Span> {
+    if stmt.negated
+        || !stmt.redirects.is_empty()
+        || matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
+    {
+        return None;
+    }
+
+    match &stmt.command {
+        Command::Builtin(BuiltinCommand::Return(command)) => {
+            if !command.assignments.is_empty() || !command.extra_args.is_empty() {
+                return None;
+            }
+            command
+                .code
+                .as_ref()
+                .is_some_and(word_is_unquoted_standalone_status_capture)
+                .then(|| redundant_return_status_delete_span(command.span, source))
+        }
+        Command::Simple(command) => {
+            if !command.assignments.is_empty() || command.args.len() != 1 {
+                return None;
+            }
+            (static_word_text(&command.name, source).as_deref() == Some("return")
+                && word_is_unquoted_standalone_status_capture(&command.args[0]))
+            .then(|| redundant_return_status_delete_span(command.span, source))
+        }
+        Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => None,
+    }
+}
+
+fn redundant_return_status_delete_span(command_span: Span, source: &str) -> Span {
+    let line_start = source[..command_span.start.offset]
+        .rfind('\n')
+        .map_or(0, |offset| offset + 1);
+    let delete_start = if source[line_start..command_span.start.offset]
+        .bytes()
+        .all(|byte| matches!(byte, b' ' | b'\t'))
+    {
+        line_start
+    } else {
+        command_span.start.offset
+    };
+
+    let line_end = source[command_span.end.offset..]
+        .find('\n')
+        .map_or(source.len(), |offset| command_span.end.offset + offset);
+    let suffix = &source[command_span.end.offset..line_end];
+    let delete_end = if delete_start < command_span.start.offset
+        && suffix.bytes().all(|byte| matches!(byte, b' ' | b'\t'))
+    {
+        line_end.saturating_add((line_end < source.len()) as usize)
+    } else {
+        command_span.end.offset
+    };
+
+    let delete_start_position = Position {
+        line: command_span.start.line,
+        column: command_span
+            .start
+            .column
+            .saturating_sub(command_span.start.offset - delete_start),
+        offset: delete_start,
+    };
+    let delete_end_position = if delete_end == command_span.end.offset {
+        command_span.end
+    } else {
+        command_span
+            .end
+            .advanced_by(&source[command_span.end.offset..delete_end])
+    };
+
+    Span::from_positions(delete_start_position, delete_end_position)
+}
+
+fn stmt_status_can_be_propagated_by_function(stmt: &Stmt) -> bool {
+    if stmt.negated || matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
+        return false;
+    }
+
+    matches!(stmt.command, Command::Simple(_) | Command::Decl(_))
+}
+
 fn collect_precise_function_return_guard_suppressions_from_direct_body_sequences(
     command: &Command,
     source: &str,

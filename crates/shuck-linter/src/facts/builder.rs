@@ -125,7 +125,8 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let mut surface_fragments = SurfaceFragmentSink::new(self.source);
         let mut functions = Vec::with_capacity(capacity.functions);
         let mut function_body_without_braces_spans = Vec::new();
-        let redundant_return_status_spans = Vec::new();
+        let redundant_return_status_spans =
+            build_redundant_return_status_spans(&self.file.body, self.source);
         let mut getopts_cases = Vec::new();
         let mut condition_status_capture_spans = Vec::new();
         let mut precise_function_guard_suppressions = Vec::new();
