@@ -165,6 +165,7 @@ pub(crate) struct SourceFactStore<'a> {
     pub(in crate::facts) comment_double_quote_nesting_spans: Vec<Span>,
     pub(in crate::facts) escaped_dash_command_name_spans: OnceLock<Vec<Span>>,
     pub(in crate::facts) trailing_directive_comment_spans: Vec<Span>,
+    pub(in crate::facts) todo_comment_facts: OnceLock<Vec<TodoCommentFact>>,
     pub(in crate::facts) backtick_substitution_spans: Vec<Span>,
     pub(in crate::facts) backtick_escaped_parameters: Vec<BacktickEscapedParameter>,
     pub(in crate::facts) backtick_escaped_parameter_reference_spans: Vec<Span>,
@@ -1206,6 +1207,16 @@ impl<'facts, 'a> SourceFacts<'facts, 'a> {
         &self.facts.source_facts.trailing_directive_comment_spans
     }
 
+    pub(crate) fn todo_comment_facts(self) -> &'facts [TodoCommentFact] {
+        self.facts.source_facts.todo_comment_facts.get_or_init(|| {
+            build_todo_comment_facts(
+                self.facts.source_facts.source,
+                self.facts.source_facts.line_index,
+                self.facts.source_facts.comment_index,
+            )
+        })
+    }
+
     pub(crate) fn backtick_substitution_spans(self) -> &'facts [Span] {
         &self.facts.source_facts.backtick_substitution_spans
     }
@@ -1746,6 +1757,32 @@ fn stmt_is_zero_arg_call_to(stmt: &Stmt, name: &str, source: &str) -> bool {
     command.assignments.is_empty()
         && command.args.is_empty()
         && static_command_name_text(&command.name, source).as_deref() == Some(name)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TodoCommentFact {
+    content_span: Span,
+    content: String,
+}
+
+impl TodoCommentFact {
+    pub(crate) fn new(content_span: Span, content: String) -> Self {
+        Self {
+            content_span,
+            content,
+        }
+    }
+
+    pub(crate) fn content(&self) -> &str {
+        &self.content
+    }
+
+    pub(crate) fn marker_span(&self, marker: &str) -> Span {
+        Span::from_positions(
+            self.content_span.start,
+            self.content_span.start.advanced_by(marker),
+        )
+    }
 }
 
 pub(crate) fn build_possible_variable_misspelling_scope_compat_name_uses(

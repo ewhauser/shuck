@@ -716,6 +716,56 @@ pub(crate) fn build_trailing_directive_comment_spans(
         .collect()
 }
 
+pub(crate) fn build_todo_comment_facts(
+    source: &str,
+    line_index: &LineIndex,
+    comment_index: &CommentIndex,
+) -> Vec<TodoCommentFact> {
+    comment_index
+        .comments()
+        .iter()
+        .filter_map(|comment| {
+            let line = comment.line;
+            let line_start = usize::from(line_index.line_start(line)?);
+            let line_end =
+                usize::from(line_index.line_range(line, source)?.end()).min(source.len());
+            let comment_start = usize::from(comment.range.start());
+            let comment_end = usize::from(comment.range.end()).min(line_end);
+            if comment_start >= comment_end || comment_end > source.len() {
+                return None;
+            }
+
+            let after_hash_start = comment_start.checked_add(1)?;
+            if after_hash_start > comment_end {
+                return None;
+            }
+            let after_hash = &source[after_hash_start..comment_end];
+            let leading_whitespace_len = after_hash
+                .bytes()
+                .take_while(|byte| matches!(byte, b' ' | b'\t'))
+                .count();
+            let content_start = after_hash_start + leading_whitespace_len;
+            let content = &source[content_start..comment_end];
+            if content.is_empty() {
+                return None;
+            }
+
+            let line_start_position = Position {
+                line,
+                column: 1,
+                offset: line_start,
+            };
+            let content_start_position =
+                line_start_position.advanced_by(&source[line_start..content_start]);
+            let content_span = Span::from_positions(
+                content_start_position,
+                content_start_position.advanced_by(content),
+            );
+            Some(TodoCommentFact::new(content_span, content.to_owned()))
+        })
+        .collect()
+}
+
 pub(crate) fn case_item_label_comment(
     case_items: &[CaseItemFact<'_>],
     line: usize,

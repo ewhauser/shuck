@@ -39,6 +39,8 @@ pub struct LinterRuleOptions {
     pub s080: S080RuleOptions,
     /// Behavior overrides for `S081`.
     pub s081: S081RuleOptions,
+    /// Behavior overrides for `S082`.
+    pub s082: S082RuleOptions,
     /// Behavior overrides for `S084`.
     pub s084: S084RuleOptions,
     /// Behavior overrides for `S085`.
@@ -146,6 +148,27 @@ pub struct S081RuleOptions {
     pub ignore_shebang_only_files: bool,
 }
 
+/// Behavior overrides for `S082` TODO-style comment formatting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct S082RuleOptions {
+    /// Comment markers that are checked at the start of a comment.
+    pub kinds: Vec<String>,
+    /// Whether a checked marker must be followed immediately by `(owner)`.
+    pub require_owner: bool,
+    /// Whether a checked marker must include non-empty explanatory text.
+    pub require_message: bool,
+}
+
+impl Default for S082RuleOptions {
+    fn default() -> Self {
+        Self {
+            kinds: vec!["TODO".to_owned(), "FIXME".to_owned(), "XXX".to_owned()],
+            require_owner: true,
+            require_message: true,
+        }
+    }
+}
+
 /// Behavior overrides for `S084` function documentation content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct S084RuleOptions {
@@ -186,7 +209,6 @@ impl Default for S085RuleOptions {
         }
     }
 }
-
 /// Behavior overrides for `C158` implicit global assignment analysis.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct C158RuleOptions {
@@ -463,6 +485,21 @@ impl LinterSettings {
 
     pub fn with_s081_ignore_shebang_only_files(mut self, value: bool) -> Self {
         self.rule_options.s081.ignore_shebang_only_files = value;
+        self
+    }
+
+    pub fn with_s082_kinds(mut self, kinds: impl IntoIterator<Item = String>) -> Self {
+        self.rule_options.s082.kinds = kinds.into_iter().collect();
+        self
+    }
+
+    pub fn with_s082_require_owner(mut self, value: bool) -> Self {
+        self.rule_options.s082.require_owner = value;
+        self
+    }
+
+    pub fn with_s082_require_message(mut self, value: bool) -> Self {
+        self.rule_options.s082.require_message = value;
         self
     }
 

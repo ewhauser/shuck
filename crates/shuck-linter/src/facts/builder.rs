@@ -1094,6 +1094,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 comment_double_quote_nesting_spans,
                 escaped_dash_command_name_spans: OnceLock::new(),
                 trailing_directive_comment_spans,
+                todo_comment_facts: OnceLock::new(),
                 backtick_substitution_spans,
                 backtick_escaped_parameters,
                 backtick_escaped_parameter_reference_spans,

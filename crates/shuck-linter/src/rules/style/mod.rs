@@ -66,6 +66,7 @@ pub mod spaced_tabstrip_close;
 pub mod su_without_flag;
 pub mod suspect_closing_quote;
 pub mod syntax;
+pub mod todo_format;
 pub mod trailing_directive;
 pub mod trap_signal_numbers;
 pub mod unquoted_array_expansion;
@@ -176,6 +177,7 @@ mod tests {
     #[test_case(Rule::ShebangFormPolicy, Path::new("S079.sh"))]
     #[test_case(Rule::ScriptSizeThreshold, Path::new("S080.sh"))]
     #[test_case(Rule::MissingFileDescription, Path::new("S081.sh"))]
+    #[test_case(Rule::TodoFormat, Path::new("S082.sh"))]
     #[test_case(Rule::FunctionDocContent, Path::new("S084.sh"))]
     #[test_case(Rule::MissingMainEntrypoint, Path::new("S085.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
