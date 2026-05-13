@@ -1085,6 +1085,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::BadVarName) {
             rules::correctness::bad_var_name::bad_var_name(self);
         }
+        if self.is_rule_enabled(Rule::ImplicitGlobalInFunction) {
+            rules::correctness::implicit_global_in_function::implicit_global_in_function(self);
+        }
         if self.is_rule_enabled(Rule::CommentedContinuationLine) {
             rules::correctness::commented_continuation_line::commented_continuation_line(self);
         }

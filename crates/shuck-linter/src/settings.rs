@@ -11,9 +11,7 @@ use shuck_semantic::{UnreachedFunctionAnalysisOptions, UnusedAssignmentAnalysisO
 use crate::ambient_contracts::ResolvedAmbientContracts;
 use crate::{Category, Rule, RuleSelector, RuleSet, Severity, ShellDialect};
 
-// ShellCheck's optional checks currently map only to compat-only behavior
-// toggles in this repository, not to standalone implemented non-style rules.
-const DEFAULT_DISABLED_NON_STYLE_RULES: &[Rule] = &[];
+const DEFAULT_DISABLED_NON_STYLE_RULES: &[Rule] = &[Rule::ImplicitGlobalInFunction];
 
 /// Per-rule behavior overrides applied during lint analysis.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -26,6 +24,8 @@ pub struct LinterRuleOptions {
     pub s084: S084RuleOptions,
     /// Behavior overrides for `S085`.
     pub s085: S085RuleOptions,
+    /// Behavior overrides for `C158`.
+    pub c158: C158RuleOptions,
 }
 
 /// Behavior overrides for `C001` unused-assignment analysis.
@@ -98,6 +98,24 @@ impl Default for S085RuleOptions {
             non_trivial_line_threshold: 30,
             non_trivial_function_count: 2,
             main_name: "main".to_owned(),
+        }
+    }
+}
+
+/// Behavior overrides for `C158` implicit global assignment analysis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct C158RuleOptions {
+    /// Whether top-level readonly declarations document intentional globals.
+    pub treat_readonly_as_documented: bool,
+    /// Whether top-level exported bindings document intentional globals.
+    pub treat_export_as_intentional: bool,
+}
+
+impl Default for C158RuleOptions {
+    fn default() -> Self {
+        Self {
+            treat_readonly_as_documented: true,
+            treat_export_as_intentional: true,
         }
     }
 }
@@ -317,6 +335,17 @@ impl LinterSettings {
         self.rule_options.s085.main_name = value.into();
         self
     }
+
+    pub fn with_c158_treat_readonly_as_documented(mut self, value: bool) -> Self {
+        self.rule_options.c158.treat_readonly_as_documented = value;
+        self
+    }
+
+    pub fn with_c158_treat_export_as_intentional(mut self, value: bool) -> Self {
+        self.rule_options.c158.treat_export_as_intentional = value;
+        self
+    }
+
     pub fn per_file_ignored_rules(&self, path: Option<&Path>) -> RuleSet {
         path.map_or(RuleSet::EMPTY, |path| {
             self.per_file_ignores.ignored_rules(path)
@@ -441,6 +470,7 @@ mod tests {
         assert!(defaults.contains(Rule::UndefinedVariable));
         assert!(defaults.contains(Rule::ConstantCaseSubject));
         assert!(defaults.contains(Rule::RmGlobOnVariablePath));
+        assert!(!defaults.contains(Rule::ImplicitGlobalInFunction));
         assert!(!defaults.contains(Rule::AmpersandSemicolon));
     }
 

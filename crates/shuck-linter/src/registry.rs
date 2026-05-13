@@ -493,6 +493,12 @@ declare_rules! {
         PossibleVariableMisspelling
     ),
     ("C157", Category::Correctness, Severity::Error, IfBracketGlued),
+    (
+        "C158",
+        Category::Correctness,
+        Severity::Warning,
+        ImplicitGlobalInFunction
+    ),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
     ("P002", Category::Performance, Severity::Warning, GrepCountPipeline),
     ("P003", Category::Performance, Severity::Warning, SingleTestSubshell),

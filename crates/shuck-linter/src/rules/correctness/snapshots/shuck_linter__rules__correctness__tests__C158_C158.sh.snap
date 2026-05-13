@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C158 assignment to `item` inside a function is not declared local
+ --> <source>:4:3
+  |
+4 |   item=1
+  |
+
+C158 assignment to `loop` inside a function is not declared local
+ --> <source>:9:7
+  |
+9 |   for loop in a b; do
+  |

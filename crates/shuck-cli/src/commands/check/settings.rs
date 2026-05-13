@@ -62,6 +62,8 @@ struct EffectiveRuleOptions {
     s085_non_trivial_line_threshold: usize,
     s085_non_trivial_function_count: usize,
     s085_main_name: String,
+    c158_treat_readonly_as_documented: bool,
+    c158_treat_export_as_intentional: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,6 +190,8 @@ impl EffectiveRuleOptions {
             s085_non_trivial_line_threshold: rule_options.s085.non_trivial_line_threshold,
             s085_non_trivial_function_count: rule_options.s085.non_trivial_function_count,
             s085_main_name: rule_options.s085.main_name.clone(),
+            c158_treat_readonly_as_documented: rule_options.c158.treat_readonly_as_documented,
+            c158_treat_export_as_intentional: rule_options.c158.treat_export_as_intentional,
         }
     }
 }
@@ -206,6 +210,8 @@ impl CacheKey for EffectiveRuleOptions {
         self.s085_non_trivial_line_threshold.cache_key(state);
         self.s085_non_trivial_function_count.cache_key(state);
         self.s085_main_name.cache_key(state);
+        self.c158_treat_readonly_as_documented.cache_key(state);
+        self.c158_treat_export_as_intentional.cache_key(state);
     }
 }
 
@@ -1009,6 +1015,22 @@ fn linter_rule_options_for_lint_config(lint: &LintConfig) -> shuck_linter::Linte
         .and_then(|s085| s085.main_name.as_ref())
     {
         rule_options.s085.main_name.clone_from(value);
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.c158.as_ref())
+        .and_then(|c158| c158.treat_readonly_as_documented)
+    {
+        rule_options.c158.treat_readonly_as_documented = value;
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.c158.as_ref())
+        .and_then(|c158| c158.treat_export_as_intentional)
+    {
+        rule_options.c158.treat_export_as_intentional = value;
     }
 
     rule_options
