@@ -72,7 +72,36 @@ pub fn suspicious_bracket_glob(checker: &mut Checker) {
 }
 
 fn single_quote_span_edit(span: Span, source: &str) -> Edit {
-    Edit::replacement(format!("'{}'", span.slice(source)), span)
+    Edit::replacement(shell_single_quoted_literal(span.slice(source)), span)
+}
+
+fn shell_single_quoted_literal(text: &str) -> String {
+    let content = unescape_single_quote_shell_escapes(text);
+    let mut quoted = String::with_capacity(content.len() + 2);
+    quoted.push('\'');
+    for ch in content.chars() {
+        if ch == '\'' {
+            quoted.push_str("'\\''");
+        } else {
+            quoted.push(ch);
+        }
+    }
+    quoted.push('\'');
+    quoted
+}
+
+fn unescape_single_quote_shell_escapes(text: &str) -> String {
+    let mut unescaped = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' && chars.peek() == Some(&'\'') {
+            unescaped.push('\'');
+            chars.next();
+        } else {
+            unescaped.push(ch);
+        }
+    }
+    unescaped
 }
 
 fn supports_suspicious_bracket_glob_context(context: Option<ExpansionContext>) -> bool {
@@ -153,6 +182,20 @@ case $x in [appname]) : ;; esac
 
         assert_eq!(result.fixes_applied, 1);
         assert_eq!(result.fixed_source, "#!/bin/bash\necho '[appname]'\n");
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_with_escaped_apostrophe_in_bracket_glob_text() {
+        let source = "#!/bin/bash\necho [a\\'a]\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SuspiciousBracketGlob),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(result.fixed_source, "#!/bin/bash\necho '[a'\\''a]'\n");
         assert!(result.fixed_diagnostics.is_empty());
     }
 
