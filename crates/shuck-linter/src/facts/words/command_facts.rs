@@ -198,7 +198,7 @@ fn function_in_alias_definition_fact(
     Some(FunctionInAliasFact::new(
         span,
         replacement_span,
-        function_in_alias_replacement(name, value),
+        function_in_alias_replacement(name, value)?,
     ))
 }
 
@@ -219,14 +219,38 @@ fn literal_alias_name_is_fixable(name: &str) -> bool {
     is_shell_variable_name(name) && !is_shell_reserved_word(name) && !is_posix_special_builtin(name)
 }
 
-fn function_in_alias_replacement(name: &str, value: &str) -> Box<str> {
+fn function_in_alias_replacement(name: &str, value: &str) -> Option<Box<str>> {
     let value = value.trim();
+    if ends_with_incomplete_command_operator(value) {
+        return None;
+    }
     let terminator = if ends_with_unescaped_command_terminator(value) {
         ""
     } else {
         ";"
     };
-    format!("{name}() {{ {value}{terminator} }}").into_boxed_str()
+    Some(format!("{name}() {{ {value}{terminator} }}").into_boxed_str())
+}
+
+fn ends_with_incomplete_command_operator(text: &str) -> bool {
+    let bytes = text.trim_end().as_bytes();
+    [
+        b"&&".as_slice(),
+        b"||",
+        b"|&",
+        b"<<<",
+        b"<<",
+        b">>",
+        b"<>",
+        b">&",
+        b"<&",
+        b">|",
+        b"|",
+        b">",
+        b"<",
+    ]
+    .iter()
+    .any(|suffix| ends_with_unescaped_suffix(bytes, suffix))
 }
 
 fn ends_with_unescaped_command_terminator(text: &str) -> bool {
@@ -243,13 +267,14 @@ fn ends_with_unescaped_command_terminator(text: &str) -> bool {
         return false;
     }
 
-    before_last
-        .iter()
-        .rev()
-        .take_while(|&&byte| byte == b'\\')
-        .count()
-        % 2
-        == 0
+    !byte_is_escaped(bytes, bytes.len() - 1)
+}
+
+fn ends_with_unescaped_suffix(bytes: &[u8], suffix: &[u8]) -> bool {
+    bytes
+        .len()
+        .checked_sub(suffix.len())
+        .is_some_and(|start| bytes[start..] == *suffix && !byte_is_escaped(bytes, start))
 }
 
 fn is_shell_reserved_word(name: &str) -> bool {

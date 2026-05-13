@@ -226,6 +226,29 @@ alias unset='echo $1'
     }
 
     #[test]
+    fn leaves_incomplete_operator_alias_bodies_unfixed() {
+        let source = "\
+#!/bin/sh
+alias greet='echo \"$1\" &&'
+alias pipe='printf \"%s\\n\" \"$1\" |'
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionInAlias));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["greet='echo \"$1\" &&'", "pipe='printf \"%s\\n\" \"$1\" |'",]
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.fix.is_none())
+        );
+    }
+
+    #[test]
     fn ignores_aliases_without_static_positional_parameters() {
         let source = "\
 #!/bin/sh
