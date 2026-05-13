@@ -186,7 +186,10 @@ fn function_in_alias_definition_fact(
 ) -> Option<FunctionInAliasFact> {
     let definition = static_alias_definition_text(words, source)?;
     let (name, value) = definition.split_once('=')?;
-    if !literal_alias_name_is_fixable(name) || !contains_positional_parameter_reference(value) {
+    if !literal_alias_name_is_fixable(name)
+        || !contains_positional_parameter_reference(value)
+        || contains_unquoted_comment_start(value)
+    {
         return None;
     }
 
@@ -236,6 +239,57 @@ fn is_shell_reserved_word(name: &str) -> bool {
             | "select"
             | "coproc"
     )
+}
+
+fn contains_unquoted_comment_start(text: &str) -> bool {
+    let mut escaped = false;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut comment_can_start = true;
+
+    for ch in text.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        if in_single_quotes {
+            if ch == '\'' {
+                in_single_quotes = false;
+            }
+            continue;
+        }
+
+        if in_double_quotes {
+            match ch {
+                '\\' => escaped = true,
+                '"' => in_double_quotes = false,
+                _ => {}
+            }
+            continue;
+        }
+
+        match ch {
+            '#' if comment_can_start => return true,
+            '\\' => {
+                escaped = true;
+                comment_can_start = false;
+            }
+            '\'' => {
+                in_single_quotes = true;
+                comment_can_start = false;
+            }
+            '"' => {
+                in_double_quotes = true;
+                comment_can_start = false;
+            }
+            ' ' | '\t' => comment_can_start = true,
+            '|' | '&' | ';' | '(' | ')' | '<' | '>' => comment_can_start = true,
+            _ => comment_can_start = false,
+        }
+    }
+
+    false
 }
 
 pub(super) fn static_alias_definition_text(words: &[&Word], source: &str) -> Option<String> {
