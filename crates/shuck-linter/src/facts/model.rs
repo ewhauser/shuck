@@ -54,6 +54,7 @@ pub struct LinterFacts<'a> {
     function_definition_command_ids_by_scope: FxHashMap<ScopeId, CommandId>,
     case_cli_reachable_function_scopes: FxHashSet<ScopeId>,
     function_in_alias_spans: Vec<Span>,
+    function_in_alias_facts: Vec<FunctionInAliasFact>,
     alias_definition_expansion_spans: Vec<Span>,
     function_body_without_braces_spans: Vec<Span>,
     function_parameter_fallback_spans: Vec<Span>,
@@ -697,6 +698,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn function_in_alias_spans(&self) -> &[Span] {
         &self.function_in_alias_spans
+    }
+
+    pub fn function_in_alias_facts(&self) -> &[FunctionInAliasFact] {
+        &self.function_in_alias_facts
     }
 
     pub fn alias_definition_expansion_spans(&self) -> &[Span] {

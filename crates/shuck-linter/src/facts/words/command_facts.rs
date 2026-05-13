@@ -1,12 +1,54 @@
-pub(super) fn build_function_in_alias_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
-    let mut spans = commands
+pub(super) fn build_function_in_alias_facts(
+    commands: &[CommandFact<'_>],
+    source: &str,
+) -> Vec<FunctionInAliasFact> {
+    let mut facts = commands
         .iter()
         .filter(|fact| fact.effective_name_is("alias"))
-        .flat_map(|fact| alias_definition_word_groups_for_command(fact, source).into_iter())
-        .filter_map(|definition_words| function_in_alias_definition_span(definition_words, source))
+        .flat_map(|fact| {
+            let name_start = fact
+                .body_name_word()
+                .map(|word| word.span.start)
+                .unwrap_or_else(|| fact.body_span().start);
+            alias_definition_word_groups_for_command(fact, source)
+                .into_iter()
+                .filter_map(move |definition_words| {
+                    function_in_alias_definition_fact(definition_words, source, name_start)
+                })
+        })
         .collect::<Vec<_>>();
-    sort_and_dedup_spans(&mut spans);
-    spans
+    facts.sort_by_key(|fact| (fact.span().start.offset, fact.span().end.offset));
+    facts.dedup_by_key(|fact| FactSpan::new(fact.span()));
+    facts
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionInAliasFact {
+    span: Span,
+    replacement_span: Span,
+    replacement: Box<str>,
+}
+
+impl FunctionInAliasFact {
+    fn new(span: Span, replacement_span: Span, replacement: Box<str>) -> Self {
+        Self {
+            span,
+            replacement_span,
+            replacement,
+        }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn replacement_span(&self) -> Span {
+        self.replacement_span
+    }
+
+    pub fn replacement(&self) -> &str {
+        &self.replacement
+    }
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
@@ -117,12 +159,31 @@ pub(super) fn word_chars_outside_expansions<'a>(
     })
 }
 
-pub(super) fn function_in_alias_definition_span(words: &[&Word], source: &str) -> Option<Span> {
+fn function_in_alias_definition_fact(
+    words: &[&Word],
+    source: &str,
+    replacement_start: Position,
+) -> Option<FunctionInAliasFact> {
     let definition = static_alias_definition_text(words, source)?;
-    let (_, value) = definition.split_once('=').unwrap_or(("", &definition));
-    let end = words.last()?.span.end;
-    contains_positional_parameter_reference(value)
-        .then(|| Span::from_positions(words[0].span.start, end))
+    let (name, value) = definition.split_once('=')?;
+    if !literal_alias_name_is_fixable(name) || !contains_positional_parameter_reference(value) {
+        return None;
+    }
+
+    let span = Span::from_positions(words.first()?.span.start, words.last()?.span.end);
+    let replacement_span = Span::from_positions(replacement_start, span.end);
+    Some(FunctionInAliasFact::new(
+        span,
+        replacement_span,
+        format!("{name}() {{ {}; }}", value.trim()).into_boxed_str(),
+    ))
+}
+
+fn literal_alias_name_is_fixable(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
 }
 
 pub(super) fn static_alias_definition_text(words: &[&Word], source: &str) -> Option<String> {
