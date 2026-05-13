@@ -1,7 +1,9 @@
+use super::*;
+
 #[derive(Debug, Clone, Copy)]
 pub struct ListOperatorFact {
-    op: BinaryOp,
-    span: Span,
+    pub(crate) op: BinaryOp,
+    pub(crate) span: Span,
 }
 
 impl ListOperatorFact {
@@ -64,7 +66,6 @@ pub enum MixedShortCircuitKind {
     Fallthrough,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct ListFact<'a> {
     key: FactSpan,
@@ -106,7 +107,7 @@ impl<'a> ListFact<'a> {
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-pub(super) fn build_list_facts<'a>(
+pub(crate) fn build_list_facts<'a>(
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
@@ -157,12 +158,8 @@ pub(super) fn build_list_facts<'a>(
 
             let mut operators = Vec::new();
             collect_short_circuit_operators(command, &mut operators);
-            let segments = build_list_segment_facts(
-                command,
-                command_relationships,
-                fact.id(),
-                source,
-            )?;
+            let segments =
+                build_list_segment_facts(command, command_relationships, fact.id(), source)?;
             let mixed_short_circuit_span = mixed_short_circuit_operator_span(&operators);
             let mixed_short_circuit_kind = mixed_short_circuit_span
                 .map(|_| classify_mixed_short_circuit_kind(&segments, &operators));
@@ -179,7 +176,7 @@ pub(super) fn build_list_facts<'a>(
         .collect()
 }
 
-fn record_nested_list_command(
+pub(crate) fn record_nested_list_command(
     stmt: &Stmt,
     parent_id: CommandId,
     command_relationships: CommandRelationshipContext<'_, '_>,
@@ -195,7 +192,7 @@ fn record_nested_list_command(
     }
 }
 
-fn build_list_segment_facts<'a>(
+pub(crate) fn build_list_segment_facts<'a>(
     command: &BinaryCommand,
     command_relationships: CommandRelationshipContext<'_, 'a>,
     parent_id: CommandId,
@@ -212,7 +209,7 @@ fn build_list_segment_facts<'a>(
     Some(segments.into_boxed_slice())
 }
 
-fn collect_list_segment_facts<'a>(
+pub(crate) fn collect_list_segment_facts<'a>(
     command: &BinaryCommand,
     command_relationships: CommandRelationshipContext<'_, 'a>,
     parent_id: CommandId,
@@ -236,7 +233,7 @@ fn collect_list_segment_facts<'a>(
     ok.then_some(())
 }
 
-fn push_list_stmt_segment_fact<'a>(
+pub(crate) fn push_list_stmt_segment_fact<'a>(
     stmt: &Stmt,
     command_relationships: CommandRelationshipContext<'_, 'a>,
     parent_id: CommandId,
@@ -262,7 +259,7 @@ fn push_list_stmt_segment_fact<'a>(
     Some(())
 }
 
-fn list_segment_kind(fact: &CommandFact<'_>) -> ListSegmentKind {
+pub(crate) fn list_segment_kind(fact: &CommandFact<'_>) -> ListSegmentKind {
     if list_segment_is_condition(fact) {
         ListSegmentKind::Condition
     } else if list_segment_assignment_target(fact).is_some() {
@@ -272,24 +269,24 @@ fn list_segment_kind(fact: &CommandFact<'_>) -> ListSegmentKind {
     }
 }
 
-fn list_segment_is_condition(fact: &CommandFact<'_>) -> bool {
+pub(crate) fn list_segment_is_condition(fact: &CommandFact<'_>) -> bool {
     fact.simple_test().is_some()
         || fact.conditional().is_some()
         || matches!(fact.effective_or_literal_name(), Some("true" | "false"))
 }
 
-fn list_segment_assignment_target<'a>(fact: &CommandFact<'a>) -> Option<&'a str> {
+pub(crate) fn list_segment_assignment_target<'a>(fact: &CommandFact<'a>) -> Option<&'a str> {
     list_segment_assignment_info(fact).map(|info| info.target)
 }
 
 #[derive(Clone, Copy)]
-struct ListSegmentAssignmentInfo<'a> {
+pub(crate) struct ListSegmentAssignmentInfo<'a> {
     target: &'a str,
     span: Span,
     is_declaration: bool,
 }
 
-fn list_segment_assignment_info<'a>(
+pub(crate) fn list_segment_assignment_info<'a>(
     fact: &CommandFact<'a>,
 ) -> Option<ListSegmentAssignmentInfo<'a>> {
     match fact.command() {
@@ -305,7 +302,7 @@ fn list_segment_assignment_info<'a>(
     }
 }
 
-fn single_assignment_info<'a>(
+pub(crate) fn single_assignment_info<'a>(
     assignments: &'a [Assignment],
 ) -> Option<ListSegmentAssignmentInfo<'a>> {
     (assignments.len() == 1).then(|| ListSegmentAssignmentInfo {
@@ -315,7 +312,7 @@ fn single_assignment_info<'a>(
     })
 }
 
-fn declaration_assignment_info<'a>(
+pub(crate) fn declaration_assignment_info<'a>(
     command: &'a DeclClause,
 ) -> Option<ListSegmentAssignmentInfo<'a>> {
     if !command.assignments.is_empty() {
@@ -343,7 +340,7 @@ fn declaration_assignment_info<'a>(
     })
 }
 
-fn classify_mixed_short_circuit_kind(
+pub(crate) fn classify_mixed_short_circuit_kind(
     segments: &[ListSegmentFact<'_>],
     operators: &[ListOperatorFact],
 ) -> MixedShortCircuitKind {
@@ -359,7 +356,7 @@ fn classify_mixed_short_circuit_kind(
     }
 }
 
-fn matches_assignment_ternary(
+pub(crate) fn matches_assignment_ternary(
     segments: &[ListSegmentFact<'_>],
     operators: &[ListOperatorFact],
 ) -> bool {

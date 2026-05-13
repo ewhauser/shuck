@@ -284,8 +284,8 @@ impl FindExecShellCommandFacts {
 
 #[derive(Debug, Clone)]
 pub struct MapfileCommandFacts {
-    pub(super) input_fd: Option<i32>,
-    pub(super) target_name_uses: Box<[ComparableNameUse]>,
+    pub(crate) input_fd: Option<i32>,
+    pub(crate) target_name_uses: Box<[ComparableNameUse]>,
 }
 
 impl MapfileCommandFacts {
@@ -354,7 +354,7 @@ impl XargsInlineReplaceOptionFact {
 
 #[derive(Debug, Clone)]
 pub struct WaitCommandFacts {
-    pub(super) option_spans: Box<[Span]>,
+    pub(crate) option_spans: Box<[Span]>,
 }
 
 impl WaitCommandFacts {
@@ -533,9 +533,9 @@ impl DirectoryChangeCommandFacts {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FunctionPositionalParameterFacts {
-    pub(super) required_arg_count: usize,
-    pub(super) uses_unprotected_positional_parameters: bool,
-    pub(super) resets_positional_parameters: bool,
+    pub(crate) required_arg_count: usize,
+    pub(crate) uses_unprotected_positional_parameters: bool,
+    pub(crate) resets_positional_parameters: bool,
 }
 
 impl FunctionPositionalParameterFacts {
@@ -567,8 +567,8 @@ pub enum ExprStringHelperKind {
 #[derive(Debug, Clone, Copy)]
 pub struct ExprCommandFacts {
     pub uses_arithmetic_operator: bool,
-    pub(super) string_helper_kind: Option<ExprStringHelperKind>,
-    pub(super) string_helper_span: Option<Span>,
+    pub(crate) string_helper_kind: Option<ExprStringHelperKind>,
+    pub(crate) string_helper_span: Option<Span>,
 }
 
 impl ExprCommandFacts {
@@ -593,8 +593,8 @@ impl ExprCommandFacts {
 pub struct ExitCommandFacts<'a> {
     pub status_word: Option<&'a Word>,
     pub is_numeric_literal: bool,
-    pub(super) status_is_static: bool,
-    pub(super) status_has_literal_content: bool,
+    pub(crate) status_is_static: bool,
+    pub(crate) status_has_literal_content: bool,
 }
 
 impl<'a> ExitCommandFacts<'a> {
@@ -648,7 +648,7 @@ pub struct CommandOptionFactsRef<'facts, 'a> {
 }
 
 impl<'facts, 'a> CommandOptionFactsRef<'facts, 'a> {
-    pub(super) fn new(inner: Option<&'facts CommandOptionFacts<'a>>) -> Self {
+    pub(crate) fn new(inner: Option<&'facts CommandOptionFacts<'a>>) -> Self {
         Self { inner }
     }
 
@@ -848,7 +848,7 @@ impl<'a> CommandOptionFacts<'a> {
         &self.file_operand_words
     }
 
-    pub(super) fn into_sparse(self) -> Option<Box<Self>> {
+    pub(crate) fn into_sparse(self) -> Option<Box<Self>> {
         (!self.is_empty()).then(|| Box::new(self))
     }
 
@@ -880,7 +880,7 @@ impl<'a> CommandOptionFacts<'a> {
     }
 
     #[cfg_attr(shuck_profiling, inline(never))]
-    pub(super) fn build(
+    pub(crate) fn build(
         command: &'a Command,
         normalized: &NormalizedCommand<'a>,
         semantic: &LinterSemanticArtifacts<'a>,

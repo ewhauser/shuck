@@ -1,148 +1,178 @@
-pub struct LinterFacts<'a> {
-    semantic: &'a SemanticModel,
-    semantic_artifacts: &'a LinterSemanticArtifacts<'a>,
-    source: &'a str,
-    line_index: &'a LineIndex,
-    shell: ShellDialect,
-    commands: Vec<CommandFact<'a>>,
-    command_fact_indices_by_id: Vec<Option<usize>>,
-    structural_command_ids: Vec<CommandId>,
+use super::*;
+
+pub(crate) struct CommandFactStore<'a> {
+    pub(in crate::facts) commands: Vec<CommandFact<'a>>,
+    pub(in crate::facts) command_fact_indices_by_id: Vec<Option<usize>>,
+    pub(in crate::facts) structural_command_ids: Vec<CommandId>,
     #[cfg(test)]
-    command_ids_by_span: CommandLookupIndex,
-    command_ids_by_name_word_span: FxHashMap<FactSpan, CommandId>,
-    innermost_command_ids_by_offset: CommandOffsetLookup,
-    innermost_command_ids_by_binding_offset: CommandOffsetLookup,
-    assignment_value_target_index: AssignmentValueTargetIndex,
-    command_dominance_barrier_flags: Vec<bool>,
-    if_condition_command_ids: DenseCommandIdSet,
-    elif_condition_command_ids: DenseCommandIdSet,
-    binding_values: FxHashMap<BindingId, BindingValueFact<'a>>,
-    broken_assoc_key_spans: Vec<Span>,
-    comma_array_assignment_spans: Vec<Span>,
-    ifs_literal_backslash_assignment_value_spans: Vec<Span>,
-    env_prefix_assignment_scope_spans: Vec<Span>,
-    env_prefix_expansion_scope_spans: Vec<Span>,
-    env_prefix_expansion_fix_facts: Vec<EnvPrefixExpansionFixFact>,
-    unset_command_ids_by_target_name: FxHashMap<Name, Vec<CommandId>>,
-    function_unset_command_ids_by_target_name: FxHashMap<Name, Vec<CommandId>>,
-    presence_tested_names: FxHashSet<Name>,
-    nested_presence_test_spans: FxHashMap<Name, Vec<Span>>,
-    c006_presence_tested_names: FxHashSet<Name>,
-    c006_nested_presence_test_spans: FxHashMap<Name, Vec<Span>>,
-    c006_suppressing_reference_offsets_by_name: FxHashMap<Name, Vec<usize>>,
-    presence_test_references_by_name: FxHashMap<Name, Vec<PresenceTestReferenceFact>>,
-    presence_test_names_by_name: FxHashMap<Name, Vec<PresenceTestNameFact>>,
-    possible_variable_misspelling_use_scan: OnceLock<bool>,
-    possible_variable_misspelling_index: OnceLock<PossibleVariableMisspellingIndex>,
-    possible_variable_misspelling_scope_compat_name_uses: OnceLock<Vec<ComparableNameUse>>,
-    plain_unindexed_array_references: OnceLock<Vec<PlainUnindexedArrayReferenceFact>>,
-    redundant_echo_space_facts: OnceLock<Vec<RedundantEchoSpaceFact>>,
-    suppressed_subscript_reference_spans: FxHashSet<FactSpan>,
-    subscript_later_suppression_reference_spans: FxHashSet<FactSpan>,
-    compound_assignment_value_word_flags: Box<[bool]>,
-    word_nodes: Vec<WordNode<'a>>,
-    word_occurrences: Vec<WordOccurrence>,
-    word_index: FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
-    fact_store: FactStore<'a>,
-    unquoted_command_argument_use_offsets: FxHashMap<Name, Vec<usize>>,
-    array_assignment_split_word_ids: Vec<WordOccurrenceId>,
-    brace_variable_before_bracket_spans: Vec<Span>,
-    completion_registered_function_command_flags: Vec<bool>,
-    completion_registered_function_scopes: FxHashSet<ScopeId>,
-    external_entrypoint_function_scopes: FxHashSet<ScopeId>,
-    function_headers: Vec<FunctionHeaderFact<'a>>,
-    function_definition_command_ids_by_scope: FxHashMap<ScopeId, CommandId>,
-    case_cli_reachable_function_scopes: FxHashSet<ScopeId>,
-    function_in_alias_spans: Vec<Span>,
-    alias_definition_expansion_spans: Vec<Span>,
-    function_body_without_braces_spans: Vec<Span>,
-    function_parameter_fallback_spans: Vec<Span>,
-    redundant_return_status_spans: Vec<Span>,
-    for_headers: Vec<ForHeaderFact<'a>>,
-    select_headers: Vec<SelectHeaderFact<'a>>,
-    case_items: Vec<CaseItemFact<'a>>,
-    case_pattern_shadows: Vec<CasePatternShadowFact>,
-    case_pattern_impossible_spans: Vec<Span>,
-    case_pattern_expansions: Vec<CasePatternExpansionFact>,
-    getopts_cases: Vec<GetoptsCaseFact>,
-    pipelines: Vec<PipelineFact<'a>>,
-    lists: Vec<ListFact<'a>>,
-    statement_facts: Vec<StatementFact>,
-    background_semicolon_spans: Vec<Span>,
-    single_test_subshell_spans: Vec<Span>,
-    subshell_test_group_spans: Vec<Span>,
-    indented_shebang_span: Option<Span>,
-    indented_shebang_indent_span: Option<Span>,
-    space_after_hash_bang_span: Option<Span>,
-    space_after_hash_bang_whitespace_span: Option<Span>,
-    shebang_not_on_first_line_span: Option<Span>,
-    shebang_not_on_first_line_fix_span: Option<Span>,
-    shebang_not_on_first_line_preferred_newline: Option<&'static str>,
-    missing_shebang_line_span: Option<Span>,
-    duplicate_shebang_flag_span: Option<Span>,
-    non_absolute_shebang_span: Option<Span>,
-    errexit_enabled_anywhere: bool,
-    commented_continuation_comment_spans: Vec<Span>,
-    comment_double_quote_nesting_spans: Vec<Span>,
-    trailing_directive_comment_spans: Vec<Span>,
-    condition_status_capture_spans: Vec<Span>,
-    command_substitution_command_spans: Vec<Span>,
-    backtick_substitution_spans: Vec<Span>,
-    backtick_escaped_parameters: Vec<BacktickEscapedParameter>,
-    backtick_escaped_parameter_reference_spans: Vec<Span>,
-    backtick_double_escaped_parameter_spans: Vec<Span>,
-    backtick_command_name_spans: Vec<Span>,
-    dollar_question_after_command_spans: Vec<Span>,
-    assignment_like_command_name_spans: Vec<Span>,
-    bare_command_name_assignment_spans: Vec<Span>,
-    subshell_assignment_sites: Vec<NamedSpan>,
-    subshell_later_use_sites: Vec<NamedSpan>,
-    unused_heredoc_spans: Vec<Span>,
-    heredoc_missing_end_spans: Vec<Span>,
-    heredoc_closer_not_alone_spans: Vec<Span>,
-    misquoted_heredoc_close_spans: Vec<Span>,
-    heredoc_end_space_spans: Vec<Span>,
-    echo_here_doc_spans: Vec<Span>,
-    spaced_tabstrip_close_spans: Vec<Span>,
-    plus_equals_assignment_spans: Vec<Span>,
-    array_index_arithmetic_spans: Vec<Span>,
-    arithmetic_score_line_spans: Vec<Span>,
-    dollar_in_arithmetic_spans: Vec<Span>,
-    arithmetic_command_substitution_spans: Vec<Span>,
-    function_positional_parameter_facts: FxHashMap<ScopeId, FunctionPositionalParameterFacts>,
-    function_cli_dispatch_facts: FxHashMap<ScopeId, FunctionCliDispatchFacts>,
-    single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
-    dollar_double_quoted_fragments: Vec<DollarDoubleQuotedFragmentFact>,
-    open_double_quote_fragments: Vec<OpenDoubleQuoteFragmentFact>,
-    suspect_closing_quote_fragments: Vec<SuspectClosingQuoteFragmentFact>,
-    literal_brace_spans: Vec<Span>,
-    backtick_fragments: Vec<BacktickFragmentFact>,
-    legacy_arithmetic_fragments: Vec<LegacyArithmeticFragmentFact>,
-    positional_parameter_fragments: Vec<PositionalParameterFragmentFact>,
-    positional_parameter_operator_spans: Vec<Span>,
-    double_paren_grouping_spans: Vec<Span>,
-    arithmetic_update_operator_spans: Vec<Span>,
-    arithmetic_update_operator_fix_facts: Vec<ArithmeticUpdateOperatorFixFact>,
-    arithmetic_literal_facts: Vec<ArithmeticLiteralFact>,
-    escape_scan_matches: Vec<EscapeScanMatch>,
-    echo_backslash_escape_word_spans: Vec<Span>,
-    echo_to_sed_substitution_spans: Vec<Span>,
-    unicode_smart_quote_spans: Vec<Span>,
-    pattern_exactly_one_extglob_spans: Vec<Span>,
-    pattern_literal_spans: Vec<Span>,
-    pattern_charclass_spans: Vec<Span>,
-    nested_pattern_charclass_spans: FxHashSet<FactSpan>,
-    nested_parameter_expansion_fragments: Vec<NestedParameterExpansionFragmentFact>,
-    indirect_expansion_fragments: Vec<IndirectExpansionFragmentFact>,
-    indexed_array_reference_fragments: Vec<IndexedArrayReferenceFragmentFact>,
-    plain_unindexed_reference_spans: Vec<Span>,
-    parameter_pattern_special_target_fragments: Vec<ParameterPatternSpecialTargetFragmentFact>,
-    zsh_parameter_index_flag_fragments: Vec<ZshParameterIndexFlagFragmentFact>,
-    substring_expansion_fragments: Vec<SubstringExpansionFragmentFact>,
-    case_modification_fragments: Vec<CaseModificationFragmentFact>,
-    replacement_expansion_fragments: Vec<ReplacementExpansionFragmentFact>,
-    positional_parameter_trim_fragments: Vec<PositionalParameterTrimFragmentFact>,
-    conditional_portability: ConditionalPortabilityFacts,
+    pub(in crate::facts) command_ids_by_span: CommandLookupIndex,
+    pub(in crate::facts) command_ids_by_name_word_span: FxHashMap<FactSpan, CommandId>,
+    pub(in crate::facts) innermost_command_ids_by_offset: CommandOffsetLookup,
+    pub(in crate::facts) innermost_command_ids_by_binding_offset: CommandOffsetLookup,
+    pub(in crate::facts) command_dominance_barrier_flags: Vec<bool>,
+    pub(in crate::facts) if_condition_command_ids: DenseCommandIdSet,
+    pub(in crate::facts) elif_condition_command_ids: DenseCommandIdSet,
+    pub(in crate::facts) fact_store: FactStore<'a>,
+    pub(in crate::facts) redundant_echo_space_facts: OnceLock<Vec<RedundantEchoSpaceFact>>,
+    pub(in crate::facts) completion_registered_function_command_flags: Vec<bool>,
+    pub(in crate::facts) completion_registered_function_scopes: FxHashSet<ScopeId>,
+    pub(in crate::facts) external_entrypoint_function_scopes: FxHashSet<ScopeId>,
+    pub(in crate::facts) function_headers: Vec<FunctionHeaderFact<'a>>,
+    pub(in crate::facts) function_definition_command_ids_by_scope: FxHashMap<ScopeId, CommandId>,
+    pub(in crate::facts) case_cli_reachable_function_scopes: FxHashSet<ScopeId>,
+    pub(in crate::facts) function_in_alias_spans: Vec<Span>,
+    pub(in crate::facts) alias_definition_expansion_spans: Vec<Span>,
+    pub(in crate::facts) function_body_without_braces_spans: Vec<Span>,
+    pub(in crate::facts) function_parameter_fallback_spans: Vec<Span>,
+    pub(in crate::facts) redundant_return_status_spans: Vec<Span>,
+    pub(in crate::facts) for_headers: Vec<ForHeaderFact<'a>>,
+    pub(in crate::facts) select_headers: Vec<SelectHeaderFact<'a>>,
+    pub(in crate::facts) case_items: Vec<CaseItemFact<'a>>,
+    pub(in crate::facts) case_pattern_shadows: Vec<CasePatternShadowFact>,
+    pub(in crate::facts) case_pattern_impossible_spans: Vec<Span>,
+    pub(in crate::facts) case_pattern_expansions: Vec<CasePatternExpansionFact>,
+    pub(in crate::facts) getopts_cases: Vec<GetoptsCaseFact>,
+    pub(in crate::facts) pipelines: Vec<PipelineFact<'a>>,
+    pub(in crate::facts) lists: Vec<ListFact<'a>>,
+    pub(in crate::facts) statement_facts: Vec<StatementFact>,
+    pub(in crate::facts) background_semicolon_spans: Vec<Span>,
+    pub(in crate::facts) single_test_subshell_spans: Vec<Span>,
+    pub(in crate::facts) subshell_test_group_spans: Vec<Span>,
+    pub(in crate::facts) function_positional_parameter_facts:
+        FxHashMap<ScopeId, FunctionPositionalParameterFacts>,
+    pub(in crate::facts) function_cli_dispatch_facts: FxHashMap<ScopeId, FunctionCliDispatchFacts>,
+    pub(in crate::facts) condition_status_capture_spans: Vec<Span>,
+    pub(in crate::facts) command_substitution_command_spans: Vec<Span>,
+    pub(in crate::facts) backtick_command_name_spans: Vec<Span>,
+    pub(in crate::facts) assignment_like_command_name_spans: Vec<Span>,
+    pub(in crate::facts) bare_command_name_assignment_spans: Vec<Span>,
+}
+
+pub(crate) struct WordFactStore<'a> {
+    pub(in crate::facts) plain_unindexed_array_references:
+        OnceLock<Vec<PlainUnindexedArrayReferenceFact>>,
+    pub(in crate::facts) suppressed_subscript_reference_spans: FxHashSet<FactSpan>,
+    pub(in crate::facts) subscript_later_suppression_reference_spans: FxHashSet<FactSpan>,
+    pub(in crate::facts) compound_assignment_value_word_flags: Box<[bool]>,
+    pub(in crate::facts) word_nodes: Vec<WordNode<'a>>,
+    pub(in crate::facts) word_occurrences: Vec<WordOccurrence>,
+    pub(in crate::facts) word_index: FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
+    pub(in crate::facts) unquoted_command_argument_use_offsets: FxHashMap<Name, Vec<usize>>,
+    pub(in crate::facts) array_assignment_split_word_ids: Vec<WordOccurrenceId>,
+    pub(in crate::facts) brace_variable_before_bracket_spans: Vec<Span>,
+    pub(in crate::facts) array_index_arithmetic_spans: Vec<Span>,
+    pub(in crate::facts) arithmetic_score_line_spans: Vec<Span>,
+    pub(in crate::facts) dollar_in_arithmetic_spans: Vec<Span>,
+    pub(in crate::facts) arithmetic_command_substitution_spans: Vec<Span>,
+    pub(in crate::facts) single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
+    pub(in crate::facts) dollar_double_quoted_fragments: Vec<DollarDoubleQuotedFragmentFact>,
+    pub(in crate::facts) open_double_quote_fragments: Vec<OpenDoubleQuoteFragmentFact>,
+    pub(in crate::facts) suspect_closing_quote_fragments: Vec<SuspectClosingQuoteFragmentFact>,
+    pub(in crate::facts) literal_brace_spans: Vec<Span>,
+    pub(in crate::facts) backtick_fragments: Vec<BacktickFragmentFact>,
+    pub(in crate::facts) legacy_arithmetic_fragments: Vec<LegacyArithmeticFragmentFact>,
+    pub(in crate::facts) positional_parameter_fragments: Vec<PositionalParameterFragmentFact>,
+    pub(in crate::facts) positional_parameter_operator_spans: Vec<Span>,
+    pub(in crate::facts) double_paren_grouping_spans: Vec<Span>,
+    pub(in crate::facts) arithmetic_update_operator_spans: Vec<Span>,
+    pub(in crate::facts) arithmetic_update_operator_fix_facts: Vec<ArithmeticUpdateOperatorFixFact>,
+    pub(in crate::facts) arithmetic_literal_facts: Vec<ArithmeticLiteralFact>,
+    pub(in crate::facts) escape_scan_matches: Vec<EscapeScanMatch>,
+    pub(in crate::facts) echo_backslash_escape_word_spans: Vec<Span>,
+    pub(in crate::facts) echo_to_sed_substitution_spans: Vec<Span>,
+    pub(in crate::facts) unicode_smart_quote_spans: Vec<Span>,
+    pub(in crate::facts) pattern_exactly_one_extglob_spans: Vec<Span>,
+    pub(in crate::facts) pattern_literal_spans: Vec<Span>,
+    pub(in crate::facts) pattern_charclass_spans: Vec<Span>,
+    pub(in crate::facts) nested_pattern_charclass_spans: FxHashSet<FactSpan>,
+    pub(in crate::facts) nested_parameter_expansion_fragments:
+        Vec<NestedParameterExpansionFragmentFact>,
+    pub(in crate::facts) indirect_expansion_fragments: Vec<IndirectExpansionFragmentFact>,
+    pub(in crate::facts) indexed_array_reference_fragments: Vec<IndexedArrayReferenceFragmentFact>,
+    pub(in crate::facts) plain_unindexed_reference_spans: Vec<Span>,
+    pub(in crate::facts) parameter_pattern_special_target_fragments:
+        Vec<ParameterPatternSpecialTargetFragmentFact>,
+    pub(in crate::facts) zsh_parameter_index_flag_fragments: Vec<ZshParameterIndexFlagFragmentFact>,
+    pub(in crate::facts) substring_expansion_fragments: Vec<SubstringExpansionFragmentFact>,
+    pub(in crate::facts) case_modification_fragments: Vec<CaseModificationFragmentFact>,
+    pub(in crate::facts) replacement_expansion_fragments: Vec<ReplacementExpansionFragmentFact>,
+    pub(in crate::facts) positional_parameter_trim_fragments:
+        Vec<PositionalParameterTrimFragmentFact>,
+}
+
+pub(crate) struct AssignmentFactStore<'a> {
+    pub(in crate::facts) assignment_value_target_index: AssignmentValueTargetIndex,
+    pub(in crate::facts) binding_values: FxHashMap<BindingId, BindingValueFact<'a>>,
+    pub(in crate::facts) broken_assoc_key_spans: Vec<Span>,
+    pub(in crate::facts) comma_array_assignment_spans: Vec<Span>,
+    pub(in crate::facts) ifs_literal_backslash_assignment_value_spans: Vec<Span>,
+    pub(in crate::facts) env_prefix_assignment_scope_spans: Vec<Span>,
+    pub(in crate::facts) env_prefix_expansion_scope_spans: Vec<Span>,
+    pub(in crate::facts) env_prefix_expansion_fix_facts: Vec<EnvPrefixExpansionFixFact>,
+    pub(in crate::facts) unset_command_ids_by_target_name: FxHashMap<Name, Vec<CommandId>>,
+    pub(in crate::facts) function_unset_command_ids_by_target_name: FxHashMap<Name, Vec<CommandId>>,
+    pub(in crate::facts) presence_tested_names: FxHashSet<Name>,
+    pub(in crate::facts) nested_presence_test_spans: FxHashMap<Name, Vec<Span>>,
+    pub(in crate::facts) c006_presence_tested_names: FxHashSet<Name>,
+    pub(in crate::facts) c006_nested_presence_test_spans: FxHashMap<Name, Vec<Span>>,
+    pub(in crate::facts) c006_suppressing_reference_offsets_by_name: FxHashMap<Name, Vec<usize>>,
+    pub(in crate::facts) presence_test_references_by_name:
+        FxHashMap<Name, Vec<PresenceTestReferenceFact>>,
+    pub(in crate::facts) presence_test_names_by_name: FxHashMap<Name, Vec<PresenceTestNameFact>>,
+    pub(in crate::facts) possible_variable_misspelling_use_scan: OnceLock<bool>,
+    pub(in crate::facts) possible_variable_misspelling_index:
+        OnceLock<PossibleVariableMisspellingIndex>,
+    pub(in crate::facts) subshell_assignment_sites: Vec<NamedSpan>,
+    pub(in crate::facts) subshell_later_use_sites: Vec<NamedSpan>,
+    pub(in crate::facts) plus_equals_assignment_spans: Vec<Span>,
+}
+
+pub(crate) struct SourceFactStore<'a> {
+    pub(in crate::facts) source: &'a str,
+    pub(in crate::facts) line_index: &'a LineIndex,
+    pub(in crate::facts) shell: ShellDialect,
+    pub(in crate::facts) indented_shebang_span: Option<Span>,
+    pub(in crate::facts) indented_shebang_indent_span: Option<Span>,
+    pub(in crate::facts) space_after_hash_bang_span: Option<Span>,
+    pub(in crate::facts) space_after_hash_bang_whitespace_span: Option<Span>,
+    pub(in crate::facts) shebang_not_on_first_line_span: Option<Span>,
+    pub(in crate::facts) shebang_not_on_first_line_fix_span: Option<Span>,
+    pub(in crate::facts) shebang_not_on_first_line_preferred_newline: Option<&'static str>,
+    pub(in crate::facts) missing_shebang_line_span: Option<Span>,
+    pub(in crate::facts) duplicate_shebang_flag_span: Option<Span>,
+    pub(in crate::facts) non_absolute_shebang_span: Option<Span>,
+    pub(in crate::facts) errexit_enabled_anywhere: bool,
+    pub(in crate::facts) commented_continuation_comment_spans: Vec<Span>,
+    pub(in crate::facts) comment_double_quote_nesting_spans: Vec<Span>,
+    pub(in crate::facts) trailing_directive_comment_spans: Vec<Span>,
+    pub(in crate::facts) backtick_substitution_spans: Vec<Span>,
+    pub(in crate::facts) backtick_escaped_parameters: Vec<BacktickEscapedParameter>,
+    pub(in crate::facts) backtick_escaped_parameter_reference_spans: Vec<Span>,
+    pub(in crate::facts) backtick_double_escaped_parameter_spans: Vec<Span>,
+    pub(in crate::facts) dollar_question_after_command_spans: Vec<Span>,
+    pub(in crate::facts) unused_heredoc_spans: Vec<Span>,
+    pub(in crate::facts) heredoc_missing_end_spans: Vec<Span>,
+    pub(in crate::facts) heredoc_closer_not_alone_spans: Vec<Span>,
+    pub(in crate::facts) misquoted_heredoc_close_spans: Vec<Span>,
+    pub(in crate::facts) heredoc_end_space_spans: Vec<Span>,
+    pub(in crate::facts) echo_here_doc_spans: Vec<Span>,
+    pub(in crate::facts) spaced_tabstrip_close_spans: Vec<Span>,
+}
+
+pub(crate) struct CompatFactStore {
+    pub(in crate::facts) possible_variable_misspelling_scope_compat_name_uses:
+        OnceLock<Vec<ComparableNameUse>>,
+    pub(in crate::facts) conditional_portability: ConditionalPortabilityFacts,
+}
+
+pub struct LinterFacts<'a> {
+    pub(in crate::facts) semantic: &'a SemanticModel,
+    pub(in crate::facts) semantic_artifacts: &'a LinterSemanticArtifacts<'a>,
+    pub(in crate::facts) command: CommandFactStore<'a>,
+    pub(in crate::facts) words: WordFactStore<'a>,
+    pub(in crate::facts) assignments: AssignmentFactStore<'a>,
+    pub(in crate::facts) source_facts: SourceFactStore<'a>,
+    pub(in crate::facts) compat: CompatFactStore,
 }
 
 impl<'a> LinterFacts<'a> {
@@ -220,11 +250,32 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn commands(&self) -> CommandFacts<'_, 'a> {
-        CommandFacts::new(&self.commands, &self.fact_store, &self.command_fact_indices_by_id)
+        CommandFacts::new(
+            &self.command.commands,
+            &self.command.fact_store,
+            &self.command.command_fact_indices_by_id,
+        )
+    }
+
+    pub(crate) fn words(&self) -> &WordFactStore<'a> {
+        &self.words
+    }
+
+    pub(crate) fn assignments(&self) -> &AssignmentFactStore<'a> {
+        &self.assignments
+    }
+
+    pub(crate) fn source_facts(&self) -> &SourceFactStore<'a> {
+        &self.source_facts
+    }
+
+    pub(crate) fn compat(&self) -> &CompatFactStore {
+        &self.compat
     }
 
     pub fn malformed_bracket_test_spans(&self, source: &str) -> Vec<Span> {
-        self.commands
+        self.command
+            .commands
             .iter()
             .filter(|fact| fact.static_utility_name_is("["))
             .filter(|fact| {
@@ -239,7 +290,8 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn abort_like_bracket_test_spans(&self, source: &str) -> Vec<Span> {
-        self.commands
+        self.command
+            .commands
             .iter()
             .filter_map(|fact| {
                 let simple_test = fact.simple_test()?;
@@ -259,24 +311,24 @@ impl<'a> LinterFacts<'a> {
         &self,
         scope: ScopeId,
     ) -> FunctionPositionalParameterFacts {
-        self.function_positional_parameter_facts
+        self.command
+            .function_positional_parameter_facts
             .get(&scope)
             .copied()
             .unwrap_or_default()
     }
 
-    pub(crate) fn function_cli_dispatch_facts(
-        &self,
-        scope: ScopeId,
-    ) -> FunctionCliDispatchFacts {
-        self.function_cli_dispatch_facts
+    pub(crate) fn function_cli_dispatch_facts(&self, scope: ScopeId) -> FunctionCliDispatchFacts {
+        self.command
+            .function_cli_dispatch_facts
             .get(&scope)
             .copied()
             .unwrap_or_default()
     }
 
     pub fn structural_commands(&self) -> impl Iterator<Item = CommandFactRef<'_, 'a>> + '_ {
-        self.structural_command_ids
+        self.command
+            .structural_command_ids
             .iter()
             .copied()
             .map(|id| self.command(id))
@@ -286,7 +338,8 @@ impl<'a> LinterFacts<'a> {
         &self,
         name: &Name,
     ) -> impl Iterator<Item = CommandFactRef<'_, 'a>> + '_ {
-        self.unset_command_ids_by_target_name
+        self.assignments
+            .unset_command_ids_by_target_name
             .get(name)
             .into_iter()
             .flatten()
@@ -298,7 +351,8 @@ impl<'a> LinterFacts<'a> {
         &self,
         name: &Name,
     ) -> impl Iterator<Item = CommandFactRef<'_, 'a>> + '_ {
-        self.function_unset_command_ids_by_target_name
+        self.assignments
+            .function_unset_command_ids_by_target_name
             .get(name)
             .into_iter()
             .flatten()
@@ -308,16 +362,18 @@ impl<'a> LinterFacts<'a> {
 
     pub fn command(&self, id: CommandId) -> CommandFactRef<'_, 'a> {
         let index = self
+            .command
             .command_fact_indices_by_id
             .get(id.index())
             .and_then(|index| *index)
             .unwrap_or_else(|| panic!("command id {} must exist", id.index()));
 
-        CommandFactRef::new(&self.commands[index], &self.fact_store)
+        CommandFactRef::new(&self.command.commands[index], &self.command.fact_store)
     }
 
     pub fn command_for_name_word_span(&self, span: Span) -> Option<CommandFactRef<'_, 'a>> {
-        self.command_ids_by_name_word_span
+        self.command
+            .command_ids_by_name_word_span
             .get(&FactSpan::new(span))
             .copied()
             .or_else(|| self.command_id_for_exact_span(span))
@@ -337,14 +393,18 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn innermost_command_id_at(&self, offset: usize) -> Option<CommandId> {
-        precomputed_command_id_for_offset(&self.innermost_command_ids_by_offset, offset)
+        precomputed_command_id_for_offset(&self.command.innermost_command_ids_by_offset, offset)
     }
 
-    pub(crate) fn innermost_command_id_containing_offset(&self, offset: usize) -> Option<CommandId> {
+    pub(crate) fn innermost_command_id_containing_offset(
+        &self,
+        offset: usize,
+    ) -> Option<CommandId> {
         self.semantic
             .innermost_command_id_containing_offset(offset)
             .filter(|id| {
-                self.command_fact_indices_by_id
+                self.command
+                    .command_fact_indices_by_id
                     .get(id.index())
                     .is_some_and(Option::is_some)
             })
@@ -354,16 +414,22 @@ impl<'a> LinterFacts<'a> {
         &self,
         offset: usize,
     ) -> Option<CommandFactRef<'_, 'a>> {
-        precomputed_command_id_for_offset(&self.innermost_command_ids_by_binding_offset, offset)
-            .map(|id| self.command(id))
+        precomputed_command_id_for_offset(
+            &self.command.innermost_command_ids_by_binding_offset,
+            offset,
+        )
+        .map(|id| self.command(id))
     }
 
     pub fn command_parent_id(&self, id: CommandId) -> Option<CommandId> {
-        self.semantic.syntax_backed_command_parent_id(id).filter(|parent_id| {
-            self.command_fact_indices_by_id
-                .get(parent_id.index())
-                .is_some_and(Option::is_some)
-        })
+        self.semantic
+            .syntax_backed_command_parent_id(id)
+            .filter(|parent_id| {
+                self.command
+                    .command_fact_indices_by_id
+                    .get(parent_id.index())
+                    .is_some_and(Option::is_some)
+            })
     }
 
     pub fn command_parent(&self, id: CommandId) -> Option<CommandFactRef<'_, 'a>> {
@@ -372,36 +438,41 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn redundant_echo_space_facts(&self) -> &[RedundantEchoSpaceFact] {
-        self.redundant_echo_space_facts
+        self.command
+            .redundant_echo_space_facts
             .get_or_init(|| build_redundant_echo_space_facts(self))
     }
 
     pub fn function_definition_command(&self, scope: ScopeId) -> Option<CommandFactRef<'_, 'a>> {
-        self.function_definition_command_ids_by_scope
+        self.command
+            .function_definition_command_ids_by_scope
             .get(&scope)
             .copied()
             .map(|id| self.command(id))
     }
 
     pub fn is_case_cli_reachable_function_scope(&self, scope: ScopeId) -> bool {
-        self.case_cli_reachable_function_scopes.contains(&scope)
+        self.command
+            .case_cli_reachable_function_scopes
+            .contains(&scope)
     }
 
     pub fn command_is_dominance_barrier(&self, id: CommandId) -> bool {
-        self.command_dominance_barrier_flags
+        self.command
+            .command_dominance_barrier_flags
             .get(id.index())
             .copied()
             .unwrap_or(false)
     }
 
     #[cfg(test)]
-    fn command_id_for_stmt(&self, stmt: &Stmt) -> Option<CommandId> {
+    pub(crate) fn command_id_for_stmt(&self, stmt: &Stmt) -> Option<CommandId> {
         self.command_id_for_command(&stmt.command)
     }
 
     #[cfg(test)]
-    fn command_id_for_command(&self, command: &Command) -> Option<CommandId> {
-        command_id_for_command(command, &self.command_ids_by_span)
+    pub(crate) fn command_id_for_command(&self, command: &Command) -> Option<CommandId> {
+        command_id_for_command(command, &self.command.command_ids_by_span)
     }
 
     fn command_id_for_exact_span(&self, span: Span) -> Option<CommandId> {
@@ -415,43 +486,45 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn binding_value(&self, binding_id: BindingId) -> Option<&BindingValueFact<'a>> {
-        self.binding_values.get(&binding_id)
+        self.assignments().binding_values.get(&binding_id)
     }
 
     pub fn broken_assoc_key_spans(&self) -> &[Span] {
-        &self.broken_assoc_key_spans
+        &self.assignments.broken_assoc_key_spans
     }
 
     pub fn comma_array_assignment_spans(&self) -> &[Span] {
-        &self.comma_array_assignment_spans
+        &self.assignments.comma_array_assignment_spans
     }
 
     pub fn ifs_literal_backslash_assignment_value_spans(&self) -> &[Span] {
-        &self.ifs_literal_backslash_assignment_value_spans
+        &self
+            .assignments
+            .ifs_literal_backslash_assignment_value_spans
     }
 
     pub fn env_prefix_assignment_scope_spans(&self) -> &[Span] {
-        &self.env_prefix_assignment_scope_spans
+        &self.assignments.env_prefix_assignment_scope_spans
     }
 
     pub fn env_prefix_expansion_scope_spans(&self) -> &[Span] {
-        &self.env_prefix_expansion_scope_spans
+        &self.assignments.env_prefix_expansion_scope_spans
     }
 
     pub fn env_prefix_expansion_fix_facts(&self) -> &[EnvPrefixExpansionFixFact] {
-        &self.env_prefix_expansion_fix_facts
+        &self.assignments.env_prefix_expansion_fix_facts
     }
 
     pub fn is_if_condition_command(&self, id: CommandId) -> bool {
-        self.if_condition_command_ids.contains(id)
+        self.command.if_condition_command_ids.contains(id)
     }
 
     pub fn is_elif_condition_command(&self, id: CommandId) -> bool {
-        self.elif_condition_command_ids.contains(id)
+        self.command.elif_condition_command_ids.contains(id)
     }
 
     pub fn presence_tested_names(&self) -> &FxHashSet<Name> {
-        &self.presence_tested_names
+        &self.assignments.presence_tested_names
     }
 
     pub(crate) fn possible_variable_misspelling_candidate(
@@ -459,27 +532,32 @@ impl<'a> LinterFacts<'a> {
         semantic: &SemanticModel,
         target_name: &str,
     ) -> Option<String> {
-        if *self.possible_variable_misspelling_use_scan.get_or_init(|| {
-            should_scan_possible_variable_misspelling_candidates(
-                semantic,
-                &self.presence_test_references_by_name,
-                &self.presence_test_names_by_name,
-            )
-        }) {
+        if *self
+            .assignments
+            .possible_variable_misspelling_use_scan
+            .get_or_init(|| {
+                should_scan_possible_variable_misspelling_candidates(
+                    semantic,
+                    &self.assignments.presence_test_references_by_name,
+                    &self.assignments.presence_test_names_by_name,
+                )
+            })
+        {
             return scan_possible_variable_misspelling_candidate(
                 semantic,
-                &self.presence_test_references_by_name,
-                &self.presence_test_names_by_name,
+                &self.assignments.presence_test_references_by_name,
+                &self.assignments.presence_test_names_by_name,
                 target_name,
             );
         }
 
-        self.possible_variable_misspelling_index
+        self.assignments
+            .possible_variable_misspelling_index
             .get_or_init(|| {
                 build_possible_variable_misspelling_index(
                     semantic,
-                    &self.presence_test_references_by_name,
-                    &self.presence_test_names_by_name,
+                    &self.assignments.presence_test_references_by_name,
+                    &self.assignments.presence_test_names_by_name,
                 )
             })
             .candidate_name(target_name)
@@ -487,8 +565,9 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn is_presence_tested_name(&self, name: &Name, span: Span) -> bool {
-        self.presence_tested_names.contains(name)
+        self.assignments.presence_tested_names.contains(name)
             || self
+                .assignments
                 .nested_presence_test_spans
                 .get(name)
                 .is_some_and(|spans| {
@@ -500,12 +579,16 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn is_c006_presence_tested_name(&self, name: &Name, _span: Span) -> bool {
-        self.c006_presence_tested_names.contains(name)
-            || self.c006_nested_presence_test_spans.contains_key(name)
+        self.assignments.c006_presence_tested_names.contains(name)
+            || self
+                .assignments
+                .c006_nested_presence_test_spans
+                .contains_key(name)
     }
 
     pub fn has_prior_c006_suppressing_reference(&self, name: &Name, span: Span) -> bool {
-        self.c006_suppressing_reference_offsets_by_name
+        self.assignments
+            .c006_suppressing_reference_offsets_by_name
             .get(name)
             .is_some_and(|offsets| {
                 offsets.partition_point(|offset| *offset < span.start.offset) > 0
@@ -516,27 +599,27 @@ impl<'a> LinterFacts<'a> {
         let query_start = span.start.offset;
         let query_end = span.end.offset;
         let upper = self
+            .assignments
             .assignment_value_target_index
             .partition_point(|entry| entry.value_start <= query_start);
-        self.assignment_value_target_index[..upper]
+        self.assignments.assignment_value_target_index[..upper]
             .iter()
             .rev()
             .find(|entry| entry.value_end >= query_end)
             .map(|entry| &entry.target_name)
     }
 
-    pub(crate) fn presence_test_references(
-        &self,
-        name: &Name,
-    ) -> &[PresenceTestReferenceFact] {
-        self.presence_test_references_by_name
+    pub(crate) fn presence_test_references(&self, name: &Name) -> &[PresenceTestReferenceFact] {
+        self.assignments
+            .presence_test_references_by_name
             .get(name)
             .map(Vec::as_slice)
             .unwrap_or(&[])
     }
 
     pub(crate) fn presence_test_names(&self, name: &Name) -> &[PresenceTestNameFact] {
-        self.presence_test_names_by_name
+        self.assignments
+            .presence_test_names_by_name
             .get(name)
             .map(Vec::as_slice)
             .unwrap_or(&[])
@@ -547,8 +630,13 @@ impl<'a> LinterFacts<'a> {
         semantic: &SemanticModel,
     ) -> Vec<(Name, Span)> {
         let mut names = FxHashSet::<Name>::default();
-        names.extend(self.presence_test_references_by_name.keys().cloned());
-        names.extend(self.presence_test_names_by_name.keys().cloned());
+        names.extend(
+            self.assignments
+                .presence_test_references_by_name
+                .keys()
+                .cloned(),
+        );
+        names.extend(self.assignments.presence_test_names_by_name.keys().cloned());
 
         names
             .into_iter()
@@ -564,13 +652,15 @@ impl<'a> LinterFacts<'a> {
         semantic: &SemanticModel,
         candidate_name: &Name,
     ) -> Option<Span> {
-        self.presence_test_references_by_name
+        self.assignments
+            .presence_test_references_by_name
             .get(candidate_name)
             .into_iter()
             .flatten()
             .map(|presence| semantic.reference(presence.reference_id()).span)
             .chain(
-                self.presence_test_names_by_name
+                self.assignments
+                    .presence_test_names_by_name
                     .get(candidate_name)
                     .into_iter()
                     .flatten()
@@ -580,12 +670,14 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn is_suppressed_subscript_reference(&self, span: Span) -> bool {
-        self.suppressed_subscript_reference_spans
+        self.words()
+            .suppressed_subscript_reference_spans
             .contains(&FactSpan::new(span))
     }
 
     pub fn is_subscript_later_suppression_reference(&self, span: Span) -> bool {
-        self.subscript_later_suppression_reference_spans
+        self.words
+            .subscript_later_suppression_reference_spans
             .contains(&FactSpan::new(span))
     }
 
@@ -602,7 +694,8 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn is_compound_assignment_value_word(&self, fact: WordOccurrenceRef<'_, '_>) -> bool {
-        self.compound_assignment_value_word_flags
+        self.words
+            .compound_assignment_value_word_flags
             .get(fact.occurrence_id().index())
             .copied()
             .unwrap_or(false)
@@ -621,7 +714,8 @@ impl<'a> LinterFacts<'a> {
         span: Span,
         context: WordFactContext,
     ) -> Option<WordOccurrenceRef<'_, 'a>> {
-        self.word_index
+        self.words
+            .word_index
             .get(&FactSpan::new(span))
             .into_iter()
             .flat_map(|indices| indices.iter())
@@ -631,7 +725,8 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn any_word_fact(&self, span: Span) -> Option<WordOccurrenceRef<'_, 'a>> {
-        self.word_index
+        self.words
+            .word_index
             .get(&FactSpan::new(span))
             .and_then(|indices| indices.first().copied())
             .map(|id| self.word_occurrence_ref(id))
@@ -642,7 +737,8 @@ impl<'a> LinterFacts<'a> {
         name: &Name,
         after_offset: usize,
     ) -> bool {
-        self.unquoted_command_argument_use_offsets
+        self.words
+            .unquoted_command_argument_use_offsets
             .get(name)
             .is_some_and(|offsets| {
                 offsets.partition_point(|offset| *offset <= after_offset) < offsets.len()
@@ -652,375 +748,384 @@ impl<'a> LinterFacts<'a> {
     pub fn array_assignment_split_word_facts(&self) -> WordOccurrenceIter<'_, 'a> {
         WordOccurrenceIter::ids(
             self,
-            &self.array_assignment_split_word_ids,
+            &self.words.array_assignment_split_word_ids,
             WordOccurrenceFilter::Any,
         )
     }
 
-    fn word_occurrence_ref(&self, id: WordOccurrenceId) -> WordOccurrenceRef<'_, 'a> {
+    pub(crate) fn word_occurrence_ref(&self, id: WordOccurrenceId) -> WordOccurrenceRef<'_, 'a> {
         WordOccurrenceRef { facts: self, id }
     }
 
-    fn word_occurrence(&self, id: WordOccurrenceId) -> &WordOccurrence {
-        &self.word_occurrences[id.index()]
+    pub(crate) fn word_occurrence(&self, id: WordOccurrenceId) -> &WordOccurrence {
+        &self.words.word_occurrences[id.index()]
     }
 
-    fn word_node(&self, id: WordNodeId) -> &WordNode<'a> {
-        &self.word_nodes[id.index()]
+    pub(crate) fn word_node(&self, id: WordNodeId) -> &WordNode<'a> {
+        &self.words.word_nodes[id.index()]
     }
 
-    fn word_node_derived(&self, id: WordNodeId) -> &WordNodeDerived<'a> {
+    pub(crate) fn word_node_derived(&self, id: WordNodeId) -> &WordNodeDerived<'a> {
         word_node_derived(self.word_node(id))
     }
 
     pub fn brace_variable_before_bracket_spans(&self) -> &[Span] {
-        &self.brace_variable_before_bracket_spans
+        &self.words.brace_variable_before_bracket_spans
     }
 
     pub fn command_is_in_completion_registered_function(&self, id: CommandId) -> bool {
-        self.completion_registered_function_command_flags
+        self.command
+            .completion_registered_function_command_flags
             .get(id.index())
             .copied()
             .unwrap_or(false)
     }
 
     pub fn function_is_completion_registered(&self, scope: ScopeId) -> bool {
-        self.completion_registered_function_scopes.contains(&scope)
+        self.command
+            .completion_registered_function_scopes
+            .contains(&scope)
     }
 
     pub fn function_is_external_entrypoint(&self, scope: ScopeId) -> bool {
-        self.external_entrypoint_function_scopes.contains(&scope)
+        self.command
+            .external_entrypoint_function_scopes
+            .contains(&scope)
     }
 
     pub fn function_headers(&self) -> &[FunctionHeaderFact<'a>] {
-        &self.function_headers
+        &self.command.function_headers
     }
 
     pub fn function_in_alias_spans(&self) -> &[Span] {
-        &self.function_in_alias_spans
+        &self.command.function_in_alias_spans
     }
 
     pub fn alias_definition_expansion_spans(&self) -> &[Span] {
-        &self.alias_definition_expansion_spans
+        &self.command.alias_definition_expansion_spans
     }
 
     pub fn function_body_without_braces_spans(&self) -> &[Span] {
-        &self.function_body_without_braces_spans
+        &self.command.function_body_without_braces_spans
     }
 
     pub fn function_parameter_fallback_spans(&self) -> &[Span] {
-        &self.function_parameter_fallback_spans
+        &self.command.function_parameter_fallback_spans
     }
 
     pub fn redundant_return_status_spans(&self) -> &[Span] {
-        &self.redundant_return_status_spans
+        &self.command.redundant_return_status_spans
     }
 
     pub fn for_headers(&self) -> &[ForHeaderFact<'a>] {
-        &self.for_headers
+        &self.command.for_headers
     }
 
     pub fn select_headers(&self) -> &[SelectHeaderFact<'a>] {
-        &self.select_headers
+        &self.command.select_headers
     }
 
     pub fn case_items(&self) -> &[CaseItemFact<'a>] {
-        &self.case_items
+        &self.command.case_items
     }
 
     pub fn case_pattern_shadows(&self) -> &[CasePatternShadowFact] {
-        &self.case_pattern_shadows
+        &self.command.case_pattern_shadows
     }
 
     pub fn case_pattern_impossible_spans(&self) -> &[Span] {
-        &self.case_pattern_impossible_spans
+        &self.command.case_pattern_impossible_spans
     }
 
     pub fn case_pattern_expansions(&self) -> &[CasePatternExpansionFact] {
-        &self.case_pattern_expansions
+        &self.command.case_pattern_expansions
     }
 
     pub fn getopts_cases(&self) -> &[GetoptsCaseFact] {
-        &self.getopts_cases
+        &self.command.getopts_cases
     }
 
     pub fn pipelines(&self) -> &[PipelineFact<'a>] {
-        &self.pipelines
+        &self.command.pipelines
     }
 
     pub fn lists(&self) -> &[ListFact<'a>] {
-        &self.lists
+        &self.command.lists
     }
 
     pub fn statement_facts(&self) -> &[StatementFact] {
-        &self.statement_facts
+        &self.command.statement_facts
     }
 
     pub fn background_semicolon_spans(&self) -> &[Span] {
-        &self.background_semicolon_spans
+        &self.command.background_semicolon_spans
     }
 
     pub fn single_test_subshell_spans(&self) -> &[Span] {
-        &self.single_test_subshell_spans
+        &self.command.single_test_subshell_spans
     }
 
     pub fn subshell_test_group_spans(&self) -> &[Span] {
-        &self.subshell_test_group_spans
+        &self.command.subshell_test_group_spans
     }
 
     pub fn indented_shebang_span(&self) -> Option<Span> {
-        self.indented_shebang_span
+        self.source_facts.indented_shebang_span
     }
 
     pub fn indented_shebang_indent_span(&self) -> Option<Span> {
-        self.indented_shebang_indent_span
+        self.source_facts.indented_shebang_indent_span
     }
 
     pub fn space_after_hash_bang_span(&self) -> Option<Span> {
-        self.space_after_hash_bang_span
+        self.source_facts.space_after_hash_bang_span
     }
 
     pub fn space_after_hash_bang_whitespace_span(&self) -> Option<Span> {
-        self.space_after_hash_bang_whitespace_span
+        self.source_facts.space_after_hash_bang_whitespace_span
     }
 
     pub fn shebang_not_on_first_line_span(&self) -> Option<Span> {
-        self.shebang_not_on_first_line_span
+        self.source_facts.shebang_not_on_first_line_span
     }
 
     pub fn shebang_not_on_first_line_fix_span(&self) -> Option<Span> {
-        self.shebang_not_on_first_line_fix_span
+        self.source_facts.shebang_not_on_first_line_fix_span
     }
 
     pub fn shebang_not_on_first_line_preferred_newline(&self) -> Option<&'static str> {
-        self.shebang_not_on_first_line_preferred_newline
+        self.source_facts
+            .shebang_not_on_first_line_preferred_newline
     }
 
     pub fn missing_shebang_line_span(&self) -> Option<Span> {
-        self.missing_shebang_line_span
+        self.source_facts.missing_shebang_line_span
     }
 
     pub fn duplicate_shebang_flag_span(&self) -> Option<Span> {
-        self.duplicate_shebang_flag_span
+        self.source_facts.duplicate_shebang_flag_span
     }
 
     pub fn non_absolute_shebang_span(&self) -> Option<Span> {
-        self.non_absolute_shebang_span
+        self.source_facts.non_absolute_shebang_span
     }
 
     pub fn errexit_enabled_anywhere(&self) -> bool {
-        self.errexit_enabled_anywhere
+        self.source_facts.errexit_enabled_anywhere
     }
 
     pub fn commented_continuation_comment_spans(&self) -> &[Span] {
-        &self.commented_continuation_comment_spans
+        &self.source_facts.commented_continuation_comment_spans
     }
 
     pub fn comment_double_quote_nesting_spans(&self) -> &[Span] {
-        &self.comment_double_quote_nesting_spans
+        &self.source_facts.comment_double_quote_nesting_spans
     }
 
     pub fn trailing_directive_comment_spans(&self) -> &[Span] {
-        &self.trailing_directive_comment_spans
+        &self.source_facts.trailing_directive_comment_spans
     }
 
     pub fn condition_status_capture_spans(&self) -> &[Span] {
-        &self.condition_status_capture_spans
+        &self.command.condition_status_capture_spans
     }
 
     pub fn command_substitution_command_spans(&self) -> &[Span] {
-        &self.command_substitution_command_spans
+        &self.command.command_substitution_command_spans
     }
 
     pub fn backtick_substitution_spans(&self) -> &[Span] {
-        &self.backtick_substitution_spans
+        &self.source_facts.backtick_substitution_spans
     }
 
     pub fn backtick_escaped_parameters(&self) -> &[BacktickEscapedParameter] {
-        &self.backtick_escaped_parameters
+        &self.source_facts.backtick_escaped_parameters
     }
 
     pub fn backtick_escaped_parameter_reference_spans(&self) -> &[Span] {
-        &self.backtick_escaped_parameter_reference_spans
+        &self.source_facts.backtick_escaped_parameter_reference_spans
     }
 
     pub fn is_backtick_double_escaped_parameter_reference(&self, span: Span) -> bool {
-        self.backtick_double_escaped_parameter_spans
+        self.source_facts
+            .backtick_double_escaped_parameter_spans
             .contains(&span)
     }
 
     pub fn backtick_command_name_spans(&self) -> &[Span] {
-        &self.backtick_command_name_spans
+        &self.command.backtick_command_name_spans
     }
 
     pub fn dollar_question_after_command_spans(&self) -> &[Span] {
-        &self.dollar_question_after_command_spans
+        &self.source_facts.dollar_question_after_command_spans
     }
 
     pub fn assignment_like_command_name_spans(&self) -> &[Span] {
-        &self.assignment_like_command_name_spans
+        &self.command.assignment_like_command_name_spans
     }
 
     pub fn bare_command_name_assignment_spans(&self) -> &[Span] {
-        &self.bare_command_name_assignment_spans
+        &self.command.bare_command_name_assignment_spans
     }
 
     pub fn subshell_assignment_sites(&self) -> &[NamedSpan] {
-        &self.subshell_assignment_sites
+        &self.assignments.subshell_assignment_sites
     }
 
     pub fn subshell_later_use_sites(&self) -> &[NamedSpan] {
-        &self.subshell_later_use_sites
+        &self.assignments.subshell_later_use_sites
     }
 
     pub fn unused_heredoc_spans(&self) -> &[Span] {
-        &self.unused_heredoc_spans
+        &self.source_facts.unused_heredoc_spans
     }
 
     pub fn heredoc_missing_end_spans(&self) -> &[Span] {
-        &self.heredoc_missing_end_spans
+        &self.source_facts.heredoc_missing_end_spans
     }
 
     pub fn heredoc_closer_not_alone_spans(&self) -> &[Span] {
-        &self.heredoc_closer_not_alone_spans
+        &self.source_facts.heredoc_closer_not_alone_spans
     }
 
     pub fn misquoted_heredoc_close_spans(&self) -> &[Span] {
-        &self.misquoted_heredoc_close_spans
+        &self.source_facts.misquoted_heredoc_close_spans
     }
 
     pub fn heredoc_end_space_spans(&self) -> &[Span] {
-        &self.heredoc_end_space_spans
+        &self.source_facts.heredoc_end_space_spans
     }
 
     pub fn echo_here_doc_spans(&self) -> &[Span] {
-        &self.echo_here_doc_spans
+        &self.source_facts.echo_here_doc_spans
     }
 
     pub fn spaced_tabstrip_close_spans(&self) -> &[Span] {
-        &self.spaced_tabstrip_close_spans
+        &self.source_facts.spaced_tabstrip_close_spans
     }
 
     pub fn plus_equals_assignment_spans(&self) -> &[Span] {
-        &self.plus_equals_assignment_spans
+        &self.assignments.plus_equals_assignment_spans
     }
 
     pub fn array_index_arithmetic_spans(&self) -> &[Span] {
-        &self.array_index_arithmetic_spans
+        &self.words.array_index_arithmetic_spans
     }
 
     pub fn arithmetic_score_line_spans(&self) -> &[Span] {
-        &self.arithmetic_score_line_spans
+        &self.words.arithmetic_score_line_spans
     }
 
     pub fn dollar_in_arithmetic_spans(&self) -> &[Span] {
-        &self.dollar_in_arithmetic_spans
+        &self.words.dollar_in_arithmetic_spans
     }
 
     pub fn single_quoted_fragments(&self) -> &[SingleQuotedFragmentFact] {
-        &self.single_quoted_fragments
+        &self.words.single_quoted_fragments
     }
 
     pub fn dollar_double_quoted_fragments(&self) -> &[DollarDoubleQuotedFragmentFact] {
-        &self.dollar_double_quoted_fragments
+        &self.words.dollar_double_quoted_fragments
     }
 
     pub fn open_double_quote_fragments(&self) -> &[OpenDoubleQuoteFragmentFact] {
-        &self.open_double_quote_fragments
+        &self.words.open_double_quote_fragments
     }
 
     pub fn suspect_closing_quote_fragments(&self) -> &[SuspectClosingQuoteFragmentFact] {
-        &self.suspect_closing_quote_fragments
+        &self.words.suspect_closing_quote_fragments
     }
 
     pub fn literal_brace_spans(&self) -> &[Span] {
-        &self.literal_brace_spans
+        &self.words.literal_brace_spans
     }
 
     pub fn backtick_fragments(&self) -> &[BacktickFragmentFact] {
-        &self.backtick_fragments
+        &self.words.backtick_fragments
     }
 
     pub fn legacy_arithmetic_fragments(&self) -> &[LegacyArithmeticFragmentFact] {
-        &self.legacy_arithmetic_fragments
+        &self.words.legacy_arithmetic_fragments
     }
 
     pub fn positional_parameter_fragments(&self) -> &[PositionalParameterFragmentFact] {
-        &self.positional_parameter_fragments
+        &self.words.positional_parameter_fragments
     }
 
     pub fn positional_parameter_operator_spans(&self) -> &[Span] {
-        &self.positional_parameter_operator_spans
+        &self.words.positional_parameter_operator_spans
     }
 
     pub fn double_paren_grouping_spans(&self) -> &[Span] {
-        &self.double_paren_grouping_spans
+        &self.words.double_paren_grouping_spans
     }
 
     pub fn arithmetic_update_operator_spans(&self) -> &[Span] {
-        &self.arithmetic_update_operator_spans
+        &self.words.arithmetic_update_operator_spans
     }
 
     pub fn arithmetic_update_operator_fix_facts(&self) -> &[ArithmeticUpdateOperatorFixFact] {
-        &self.arithmetic_update_operator_fix_facts
+        &self.words.arithmetic_update_operator_fix_facts
     }
 
     pub fn arithmetic_literal_facts(&self) -> &[ArithmeticLiteralFact] {
-        &self.arithmetic_literal_facts
+        &self.words.arithmetic_literal_facts
     }
 
     pub(crate) fn escape_scan_matches(&self) -> &[EscapeScanMatch] {
-        &self.escape_scan_matches
+        &self.words.escape_scan_matches
     }
 
     pub fn echo_backslash_escape_word_spans(&self) -> &[Span] {
-        &self.echo_backslash_escape_word_spans
+        &self.words.echo_backslash_escape_word_spans
     }
 
     pub fn echo_to_sed_substitution_spans(&self) -> &[Span] {
-        &self.echo_to_sed_substitution_spans
+        &self.words.echo_to_sed_substitution_spans
     }
 
     pub fn arithmetic_command_substitution_spans(&self) -> &[Span] {
-        &self.arithmetic_command_substitution_spans
+        &self.words.arithmetic_command_substitution_spans
     }
     pub fn unicode_smart_quote_spans(&self) -> &[Span] {
-        &self.unicode_smart_quote_spans
+        &self.words.unicode_smart_quote_spans
     }
 
     pub fn pattern_exactly_one_extglob_spans(&self) -> &[Span] {
-        &self.pattern_exactly_one_extglob_spans
+        &self.words.pattern_exactly_one_extglob_spans
     }
 
     pub fn pattern_literal_spans(&self) -> &[Span] {
-        &self.pattern_literal_spans
+        &self.words.pattern_literal_spans
     }
 
     pub fn pattern_charclass_spans(&self) -> &[Span] {
-        &self.pattern_charclass_spans
+        &self.words.pattern_charclass_spans
     }
 
     pub fn is_nested_pattern_charclass_span(&self, span: Span) -> bool {
-        self.nested_pattern_charclass_spans
+        self.words
+            .nested_pattern_charclass_spans
             .contains(&FactSpan::new(span))
     }
 
     pub fn nested_parameter_expansion_fragments(&self) -> &[NestedParameterExpansionFragmentFact] {
-        &self.nested_parameter_expansion_fragments
+        &self.words.nested_parameter_expansion_fragments
     }
 
     pub fn indirect_expansion_fragments(&self) -> &[IndirectExpansionFragmentFact] {
-        &self.indirect_expansion_fragments
+        &self.words.indirect_expansion_fragments
     }
 
     pub fn indexed_array_reference_fragments(&self) -> &[IndexedArrayReferenceFragmentFact] {
-        &self.indexed_array_reference_fragments
+        &self.words.indexed_array_reference_fragments
     }
 
     pub fn plain_unindexed_array_references(
         &self,
     ) -> impl Iterator<Item = PlainUnindexedArrayReferenceFact> + '_ {
-        self.plain_unindexed_array_references
+        self.words
+            .plain_unindexed_array_references
             .get_or_init(|| build_plain_unindexed_array_reference_facts(self))
             .iter()
             .copied()
@@ -1029,45 +1134,47 @@ impl<'a> LinterFacts<'a> {
     pub fn parameter_pattern_special_target_fragments(
         &self,
     ) -> &[ParameterPatternSpecialTargetFragmentFact] {
-        &self.parameter_pattern_special_target_fragments
+        &self.words.parameter_pattern_special_target_fragments
     }
 
     pub fn zsh_parameter_index_flag_fragments(&self) -> &[ZshParameterIndexFlagFragmentFact] {
-        &self.zsh_parameter_index_flag_fragments
+        &self.words.zsh_parameter_index_flag_fragments
     }
 
     pub fn substring_expansion_fragments(&self) -> &[SubstringExpansionFragmentFact] {
-        &self.substring_expansion_fragments
+        &self.words.substring_expansion_fragments
     }
 
     pub fn case_modification_fragments(&self) -> &[CaseModificationFragmentFact] {
-        &self.case_modification_fragments
+        &self.words.case_modification_fragments
     }
 
     pub fn replacement_expansion_fragments(&self) -> &[ReplacementExpansionFragmentFact] {
-        &self.replacement_expansion_fragments
+        &self.words.replacement_expansion_fragments
     }
 
     pub fn positional_parameter_trim_fragments(&self) -> &[PositionalParameterTrimFragmentFact] {
-        &self.positional_parameter_trim_fragments
+        &self.words.positional_parameter_trim_fragments
     }
 
     pub fn conditional_portability(&self) -> &ConditionalPortabilityFacts {
-        &self.conditional_portability
+        &self.compat().conditional_portability
     }
 
     pub(crate) fn possible_variable_misspelling_scope_compat_name_uses(
         &self,
     ) -> &[ComparableNameUse] {
-        self.possible_variable_misspelling_scope_compat_name_uses
+        self.compat
+            .possible_variable_misspelling_scope_compat_name_uses
             .get_or_init(|| build_possible_variable_misspelling_scope_compat_name_uses(self))
     }
 }
 
-fn build_possible_variable_misspelling_scope_compat_name_uses(
+pub(crate) fn build_possible_variable_misspelling_scope_compat_name_uses(
     facts: &LinterFacts<'_>,
 ) -> Vec<ComparableNameUse> {
-    if !source_may_have_scope_compat_misspelling(facts.source) {
+    let source_facts = facts.source_facts();
+    if !source_may_have_scope_compat_misspelling(source_facts.source) {
         return Vec::new();
     }
 
@@ -1085,12 +1192,12 @@ fn build_possible_variable_misspelling_scope_compat_name_uses(
         visit_command_words_for_substitutions(
             command.command(),
             command.redirects(),
-            facts.source,
+            source_facts.source,
             &mut |word| {
                 collect_scope_compat_derived_name_uses(
                     word,
                     facts.semantic_artifacts,
-                    facts.source,
+                    source_facts.source,
                     &mut uses,
                 );
             },
@@ -1100,12 +1207,17 @@ fn build_possible_variable_misspelling_scope_compat_name_uses(
         .for_headers()
         .iter()
         .flat_map(|header| header.words())
-        .chain(facts.select_headers().iter().flat_map(|header| header.words()))
+        .chain(
+            facts
+                .select_headers()
+                .iter()
+                .flat_map(|header| header.words()),
+        )
     {
         if let Some(mut name_use) = scope_compat_standalone_parameter_name_use(word.word()) {
             name_use.mark_derived();
             if is_interesting_scope_compat_name_use(
-                facts.source,
+                source_facts.source,
                 name_use.key().as_str(),
                 name_use.kind(),
                 name_use.span(),
@@ -1114,26 +1226,33 @@ fn build_possible_variable_misspelling_scope_compat_name_uses(
             }
         }
     }
-    uses.extend(build_flag_for_loop_source_name_uses(Locator::new(facts.source, facts.line_index)).into_iter().filter(|name_use| {
-        is_interesting_scope_compat_name_use(
-            facts.source,
-            name_use.key().as_str(),
-            name_use.kind(),
-            name_use.span(),
-        )
-    }));
+    uses.extend(
+        build_flag_for_loop_source_name_uses(Locator::new(
+            source_facts.source,
+            source_facts.line_index,
+        ))
+        .into_iter()
+        .filter(|name_use| {
+            is_interesting_scope_compat_name_use(
+                source_facts.source,
+                name_use.key().as_str(),
+                name_use.kind(),
+                name_use.span(),
+            )
+        }),
+    );
     dedup_comparable_name_uses(&mut uses);
     uses
 }
 
-fn source_may_have_scope_compat_misspelling(source: &str) -> bool {
+pub(crate) fn source_may_have_scope_compat_misspelling(source: &str) -> bool {
     source.contains("SHELLSPEC_EXECDIR")
         || source.contains("CFLAGS")
         || source.contains("CPPFLAGS")
         || source.contains("CXXFLAGS")
 }
 
-fn scope_compat_standalone_parameter_name_use(word: &Word) -> Option<ComparableNameUse> {
+pub(crate) fn scope_compat_standalone_parameter_name_use(word: &Word) -> Option<ComparableNameUse> {
     let name = standalone_comparable_parameter_name(&word.parts)?;
     Some(ComparableNameUse {
         span: word.span,
@@ -1142,7 +1261,7 @@ fn scope_compat_standalone_parameter_name_use(word: &Word) -> Option<ComparableN
     })
 }
 
-fn collect_scope_compat_derived_name_uses(
+pub(crate) fn collect_scope_compat_derived_name_uses(
     word: &Word,
     semantic: &LinterSemanticArtifacts<'_>,
     source: &str,
@@ -1159,7 +1278,7 @@ fn collect_scope_compat_derived_name_uses(
     );
 }
 
-fn collect_scope_compat_command_substitution_name_uses_in_parts(
+pub(crate) fn collect_scope_compat_command_substitution_name_uses_in_parts(
     parts: &[WordPartNode],
     semantic: &LinterSemanticArtifacts<'_>,
     source: &str,
@@ -1239,7 +1358,7 @@ fn collect_scope_compat_command_substitution_name_uses_in_parts(
     }
 }
 
-fn collect_scope_compat_command_substitution_name_uses(
+pub(crate) fn collect_scope_compat_command_substitution_name_uses(
     body: &StmtSeq,
     semantic: &LinterSemanticArtifacts<'_>,
     source: &str,
@@ -1256,13 +1375,14 @@ fn collect_scope_compat_command_substitution_name_uses(
     });
 }
 
-fn push_scope_compat_command_substitution_word_use(
+pub(crate) fn push_scope_compat_command_substitution_word_use(
     word: &Word,
     source: &str,
     allow_quoted_derived_words: bool,
     uses: &mut Vec<ComparableNameUse>,
 ) {
-    if !allow_quoted_derived_words && analyze_word(word, source, None).quote == WordQuote::FullyQuoted
+    if !allow_quoted_derived_words
+        && analyze_word(word, source, None).quote == WordQuote::FullyQuoted
     {
         return;
     }
@@ -1271,7 +1391,7 @@ fn push_scope_compat_command_substitution_word_use(
     }
 }
 
-fn collect_scope_compat_arithmetic_name_use(
+pub(crate) fn collect_scope_compat_arithmetic_name_use(
     word: &Word,
     source: &str,
     uses: &mut Vec<ComparableNameUse>,
@@ -1281,7 +1401,7 @@ fn collect_scope_compat_arithmetic_name_use(
     }
 }
 
-fn scope_compat_standalone_derived_name_use(
+pub(crate) fn scope_compat_standalone_derived_name_use(
     word: &Word,
     source: &str,
 ) -> Option<ComparableNameUse> {
@@ -1296,7 +1416,7 @@ fn scope_compat_standalone_derived_name_use(
     .then_some(name_use)
 }
 
-fn is_interesting_scope_compat_name_use(
+pub(crate) fn is_interesting_scope_compat_name_use(
     _source: &str,
     name: &str,
     kind: ComparableNameUseKind,
@@ -1307,14 +1427,16 @@ fn is_interesting_scope_compat_name_use(
         || kind == ComparableNameUseKind::Derived && is_reportable_build_flag_family_name(name)
 }
 
-fn is_reportable_build_flag_family_name(name: &str) -> bool {
+pub(crate) fn is_reportable_build_flag_family_name(name: &str) -> bool {
     let Some((_, suffix)) = split_scope_compat_build_flag_family_name(name) else {
         return false;
     };
     matches!(suffix, "CFLAGS" | "CPPFLAGS" | "CXXFLAGS")
 }
 
-fn split_scope_compat_build_flag_family_name(name: &str) -> Option<(&str, &'static str)> {
+pub(crate) fn split_scope_compat_build_flag_family_name(
+    name: &str,
+) -> Option<(&str, &'static str)> {
     ["CXXFLAGS", "CPPFLAGS", "CFLAGS"]
         .into_iter()
         .find_map(|suffix| {
@@ -1329,7 +1451,7 @@ fn split_scope_compat_build_flag_family_name(name: &str) -> Option<(&str, &'stat
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn populate_array_assignment_split_scalar_expansion_spans(
+pub(crate) fn populate_array_assignment_split_scalar_expansion_spans(
     shell: ShellDialect,
     commands: &[CommandFact<'_>],
     word_nodes: &[WordNode<'_>],
@@ -1356,13 +1478,14 @@ fn populate_array_assignment_split_scalar_expansion_spans(
             &mut use_replacement_spans,
             &mut brace_expansion_spans,
         );
-        word_occurrences[id.index()].array_assignment_split_scalar_expansion_spans =
-            fact_store.word_spans.push_many(split_sensitive_spans.drain(..));
+        word_occurrences[id.index()].array_assignment_split_scalar_expansion_spans = fact_store
+            .word_spans
+            .push_many(split_sensitive_spans.drain(..));
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn collect_array_assignment_split_scalar_expansion_spans(
+pub(crate) fn collect_array_assignment_split_scalar_expansion_spans(
     id: WordOccurrenceId,
     commands: &[CommandFact<'_>],
     word_nodes: &[WordNode<'_>],
@@ -1396,8 +1519,7 @@ fn collect_array_assignment_split_scalar_expansion_spans(
     if !unquoted_command_substitution_spans.is_empty() {
         // commands is sorted by start offset (compare_command_facts_by_offset),
         // so binary-search the subrange whose start lies inside fact_span.
-        let start =
-            commands.partition_point(|c| c.span().start.offset < fact_span.start.offset);
+        let start = commands.partition_point(|c| c.span().start.offset < fact_span.start.offset);
         for command in &commands[start..] {
             let command_span = command.span();
             if command_span.start.offset > fact_span.end.offset {
@@ -1453,14 +1575,14 @@ fn collect_array_assignment_split_scalar_expansion_spans(
     sort_and_dedup_spans(split_sensitive_spans);
 }
 
-fn shell_has_brace_expansion(shell: ShellDialect) -> bool {
+pub(crate) fn shell_has_brace_expansion(shell: ShellDialect) -> bool {
     matches!(
         shell,
         ShellDialect::Bash | ShellDialect::Ksh | ShellDialect::Mksh | ShellDialect::Zsh
     )
 }
 
-fn build_flag_for_loop_source_name_uses(locator: Locator<'_>) -> Vec<ComparableNameUse> {
+pub(crate) fn build_flag_for_loop_source_name_uses(locator: Locator<'_>) -> Vec<ComparableNameUse> {
     let source = locator.source();
     let mut uses = Vec::new();
     for line_number in 1..=locator.line_index().line_count() {
@@ -1511,7 +1633,7 @@ fn build_flag_for_loop_source_name_uses(locator: Locator<'_>) -> Vec<ComparableN
     uses
 }
 
-fn is_build_flag_source_name(name: &str) -> bool {
+pub(crate) fn is_build_flag_source_name(name: &str) -> bool {
     matches!(
         name,
         "CFLAGS" | "CXXFLAGS" | "CPPFLAGS" | "LDFLAGS" | "GOFLAGS"
@@ -1521,14 +1643,14 @@ fn is_build_flag_source_name(name: &str) -> bool {
         || name.ends_with("_LDFLAGS")
 }
 
-fn assignment_value_span(value: &AssignmentValue) -> Option<Span> {
+pub(crate) fn assignment_value_span(value: &AssignmentValue) -> Option<Span> {
     match value {
         AssignmentValue::Scalar(word) => Some(word.span),
         AssignmentValue::Compound(_) => None,
     }
 }
 
-struct AssignmentValueTargetEntry {
+pub(crate) struct AssignmentValueTargetEntry {
     value_start: usize,
     value_end: usize,
     target_name: Name,
@@ -1536,9 +1658,9 @@ struct AssignmentValueTargetEntry {
 
 // Sorted ascending by `value_start`. Scalar assignment value spans are word-level
 // and do not overlap, so a query span is contained by at most one entry.
-type AssignmentValueTargetIndex = Vec<AssignmentValueTargetEntry>;
+pub(crate) type AssignmentValueTargetIndex = Vec<AssignmentValueTargetEntry>;
 
-fn build_assignment_value_target_index(
+pub(crate) fn build_assignment_value_target_index(
     commands: &[CommandFact<'_>],
 ) -> AssignmentValueTargetIndex {
     let mut entries = Vec::<AssignmentValueTargetEntry>::new();
@@ -1562,7 +1684,7 @@ fn build_assignment_value_target_index(
     entries
 }
 
-fn push_assignment_value_target_entry(
+pub(crate) fn push_assignment_value_target_entry(
     entries: &mut Vec<AssignmentValueTargetEntry>,
     assignment: &Assignment,
 ) {

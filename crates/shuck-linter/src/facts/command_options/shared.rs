@@ -7,7 +7,7 @@ pub(crate) fn word_starts_with_literal_dash(word: &Word, source: &str) -> bool {
     )
 }
 
-pub(super) fn word_starts_with_static_or_literal_dash(word: &Word, source: &str) -> bool {
+pub(crate) fn word_starts_with_static_or_literal_dash(word: &Word, source: &str) -> bool {
     static_word_text(word, source).is_some_and(|text| text.starts_with('-'))
         || word_starts_with_literal_dash(word, source)
 }

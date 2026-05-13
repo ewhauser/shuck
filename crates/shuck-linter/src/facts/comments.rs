@@ -1,20 +1,22 @@
+use super::*;
+
 #[derive(Debug, Clone, Copy, Default)]
-struct ShebangHeaderFacts {
-    indented_shebang_span: Option<Span>,
-    indented_shebang_indent_span: Option<Span>,
-    space_after_hash_bang_span: Option<Span>,
-    space_after_hash_bang_whitespace_span: Option<Span>,
-    shebang_not_on_first_line_span: Option<Span>,
-    shebang_not_on_first_line_fix_span: Option<Span>,
-    shebang_not_on_first_line_preferred_newline: Option<&'static str>,
-    missing_shebang_line_span: Option<Span>,
-    duplicate_shebang_flag_span: Option<Span>,
-    non_absolute_shebang_span: Option<Span>,
-    enables_errexit: bool,
+pub(crate) struct ShebangHeaderFacts {
+    pub(crate) indented_shebang_span: Option<Span>,
+    pub(crate) indented_shebang_indent_span: Option<Span>,
+    pub(crate) space_after_hash_bang_span: Option<Span>,
+    pub(crate) space_after_hash_bang_whitespace_span: Option<Span>,
+    pub(crate) shebang_not_on_first_line_span: Option<Span>,
+    pub(crate) shebang_not_on_first_line_fix_span: Option<Span>,
+    pub(crate) shebang_not_on_first_line_preferred_newline: Option<&'static str>,
+    pub(crate) missing_shebang_line_span: Option<Span>,
+    pub(crate) duplicate_shebang_flag_span: Option<Span>,
+    pub(crate) non_absolute_shebang_span: Option<Span>,
+    pub(crate) enables_errexit: bool,
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_shebang_header_facts(locator: Locator<'_>) -> ShebangHeaderFacts {
+pub(crate) fn build_shebang_header_facts(locator: Locator<'_>) -> ShebangHeaderFacts {
     let source = locator.source();
     let line_index = locator.line_index();
     let Some(first_line) = source_line(source, line_index, 1) else {
@@ -143,27 +145,27 @@ fn build_shebang_header_facts(locator: Locator<'_>) -> ShebangHeaderFacts {
     }
 }
 
-fn source_line_is_header_like(line: &str) -> bool {
+pub(crate) fn source_line_is_header_like(line: &str) -> bool {
     let trimmed = line.trim_start();
     trimmed.is_empty() || trimmed.starts_with('#')
 }
 
-fn source_line_has_shebang_candidate(line: &str) -> bool {
+pub(crate) fn source_line_has_shebang_candidate(line: &str) -> bool {
     let trimmed = line.trim_start_matches(char::is_whitespace);
     trimmed.starts_with("#!") || shebang_space_after_hash_in_line(trimmed).is_some()
 }
 
-fn source_line_has_leading_whitespace_before_shebang_candidate(line: &str) -> bool {
+pub(crate) fn source_line_has_leading_whitespace_before_shebang_candidate(line: &str) -> bool {
     let trimmed = line.trim_start_matches(char::is_whitespace);
     trimmed.len() != line.len() && source_line_has_shebang_candidate(line)
 }
 
-fn source_line_leading_whitespace_len(line: &str) -> Option<usize> {
+pub(crate) fn source_line_leading_whitespace_len(line: &str) -> Option<usize> {
     let trimmed = line.trim_start_matches(char::is_whitespace);
     (trimmed.len() != line.len()).then_some(line.len() - trimmed.len())
 }
 
-fn shebang_space_after_hash_in_line(line: &str) -> Option<(usize, usize)> {
+pub(crate) fn shebang_space_after_hash_in_line(line: &str) -> Option<(usize, usize)> {
     let trimmed = line.trim_start_matches(char::is_whitespace);
     let leading_whitespace_len = line.len().saturating_sub(trimmed.len());
     let rest = trimmed.strip_prefix('#')?;
@@ -174,7 +176,7 @@ fn shebang_space_after_hash_in_line(line: &str) -> Option<(usize, usize)> {
         .then_some((leading_whitespace_len + 1, whitespace_len))
 }
 
-fn point_span(line_number: usize, column: usize, offset: usize) -> Span {
+pub(crate) fn point_span(line_number: usize, column: usize, offset: usize) -> Span {
     Span::at(Position {
         line: line_number,
         column,
@@ -182,7 +184,7 @@ fn point_span(line_number: usize, column: usize, offset: usize) -> Span {
     })
 }
 
-fn line_prefix_span(line_number: usize, offset: usize, prefix: &str) -> Span {
+pub(crate) fn line_prefix_span(line_number: usize, offset: usize, prefix: &str) -> Span {
     let start = Position {
         line: line_number,
         column: 1,
@@ -192,7 +194,7 @@ fn line_prefix_span(line_number: usize, offset: usize, prefix: &str) -> Span {
     Span::from_positions(start, end)
 }
 
-fn line_slice_span(
+pub(crate) fn line_slice_span(
     line_number: usize,
     line_offset: usize,
     line: &str,
@@ -209,7 +211,12 @@ fn line_slice_span(
     Span::from_positions(start, end)
 }
 
-fn line_with_ending_span(line_number: usize, offset: usize, line: &str, line_ending: &str) -> Span {
+pub(crate) fn line_with_ending_span(
+    line_number: usize,
+    offset: usize,
+    line: &str,
+    line_ending: &str,
+) -> Span {
     let start = Position {
         line: line_number,
         column: 1,
@@ -219,18 +226,22 @@ fn line_with_ending_span(line_number: usize, offset: usize, line: &str, line_end
     Span::from_positions(start, end)
 }
 
-fn parse_shebang_words(shebang: &str) -> Vec<&str> {
+pub(crate) fn parse_shebang_words(shebang: &str) -> Vec<&str> {
     shebang.split_whitespace().collect()
 }
 
 #[derive(Debug, Clone, Copy)]
-struct SourceLine<'a> {
+pub(crate) struct SourceLine<'a> {
     offset: usize,
     text: &'a str,
     line_ending: &'static str,
 }
 
-fn source_line<'a>(source: &'a str, line_index: &LineIndex, line: usize) -> Option<SourceLine<'a>> {
+pub(crate) fn source_line<'a>(
+    source: &'a str,
+    line_index: &LineIndex,
+    line: usize,
+) -> Option<SourceLine<'a>> {
     let range = line_index.line_range(line, source)?;
     let offset = usize::from(range.start());
     let raw_text = range.slice(source);
@@ -252,7 +263,7 @@ fn source_line<'a>(source: &'a str, line_index: &LineIndex, line: usize) -> Opti
     })
 }
 
-fn first_nonempty_source_line<'a>(
+pub(crate) fn first_nonempty_source_line<'a>(
     source: &'a str,
     line_index: &LineIndex,
 ) -> Option<(usize, &'a str)> {
@@ -262,7 +273,7 @@ fn first_nonempty_source_line<'a>(
         .map(|line| (line.offset, line.text))
 }
 
-fn shebang_duplicate_flag<'a>(shebang_words: &[&'a str]) -> Option<&'a str> {
+pub(crate) fn shebang_duplicate_flag<'a>(shebang_words: &[&'a str]) -> Option<&'a str> {
     let mut seen = FxHashSet::default();
 
     shebang_words
@@ -272,7 +283,7 @@ fn shebang_duplicate_flag<'a>(shebang_words: &[&'a str]) -> Option<&'a str> {
         .find(|word| word.starts_with('-') && !seen.insert(*word))
 }
 
-fn shebang_enables_errexit(shebang_words: &[&str]) -> bool {
+pub(crate) fn shebang_enables_errexit(shebang_words: &[&str]) -> bool {
     let mut words = shebang_words.iter().copied().peekable();
     while let Some(word) = words.next() {
         if shebang_short_option_cluster_enables_errexit(word) {
@@ -289,7 +300,7 @@ fn shebang_enables_errexit(shebang_words: &[&str]) -> bool {
     false
 }
 
-fn shebang_short_option_cluster_enables_errexit(word: &str) -> bool {
+pub(crate) fn shebang_short_option_cluster_enables_errexit(word: &str) -> bool {
     let Some(flags) = word.strip_prefix('-') else {
         return false;
     };
@@ -301,7 +312,7 @@ fn shebang_short_option_cluster_enables_errexit(word: &str) -> bool {
     flags.chars().all(|char| char.is_ascii_alphabetic()) && flags.contains('e')
 }
 
-fn line_span(line_number: usize, offset: usize, line: &str) -> Span {
+pub(crate) fn line_span(line_number: usize, offset: usize, line: &str) -> Span {
     let start = Position {
         line: line_number,
         column: 1,
@@ -312,7 +323,10 @@ fn line_span(line_number: usize, offset: usize, line: &str) -> Span {
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_commented_continuation_comment_spans(source: &str, indexer: &Indexer) -> Vec<Span> {
+pub(crate) fn build_commented_continuation_comment_spans(
+    source: &str,
+    indexer: &Indexer,
+) -> Vec<Span> {
     let line_index = indexer.line_index();
     let comment_index = indexer.comment_index();
 
@@ -349,7 +363,10 @@ fn build_commented_continuation_comment_spans(source: &str, indexer: &Indexer) -
         .collect()
 }
 
-fn build_comment_double_quote_nesting_spans(source: &str, indexer: &Indexer) -> Vec<Span> {
+pub(crate) fn build_comment_double_quote_nesting_spans(
+    source: &str,
+    indexer: &Indexer,
+) -> Vec<Span> {
     let line_index = indexer.line_index();
 
     (1..=line_index.line_count())
@@ -385,7 +402,7 @@ fn build_comment_double_quote_nesting_spans(source: &str, indexer: &Indexer) -> 
         .collect()
 }
 
-fn build_trailing_directive_comment_spans(
+pub(crate) fn build_trailing_directive_comment_spans(
     directive_attachment_facts: &crate::suppression::DirectiveAttachmentFacts,
     case_items: &[CaseItemFact<'_>],
     source: &str,
@@ -435,7 +452,7 @@ fn build_trailing_directive_comment_spans(
         .collect()
 }
 
-fn case_item_label_comment(
+pub(crate) fn case_item_label_comment(
     case_items: &[CaseItemFact<'_>],
     line: usize,
     comment_start: usize,
@@ -457,7 +474,7 @@ fn case_item_label_comment(
     })
 }
 
-fn has_header_shellcheck_shell_directive(source: &str, line_index: &LineIndex) -> bool {
+pub(crate) fn has_header_shellcheck_shell_directive(source: &str, line_index: &LineIndex) -> bool {
     for line_number in 2..=line_index.line_count() {
         let Some(source_line) = source_line(source, line_index, line_number) else {
             continue;

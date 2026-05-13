@@ -1,4 +1,6 @@
-struct LinterFactsBuilder<'a, 'analysis> {
+use super::*;
+
+pub(crate) struct LinterFactsBuilder<'a, 'analysis> {
     file: &'a File,
     source: &'a str,
     semantic_artifacts: &'a LinterSemanticArtifacts<'a>,
@@ -11,33 +13,33 @@ struct LinterFactsBuilder<'a, 'analysis> {
 }
 
 #[derive(Debug, Default)]
-struct FactBuildCapacity {
+pub(crate) struct FactBuildCapacity {
     commands: usize,
     functions: usize,
 }
 
 #[derive(Debug, Default)]
-struct ArithmeticFactSummary {
-    array_index_arithmetic_spans: Vec<Span>,
-    arithmetic_score_line_spans: Vec<Span>,
-    dollar_in_arithmetic_spans: Vec<Span>,
-    arithmetic_command_substitution_spans: Vec<Span>,
-    arithmetic_only_suppressed_subscript_spans: Vec<Span>,
+pub(crate) struct ArithmeticFactSummary {
+    pub(crate) array_index_arithmetic_spans: Vec<Span>,
+    pub(crate) arithmetic_score_line_spans: Vec<Span>,
+    pub(crate) dollar_in_arithmetic_spans: Vec<Span>,
+    pub(crate) arithmetic_command_substitution_spans: Vec<Span>,
+    pub(crate) arithmetic_only_suppressed_subscript_spans: Vec<Span>,
 }
 
 #[derive(Debug, Default)]
-struct HeredocFactSummary {
-    unused_heredoc_spans: Vec<Span>,
-    heredoc_missing_end_spans: Vec<Span>,
-    heredoc_closer_not_alone_spans: Vec<Span>,
-    misquoted_heredoc_close_spans: Vec<Span>,
-    heredoc_end_space_spans: Vec<Span>,
-    echo_here_doc_spans: Vec<Span>,
-    spaced_tabstrip_close_spans: Vec<Span>,
+pub(crate) struct HeredocFactSummary {
+    pub(crate) unused_heredoc_spans: Vec<Span>,
+    pub(crate) heredoc_missing_end_spans: Vec<Span>,
+    pub(crate) heredoc_closer_not_alone_spans: Vec<Span>,
+    pub(crate) misquoted_heredoc_close_spans: Vec<Span>,
+    pub(crate) heredoc_end_space_spans: Vec<Span>,
+    pub(crate) echo_here_doc_spans: Vec<Span>,
+    pub(crate) spaced_tabstrip_close_spans: Vec<Span>,
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn estimate_fact_build_capacity(semantic: &SemanticModel) -> FactBuildCapacity {
+pub(crate) fn estimate_fact_build_capacity(semantic: &SemanticModel) -> FactBuildCapacity {
     let commands = semantic.command_count();
     FactBuildCapacity {
         commands,
@@ -46,7 +48,7 @@ fn estimate_fact_build_capacity(semantic: &SemanticModel) -> FactBuildCapacity {
 }
 
 impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
-    fn new(
+    pub(crate) fn new(
         file: &'a File,
         source: &'a str,
         semantic: &'a LinterSemanticArtifacts<'a>,
@@ -68,7 +70,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         }
     }
 
-    fn build(self) -> LinterFacts<'a> {
+    pub(crate) fn build(self) -> LinterFacts<'a> {
         let source = self.source;
         let line_index = self._indexer.line_index();
         let locator = crate::Locator::new(source, line_index);
@@ -77,8 +79,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let estimated_word_nodes = capacity.commands.saturating_mul(2);
         let estimated_word_occurrences = capacity.commands.saturating_mul(3);
 
-        let mut commands: Vec<CommandFact<'_>> =
-            Vec::with_capacity(self.semantic.command_count());
+        let mut commands: Vec<CommandFact<'_>> = Vec::with_capacity(self.semantic.command_count());
         let mut substitution_occurrences_by_command_id: Vec<Vec<HostedSubstitutionOccurrence<'_>>> =
             (0..self.semantic.command_count())
                 .map(|_| Vec::new())
@@ -95,10 +96,8 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             DenseCommandIdSet::with_capacity(self.semantic.command_count());
         let mut elif_condition_command_ids =
             DenseCommandIdSet::with_capacity(self.semantic.command_count());
-        let mut binding_values = FxHashMap::with_capacity_and_hasher(
-            self.semantic.bindings().len(),
-            Default::default(),
-        );
+        let mut binding_values =
+            FxHashMap::with_capacity_and_hasher(self.semantic.bindings().len(), Default::default());
         let mut broken_assoc_key_spans = Vec::new();
         let mut comma_array_assignment_spans = Vec::new();
         let mut ifs_literal_backslash_assignment_value_spans = Vec::new();
@@ -153,330 +152,318 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             else {
                 continue;
             };
-                let key = FactSpan::new(command_span(visit.command));
-                debug_assert_eq!(context.syntax_span(), command_span(visit.command));
-                debug_assert_eq!(
-                    context.kind(),
-                    shuck_semantic::CommandKind::from_command(visit.command)
-                );
-                let lookup_kind = command_lookup_kind(visit.command);
-                let entries = command_ids_by_span.entry(key).or_default();
-                // Recovery on malformed nested word commands can surface the same
-                // syntax-backed command more than once. Keep the first lookup target
-                // so stmt-to-fact resolution stays deterministic.
-                if !entries.iter().any(|entry| entry.kind == lookup_kind) {
-                    entries.push(CommandLookupEntry {
-                        kind: lookup_kind,
-                        id,
-                    });
-                }
-
-                if context.is_in_if_condition() {
-                    if_condition_command_ids.insert(id);
-                }
-                if context.is_in_elif_condition() {
-                    elif_condition_command_ids.insert(id);
-                }
-                collect_binding_values(
-                    visit.command,
-                    self.semantic,
-                    self.source,
-                    &mut binding_values,
-                );
-                collect_broken_assoc_key_spans(
-                    visit.command,
-                    self.source,
-                    &mut broken_assoc_key_spans,
-                );
-                collect_command_substitution_command_span(
-                    visit.command,
-                    self.source,
-                    &mut command_substitution_command_spans,
-                );
-                collect_comma_array_assignment_spans(
-                    visit.command,
-                    self.source,
-                    self.shell,
-                    self.semantic,
-                    &mut comma_array_assignment_spans,
-                );
-                collect_ifs_literal_backslash_assignment_value_spans(
-                    visit.command,
-                    self.source,
-                    &mut ifs_literal_backslash_assignment_value_spans,
-                );
-                let normalized = command::normalize_command(visit.command, self.source);
-                let command_start_offset = command_span(visit.command).start.offset;
-                let scope = context.scope();
-                let command_shell_behavior = effective_command_shell_behavior(
-                    self.semantic,
-                    command_start_offset,
-                    &normalized,
-                );
-                if let Some(name_word) = normalized.body_name_word() {
-                    command_ids_by_name_word_span
-                        .entry(FactSpan::new(name_word.span))
-                        .or_insert(id);
-                }
-                let nested_word_command = context.is_nested_word_command();
-                build_word_facts_for_command(
-                    visit,
-                    self.source,
-                    locator,
-                    self.semantic,
-                    WordFactCommandContext {
-                        command_id: id,
-                        nested_word_command,
-                        scope,
-                    },
-                    &normalized,
-                    command_shell_behavior.clone(),
-                    WordFactOutputs {
-                        command_visits_by_id: self.command_visits_by_id,
-                        word_nodes: &mut word_nodes,
-                        word_spans: &mut word_spans,
-                        word_span_scratch: &mut word_span_scratch,
-                        word_node_ids_by_span: &mut word_node_ids_by_span,
-                        word_occurrences: &mut word_occurrences,
-                        pending_arithmetic_word_occurrences:
-                            &mut pending_arithmetic_word_occurrences,
-                        pending_parameter_operand_word_occurrences:
-                            &mut pending_parameter_operand_word_occurrences,
-                        compound_assignment_value_word_spans:
-                            &mut compound_assignment_value_word_spans,
-                        array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
-                        seen_word_occurrences: &mut seen_word_occurrences,
-                        seen_pending_arithmetic_word_occurrences:
-                            &mut seen_pending_arithmetic_word_occurrences,
-                        seen_pending_parameter_operand_word_occurrences:
-                            &mut seen_pending_parameter_operand_word_occurrences,
-                        assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
-                        semantic_analysis: self.semantic_analysis,
-                        case_pattern_expansions: &mut case_pattern_expansions,
-                        pattern_literal_spans: &mut pattern_literal_spans,
-                        arithmetic: &mut arithmetic_summary,
-                        surface: &mut surface_fragments,
-                    },
-                );
-                collect_zsh_option_map_arithmetic_suppressed_subscripts(
-                    visit.command,
-                    self.semantic,
-                    scope,
-                    self.source,
-                    &mut arithmetic_summary.arithmetic_only_suppressed_subscript_spans,
-                );
-                collect_base_prefix_spans_in_command_parts(
-                    visit.command,
-                    self.source,
-                    &mut arithmetic_literal_spans,
-                );
-                collect_arithmetic_update_operator_spans_in_command(
-                    visit.command,
-                    self.semantic,
-                    self.semantic_artifacts,
-                    scope,
-                    self.source,
-                    &mut arithmetic_update_operator_spans,
-                );
-                for redirect in visit.redirects {
-                    if let Some(word) = redirect.word_target() {
-                        collect_base_prefix_spans_in_word(
-                            word,
-                            self.source,
-                            &mut arithmetic_literal_spans,
-                        );
-                        collect_arithmetic_update_operator_spans_in_word(
-                            word,
-                            self.semantic,
-                            self.source,
-                            &mut arithmetic_update_operator_spans,
-                        );
-                    } else if let Some(heredoc) = redirect.heredoc()
-                        && heredoc.delimiter.expands_body
-                    {
-                        collect_arithmetic_update_operator_spans_in_heredoc_body(
-                            &heredoc.body.parts,
-                            self.semantic,
-                            self.semantic_artifacts,
-                            self.source,
-                            &mut arithmetic_update_operator_spans,
-                        );
-                    }
-                }
-                let redirect_facts = build_redirect_facts(
-                    visit.redirects,
-                    Some(self.semantic_artifacts),
-                    locator,
-                    &command_shell_behavior,
-                );
-                let redirect_fact_range = redirect_fact_store.push_many(redirect_facts);
-                let options = CommandOptionFacts::build(
-                    visit.command,
-                    &normalized,
-                    self.semantic_artifacts,
-                    self.source,
-                    &command_shell_behavior,
-                )
-                .into_sparse();
-                let declaration_assignment_probes = build_declaration_assignment_probes(
-                    visit.command,
-                    &normalized,
-                    self.semantic,
-                    self.source,
-                    &command_shell_behavior,
-                );
-                let declaration_assignment_probe_range =
-                    declaration_assignment_probe_store.push_many(declaration_assignment_probes);
-                let glued_closing_bracket_operand_span =
-                    build_glued_closing_bracket_operand_span(visit.command, self.source);
-                let glued_closing_bracket_insert_offset =
-                    build_glued_closing_bracket_insert_offset(visit.command, self.source);
-                let simple_test = build_simple_test_fact(visit.command, self.source);
-                let conditional_expression_visits = self
-                    .semantic_artifacts
-                    .conditional_expression_visits(command_span(visit.command));
-                let conditional =
-                    build_conditional_fact(conditional_expression_visits, self.source);
-                let enclosing_function_scope = self.semantic.enclosing_function_scope(scope);
-                let command_fact = CommandFact {
+            let key = FactSpan::new(command_span(visit.command));
+            debug_assert_eq!(context.syntax_span(), command_span(visit.command));
+            debug_assert_eq!(
+                context.kind(),
+                shuck_semantic::CommandKind::from_command(visit.command)
+            );
+            let lookup_kind = command_lookup_kind(visit.command);
+            let entries = command_ids_by_span.entry(key).or_default();
+            // Recovery on malformed nested word commands can surface the same
+            // syntax-backed command more than once. Keep the first lookup target
+            // so stmt-to-fact resolution stays deterministic.
+            if !entries.iter().any(|entry| entry.kind == lookup_kind) {
+                entries.push(CommandLookupEntry {
+                    kind: lookup_kind,
                     id,
-                    key,
-                    visit,
+                });
+            }
+
+            if context.is_in_if_condition() {
+                if_condition_command_ids.insert(id);
+            }
+            if context.is_in_elif_condition() {
+                elif_condition_command_ids.insert(id);
+            }
+            collect_binding_values(
+                visit.command,
+                self.semantic,
+                self.source,
+                &mut binding_values,
+            );
+            collect_broken_assoc_key_spans(visit.command, self.source, &mut broken_assoc_key_spans);
+            collect_command_substitution_command_span(
+                visit.command,
+                self.source,
+                &mut command_substitution_command_spans,
+            );
+            collect_comma_array_assignment_spans(
+                visit.command,
+                self.source,
+                self.shell,
+                self.semantic,
+                &mut comma_array_assignment_spans,
+            );
+            collect_ifs_literal_backslash_assignment_value_spans(
+                visit.command,
+                self.source,
+                &mut ifs_literal_backslash_assignment_value_spans,
+            );
+            let normalized = command::normalize_command(visit.command, self.source);
+            let command_start_offset = command_span(visit.command).start.offset;
+            let scope = context.scope();
+            let command_shell_behavior =
+                effective_command_shell_behavior(self.semantic, command_start_offset, &normalized);
+            if let Some(name_word) = normalized.body_name_word() {
+                command_ids_by_name_word_span
+                    .entry(FactSpan::new(name_word.span))
+                    .or_insert(id);
+            }
+            let nested_word_command = context.is_nested_word_command();
+            build_word_facts_for_command(
+                visit,
+                self.source,
+                locator,
+                self.semantic,
+                WordFactCommandContext {
+                    command_id: id,
                     nested_word_command,
                     scope,
-                    enclosing_function_scope,
-                    normalized,
-                    shell_behavior: command_shell_behavior,
-                    redirect_facts: redirect_fact_range,
-                    substitution_facts: IdRange::empty(),
-                    options,
-                    scope_read_source_words: IdRange::empty(),
-                    scope_name_read_uses: IdRange::empty(),
-                    scope_heredoc_name_read_uses: IdRange::empty(),
-                    scope_name_write_uses: IdRange::empty(),
-                    declaration_assignment_probes: declaration_assignment_probe_range,
-                    glued_closing_bracket_operand_span,
-                    glued_closing_bracket_insert_offset,
-                    linebreak_in_test_anchor_span: None,
-                    linebreak_in_test_insert_offset: None,
-                    simple_test,
-                    conditional,
-                };
-                collect_substitution_occurrences_for_command(
-                    visit.command,
-                    visit.redirects,
-                    self.source,
-                    &mut substitution_occurrences_by_command_id[id.index()],
-                );
-                commands.push(command_fact);
-
-                if let Command::Function(function) = visit.command {
-                    functions.push(FunctionFactInput {
-                        command_id: id,
-                        function,
-                    });
-                    if let Some(span) = function_body_without_braces_span(function) {
-                        function_body_without_braces_spans.push(span);
-                    }
+                },
+                &normalized,
+                command_shell_behavior.clone(),
+                WordFactOutputs {
+                    command_visits_by_id: self.command_visits_by_id,
+                    word_nodes: &mut word_nodes,
+                    word_spans: &mut word_spans,
+                    word_span_scratch: &mut word_span_scratch,
+                    word_node_ids_by_span: &mut word_node_ids_by_span,
+                    word_occurrences: &mut word_occurrences,
+                    pending_arithmetic_word_occurrences: &mut pending_arithmetic_word_occurrences,
+                    pending_parameter_operand_word_occurrences:
+                        &mut pending_parameter_operand_word_occurrences,
+                    compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
+                    array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
+                    seen_word_occurrences: &mut seen_word_occurrences,
+                    seen_pending_arithmetic_word_occurrences:
+                        &mut seen_pending_arithmetic_word_occurrences,
+                    seen_pending_parameter_operand_word_occurrences:
+                        &mut seen_pending_parameter_operand_word_occurrences,
+                    assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
+                    semantic_analysis: self.semantic_analysis,
+                    case_pattern_expansions: &mut case_pattern_expansions,
+                    pattern_literal_spans: &mut pattern_literal_spans,
+                    arithmetic: &mut arithmetic_summary,
+                    surface: &mut surface_fragments,
+                },
+            );
+            collect_zsh_option_map_arithmetic_suppressed_subscripts(
+                visit.command,
+                self.semantic,
+                scope,
+                self.source,
+                &mut arithmetic_summary.arithmetic_only_suppressed_subscript_spans,
+            );
+            collect_base_prefix_spans_in_command_parts(
+                visit.command,
+                self.source,
+                &mut arithmetic_literal_spans,
+            );
+            collect_arithmetic_update_operator_spans_in_command(
+                visit.command,
+                self.semantic,
+                self.semantic_artifacts,
+                scope,
+                self.source,
+                &mut arithmetic_update_operator_spans,
+            );
+            for redirect in visit.redirects {
+                if let Some(word) = redirect.word_target() {
+                    collect_base_prefix_spans_in_word(
+                        word,
+                        self.source,
+                        &mut arithmetic_literal_spans,
+                    );
+                    collect_arithmetic_update_operator_spans_in_word(
+                        word,
+                        self.semantic,
+                        self.source,
+                        &mut arithmetic_update_operator_spans,
+                    );
+                } else if let Some(heredoc) = redirect.heredoc()
+                    && heredoc.delimiter.expands_body
+                {
+                    collect_arithmetic_update_operator_spans_in_heredoc_body(
+                        &heredoc.body.parts,
+                        self.semantic,
+                        self.semantic_artifacts,
+                        self.source,
+                        &mut arithmetic_update_operator_spans,
+                    );
                 }
+            }
+            let redirect_facts = build_redirect_facts(
+                visit.redirects,
+                Some(self.semantic_artifacts),
+                locator,
+                &command_shell_behavior,
+            );
+            let redirect_fact_range = redirect_fact_store.push_many(redirect_facts);
+            let options = CommandOptionFacts::build(
+                visit.command,
+                &normalized,
+                self.semantic_artifacts,
+                self.source,
+                &command_shell_behavior,
+            )
+            .into_sparse();
+            let declaration_assignment_probes = build_declaration_assignment_probes(
+                visit.command,
+                &normalized,
+                self.semantic,
+                self.source,
+                &command_shell_behavior,
+            );
+            let declaration_assignment_probe_range =
+                declaration_assignment_probe_store.push_many(declaration_assignment_probes);
+            let glued_closing_bracket_operand_span =
+                build_glued_closing_bracket_operand_span(visit.command, self.source);
+            let glued_closing_bracket_insert_offset =
+                build_glued_closing_bracket_insert_offset(visit.command, self.source);
+            let simple_test = build_simple_test_fact(visit.command, self.source);
+            let conditional_expression_visits = self
+                .semantic_artifacts
+                .conditional_expression_visits(command_span(visit.command));
+            let conditional = build_conditional_fact(conditional_expression_visits, self.source);
+            let enclosing_function_scope = self.semantic.enclosing_function_scope(scope);
+            let command_fact = CommandFact {
+                id,
+                key,
+                visit,
+                nested_word_command,
+                scope,
+                enclosing_function_scope,
+                normalized,
+                shell_behavior: command_shell_behavior,
+                redirect_facts: redirect_fact_range,
+                substitution_facts: IdRange::empty(),
+                options,
+                scope_read_source_words: IdRange::empty(),
+                scope_name_read_uses: IdRange::empty(),
+                scope_heredoc_name_read_uses: IdRange::empty(),
+                scope_name_write_uses: IdRange::empty(),
+                declaration_assignment_probes: declaration_assignment_probe_range,
+                glued_closing_bracket_operand_span,
+                glued_closing_bracket_insert_offset,
+                linebreak_in_test_anchor_span: None,
+                linebreak_in_test_insert_offset: None,
+                simple_test,
+                conditional,
+            };
+            collect_substitution_occurrences_for_command(
+                visit.command,
+                visit.redirects,
+                self.source,
+                &mut substitution_occurrences_by_command_id[id.index()],
+            );
+            commands.push(command_fact);
 
-                if !nested_word_command {
-                    collect_condition_status_capture_from_direct_body_sequences(
-                        visit.command,
-                        self.source,
-                        &mut condition_status_capture_spans,
-                    );
-                    collect_precise_function_return_guard_suppressions_from_direct_body_sequences(
-                        visit.command,
-                        self.source,
-                        &mut precise_function_guard_suppressions,
-                        context.flow().in_function,
-                    );
-                    match visit.command {
-                        Command::Compound(CompoundCommand::If(command)) => {
-                            collect_condition_status_capture_from_body(
-                                &command.condition,
-                                &command.then_branch,
-                                self.source,
-                                &mut condition_status_capture_spans,
-                            );
+            if let Command::Function(function) = visit.command {
+                functions.push(FunctionFactInput {
+                    command_id: id,
+                    function,
+                });
+                if let Some(span) = function_body_without_braces_span(function) {
+                    function_body_without_braces_spans.push(span);
+                }
+            }
 
-                            let mut previous_condition = &command.condition;
-                            for (index, (condition, branch)) in
-                                command.elif_branches.iter().enumerate()
+            if !nested_word_command {
+                collect_condition_status_capture_from_direct_body_sequences(
+                    visit.command,
+                    self.source,
+                    &mut condition_status_capture_spans,
+                );
+                collect_precise_function_return_guard_suppressions_from_direct_body_sequences(
+                    visit.command,
+                    self.source,
+                    &mut precise_function_guard_suppressions,
+                    context.flow().in_function,
+                );
+                match visit.command {
+                    Command::Compound(CompoundCommand::If(command)) => {
+                        collect_condition_status_capture_from_body(
+                            &command.condition,
+                            &command.then_branch,
+                            self.source,
+                            &mut condition_status_capture_spans,
+                        );
+
+                        let mut previous_condition = &command.condition;
+                        for (index, (condition, branch)) in command.elif_branches.iter().enumerate()
+                        {
+                            if index > 0
+                                || !stmt_seq_contains_nested_control_flow(
+                                    &command.then_branch,
+                                    self.semantic_artifacts.command_topology(),
+                                )
                             {
-                                if index > 0
-                                    || !stmt_seq_contains_nested_control_flow(
-                                        &command.then_branch,
-                                        self.semantic_artifacts.command_topology(),
-                                    )
-                                {
-                                    collect_condition_status_capture_from_body(
-                                        previous_condition,
-                                        condition,
-                                        self.source,
-                                        &mut condition_status_capture_spans,
-                                    );
-                                }
-                                collect_condition_status_capture_from_body(
-                                    condition,
-                                    branch,
-                                    self.source,
-                                    &mut condition_status_capture_spans,
-                                );
-                                previous_condition = condition;
-                            }
-
-                            if let Some(else_branch) = &command.else_branch {
                                 collect_condition_status_capture_from_body(
                                     previous_condition,
-                                    else_branch,
+                                    condition,
                                     self.source,
                                     &mut condition_status_capture_spans,
                                 );
                             }
-                        }
-                        Command::Compound(CompoundCommand::While(command)) => {
                             collect_condition_status_capture_from_body(
-                                &command.condition,
-                                &command.body,
+                                condition,
+                                branch,
                                 self.source,
                                 &mut condition_status_capture_spans,
                             );
-                            if let Some(case) =
-                                build_getopts_case_fact_for_while(command, self.source)
-                            {
-                                getopts_cases.push(case);
-                            }
+                            previous_condition = condition;
                         }
-                        Command::Compound(CompoundCommand::Until(command)) => {
+
+                        if let Some(else_branch) = &command.else_branch {
                             collect_condition_status_capture_from_body(
-                                &command.condition,
-                                &command.body,
+                                previous_condition,
+                                else_branch,
                                 self.source,
                                 &mut condition_status_capture_spans,
                             );
                         }
-                        Command::Binary(command)
-                            if matches!(command.op, BinaryOp::And | BinaryOp::Or) =>
-                        {
-                            if stmt_terminals_are_test_commands(&command.left, self.source) {
-                                collect_status_parameter_spans_in_stmt(
-                                    &command.right,
-                                    self.source,
-                                    &mut condition_status_capture_spans,
-                                );
-                            }
-                        }
-                        Command::Simple(_)
-                        | Command::Builtin(_)
-                        | Command::Decl(_)
-                        | Command::Binary(_)
-                        | Command::Compound(_)
-                        | Command::Function(_)
-                        | Command::AnonymousFunction(_) => {}
                     }
+                    Command::Compound(CompoundCommand::While(command)) => {
+                        collect_condition_status_capture_from_body(
+                            &command.condition,
+                            &command.body,
+                            self.source,
+                            &mut condition_status_capture_spans,
+                        );
+                        if let Some(case) = build_getopts_case_fact_for_while(command, self.source)
+                        {
+                            getopts_cases.push(case);
+                        }
+                    }
+                    Command::Compound(CompoundCommand::Until(command)) => {
+                        collect_condition_status_capture_from_body(
+                            &command.condition,
+                            &command.body,
+                            self.source,
+                            &mut condition_status_capture_spans,
+                        );
+                    }
+                    Command::Binary(command)
+                        if matches!(command.op, BinaryOp::And | BinaryOp::Or) =>
+                    {
+                        if stmt_terminals_are_test_commands(&command.left, self.source) {
+                            collect_status_parameter_spans_in_stmt(
+                                &command.right,
+                                self.source,
+                                &mut condition_status_capture_spans,
+                            );
+                        }
+                    }
+                    Command::Simple(_)
+                    | Command::Builtin(_)
+                    | Command::Decl(_)
+                    | Command::Binary(_)
+                    | Command::Compound(_)
+                    | Command::Function(_)
+                    | Command::AnonymousFunction(_) => {}
                 }
+            }
         }
 
         arithmetic_update_operator_spans
@@ -491,9 +478,8 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             } else {
                 Vec::new()
             };
-        arithmetic_literal_spans.sort_unstable_by_key(|(span, kind)| {
-            (span.start.offset, span.end.offset, *kind)
-        });
+        arithmetic_literal_spans
+            .sort_unstable_by_key(|(span, kind)| (span.start.offset, span.end.offset, *kind));
         arithmetic_literal_spans.dedup();
         let arithmetic_literal_facts = arithmetic_literal_spans
             .iter()
@@ -543,11 +529,8 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &substitution_occurrences_by_command_id,
         );
 
-        let presence_tested_names = build_presence_tested_names(
-            &commands,
-            self.source,
-            self.semantic,
-        );
+        let presence_tested_names =
+            build_presence_tested_names(&commands, self.source, self.semantic);
         let function_headers = build_function_header_facts(
             self.semantic,
             semantic_analysis,
@@ -560,7 +543,11 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let function_cli_dispatch_facts = build_function_cli_dispatch_facts(&case_cli_dispatches);
         let function_definition_command_ids_by_scope = function_headers
             .iter()
-            .filter_map(|header| header.function_scope().map(|scope| (scope, header.command_id())))
+            .filter_map(|header| {
+                header
+                    .function_scope()
+                    .map(|scope| (scope, header.command_id()))
+            })
             .collect::<FxHashMap<_, _>>();
         let case_cli_reachable_function_scopes = semantic_analysis
             .case_cli_reachable_function_scopes(self.file, &case_cli_dispatches)
@@ -735,7 +722,10 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 | IndexedArrayReferenceFragmentFact::OneBasedWithZeroAlias(fragment)
                 | IndexedArrayReferenceFragmentFact::Ambiguous(fragment) => fragment.span(),
             };
-            let behavior = self.semantic.shell_behavior_at(span.start.offset).subscript_indexing();
+            let behavior = self
+                .semantic
+                .shell_behavior_at(span.start.offset)
+                .subscript_indexing();
             *fragment = (*fragment).with_subscript_index_behavior(behavior);
         }
         let nonpersistent_assignment_spans = build_nonpersistent_assignment_spans(
@@ -748,11 +738,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &arithmetic_only_suppressed_subscript_spans,
         );
         let heredoc_summary =
-            build_heredoc_fact_summary(
-                &commands,
-                locator,
-                self.file.span.end.offset,
-            );
+            build_heredoc_fact_summary(&commands, locator, self.file.span.end.offset);
         let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);
         let literal_brace_spans = build_literal_brace_spans(
             &word_nodes,
@@ -948,159 +934,169 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         LinterFacts {
             semantic: self.semantic,
             semantic_artifacts: self.semantic_artifacts,
-            source,
-            line_index: self._indexer.line_index(),
-            shell: self.shell,
-            commands,
-            command_fact_indices_by_id,
-            structural_command_ids,
-            #[cfg(test)]
-            command_ids_by_span,
-            command_ids_by_name_word_span,
-            innermost_command_ids_by_offset,
-            innermost_command_ids_by_binding_offset,
-            assignment_value_target_index,
-            command_dominance_barrier_flags,
-            if_condition_command_ids,
-            elif_condition_command_ids,
-            binding_values,
-            broken_assoc_key_spans,
-            comma_array_assignment_spans,
-            ifs_literal_backslash_assignment_value_spans,
-            env_prefix_assignment_scope_spans,
-            env_prefix_expansion_scope_spans,
-            env_prefix_expansion_fix_facts,
-            unset_command_ids_by_target_name,
-            function_unset_command_ids_by_target_name,
-            presence_tested_names: presence_tested_names.global_names,
-            nested_presence_test_spans: presence_tested_names.nested_command_spans_by_name,
-            c006_presence_tested_names: presence_tested_names.c006_global_names,
-            c006_nested_presence_test_spans: presence_tested_names
-                .c006_nested_command_spans_by_name,
-            c006_suppressing_reference_offsets_by_name,
-            presence_test_references_by_name: presence_tested_names.references_by_name,
-            presence_test_names_by_name: presence_tested_names.names_by_name,
-            possible_variable_misspelling_use_scan: OnceLock::new(),
-            possible_variable_misspelling_index: OnceLock::new(),
-            possible_variable_misspelling_scope_compat_name_uses: OnceLock::new(),
-            plain_unindexed_array_references: OnceLock::new(),
-            redundant_echo_space_facts: OnceLock::new(),
-            suppressed_subscript_reference_spans,
-            subscript_later_suppression_reference_spans,
-            compound_assignment_value_word_flags,
-            word_nodes,
-            word_occurrences,
-            word_index,
-            fact_store,
-            unquoted_command_argument_use_offsets,
-            array_assignment_split_word_ids,
-            brace_variable_before_bracket_spans,
-            completion_registered_function_command_flags,
-            completion_registered_function_scopes,
-            external_entrypoint_function_scopes,
-            function_headers,
-            function_definition_command_ids_by_scope,
-            case_cli_reachable_function_scopes,
-            function_in_alias_spans,
-            alias_definition_expansion_spans,
-            function_body_without_braces_spans,
-            function_parameter_fallback_spans,
-            redundant_return_status_spans,
-            for_headers,
-            select_headers,
-            case_items,
-            case_pattern_shadows,
-            case_pattern_impossible_spans,
-            case_pattern_expansions,
-            getopts_cases,
-            pipelines,
-            lists,
-            statement_facts,
-            background_semicolon_spans,
-            single_test_subshell_spans,
-            subshell_test_group_spans,
-            indented_shebang_span: shebang_header_facts.indented_shebang_span,
-            indented_shebang_indent_span: shebang_header_facts.indented_shebang_indent_span,
-            space_after_hash_bang_span: shebang_header_facts.space_after_hash_bang_span,
-            space_after_hash_bang_whitespace_span: shebang_header_facts
-                .space_after_hash_bang_whitespace_span,
-            shebang_not_on_first_line_span: shebang_header_facts.shebang_not_on_first_line_span,
-            shebang_not_on_first_line_fix_span: shebang_header_facts
-                .shebang_not_on_first_line_fix_span,
-            shebang_not_on_first_line_preferred_newline: shebang_header_facts
-                .shebang_not_on_first_line_preferred_newline,
-            missing_shebang_line_span: shebang_header_facts.missing_shebang_line_span,
-            duplicate_shebang_flag_span: shebang_header_facts.duplicate_shebang_flag_span,
-            non_absolute_shebang_span: shebang_header_facts.non_absolute_shebang_span,
-            errexit_enabled_anywhere,
-            commented_continuation_comment_spans,
-            comment_double_quote_nesting_spans,
-            trailing_directive_comment_spans,
-            condition_status_capture_spans,
-            command_substitution_command_spans,
-            backtick_substitution_spans,
-            backtick_escaped_parameters,
-            backtick_escaped_parameter_reference_spans,
-            backtick_double_escaped_parameter_spans,
-            backtick_command_name_spans,
-            dollar_question_after_command_spans,
-            assignment_like_command_name_spans,
-            bare_command_name_assignment_spans,
-            subshell_assignment_sites: nonpersistent_assignment_spans.subshell_assignment_sites,
-            subshell_later_use_sites: nonpersistent_assignment_spans.subshell_later_use_sites,
-            unused_heredoc_spans: heredoc_summary.unused_heredoc_spans,
-            heredoc_missing_end_spans: heredoc_summary.heredoc_missing_end_spans,
-            heredoc_closer_not_alone_spans: heredoc_summary.heredoc_closer_not_alone_spans,
-            misquoted_heredoc_close_spans: heredoc_summary.misquoted_heredoc_close_spans,
-            heredoc_end_space_spans: heredoc_summary.heredoc_end_space_spans,
-            echo_here_doc_spans: heredoc_summary.echo_here_doc_spans,
-            spaced_tabstrip_close_spans: heredoc_summary.spaced_tabstrip_close_spans,
-            plus_equals_assignment_spans,
-            array_index_arithmetic_spans: arithmetic_summary.array_index_arithmetic_spans,
-            arithmetic_score_line_spans: arithmetic_summary.arithmetic_score_line_spans,
-            dollar_in_arithmetic_spans: arithmetic_summary.dollar_in_arithmetic_spans,
-            arithmetic_command_substitution_spans: arithmetic_summary
-                .arithmetic_command_substitution_spans,
-            function_positional_parameter_facts,
-            function_cli_dispatch_facts,
-            single_quoted_fragments: single_quoted,
-            dollar_double_quoted_fragments: dollar_double_quoted,
-            open_double_quote_fragments: open_double_quotes,
-            suspect_closing_quote_fragments: suspect_closing_quotes,
-            literal_brace_spans,
-            backtick_fragments: backticks,
-            legacy_arithmetic_fragments: legacy_arithmetic,
-            positional_parameter_fragments: positional_parameters,
-            positional_parameter_operator_spans,
-            double_paren_grouping_spans,
-            arithmetic_update_operator_spans,
-            arithmetic_update_operator_fix_facts,
-            arithmetic_literal_facts,
-            escape_scan_matches,
-            echo_backslash_escape_word_spans,
-            echo_to_sed_substitution_spans,
-            unicode_smart_quote_spans,
-            pattern_exactly_one_extglob_spans,
-            pattern_literal_spans,
-            pattern_charclass_spans,
-            nested_pattern_charclass_spans,
-            nested_parameter_expansion_fragments: nested_parameter_expansions,
-            indirect_expansion_fragments: indirect_expansions,
-            indexed_array_reference_fragments: indexed_array_references,
-            plain_unindexed_reference_spans: plain_unindexed_references,
-            parameter_pattern_special_target_fragments: parameter_pattern_special_targets,
-            zsh_parameter_index_flag_fragments: zsh_parameter_index_flags,
-            substring_expansion_fragments: substring_expansions,
-            case_modification_fragments: case_modifications,
-            replacement_expansion_fragments: replacement_expansions,
-            positional_parameter_trim_fragments: positional_parameter_trims,
-            conditional_portability,
+            command: CommandFactStore {
+                commands,
+                command_fact_indices_by_id,
+                structural_command_ids,
+                #[cfg(test)]
+                command_ids_by_span,
+                command_ids_by_name_word_span,
+                innermost_command_ids_by_offset,
+                innermost_command_ids_by_binding_offset,
+                command_dominance_barrier_flags,
+                if_condition_command_ids,
+                elif_condition_command_ids,
+                fact_store,
+                redundant_echo_space_facts: OnceLock::new(),
+                completion_registered_function_command_flags,
+                completion_registered_function_scopes,
+                external_entrypoint_function_scopes,
+                function_headers,
+                function_definition_command_ids_by_scope,
+                case_cli_reachable_function_scopes,
+                function_in_alias_spans,
+                alias_definition_expansion_spans,
+                function_body_without_braces_spans,
+                function_parameter_fallback_spans,
+                redundant_return_status_spans,
+                for_headers,
+                select_headers,
+                case_items,
+                case_pattern_shadows,
+                case_pattern_impossible_spans,
+                case_pattern_expansions,
+                getopts_cases,
+                pipelines,
+                lists,
+                statement_facts,
+                background_semicolon_spans,
+                single_test_subshell_spans,
+                subshell_test_group_spans,
+                function_positional_parameter_facts,
+                function_cli_dispatch_facts,
+                condition_status_capture_spans,
+                command_substitution_command_spans,
+                backtick_command_name_spans,
+                assignment_like_command_name_spans,
+                bare_command_name_assignment_spans,
+            },
+            words: WordFactStore {
+                plain_unindexed_array_references: OnceLock::new(),
+                suppressed_subscript_reference_spans,
+                subscript_later_suppression_reference_spans,
+                compound_assignment_value_word_flags,
+                word_nodes,
+                word_occurrences,
+                word_index,
+                unquoted_command_argument_use_offsets,
+                array_assignment_split_word_ids,
+                brace_variable_before_bracket_spans,
+                array_index_arithmetic_spans: arithmetic_summary.array_index_arithmetic_spans,
+                arithmetic_score_line_spans: arithmetic_summary.arithmetic_score_line_spans,
+                dollar_in_arithmetic_spans: arithmetic_summary.dollar_in_arithmetic_spans,
+                arithmetic_command_substitution_spans: arithmetic_summary
+                    .arithmetic_command_substitution_spans,
+                single_quoted_fragments: single_quoted,
+                dollar_double_quoted_fragments: dollar_double_quoted,
+                open_double_quote_fragments: open_double_quotes,
+                suspect_closing_quote_fragments: suspect_closing_quotes,
+                literal_brace_spans,
+                backtick_fragments: backticks,
+                legacy_arithmetic_fragments: legacy_arithmetic,
+                positional_parameter_fragments: positional_parameters,
+                positional_parameter_operator_spans,
+                double_paren_grouping_spans,
+                arithmetic_update_operator_spans,
+                arithmetic_update_operator_fix_facts,
+                arithmetic_literal_facts,
+                escape_scan_matches,
+                echo_backslash_escape_word_spans,
+                echo_to_sed_substitution_spans,
+                unicode_smart_quote_spans,
+                pattern_exactly_one_extglob_spans,
+                pattern_literal_spans,
+                pattern_charclass_spans,
+                nested_pattern_charclass_spans,
+                nested_parameter_expansion_fragments: nested_parameter_expansions,
+                indirect_expansion_fragments: indirect_expansions,
+                indexed_array_reference_fragments: indexed_array_references,
+                plain_unindexed_reference_spans: plain_unindexed_references,
+                parameter_pattern_special_target_fragments: parameter_pattern_special_targets,
+                zsh_parameter_index_flag_fragments: zsh_parameter_index_flags,
+                substring_expansion_fragments: substring_expansions,
+                case_modification_fragments: case_modifications,
+                replacement_expansion_fragments: replacement_expansions,
+                positional_parameter_trim_fragments: positional_parameter_trims,
+            },
+            assignments: AssignmentFactStore {
+                assignment_value_target_index,
+                binding_values,
+                broken_assoc_key_spans,
+                comma_array_assignment_spans,
+                ifs_literal_backslash_assignment_value_spans,
+                env_prefix_assignment_scope_spans,
+                env_prefix_expansion_scope_spans,
+                env_prefix_expansion_fix_facts,
+                unset_command_ids_by_target_name,
+                function_unset_command_ids_by_target_name,
+                presence_tested_names: presence_tested_names.global_names,
+                nested_presence_test_spans: presence_tested_names.nested_command_spans_by_name,
+                c006_presence_tested_names: presence_tested_names.c006_global_names,
+                c006_nested_presence_test_spans: presence_tested_names
+                    .c006_nested_command_spans_by_name,
+                c006_suppressing_reference_offsets_by_name,
+                presence_test_references_by_name: presence_tested_names.references_by_name,
+                presence_test_names_by_name: presence_tested_names.names_by_name,
+                possible_variable_misspelling_use_scan: OnceLock::new(),
+                possible_variable_misspelling_index: OnceLock::new(),
+                subshell_assignment_sites: nonpersistent_assignment_spans.subshell_assignment_sites,
+                subshell_later_use_sites: nonpersistent_assignment_spans.subshell_later_use_sites,
+                plus_equals_assignment_spans,
+            },
+            source_facts: SourceFactStore {
+                source,
+                line_index: self._indexer.line_index(),
+                shell: self.shell,
+                indented_shebang_span: shebang_header_facts.indented_shebang_span,
+                indented_shebang_indent_span: shebang_header_facts.indented_shebang_indent_span,
+                space_after_hash_bang_span: shebang_header_facts.space_after_hash_bang_span,
+                space_after_hash_bang_whitespace_span: shebang_header_facts
+                    .space_after_hash_bang_whitespace_span,
+                shebang_not_on_first_line_span: shebang_header_facts.shebang_not_on_first_line_span,
+                shebang_not_on_first_line_fix_span: shebang_header_facts
+                    .shebang_not_on_first_line_fix_span,
+                shebang_not_on_first_line_preferred_newline: shebang_header_facts
+                    .shebang_not_on_first_line_preferred_newline,
+                missing_shebang_line_span: shebang_header_facts.missing_shebang_line_span,
+                duplicate_shebang_flag_span: shebang_header_facts.duplicate_shebang_flag_span,
+                non_absolute_shebang_span: shebang_header_facts.non_absolute_shebang_span,
+                errexit_enabled_anywhere,
+                commented_continuation_comment_spans,
+                comment_double_quote_nesting_spans,
+                trailing_directive_comment_spans,
+                backtick_substitution_spans,
+                backtick_escaped_parameters,
+                backtick_escaped_parameter_reference_spans,
+                backtick_double_escaped_parameter_spans,
+                dollar_question_after_command_spans,
+                unused_heredoc_spans: heredoc_summary.unused_heredoc_spans,
+                heredoc_missing_end_spans: heredoc_summary.heredoc_missing_end_spans,
+                heredoc_closer_not_alone_spans: heredoc_summary.heredoc_closer_not_alone_spans,
+                misquoted_heredoc_close_spans: heredoc_summary.misquoted_heredoc_close_spans,
+                heredoc_end_space_spans: heredoc_summary.heredoc_end_space_spans,
+                echo_here_doc_spans: heredoc_summary.echo_here_doc_spans,
+                spaced_tabstrip_close_spans: heredoc_summary.spaced_tabstrip_close_spans,
+            },
+            compat: CompatFactStore {
+                possible_variable_misspelling_scope_compat_name_uses: OnceLock::new(),
+                conditional_portability,
+            },
         }
     }
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_word_occurrence_index(
+pub(crate) fn build_word_occurrence_index(
     commands: &[CommandFact<'_>],
     word_nodes: &[WordNode<'_>],
     word_occurrences: &mut Vec<WordOccurrence>,
@@ -1124,22 +1120,20 @@ fn build_word_occurrence_index(
                 array_assignment_split_scalar_expansion_spans: IdRange::empty(),
             }),
     );
-    word_occurrences.extend(
-        pending_parameter_operand_word_occurrences
-            .into_iter()
-            .map(|pending| WordOccurrence {
-                node_id: pending.node_id,
-                command_id: pending.command_id,
-                nested_word_command: pending.nested_word_command,
-                context: WordFactContext::ParameterOperand,
-                host_kind: pending.host_kind,
-                runtime_literal: RuntimeLiteralAnalysis::default(),
-                operand_class: None,
-                enclosing_expansion_context: Some(pending.enclosing_expansion_context),
-                split_sensitive_unquoted_command_substitution_spans: IdRange::empty(),
-                array_assignment_split_scalar_expansion_spans: IdRange::empty(),
-            }),
-    );
+    word_occurrences.extend(pending_parameter_operand_word_occurrences.into_iter().map(
+        |pending| WordOccurrence {
+            node_id: pending.node_id,
+            command_id: pending.command_id,
+            nested_word_command: pending.nested_word_command,
+            context: WordFactContext::ParameterOperand,
+            host_kind: pending.host_kind,
+            runtime_literal: RuntimeLiteralAnalysis::default(),
+            operand_class: None,
+            enclosing_expansion_context: Some(pending.enclosing_expansion_context),
+            split_sensitive_unquoted_command_substitution_spans: IdRange::empty(),
+            array_assignment_split_scalar_expansion_spans: IdRange::empty(),
+        },
+    ));
 
     let mut word_index = FxHashMap::<FactSpan, SmallVec<[WordOccurrenceId; 2]>>::default();
     word_index.reserve(word_occurrences.len());
@@ -1191,7 +1185,7 @@ fn build_word_occurrence_index(
     word_index
 }
 
-fn build_c006_suppressing_reference_offsets_by_name(
+pub(crate) fn build_c006_suppressing_reference_offsets_by_name(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
     command_fact_indices_by_id: &[Option<usize>],
@@ -1228,62 +1222,61 @@ fn build_c006_suppressing_reference_offsets_by_name(
     offsets_by_name
 }
 
-fn c006_subscript_reference_suppresses_later_references(
+pub(crate) fn c006_subscript_reference_suppresses_later_references(
     commands: &[CommandFact<'_>],
     command_fact_indices_by_id: &[Option<usize>],
     innermost_command_ids_by_offset: &CommandOffsetLookup,
     reference: &Reference,
 ) -> bool {
-    precomputed_command_id_for_offset(
-        innermost_command_ids_by_offset,
-        reference.span.start.offset,
-    )
-    .and_then(|id| {
-        command_fact_indices_by_id
-            .get(id.index())
-            .copied()
-            .flatten()
-            .and_then(|index| commands.get(index))
-    })
-    .and_then(CommandFact::static_utility_name)
-    .is_none_or(|name| !matches!(name, "unset" | "[" | "[[" | "test"))
+    precomputed_command_id_for_offset(innermost_command_ids_by_offset, reference.span.start.offset)
+        .and_then(|id| {
+            command_fact_indices_by_id
+                .get(id.index())
+                .copied()
+                .flatten()
+                .and_then(|index| commands.get(index))
+        })
+        .and_then(CommandFact::static_utility_name)
+        .is_none_or(|name| !matches!(name, "unset" | "[" | "[[" | "test"))
 }
 
-fn stmt_seq_contains_nested_control_flow(
+pub(crate) fn stmt_seq_contains_nested_control_flow(
     body: &StmtSeq,
     command_topology: CommandTopology<'_, '_>,
 ) -> bool {
     let mut contains = false;
-    command_topology.body(body).for_each_command_visit(false, |_, visit| match visit.command {
-        Command::Compound(
-            CompoundCommand::If(_)
-            | CompoundCommand::While(_)
-            | CompoundCommand::Until(_)
-            | CompoundCommand::For(_)
-            | CompoundCommand::Select(_)
-            | CompoundCommand::Case(_)
-            | CompoundCommand::Always(_),
-        ) => {
-            contains = true;
-            CommandTopologyTraversal::Break
-        }
-        Command::Binary(_)
-        | Command::Compound(
-            CompoundCommand::BraceGroup(_)
-            | CompoundCommand::Subshell(_)
-            | CompoundCommand::Time(_),
-        ) => CommandTopologyTraversal::Descend,
-        Command::Simple(_)
-        | Command::Builtin(_)
-        | Command::Decl(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => CommandTopologyTraversal::SkipChildren,
-    });
+    command_topology
+        .body(body)
+        .for_each_command_visit(false, |_, visit| match visit.command {
+            Command::Compound(
+                CompoundCommand::If(_)
+                | CompoundCommand::While(_)
+                | CompoundCommand::Until(_)
+                | CompoundCommand::For(_)
+                | CompoundCommand::Select(_)
+                | CompoundCommand::Case(_)
+                | CompoundCommand::Always(_),
+            ) => {
+                contains = true;
+                CommandTopologyTraversal::Break
+            }
+            Command::Binary(_)
+            | Command::Compound(
+                CompoundCommand::BraceGroup(_)
+                | CompoundCommand::Subshell(_)
+                | CompoundCommand::Time(_),
+            ) => CommandTopologyTraversal::Descend,
+            Command::Simple(_)
+            | Command::Builtin(_)
+            | Command::Decl(_)
+            | Command::Compound(_)
+            | Command::Function(_)
+            | Command::AnonymousFunction(_) => CommandTopologyTraversal::SkipChildren,
+        });
     contains
 }
 
-fn populate_linebreak_in_test_facts(commands: &mut [CommandFact<'_>], source: &str) {
+pub(crate) fn populate_linebreak_in_test_facts(commands: &mut [CommandFact<'_>], source: &str) {
     for index in 0..commands.len().saturating_sub(1) {
         let (current_slice, next_slice) = commands.split_at_mut(index + 1);
         let current = &mut current_slice[index];
@@ -1299,7 +1292,7 @@ fn populate_linebreak_in_test_facts(commands: &mut [CommandFact<'_>], source: &s
     }
 }
 
-fn build_linebreak_in_test_site(
+pub(crate) fn build_linebreak_in_test_site(
     current: &CommandFact<'_>,
     next: &CommandFact<'_>,
     source: &str,
@@ -1338,7 +1331,7 @@ fn build_linebreak_in_test_site(
     Some((anchor_span, insert_offset))
 }
 
-fn linebreak_in_test_insert_offset(span: Span, source: &str) -> Option<usize> {
+pub(crate) fn linebreak_in_test_insert_offset(span: Span, source: &str) -> Option<usize> {
     let text = span.slice(source);
     if text.ends_with("\r\n") {
         Some(span.end.offset - 2)
@@ -1349,21 +1342,21 @@ fn linebreak_in_test_insert_offset(span: Span, source: &str) -> Option<usize> {
     }
 }
 
-fn text_ranges_to_spans(ranges: &[TextRange], locator: Locator<'_>) -> Vec<Span> {
+pub(crate) fn text_ranges_to_spans(ranges: &[TextRange], locator: Locator<'_>) -> Vec<Span> {
     ranges
         .iter()
         .filter_map(|range| text_range_to_span(*range, locator))
         .collect()
 }
 
-fn text_range_to_span(range: TextRange, locator: Locator<'_>) -> Option<Span> {
+pub(crate) fn text_range_to_span(range: TextRange, locator: Locator<'_>) -> Option<Span> {
     Some(Span::from_positions(
         locator.position_at_offset(usize::from(range.start()))?,
         locator.position_at_offset(usize::from(range.end()))?,
     ))
 }
 
-fn build_unset_command_ids_by_target_name(
+pub(crate) fn build_unset_command_ids_by_target_name(
     commands: &[CommandFact<'_>],
     command_fact_indices_by_id: &[Option<usize>],
     structural_command_ids: &[CommandId],
@@ -1403,7 +1396,7 @@ fn build_unset_command_ids_by_target_name(
     command_ids_by_name
 }
 
-fn build_function_unset_command_ids_by_target_name(
+pub(crate) fn build_function_unset_command_ids_by_target_name(
     commands: &[CommandFact<'_>],
     command_fact_indices_by_id: &[Option<usize>],
     structural_command_ids: &[CommandId],
@@ -1439,14 +1432,19 @@ fn build_function_unset_command_ids_by_target_name(
         }
 
         for target in targets {
-            command_ids_by_name.entry(target).or_default().push(command_id);
+            command_ids_by_name
+                .entry(target)
+                .or_default()
+                .push(command_id);
         }
     }
 
     command_ids_by_name
 }
 
-fn sort_and_dedup_case_pattern_expansions(expansions: &mut Vec<CasePatternExpansionFact>) {
+pub(crate) fn sort_and_dedup_case_pattern_expansions(
+    expansions: &mut Vec<CasePatternExpansionFact>,
+) {
     let mut seen = FxHashSet::default();
     expansions.retain(|fact| seen.insert(FactSpan::new(fact.span())));
     expansions.sort_by_key(|fact| (fact.span().start.offset, fact.span().end.offset));

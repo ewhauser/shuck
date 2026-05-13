@@ -332,7 +332,7 @@ enum CandidateTieBreak {
     PresenceTest,
 }
 
-pub(super) fn build_possible_variable_misspelling_index(
+pub(crate) fn build_possible_variable_misspelling_index(
     semantic: &SemanticModel,
     presence_test_references_by_name: &FxHashMap<Name, Vec<PresenceTestReferenceFact>>,
     presence_test_names_by_name: &FxHashMap<Name, Vec<PresenceTestNameFact>>,
@@ -359,7 +359,7 @@ pub(super) fn build_possible_variable_misspelling_index(
     }
 }
 
-pub(super) fn should_scan_possible_variable_misspelling_candidates(
+pub(crate) fn should_scan_possible_variable_misspelling_candidates(
     semantic: &SemanticModel,
     presence_test_references_by_name: &FxHashMap<Name, Vec<PresenceTestReferenceFact>>,
     presence_test_names_by_name: &FxHashMap<Name, Vec<PresenceTestNameFact>>,
@@ -386,7 +386,7 @@ pub(super) fn should_scan_possible_variable_misspelling_candidates(
         < INDEX_BUILD_THRESHOLD
 }
 
-pub(super) fn scan_possible_variable_misspelling_candidate(
+pub(crate) fn scan_possible_variable_misspelling_candidate(
     semantic: &SemanticModel,
     presence_test_references_by_name: &FxHashMap<Name, Vec<PresenceTestReferenceFact>>,
     presence_test_names_by_name: &FxHashMap<Name, Vec<PresenceTestNameFact>>,

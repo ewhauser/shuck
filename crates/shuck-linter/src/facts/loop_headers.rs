@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Debug, Clone, Copy)]
 pub struct LoopHeaderWordFact<'a> {
     word: &'a Word,
@@ -131,7 +133,7 @@ impl<'a> SelectHeaderFact<'a> {
     }
 }
 
-pub(super) fn build_for_header_facts<'a>(
+pub(crate) fn build_for_header_facts<'a>(
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
@@ -161,7 +163,7 @@ pub(super) fn build_for_header_facts<'a>(
         .collect()
 }
 
-pub(super) fn build_select_header_facts<'a>(
+pub(crate) fn build_select_header_facts<'a>(
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
@@ -191,8 +193,7 @@ pub(super) fn build_select_header_facts<'a>(
         .collect()
 }
 
-
-fn build_loop_header_word_facts<'a>(
+pub(crate) fn build_loop_header_word_facts<'a>(
     words: impl IntoIterator<Item = &'a Word>,
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
@@ -213,13 +214,12 @@ fn build_loop_header_word_facts<'a>(
                         word,
                         source,
                         shell_dialect,
+                    ) || !word_spans::all_elements_array_expansion_part_spans(
+                        word,
+                        locator,
+                        shell_dialect,
                     )
-                        || !word_spans::all_elements_array_expansion_part_spans(
-                            word,
-                            locator,
-                            shell_dialect,
-                        )
-                        .is_empty(),
+                    .is_empty(),
                 has_unquoted_command_substitution: classification.has_command_substitution()
                     && !word_spans::unquoted_command_substitution_part_spans(word).is_empty(),
                 contains_line_oriented_substitution: word_contains_line_oriented_substitution(

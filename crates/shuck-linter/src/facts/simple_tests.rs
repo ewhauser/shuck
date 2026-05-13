@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SimpleTestSyntax {
     Test,
@@ -111,16 +113,16 @@ impl<'a> SimpleTestFact<'a> {
         }
 
         escaped_negation_is_operator(self, source).then(|| {
-            let diagnostic_span =
-                if self.syntax == SimpleTestSyntax::Bracket && self.shape == SimpleTestShape::Binary
-                {
-                    self.operands
-                        .get(1)
-                        .copied()
-                        .map_or(leading.span, |word| word.span)
-                } else {
-                    leading.span
-                };
+            let diagnostic_span = if self.syntax == SimpleTestSyntax::Bracket
+                && self.shape == SimpleTestShape::Binary
+            {
+                self.operands
+                    .get(1)
+                    .copied()
+                    .map_or(leading.span, |word| word.span)
+            } else {
+                leading.span
+            };
             let fix_start = leading.span.start;
             let fix_end = fix_start.advanced_by("\\");
             (diagnostic_span, Span::from_positions(fix_start, fix_end))
@@ -214,7 +216,7 @@ impl<'a> SimpleTestFact<'a> {
     }
 }
 
-fn escaped_negation_is_operator(simple_test: &SimpleTestFact<'_>, source: &str) -> bool {
+pub(crate) fn escaped_negation_is_operator(simple_test: &SimpleTestFact<'_>, source: &str) -> bool {
     match simple_test.shape() {
         SimpleTestShape::Unary => true,
         SimpleTestShape::Binary => simple_test
@@ -233,7 +235,7 @@ fn escaped_negation_is_operator(simple_test: &SimpleTestFact<'_>, source: &str) 
     }
 }
 
-enum SimpleTestExpression<'a> {
+pub(crate) enum SimpleTestExpression<'a> {
     Truthy(&'a Word),
     StringUnary {
         operator: &'a Word,
@@ -246,7 +248,10 @@ enum SimpleTestExpression<'a> {
     },
 }
 
-fn simple_test_operands<'a>(command: &'a SimpleCommand, source: &str) -> Option<&'a [Word]> {
+pub(crate) fn simple_test_operands<'a>(
+    command: &'a SimpleCommand,
+    source: &str,
+) -> Option<&'a [Word]> {
     match static_word_text(&command.name, source).as_deref()? {
         "[" => {
             let (closing_bracket, operands) = command.args.split_last()?;
@@ -257,7 +262,10 @@ fn simple_test_operands<'a>(command: &'a SimpleCommand, source: &str) -> Option<
     }
 }
 
-fn build_simple_test_fact<'a>(command: &'a Command, source: &str) -> Option<SimpleTestFact<'a>> {
+pub(crate) fn build_simple_test_fact<'a>(
+    command: &'a Command,
+    source: &str,
+) -> Option<SimpleTestFact<'a>> {
     let Command::Simple(command) = command else {
         return None;
     };
@@ -305,16 +313,23 @@ fn build_simple_test_fact<'a>(command: &'a Command, source: &str) -> Option<Simp
     })
 }
 
-fn build_glued_closing_bracket_operand_span(command: &Command, source: &str) -> Option<Span> {
+pub(crate) fn build_glued_closing_bracket_operand_span(
+    command: &Command,
+    source: &str,
+) -> Option<Span> {
     build_glued_closing_bracket_operand_word(command, source)
         .map(|operand| Span::from_positions(operand.span.start, operand.span.start))
 }
 
-fn build_glued_closing_bracket_insert_offset(command: &Command, source: &str) -> Option<usize> {
-    build_glued_closing_bracket_operand_word(command, source).map(|operand| operand.span.end.offset - 1)
+pub(crate) fn build_glued_closing_bracket_insert_offset(
+    command: &Command,
+    source: &str,
+) -> Option<usize> {
+    build_glued_closing_bracket_operand_word(command, source)
+        .map(|operand| operand.span.end.offset - 1)
 }
 
-fn build_glued_closing_bracket_operand_word<'a>(
+pub(crate) fn build_glued_closing_bracket_operand_word<'a>(
     command: &'a Command,
     source: &str,
 ) -> Option<&'a Word> {
@@ -335,7 +350,10 @@ fn build_glued_closing_bracket_operand_word<'a>(
     glued_closing_bracket_unary_operand(&args, source)
 }
 
-fn glued_closing_bracket_unary_operand<'a>(args: &[&'a Word], source: &str) -> Option<&'a Word> {
+pub(crate) fn glued_closing_bracket_unary_operand<'a>(
+    args: &[&'a Word],
+    source: &str,
+) -> Option<&'a Word> {
     let [first, second] = args else {
         let [bang, operator, operand] = args else {
             return None;
@@ -359,7 +377,7 @@ fn glued_closing_bracket_unary_operand<'a>(args: &[&'a Word], source: &str) -> O
     .then_some(*second)
 }
 
-fn simple_test_shape(operand_count: usize) -> SimpleTestShape {
+pub(crate) fn simple_test_shape(operand_count: usize) -> SimpleTestShape {
     match operand_count {
         0 => SimpleTestShape::Empty,
         1 => SimpleTestShape::Truthy,
@@ -369,7 +387,7 @@ fn simple_test_shape(operand_count: usize) -> SimpleTestShape {
     }
 }
 
-fn simple_test_effective_operand_offset(operands: &[&Word], source: &str) -> usize {
+pub(crate) fn simple_test_effective_operand_offset(operands: &[&Word], source: &str) -> usize {
     if operands
         .first()
         .and_then(|word| static_word_text(word, source))
@@ -393,7 +411,7 @@ fn simple_test_effective_operand_offset(operands: &[&Word], source: &str) -> usi
     }
 }
 
-fn simple_test_is_binary_operator(operator: &str) -> bool {
+pub(crate) fn simple_test_is_binary_operator(operator: &str) -> bool {
     matches!(
         operator,
         "=" | "=="
@@ -414,7 +432,7 @@ fn simple_test_is_binary_operator(operator: &str) -> bool {
     )
 }
 
-fn simple_test_is_unary_operator(operator: &str) -> bool {
+pub(crate) fn simple_test_is_unary_operator(operator: &str) -> bool {
     matches!(
         operator,
         "-e" | "-a"
@@ -445,7 +463,7 @@ fn simple_test_is_unary_operator(operator: &str) -> bool {
     )
 }
 
-fn simple_test_operator_family(
+pub(crate) fn simple_test_operator_family(
     operands: &[&Word],
     shape: SimpleTestShape,
     source: &str,
@@ -471,7 +489,7 @@ fn simple_test_operator_family(
     }
 }
 
-fn simple_test_unary_operator_family(operator: &str) -> SimpleTestOperatorFamily {
+pub(crate) fn simple_test_unary_operator_family(operator: &str) -> SimpleTestOperatorFamily {
     if matches!(operator, "-n" | "-z") {
         SimpleTestOperatorFamily::StringUnary
     } else {
@@ -479,7 +497,7 @@ fn simple_test_unary_operator_family(operator: &str) -> SimpleTestOperatorFamily
     }
 }
 
-fn simple_test_binary_operator_family(operator: &str) -> SimpleTestOperatorFamily {
+pub(crate) fn simple_test_binary_operator_family(operator: &str) -> SimpleTestOperatorFamily {
     if matches!(operator, "=" | "==" | "!=" | "<" | ">") {
         SimpleTestOperatorFamily::StringBinary
     } else {
@@ -487,7 +505,7 @@ fn simple_test_binary_operator_family(operator: &str) -> SimpleTestOperatorFamil
     }
 }
 
-fn simple_test_expressions<'a>(
+pub(crate) fn simple_test_expressions<'a>(
     simple_test: &'a SimpleTestFact<'a>,
     source: &str,
 ) -> Vec<SimpleTestExpression<'a>> {
@@ -518,7 +536,7 @@ fn simple_test_expressions<'a>(
     expressions
 }
 
-fn simple_test_operator_expression_operand_words<'a>(
+pub(crate) fn simple_test_operator_expression_operand_words<'a>(
     simple_test: &SimpleTestFact<'a>,
     source: &str,
 ) -> Vec<&'a Word> {
@@ -551,7 +569,7 @@ fn simple_test_operator_expression_operand_words<'a>(
     expression_operands
 }
 
-fn simple_test_numeric_binary_expression_operand_words<'a>(
+pub(crate) fn simple_test_numeric_binary_expression_operand_words<'a>(
     simple_test: &SimpleTestFact<'a>,
     source: &str,
 ) -> Vec<&'a Word> {
@@ -584,7 +602,7 @@ fn simple_test_numeric_binary_expression_operand_words<'a>(
     expression_operands
 }
 
-fn collect_simple_test_operator_expression_operand_words<'a>(
+pub(crate) fn collect_simple_test_operator_expression_operand_words<'a>(
     simple_test: &SimpleTestFact<'a>,
     start: usize,
     end: usize,
@@ -634,7 +652,7 @@ fn collect_simple_test_operator_expression_operand_words<'a>(
     }
 }
 
-fn collect_simple_test_numeric_binary_expression_operand_words<'a>(
+pub(crate) fn collect_simple_test_numeric_binary_expression_operand_words<'a>(
     simple_test: &SimpleTestFact<'a>,
     start: usize,
     end: usize,
@@ -673,7 +691,7 @@ fn collect_simple_test_numeric_binary_expression_operand_words<'a>(
     }
 }
 
-fn simple_test_segment_is_expression(
+pub(crate) fn simple_test_segment_is_expression(
     simple_test: &SimpleTestFact<'_>,
     start: usize,
     end: usize,
@@ -712,7 +730,7 @@ fn simple_test_segment_is_expression(
     }
 }
 
-fn parse_simple_test_expression_segment<'a>(
+pub(crate) fn parse_simple_test_expression_segment<'a>(
     simple_test: &'a SimpleTestFact<'a>,
     start: usize,
     end: usize,
@@ -765,7 +783,7 @@ fn parse_simple_test_expression_segment<'a>(
     }
 }
 
-fn simple_test_effective_operand_text(
+pub(crate) fn simple_test_effective_operand_text(
     simple_test: &SimpleTestFact<'_>,
     index: usize,
     source: &str,
@@ -789,7 +807,7 @@ fn simple_test_effective_operand_text(
     Some(text.into_owned())
 }
 
-fn simple_test_effective_unquoted_operand_text(
+pub(crate) fn simple_test_effective_unquoted_operand_text(
     simple_test: &SimpleTestFact<'_>,
     index: usize,
     source: &str,
@@ -800,11 +818,11 @@ fn simple_test_effective_unquoted_operand_text(
         .flatten()
 }
 
-fn simple_test_is_logical_connector(text: &str) -> bool {
+pub(crate) fn simple_test_is_logical_connector(text: &str) -> bool {
     matches!(text, "-a" | "-o")
 }
 
-fn simple_test_is_logical_negation(
+pub(crate) fn simple_test_is_logical_negation(
     simple_test: &SimpleTestFact<'_>,
     index: usize,
     source: &str,
@@ -820,15 +838,15 @@ fn simple_test_is_logical_negation(
             != Some("(")
 }
 
-fn simple_test_is_string_unary_operator(text: &str) -> bool {
+pub(crate) fn simple_test_is_string_unary_operator(text: &str) -> bool {
     matches!(text, "-n" | "-z")
 }
 
-fn simple_test_is_string_binary_operator(text: &str) -> bool {
+pub(crate) fn simple_test_is_string_binary_operator(text: &str) -> bool {
     matches!(text, "=" | "==" | "!=" | "<" | ">")
 }
 
-fn simple_test_parse_logical_expression(
+pub(crate) fn simple_test_parse_logical_expression(
     simple_test: &SimpleTestFact<'_>,
     start: usize,
     source: &str,
@@ -850,7 +868,7 @@ fn simple_test_parse_logical_expression(
     Some((index, spans))
 }
 
-fn simple_test_parse_logical_term(
+pub(crate) fn simple_test_parse_logical_term(
     simple_test: &SimpleTestFact<'_>,
     start: usize,
     source: &str,
@@ -866,7 +884,7 @@ fn simple_test_parse_logical_term(
     simple_test_parse_logical_primary(simple_test, index, source)
 }
 
-fn simple_test_parse_logical_primary(
+pub(crate) fn simple_test_parse_logical_primary(
     simple_test: &SimpleTestFact<'_>,
     index: usize,
     source: &str,
@@ -901,7 +919,7 @@ fn simple_test_parse_logical_primary(
         .map(|_| (index + 1, Vec::new()))
 }
 
-fn simple_test_logical_connector_span(
+pub(crate) fn simple_test_logical_connector_span(
     simple_test: &SimpleTestFact<'_>,
     index: usize,
     source: &str,
@@ -913,15 +931,15 @@ fn simple_test_logical_connector_span(
         .then_some(word.span)
 }
 
-fn simple_test_is_nonlogical_binary_operator(text: &str) -> bool {
+pub(crate) fn simple_test_is_nonlogical_binary_operator(text: &str) -> bool {
     simple_test_is_binary_operator(text) && !simple_test_is_logical_connector(text)
 }
 
-fn simple_test_is_numeric_binary_operator(text: &str) -> bool {
+pub(crate) fn simple_test_is_numeric_binary_operator(text: &str) -> bool {
     matches!(text, "-eq" | "-ne" | "-gt" | "-ge" | "-lt" | "-le")
 }
 
-pub(super) fn build_single_test_subshell_spans<'a>(
+pub(crate) fn build_single_test_subshell_spans<'a>(
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
@@ -940,7 +958,7 @@ pub(super) fn build_single_test_subshell_spans<'a>(
         .collect()
 }
 
-pub(super) fn build_subshell_test_group_spans<'a>(
+pub(crate) fn build_subshell_test_group_spans<'a>(
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
@@ -959,7 +977,7 @@ pub(super) fn build_subshell_test_group_spans<'a>(
         .collect()
 }
 
-fn single_test_subshell_span<'a>(
+pub(crate) fn single_test_subshell_span<'a>(
     fact: &CommandFact<'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
     locator: Locator<'_>,
@@ -1000,7 +1018,7 @@ fn single_test_subshell_span<'a>(
     ))
 }
 
-fn is_test_like_command(fact: &CommandFact<'_>) -> bool {
+pub(crate) fn is_test_like_command(fact: &CommandFact<'_>) -> bool {
     fact.wrappers()
         .iter()
         .all(|wrapper| matches!(wrapper, WrapperKind::Command | WrapperKind::Builtin))
@@ -1012,7 +1030,7 @@ fn is_test_like_command(fact: &CommandFact<'_>) -> bool {
             ))
 }
 
-fn is_test_condition_fact<'a>(
+pub(crate) fn is_test_condition_fact<'a>(
     fact: &CommandFact<'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
 ) -> bool {
@@ -1033,7 +1051,7 @@ fn is_test_condition_fact<'a>(
     }
 }
 
-fn subshell_test_group_span<'a>(
+pub(crate) fn subshell_test_group_span<'a>(
     fact: &CommandFact<'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
     locator: Locator<'_>,
@@ -1049,7 +1067,7 @@ fn subshell_test_group_span<'a>(
     Some(subshell_anchor_span(fact.span(), locator))
 }
 
-fn subshell_body_contains_grouped_tests<'a>(
+pub(crate) fn subshell_body_contains_grouped_tests<'a>(
     body: &StmtSeq,
     parent_id: CommandId,
     command_relationships: CommandRelationshipContext<'_, 'a>,
@@ -1059,12 +1077,12 @@ fn subshell_body_contains_grouped_tests<'a>(
 }
 
 #[derive(Debug, Default, Clone, Copy)]
-struct GroupedTestAnalysis {
+pub(crate) struct GroupedTestAnalysis {
     test_count: usize,
     has_grouping: bool,
 }
 
-fn subshell_stmt_analysis<'a>(
+pub(crate) fn subshell_stmt_analysis<'a>(
     stmt: &Stmt,
     parent_id: CommandId,
     command_relationships: CommandRelationshipContext<'_, 'a>,
@@ -1073,7 +1091,7 @@ fn subshell_stmt_analysis<'a>(
     subshell_command_analysis(fact, command_relationships)
 }
 
-fn subshell_command_analysis<'a>(
+pub(crate) fn subshell_command_analysis<'a>(
     fact: &CommandFact<'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
 ) -> Option<GroupedTestAnalysis> {
@@ -1126,7 +1144,7 @@ fn subshell_command_analysis<'a>(
     }
 }
 
-fn subshell_body_analysis<'a>(
+pub(crate) fn subshell_body_analysis<'a>(
     body: &StmtSeq,
     parent_id: CommandId,
     command_relationships: CommandRelationshipContext<'_, 'a>,
@@ -1146,7 +1164,7 @@ fn subshell_body_analysis<'a>(
     Some(analysis)
 }
 
-fn subshell_anchor_span(span: Span, locator: Locator<'_>) -> Span {
+pub(crate) fn subshell_anchor_span(span: Span, locator: Locator<'_>) -> Span {
     let source = locator.source();
     let Some(open_paren_offset) = leading_open_paren_offset(source, span.start.offset) else {
         return span;
@@ -1159,7 +1177,7 @@ fn subshell_anchor_span(span: Span, locator: Locator<'_>) -> Span {
     )
 }
 
-fn leading_open_paren_offset(source: &str, start_offset: usize) -> Option<usize> {
+pub(crate) fn leading_open_paren_offset(source: &str, start_offset: usize) -> Option<usize> {
     for (offset, ch) in source[..start_offset].char_indices().rev() {
         if ch.is_whitespace() {
             continue;
@@ -1175,7 +1193,7 @@ fn leading_open_paren_offset(source: &str, start_offset: usize) -> Option<usize>
     None
 }
 
-fn trim_trailing_whitespace_offset(source: &str, end_offset: usize) -> usize {
+pub(crate) fn trim_trailing_whitespace_offset(source: &str, end_offset: usize) -> usize {
     for (offset, ch) in source[..end_offset].char_indices().rev() {
         if ch.is_whitespace() {
             continue;
@@ -1187,7 +1205,10 @@ fn trim_trailing_whitespace_offset(source: &str, end_offset: usize) -> usize {
     end_offset
 }
 
-fn collect_short_circuit_operators(command: &BinaryCommand, operators: &mut Vec<ListOperatorFact>) {
+pub(crate) fn collect_short_circuit_operators(
+    command: &BinaryCommand,
+    operators: &mut Vec<ListOperatorFact>,
+) {
     let Some(chain) = BinaryCommandChain::logical_list(command) else {
         return;
     };
@@ -1199,7 +1220,7 @@ fn collect_short_circuit_operators(command: &BinaryCommand, operators: &mut Vec<
     });
 }
 
-fn mixed_short_circuit_operator_span(operators: &[ListOperatorFact]) -> Option<Span> {
+pub(crate) fn mixed_short_circuit_operator_span(operators: &[ListOperatorFact]) -> Option<Span> {
     let mut previous = operators.first()?;
 
     for operator in operators.iter().skip(1) {
@@ -1213,7 +1234,7 @@ fn mixed_short_circuit_operator_span(operators: &[ListOperatorFact]) -> Option<S
     None
 }
 
-fn word_contains_find_substitution<'a>(
+pub(crate) fn word_contains_find_substitution<'a>(
     word: &'a Word,
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
@@ -1229,7 +1250,7 @@ fn word_contains_find_substitution<'a>(
     })
 }
 
-fn word_contains_line_oriented_substitution<'a>(
+pub(crate) fn word_contains_line_oriented_substitution<'a>(
     word: &'a Word,
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
@@ -1245,7 +1266,7 @@ fn word_contains_line_oriented_substitution<'a>(
     })
 }
 
-fn word_contains_command_substitution_named<'a>(
+pub(crate) fn word_contains_command_substitution_named<'a>(
     word: &'a Word,
     name: &str,
     commands: &[CommandFact<'a>],
@@ -1263,7 +1284,7 @@ fn word_contains_command_substitution_named<'a>(
     })
 }
 
-fn part_contains_command_substitution_named<'a>(
+pub(crate) fn part_contains_command_substitution_named<'a>(
     part: &WordPart,
     name: &str,
     commands: &[CommandFact<'a>],
@@ -1293,7 +1314,7 @@ fn part_contains_command_substitution_named<'a>(
     }
 }
 
-fn part_contains_line_oriented_substitution<'a>(
+pub(crate) fn part_contains_line_oriented_substitution<'a>(
     part: &WordPart,
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
@@ -1318,7 +1339,7 @@ fn part_contains_line_oriented_substitution<'a>(
     }
 }
 
-fn part_contains_find_substitution<'a>(
+pub(crate) fn part_contains_find_substitution<'a>(
     part: &WordPart,
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
@@ -1345,7 +1366,7 @@ fn part_contains_find_substitution<'a>(
     }
 }
 
-fn substitution_body_is_find<'a>(
+pub(crate) fn substitution_body_is_find<'a>(
     body: &'a StmtSeq,
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
@@ -1357,7 +1378,7 @@ fn substitution_body_is_find<'a>(
     )
 }
 
-fn substitution_body_is_line_oriented<'a>(
+pub(crate) fn substitution_body_is_line_oriented<'a>(
     body: &'a StmtSeq,
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
@@ -1374,7 +1395,7 @@ fn substitution_body_is_line_oriented<'a>(
     )
 }
 
-fn substitution_body_is_pgrep_lookup<'a>(
+pub(crate) fn substitution_body_is_pgrep_lookup<'a>(
     body: &'a StmtSeq,
     commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
@@ -1386,7 +1407,7 @@ fn substitution_body_is_pgrep_lookup<'a>(
     )
 }
 
-fn substitution_body_is_seq_utility<'a>(
+pub(crate) fn substitution_body_is_seq_utility<'a>(
     body: &'a StmtSeq,
     commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
@@ -1397,7 +1418,7 @@ fn substitution_body_is_seq_utility<'a>(
     )
 }
 
-fn substitution_body_is_simple_command_named<'a>(
+pub(crate) fn substitution_body_is_simple_command_named<'a>(
     body: &'a StmtSeq,
     name: &str,
     commands: &[CommandFact<'a>],
@@ -1410,7 +1431,7 @@ fn substitution_body_is_simple_command_named<'a>(
     )
 }
 
-fn command_is_line_oriented_substitution_body<'a>(
+pub(crate) fn command_is_line_oriented_substitution_body<'a>(
     command: &'a Command,
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
@@ -1440,17 +1461,16 @@ fn command_is_line_oriented_substitution_body<'a>(
             }
             BinaryOp::And | BinaryOp::Or => false,
         },
-        Command::Compound(CompoundCommand::Time(command)) => command
-            .command
-            .as_deref()
-            .is_some_and(|stmt| {
+        Command::Compound(CompoundCommand::Time(command)) => {
+            command.command.as_deref().is_some_and(|stmt| {
                 command_is_line_oriented_substitution_body(
                     &stmt.command,
                     commands,
                     command_fact_indices_by_id,
                     command_ids_by_span,
                 )
-            }),
+            })
+        }
         Command::Compound(
             CompoundCommand::If(_)
             | CompoundCommand::For(_)
@@ -1472,7 +1492,7 @@ fn command_is_line_oriented_substitution_body<'a>(
     }
 }
 
-fn command_fact_is_line_oriented_utility(fact: &CommandFact<'_>) -> bool {
+pub(crate) fn command_fact_is_line_oriented_utility(fact: &CommandFact<'_>) -> bool {
     if command_fact_invokes_find(fact) {
         return false;
     }
@@ -1485,40 +1505,50 @@ fn command_fact_is_line_oriented_utility(fact: &CommandFact<'_>) -> bool {
     })
 }
 
-fn stmt_invokes_find<'a>(
+pub(crate) fn stmt_invokes_find<'a>(
     stmt: &'a Stmt,
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    command_fact_for_stmt(stmt, commands, command_fact_indices_by_id, command_ids_by_span)
-        .is_some_and(command_fact_invokes_find)
+    command_fact_for_stmt(
+        stmt,
+        commands,
+        command_fact_indices_by_id,
+        command_ids_by_span,
+    )
+    .is_some_and(command_fact_invokes_find)
 }
 
-fn command_fact_invokes_find(fact: &CommandFact<'_>) -> bool {
+pub(crate) fn command_fact_invokes_find(fact: &CommandFact<'_>) -> bool {
     command_name_matches_basename(fact.literal_name(), "find")
         || command_name_matches_basename(fact.effective_name(), "find")
         || fact.has_wrapper(WrapperKind::FindExec)
         || fact.has_wrapper(WrapperKind::FindExecDir)
 }
 
-fn command_name_matches_basename(name: Option<&str>, expected: &str) -> bool {
+pub(crate) fn command_name_matches_basename(name: Option<&str>, expected: &str) -> bool {
     name.is_some_and(|name| name == expected || name.rsplit('/').next() == Some(expected))
 }
 
-fn stmt_literal_name_is<'a>(
+pub(crate) fn stmt_literal_name_is<'a>(
     stmt: &'a Stmt,
     name: &str,
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    command_fact_for_stmt(stmt, commands, command_fact_indices_by_id, command_ids_by_span)
-        .and_then(CommandFact::literal_name)
+    command_fact_for_stmt(
+        stmt,
+        commands,
+        command_fact_indices_by_id,
+        command_ids_by_span,
+    )
+    .and_then(CommandFact::literal_name)
         == Some(name)
 }
 
-fn stmt_effective_or_literal_basename_is_ref<'a>(
+pub(crate) fn stmt_effective_or_literal_basename_is_ref<'a>(
     stmt: &'a Stmt,
     name: &str,
     commands: CommandFacts<'_, 'a>,

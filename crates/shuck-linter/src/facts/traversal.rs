@@ -1,27 +1,12 @@
+use super::*;
+
 // Shared command/word traversal helpers. Normal fact construction consumes semantic
 // command visits rather than maintaining a separate recursive command walker.
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct CommandVisit<'a> {
-    pub(super) stmt: &'a Stmt,
-    pub(super) command: &'a Command,
-    pub(super) redirects: &'a [Redirect],
-}
-
-impl<'a> CommandVisit<'a> {
-    pub(super) fn new(stmt: &'a Stmt) -> Self {
-        Self {
-            stmt,
-            command: &stmt.command,
-            redirects: &stmt.redirects,
-        }
-    }
-}
 
 /// Controls traversal when walking nested statement-sequence bodies.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum BodyTraversal {
+pub(crate) enum BodyTraversal {
     /// Visit nested bodies below the current body.
     Descend,
     /// Visit the current body but do not visit its nested bodies.
@@ -35,14 +20,14 @@ pub(super) enum BodyTraversal {
 /// Use this for direct statement order, sibling windows, and nested body traversal when semantic
 /// command ids are not needed. Use `CommandTopology::body` instead when command identity or
 /// syntax-backed parent/child relationships are part of the fact.
-pub(super) struct BodyTopology<'a> {
+pub(crate) struct BodyTopology<'a> {
     body: Option<&'a StmtSeq>,
     statements: &'a [Stmt],
 }
 
 impl<'a> BodyTopology<'a> {
     /// Creates a topology view over `body`.
-    pub(super) fn new(body: &'a StmtSeq) -> Self {
+    pub(crate) fn new(body: &'a StmtSeq) -> Self {
         Self {
             body: Some(body),
             statements: body.as_slice(),
@@ -50,7 +35,7 @@ impl<'a> BodyTopology<'a> {
     }
 
     /// Creates a topology view over an already sliced body segment.
-    pub(super) fn from_statements(statements: &'a [Stmt]) -> Self {
+    pub(crate) fn from_statements(statements: &'a [Stmt]) -> Self {
         Self {
             body: None,
             statements,
@@ -58,18 +43,18 @@ impl<'a> BodyTopology<'a> {
     }
 
     /// Returns direct statements in this body.
-    pub(super) fn statements(&self) -> &'a [Stmt] {
+    pub(crate) fn statements(&self) -> &'a [Stmt] {
         self.statements
     }
 
     /// Iterates adjacent direct statement pairs in source order.
-    pub(super) fn sibling_pairs(&self) -> impl Iterator<Item = (&'a Stmt, &'a Stmt)> + '_ {
+    pub(crate) fn sibling_pairs(&self) -> impl Iterator<Item = (&'a Stmt, &'a Stmt)> + '_ {
         self.indexed_sibling_pairs()
             .map(|(_, previous, current)| (previous, current))
     }
 
     /// Iterates adjacent direct statement pairs with the first statement's index.
-    pub(super) fn indexed_sibling_pairs(
+    pub(crate) fn indexed_sibling_pairs(
         &self,
     ) -> impl Iterator<Item = (usize, &'a Stmt, &'a Stmt)> + '_ {
         self.statements()
@@ -80,7 +65,7 @@ impl<'a> BodyTopology<'a> {
 
     /// Returns the direct statement before `index`, if one exists.
     #[allow(dead_code)]
-    pub(super) fn previous_sibling(&self, index: usize) -> Option<&'a Stmt> {
+    pub(crate) fn previous_sibling(&self, index: usize) -> Option<&'a Stmt> {
         index
             .checked_sub(1)
             .and_then(|previous| self.statements().get(previous))
@@ -88,7 +73,7 @@ impl<'a> BodyTopology<'a> {
 
     /// Returns the direct statement after `index`, if one exists.
     #[allow(dead_code)]
-    pub(super) fn next_sibling(&self, index: usize) -> Option<&'a Stmt> {
+    pub(crate) fn next_sibling(&self, index: usize) -> Option<&'a Stmt> {
         self.statements().get(index + 1)
     }
 
@@ -97,10 +82,7 @@ impl<'a> BodyTopology<'a> {
     /// The visitor controls whether nested bodies below each visited body should be traversed.
     /// This keeps skip behavior explicit at the call site instead of baking policy into another
     /// recursive helper.
-    pub(super) fn for_each_body(
-        &self,
-        mut visitor: impl FnMut(&'a StmtSeq) -> BodyTraversal,
-    ) {
+    pub(crate) fn for_each_body(&self, mut visitor: impl FnMut(&'a StmtSeq) -> BodyTraversal) {
         let Some(body) = self.body else {
             debug_assert!(
                 false,
@@ -179,7 +161,7 @@ impl<'a> BodyTopology<'a> {
 
 /// Kind of adjacent binary command chain to flatten.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum BinaryCommandChainKind {
+pub(crate) enum BinaryCommandChainKind {
     /// A chain formed from `&&` and `||` operators.
     LogicalList,
     /// A chain formed from `|` and `|&` operators.
@@ -201,19 +183,19 @@ impl BinaryCommandChainKind {
 /// inspect words, or recurse into unrelated command forms; callers keep that payload-specific
 /// policy local to the owning fact.
 #[derive(Debug, Clone, Copy)]
-pub(super) struct BinaryCommandChain<'a> {
+pub(crate) struct BinaryCommandChain<'a> {
     root: &'a BinaryCommand,
     kind: BinaryCommandChainKind,
 }
 
 impl<'a> BinaryCommandChain<'a> {
     /// Returns a logical-list chain when `root` is joined by `&&` or `||`.
-    pub(super) fn logical_list(root: &'a BinaryCommand) -> Option<Self> {
+    pub(crate) fn logical_list(root: &'a BinaryCommand) -> Option<Self> {
         Self::new(root, BinaryCommandChainKind::LogicalList)
     }
 
     /// Returns a pipeline chain when `root` is joined by `|` or `|&`.
-    pub(super) fn pipeline(root: &'a BinaryCommand) -> Option<Self> {
+    pub(crate) fn pipeline(root: &'a BinaryCommand) -> Option<Self> {
         Self::new(root, BinaryCommandChainKind::Pipeline)
     }
 
@@ -222,7 +204,7 @@ impl<'a> BinaryCommandChain<'a> {
     }
 
     /// Visits leaf segments and chain operator nodes in source order.
-    pub(super) fn visit_parts(
+    pub(crate) fn visit_parts(
         &self,
         mut visit_segment: impl FnMut(&'a Stmt),
         mut visit_operator: impl FnMut(&'a BinaryCommand),
@@ -252,23 +234,23 @@ impl<'a> BinaryCommandChain<'a> {
     }
 
     /// Visits only leaf command segments in source order.
-    pub(super) fn visit_segments(&self, visitor: impl FnMut(&'a Stmt)) {
+    pub(crate) fn visit_segments(&self, visitor: impl FnMut(&'a Stmt)) {
         self.visit_parts(visitor, |_| {});
     }
 
     /// Visits only binary operator nodes in source order.
-    pub(super) fn visit_nodes(&self, visitor: impl FnMut(&'a BinaryCommand)) {
+    pub(crate) fn visit_nodes(&self, visitor: impl FnMut(&'a BinaryCommand)) {
         self.visit_parts(|_| {}, visitor);
     }
 }
 
-enum BinaryChainStackItem<'a> {
+pub(crate) enum BinaryChainStackItem<'a> {
     Command(&'a BinaryCommand),
     Operator(&'a BinaryCommand),
     Segment(&'a Stmt),
 }
 
-fn visit_command_substitution_candidate_words<'a>(
+pub(crate) fn visit_command_substitution_candidate_words<'a>(
     body: &'a StmtSeq,
     semantic: &LinterSemanticArtifacts<'a>,
     source: &str,
@@ -284,7 +266,7 @@ fn visit_command_substitution_candidate_words<'a>(
         });
 }
 
-fn visit_command_substitution_loop_header_words<'a>(
+pub(crate) fn visit_command_substitution_loop_header_words<'a>(
     command: &'a Command,
     visitor: &mut impl FnMut(&'a Word),
 ) {
@@ -305,7 +287,7 @@ fn visit_command_substitution_loop_header_words<'a>(
     }
 }
 
-fn command_assignments(command: &Command) -> &[Assignment] {
+pub(crate) fn command_assignments(command: &Command) -> &[Assignment] {
     match command {
         Command::Simple(command) => &command.assignments,
         Command::Builtin(command) => builtin_assignments(command),
@@ -317,7 +299,7 @@ fn command_assignments(command: &Command) -> &[Assignment] {
     }
 }
 
-fn declaration_operands(command: &Command) -> &[DeclOperand] {
+pub(crate) fn declaration_operands(command: &Command) -> &[DeclOperand] {
     match command {
         Command::Decl(command) => &command.operands,
         Command::Simple(_)
@@ -329,14 +311,14 @@ fn declaration_operands(command: &Command) -> &[DeclOperand] {
     }
 }
 
-fn visit_arithmetic_words<'a>(
+pub(super) fn visit_arithmetic_words<'a>(
     expression: &'a ArithmeticExprNode,
     visitor: &mut impl FnMut(&'a Word),
 ) {
     visit_arithmetic_words_in_expr(expression, visitor);
 }
 
-fn visit_var_ref_subscript_words_with_source<'a>(
+pub(super) fn visit_var_ref_subscript_words_with_source<'a>(
     reference: &'a VarRef,
     _source: &'a str,
     visitor: &mut impl FnMut(&'a Word),
@@ -344,7 +326,7 @@ fn visit_var_ref_subscript_words_with_source<'a>(
     visit_subscript_words(reference.subscript.as_deref(), _source, visitor);
 }
 
-fn visit_subscript_words<'a>(
+pub(super) fn visit_subscript_words<'a>(
     subscript: Option<&'a Subscript>,
     _source: &'a str,
     visitor: &mut impl FnMut(&'a Word),
@@ -371,7 +353,7 @@ fn visit_subscript_words<'a>(
     );
 }
 
-fn visit_arithmetic_words_in_expr<'a>(
+pub(super) fn visit_arithmetic_words_in_expr<'a>(
     expression: &'a ArithmeticExprNode,
     visitor: &mut impl FnMut(&'a Word),
 ) {
@@ -405,7 +387,7 @@ fn visit_arithmetic_words_in_expr<'a>(
     }
 }
 
-fn visit_arithmetic_lvalue_words<'a>(
+pub(crate) fn visit_arithmetic_lvalue_words<'a>(
     target: &'a ArithmeticLvalue,
     visitor: &mut impl FnMut(&'a Word),
 ) {
@@ -415,7 +397,7 @@ fn visit_arithmetic_lvalue_words<'a>(
     }
 }
 
-fn builtin_assignments(command: &BuiltinCommand) -> &[Assignment] {
+pub(crate) fn builtin_assignments(command: &BuiltinCommand) -> &[Assignment] {
     match command {
         BuiltinCommand::Break(command) => &command.assignments,
         BuiltinCommand::Continue(command) => &command.assignments,

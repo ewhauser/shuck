@@ -7,16 +7,39 @@
 //! declaration summaries, option-shape summaries, and later word/expansion
 //! facts.
 
+mod arithmetic;
+mod arrays;
+mod assignments;
+mod body_shape;
+mod braces;
+mod builder;
+mod case_patterns;
 pub(crate) mod command_options;
+pub(crate) mod commands;
+mod comments;
 mod conditional_portability;
+pub(crate) mod conditionals;
+pub(crate) mod core;
 mod escape_scan;
+pub(crate) mod functions;
+mod heredocs;
+pub(crate) mod lists;
+pub(crate) mod loop_headers;
 mod misspelling;
+mod model;
 mod normalized_commands;
+pub(crate) mod pipelines;
 mod presence;
+pub(crate) mod redirects;
+pub(crate) mod simple_tests;
+pub(crate) mod statements;
+pub(crate) mod substitutions;
 pub(crate) mod surface;
 #[cfg(test)]
 mod tests;
+mod traversal;
 pub(crate) mod word_spans;
+pub(crate) mod words;
 
 use self::word_spans::{expansion_part_spans, word_unbraced_variable_before_bracket_spans};
 use self::{
@@ -105,89 +128,40 @@ pub use self::surface::{
     PositionalParameterFragmentFact, SelectorRequiredArrayReference, SingleQuotedFragmentFact,
 };
 
-include!("traversal.rs");
-include!("body_shape.rs");
-include!("core.rs");
-include!("simple_tests.rs");
-include!("conditionals.rs");
-include!("redirects.rs");
-include!("substitutions.rs");
-include!("loop_headers.rs");
-include!("case_patterns.rs");
-include!("functions.rs");
-include!("pipelines.rs");
-include!("lists.rs");
-include!("statements.rs");
-include!("commands.rs");
-include!("model.rs");
-include!("builder.rs");
-include!("assignments.rs");
-include!("arrays.rs");
-include!("comments.rs");
-include!("heredocs.rs");
-include!("braces.rs");
-include!("arithmetic.rs");
-pub(crate) mod words;
-use self::words::*;
-
 #[allow(unused_imports)]
-pub(crate) mod core {
-    pub use super::{
-        CommandFactRef, CommandFacts, CommandId, FactSpan, SudoFamilyInvoker, WordNodeId,
-        WordOccurrenceId,
-    };
-}
+pub(crate) use self::{
+    arithmetic::*, arrays::*, assignments::*, body_shape::*, braces::*, builder::*,
+    case_patterns::*, commands::*, comments::*, conditionals::*, core::*, functions::*,
+    heredocs::*, lists::*, loop_headers::*, model::*, pipelines::*, redirects::*, simple_tests::*,
+    statements::*, substitutions::*, traversal::*, words::*,
+};
 
-#[allow(unused_imports)]
-pub(crate) mod simple_tests {
-    pub use super::{SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax};
-}
-
-#[allow(unused_imports)]
-pub(crate) mod conditionals {
-    pub use super::{
+pub use self::{
+    arithmetic::ArithmeticUpdateOperatorFixFact,
+    assignments::EnvPrefixExpansionFixFact,
+    case_patterns::CaseItemFact,
+    commands::{CommandFact, RedundantEchoSpaceFact},
+    conditionals::{
         ConditionalBareWordFact, ConditionalBinaryFact, ConditionalFact,
         ConditionalMixedLogicalOperatorFact, ConditionalNodeFact, ConditionalOperandFact,
         ConditionalOperatorFamily, ConditionalUnaryFact,
-    };
-}
+    },
+    core::{CommandFactRef, CommandFacts, CommandId, FactSpan, SudoFamilyInvoker},
+    functions::{FunctionCallArityFacts, FunctionHeaderFact},
+    lists::{ListFact, ListOperatorFact, ListSegmentKind, MixedShortCircuitKind},
+    loop_headers::{ForHeaderFact, LoopHeaderWordFact, SelectHeaderFact},
+    model::LinterFacts,
+    pipelines::{PipelineFact, PipelineOperatorFact, PipelineSegmentFact},
+    redirects::{RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis, RedirectTargetKind},
+    simple_tests::{SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax},
+    statements::StatementFact,
+    substitutions::{
+        CommandSubstitutionKind, SubstitutionFact, SubstitutionHostKind, SubstitutionOutputIntent,
+    },
+};
 
-#[allow(unused_imports)]
-pub(crate) mod redirects {
-    pub use super::RedirectFact;
-}
-
-#[allow(unused_imports)]
-pub(crate) mod substitutions {
-    pub use super::{CommandSubstitutionKind, SubstitutionFact, SubstitutionHostKind};
-}
-
-#[allow(unused_imports)]
-pub(crate) mod loop_headers {
-    pub use super::{ForHeaderFact, LoopHeaderWordFact, SelectHeaderFact};
-}
-
-#[allow(unused_imports)]
-pub(crate) mod functions {
-    pub use super::{FunctionCallArityFacts, FunctionHeaderFact};
-}
-
-#[allow(unused_imports)]
-pub(crate) mod pipelines {
-    pub use super::{PipelineFact, PipelineOperatorFact, PipelineSegmentFact};
-}
-
-#[allow(unused_imports)]
-pub(crate) mod lists {
-    pub use super::{ListFact, ListOperatorFact, ListSegmentKind, MixedShortCircuitKind};
-}
-
-#[allow(unused_imports)]
-pub(crate) mod statements {
-    pub use super::StatementFact;
-}
-
-#[allow(unused_imports)]
-pub(crate) mod commands {
-    pub use super::{CommandFact, CommandFactRef};
-}
+pub(crate) use self::conditionals::ConditionalExpressionVisit;
+pub(crate) use self::core::CommandVisit;
+pub(crate) use self::redirects::{
+    ComparableNameKey, ComparableNameUseKind, ComparablePathKey, ComparablePathMatchKey,
+};

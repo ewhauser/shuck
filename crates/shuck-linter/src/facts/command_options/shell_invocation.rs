@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn parse_ssh_command(args: &[&Word], source: &str) -> Option<SshCommandFacts> {
+pub(crate) fn parse_ssh_command(args: &[&Word], source: &str) -> Option<SshCommandFacts> {
     let remote_args = ssh_remote_args(args, source)?;
     let (last_remote_arg, leading_remote_args) = remote_args.split_last()?;
     if leading_remote_args
@@ -27,7 +27,7 @@ pub(super) fn parse_ssh_command(args: &[&Word], source: &str) -> Option<SshComma
     })
 }
 
-pub(super) fn parse_su_command(args: &[&Word], source: &str) -> SuCommandFacts {
+pub(crate) fn parse_su_command(args: &[&Word], source: &str) -> SuCommandFacts {
     let mut pending_option_arg = false;
     for word in args {
         let Some(text) = static_word_text(word, source) else {

@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn parse_sed_command(args: &[&Word], source: &str) -> SedCommandFacts {
+pub(crate) fn parse_sed_command(args: &[&Word], source: &str) -> SedCommandFacts {
     SedCommandFacts {
         has_single_substitution_script: sed_has_single_substitution_script(
             args,
@@ -62,7 +62,7 @@ pub(crate) fn sed_has_single_substitution_script(
         .is_some_and(is_simple_sed_substitution_script)
 }
 
-pub(super) fn is_echo_portability_flag(text: &str) -> bool {
+pub(crate) fn is_echo_portability_flag(text: &str) -> bool {
     let Some(flags) = text.strip_prefix('-') else {
         return false;
     };
@@ -208,7 +208,7 @@ fn strip_matching_sed_script_quotes_in_source(text: &str, quote_mode: SedScriptQ
     }
 }
 
-pub(super) fn strip_shell_matching_quotes_in_source(text: &str) -> &str {
+pub(crate) fn strip_shell_matching_quotes_in_source(text: &str) -> &str {
     if text.len() >= 2
         && ((text.starts_with('"') && text.ends_with('"'))
             || (text.starts_with('\'') && text.ends_with('\'')))

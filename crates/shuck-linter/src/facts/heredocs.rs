@@ -1,5 +1,7 @@
+use super::*;
+
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_heredoc_fact_summary(
+pub(crate) fn build_heredoc_fact_summary(
     commands: &[CommandFact<'_>],
     locator: Locator<'_>,
     file_end: usize,
@@ -90,11 +92,11 @@ fn build_heredoc_fact_summary(
     summary
 }
 
-fn is_heredoc_redirect_kind(kind: RedirectKind) -> bool {
+pub(crate) fn is_heredoc_redirect_kind(kind: RedirectKind) -> bool {
     matches!(kind, RedirectKind::HereDoc | RedirectKind::HereDocStrip)
 }
 
-fn heredoc_closer_not_alone_span(
+pub(crate) fn heredoc_closer_not_alone_span(
     body_span: Span,
     delimiter: &str,
     strip_tabs: bool,
@@ -127,7 +129,7 @@ fn heredoc_closer_not_alone_span(
     None
 }
 
-fn has_misquoted_heredoc_close(
+pub(crate) fn has_misquoted_heredoc_close(
     body_span: Span,
     delimiter: &str,
     strip_tabs: bool,
@@ -141,7 +143,7 @@ fn has_misquoted_heredoc_close(
         .any(|candidate_line| is_quoted_delimiter_variant(candidate_line, delimiter))
 }
 
-fn heredoc_end_space_span(
+pub(crate) fn heredoc_end_space_span(
     body_span: Span,
     delimiter: &str,
     strip_tabs: bool,
@@ -162,7 +164,7 @@ fn heredoc_end_space_span(
     Some(Span::from_positions(start, start))
 }
 
-fn spaced_tabstrip_close_spans(
+pub(crate) fn spaced_tabstrip_close_spans(
     body_span: Span,
     delimiter: &str,
     locator: Locator<'_>,
@@ -183,7 +185,7 @@ fn spaced_tabstrip_close_spans(
     spans
 }
 
-fn normalized_heredoc_line(raw_line: &str, strip_tabs: bool) -> (&str, usize) {
+pub(crate) fn normalized_heredoc_line(raw_line: &str, strip_tabs: bool) -> (&str, usize) {
     let line_without_newline = raw_line.trim_end_matches('\n').trim_end_matches('\r');
     if strip_tabs {
         let trimmed = line_without_newline.trim_start_matches('\t');
@@ -193,15 +195,15 @@ fn normalized_heredoc_line(raw_line: &str, strip_tabs: bool) -> (&str, usize) {
     }
 }
 
-fn is_quoted_delimiter_variant(candidate_line: &str, delimiter: &str) -> bool {
+pub(crate) fn is_quoted_delimiter_variant(candidate_line: &str, delimiter: &str) -> bool {
     candidate_line != delimiter && trim_quote_like_wrappers(candidate_line) == delimiter
 }
 
-fn trim_quote_like_wrappers(text: &str) -> &str {
+pub(crate) fn trim_quote_like_wrappers(text: &str) -> &str {
     text.trim_matches(|ch| matches!(ch, '\'' | '"' | '\\'))
 }
 
-fn is_spaced_tabstrip_close_line(line: &str, delimiter: &str) -> bool {
+pub(crate) fn is_spaced_tabstrip_close_line(line: &str, delimiter: &str) -> bool {
     if line.trim_start_matches('\t') == delimiter {
         return false;
     }
@@ -219,4 +221,3 @@ fn is_spaced_tabstrip_close_line(line: &str, delimiter: &str) -> bool {
     let rest = &line_without_trailing_ws[leading_len..];
     leading.contains(' ') && rest == delimiter
 }
-

@@ -1,27 +1,31 @@
+use super::*;
+
+pub use super::core::CommandFactRef;
+
 #[derive(Debug, Clone)]
 pub struct CommandFact<'a> {
-    id: CommandId,
-    key: FactSpan,
-    visit: CommandVisit<'a>,
-    nested_word_command: bool,
-    scope: ScopeId,
-    enclosing_function_scope: Option<ScopeId>,
-    normalized: NormalizedCommand<'a>,
-    shell_behavior: ShellBehaviorAt<'a>,
-    redirect_facts: IdRange<RedirectFact<'a>>,
-    substitution_facts: IdRange<SubstitutionFact>,
-    options: Option<Box<CommandOptionFacts<'a>>>,
-    scope_read_source_words: IdRange<PathWordFact<'a>>,
-    scope_name_read_uses: IdRange<ComparableNameUse>,
-    scope_heredoc_name_read_uses: IdRange<ComparableNameUse>,
-    scope_name_write_uses: IdRange<ComparableNameUse>,
-    declaration_assignment_probes: IdRange<DeclarationAssignmentProbe>,
-    glued_closing_bracket_operand_span: Option<Span>,
-    glued_closing_bracket_insert_offset: Option<usize>,
-    linebreak_in_test_anchor_span: Option<Span>,
-    linebreak_in_test_insert_offset: Option<usize>,
-    simple_test: Option<SimpleTestFact<'a>>,
-    conditional: Option<ConditionalFact<'a>>,
+    pub(crate) id: CommandId,
+    pub(crate) key: FactSpan,
+    pub(crate) visit: CommandVisit<'a>,
+    pub(crate) nested_word_command: bool,
+    pub(crate) scope: ScopeId,
+    pub(crate) enclosing_function_scope: Option<ScopeId>,
+    pub(crate) normalized: NormalizedCommand<'a>,
+    pub(crate) shell_behavior: ShellBehaviorAt<'a>,
+    pub(crate) redirect_facts: IdRange<RedirectFact<'a>>,
+    pub(crate) substitution_facts: IdRange<SubstitutionFact>,
+    pub(crate) options: Option<Box<CommandOptionFacts<'a>>>,
+    pub(crate) scope_read_source_words: IdRange<PathWordFact<'a>>,
+    pub(crate) scope_name_read_uses: IdRange<ComparableNameUse>,
+    pub(crate) scope_heredoc_name_read_uses: IdRange<ComparableNameUse>,
+    pub(crate) scope_name_write_uses: IdRange<ComparableNameUse>,
+    pub(crate) declaration_assignment_probes: IdRange<DeclarationAssignmentProbe>,
+    pub(crate) glued_closing_bracket_operand_span: Option<Span>,
+    pub(crate) glued_closing_bracket_insert_offset: Option<usize>,
+    pub(crate) linebreak_in_test_anchor_span: Option<Span>,
+    pub(crate) linebreak_in_test_insert_offset: Option<usize>,
+    pub(crate) simple_test: Option<SimpleTestFact<'a>>,
+    pub(crate) conditional: Option<ConditionalFact<'a>>,
 }
 
 #[derive(Debug, Clone)]
@@ -210,7 +214,6 @@ impl<'a> CommandFact<'a> {
     pub fn file_operand_words(&self) -> &[&'a Word] {
         self.options().file_operand_words()
     }
-
 }
 
 impl<'facts, 'a> CommandFactRef<'facts, 'a> {
@@ -276,7 +279,8 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
     }
 
     pub(crate) fn scope_name_read_uses(self) -> &'facts [ComparableNameUse] {
-        self.store.scope_name_read_uses(self.fact.scope_name_read_uses)
+        self.store
+            .scope_name_read_uses(self.fact.scope_name_read_uses)
     }
 
     pub(crate) fn scope_heredoc_name_read_uses(self) -> &'facts [ComparableNameUse] {
@@ -426,7 +430,7 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
     }
 }
 
-fn pipeline_span_with_shellcheck_tail(
+pub(crate) fn pipeline_span_with_shellcheck_tail(
     commands: CommandFacts<'_, '_>,
     pipeline: &PipelineFact<'_>,
     source: &str,
@@ -448,7 +452,7 @@ fn pipeline_span_with_shellcheck_tail(
     Span::from_positions(body_name_word.span.start, end)
 }
 
-fn command_span_with_redirects_and_shellcheck_tail(
+pub(crate) fn command_span_with_redirects_and_shellcheck_tail(
     command: CommandFactRef<'_, '_>,
     source: &str,
 ) -> Option<Span> {
@@ -474,7 +478,7 @@ fn command_span_with_redirects_and_shellcheck_tail(
     ))
 }
 
-fn effective_command_shell_behavior<'a>(
+pub(crate) fn effective_command_shell_behavior<'a>(
     semantic: &'a SemanticModel,
     offset: usize,
     normalized: &NormalizedCommand<'_>,
@@ -488,14 +492,14 @@ fn effective_command_shell_behavior<'a>(
     behavior
 }
 
-fn contains_template_placeholder_text(text: &str) -> bool {
+pub(crate) fn contains_template_placeholder_text(text: &str) -> bool {
     let Some(start) = text.find("{{") else {
         return false;
     };
     text[start + 2..].contains("}}")
 }
 
-fn quoted_command_name_has_suspicious_ending(
+pub(crate) fn quoted_command_name_has_suspicious_ending(
     text: &str,
     trailing_literal_char: Option<char>,
 ) -> bool {
@@ -520,7 +524,7 @@ fn quoted_command_name_has_suspicious_ending(
     }
 }
 
-fn strip_matching_quotes(text: &str) -> Option<&str> {
+pub(crate) fn strip_matching_quotes(text: &str) -> Option<&str> {
     if text.len() < 2 {
         return None;
     }
@@ -534,24 +538,24 @@ fn strip_matching_quotes(text: &str) -> Option<&str> {
     }
 }
 
-fn is_suspicious_command_trailer(ch: char) -> bool {
+pub(crate) fn is_suspicious_command_trailer(ch: char) -> bool {
     matches!(
         ch,
         '.' | ',' | '#' | '[' | ']' | '(' | ')' | '{' | '}' | '\''
     )
 }
 
-fn inner_ends_with_parameter_expansion(inner: &str) -> bool {
+pub(crate) fn inner_ends_with_parameter_expansion(inner: &str) -> bool {
     matching_shell_delimiter_start(inner, b'{', b'}')
         .is_some_and(|index| index > 0 && inner.as_bytes()[index - 1] == b'$')
 }
 
-fn inner_ends_with_command_substitution(inner: &str) -> bool {
+pub(crate) fn inner_ends_with_command_substitution(inner: &str) -> bool {
     matching_shell_delimiter_start(inner, b'(', b')')
         .is_some_and(|index| index > 0 && inner.as_bytes()[index - 1] == b'$')
 }
 
-fn matching_shell_delimiter_start(inner: &str, open: u8, close: u8) -> Option<usize> {
+pub(crate) fn matching_shell_delimiter_start(inner: &str, open: u8, close: u8) -> Option<usize> {
     let bytes = inner.as_bytes();
     if bytes.last().copied() != Some(close) {
         return None;
@@ -604,7 +608,7 @@ fn matching_shell_delimiter_start(inner: &str, open: u8, close: u8) -> Option<us
     None
 }
 
-fn byte_is_shell_escaped(bytes: &[u8], index: usize) -> bool {
+pub(crate) fn byte_is_shell_escaped(bytes: &[u8], index: usize) -> bool {
     let mut slash_count = 0usize;
     let mut cursor = index;
 
@@ -617,13 +621,16 @@ fn byte_is_shell_escaped(bytes: &[u8], index: usize) -> bool {
 }
 
 #[derive(Clone, Copy)]
-enum QuoteState {
+pub(crate) enum QuoteState {
     Single,
     Double,
     Backtick,
 }
 
-fn extend_over_shellcheck_trailing_inline_space(end: Position, source: &str) -> Position {
+pub(crate) fn extend_over_shellcheck_trailing_inline_space(
+    end: Position,
+    source: &str,
+) -> Position {
     let tail = &source[end.offset..];
     let spaces_len = tail
         .char_indices()
@@ -649,7 +656,7 @@ fn extend_over_shellcheck_trailing_inline_space(end: Position, source: &str) -> 
     }
 }
 
-fn build_background_semicolon_spans(
+pub(crate) fn build_background_semicolon_spans(
     commands: &[CommandFact<'_>],
     case_items: &[CaseItemFact<'_>],
     locator: Locator<'_>,
@@ -667,7 +674,7 @@ fn build_background_semicolon_spans(
     spans
 }
 
-fn background_semicolon_span(
+pub(crate) fn background_semicolon_span(
     command: &CommandFact<'_>,
     case_terminator_starts: &FxHashSet<usize>,
     locator: Locator<'_>,
@@ -700,14 +707,16 @@ fn background_semicolon_span(
     Some(Span::from_positions(start, end))
 }
 
-fn build_redundant_echo_space_facts(facts: &LinterFacts<'_>) -> Vec<RedundantEchoSpaceFact> {
+pub(crate) fn build_redundant_echo_space_facts(
+    facts: &LinterFacts<'_>,
+) -> Vec<RedundantEchoSpaceFact> {
     facts
         .structural_commands()
-        .filter_map(|command| redundant_echo_space_fact(command, facts.source))
+        .filter_map(|command| redundant_echo_space_fact(command, facts.source_facts.source))
         .collect()
 }
 
-fn redundant_echo_space_fact(
+pub(crate) fn redundant_echo_space_fact(
     command: CommandFactRef<'_, '_>,
     source: &str,
 ) -> Option<RedundantEchoSpaceFact> {
@@ -732,7 +741,11 @@ fn redundant_echo_space_fact(
     })
 }
 
-fn repeated_echo_argument_space_span(left: Span, right: Span, source: &str) -> Option<Span> {
+pub(crate) fn repeated_echo_argument_space_span(
+    left: Span,
+    right: Span,
+    source: &str,
+) -> Option<Span> {
     if left.end.line != right.start.line {
         return None;
     }
@@ -757,7 +770,7 @@ fn repeated_echo_argument_space_span(left: Span, right: Span, source: &str) -> O
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn populate_scope_fact_ranges<'a>(
+pub(crate) fn populate_scope_fact_ranges<'a>(
     commands: &mut [CommandFact<'a>],
     fact_store: &mut FactStore<'a>,
     command_fact_indices_by_id: &[Option<usize>],
@@ -767,12 +780,7 @@ fn populate_scope_fact_ranges<'a>(
 ) {
     let (pipeline_summaries, pipeline_summary_ids_by_writer) = {
         let command_facts = CommandFacts::new(commands, fact_store, command_fact_indices_by_id);
-        build_pipeline_scope_summaries(
-            command_facts,
-            pipelines,
-            if_condition_command_ids,
-            source,
-        )
+        build_pipeline_scope_summaries(command_facts, pipelines, if_condition_command_ids, source)
     };
     let inputs = ScopeFactInputs {
         pipeline_summaries: &pipeline_summaries,
@@ -795,7 +803,7 @@ fn populate_scope_fact_ranges<'a>(
 }
 
 #[derive(Clone, Copy)]
-struct ScopeFactInputs<'facts, 'a> {
+pub(crate) struct ScopeFactInputs<'facts, 'a> {
     pipeline_summaries: &'facts [PipelineScopeSummary<'a>],
     pipeline_summary_ids_by_writer: &'facts [SmallVec<[usize; 1]>],
     if_condition_command_ids: &'facts DenseCommandIdSet,
@@ -803,7 +811,7 @@ struct ScopeFactInputs<'facts, 'a> {
 }
 
 #[derive(Default)]
-struct ScopeFactScratch<'a> {
+pub(crate) struct ScopeFactScratch<'a> {
     source_words: Vec<PathWordFact<'a>>,
     name_reads: Vec<ComparableNameUse>,
     heredoc_name_reads: Vec<ComparableNameUse>,
@@ -811,7 +819,7 @@ struct ScopeFactScratch<'a> {
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn populate_scope_fact_ranges_for_command<'a>(
+pub(crate) fn populate_scope_fact_ranges_for_command<'a>(
     index: usize,
     commands: &mut [CommandFact<'a>],
     fact_store: &mut FactStore<'a>,
@@ -871,14 +879,14 @@ fn populate_scope_fact_ranges_for_command<'a>(
         .push_many(scratch.name_writes.drain(..));
 }
 
-struct PipelineScopeSummary<'a> {
+pub(crate) struct PipelineScopeSummary<'a> {
     source_words: Vec<PathWordFact<'a>>,
     name_reads: Vec<ComparableNameUse>,
     heredoc_name_reads: Vec<ComparableNameUse>,
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_pipeline_scope_summaries<'a>(
+pub(crate) fn build_pipeline_scope_summaries<'a>(
     commands: CommandFacts<'_, 'a>,
     pipelines: &[PipelineFact<'a>],
     if_condition_command_ids: &DenseCommandIdSet,
@@ -934,7 +942,7 @@ fn build_pipeline_scope_summaries<'a>(
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn collect_scope_read_source_words_for_command<'a>(
+pub(crate) fn collect_scope_read_source_words_for_command<'a>(
     commands: CommandFacts<'_, 'a>,
     command: CommandFactRef<'_, 'a>,
     pipeline_summaries: &[PipelineScopeSummary<'a>],
@@ -953,19 +961,14 @@ fn collect_scope_read_source_words_for_command<'a>(
             words,
         );
         for summary_id in pipeline_summary_ids {
-            words.extend(
-                pipeline_summaries[*summary_id]
-                    .source_words
-                    .iter()
-                    .cloned(),
-            );
+            words.extend(pipeline_summaries[*summary_id].source_words.iter().cloned());
         }
     }
     dedup_path_words(words);
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn collect_scope_name_read_uses_for_command(
+pub(crate) fn collect_scope_name_read_uses_for_command(
     commands: CommandFacts<'_, '_>,
     command: CommandFactRef<'_, '_>,
     pipeline_summaries: &[PipelineScopeSummary<'_>],
@@ -984,7 +987,7 @@ fn collect_scope_name_read_uses_for_command(
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn collect_scope_heredoc_name_read_uses_for_command(
+pub(crate) fn collect_scope_heredoc_name_read_uses_for_command(
     commands: CommandFacts<'_, '_>,
     command: CommandFactRef<'_, '_>,
     pipeline_summaries: &[PipelineScopeSummary<'_>],
@@ -1010,7 +1013,7 @@ fn collect_scope_heredoc_name_read_uses_for_command(
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn collect_scope_name_write_uses_for_command(
+pub(crate) fn collect_scope_name_write_uses_for_command(
     commands: CommandFacts<'_, '_>,
     command: CommandFactRef<'_, '_>,
     source: &str,
@@ -1023,25 +1026,20 @@ fn collect_scope_name_write_uses_for_command(
     dedup_name_uses(uses);
 }
 
-fn collect_own_scope_read_source_words<'a>(
+pub(crate) fn collect_own_scope_read_source_words<'a>(
     command: CommandFactRef<'_, 'a>,
     if_condition_command_ids: &DenseCommandIdSet,
     source: &str,
     words: &mut Vec<PathWordFact<'a>>,
 ) {
-    words.extend(command
-        .file_operand_words()
-        .iter()
-        .copied()
-        .map(|word| {
-            PathWordFact::new(
-                word,
-                ExpansionContext::CommandArgument,
-                source,
-                command.shell_behavior(),
-            )
-        })
-    );
+    words.extend(command.file_operand_words().iter().copied().map(|word| {
+        PathWordFact::new(
+            word,
+            ExpansionContext::CommandArgument,
+            source,
+            command.shell_behavior(),
+        )
+    }));
     collect_command_redirect_read_source_words(command, source, words);
     collect_command_simple_test_path_words(command, source, words);
     if !if_condition_command_ids.contains(command.id()) {
@@ -1049,7 +1047,7 @@ fn collect_own_scope_read_source_words<'a>(
     }
 }
 
-fn collect_own_scope_name_read_uses(
+pub(crate) fn collect_own_scope_name_read_uses(
     command: CommandFactRef<'_, '_>,
     _source: &str,
     uses: &mut Vec<ComparableNameUse>,
@@ -1072,7 +1070,7 @@ fn collect_own_scope_name_read_uses(
     }
 }
 
-fn collect_own_scope_heredoc_name_read_uses(
+pub(crate) fn collect_own_scope_heredoc_name_read_uses(
     command: CommandFactRef<'_, '_>,
     _source: &str,
     uses: &mut Vec<ComparableNameUse>,
@@ -1088,7 +1086,7 @@ fn collect_own_scope_heredoc_name_read_uses(
     }
 }
 
-fn collect_own_scope_name_write_uses(
+pub(crate) fn collect_own_scope_name_write_uses(
     command: CommandFactRef<'_, '_>,
     _source: &str,
     uses: &mut Vec<ComparableNameUse>,
@@ -1099,7 +1097,7 @@ fn collect_own_scope_name_write_uses(
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn collect_nested_scope_read_source_words<'a>(
+pub(crate) fn collect_nested_scope_read_source_words<'a>(
     commands: CommandFacts<'_, 'a>,
     command: CommandFactRef<'_, 'a>,
     if_condition_command_ids: &DenseCommandIdSet,
@@ -1112,7 +1110,7 @@ fn collect_nested_scope_read_source_words<'a>(
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn collect_nested_scope_name_read_uses(
+pub(crate) fn collect_nested_scope_name_read_uses(
     commands: CommandFacts<'_, '_>,
     command: CommandFactRef<'_, '_>,
     source: &str,
@@ -1124,7 +1122,7 @@ fn collect_nested_scope_name_read_uses(
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn collect_nested_scope_heredoc_name_read_uses(
+pub(crate) fn collect_nested_scope_heredoc_name_read_uses(
     commands: CommandFacts<'_, '_>,
     command: CommandFactRef<'_, '_>,
     source: &str,
@@ -1136,7 +1134,7 @@ fn collect_nested_scope_heredoc_name_read_uses(
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn collect_nested_scope_name_write_uses(
+pub(crate) fn collect_nested_scope_name_write_uses(
     commands: CommandFacts<'_, '_>,
     command: CommandFactRef<'_, '_>,
     source: &str,
@@ -1148,7 +1146,7 @@ fn collect_nested_scope_name_write_uses(
 }
 
 /// Visits commands nested inside `outer`'s span.
-fn for_each_nested_command<'facts, 'a>(
+pub(crate) fn for_each_nested_command<'facts, 'a>(
     commands: CommandFacts<'facts, 'a>,
     outer: CommandFactRef<'_, 'a>,
     mut visit: impl FnMut(CommandFactRef<'facts, 'a>),
@@ -1168,7 +1166,7 @@ fn for_each_nested_command<'facts, 'a>(
     }
 }
 
-fn dedup_path_words(words: &mut Vec<PathWordFact<'_>>) {
+pub(crate) fn dedup_path_words(words: &mut Vec<PathWordFact<'_>>) {
     if words.len() < 2 {
         return;
     }
@@ -1176,7 +1174,7 @@ fn dedup_path_words(words: &mut Vec<PathWordFact<'_>>) {
     words.retain(|fact| seen.insert((FactSpan::new(fact.word().span), fact.context())));
 }
 
-fn dedup_name_uses(uses: &mut Vec<ComparableNameUse>) {
+pub(crate) fn dedup_name_uses(uses: &mut Vec<ComparableNameUse>) {
     if uses.len() < 2 {
         return;
     }
@@ -1184,7 +1182,7 @@ fn dedup_name_uses(uses: &mut Vec<ComparableNameUse>) {
     uses.retain(|name_use| seen.insert((name_use.key().clone(), FactSpan::new(name_use.span()))));
 }
 
-fn command_has_file_output_redirect(command: CommandFactRef<'_, '_>) -> bool {
+pub(crate) fn command_has_file_output_redirect(command: CommandFactRef<'_, '_>) -> bool {
     command.redirect_facts().iter().any(|redirect| {
         matches!(
             redirect.redirect().kind,
@@ -1198,7 +1196,7 @@ fn command_has_file_output_redirect(command: CommandFactRef<'_, '_>) -> bool {
     })
 }
 
-fn command_has_file_input_redirect(command: CommandFactRef<'_, '_>) -> bool {
+pub(crate) fn command_has_file_input_redirect(command: CommandFactRef<'_, '_>) -> bool {
     command.redirect_facts().iter().any(|redirect| {
         matches!(
             redirect.redirect().kind,
@@ -1209,7 +1207,7 @@ fn command_has_file_input_redirect(command: CommandFactRef<'_, '_>) -> bool {
     })
 }
 
-fn collect_command_redirect_read_source_words<'a>(
+pub(crate) fn collect_command_redirect_read_source_words<'a>(
     command: CommandFactRef<'_, 'a>,
     source: &str,
     words: &mut Vec<PathWordFact<'a>>,
@@ -1238,7 +1236,7 @@ fn collect_command_redirect_read_source_words<'a>(
     }
 }
 
-fn collect_command_simple_test_path_words<'a>(
+pub(crate) fn collect_command_simple_test_path_words<'a>(
     command: CommandFactRef<'_, 'a>,
     source: &str,
     words: &mut Vec<PathWordFact<'a>>,
@@ -1247,20 +1245,22 @@ fn collect_command_simple_test_path_words<'a>(
         return;
     };
 
-    words.extend(simple_test
-        .operator_expression_operand_words(source)
-        .into_iter()
-        .map(|word| {
-            PathWordFact::new(
-                word,
-                ExpansionContext::StringTestOperand,
-                source,
-                command.shell_behavior(),
-            )
-        }));
+    words.extend(
+        simple_test
+            .operator_expression_operand_words(source)
+            .into_iter()
+            .map(|word| {
+                PathWordFact::new(
+                    word,
+                    ExpansionContext::StringTestOperand,
+                    source,
+                    command.shell_behavior(),
+                )
+            }),
+    );
 }
 
-fn collect_command_conditional_path_words<'a>(
+pub(crate) fn collect_command_conditional_path_words<'a>(
     command: CommandFactRef<'_, 'a>,
     source: &str,
     words: &mut Vec<PathWordFact<'a>>,
@@ -1296,16 +1296,16 @@ fn collect_command_conditional_path_words<'a>(
     }
 }
 
-fn contains_span(outer: Span, inner: Span) -> bool {
+pub(crate) fn contains_span(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
 }
 
-fn contains_span_strictly(outer: Span, inner: Span) -> bool {
+pub(crate) fn contains_span_strictly(outer: Span, inner: Span) -> bool {
     contains_span(outer, inner)
         && (outer.start.offset < inner.start.offset || inner.end.offset < outer.end.offset)
 }
 
-fn build_backtick_command_name_spans(commands: &[CommandFact<'_>]) -> Vec<Span> {
+pub(crate) fn build_backtick_command_name_spans(commands: &[CommandFact<'_>]) -> Vec<Span> {
     let mut spans = commands
         .iter()
         .filter_map(|fact| match fact.command() {
@@ -1322,7 +1322,7 @@ fn build_backtick_command_name_spans(commands: &[CommandFact<'_>]) -> Vec<Span> 
     spans
 }
 
-fn plain_backtick_command_name_span(word: &Word) -> Option<Span> {
+pub(crate) fn plain_backtick_command_name_span(word: &Word) -> Option<Span> {
     let [part] = word.parts.as_slice() else {
         return None;
     };
@@ -1336,7 +1336,7 @@ fn plain_backtick_command_name_span(word: &Word) -> Option<Span> {
     }
 }
 
-fn command_span(command: &Command) -> Span {
+pub(crate) fn command_span(command: &Command) -> Span {
     match command {
         Command::Simple(command) => command.span,
         Command::Builtin(command) => builtin_span(command),
@@ -1348,7 +1348,7 @@ fn command_span(command: &Command) -> Span {
     }
 }
 
-fn command_lookup_kind(command: &Command) -> CommandLookupKind {
+pub(crate) fn command_lookup_kind(command: &Command) -> CommandLookupKind {
     match command {
         Command::Simple(_) => CommandLookupKind::Simple,
         Command::Builtin(command) => CommandLookupKind::Builtin(match command {
@@ -1382,7 +1382,7 @@ fn command_lookup_kind(command: &Command) -> CommandLookupKind {
     }
 }
 
-fn command_id_for_command(
+pub(crate) fn command_id_for_command(
     command: &Command,
     command_ids_by_span: &CommandLookupIndex,
 ) -> Option<CommandId> {
@@ -1397,7 +1397,7 @@ fn command_id_for_command(
         })
 }
 
-fn command_fact<'facts, 'a>(
+pub(crate) fn command_fact<'facts, 'a>(
     commands: &'facts [CommandFact<'a>],
     indices_by_id: &[Option<usize>],
     id: CommandId,
@@ -1410,7 +1410,7 @@ fn command_fact<'facts, 'a>(
         .unwrap_or_else(|| panic!("command id {} must exist", id.index()))
 }
 
-fn command_fact_for_semantic_span_matching<'facts, 'a>(
+pub(crate) fn command_fact_for_semantic_span_matching<'facts, 'a>(
     commands: &'facts [CommandFact<'a>],
     indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
@@ -1426,11 +1426,9 @@ fn command_fact_for_semantic_span_matching<'facts, 'a>(
                 .find(|command| predicate(command))
         })
         .or_else(|| {
-            commands
-                .iter()
-                .find(|command| {
-                    predicate(command) && FactSpan::new(command.stmt().span) == FactSpan::new(span)
-                })
+            commands.iter().find(|command| {
+                predicate(command) && FactSpan::new(command.stmt().span) == FactSpan::new(span)
+            })
         })
         .or_else(|| {
             commands
@@ -1448,7 +1446,7 @@ fn command_fact_for_semantic_span_matching<'facts, 'a>(
         })
 }
 
-fn command_fact_ref<'facts, 'a>(
+pub(crate) fn command_fact_ref<'facts, 'a>(
     commands: CommandFacts<'facts, 'a>,
     id: CommandId,
 ) -> CommandFactRef<'facts, 'a> {
@@ -1458,15 +1456,15 @@ fn command_fact_ref<'facts, 'a>(
 }
 
 #[derive(Clone, Copy)]
-struct CommandRelationshipContext<'facts, 'a> {
-    commands: &'facts [CommandFact<'a>],
-    command_fact_indices_by_id: &'facts [Option<usize>],
-    command_ids_by_span: &'facts CommandLookupIndex,
-    command_child_index: &'facts CommandChildIndex,
+pub(crate) struct CommandRelationshipContext<'facts, 'a> {
+    pub(crate) commands: &'facts [CommandFact<'a>],
+    pub(crate) command_fact_indices_by_id: &'facts [Option<usize>],
+    pub(crate) command_ids_by_span: &'facts CommandLookupIndex,
+    pub(crate) command_child_index: &'facts CommandChildIndex,
 }
 
 impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
-    fn new(
+    pub(crate) fn new(
         commands: &'facts [CommandFact<'a>],
         command_fact_indices_by_id: &'facts [Option<usize>],
         command_ids_by_span: &'facts CommandLookupIndex,
@@ -1484,7 +1482,7 @@ impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
         command_fact(self.commands, self.command_fact_indices_by_id, id)
     }
 
-    fn id_for_command(self, command: &Command) -> Option<CommandId> {
+    pub(crate) fn id_for_command(self, command: &Command) -> Option<CommandId> {
         command_id_for_command(command, self.command_ids_by_span)
     }
 
@@ -1492,11 +1490,15 @@ impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
         self.id_for_command(command).map(|id| self.fact(id))
     }
 
-    fn fact_for_stmt(self, stmt: &Stmt) -> Option<&'facts CommandFact<'a>> {
+    pub(crate) fn fact_for_stmt(self, stmt: &Stmt) -> Option<&'facts CommandFact<'a>> {
         self.fact_for_command(&stmt.command)
     }
 
-    fn child_id_for_command(self, parent_id: CommandId, command: &Command) -> Option<CommandId> {
+    pub(crate) fn child_id_for_command(
+        self,
+        parent_id: CommandId,
+        command: &Command,
+    ) -> Option<CommandId> {
         child_command_id_for_command(
             parent_id,
             command,
@@ -1515,7 +1517,7 @@ impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
             .map(|id| self.fact(id))
     }
 
-    fn child_or_lookup_fact(
+    pub(crate) fn child_or_lookup_fact(
         self,
         parent_id: CommandId,
         stmt: &Stmt,
@@ -1523,10 +1525,9 @@ impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
         self.child_fact_for_stmt(parent_id, stmt)
             .or_else(|| self.fact_for_stmt(stmt))
     }
-
 }
 
-fn build_command_fact_indices_by_id(commands: &[CommandFact<'_>]) -> Vec<Option<usize>> {
+pub(crate) fn build_command_fact_indices_by_id(commands: &[CommandFact<'_>]) -> Vec<Option<usize>> {
     let len = commands
         .iter()
         .map(|command| command.id().index())
@@ -1539,14 +1540,14 @@ fn build_command_fact_indices_by_id(commands: &[CommandFact<'_>]) -> Vec<Option<
     indices
 }
 
-fn compare_command_facts_by_offset(
+pub(crate) fn compare_command_facts_by_offset(
     left: &CommandFact<'_>,
     right: &CommandFact<'_>,
 ) -> std::cmp::Ordering {
     compare_command_parent_entries((left.span(), left.id()), (right.span(), right.id()))
 }
 
-fn compare_command_parent_entries(
+pub(crate) fn compare_command_parent_entries(
     (left_span, left_id): (Span, CommandId),
     (right_span, right_id): (Span, CommandId),
 ) -> std::cmp::Ordering {
@@ -1559,7 +1560,7 @@ fn compare_command_parent_entries(
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_command_dominance_barrier_flags(commands: &[CommandFact<'_>]) -> Vec<bool> {
+pub(crate) fn build_command_dominance_barrier_flags(commands: &[CommandFact<'_>]) -> Vec<bool> {
     let mut flags = vec![false; command_slot_count(commands)];
     for fact in commands {
         flags[fact.id().index()] = match fact.command() {
@@ -1580,7 +1581,7 @@ fn build_command_dominance_barrier_flags(commands: &[CommandFact<'_>]) -> Vec<bo
     flags
 }
 
-fn command_slot_count(commands: &[CommandFact<'_>]) -> usize {
+pub(crate) fn command_slot_count(commands: &[CommandFact<'_>]) -> usize {
     commands
         .iter()
         .map(|command| command.id().index())
@@ -1588,19 +1589,19 @@ fn command_slot_count(commands: &[CommandFact<'_>]) -> usize {
         .map_or(0, |index| index + 1)
 }
 
-fn sort_and_dedup_spans(spans: &mut Vec<Span>) {
+pub(crate) fn sort_and_dedup_spans(spans: &mut Vec<Span>) {
     let mut seen = FxHashSet::default();
     spans.retain(|span| seen.insert(FactSpan::new(*span)));
     spans.sort_by_key(|span| (span.start.offset, span.end.offset));
 }
 
-fn trim_trailing_whitespace_span(span: Span, source: &str) -> Span {
+pub(crate) fn trim_trailing_whitespace_span(span: Span, source: &str) -> Span {
     let text = span.slice(source);
     let trimmed = text.trim_end_matches(char::is_whitespace);
     Span::from_positions(span.start, span.start.advanced_by(trimmed))
 }
 
-fn command_fact_for_command<'a>(
+pub(crate) fn command_fact_for_command<'a>(
     command: &Command,
     commands: &'a [CommandFact<'a>],
     indices_by_id: &[Option<usize>],
@@ -1610,7 +1611,7 @@ fn command_fact_for_command<'a>(
         .map(|id| command_fact(commands, indices_by_id, id))
 }
 
-fn command_fact_for_stmt<'a>(
+pub(crate) fn command_fact_for_stmt<'a>(
     stmt: &Stmt,
     commands: &'a [CommandFact<'a>],
     indices_by_id: &[Option<usize>],
@@ -1619,7 +1620,7 @@ fn command_fact_for_stmt<'a>(
     command_fact_for_command(&stmt.command, commands, indices_by_id, command_ids_by_span)
 }
 
-fn child_command_id_for_command(
+pub(crate) fn child_command_id_for_command(
     parent_id: CommandId,
     command: &Command,
     commands: &[CommandFact<'_>],
@@ -1640,15 +1641,16 @@ fn child_command_id_for_command(
         })
 }
 
-fn command_fact_ref_for_stmt<'facts, 'a>(
+pub(crate) fn command_fact_ref_for_stmt<'facts, 'a>(
     stmt: &Stmt,
     commands: CommandFacts<'facts, 'a>,
     command_ids_by_span: &CommandLookupIndex,
 ) -> Option<CommandFactRef<'facts, 'a>> {
-    command_id_for_command(&stmt.command, command_ids_by_span).map(|id| command_fact_ref(commands, id))
+    command_id_for_command(&stmt.command, command_ids_by_span)
+        .map(|id| command_fact_ref(commands, id))
 }
 
-fn builtin_span(command: &BuiltinCommand) -> Span {
+pub(crate) fn builtin_span(command: &BuiltinCommand) -> Span {
     match command {
         BuiltinCommand::Break(command) => command.span,
         BuiltinCommand::Continue(command) => command.span,
@@ -1657,7 +1659,7 @@ fn builtin_span(command: &BuiltinCommand) -> Span {
     }
 }
 
-fn compound_span(command: &CompoundCommand) -> Span {
+pub(crate) fn compound_span(command: &CompoundCommand) -> Span {
     match command {
         CompoundCommand::If(command) => command.span,
         CompoundCommand::For(command) => command.span,

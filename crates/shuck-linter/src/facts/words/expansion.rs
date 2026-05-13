@@ -230,11 +230,11 @@ impl TestOperandClass {
     }
 }
 
-pub(super) fn classify_word(word: &Word, source: &str) -> WordClassification {
+pub(crate) fn classify_word(word: &Word, source: &str) -> WordClassification {
     word_classification_from_analysis(analyze_word(word, source, None))
 }
 
-pub(super) fn classify_contextual_operand(
+pub(crate) fn classify_contextual_operand(
     word: &Word,
     source: &str,
     context: ExpansionContext,
@@ -251,7 +251,7 @@ pub(super) fn classify_contextual_operand(
     }
 }
 
-pub(super) fn classify_conditional_operand(
+pub(crate) fn classify_conditional_operand(
     expression: &ConditionalExpr,
     source: &str,
 ) -> TestOperandClass {
@@ -275,7 +275,7 @@ pub(super) fn classify_conditional_operand(
     }
 }
 
-pub(super) fn classify_pattern_operand(pattern: &Pattern, source: &str) -> TestOperandClass {
+pub(crate) fn classify_pattern_operand(pattern: &Pattern, source: &str) -> TestOperandClass {
     for (part, _) in pattern.parts_with_spans() {
         match part {
             PatternPart::Group { patterns, .. } => {
@@ -351,14 +351,14 @@ fn merge_pathname_expansion_behavior(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum PartValueShape {
+pub(crate) enum PartValueShape {
     Scalar,
     Array,
     Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct PartAnalysis {
+pub(crate) struct PartAnalysis {
     value_shape: PartValueShape,
     array_valued: bool,
     can_expand_to_multiple_fields: bool,
@@ -370,7 +370,7 @@ pub(super) struct PartAnalysis {
 }
 
 #[derive(Default)]
-pub(super) struct AnalysisSummary {
+pub(crate) struct AnalysisSummary {
     has_non_literal: bool,
     has_scalar_value: bool,
     has_array_value: bool,
@@ -383,7 +383,7 @@ pub(super) struct AnalysisSummary {
     has_process_substitution: bool,
 }
 
-pub(super) fn analyze_word(
+pub(crate) fn analyze_word(
     word: &Word,
     source: &str,
     behavior: Option<&ShellBehaviorAt<'_>>,
@@ -478,13 +478,13 @@ pub(crate) fn analyze_literal_runtime(
 }
 
 #[derive(Debug, Default)]
-pub(super) struct RuntimeLiteralState {
+pub(crate) struct RuntimeLiteralState {
     seen_text: bool,
     last_unquoted_char: Option<char>,
     deferred_tilde: bool,
 }
 
-pub(super) fn analyze_literal_runtime_parts(
+pub(crate) fn analyze_literal_runtime_parts(
     parts: &[WordPartNode],
     source: &str,
     context: ExpansionContext,
@@ -524,7 +524,7 @@ pub(super) fn analyze_literal_runtime_parts(
     flush_deferred_tilde(state, analysis);
 }
 
-pub(super) fn scan_literal_runtime_text(
+pub(crate) fn scan_literal_runtime_text(
     text: &str,
     context: ExpansionContext,
     behavior: &ShellBehaviorAt<'_>,
@@ -608,15 +608,15 @@ fn cancel_deferred_tilde(state: &mut RuntimeLiteralState) {
     state.deferred_tilde = false;
 }
 
-pub(super) fn tilde_is_runtime_sensitive(state: &RuntimeLiteralState) -> bool {
+pub(crate) fn tilde_is_runtime_sensitive(state: &RuntimeLiteralState) -> bool {
     !state.seen_text || matches!(state.last_unquoted_char, Some('=') | Some(':'))
 }
 
-pub(super) fn brace_fanout_is_runtime_sensitive(content: &str) -> bool {
+pub(crate) fn brace_fanout_is_runtime_sensitive(content: &str) -> bool {
     content.contains(',') || content.contains("..")
 }
 
-pub(super) fn context_allows_tilde(context: ExpansionContext) -> bool {
+pub(crate) fn context_allows_tilde(context: ExpansionContext) -> bool {
     matches!(
         context,
         ExpansionContext::CommandName
@@ -631,7 +631,7 @@ pub(super) fn context_allows_tilde(context: ExpansionContext) -> bool {
     )
 }
 
-pub(super) fn context_allows_pathname_matching(context: ExpansionContext) -> bool {
+pub(crate) fn context_allows_pathname_matching(context: ExpansionContext) -> bool {
     matches!(
         context,
         ExpansionContext::CommandName
@@ -643,7 +643,7 @@ pub(super) fn context_allows_pathname_matching(context: ExpansionContext) -> boo
     )
 }
 
-pub(super) fn context_allows_brace_fanout(context: ExpansionContext) -> bool {
+pub(crate) fn context_allows_brace_fanout(context: ExpansionContext) -> bool {
     matches!(
         context,
         ExpansionContext::CommandName
@@ -656,7 +656,7 @@ pub(super) fn context_allows_brace_fanout(context: ExpansionContext) -> bool {
     )
 }
 
-pub(super) fn analyze_parts(
+pub(crate) fn analyze_parts(
     parts: &[WordPartNode],
     source: &str,
     in_double_quotes: bool,
@@ -699,7 +699,7 @@ pub(super) fn analyze_parts(
     }
 }
 
-pub(super) fn analyze_part(
+pub(crate) fn analyze_part(
     part: &WordPart,
     source: &str,
     in_double_quotes: bool,
@@ -919,7 +919,7 @@ pub(super) fn analyze_part(
     }
 }
 
-pub(super) fn analyze_parameter_part(
+pub(crate) fn analyze_parameter_part(
     parameter: &ParameterExpansion,
     in_double_quotes: bool,
     behavior: &ShellBehaviorAt<'_>,
@@ -1143,7 +1143,7 @@ pub(super) fn analyze_parameter_part(
     }
 }
 
-pub(super) fn substitution_can_expand_to_multiple_fields(
+pub(crate) fn substitution_can_expand_to_multiple_fields(
     in_double_quotes: bool,
     behavior: &ShellBehaviorAt<'_>,
 ) -> bool {
@@ -1154,14 +1154,14 @@ pub(super) fn substitution_can_expand_to_multiple_fields(
                 .unquoted_substitution_results_can_glob())
 }
 
-pub(super) fn substitution_field_splitting_hazard(
+pub(crate) fn substitution_field_splitting_hazard(
     in_double_quotes: bool,
     behavior: &ShellBehaviorAt<'_>,
 ) -> bool {
     !in_double_quotes && behavior.field_splitting().unquoted_results_can_split()
 }
 
-pub(super) fn substitution_pathname_matching_hazard(
+pub(crate) fn substitution_pathname_matching_hazard(
     in_double_quotes: bool,
     behavior: &ShellBehaviorAt<'_>,
 ) -> bool {
@@ -1171,7 +1171,7 @@ pub(super) fn substitution_pathname_matching_hazard(
             .unquoted_substitution_results_can_glob()
 }
 
-pub(super) fn zsh_modifier_behavior<'model>(
+pub(crate) fn zsh_modifier_behavior<'model>(
     behavior: &ShellBehaviorAt<'model>,
     syntax: &shuck_ast::ZshParameterExpansion,
 ) -> ShellBehaviorAt<'model> {
@@ -1198,7 +1198,7 @@ pub(super) fn zsh_modifier_behavior<'model>(
     })
 }
 
-pub(super) fn apply_toggle_override(value: &mut OptionValue, count: usize) {
+pub(crate) fn apply_toggle_override(value: &mut OptionValue, count: usize) {
     if count == 0 {
         return;
     }
@@ -1210,7 +1210,7 @@ pub(super) fn apply_toggle_override(value: &mut OptionValue, count: usize) {
     };
 }
 
-pub(super) fn scalar_part(
+pub(crate) fn scalar_part(
     can_expand_to_multiple_fields: bool,
     field_splitting_behavior: FieldSplittingBehavior,
     pathname_expansion_behavior: PathnameExpansionBehavior,
@@ -1230,7 +1230,7 @@ pub(super) fn scalar_part(
     }
 }
 
-pub(super) fn array_part(
+pub(crate) fn array_part(
     can_expand_to_multiple_fields: bool,
     field_splitting_behavior: FieldSplittingBehavior,
     pathname_expansion_behavior: PathnameExpansionBehavior,
@@ -1255,7 +1255,7 @@ pub(super) fn array_part(
     }
 }
 
-pub(super) fn parameter_operator_uses_pattern(operator: &shuck_ast::ParameterOp) -> bool {
+pub(crate) fn parameter_operator_uses_pattern(operator: &shuck_ast::ParameterOp) -> bool {
     matches!(
         operator,
         shuck_ast::ParameterOp::RemovePrefixShort { .. }
@@ -1267,7 +1267,7 @@ pub(super) fn parameter_operator_uses_pattern(operator: &shuck_ast::ParameterOp)
     )
 }
 
-pub(super) fn zsh_operation_uses_pattern(operation: &ZshExpansionOperation) -> bool {
+pub(crate) fn zsh_operation_uses_pattern(operation: &ZshExpansionOperation) -> bool {
     matches!(
         operation,
         ZshExpansionOperation::PatternOperation { .. }
@@ -1276,14 +1276,14 @@ pub(super) fn zsh_operation_uses_pattern(operation: &ZshExpansionOperation) -> b
     )
 }
 
-pub(super) fn prefix_match_can_expand_to_multiple_fields(
+pub(crate) fn prefix_match_can_expand_to_multiple_fields(
     kind: PrefixMatchKind,
     in_double_quotes: bool,
 ) -> bool {
     matches!(kind, PrefixMatchKind::At) || !in_double_quotes
 }
 
-pub(super) fn is_plain_command_substitution(parts: &[WordPartNode]) -> bool {
+pub(crate) fn is_plain_command_substitution(parts: &[WordPartNode]) -> bool {
     matches!(
         parts,
         [part] if match &part.kind {
@@ -1294,13 +1294,13 @@ pub(super) fn is_plain_command_substitution(parts: &[WordPartNode]) -> bool {
     )
 }
 
-pub(super) fn is_quoted_part(part: &WordPart) -> bool {
+pub(crate) fn is_quoted_part(part: &WordPart) -> bool {
     matches!(
         part,
         WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. }
     )
 }
 
-pub(super) fn is_fully_quoted(word: &Word) -> bool {
+pub(crate) fn is_fully_quoted(word: &Word) -> bool {
     matches!(word.parts.as_slice(), [part] if is_quoted_part(&part.kind))
 }

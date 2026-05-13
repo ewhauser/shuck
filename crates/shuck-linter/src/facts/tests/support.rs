@@ -5,7 +5,7 @@ use shuck_parser::parser::{Parser, ShellDialect as ParseShellDialect};
 
 use crate::{AmbientShellOptions, LinterFacts, LinterSemanticArtifacts, ShellDialect};
 
-pub(super) fn with_facts_dialect(
+pub(crate) fn with_facts_dialect(
     source: &str,
     _path: Option<&Path>,
     parse_dialect: ParseShellDialect,
@@ -26,7 +26,7 @@ pub(super) fn with_facts_dialect(
     visit(&output, &facts);
 }
 
-pub(super) fn with_facts(
+pub(crate) fn with_facts(
     source: &str,
     path: Option<&Path>,
     visit: impl FnOnce(&shuck_parser::parser::ParseResult, &LinterFacts<'_>),

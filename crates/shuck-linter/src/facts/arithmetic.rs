@@ -1,4 +1,6 @@
-fn collect_zsh_option_map_arithmetic_suppressed_subscripts(
+use super::*;
+
+pub(crate) fn collect_zsh_option_map_arithmetic_suppressed_subscripts(
     command: &Command,
     semantic: &SemanticModel,
     command_scope: ScopeId,
@@ -42,7 +44,7 @@ fn collect_zsh_option_map_arithmetic_suppressed_subscripts(
     }
 }
 
-fn collect_zsh_option_map_suppressed_subscripts_in_expr(
+pub(crate) fn collect_zsh_option_map_suppressed_subscripts_in_expr(
     expression: Option<&ArithmeticExprNode>,
     semantic: &SemanticModel,
     command_scope: ScopeId,
@@ -154,7 +156,7 @@ fn collect_zsh_option_map_suppressed_subscripts_in_expr(
     }
 }
 
-fn collect_zsh_option_map_suppressed_subscripts_in_lvalue(
+pub(crate) fn collect_zsh_option_map_suppressed_subscripts_in_lvalue(
     target: &ArithmeticLvalue,
     semantic: &SemanticModel,
     command_scope: ScopeId,
@@ -185,7 +187,7 @@ fn collect_zsh_option_map_suppressed_subscripts_in_lvalue(
     }
 }
 
-fn arithmetic_index_uses_zsh_option_map_key_semantics(
+pub(crate) fn arithmetic_index_uses_zsh_option_map_key_semantics(
     semantic: &SemanticModel,
     command_scope: ScopeId,
     owner_name: &Name,
@@ -215,12 +217,11 @@ fn arithmetic_index_uses_zsh_option_map_key_semantics(
         semantic.visible_binding_for_lookup(owner_name, command_scope, index.span),
         owner_name,
         source,
-    )
-        && semantic.shell_profile().dialect == shuck_parser::parser::ShellDialect::Zsh
+    ) && semantic.shell_profile().dialect == shuck_parser::parser::ShellDialect::Zsh
         && zsh_option_map_subscript_key(owner_name.as_str(), index.span.slice(source))
 }
 
-fn zsh_option_map_binding_permits_implicit_assoc_key(
+pub(crate) fn zsh_option_map_binding_permits_implicit_assoc_key(
     semantic: &SemanticModel,
     binding: Option<&Binding>,
     owner_name: &Name,
@@ -229,7 +230,10 @@ fn zsh_option_map_binding_permits_implicit_assoc_key(
     let Some(binding) = binding else {
         return true;
     };
-    if binding.attributes.contains(shuck_semantic::BindingAttributes::ASSOC) {
+    if binding
+        .attributes
+        .contains(shuck_semantic::BindingAttributes::ASSOC)
+    {
         return true;
     }
 
@@ -239,7 +243,11 @@ fn zsh_option_map_binding_permits_implicit_assoc_key(
         )
 }
 
-fn zsh_option_map_binding_origin(owner_name: &Name, binding: &Binding, source: &str) -> bool {
+pub(crate) fn zsh_option_map_binding_origin(
+    owner_name: &Name,
+    binding: &Binding,
+    source: &str,
+) -> bool {
     match &binding.origin {
         shuck_semantic::BindingOrigin::Assignment {
             definition_span, ..
@@ -257,7 +265,7 @@ fn zsh_option_map_binding_origin(owner_name: &Name, binding: &Binding, source: &
     }
 }
 
-fn zsh_option_map_binding_has_prior_assoc_lookup_blocker(
+pub(crate) fn zsh_option_map_binding_has_prior_assoc_lookup_blocker(
     semantic: &SemanticModel,
     owner_name: &Name,
     binding: &Binding,
@@ -272,7 +280,7 @@ fn zsh_option_map_binding_has_prior_assoc_lookup_blocker(
     })
 }
 
-fn zsh_option_map_binding_blocks_assoc_lookup(binding: &Binding) -> bool {
+pub(crate) fn zsh_option_map_binding_blocks_assoc_lookup(binding: &Binding) -> bool {
     binding
         .attributes
         .contains(shuck_semantic::BindingAttributes::LOCAL)
@@ -285,18 +293,21 @@ fn zsh_option_map_binding_blocks_assoc_lookup(binding: &Binding) -> bool {
         )
 }
 
-fn zsh_option_map_assignment_target(owner_name: &Name, text: &str) -> bool {
+pub(crate) fn zsh_option_map_assignment_target(owner_name: &Name, text: &str) -> bool {
     let Some(rest) = text.strip_prefix(owner_name.as_str()) else {
         return false;
     };
-    let Some(subscript) = rest.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) else {
+    let Some(subscript) = rest
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+    else {
         return false;
     };
 
     zsh_option_map_subscript_key(owner_name.as_str(), subscript)
 }
 
-fn zsh_option_map_subscript_key(owner_name: &str, text: &str) -> bool {
+pub(crate) fn zsh_option_map_subscript_key(owner_name: &str, text: &str) -> bool {
     if owner_name != "OPTS" {
         return false;
     }
@@ -322,7 +333,7 @@ fn zsh_option_map_subscript_key(owner_name: &str, text: &str) -> bool {
             .all(|ch| ch == '-' || ch == '_' || ch.is_ascii_alphanumeric())
 }
 
-fn collect_base_prefix_spans_in_command_parts(
+pub(crate) fn collect_base_prefix_spans_in_command_parts(
     command: &Command,
     source: &str,
     spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
@@ -466,7 +477,7 @@ fn collect_base_prefix_spans_in_command_parts(
     }
 }
 
-fn collect_base_prefix_spans_in_assignment(
+pub(crate) fn collect_base_prefix_spans_in_assignment(
     assignment: &Assignment,
     source: &str,
     spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
@@ -491,13 +502,17 @@ fn collect_base_prefix_spans_in_assignment(
     }
 }
 
-fn collect_base_prefix_spans_in_word(word: &Word, source: &str, spans: &mut Vec<(Span, ArithmeticLiteralKind)>) {
+pub(crate) fn collect_base_prefix_spans_in_word(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
     for part in &word.parts {
         collect_base_prefix_spans_in_word_part(part, source, spans);
     }
 }
 
-fn collect_base_prefix_spans_in_word_part(
+pub(crate) fn collect_base_prefix_spans_in_word_part(
     part: &WordPartNode,
     source: &str,
     spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
@@ -569,7 +584,7 @@ fn collect_base_prefix_spans_in_word_part(
     }
 }
 
-fn collect_base_prefix_spans_in_parameter_expansion(
+pub(crate) fn collect_base_prefix_spans_in_parameter_expansion(
     parameter: &shuck_ast::ParameterExpansion,
     source: &str,
     spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
@@ -640,7 +655,7 @@ fn collect_base_prefix_spans_in_parameter_expansion(
     }
 }
 
-fn collect_base_prefix_spans_in_arithmetic_parameter_expansion(
+pub(crate) fn collect_base_prefix_spans_in_arithmetic_parameter_expansion(
     parameter: &shuck_ast::ParameterExpansion,
     source: &str,
     spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
@@ -711,7 +726,7 @@ fn collect_base_prefix_spans_in_arithmetic_parameter_expansion(
     }
 }
 
-fn collect_base_prefix_spans_in_zsh_target(
+pub(crate) fn collect_base_prefix_spans_in_zsh_target(
     target: &shuck_ast::ZshExpansionTarget,
     source: &str,
     spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
@@ -730,7 +745,7 @@ fn collect_base_prefix_spans_in_zsh_target(
     }
 }
 
-fn collect_base_prefix_spans_in_arithmetic_zsh_target(
+pub(crate) fn collect_base_prefix_spans_in_arithmetic_zsh_target(
     target: &shuck_ast::ZshExpansionTarget,
     source: &str,
     spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
@@ -749,7 +764,11 @@ fn collect_base_prefix_spans_in_arithmetic_zsh_target(
     }
 }
 
-fn collect_base_prefix_spans_in_pattern(pattern: &Pattern, source: &str, spans: &mut Vec<(Span, ArithmeticLiteralKind)>) {
+pub(crate) fn collect_base_prefix_spans_in_pattern(
+    pattern: &Pattern,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
     for (part, _) in pattern.parts_with_spans() {
         match part {
             PatternPart::Group { patterns, .. } => {
@@ -766,11 +785,15 @@ fn collect_base_prefix_spans_in_pattern(pattern: &Pattern, source: &str, spans: 
     }
 }
 
-fn collect_base_prefix_spans_in_var_ref(reference: &VarRef, source: &str, spans: &mut Vec<(Span, ArithmeticLiteralKind)>) {
+pub(crate) fn collect_base_prefix_spans_in_var_ref(
+    reference: &VarRef,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
     collect_base_prefix_spans_in_subscript(reference.subscript.as_deref(), source, spans);
 }
 
-fn collect_base_prefix_spans_in_subscript(
+pub(crate) fn collect_base_prefix_spans_in_subscript(
     subscript: Option<&Subscript>,
     source: &str,
     spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
@@ -780,7 +803,7 @@ fn collect_base_prefix_spans_in_subscript(
     }
 }
 
-fn collect_base_prefix_spans_in_arithmetic(
+pub(crate) fn collect_base_prefix_spans_in_arithmetic(
     expression: &ArithmeticExprNode,
     source: &str,
     spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
@@ -823,7 +846,7 @@ fn collect_base_prefix_spans_in_arithmetic(
     }
 }
 
-fn collect_base_prefix_spans_in_arithmetic_lvalue(
+pub(crate) fn collect_base_prefix_spans_in_arithmetic_lvalue(
     target: &ArithmeticLvalue,
     source: &str,
     spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
@@ -836,13 +859,17 @@ fn collect_base_prefix_spans_in_arithmetic_lvalue(
     }
 }
 
-fn collect_base_prefix_spans_in_arithmetic_word(word: &Word, source: &str, spans: &mut Vec<(Span, ArithmeticLiteralKind)>) {
+pub(crate) fn collect_base_prefix_spans_in_arithmetic_word(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
     for part in &word.parts {
         collect_base_prefix_spans_in_arithmetic_word_part(part, source, spans);
     }
 }
 
-fn collect_base_prefix_spans_in_arithmetic_word_part(
+pub(crate) fn collect_base_prefix_spans_in_arithmetic_word_part(
     part: &WordPartNode,
     source: &str,
     spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
@@ -935,7 +962,7 @@ fn collect_base_prefix_spans_in_arithmetic_word_part(
     }
 }
 
-fn collect_base_prefix_spans_in_fragment(
+pub(crate) fn collect_base_prefix_spans_in_fragment(
     word: Option<&Word>,
     text: Option<&SourceText>,
     source: &str,
@@ -960,7 +987,7 @@ fn collect_base_prefix_spans_in_fragment(
     collect_base_prefix_spans_in_word(word, source, spans);
 }
 
-fn collect_base_prefix_spans_in_arithmetic_fragment(
+pub(crate) fn collect_base_prefix_spans_in_arithmetic_fragment(
     word: Option<&Word>,
     text: Option<&SourceText>,
     source: &str,
@@ -982,7 +1009,7 @@ fn collect_base_prefix_spans_in_arithmetic_fragment(
     collect_base_prefix_spans_in_arithmetic_word(word, source, spans);
 }
 
-fn collect_base_prefix_spans_in_text(
+pub(crate) fn collect_base_prefix_spans_in_text(
     span: Span,
     source: &str,
     spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
@@ -1035,7 +1062,7 @@ fn collect_base_prefix_spans_in_text(
     }
 }
 
-fn collect_leading_zero_integer_spans_in_text(
+pub(crate) fn collect_leading_zero_integer_spans_in_text(
     span: Span,
     source: &str,
     spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
@@ -1088,7 +1115,7 @@ fn collect_leading_zero_integer_spans_in_text(
     }
 }
 
-fn contains_leading_zero_integer(text: &str) -> bool {
+pub(crate) fn contains_leading_zero_integer(text: &str) -> bool {
     let bytes = text.as_bytes();
     bytes.windows(2).enumerate().any(|(index, window)| {
         window[0] == b'0'
@@ -1107,7 +1134,10 @@ fn contains_leading_zero_integer(text: &str) -> bool {
     })
 }
 
-fn build_double_paren_grouping_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
+pub(crate) fn build_double_paren_grouping_spans(
+    commands: &[CommandFact<'_>],
+    source: &str,
+) -> Vec<Span> {
     commands
         .iter()
         .filter_map(|fact| match fact.command() {
@@ -1119,7 +1149,7 @@ fn build_double_paren_grouping_spans(commands: &[CommandFact<'_>], source: &str)
         .collect()
 }
 
-fn collect_arithmetic_update_operator_spans_in_command(
+pub(crate) fn collect_arithmetic_update_operator_spans_in_command(
     command: &Command,
     semantic: &SemanticModel,
     semantic_artifacts: &LinterSemanticArtifacts<'_>,
@@ -1331,7 +1361,7 @@ fn collect_arithmetic_update_operator_spans_in_command(
     }
 }
 
-fn collect_arithmetic_update_operator_spans_in_assignment(
+pub(crate) fn collect_arithmetic_update_operator_spans_in_assignment(
     assignment: &Assignment,
     semantic: &SemanticModel,
     semantic_artifacts: &LinterSemanticArtifacts<'_>,
@@ -1388,7 +1418,7 @@ fn collect_arithmetic_update_operator_spans_in_assignment(
     }
 }
 
-fn collect_arithmetic_update_operator_spans_in_assignment_target(
+pub(crate) fn collect_arithmetic_update_operator_spans_in_assignment_target(
     reference: &VarRef,
     semantic: &SemanticModel,
     scope: ScopeId,
@@ -1407,7 +1437,10 @@ fn collect_arithmetic_update_operator_spans_in_assignment_target(
     });
 }
 
-fn var_ref_subscript_has_assoc_semantics(reference: &VarRef, semantic: &SemanticModel) -> bool {
+pub(crate) fn var_ref_subscript_has_assoc_semantics(
+    reference: &VarRef,
+    semantic: &SemanticModel,
+) -> bool {
     let Some(subscript) = reference.subscript.as_deref() else {
         return false;
     };
@@ -1428,7 +1461,7 @@ fn var_ref_subscript_has_assoc_semantics(reference: &VarRef, semantic: &Semantic
     var_ref_name_has_visible_assoc_binding_at(reference, semantic, scope)
 }
 
-fn var_ref_subscript_has_assoc_semantics_in_scope(
+pub(crate) fn var_ref_subscript_has_assoc_semantics_in_scope(
     reference: &VarRef,
     semantic: &SemanticModel,
     scope: ScopeId,
@@ -1452,16 +1485,15 @@ fn var_ref_subscript_has_assoc_semantics_in_scope(
     var_ref_name_has_visible_assoc_binding_at(reference, semantic, scope)
 }
 
-fn var_ref_name_has_visible_assoc_binding_at(
+pub(crate) fn var_ref_name_has_visible_assoc_binding_at(
     reference: &VarRef,
     semantic: &SemanticModel,
     scope: ScopeId,
 ) -> bool {
-    semantic
-        .assoc_binding_visible_for_lookup(&reference.name, scope, reference.name_span)
+    semantic.assoc_binding_visible_for_lookup(&reference.name, scope, reference.name_span)
 }
 
-fn collect_arithmetic_update_operator_spans_in_word(
+pub(crate) fn collect_arithmetic_update_operator_spans_in_word(
     word: &Word,
     semantic: &SemanticModel,
     source: &str,
@@ -1470,7 +1502,7 @@ fn collect_arithmetic_update_operator_spans_in_word(
     collect_arithmetic_update_operator_spans_from_parts(&word.parts, semantic, source, spans);
 }
 
-fn collect_arithmetic_update_operator_spans_in_pattern(
+pub(crate) fn collect_arithmetic_update_operator_spans_in_pattern(
     pattern: &Pattern,
     semantic: &SemanticModel,
     source: &str,
@@ -1496,7 +1528,7 @@ fn collect_arithmetic_update_operator_spans_in_pattern(
     }
 }
 
-fn collect_arithmetic_update_operator_spans_in_conditional_expr(
+pub(crate) fn collect_arithmetic_update_operator_spans_in_conditional_expr(
     expression: &ConditionalExpr,
     semantic: &SemanticModel,
     source: &str,
@@ -1536,7 +1568,7 @@ fn collect_arithmetic_update_operator_spans_in_conditional_expr(
     }
 }
 
-fn collect_arithmetic_update_operator_spans_in_heredoc_body(
+pub(crate) fn collect_arithmetic_update_operator_spans_in_heredoc_body(
     parts: &[shuck_ast::HeredocBodyPartNode],
     semantic: &SemanticModel,
     semantic_artifacts: &LinterSemanticArtifacts<'_>,
@@ -1584,7 +1616,7 @@ fn collect_arithmetic_update_operator_spans_in_heredoc_body(
     }
 }
 
-fn collect_arithmetic_update_operator_spans_in_nested_command_body(
+pub(crate) fn collect_arithmetic_update_operator_spans_in_nested_command_body(
     body: &StmtSeq,
     semantic_artifacts: &LinterSemanticArtifacts<'_>,
     semantic: &SemanticModel,
@@ -1623,7 +1655,7 @@ fn collect_arithmetic_update_operator_spans_in_nested_command_body(
         });
 }
 
-fn collect_arithmetic_update_operator_spans_in_subscript(
+pub(crate) fn collect_arithmetic_update_operator_spans_in_subscript(
     subscript: Option<&Subscript>,
     source: &str,
     spans: &mut Vec<Span>,
@@ -1642,7 +1674,7 @@ fn collect_arithmetic_update_operator_spans_in_subscript(
     }
 }
 
-fn collect_arithmetic_update_operator_spans_in_subscript_words(
+pub(crate) fn collect_arithmetic_update_operator_spans_in_subscript_words(
     subscript: &Subscript,
     semantic: &SemanticModel,
     semantic_artifacts: &LinterSemanticArtifacts<'_>,
@@ -1660,7 +1692,7 @@ fn collect_arithmetic_update_operator_spans_in_subscript_words(
     });
 }
 
-fn collect_arithmetic_update_operator_spans(
+pub(crate) fn collect_arithmetic_update_operator_spans(
     expression: Option<&ArithmeticExprNode>,
     source: &str,
     spans: &mut Vec<Span>,
@@ -1730,7 +1762,7 @@ fn collect_arithmetic_update_operator_spans(
     }
 }
 
-fn collect_arithmetic_lvalue_update_operator_spans(
+pub(crate) fn collect_arithmetic_lvalue_update_operator_spans(
     target: &ArithmeticLvalue,
     source: &str,
     spans: &mut Vec<Span>,
@@ -1796,7 +1828,7 @@ impl ArithmeticUpdateOperatorFixFact {
     }
 }
 
-fn build_arithmetic_update_operator_fix_facts(
+pub(in crate::facts) fn build_arithmetic_update_operator_fix_facts(
     spans: &[Span],
     source: &str,
 ) -> Vec<ArithmeticUpdateOperatorFixFact> {
@@ -1839,7 +1871,12 @@ fn arithmetic_update_operator_fix_fact(
 fn arithmetic_prefix_update_operand_span(operator_span: Span, source: &str) -> Option<Span> {
     let start = operator_span.end.offset;
     let end = scan_arithmetic_lvalue_end(source, start)?;
-    (end > start).then(|| Span::from_positions(operator_span.end, operator_span.end.advanced_by(&source[start..end])))
+    (end > start).then(|| {
+        Span::from_positions(
+            operator_span.end,
+            operator_span.end.advanced_by(&source[start..end]),
+        )
+    })
 }
 
 fn arithmetic_postfix_update_operand_span(operator_span: Span, source: &str) -> Option<Span> {
@@ -1981,7 +2018,12 @@ fn position_at_offset_on_same_line(anchor: Position, offset: usize) -> Position 
     }
 }
 
-fn find_operator_span(expression_span: Span, source: &str, operator: &str, first: bool) -> Span {
+pub(crate) fn find_operator_span(
+    expression_span: Span,
+    source: &str,
+    operator: &str,
+    first: bool,
+) -> Span {
     let expression = expression_span.slice(source);
     let offset = if first {
         let Some(offset) = expression.find(operator) else {
@@ -1998,7 +2040,7 @@ fn find_operator_span(expression_span: Span, source: &str, operator: &str, first
     Span::from_positions(start, start.advanced_by(operator))
 }
 
-fn double_paren_grouping_anchor(span: Span, source: &str) -> Option<Span> {
+pub(crate) fn double_paren_grouping_anchor(span: Span, source: &str) -> Option<Span> {
     let text = span.slice(source);
     let anchor_start = if let Some(stripped) = text.strip_prefix("((") {
         let body_start =

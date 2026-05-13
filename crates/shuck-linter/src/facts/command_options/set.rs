@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
+pub(crate) fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     let mut errexit_change = None;
     let mut errtrace_change = None;
     let mut functrace_change = None;

@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Debug, Clone)]
 pub struct FunctionHeaderFact<'a> {
     command_id: CommandId,
@@ -130,13 +132,13 @@ impl FunctionCliDispatchFacts {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct FunctionFactInput<'a> {
-    command_id: CommandId,
-    function: &'a FunctionDef,
+pub(crate) struct FunctionFactInput<'a> {
+    pub(crate) command_id: CommandId,
+    pub(crate) function: &'a FunctionDef,
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_function_header_facts<'a>(
+pub(crate) fn build_function_header_facts<'a>(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     functions: &[FunctionFactInput<'a>],
@@ -158,10 +160,11 @@ fn build_function_header_facts<'a>(
         .iter()
         .copied()
         .map(|input| {
-            let binding_id = semantic
-                .function_definition_binding_for_command_span(semantic.command_span(input.command_id));
-            let scope_id =
-                binding_id.and_then(|binding_id| semantic_analysis.function_scope_for_binding(binding_id));
+            let binding_id = semantic.function_definition_binding_for_command_span(
+                semantic.command_span(input.command_id),
+            );
+            let scope_id = binding_id
+                .and_then(|binding_id| semantic_analysis.function_scope_for_binding(binding_id));
             let call_arity = binding_id
                 .and_then(|binding_id| call_arity_by_binding.get(&binding_id).cloned())
                 .unwrap_or_default();
@@ -178,7 +181,7 @@ fn build_function_header_facts<'a>(
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_function_cli_dispatch_facts(
+pub(crate) fn build_function_cli_dispatch_facts(
     dispatches: &[CaseCliDispatch],
 ) -> FxHashMap<ScopeId, FunctionCliDispatchFacts> {
     let mut facts = FxHashMap::<ScopeId, FunctionCliDispatchFacts>::default();
@@ -191,7 +194,7 @@ fn build_function_cli_dispatch_facts(
     facts
 }
 
-fn build_function_parameter_fallback_spans(
+pub(crate) fn build_function_parameter_fallback_spans(
     commands: &[CommandFact<'_>],
     command_fact_indices_by_id: &[Option<usize>],
     structural_command_ids: &[CommandId],
@@ -220,7 +223,7 @@ fn build_function_parameter_fallback_spans(
         .collect()
 }
 
-fn build_completion_registered_function_command_flags(
+pub(crate) fn build_completion_registered_function_command_flags(
     commands: &[CommandFact<'_>],
     registered_scopes: &FxHashSet<ScopeId>,
 ) -> Vec<bool> {
@@ -233,7 +236,7 @@ fn build_completion_registered_function_command_flags(
     flags
 }
 
-fn build_completion_registered_function_scopes(
+pub(crate) fn build_completion_registered_function_scopes(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     commands: &[CommandFact<'_>],
@@ -272,8 +275,11 @@ fn build_completion_registered_function_scopes(
             };
 
             if list.segments()[index + 1..].iter().any(|later_segment| {
-                let later_command =
-                    command_fact(commands, command_fact_indices_by_id, later_segment.command_id());
+                let later_command = command_fact(
+                    commands,
+                    command_fact_indices_by_id,
+                    later_segment.command_id(),
+                );
                 is_unconditional_completion_registration(semantic, later_command)
                     && command_registers_completion_function(later_command, source, &candidate.name)
             }) {
@@ -291,8 +297,11 @@ fn build_completion_registered_function_scopes(
             };
 
             if list.segments()[index + 1..].iter().any(|later_segment| {
-                let later_command =
-                    command_fact(commands, command_fact_indices_by_id, later_segment.command_id());
+                let later_command = command_fact(
+                    commands,
+                    command_fact_indices_by_id,
+                    later_segment.command_id(),
+                );
                 is_same_branch_completion_registration(semantic, later_command)
                     && command_registers_completion_function(later_command, source, &candidate.name)
             }) {
@@ -366,7 +375,7 @@ fn build_completion_registered_function_scopes(
     scopes
 }
 
-fn extend_completion_registered_function_scopes_through_helpers(
+pub(crate) fn extend_completion_registered_function_scopes_through_helpers(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     commands: &[CommandFact<'_>],
@@ -388,15 +397,14 @@ fn extend_completion_registered_function_scopes_through_helpers(
                 continue;
             }
             let name = semantic.binding(*binding_id).name.clone();
-            let called_from_completion_scope =
-                semantic_analysis
-                    .function_call_arity_sites(&name)
-                    .any(|(site, resolved_binding)| {
-                        resolved_binding == *binding_id
-                            && semantic_analysis
-                                .enclosing_function_scope_at(site.name_span.start.offset)
-                                .is_some_and(|caller_scope| scopes.contains(&caller_scope))
-                    });
+            let called_from_completion_scope = semantic_analysis
+                .function_call_arity_sites(&name)
+                .any(|(site, resolved_binding)| {
+                    resolved_binding == *binding_id
+                        && semantic_analysis
+                            .enclosing_function_scope_at(site.name_span.start.offset)
+                            .is_some_and(|caller_scope| scopes.contains(&caller_scope))
+                });
             let referenced_by_completion_arguments = commands.iter().any(|command| {
                 command.normalized().effective_or_literal_name() == Some("_arguments")
                     && command
@@ -404,7 +412,10 @@ fn extend_completion_registered_function_scopes_through_helpers(
                         .is_some_and(|caller_scope| scopes.contains(&caller_scope))
                     && command.body_args().iter().any(|word| {
                         static_word_text(word, source).is_some_and(|text| {
-                            zsh_arguments_spec_invokes_function(&text, &semantic.binding(*binding_id).name)
+                            zsh_arguments_spec_invokes_function(
+                                &text,
+                                &semantic.binding(*binding_id).name,
+                            )
                         })
                     })
             });
@@ -417,7 +428,7 @@ fn extend_completion_registered_function_scopes_through_helpers(
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_external_entrypoint_function_scopes(
+pub(crate) fn build_external_entrypoint_function_scopes(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
     command_fact_indices_by_id: &[Option<usize>],
@@ -518,7 +529,7 @@ fn build_external_entrypoint_function_scopes(
     scopes
 }
 
-fn is_top_level_zsh_entrypoint_registration(
+pub(crate) fn is_top_level_zsh_entrypoint_registration(
     semantic: &SemanticModel,
     command: &CommandFact<'_>,
 ) -> bool {
@@ -527,11 +538,14 @@ fn is_top_level_zsh_entrypoint_registration(
         && !has_structural_parent_command(semantic, command.id())
 }
 
-fn has_structural_parent_command(semantic: &SemanticModel, id: CommandId) -> bool {
+pub(crate) fn has_structural_parent_command(semantic: &SemanticModel, id: CommandId) -> bool {
     nearest_structural_parent_command(semantic, id).is_some()
 }
 
-fn nearest_structural_parent_command(semantic: &SemanticModel, id: CommandId) -> Option<CommandId> {
+pub(crate) fn nearest_structural_parent_command(
+    semantic: &SemanticModel,
+    id: CommandId,
+) -> Option<CommandId> {
     let mut current = semantic.syntax_backed_command_parent_id(id);
     while let Some(parent) = current {
         if matches!(
@@ -547,14 +561,14 @@ fn nearest_structural_parent_command(semantic: &SemanticModel, id: CommandId) ->
     None
 }
 
-fn same_structural_branch_between(source: &str, start: usize, end: usize) -> bool {
+pub(crate) fn same_structural_branch_between(source: &str, start: usize, end: usize) -> bool {
     let Some(between) = source.get(start..end) else {
         return false;
     };
     !contains_zsh_structural_branch_boundary(between)
 }
 
-fn contains_zsh_structural_branch_boundary(text: &str) -> bool {
+pub(crate) fn contains_zsh_structural_branch_boundary(text: &str) -> bool {
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum Quote {
         None,
@@ -664,15 +678,15 @@ fn contains_zsh_structural_branch_boundary(text: &str) -> bool {
     structural_boundary_word(&word)
 }
 
-fn structural_boundary_word(word: &str) -> bool {
+pub(crate) fn structural_boundary_word(word: &str) -> bool {
     matches!(word, "else" | "elif")
 }
 
-fn is_shell_identifier_char(ch: char) -> bool {
+pub(crate) fn is_shell_identifier_char(ch: char) -> bool {
     ch == '_' || ch.is_ascii_alphanumeric()
 }
 
-fn is_unconditional_completion_registration(
+pub(crate) fn is_unconditional_completion_registration(
     semantic: &SemanticModel,
     command: &CommandFact<'_>,
 ) -> bool {
@@ -683,7 +697,7 @@ fn is_unconditional_completion_registration(
         || !has_binary_parent_command(semantic, command.id())
 }
 
-fn is_same_branch_completion_registration(
+pub(crate) fn is_same_branch_completion_registration(
     semantic: &SemanticModel,
     command: &CommandFact<'_>,
 ) -> bool {
@@ -693,10 +707,13 @@ fn is_same_branch_completion_registration(
     ) && !has_binary_parent_command(semantic, command.id())
 }
 
-fn has_binary_parent_command(semantic: &SemanticModel, id: CommandId) -> bool {
+pub(crate) fn has_binary_parent_command(semantic: &SemanticModel, id: CommandId) -> bool {
     let mut current = semantic.syntax_backed_command_parent_id(id);
     while let Some(parent) = current {
-        if matches!(semantic.command_kind(parent), shuck_semantic::CommandKind::Binary) {
+        if matches!(
+            semantic.command_kind(parent),
+            shuck_semantic::CommandKind::Binary
+        ) {
             return true;
         }
         current = semantic.syntax_backed_command_parent_id(parent);
@@ -704,7 +721,7 @@ fn has_binary_parent_command(semantic: &SemanticModel, id: CommandId) -> bool {
     false
 }
 
-fn function_command_slot_count(commands: &[CommandFact<'_>]) -> usize {
+pub(crate) fn function_command_slot_count(commands: &[CommandFact<'_>]) -> usize {
     commands
         .iter()
         .map(|command| command.id().index())
@@ -712,7 +729,7 @@ fn function_command_slot_count(commands: &[CommandFact<'_>]) -> usize {
         .map_or(0, |index| index + 1)
 }
 
-fn completion_registered_function_candidate(
+pub(crate) fn completion_registered_function_candidate(
     semantic: &SemanticModel,
     command: &CommandFact<'_>,
 ) -> Option<CompletionRegisteredFunctionCandidate> {
@@ -731,11 +748,12 @@ fn completion_registered_function_candidate(
     })
 }
 
-fn file_level_completion_function_candidate(
+pub(crate) fn file_level_completion_function_candidate(
     semantic: &SemanticModel,
     command: &CommandFact<'_>,
 ) -> Option<CompletionRegisteredFunctionCandidate> {
-    if command.is_nested_word_command() || semantic.enclosing_function_scope(command.scope()).is_some()
+    if command.is_nested_word_command()
+        || semantic.enclosing_function_scope(command.scope()).is_some()
     {
         return None;
     }
@@ -751,7 +769,7 @@ fn file_level_completion_function_candidate(
     })
 }
 
-fn external_entrypoint_function_candidate(
+pub(crate) fn external_entrypoint_function_candidate(
     semantic: &SemanticModel,
     command: &CommandFact<'_>,
 ) -> Option<CompletionRegisteredFunctionCandidate> {
@@ -768,7 +786,7 @@ fn external_entrypoint_function_candidate(
     })
 }
 
-fn command_registers_completion_function(
+pub(crate) fn command_registers_completion_function(
     command: &CommandFact<'_>,
     source: &str,
     expected_name: &str,
@@ -854,26 +872,49 @@ fn command_registers_completion_function(
     false
 }
 
-fn zsh_arguments_spec_invokes_function(spec: &str, expected_name: &Name) -> bool {
+pub(crate) fn zsh_arguments_spec_invokes_function(spec: &str, expected_name: &Name) -> bool {
     spec.split(':')
         .skip(1)
         .map(str::trim)
         .any(|segment| segment == expected_name.as_str())
 }
 
-enum ZshExternalEntrypointAction {
-    RegisterWidget { widget: Box<str>, function: Box<str> },
-    UnregisterWidgets { widgets: Vec<Box<str>> },
-    RegisterHookFunction { hook: Box<str>, function: Box<str> },
-    RegisterHookWidget { hook: Box<str>, widget: Box<str> },
-    UnregisterHookFunction { hook: Box<str>, function: Box<str> },
-    UnregisterHookWidget { hook: Box<str>, widget: Box<str> },
-    UnregisterHookFunctionPattern { hook: Box<str>, pattern: Box<str> },
-    UnregisterHookWidgetPattern { hook: Box<str>, pattern: Box<str> },
+pub(crate) enum ZshExternalEntrypointAction {
+    RegisterWidget {
+        widget: Box<str>,
+        function: Box<str>,
+    },
+    UnregisterWidgets {
+        widgets: Vec<Box<str>>,
+    },
+    RegisterHookFunction {
+        hook: Box<str>,
+        function: Box<str>,
+    },
+    RegisterHookWidget {
+        hook: Box<str>,
+        widget: Box<str>,
+    },
+    UnregisterHookFunction {
+        hook: Box<str>,
+        function: Box<str>,
+    },
+    UnregisterHookWidget {
+        hook: Box<str>,
+        widget: Box<str>,
+    },
+    UnregisterHookFunctionPattern {
+        hook: Box<str>,
+        pattern: Box<str>,
+    },
+    UnregisterHookWidgetPattern {
+        hook: Box<str>,
+        pattern: Box<str>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum ZshHookTarget {
+pub(crate) enum ZshHookTarget {
     Function(Box<str>),
     Widget(Box<str>),
 }
@@ -910,27 +951,23 @@ impl ZshHookTarget {
     }
 }
 
-fn command_zsh_external_entrypoint_action(
+pub(crate) fn command_zsh_external_entrypoint_action(
     command: &CommandFact<'_>,
     source: &str,
 ) -> Option<ZshExternalEntrypointAction> {
     match command.effective_or_literal_name()? {
         "zle" => zle_external_entrypoint_action(command, source),
-        "add-zsh-hook" => add_zsh_hook_external_entrypoint_action(
-            command,
-            source,
-            AddZshHookTargetKind::Function,
-        ),
-        "add-zle-hook-widget" => add_zsh_hook_external_entrypoint_action(
-            command,
-            source,
-            AddZshHookTargetKind::Widget,
-        ),
+        "add-zsh-hook" => {
+            add_zsh_hook_external_entrypoint_action(command, source, AddZshHookTargetKind::Function)
+        }
+        "add-zle-hook-widget" => {
+            add_zsh_hook_external_entrypoint_action(command, source, AddZshHookTargetKind::Widget)
+        }
         _ => None,
     }
 }
 
-fn zle_external_entrypoint_action(
+pub(crate) fn zle_external_entrypoint_action(
     command: &CommandFact<'_>,
     source: &str,
 ) -> Option<ZshExternalEntrypointAction> {
@@ -968,7 +1005,7 @@ fn zle_external_entrypoint_action(
     None
 }
 
-fn add_zsh_hook_external_entrypoint_action(
+pub(crate) fn add_zsh_hook_external_entrypoint_action(
     command: &CommandFact<'_>,
     source: &str,
     target_kind: AddZshHookTargetKind,
@@ -980,38 +1017,45 @@ fn add_zsh_hook_external_entrypoint_action(
         .filter(|arg| !arg.starts_with('-'))
         .collect::<Vec<_>>();
     match operands.as_slice() {
-        [hook, function, ..] if removal_mode == Some(AddZshHookRemovalMode::Exact) => match target_kind
-        {
-            AddZshHookTargetKind::Function => Some(ZshExternalEntrypointAction::UnregisterHookFunction {
-                hook: hook.as_str().into(),
-                function: function.as_str().into(),
-            }),
-            AddZshHookTargetKind::Widget => Some(ZshExternalEntrypointAction::UnregisterHookWidget {
-                hook: hook.as_str().into(),
-                widget: function.as_str().into(),
-            }),
-        },
+        [hook, function, ..] if removal_mode == Some(AddZshHookRemovalMode::Exact) => {
+            match target_kind {
+                AddZshHookTargetKind::Function => {
+                    Some(ZshExternalEntrypointAction::UnregisterHookFunction {
+                        hook: hook.as_str().into(),
+                        function: function.as_str().into(),
+                    })
+                }
+                AddZshHookTargetKind::Widget => {
+                    Some(ZshExternalEntrypointAction::UnregisterHookWidget {
+                        hook: hook.as_str().into(),
+                        widget: function.as_str().into(),
+                    })
+                }
+            }
+        }
         [hook, pattern, ..] if removal_mode == Some(AddZshHookRemovalMode::Pattern) => {
             match target_kind {
-                AddZshHookTargetKind::Function => Some(
-                    ZshExternalEntrypointAction::UnregisterHookFunctionPattern {
+                AddZshHookTargetKind::Function => {
+                    Some(ZshExternalEntrypointAction::UnregisterHookFunctionPattern {
                         hook: hook.as_str().into(),
                         pattern: pattern.as_str().into(),
-                    },
-                ),
-                AddZshHookTargetKind::Widget => Some(
-                    ZshExternalEntrypointAction::UnregisterHookWidgetPattern {
+                    })
+                }
+                AddZshHookTargetKind::Widget => {
+                    Some(ZshExternalEntrypointAction::UnregisterHookWidgetPattern {
                         hook: hook.as_str().into(),
                         pattern: pattern.as_str().into(),
-                    },
-                ),
+                    })
+                }
             }
         }
         [hook, function, ..] if removal_mode.is_none() => match target_kind {
-            AddZshHookTargetKind::Function => Some(ZshExternalEntrypointAction::RegisterHookFunction {
-                hook: hook.as_str().into(),
-                function: function.as_str().into(),
-            }),
+            AddZshHookTargetKind::Function => {
+                Some(ZshExternalEntrypointAction::RegisterHookFunction {
+                    hook: hook.as_str().into(),
+                    function: function.as_str().into(),
+                })
+            }
             AddZshHookTargetKind::Widget => Some(ZshExternalEntrypointAction::RegisterHookWidget {
                 hook: hook.as_str().into(),
                 widget: function.as_str().into(),
@@ -1022,19 +1066,22 @@ fn add_zsh_hook_external_entrypoint_action(
 }
 
 #[derive(Debug, Clone, Copy)]
-enum AddZshHookTargetKind {
+pub(crate) enum AddZshHookTargetKind {
     Function,
     Widget,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AddZshHookRemovalMode {
+pub(crate) enum AddZshHookRemovalMode {
     Exact,
     Pattern,
 }
 
-fn add_zsh_hook_removal_mode(args: &[String]) -> Option<AddZshHookRemovalMode> {
-    if args.iter().any(|arg| add_zsh_hook_option_contains(arg, 'D')) {
+pub(crate) fn add_zsh_hook_removal_mode(args: &[String]) -> Option<AddZshHookRemovalMode> {
+    if args
+        .iter()
+        .any(|arg| add_zsh_hook_option_contains(arg, 'D'))
+    {
         return Some(AddZshHookRemovalMode::Pattern);
     }
     args.iter()
@@ -1042,18 +1089,18 @@ fn add_zsh_hook_removal_mode(args: &[String]) -> Option<AddZshHookRemovalMode> {
         .then_some(AddZshHookRemovalMode::Exact)
 }
 
-fn add_zsh_hook_option_contains(arg: &str, flag: char) -> bool {
+pub(crate) fn add_zsh_hook_option_contains(arg: &str, flag: char) -> bool {
     arg.starts_with('-') && arg != "--" && arg.chars().skip(1).any(|c| c == flag)
 }
 
-fn zsh_hook_function_pattern_matches(pattern: &str, function: &str) -> bool {
+pub(crate) fn zsh_hook_function_pattern_matches(pattern: &str, function: &str) -> bool {
     if pattern_contains_unsupported_zsh_metachar(pattern) {
         return true;
     }
     zsh_simple_glob_pattern_matches(pattern.as_bytes(), function.as_bytes())
 }
 
-fn zsh_simple_glob_pattern_matches(pattern: &[u8], text: &[u8]) -> bool {
+pub(crate) fn zsh_simple_glob_pattern_matches(pattern: &[u8], text: &[u8]) -> bool {
     if pattern.is_empty() {
         return text.is_empty();
     }
@@ -1073,7 +1120,7 @@ fn zsh_simple_glob_pattern_matches(pattern: &[u8], text: &[u8]) -> bool {
     }
 }
 
-fn pattern_contains_unsupported_zsh_metachar(pattern: &str) -> bool {
+pub(crate) fn pattern_contains_unsupported_zsh_metachar(pattern: &str) -> bool {
     let mut in_bracket_class = false;
     for byte in pattern.bytes() {
         match byte {
@@ -1086,17 +1133,13 @@ fn pattern_contains_unsupported_zsh_metachar(pattern: &str) -> bool {
     false
 }
 
-fn zsh_numeric_pattern_matches(pattern_after_numeric: &[u8], text: &[u8]) -> bool {
-    let digit_count = text
-        .iter()
-        .take_while(|byte| byte.is_ascii_digit())
-        .count();
-    (1..=digit_count).any(|consumed| {
-        zsh_simple_glob_pattern_matches(pattern_after_numeric, &text[consumed..])
-    })
+pub(crate) fn zsh_numeric_pattern_matches(pattern_after_numeric: &[u8], text: &[u8]) -> bool {
+    let digit_count = text.iter().take_while(|byte| byte.is_ascii_digit()).count();
+    (1..=digit_count)
+        .any(|consumed| zsh_simple_glob_pattern_matches(pattern_after_numeric, &text[consumed..]))
 }
 
-fn zsh_bracket_pattern_matches(pattern: &[u8], text: &[u8]) -> bool {
+pub(crate) fn zsh_bracket_pattern_matches(pattern: &[u8], text: &[u8]) -> bool {
     let Some(&candidate) = text.first() else {
         return false;
     };
@@ -1120,7 +1163,7 @@ fn zsh_bracket_pattern_matches(pattern: &[u8], text: &[u8]) -> bool {
     }
 }
 
-fn zsh_bracket_class_contains(class: &[u8], candidate: u8) -> bool {
+pub(crate) fn zsh_bracket_class_contains(class: &[u8], candidate: u8) -> bool {
     let mut index = 0;
     while index < class.len() {
         if index + 2 < class.len() && class[index + 1] == b'-' {
@@ -1138,7 +1181,7 @@ fn zsh_bracket_class_contains(class: &[u8], candidate: u8) -> bool {
     false
 }
 
-fn static_command_args(command: &CommandFact<'_>, source: &str) -> Option<Vec<String>> {
+pub(crate) fn static_command_args(command: &CommandFact<'_>, source: &str) -> Option<Vec<String>> {
     command
         .body_args()
         .iter()
@@ -1146,7 +1189,7 @@ fn static_command_args(command: &CommandFact<'_>, source: &str) -> Option<Vec<St
         .collect()
 }
 
-fn is_zsh_special_hook_name(name: &str) -> bool {
+pub(crate) fn is_zsh_special_hook_name(name: &str) -> bool {
     matches!(
         name,
         "precmd"
@@ -1160,12 +1203,15 @@ fn is_zsh_special_hook_name(name: &str) -> bool {
 }
 
 #[derive(Debug, Clone)]
-struct CompletionRegisteredFunctionCandidate {
+pub(crate) struct CompletionRegisteredFunctionCandidate {
     scope: ScopeId,
     name: Box<str>,
 }
 
-fn function_parameter_fallback_span(pair: &[&CommandFact<'_>], source: &str) -> Option<Span> {
+pub(crate) fn function_parameter_fallback_span(
+    pair: &[&CommandFact<'_>],
+    source: &str,
+) -> Option<Span> {
     let [first, second] = pair else {
         return None;
     };
@@ -1195,7 +1241,7 @@ fn function_parameter_fallback_span(pair: &[&CommandFact<'_>], source: &str) -> 
     Some(Span::from_positions(start, start.advanced_by("(")))
 }
 
-fn named_coproc_subshell_fallback_span(command: &CommandFact<'_>) -> Option<Span> {
+pub(crate) fn named_coproc_subshell_fallback_span(command: &CommandFact<'_>) -> Option<Span> {
     let Command::Compound(CompoundCommand::Coproc(coproc)) = command.command() else {
         return None;
     };
@@ -1212,7 +1258,7 @@ fn named_coproc_subshell_fallback_span(command: &CommandFact<'_>) -> Option<Span
     }
     Some(Span::from_positions(body_start, body_start))
 }
-fn build_function_call_arity_facts<'a>(
+pub(crate) fn build_function_call_arity_facts<'a>(
     semantic_analysis: &SemanticAnalysis<'_>,
     functions: &[&FunctionDef],
     commands: &[CommandFact<'a>],
@@ -1248,9 +1294,10 @@ fn build_function_call_arity_facts<'a>(
 
     for name in unique_function_names {
         for (site, binding_id) in semantic_analysis.function_call_arity_sites(name) {
-            let Some(command_id) =
-                precomputed_command_id_for_offset(&command_ids_by_offset, site.name_span.start.offset)
-            else {
+            let Some(command_id) = precomputed_command_id_for_offset(
+                &command_ids_by_offset,
+                site.name_span.start.offset,
+            ) else {
                 continue;
             };
             let command = command_fact(commands, command_fact_indices_by_id, command_id);
@@ -1262,21 +1309,18 @@ fn build_function_call_arity_facts<'a>(
             let Some(name_word) = command.body_name_word() else {
                 continue;
             };
-            facts
-                .entry(binding_id)
-                .or_default()
-                .record_call(
-                    site.arg_count,
-                    name_word.span,
-                    function_call_diagnostic_span(command, name_word.span, source),
-                );
+            facts.entry(binding_id).or_default().record_call(
+                site.arg_count,
+                name_word.span,
+                function_call_diagnostic_span(command, name_word.span, source),
+            );
         }
     }
 
     facts
 }
 
-fn function_call_diagnostic_span(
+pub(crate) fn function_call_diagnostic_span(
     command: &CommandFact<'_>,
     name_span: Span,
     source: &str,
@@ -1288,7 +1332,7 @@ fn function_call_diagnostic_span(
     trim_trailing_whitespace_span(command.stmt().span, source)
 }
 
-fn function_body_without_braces_span(function: &FunctionDef) -> Option<Span> {
+pub(crate) fn function_body_without_braces_span(function: &FunctionDef) -> Option<Span> {
     match &function.body.command {
         Command::Compound(
             CompoundCommand::BraceGroup(_)
@@ -1305,7 +1349,7 @@ fn function_body_without_braces_span(function: &FunctionDef) -> Option<Span> {
     }
 }
 
-fn next_function_body_delimiter(text: &str) -> Option<char> {
+pub(crate) fn next_function_body_delimiter(text: &str) -> Option<char> {
     let mut tail = text;
 
     loop {
@@ -1320,7 +1364,7 @@ fn next_function_body_delimiter(text: &str) -> Option<char> {
     }
 }
 
-fn trim_shell_layout_prefix(text: &str) -> &str {
+pub(crate) fn trim_shell_layout_prefix(text: &str) -> &str {
     let mut tail = text;
 
     loop {
@@ -1338,7 +1382,7 @@ fn trim_shell_layout_prefix(text: &str) -> &str {
     }
 }
 
-fn is_plausible_shell_function_name(name: &str) -> bool {
+pub(crate) fn is_plausible_shell_function_name(name: &str) -> bool {
     let Some(first) = name.chars().next() else {
         return false;
     };
@@ -1377,7 +1421,7 @@ fn is_plausible_shell_function_name(name: &str) -> bool {
     )
 }
 
-fn build_function_positional_parameter_facts(
+pub(crate) fn build_function_positional_parameter_facts(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
     positional_parameter_fragments: &[PositionalParameterFragmentFact],
@@ -1445,7 +1489,8 @@ fn build_function_positional_parameter_facts(
     }
 
     for command in commands {
-        let Some(scope) = semantic.enclosing_function_scope_without_transient_boundary(command.scope())
+        let Some(scope) =
+            semantic.enclosing_function_scope_without_transient_boundary(command.scope())
         else {
             continue;
         };
@@ -1462,7 +1507,7 @@ fn build_function_positional_parameter_facts(
     facts
 }
 
-fn reference_has_local_positional_reset(
+pub(crate) fn reference_has_local_positional_reset(
     semantic: &SemanticModel,
     scope: ScopeId,
     offset: usize,

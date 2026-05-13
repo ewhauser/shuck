@@ -1,4 +1,4 @@
-pub(super) fn word_occurrence_with_context<'a>(
+pub(crate) fn word_occurrence_with_context<'a>(
     nodes: &[WordNode<'a>],
     occurrences: &'a [WordOccurrence],
     word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
@@ -13,7 +13,7 @@ pub(super) fn word_occurrence_with_context<'a>(
         .find(|fact| occurrence_span(nodes, fact) == span && fact.context == context)
 }
 
-pub(super) fn occurrence_static_text<'a>(
+pub(crate) fn occurrence_static_text<'a>(
     nodes: &'a [WordNode<'a>],
     occurrence: &WordOccurrence,
     source: &'a str,
@@ -25,7 +25,7 @@ pub(super) fn occurrence_static_text<'a>(
         .or_else(|| static_word_text(node.word, source))
 }
 
-pub(super) fn word_occurrence_is_pure_quoted_dynamic(
+pub(crate) fn word_occurrence_is_pure_quoted_dynamic(
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
     fact_store: &FactStore<'_>,
@@ -42,7 +42,7 @@ pub(super) fn word_occurrence_is_pure_quoted_dynamic(
         )
 }
 
-pub(super) fn collect_unquoted_literal_between_double_quoted_segments_spans(
+pub(crate) fn collect_unquoted_literal_between_double_quoted_segments_spans(
     word: &Word,
     source: &str,
     spans: &mut Vec<Span>,
@@ -115,7 +115,7 @@ pub(super) fn collect_unquoted_literal_between_double_quoted_segments_spans(
     }
 }
 
-pub(super) fn mixed_quote_double_quoted_parts_contain_literal_content(parts: &[WordPartNode]) -> bool {
+pub(crate) fn mixed_quote_double_quoted_parts_contain_literal_content(parts: &[WordPartNode]) -> bool {
     parts.iter().any(|part| match &part.kind {
         WordPart::Literal(_) | WordPart::SingleQuoted { .. } => true,
         WordPart::DoubleQuoted { parts, .. } => {
@@ -140,7 +140,7 @@ pub(super) fn mixed_quote_double_quoted_parts_contain_literal_content(parts: &[W
     })
 }
 
-pub(super) fn mixed_quote_literal_is_warnable_between_double_quotes(text: &str) -> bool {
+pub(crate) fn mixed_quote_literal_is_warnable_between_double_quotes(text: &str) -> bool {
     if text.is_empty() {
         return false;
     }
@@ -185,11 +185,11 @@ pub(super) fn mixed_quote_literal_is_warnable_between_double_quotes(text: &str) 
     })
 }
 
-pub(super) fn mixed_quote_literal_has_shellcheck_skipped_word_operator(text: &str) -> bool {
+pub(crate) fn mixed_quote_literal_has_shellcheck_skipped_word_operator(text: &str) -> bool {
     text.contains('+') || text.contains('@')
 }
 
-pub(super) fn mixed_quote_shell_fragment_balance_delta_for_part(
+pub(crate) fn mixed_quote_shell_fragment_balance_delta_for_part(
     part: &WordPartNode,
     source: &str,
 ) -> (i32, i32) {
@@ -221,12 +221,12 @@ pub(super) fn mixed_quote_shell_fragment_balance_delta_for_part(
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum MixedQuoteShellParenFrame {
+pub(crate) enum MixedQuoteShellParenFrame {
     Command { opened_in_double_quotes: bool },
     Group,
 }
 
-pub(super) fn mixed_quote_shell_fragment_balance_delta(
+pub(crate) fn mixed_quote_shell_fragment_balance_delta(
     text: &str,
     allow_top_level_command_comments: bool,
 ) -> (i32, i32) {
@@ -359,7 +359,7 @@ pub(super) fn mixed_quote_shell_fragment_balance_delta(
     (command_delta, parameter_delta)
 }
 
-pub(super) fn mixed_quote_shell_comment_can_start(
+pub(crate) fn mixed_quote_shell_comment_can_start(
     command_depth: i32,
     allow_top_level_command_comments: bool,
     previous_char: Option<char>,
@@ -370,7 +370,7 @@ pub(super) fn mixed_quote_shell_comment_can_start(
         })
 }
 
-pub(super) fn mixed_quote_trailing_line_join_between_double_quotes_span(
+pub(crate) fn mixed_quote_trailing_line_join_between_double_quotes_span(
     word: &Word,
     source: &str,
 ) -> Option<Span> {
@@ -400,7 +400,7 @@ pub(super) fn mixed_quote_trailing_line_join_between_double_quotes_span(
     Some(Span::from_positions(start, start.advanced_by(suffix)))
 }
 
-pub(super) fn mixed_quote_line_join_between_double_quotes_spans(word: &Word, source: &str) -> Vec<Span> {
+pub(crate) fn mixed_quote_line_join_between_double_quotes_spans(word: &Word, source: &str) -> Vec<Span> {
     if !matches!(
         word.parts.first().map(|part| &part.kind),
         Some(WordPart::DoubleQuoted { .. })
@@ -437,7 +437,7 @@ pub(super) fn mixed_quote_line_join_between_double_quotes_spans(word: &Word, sou
     spans
 }
 
-pub(super) fn mixed_quote_following_line_join_between_double_quotes_span(
+pub(crate) fn mixed_quote_following_line_join_between_double_quotes_span(
     word: &Word,
     source: &str,
 ) -> Option<Span> {
@@ -448,7 +448,7 @@ pub(super) fn mixed_quote_following_line_join_between_double_quotes_span(
     ))
 }
 
-pub(super) fn mixed_quote_following_line_join_suffix_after_word(
+pub(crate) fn mixed_quote_following_line_join_suffix_after_word(
     word: &Word,
     source: &str,
 ) -> Option<&'static str> {
@@ -472,7 +472,7 @@ pub(super) fn mixed_quote_following_line_join_suffix_after_word(
     Some(suffix)
 }
 
-pub(super) fn mixed_quote_chained_line_join_between_double_quotes_spans(
+pub(crate) fn mixed_quote_chained_line_join_between_double_quotes_spans(
     word: &Word,
     source: &str,
 ) -> Vec<Span> {
@@ -519,7 +519,7 @@ pub(super) fn mixed_quote_chained_line_join_between_double_quotes_spans(
     spans
 }
 
-pub(super) fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usize> {
+pub(crate) fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usize> {
     let mut chars = text.char_indices().peekable();
     let (_, first) = chars.next()?;
     if first != '"' {
@@ -671,7 +671,7 @@ pub(super) fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usiz
     None
 }
 
-pub(super) fn mixed_quote_text_ends_with_unescaped_double_quote(text: &str) -> bool {
+pub(crate) fn mixed_quote_text_ends_with_unescaped_double_quote(text: &str) -> bool {
     let Some(prefix) = text.strip_suffix('"') else {
         return false;
     };
@@ -680,7 +680,7 @@ pub(super) fn mixed_quote_text_ends_with_unescaped_double_quote(text: &str) -> b
     backslash_count % 2 == 0
 }
 
-pub(super) fn word_occurrence_is_double_quoted_command_substitution_only(
+pub(crate) fn word_occurrence_is_double_quoted_command_substitution_only(
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
     fact_store: &FactStore<'_>,
@@ -703,7 +703,7 @@ pub(super) fn word_occurrence_is_double_quoted_command_substitution_only(
         && &word_text[1..word_text.len() - 1] == command_substitution.slice(source)
 }
 
-pub(super) fn word_occurrence_is_escaped_double_quoted_dynamic(
+pub(crate) fn word_occurrence_is_escaped_double_quoted_dynamic(
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
     fact_store: &FactStore<'_>,
@@ -729,7 +729,7 @@ pub(super) fn word_occurrence_is_escaped_double_quoted_dynamic(
 }
 
 
-pub(super) fn pattern_has_glob_structure(pattern: &Pattern, source: &str) -> bool {
+pub(crate) fn pattern_has_glob_structure(pattern: &Pattern, source: &str) -> bool {
     pattern.parts_with_spans().any(|(part, span)| match part {
         PatternPart::AnyString | PatternPart::AnyChar | PatternPart::CharClass(_) => true,
         PatternPart::Group { .. } => true,
@@ -744,11 +744,11 @@ pub(super) fn pattern_has_glob_structure(pattern: &Pattern, source: &str) -> boo
     })
 }
 
-pub(super) fn literal_text_has_glob_bracket(text: &str) -> bool {
+pub(crate) fn literal_text_has_glob_bracket(text: &str) -> bool {
     text.contains('[') || text.contains(']')
 }
 
-pub(super) fn pattern_is_arithmetic_only(pattern: &Pattern) -> bool {
+pub(crate) fn pattern_is_arithmetic_only(pattern: &Pattern) -> bool {
     pattern.parts.iter().all(|part| match &part.kind {
         PatternPart::Literal(_) | PatternPart::AnyString | PatternPart::AnyChar => true,
         PatternPart::Word(word) => word_is_arithmetic_only(word),
@@ -756,11 +756,11 @@ pub(super) fn pattern_is_arithmetic_only(pattern: &Pattern) -> bool {
     })
 }
 
-pub(super) fn word_is_arithmetic_only(word: &Word) -> bool {
+pub(crate) fn word_is_arithmetic_only(word: &Word) -> bool {
     word.parts.iter().all(word_part_is_arithmetic_only)
 }
 
-pub(super) fn word_part_is_arithmetic_only(part: &WordPartNode) -> bool {
+pub(crate) fn word_part_is_arithmetic_only(part: &WordPartNode) -> bool {
     match &part.kind {
         WordPart::Literal(_) | WordPart::SingleQuoted { .. } => true,
         WordPart::ArithmeticExpansion { .. } => true,
@@ -783,7 +783,7 @@ pub(super) fn word_part_is_arithmetic_only(part: &WordPartNode) -> bool {
     }
 }
 
-pub(super) fn standalone_variable_name_from_word_parts(parts: &[WordPartNode]) -> Option<&str> {
+pub(crate) fn standalone_variable_name_from_word_parts(parts: &[WordPartNode]) -> Option<&str> {
     let [part] = parts else {
         return None;
     };
@@ -818,7 +818,7 @@ pub(super) fn standalone_variable_name_from_word_parts(parts: &[WordPartNode]) -
     }
 }
 
-pub(super) fn word_context_supports_operand_class(context: ExpansionContext) -> bool {
+pub(crate) fn word_context_supports_operand_class(context: ExpansionContext) -> bool {
     matches!(
         context,
         ExpansionContext::CommandName
@@ -834,7 +834,7 @@ pub(super) fn word_context_supports_operand_class(context: ExpansionContext) -> 
     )
 }
 
-pub(super) fn word_has_literal_affixes(word: &Word) -> bool {
+pub(crate) fn word_has_literal_affixes(word: &Word) -> bool {
     word.parts.iter().any(|part| {
         matches!(
             part.kind,
@@ -843,11 +843,11 @@ pub(super) fn word_has_literal_affixes(word: &Word) -> bool {
     })
 }
 
-pub(super) fn word_contains_shell_quoting_literals(word: &Word, source: &str) -> bool {
+pub(crate) fn word_contains_shell_quoting_literals(word: &Word, source: &str) -> bool {
     word_parts_contain_shell_quoting_literals(&word.parts, source)
 }
 
-pub(super) fn word_parts_contain_shell_quoting_literals(parts: &[WordPartNode], source: &str) -> bool {
+pub(crate) fn word_parts_contain_shell_quoting_literals(parts: &[WordPartNode], source: &str) -> bool {
     parts.iter().any(|part| match &part.kind {
         WordPart::Literal(text) => text_contains_shell_quoting_literals(
             text.as_str(source, part.span),
@@ -865,12 +865,12 @@ pub(super) fn word_parts_contain_shell_quoting_literals(parts: &[WordPartNode], 
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum ShellQuotingLiteralTextContext {
+pub(crate) enum ShellQuotingLiteralTextContext {
     ShellContinuationAware,
     LiteralBackslashNewlines,
 }
 
-pub(super) fn text_contains_shell_quoting_literals(
+pub(crate) fn text_contains_shell_quoting_literals(
     text: &str,
     context: ShellQuotingLiteralTextContext,
 ) -> bool {
@@ -904,7 +904,7 @@ pub(super) fn text_contains_shell_quoting_literals(
 }
 
 
-pub(super) fn word_classification_from_analysis(analysis: ExpansionAnalysis) -> WordClassification {
+pub(crate) fn word_classification_from_analysis(analysis: ExpansionAnalysis) -> WordClassification {
     WordClassification {
         quote: analysis.quote,
         literalness: analysis.literalness,
@@ -913,13 +913,13 @@ pub(super) fn word_classification_from_analysis(analysis: ExpansionAnalysis) -> 
     }
 }
 
-pub(super) fn double_quoted_expansion_part_spans(word: &Word) -> Vec<Span> {
+pub(crate) fn double_quoted_expansion_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_double_quoted_expansion_part_spans(word, &mut spans);
     spans
 }
 
-pub(super) fn collect_double_quoted_expansion_part_spans(word: &Word, spans: &mut Vec<Span>) {
+pub(crate) fn collect_double_quoted_expansion_part_spans(word: &Word, spans: &mut Vec<Span>) {
     let mut visitor = DoubleQuotedExpansionSpanVisitor { spans };
     walk_word_subtree(
         word,
@@ -932,7 +932,7 @@ pub(super) fn collect_double_quoted_expansion_part_spans(word: &Word, spans: &mu
     );
 }
 
-pub(super) fn single_quoted_equivalent_if_plain_double_quoted_word(
+pub(crate) fn single_quoted_equivalent_if_plain_double_quoted_word(
     word: &Word,
     source: &str,
 ) -> Option<String> {
@@ -951,7 +951,7 @@ pub(super) fn single_quoted_equivalent_if_plain_double_quoted_word(
     Some(shell_single_quoted_literal(&cooked))
 }
 
-pub(super) fn push_cooked_double_quoted_word_text(text: &str, out: &mut String) {
+pub(crate) fn push_cooked_double_quoted_word_text(text: &str, out: &mut String) {
     let mut chars = text.chars();
     while let Some(ch) = chars.next() {
         if ch != '\\' {
@@ -971,7 +971,7 @@ pub(super) fn push_cooked_double_quoted_word_text(text: &str, out: &mut String) 
     }
 }
 
-pub(super) fn shell_single_quoted_literal(text: &str) -> String {
+pub(crate) fn shell_single_quoted_literal(text: &str) -> String {
     let mut quoted = String::with_capacity(text.len() + 2);
     quoted.push('\'');
     for ch in text.chars() {
@@ -1024,7 +1024,7 @@ pub fn leading_literal_word_prefix(word: &Word, source: &str) -> String {
     prefix
 }
 
-pub(super) fn collect_leading_literal_word_parts(
+pub(crate) fn collect_leading_literal_word_parts(
     parts: &[WordPartNode],
     source: &str,
     prefix: &mut String,
@@ -1037,7 +1037,7 @@ pub(super) fn collect_leading_literal_word_parts(
     true
 }
 
-pub(super) fn collect_leading_literal_word_part(
+pub(crate) fn collect_leading_literal_word_part(
     part: &WordPartNode,
     source: &str,
     prefix: &mut String,

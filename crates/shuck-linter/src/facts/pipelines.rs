@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Debug, Clone)]
 pub struct PipelineSegmentFact<'a> {
     stmt: &'a Stmt,
@@ -98,9 +100,8 @@ impl<'a> PipelineFact<'a> {
     }
 }
 
-
 #[cfg_attr(shuck_profiling, inline(never))]
-pub(super) fn build_pipeline_facts<'a>(
+pub(crate) fn build_pipeline_facts<'a>(
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
     semantic: &SemanticModel,
@@ -164,7 +165,7 @@ pub(super) fn build_pipeline_facts<'a>(
         .collect()
 }
 
-fn build_pipeline_segment_fact<'a>(
+pub(crate) fn build_pipeline_segment_fact<'a>(
     command_span: Span,
     command_relationships: CommandRelationshipContext<'_, 'a>,
 ) -> PipelineSegmentFact<'a> {

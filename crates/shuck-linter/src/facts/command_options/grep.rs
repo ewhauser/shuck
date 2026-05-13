@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn parse_grep_command<'a>(
+pub(crate) fn parse_grep_command<'a>(
     args: &[&'a Word],
     source: &str,
 ) -> Option<GrepCommandFacts<'a>> {
@@ -219,7 +219,7 @@ pub(super) fn parse_grep_command<'a>(
     })
 }
 
-pub(super) fn grep_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word> {
+pub(crate) fn grep_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word> {
     let mut index = 0usize;
     let mut pending_dynamic_option_arg = false;
     let mut explicit_pattern_source = false;
