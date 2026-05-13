@@ -68,7 +68,7 @@ fn unsafe_grep_count_pipeline_reports(
                 return None;
             }
 
-            if !wc_uses_line_count(right, checker.source()) {
+            if !wc_uses_only_line_count(right, checker.source()) {
                 return None;
             }
 
@@ -119,12 +119,17 @@ fn is_raw_utility_named(fact: CommandFactRef<'_, '_>, name: &str) -> bool {
     fact.literal_name() == Some(name) && fact.wrappers().is_empty()
 }
 
-fn wc_uses_line_count(fact: CommandFactRef<'_, '_>, source: &str) -> bool {
-    fact.body_args().iter().any(|word| {
-        static_word_text(word, source).is_some_and(|text| {
-            text == "-l" || text == "--lines" || (text.starts_with('-') && text[1..].contains('l'))
-        })
-    })
+fn wc_uses_only_line_count(fact: CommandFactRef<'_, '_>, source: &str) -> bool {
+    if !fact.redirect_facts().is_empty() {
+        return false;
+    }
+
+    let mut args = fact.body_args().iter();
+    let Some(arg) = args.next() else {
+        return false;
+    };
+    args.next().is_none()
+        && static_word_text(arg, source).is_some_and(|text| text == "-l" || text == "--lines")
 }
 
 fn pipeline_delete_start(source: &str, operator_start: usize) -> usize {
@@ -227,5 +232,18 @@ grep -c foo file
 "
         );
         assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_wc_invocations_with_extra_count_modes_or_operands() {
+        let source = "\
+#!/bin/sh
+grep foo file | wc -cl
+grep foo file | wc -l other.txt
+grep foo file | wc -l > count
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GrepCountPipeline));
+
+        assert!(diagnostics.is_empty());
     }
 }
