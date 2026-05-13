@@ -1,8 +1,15 @@
-use crate::{Checker, ExpansionContext, Rule, ShellDialect, Violation};
+use shuck_ast::Span;
+
+use crate::{
+    Checker, Diagnostic, Edit, ExpansionContext, Fix, FixAvailability, Rule, ShellDialect,
+    Violation,
+};
 
 pub struct UnquotedArrayExpansion;
 
 impl Violation for UnquotedArrayExpansion {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::UnquotedArrayExpansion
     }
@@ -10,9 +17,14 @@ impl Violation for UnquotedArrayExpansion {
     fn message(&self) -> String {
         "quote array expansions to preserve element boundaries".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("quote the array expansion".to_owned())
+    }
 }
 
 pub fn unquoted_array_expansion(checker: &mut Checker) {
+    let source = checker.source();
     let mut spans = [
         ExpansionContext::CommandName,
         ExpansionContext::CommandArgument,
@@ -42,13 +54,22 @@ pub fn unquoted_array_expansion(checker: &mut Checker) {
         );
     }
 
-    checker.report_all_dedup(spans, || UnquotedArrayExpansion);
+    for span in spans {
+        checker.report_diagnostic_dedup(
+            Diagnostic::new(UnquotedArrayExpansion, span)
+                .with_fix(Fix::unsafe_edit(double_quote_span_edit(span, source))),
+        );
+    }
+}
+
+fn double_quote_span_edit(span: Span, source: &str) -> Edit {
+    Edit::replacement(format!("\"{}\"", span.slice(source)), span)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule, ShellDialect};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn anchors_on_inner_array_expansion_spans() {
@@ -68,6 +89,23 @@ printf '%s\\n' prefix${arr[@]}suffix ${arr[0]} ${names[*]}
                 .collect::<Vec<_>>(),
             vec!["${arr[@]}"]
         );
+    }
+
+    #[test]
+    fn applies_unsafe_fix_by_quoting_array_expansions() {
+        let source = "#!/bin/bash\nprintf '%s\\n' ${arr[@]} $@\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedArrayExpansion),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/bash\nprintf '%s\\n' \"${arr[@]}\" \"$@\"\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]

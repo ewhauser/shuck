@@ -1,14 +1,22 @@
-use crate::{Checker, Rule, ShellDialect, Violation};
+use shuck_ast::Span;
+
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, ShellDialect, Violation};
 
 pub struct XargsWithInlineReplace;
 
 impl Violation for XargsWithInlineReplace {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::XargsWithInlineReplace
     }
 
     fn message(&self) -> String {
         "replace deprecated `xargs -i` with `xargs -I{}`".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("rewrite `xargs -i` as `xargs -I`".to_owned())
     }
 }
 
@@ -20,7 +28,8 @@ pub fn xargs_with_inline_replace(checker: &mut Checker) {
         return;
     }
 
-    let spans = checker
+    let source = checker.source();
+    let diagnostics = checker
         .facts()
         .commands()
         .iter()
@@ -34,17 +43,33 @@ pub fn xargs_with_inline_replace(checker: &mut Checker) {
                     !option.uses_default_replacement()
                         || !xargs.has_sc2267_default_replace_silent_shape()
                 })
-                .map(|option| option.span())
+                .filter_map(|option| xargs_inline_replace_fix(option.span(), source))
         })
+        .map(|(span, fix)| Diagnostic::new(XargsWithInlineReplace, span).with_fix(fix))
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || XargsWithInlineReplace);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
+}
+
+fn xargs_inline_replace_fix(span: Span, source: &str) -> Option<(Span, Fix)> {
+    let text = span.slice(source);
+    let index = text.find('i')?;
+    let mut replacement = String::with_capacity(text.len() + 2);
+    replacement.push_str(&text[..index]);
+    replacement.push('I');
+    replacement.push_str(&text[index + 1..]);
+    if index + 1 == text.len() {
+        replacement.push_str("{}");
+    }
+    Some((span, Fix::safe_edit(Edit::replacement(replacement, span))))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn reports_inline_replace_xargs_flags() {
@@ -135,5 +160,22 @@ find . -type d -name CVS | xargs --null rm -rf
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_safe_fix_to_inline_replace_options() {
+        let source = "#!/bin/sh\nxargs -i echo {}\nxargs -0iX rm -rf X\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::XargsWithInlineReplace),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/sh\nxargs -I{} echo {}\nxargs -0IX rm -rf X\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 }

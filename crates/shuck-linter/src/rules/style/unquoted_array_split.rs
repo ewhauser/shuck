@@ -1,10 +1,12 @@
 use shuck_ast::Span;
 
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct UnquotedArraySplit;
 
 impl Violation for UnquotedArraySplit {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::UnquotedArraySplit
     }
@@ -12,11 +14,15 @@ impl Violation for UnquotedArraySplit {
     fn message(&self) -> String {
         "quote array assignment expansions to avoid accidental splitting".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("quote the array-assignment expansion".to_owned())
+    }
 }
 
 pub fn unquoted_array_split(checker: &mut Checker) {
     let source = checker.source();
-    let spans = checker
+    let diagnostics = checker
         .facts()
         .array_assignment_split_word_facts()
         .flat_map(|fact| {
@@ -42,9 +48,15 @@ pub fn unquoted_array_split(checker: &mut Checker) {
                 .map(|(_, part_span)| part_span)
                 .collect::<Vec<_>>()
         })
+        .map(|span| {
+            Diagnostic::new(UnquotedArraySplit, span)
+                .with_fix(Fix::unsafe_edit(double_quote_span_edit(span, source)))
+        })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || UnquotedArraySplit);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
 }
 
 fn span_contains(outer: Span, inner: Span) -> bool {
@@ -55,10 +67,14 @@ fn is_excluded_special_parameter_span(span: Span, source: &str) -> bool {
     matches!(span.slice(source), "$!" | "$?" | "$$" | "$#" | "$-")
 }
 
+fn double_quote_span_edit(span: Span, source: &str) -> Edit {
+    Edit::replacement(format!("\"{}\"", span.slice(source)), span)
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule, ShellDialect};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_unquoted_expansions_in_array_assignments() {
@@ -90,6 +106,23 @@ arr+=($tail)
                 "$tail"
             ]
         );
+    }
+
+    #[test]
+    fn applies_unsafe_fix_by_quoting_array_assignment_expansions() {
+        let source = "#!/bin/bash\narr=($x ${items[@]})\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedArraySplit),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/bash\narr=(\"$x\" \"${items[@]}\")\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]

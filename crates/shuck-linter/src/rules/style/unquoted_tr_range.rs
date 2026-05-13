@@ -1,10 +1,12 @@
-use shuck_ast::static_word_text;
+use shuck_ast::{Span, static_word_text};
 
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct UnquotedTrRange;
 
 impl Violation for UnquotedTrRange {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::UnquotedTrRange
     }
@@ -12,10 +14,15 @@ impl Violation for UnquotedTrRange {
     fn message(&self) -> String {
         "quote `tr` character class and range operands".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("remove the outer brackets from the `tr` set".to_owned())
+    }
 }
 
 pub fn unquoted_tr_range(checker: &mut Checker) {
-    let spans = checker
+    let source = checker.source();
+    let diagnostics = checker
         .facts()
         .commands()
         .iter()
@@ -26,9 +33,13 @@ pub fn unquoted_tr_range(checker: &mut Checker) {
                 is_bracketed_tr_set(text.as_ref()).then_some(word.span)
             })
         })
+        .filter_map(|span| unquoted_tr_range_fix(span, source))
+        .map(|(span, fix)| Diagnostic::new(UnquotedTrRange, span).with_fix(fix))
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || UnquotedTrRange);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
 }
 
 fn is_bracketed_tr_set(text: &str) -> bool {
@@ -50,10 +61,27 @@ fn is_bracketed_tr_set(text: &str) -> bool {
         .any(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
 }
 
+fn unquoted_tr_range_fix(span: Span, source: &str) -> Option<(Span, Fix)> {
+    let text = span.slice(source);
+    let (prefix, body, suffix) =
+        if let Some(inner) = text.strip_prefix("'").and_then(|t| t.strip_suffix("'")) {
+            ("'", inner, "'")
+        } else if let Some(inner) = text.strip_prefix('"').and_then(|t| t.strip_suffix('"')) {
+            ("\"", inner, "\"")
+        } else {
+            ("", text, "")
+        };
+    let body = body.strip_prefix('[')?.strip_suffix(']')?;
+    Some((
+        span,
+        Fix::unsafe_edit(Edit::replacement(format!("{prefix}{body}{suffix}"), span)),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn reports_bracketed_tr_operands() {
@@ -102,6 +130,20 @@ command tr x y
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedTrRange));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_by_removing_outer_tr_range_brackets() {
+        let source = "#!/bin/sh\ntr '[A-Z]' [a-z]\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedTrRange),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(result.fixed_source, "#!/bin/sh\ntr 'A-Z' a-z\n");
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]

@@ -1,10 +1,16 @@
+use shuck_ast::Span;
 use shuck_ast::static_word_text;
 
-use crate::{Checker, CommandFactRef, ExpansionContext, Rule, Violation, WordFactContext};
+use crate::{
+    Checker, CommandFactRef, Diagnostic, Edit, ExpansionContext, Fix, FixAvailability, Rule,
+    Violation, WordFactContext,
+};
 
 pub struct UnquotedPathInMkdir;
 
 impl Violation for UnquotedPathInMkdir {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::UnquotedPathInMkdir
     }
@@ -12,12 +18,16 @@ impl Violation for UnquotedPathInMkdir {
     fn message(&self) -> String {
         "quote mkdir path expansions".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("quote the mkdir path expansion".to_owned())
+    }
 }
 
 pub fn unquoted_path_in_mkdir(checker: &mut Checker) {
     let source = checker.source();
 
-    let spans = checker
+    let diagnostics = checker
         .facts()
         .commands()
         .iter()
@@ -30,9 +40,15 @@ pub fn unquoted_path_in_mkdir(checker: &mut Checker) {
             )
         })
         .flat_map(|fact| fact.unquoted_scalar_expansion_spans().iter().copied())
+        .map(|span| {
+            Diagnostic::new(UnquotedPathInMkdir, span)
+                .with_fix(Fix::unsafe_edit(double_quote_span_edit(span, source)))
+        })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || UnquotedPathInMkdir);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
 }
 
 fn mkdir_path_operand_spans(command: CommandFactRef<'_, '_>, source: &str) -> Vec<shuck_ast::Span> {
@@ -101,10 +117,14 @@ fn is_mkdir_option(_span: shuck_ast::Span, text: &str, expects_mode_operand: &mu
     false
 }
 
+fn double_quote_span_edit(span: Span, source: &str) -> Edit {
+    Edit::replacement(format!("\"{}\"", span.slice(source)), span)
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn reports_unquoted_path_expansions_in_mkdir_operands() {
@@ -126,6 +146,20 @@ command mkdir $other
                 .collect::<Vec<_>>(),
             vec!["$dir", "$PKG", "$leaf", "${root}", "$other"]
         );
+    }
+
+    #[test]
+    fn applies_unsafe_fix_by_quoting_mkdir_path_expansion() {
+        let source = "#!/bin/sh\nmkdir $dir\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedPathInMkdir),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(result.fixed_source, "#!/bin/sh\nmkdir \"$dir\"\n");
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]

@@ -1,16 +1,22 @@
 use shuck_ast::Span;
 
-use crate::{Checker, Rule, ShellDialect, Violation};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, ShellDialect, Violation};
 
 pub struct AvoidLetBuiltin;
 
 impl Violation for AvoidLetBuiltin {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
+
     fn rule() -> Rule {
         Rule::AvoidLetBuiltin
     }
 
     fn message(&self) -> String {
         "prefer arithmetic expansion instead of `let`".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("rewrite `let` as an arithmetic command".to_owned())
     }
 }
 
@@ -19,15 +25,50 @@ pub fn avoid_let_builtin(checker: &mut Checker) {
         return;
     }
 
-    let spans = checker
+    let source = checker.source();
+    let reports = checker
         .facts()
         .commands()
         .iter()
         .filter(|fact| fact.wrappers().is_empty() && fact.effective_name_is("let"))
-        .filter_map(|fact| let_command_span(checker.source(), fact))
+        .filter_map(|fact| {
+            Some(LetCommandReport {
+                diagnostic_span: let_command_span(source, fact)?,
+                fix: let_command_fix(source, fact),
+            })
+        })
         .collect::<Vec<_>>();
 
-    checker.report_all(spans, || AvoidLetBuiltin);
+    for report in reports {
+        let mut diagnostic = Diagnostic::new(AvoidLetBuiltin, report.diagnostic_span);
+        if let Some(fix) = report.fix {
+            diagnostic = diagnostic.with_fix(fix);
+        }
+        checker.report_diagnostic(diagnostic);
+    }
+}
+
+struct LetCommandReport {
+    diagnostic_span: Span,
+    fix: Option<Fix>,
+}
+
+fn let_command_fix(source: &str, fact: crate::facts::CommandFactRef<'_, '_>) -> Option<Fix> {
+    let name = fact.body_name_word()?;
+    let args = fact.body_args();
+    let last_arg = args.last()?;
+    let operands = args
+        .iter()
+        .map(|word| {
+            word.quoted_content_span_in_source(source).map_or_else(
+                || word.span.slice(source).to_owned(),
+                |span| span.slice(source).to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let replacement = format!("(( {} ))", operands.join(", "));
+    let span = Span::from_positions(name.span.start, last_arg.span.end);
+    Some(Fix::unsafe_edit(Edit::replacement(replacement, span)))
 }
 
 fn let_command_span(source: &str, fact: crate::facts::CommandFactRef<'_, '_>) -> Option<Span> {
@@ -68,8 +109,8 @@ fn let_argument_end(source: &str, word: &shuck_ast::Word) -> shuck_ast::Position
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule, ShellDialect};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_let_builtin_in_bash() {
@@ -110,5 +151,22 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::AvoidLetBuiltin));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_rewrite_let_builtin() {
+        let source = "#!/usr/bin/env bash\nlet count+=1 \"total %= RANGE\"\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::AvoidLetBuiltin),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "#!/usr/bin/env bash\n(( count+=1, total %= RANGE ))\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 }

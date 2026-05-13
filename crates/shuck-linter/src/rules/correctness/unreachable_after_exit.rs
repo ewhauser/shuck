@@ -1,4 +1,7 @@
-use crate::{Checker, CommandFact, CommandFacts, ListFact, Rule, Violation, WrapperKind};
+use crate::{
+    Checker, CommandFact, CommandFacts, Diagnostic, Edit, Fix, FixAvailability, ListFact, Rule,
+    Violation, WrapperKind,
+};
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Command as AstCommand, Name, Span};
 use shuck_semantic::{
@@ -8,12 +11,18 @@ use shuck_semantic::{
 pub struct UnreachableAfterExit;
 
 impl Violation for UnreachableAfterExit {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::UnreachableAfterExit
     }
 
     fn message(&self) -> String {
         "code is unreachable".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("delete the unreachable code".to_owned())
     }
 }
 
@@ -44,7 +53,10 @@ pub fn unreachable_after_exit(checker: &mut Checker) {
         .into_iter()
         .map(|span| trim_trailing_terminator(span, source))
     {
-        checker.report(UnreachableAfterExit, span);
+        checker.report_diagnostic(
+            Diagnostic::new(UnreachableAfterExit, span)
+                .with_fix(Fix::safe_edit(Edit::deletion(span))),
+        );
     }
 }
 
@@ -384,4 +396,24 @@ fn trim_trailing_terminator(span: Span, source: &str) -> Span {
         .trim_end_matches(';')
         .trim_end_matches(char::is_whitespace);
     Span::from_positions(span.start, span.start.advanced_by(trimmed))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet_with_fix;
+    use crate::{Applicability, LinterSettings, Rule};
+
+    #[test]
+    fn applies_safe_fix_by_deleting_unreachable_command() {
+        let source = "#!/bin/sh\nexit 0\necho unreachable\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::UnreachableAfterExit),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert!(result.fixed_diagnostics.is_empty());
+        assert!(!result.fixed_source.contains("echo unreachable"));
+    }
 }

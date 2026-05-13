@@ -1,8 +1,10 @@
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Locator, Rule, Violation};
 
 pub struct TrailingDirective;
 
 impl Violation for TrailingDirective {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::TrailingDirective
     }
@@ -10,19 +12,68 @@ impl Violation for TrailingDirective {
     fn message(&self) -> String {
         "directive after code is ignored".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("move the directive before the command".to_owned())
+    }
 }
 
 pub fn trailing_directive(checker: &mut Checker) {
-    checker.report_fact_slice_dedup(
-        |facts| facts.trailing_directive_comment_spans(),
-        || TrailingDirective,
-    );
+    let locator = checker.locator();
+    let spans = checker.facts().trailing_directive_comment_spans().to_vec();
+    for span in spans {
+        let mut diagnostic = Diagnostic::new(TrailingDirective, span);
+        if let Some(fix) = trailing_directive_fix(locator, span) {
+            diagnostic = diagnostic.with_fix(fix);
+        }
+        checker.report_diagnostic_dedup(diagnostic);
+    }
+}
+
+fn trailing_directive_fix(locator: Locator<'_>, span: shuck_ast::Span) -> Option<Fix> {
+    let source = locator.source();
+    let line_range = locator.line_range(span.start.line)?;
+    let line_start = usize::from(line_range.start());
+    let raw_line_end = usize::from(line_range.end());
+    let line_end = source
+        .get(..raw_line_end)
+        .filter(|_| raw_line_end > 0 && source.as_bytes()[raw_line_end - 1] == b'\r')
+        .map_or(raw_line_end, |_| raw_line_end - 1);
+    let comment_start = span.start.offset;
+    if comment_start < line_start || comment_start >= line_end {
+        return None;
+    }
+
+    let line = source.get(line_start..line_end)?;
+    let indent_len = line
+        .bytes()
+        .take_while(|byte| matches!(byte, b' ' | b'\t'))
+        .count();
+    let indent = &line[..indent_len];
+    let comment_text = source.get(comment_start..line_end)?;
+    let newline = if raw_line_end > line_end {
+        "\r\n"
+    } else {
+        "\n"
+    };
+
+    let mut delete_start = comment_start;
+    while delete_start > line_start
+        && matches!(source.as_bytes().get(delete_start - 1), Some(b' ' | b'\t'))
+    {
+        delete_start -= 1;
+    }
+
+    Some(Fix::safe_edits([
+        Edit::insertion(line_start, format!("{indent}{comment_text}{newline}")),
+        Edit::deletion_at(delete_start, line_end),
+    ]))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule, ShellDialect};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_inline_disable_directive() {
@@ -170,5 +221,22 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 2);
+    }
+
+    #[test]
+    fn applies_safe_fix_to_move_directive_before_command() {
+        let source = "#!/bin/sh\n  : # shellcheck disable=2034\nfoo=1\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::TrailingDirective),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/sh\n  # shellcheck disable=2034\n  :\nfoo=1\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 }

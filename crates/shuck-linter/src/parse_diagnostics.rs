@@ -17,7 +17,8 @@ use crate::rules::portability::zsh_always_block::ZshAlwaysBlock;
 use crate::rules::portability::zsh_brace_if::ZshBraceIf;
 use crate::rules::style::linebreak_before_and::LinebreakBeforeAnd;
 use crate::{
-    Diagnostic, Edit, Fix, LinterSemanticArtifacts, Rule, RuleSet, ShellDialect, Violation,
+    Diagnostic, Edit, Fix, FixAvailability, LinterSemanticArtifacts, Rule, RuleSet, ShellDialect,
+    Violation,
 };
 
 pub struct ExtglobCase;
@@ -34,12 +35,18 @@ impl Violation for ExtglobCase {
 }
 
 impl Violation for ExtglobInCasePattern {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
+
     fn rule() -> Rule {
         Rule::ExtglobInCasePattern
     }
 
     fn message(&self) -> String {
         "extended glob alternation in a case pattern is not portable to POSIX sh".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("expand the case pattern alternatives".to_owned())
     }
 }
 
@@ -84,7 +91,9 @@ pub(crate) fn collect_parse_rule_diagnostics(
     if enabled_rules.contains(crate::Rule::LoopWithoutEnd)
         && missing_done_loop_kind == Some(MissingDoneLoopKind::NonFor)
     {
-        diagnostics.push(Diagnostic::new(LoopWithoutEnd, eof_point(file)));
+        diagnostics.push(
+            Diagnostic::new(LoopWithoutEnd, eof_point(file)).with_fix(missing_done_fix(source)),
+        );
     }
     if enabled_rules.contains(crate::Rule::MissingDoneInForLoop)
         && missing_done_loop_kind == Some(MissingDoneLoopKind::For)
@@ -107,11 +116,18 @@ pub(crate) fn collect_parse_rule_diagnostics(
     if enabled_rules.contains(crate::Rule::IfBracketGlued)
         && let Some(span) = if_bracket_glued_span(locator, parse_diagnostics)
     {
-        diagnostics.push(Diagnostic::new(IfBracketGlued, span));
+        diagnostics.push(
+            Diagnostic::new(IfBracketGlued, span)
+                .with_fix(Fix::safe_edit(Edit::insertion(span.start.offset + 2, " "))),
+        );
     }
     if enabled_rules.contains(crate::Rule::LinebreakBeforeAnd) {
         for span in linebreak_before_and_spans(locator, parse_diagnostics) {
-            diagnostics.push(Diagnostic::new(LinebreakBeforeAnd, span));
+            let diagnostic = Diagnostic::new(LinebreakBeforeAnd, span);
+            diagnostics.push(match linebreak_before_and_fix(locator, span) {
+                Some(fix) => diagnostic.with_fix(fix),
+                None => diagnostic,
+            });
         }
     }
     if enabled_rules.contains(crate::Rule::FunctionParamsInSh)
@@ -171,12 +187,243 @@ pub(crate) fn collect_parse_rule_diagnostics(
             .unwrap_or(&[])
         {
             if part.pattern_part_index > 0 {
-                diagnostics.push(Diagnostic::new(ExtglobInCasePattern, part.span));
+                let diagnostic = Diagnostic::new(ExtglobInCasePattern, part.span);
+                diagnostics.push(match extglob_in_case_pattern_fix(source, part.span) {
+                    Some(fix) => diagnostic.with_fix(fix),
+                    None => diagnostic,
+                });
             }
         }
     }
 
     diagnostics
+}
+
+fn extglob_in_case_pattern_fix(source: &str, part_span: Span) -> Option<Fix> {
+    let group = part_span.slice(source);
+    group.strip_prefix('(')?.strip_suffix(')')?;
+    let (pattern_span, pattern_text) = simple_case_pattern_surface(source, part_span)?;
+    let alternatives = expand_case_pattern_surface_alternatives(pattern_text)?;
+    let replacement = alternatives.join("|");
+
+    Some(Fix::safe_edit(Edit::replacement(replacement, pattern_span)))
+}
+
+fn simple_case_pattern_surface(source: &str, part_span: Span) -> Option<(Span, &str)> {
+    let line_start = source[..part_span.start.offset]
+        .rfind('\n')
+        .map_or(0, |offset| offset + 1);
+    let pattern_start = simple_case_pattern_start(source, line_start, part_span.start.offset)?;
+    let prefix = &source[pattern_start..part_span.start.offset];
+    if prefix.is_empty() || prefix.bytes().any(|byte| byte.is_ascii_whitespace()) {
+        return None;
+    }
+
+    let pattern_end = simple_case_pattern_end(source, part_span.end.offset)?;
+    let pattern_text = &source[pattern_start..pattern_end];
+    if pattern_text.bytes().any(|byte| byte.is_ascii_whitespace()) {
+        return None;
+    }
+
+    let start = Position {
+        line: part_span.start.line,
+        column: part_span
+            .start
+            .column
+            .saturating_sub(part_span.start.offset - pattern_start),
+        offset: pattern_start,
+    };
+    let end = part_span
+        .end
+        .advanced_by(&source[part_span.end.offset..pattern_end]);
+
+    Some((Span::from_positions(start, end), pattern_text))
+}
+
+fn simple_case_pattern_start(source: &str, line_start: usize, group_start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut index = group_start;
+    let mut depth = 0usize;
+    let mut escaped = false;
+
+    while index > line_start {
+        index -= 1;
+        let byte = bytes[index];
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if byte == b'\\' {
+            escaped = true;
+            continue;
+        }
+        match byte {
+            b')' => depth += 1,
+            b'(' => {
+                if depth > 0 {
+                    depth -= 1;
+                }
+            }
+            b'|' if depth == 0 => return Some(index + 1),
+            _ => {}
+        }
+    }
+
+    let leading_blanks = source[line_start..group_start]
+        .bytes()
+        .take_while(|byte| matches!(byte, b' ' | b'\t'))
+        .count();
+    Some(line_start + leading_blanks)
+}
+
+fn simple_case_pattern_end(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut index = start;
+    let mut escaped = false;
+    let mut in_bracket = false;
+    let mut depth = 0usize;
+
+    while let Some(byte) = bytes.get(index).copied() {
+        if byte == b'\n' {
+            return None;
+        }
+        if escaped {
+            escaped = false;
+            index += 1;
+            continue;
+        }
+        if byte == b'\\' {
+            escaped = true;
+            index += 1;
+            continue;
+        }
+        if in_bracket {
+            in_bracket = byte != b']';
+            index += 1;
+            continue;
+        }
+        match byte {
+            b'[' => in_bracket = true,
+            b'(' => depth += 1,
+            b')' if depth > 0 => depth -= 1,
+            b'|' if depth == 0 => return Some(index),
+            b')' => return Some(index),
+            _ => {}
+        }
+        index += 1;
+    }
+
+    None
+}
+
+fn expand_case_pattern_surface_alternatives(text: &str) -> Option<Vec<String>> {
+    let mut expanded = vec![String::new()];
+    let mut index = 0usize;
+
+    while index < text.len() {
+        let rest = &text[index..];
+        if rest.starts_with('\\') {
+            let escaped = rest.chars().take(2).collect::<String>();
+            append_to_all(&mut expanded, &escaped);
+            index += escaped.len();
+            continue;
+        }
+        if rest.starts_with('(')
+            && let Some(close) = matching_group_close(text, index)
+            && let Some(group_alternatives) = split_case_group_alternatives(&text[index + 1..close])
+        {
+            let part_alternatives = group_alternatives
+                .iter()
+                .map(|alternative| expand_case_pattern_surface_alternatives(alternative))
+                .collect::<Option<Vec<_>>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            expanded = combine_alternatives(&expanded, &part_alternatives);
+            index = close + 1;
+            continue;
+        }
+
+        let ch = rest.chars().next()?;
+        append_to_all(&mut expanded, &rest[..ch.len_utf8()]);
+        index += ch.len_utf8();
+    }
+
+    Some(expanded)
+}
+
+fn append_to_all(alternatives: &mut [String], suffix: &str) {
+    for alternative in alternatives {
+        alternative.push_str(suffix);
+    }
+}
+
+fn combine_alternatives(prefixes: &[String], suffixes: &[String]) -> Vec<String> {
+    let mut combined = Vec::with_capacity(prefixes.len() * suffixes.len());
+    for prefix in prefixes {
+        for suffix in suffixes {
+            let mut alternative = String::with_capacity(prefix.len() + suffix.len());
+            alternative.push_str(prefix);
+            alternative.push_str(suffix);
+            combined.push(alternative);
+        }
+    }
+    combined
+}
+
+fn matching_group_close(text: &str, open: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut escaped = false;
+    for (relative, ch) in text[open..].char_indices() {
+        let index = open + relative;
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' => escaped = true,
+            '(' => depth += 1,
+            ')' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn split_case_group_alternatives(text: &str) -> Option<Vec<&str>> {
+    let mut alternatives = Vec::new();
+    let mut start = 0usize;
+    let mut depth = 0usize;
+    let mut escaped = false;
+
+    for (index, ch) in text.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' => escaped = true,
+            '(' => depth += 1,
+            ')' => depth = depth.checked_sub(1)?,
+            '|' if depth == 0 => {
+                alternatives.push(&text[start..index]);
+                start = index + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    alternatives.push(&text[start..]);
+
+    (alternatives.len() > 1
+        && alternatives
+            .iter()
+            .all(|alternative| !alternative.is_empty()))
+    .then_some(alternatives)
 }
 
 fn is_missing_fi_error(message: &str) -> bool {
@@ -492,6 +739,27 @@ fn leading_control_operator_span(locator: Locator<'_>, line_number: usize) -> Op
     let start = locator.position_at_offset(start_offset)?;
     let end = locator.position_at_offset(start_offset + operator.len())?;
     Some(Span::from_positions(start, end))
+}
+
+fn linebreak_before_and_fix(locator: Locator<'_>, span: Span) -> Option<Fix> {
+    let source = locator.source();
+    let line_start = line_start_offset(locator, span.start.line)?;
+    let insert_offset = line_start.checked_sub(1)?;
+    if source.as_bytes().get(insert_offset) != Some(&b'\n') {
+        return None;
+    }
+
+    let operator = span.slice(source);
+    let rest = source.get(span.end.offset..)?;
+    let trailing_ws_len = rest
+        .chars()
+        .take_while(|ch| matches!(ch, ' ' | '\t'))
+        .map(char::len_utf8)
+        .sum::<usize>();
+    Some(Fix::safe_edits([
+        Edit::insertion(insert_offset, format!(" {operator}")),
+        Edit::deletion_at(span.start.offset, span.end.offset + trailing_ws_len),
+    ]))
 }
 
 fn dangling_else_span(parse_diagnostics: &[ParseDiagnostic]) -> Option<Span> {
@@ -968,7 +1236,7 @@ mod tests {
     };
     use crate::{
         Applicability, Diagnostic, LinterSemanticArtifacts, LinterSettings, Locator, Rule, RuleSet,
-        ShellDialect,
+        ShellDialect, apply_fixes,
     };
 
     fn collect_parse_rule_diagnostics(
@@ -1132,6 +1400,14 @@ fi
         assert_eq!(diagnostics[0].rule, Rule::LoopWithoutEnd);
         assert_eq!(diagnostics[0].span.start.line, 4);
         assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(
+            diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
+            Some(Applicability::Unsafe)
+        );
+        assert_eq!(
+            apply_fixes(source, &diagnostics, Applicability::Unsafe).code,
+            "#!/bin/sh\nwhile true; do\n  :\ndone\n"
+        );
     }
 
     #[test]
@@ -1573,6 +1849,10 @@ fi
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::IfBracketGlued);
         assert_eq!(diagnostics[0].span.slice(source), "if[");
+        assert_eq!(
+            apply_fixes(source, &diagnostics, Applicability::Safe).code,
+            "#!/bin/sh\nif [ \"${1:-}\" = ok ]; then\n  :\nfi\n"
+        );
     }
 
     #[test]
@@ -1748,6 +2028,10 @@ fi
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::LinebreakBeforeAnd);
         assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(
+            apply_fixes(source, &diagnostics, Applicability::Safe).code,
+            "#!/bin/bash\ntrue &&\necho x\n"
+        );
     }
 
     #[test]
@@ -2003,6 +2287,54 @@ fi
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::ExtglobInCasePattern);
         assert_eq!(diagnostics[0].span.slice(source), "(a|b)");
+        assert_eq!(
+            diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
+            Some(Applicability::Safe)
+        );
+        assert_eq!(
+            apply_fixes(source, &diagnostics, Applicability::Safe).code,
+            concat!(
+                "#!/bin/sh\n",
+                "case \"$x\" in\n",
+                "  foo_a_*|foo_b_*) echo match ;;\n",
+                "esac\n",
+            )
+        );
+    }
+
+    #[test]
+    fn expands_multiple_embedded_case_groups_with_one_fix() {
+        let source = concat!(
+            "#!/bin/sh\n",
+            "case \"$x\" in\n",
+            "  foo_(a|b)_(c|d)) echo match ;;\n",
+            "esac\n",
+        );
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::ExtglobInCasePattern);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.fix.is_some())
+        );
+        assert_eq!(
+            apply_fixes(source, &diagnostics, Applicability::Safe).code,
+            concat!(
+                "#!/bin/sh\n",
+                "case \"$x\" in\n",
+                "  foo_a_c|foo_a_d|foo_b_c|foo_b_d) echo match ;;\n",
+                "esac\n",
+            )
+        );
     }
 
     #[test]

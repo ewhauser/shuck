@@ -1,4 +1,6 @@
-use crate::{Checker, Rule, ShellDialect, Violation};
+use shuck_ast::Span;
+
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, ShellDialect, Violation};
 
 pub struct DoubleBracketInSh;
 pub struct TestEqualityOperator;
@@ -27,12 +29,18 @@ impl Violation for DoubleBracketInSh {
 }
 
 impl Violation for TestEqualityOperator {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
+
     fn rule() -> Rule {
         Rule::TestEqualityOperator
     }
 
     fn message(&self) -> String {
         "use `=` instead of `==` in POSIX test expressions".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("replace `==` with `=`".to_owned())
     }
 }
 
@@ -57,12 +65,18 @@ impl Violation for ExtglobInSh {
 }
 
 impl Violation for CaretNegationInBracket {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::CaretNegationInBracket
     }
 
     fn message(&self) -> String {
         "caret negation in bracket expressions is not portable to POSIX sh".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("replace `^` with `!` in the bracket expression".to_owned())
     }
 }
 
@@ -127,12 +141,18 @@ impl Violation for VTestInSh {
 }
 
 impl Violation for ATestInSh {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::ATestInSh
     }
 
     fn message(&self) -> String {
         "use `-e` instead of `-a` for file-existence checks in POSIX sh".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("replace `-a` with `-e`".to_owned())
     }
 }
 
@@ -194,18 +214,8 @@ cached_portability_rule!(
     double_bracket_in_sh,
     DoubleBracketInSh
 );
-cached_portability_rule!(
-    test_equality_operator,
-    test_equality_operator,
-    TestEqualityOperator
-);
 cached_portability_rule!(if_elif_bash_test, if_elif_bash_test, IfElifBashTest);
 cached_portability_rule!(extglob_in_sh, extglob_in_sh, ExtglobInSh);
-cached_portability_rule!(
-    caret_negation_in_bracket,
-    caret_negation_in_bracket,
-    CaretNegationInBracket
-);
 cached_portability_rule!(
     array_subscript_test,
     array_subscript_test,
@@ -242,7 +252,6 @@ cached_portability_rule!(
 );
 cached_portability_rule!(regex_match_in_sh, regex_match_in_sh, RegexMatchInSh);
 cached_portability_rule!(v_test_in_sh, v_test_in_sh, VTestInSh);
-cached_portability_rule!(a_test_in_sh, a_test_in_sh, ATestInSh);
 cached_portability_rule!(option_test_in_sh, option_test_in_sh, OptionTestInSh);
 cached_portability_rule!(
     sticky_bit_test_in_sh,
@@ -255,10 +264,84 @@ cached_portability_rule!(
     OwnershipTestInSh
 );
 
+pub fn test_equality_operator(checker: &mut Checker) {
+    if !is_posix_sh_shell(checker.shell()) {
+        return;
+    }
+
+    let source = checker.source();
+    let diagnostics = checker
+        .facts()
+        .conditional_portability()
+        .test_equality_operator()
+        .iter()
+        .copied()
+        .map(|span| {
+            let diagnostic = Diagnostic::new(TestEqualityOperator, span);
+            if span.slice(source) == "==" {
+                diagnostic.with_fix(Fix::safe_edit(Edit::replacement("=", span)))
+            } else {
+                diagnostic
+            }
+        })
+        .collect::<Vec<_>>();
+
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
+}
+
+pub fn caret_negation_in_bracket(checker: &mut Checker) {
+    if !is_posix_sh_shell(checker.shell()) {
+        return;
+    }
+
+    let diagnostics = checker
+        .facts()
+        .conditional_portability()
+        .caret_negation_in_bracket()
+        .iter()
+        .copied()
+        .map(|span| {
+            Diagnostic::new(CaretNegationInBracket, span)
+                .with_fix(Fix::safe_edit(caret_negation_fix(span)))
+        })
+        .collect::<Vec<_>>();
+
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
+}
+
+fn caret_negation_fix(span: Span) -> Edit {
+    Edit::replacement_at(span.start.offset + 1, span.start.offset + 2, "!")
+}
+
+pub fn a_test_in_sh(checker: &mut Checker) {
+    if !is_posix_sh_shell(checker.shell()) {
+        return;
+    }
+
+    let diagnostics = checker
+        .facts()
+        .conditional_portability()
+        .a_test_in_sh()
+        .iter()
+        .copied()
+        .map(|span| {
+            Diagnostic::new(ATestInSh, span).with_fix(Fix::safe_edit(Edit::replacement("-e", span)))
+        })
+        .collect::<Vec<_>>();
+
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule, ShellDialect};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_at_extglob_in_posix_shells() {
@@ -341,6 +424,20 @@ esac
                 .iter()
                 .all(|diagnostic| diagnostic.rule == Rule::CaretNegationInBracket)
         );
+    }
+
+    #[test]
+    fn applies_safe_fix_to_caret_negation_in_brackets() {
+        let source = "#!/bin/sh\necho [^a]*\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::CaretNegationInBracket),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(result.fixed_source, "#!/bin/sh\necho [!a]*\n");
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]
@@ -487,5 +584,33 @@ fi
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_safe_fix_to_test_equality_operator_when_span_is_exact() {
+        let source = "#!/bin/sh\n[ \"$x\" == value ]\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::TestEqualityOperator),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(result.fixed_source, "#!/bin/sh\n[ \"$x\" = value ]\n");
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_safe_fix_to_a_file_test_operator() {
+        let source = "#!/bin/sh\n[[ -a file ]]\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::ATestInSh),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(result.fixed_source, "#!/bin/sh\n[[ -e file ]]\n");
+        assert!(result.fixed_diagnostics.is_empty());
     }
 }

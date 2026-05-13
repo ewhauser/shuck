@@ -1,8 +1,12 @@
-use crate::{Checker, Rule, Violation};
+use shuck_ast::Span;
+
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct DollarInArithmetic;
 
 impl Violation for DollarInArithmetic {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::DollarInArithmetic
     }
@@ -10,19 +14,45 @@ impl Violation for DollarInArithmetic {
     fn message(&self) -> String {
         "omit the `$` prefix inside arithmetic".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("remove the redundant arithmetic `$`".to_owned())
+    }
 }
 
 pub fn dollar_in_arithmetic(checker: &mut Checker) {
-    checker.report_fact_slice_dedup(
-        |facts| facts.dollar_in_arithmetic_spans(),
-        || DollarInArithmetic,
-    );
+    let source = checker.source();
+    let diagnostics = checker
+        .facts()
+        .dollar_in_arithmetic_spans()
+        .iter()
+        .copied()
+        .filter_map(|span| dollar_in_arithmetic_fix(span, source))
+        .map(|(span, fix)| Diagnostic::new(DollarInArithmetic, span).with_fix(fix))
+        .collect::<Vec<_>>();
+
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
+}
+
+fn dollar_in_arithmetic_fix(span: Span, source: &str) -> Option<(Span, Fix)> {
+    let text = span.slice(source);
+    let replacement = if let Some(body) = text
+        .strip_prefix("${")
+        .and_then(|text| text.strip_suffix('}'))
+    {
+        body
+    } else {
+        text.strip_prefix('$')?
+    };
+    Some((span, Fix::safe_edit(Edit::replacement(replacement, span))))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn reports_dollar_prefixed_arithmetic_variables_in_assignments() {
@@ -49,6 +79,23 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "${x}");
+    }
+
+    #[test]
+    fn applies_safe_fix_to_dollar_prefixed_arithmetic_variables() {
+        let source = "#!/bin/bash\nx=1\nprintf '%s\\n' \"$(( $x + ${x} ))\"\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::DollarInArithmetic),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/bash\nx=1\nprintf '%s\\n' \"$(( x + x ))\"\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]

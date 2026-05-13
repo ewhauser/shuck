@@ -1,11 +1,15 @@
+use shuck_ast::Span;
+
 use crate::{
-    Checker, CommandSubstitutionKind, ExpansionContext, Rule, SubstitutionHostKind, Violation,
-    WordFactContext,
+    Checker, CommandSubstitutionKind, Diagnostic, Edit, ExpansionContext, Fix, FixAvailability,
+    Rule, SubstitutionHostKind, Violation, WordFactContext,
 };
 
 pub struct EchoedCommandSubstitution;
 
 impl Violation for EchoedCommandSubstitution {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
+
     fn rule() -> Rule {
         Rule::EchoedCommandSubstitution
     }
@@ -13,15 +17,21 @@ impl Violation for EchoedCommandSubstitution {
     fn message(&self) -> String {
         "call the command directly instead of echoing its substitution".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("remove the echo wrapper".to_owned())
+    }
 }
 
 pub fn echoed_command_substitution(checker: &mut Checker) {
-    let spans = checker
+    let source = checker.source();
+    let reports = checker
         .facts()
         .commands()
         .iter()
         .filter(|fact| fact.effective_name_is("echo"))
         .filter_map(|fact| {
+            let name = fact.body_name_word()?;
             let [word] = fact.body_args() else {
                 return None;
             };
@@ -47,17 +57,58 @@ pub fn echoed_command_substitution(checker: &mut Checker) {
                                     && !substitution.unquoted_in_host()))
                     })
                 })
-                .map(|_| word.span)
+                .map(|_| EchoedCommandSubstitutionReport {
+                    diagnostic_span: word.span,
+                    fix_span: Span::from_positions(name.span.start, word.span.end),
+                })
         })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || EchoedCommandSubstitution);
+    for report in reports {
+        let mut diagnostic = Diagnostic::new(EchoedCommandSubstitution, report.diagnostic_span);
+        if let Some(fix) =
+            echoed_command_substitution_fix(source, report.diagnostic_span, report.fix_span)
+        {
+            diagnostic = diagnostic.with_fix(fix);
+        }
+        checker.report_diagnostic_dedup(diagnostic);
+    }
+}
+
+struct EchoedCommandSubstitutionReport {
+    diagnostic_span: Span,
+    fix_span: Span,
+}
+
+fn echoed_command_substitution_fix(
+    source: &str,
+    diagnostic_span: Span,
+    fix_span: Span,
+) -> Option<Fix> {
+    let text = diagnostic_span.slice(source);
+    let body = command_substitution_body(text)?;
+    Some(Fix::unsafe_edit(Edit::replacement(body, fix_span)))
+}
+
+fn command_substitution_body(text: &str) -> Option<&str> {
+    let unquoted = text
+        .strip_prefix('"')
+        .and_then(|inner| inner.strip_suffix('"'))
+        .unwrap_or(text);
+    unquoted
+        .strip_prefix("$(")
+        .and_then(|inner| inner.strip_suffix(')'))
+        .or_else(|| {
+            unquoted
+                .strip_prefix('`')
+                .and_then(|inner| inner.strip_suffix('`'))
+        })
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn only_reports_plain_command_substitutions() {
@@ -144,5 +195,22 @@ value=$(echo $(printf '%s\n' one; printf '%s\n' two) | tr -d ' ')
                 .collect::<Vec<_>>(),
             vec!["$(basename $filename .fuzz)"]
         );
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_remove_echo_wrapper() {
+        let source = "#!/bin/sh\necho \"$(date)\"\necho $(basename \"$path\" .txt)\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::EchoedCommandSubstitution),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/sh\ndate\nbasename \"$path\" .txt\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 }

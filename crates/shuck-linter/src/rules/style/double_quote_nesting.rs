@@ -1,14 +1,20 @@
-use crate::{Checker, ExpansionContext, Rule, Violation};
+use crate::{Checker, Diagnostic, Edit, ExpansionContext, Fix, FixAvailability, Rule, Violation};
 
 pub struct DoubleQuoteNesting;
 
 impl Violation for DoubleQuoteNesting {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
+
     fn rule() -> Rule {
         Rule::DoubleQuoteNesting
     }
 
     fn message(&self) -> String {
         "a double-quoted expansion is nested between reopened double-quoted text".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("merge the reopened double quotes".to_owned())
     }
 }
 
@@ -21,7 +27,7 @@ fn span_is_strictly_inside(span: &shuck_ast::Span, host: &shuck_ast::Span) -> bo
 
 pub fn double_quote_nesting(checker: &mut Checker) {
     let source = checker.source();
-    let spans = checker
+    let diagnostics = checker
         .facts()
         .expansion_word_facts(ExpansionContext::CommandName)
         .chain(
@@ -62,23 +68,34 @@ pub fn double_quote_nesting(checker: &mut Checker) {
                         .iter()
                         .any(|host| span_is_strictly_inside(span, host))
                 })
+                .map(move |diagnostic_span| {
+                    Diagnostic::new(DoubleQuoteNesting, diagnostic_span).with_fix(Fix::safe_edit(
+                        Edit::replacement(
+                            fact.single_double_quoted_replacement(source),
+                            fact.span(),
+                        ),
+                    ))
+                })
         })
         .chain(
             checker
                 .facts()
                 .comment_double_quote_nesting_spans()
                 .iter()
-                .copied(),
+                .copied()
+                .map(|span| Diagnostic::new(DoubleQuoteNesting, span)),
         )
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || DoubleQuoteNesting);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn reports_unquoted_scalar_expansions_between_double_quoted_segments() {
@@ -110,6 +127,23 @@ value=\"\n-DLZ4_HOME=\"${TERMUX_PREFIX}\"\n-DPROTOBUF_HOME=\"$(printf '%s' proto
                 "$(printf '%s' proto)"
             ]
         );
+    }
+
+    #[test]
+    fn applies_safe_fix_to_merge_reopened_double_quoted_segments() {
+        let source = "#!/bin/bash\necho \"$PIDFILE exists, skipping \"$INTERVAL\" run\"\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::DoubleQuoteNesting),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/bash\necho \"${PIDFILE} exists, skipping ${INTERVAL} run\"\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]

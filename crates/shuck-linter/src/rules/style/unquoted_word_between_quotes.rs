@@ -1,8 +1,12 @@
-use crate::{Checker, Rule, Violation};
+use shuck_ast::Span;
+
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct UnquotedWordBetweenQuotes;
 
 impl Violation for UnquotedWordBetweenQuotes {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::UnquotedWordBetweenQuotes
     }
@@ -10,24 +14,38 @@ impl Violation for UnquotedWordBetweenQuotes {
     fn message(&self) -> String {
         "an unquoted word follows single-quoted text".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("quote the literal word segment".to_owned())
+    }
 }
 
 pub fn unquoted_word_between_quotes(checker: &mut Checker) {
     let source = checker.source();
-    let spans = checker
+    let diagnostics = checker
         .facts()
         .word_facts()
         .iter()
         .flat_map(|fact| fact.unquoted_word_after_single_quoted_segment_spans(source))
+        .map(|span| {
+            Diagnostic::new(UnquotedWordBetweenQuotes, span)
+                .with_fix(Fix::safe_edit(quote_literal_segment_edit(span, source)))
+        })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || UnquotedWordBetweenQuotes);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
+}
+
+fn quote_literal_segment_edit(span: Span, source: &str) -> Edit {
+    Edit::replacement(format!("'{}'", span.slice(source)), span)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn reports_unquoted_words_after_single_quoted_segments() {
@@ -75,5 +93,22 @@ sed -i 's/^\\(\\[binaries\\]\\)$/\\1\\nexe_wrapper = '\\''exe_wrapper'\\''/g' \\
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_safe_fix_by_quoting_middle_literal_segment() {
+        let source = "#!/bin/bash\nprintf '%s\\n' 'foo'Default'baz'\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedWordBetweenQuotes),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/bash\nprintf '%s\\n' 'foo''Default''baz'\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 }

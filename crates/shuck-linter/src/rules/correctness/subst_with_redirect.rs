@@ -1,9 +1,11 @@
-use crate::{Checker, CommandSubstitutionKind, FixAvailability, Rule, Violation};
+use crate::{
+    Checker, CommandSubstitutionKind, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation,
+};
 
 pub struct SubstWithRedirect;
 
 impl Violation for SubstWithRedirect {
-    const FIX_AVAILABILITY: FixAvailability = FixAvailability::None;
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
 
     fn rule() -> Rule {
         Rule::SubstWithRedirect
@@ -14,7 +16,7 @@ impl Violation for SubstWithRedirect {
     }
 
     fn fix_title(&self) -> Option<String> {
-        None
+        Some("delete the stdout redirect from the substitution".to_owned())
     }
 }
 
@@ -36,7 +38,10 @@ pub fn subst_with_redirect(checker: &mut Checker) {
         .collect::<Vec<_>>();
 
     for span in redirect_spans {
-        checker.report_diagnostic_dedup(crate::Diagnostic::new(SubstWithRedirect, span));
+        checker.report_diagnostic_dedup(
+            Diagnostic::new(SubstWithRedirect, span)
+                .with_fix(Fix::unsafe_edit(Edit::deletion(span))),
+        );
     }
 }
 
@@ -44,8 +49,8 @@ pub fn subst_with_redirect(checker: &mut Checker) {
 mod tests {
     use std::path::Path;
 
-    use crate::test::{test_path, test_snippet};
-    use crate::{LinterSettings, Rule, assert_diagnostics};
+    use crate::test::{test_path, test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics};
 
     #[test]
     fn reports_first_redirect_for_rerouted_substitutions() {
@@ -123,5 +128,19 @@ out=$(printf hi >&\"2\")
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "> out.txt");
+    }
+
+    #[test]
+    fn applies_unsafe_fix_by_deleting_substitution_stdout_redirect() {
+        let source = "#!/bin/sh\nout=$(printf hi > out.txt)\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SubstWithRedirect),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(result.fixed_source, "#!/bin/sh\nout=$(printf hi )\n");
+        assert!(result.fixed_diagnostics.is_empty());
     }
 }
