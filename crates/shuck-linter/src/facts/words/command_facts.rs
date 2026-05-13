@@ -22,6 +22,17 @@ pub(super) fn build_function_in_alias_facts(
     facts
 }
 
+pub(super) fn build_function_in_alias_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
+    let mut spans = commands
+        .iter()
+        .filter(|fact| fact.effective_name_is("alias"))
+        .flat_map(|fact| alias_definition_word_groups_for_command(fact, source).into_iter())
+        .filter_map(|definition_words| function_in_alias_definition_span(definition_words, source))
+        .collect::<Vec<_>>();
+    sort_and_dedup_spans(&mut spans);
+    spans
+}
+
 #[derive(Debug, Clone)]
 pub struct FunctionInAliasFact {
     span: Span,
@@ -176,6 +187,19 @@ fn function_in_alias_definition_fact(
         span,
         replacement_span,
         format!("{name}() {{ {}; }}", value.trim()).into_boxed_str(),
+    ))
+}
+
+fn function_in_alias_definition_span(words: &[&Word], source: &str) -> Option<Span> {
+    let definition = static_alias_definition_text(words, source)?;
+    let (_, value) = definition.split_once('=').unwrap_or(("", &definition));
+    if !contains_positional_parameter_reference(value) {
+        return None;
+    }
+
+    Some(Span::from_positions(
+        words.first()?.span.start,
+        words.last()?.span.end,
     ))
 }
 

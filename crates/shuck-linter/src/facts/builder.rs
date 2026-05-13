@@ -578,10 +578,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         sort_and_dedup_spans(&mut command_substitution_command_spans);
         sort_and_dedup_case_pattern_expansions(&mut case_pattern_expansions);
         let function_in_alias_facts = build_function_in_alias_facts(&commands, self.source);
-        let function_in_alias_spans = function_in_alias_facts
-            .iter()
-            .map(FunctionInAliasFact::span)
-            .collect::<Vec<_>>();
+        let function_in_alias_spans = build_function_in_alias_spans(&commands, self.source);
         let function_parameter_fallback_spans = build_function_parameter_fallback_spans(
             &commands,
             &command_fact_indices_by_id,

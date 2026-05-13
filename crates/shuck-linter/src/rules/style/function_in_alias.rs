@@ -98,6 +98,16 @@ alias escaped_then_pos='echo \\$$1'
     }
 
     #[test]
+    fn reports_non_fixable_alias_names_without_fix() {
+        let source = "#!/bin/sh\nalias foo+bar='echo $1'\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionInAlias));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "foo+bar='echo $1'");
+        assert!(diagnostics[0].fix.is_none());
+    }
+
+    #[test]
     fn ignores_aliases_without_static_positional_parameters() {
         let source = "\
 #!/bin/sh
