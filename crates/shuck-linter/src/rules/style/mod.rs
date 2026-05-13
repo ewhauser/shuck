@@ -56,6 +56,7 @@ pub mod quoted_dollar_star_loop;
 pub mod read_without_raw;
 pub mod redundant_return_status;
 pub mod redundant_spaces_in_echo;
+pub mod shebang_form_policy;
 pub mod shebang_shell_policy;
 pub mod single_iteration_loop;
 pub mod single_quote_backslash;
@@ -170,6 +171,7 @@ mod tests {
     #[test_case(Rule::AmpersandSemicolon, Path::new("S074.sh"))]
     #[test_case(Rule::CombineAppends, Path::new("S075.sh"))]
     #[test_case(Rule::ShebangShellPolicy, Path::new("S078.sh"))]
+    #[test_case(Rule::ShebangFormPolicy, Path::new("S079.sh"))]
     #[test_case(Rule::FunctionDocContent, Path::new("S084.sh"))]
     #[test_case(Rule::MissingMainEntrypoint, Path::new("S085.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {

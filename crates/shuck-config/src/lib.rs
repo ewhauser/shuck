@@ -61,12 +61,13 @@ const CONFIG_OVERRIDE_LINT_ZSH_PLUGIN_KEYS: &[&str] = &[
     "entrypoints",
 ];
 const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &[
-    "c001", "c063", "s078", "s084", "s085", "c158", "c159", "c160", "c161", "c162",
+    "c001", "c063", "s078", "s079", "s084", "s085", "c158", "c159", "c160", "c161", "c162",
 ];
 const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
     &["treat-indirect-expansion-targets-as-used"];
 const CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS: &[&str] = &["report-unreached-nested-definitions"];
 const CONFIG_OVERRIDE_S078_RULE_OPTION_KEYS: &[&str] = &["allowed-shells"];
+const CONFIG_OVERRIDE_S079_RULE_OPTION_KEYS: &[&str] = &["allowed-forms", "allowed-paths"];
 const CONFIG_OVERRIDE_S084_RULE_OPTION_KEYS: &[&str] = &[
     "require-globals",
     "require-arguments",
@@ -340,6 +341,8 @@ pub struct LintRuleOptionsConfig {
     pub c063: Option<C063RuleOptionsConfig>,
     /// Options for rule S078.
     pub s078: Option<S078RuleOptionsConfig>,
+    /// Options for rule S079.
+    pub s079: Option<S079RuleOptionsConfig>,
     /// Options for rule S084.
     pub s084: Option<S084RuleOptionsConfig>,
     /// Options for rule S085.
@@ -366,6 +369,9 @@ impl LintRuleOptionsConfig {
         }
         if let Some(s078) = overrides.s078 {
             self.s078.get_or_insert_default().apply_overrides(s078);
+        }
+        if let Some(s079) = overrides.s079 {
+            self.s079.get_or_insert_default().apply_overrides(s079);
         }
         if let Some(s084) = overrides.s084 {
             self.s084.get_or_insert_default().apply_overrides(s084);
@@ -437,6 +443,27 @@ impl S078RuleOptionsConfig {
     fn apply_overrides(&mut self, overrides: Self) {
         if overrides.allowed_shells.is_some() {
             self.allowed_shells = overrides.allowed_shells;
+        }
+    }
+}
+
+/// Options for rule S079.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct S079RuleOptionsConfig {
+    /// Shebang invocation forms accepted by the policy.
+    pub allowed_forms: Option<Vec<String>>,
+    /// Exact shebang command strings accepted by the policy.
+    pub allowed_paths: Option<Vec<String>>,
+}
+
+impl S079RuleOptionsConfig {
+    fn apply_overrides(&mut self, overrides: Self) {
+        if overrides.allowed_forms.is_some() {
+            self.allowed_forms = overrides.allowed_forms;
+        }
+        if overrides.allowed_paths.is_some() {
+            self.allowed_paths = overrides.allowed_paths;
         }
     }
 }
@@ -876,6 +903,27 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
                             value_type: "list[string]",
                             example: r#"allowed-shells = ["bash", "zsh"]"#,
                         }],
+                        sections: &[],
+                    },
+                    ConfigSectionMetadata {
+                        key: "s079",
+                        docs: "Behavior overrides for `S079` shebang invocation form policy.",
+                        fields: &[
+                            ConfigFieldMetadata {
+                                key: "allowed-forms",
+                                docs: "Shebang invocation forms accepted for this project. Supported values are `absolute-path` and `env-lookup`.",
+                                default: r#"["env-lookup"]"#,
+                                value_type: "list[string]",
+                                example: r#"allowed-forms = ["env-lookup"]"#,
+                            },
+                            ConfigFieldMetadata {
+                                key: "allowed-paths",
+                                docs: "Exact shebang invocation strings accepted regardless of invocation form.",
+                                default: r#"["/bin/bash", "/usr/bin/env bash"]"#,
+                                value_type: "list[string]",
+                                example: r#"allowed-paths = ["/usr/bin/env bash"]"#,
+                            },
+                        ],
                         sections: &[],
                     },
                     ConfigSectionMetadata {
@@ -1687,6 +1735,9 @@ fn validate_lint_rule_options_override(value: &toml::Value) -> std::result::Resu
     if let Some(s078_value) = rule_options.get("s078") {
         validate_s078_rule_options_override(s078_value)?;
     }
+    if let Some(s079_value) = rule_options.get("s079") {
+        validate_s079_rule_options_override(s079_value)?;
+    }
     if let Some(s084_value) = rule_options.get("s084") {
         validate_s084_rule_options_override(s084_value)?;
     }
@@ -1753,6 +1804,22 @@ fn validate_s078_rule_options_override(value: &toml::Value) -> std::result::Resu
             return Err(format!(
                 "unsupported `[lint.rule-options.s078]` option `{key}`; expected one of: {}",
                 CONFIG_OVERRIDE_S078_RULE_OPTION_KEYS.join(", ")
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_s079_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let s079 = value
+        .as_table()
+        .ok_or_else(|| "`[lint.rule-options.s079]` must be a TOML table".to_owned())?;
+    for key in s079.keys() {
+        if !CONFIG_OVERRIDE_S079_RULE_OPTION_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.rule-options.s079]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_S079_RULE_OPTION_KEYS.join(", ")
             ));
         }
     }
@@ -2109,6 +2176,30 @@ mod tests {
                 .and_then(|options| options.c063.as_ref())
                 .and_then(|c063| c063.report_unreached_nested_definitions),
             Some(true)
+        );
+    }
+
+    #[test]
+    fn inline_config_overrides_validate_supported_s079_rule_option_keys() {
+        let config = parse_config_override(
+            "lint.rule-options.s079.allowed-forms = ['env-lookup']\n\
+             lint.rule-options.s079.allowed-paths = ['/usr/bin/env bash']",
+        )
+        .unwrap();
+        let s079 = config
+            .lint
+            .rule_options
+            .as_ref()
+            .and_then(|options| options.s079.as_ref())
+            .expect("expected s079 options");
+
+        assert_eq!(
+            s079.allowed_forms.as_deref(),
+            Some(&["env-lookup".to_owned()][..])
+        );
+        assert_eq!(
+            s079.allowed_paths.as_deref(),
+            Some(&["/usr/bin/env bash".to_owned()][..])
         );
     }
 
@@ -2486,6 +2577,39 @@ mod tests {
                 .and_then(|options| options.c063.as_ref())
                 .and_then(|c063| c063.report_unreached_nested_definitions),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn s079_rule_option_config_arguments_allow_last_override_to_win() {
+        let tempdir = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.rule-options.s079.allowed-forms = ['env-lookup']")
+                        .unwrap(),
+                )),
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override(
+                        "lint.rule-options.s079.allowed-forms = ['absolute-path']",
+                    )
+                    .unwrap(),
+                )),
+            ],
+            false,
+        )
+        .unwrap();
+
+        let loaded = load_project_config(tempdir.path(), &config).unwrap();
+        assert_eq!(
+            loaded
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.s079.as_ref())
+                .and_then(|s079| s079.allowed_forms.as_ref())
+                .map(Vec::as_slice),
+            Some(&["absolute-path".to_owned()][..])
         );
     }
 
