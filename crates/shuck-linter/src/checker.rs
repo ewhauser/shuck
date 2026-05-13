@@ -1059,6 +1059,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::PlusPrefixInAssignment) {
             rules::correctness::plus_prefix_in_assignment::plus_prefix_in_assignment(self);
         }
+        if self.is_rule_enabled(Rule::AssignSpecialZero) {
+            rules::correctness::assign_special_zero::assign_special_zero(self);
+        }
         if self.is_rule_enabled(Rule::IfsSetToLiteralBackslashN) {
             rules::correctness::ifs_set_to_literal_backslash_n::ifs_set_to_literal_backslash_n(
                 self,

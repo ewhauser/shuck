@@ -1,0 +1,26 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C052 the positional zero parameter cannot be assigned
+ --> <source>:3:1
+  |
+3 | 0=demo
+  |
+
+C052 the positional zero parameter cannot be assigned
+ --> <source>:4:7
+  |
+4 | f() { 0=demo; }
+  |
+
+C052 the positional zero parameter cannot be assigned
+ --> <source>:5:1
+  |
+5 | 0=demo env
+  |
+
+C052 the positional zero parameter cannot be assigned
+ --> <source>:6:2
+  |
+6 | +0=demo
+  |

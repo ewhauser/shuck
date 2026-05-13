@@ -50,6 +50,7 @@ pub(crate) struct CommandFactStore<'a> {
     pub(in crate::facts) missing_space_before_bracket_close_facts: OnceLock<Vec<(Span, usize)>>,
     pub(in crate::facts) jammed_test_bracket_facts: OnceLock<Vec<(Span, usize)>>,
     pub(in crate::facts) assignment_like_command_name_spans: Vec<Span>,
+    pub(in crate::facts) assign_special_zero_spans: OnceLock<Vec<Span>>,
     pub(in crate::facts) bare_command_name_assignment_spans: Vec<Span>,
 }
 
@@ -707,6 +708,18 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
 
     pub(crate) fn assignment_like_command_name_spans(self) -> &'facts [Span] {
         &self.facts.command.assignment_like_command_name_spans
+    }
+
+    pub(crate) fn assign_special_zero_spans(self) -> &'facts [Span] {
+        self.facts
+            .command
+            .assign_special_zero_spans
+            .get_or_init(|| {
+                build_assign_special_zero_spans(
+                    &self.facts.command.commands,
+                    self.facts.source_facts.source,
+                )
+            })
     }
 
     pub(crate) fn bare_command_name_assignment_spans(self) -> &'facts [Span] {

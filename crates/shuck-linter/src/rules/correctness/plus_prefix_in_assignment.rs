@@ -1,4 +1,6 @@
-use crate::{Checker, Rule, Violation};
+use shuck_ast::Span;
+
+use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct PlusPrefixInAssignment;
 
@@ -13,10 +15,37 @@ impl Violation for PlusPrefixInAssignment {
 }
 
 pub fn plus_prefix_in_assignment(checker: &mut Checker) {
-    checker.report_fact_slice_dedup(
-        |facts| facts.command_facts().assignment_like_command_name_spans(),
-        || PlusPrefixInAssignment,
-    );
+    let source = checker.source();
+    let suppress_assign_special_zero_overlap =
+        checker.shell() == ShellDialect::Sh && checker.is_rule_enabled(Rule::AssignSpecialZero);
+    let spans = checker
+        .facts()
+        .command_facts()
+        .assignment_like_command_name_spans()
+        .iter()
+        .copied()
+        .filter(|span| {
+            !is_assign_special_zero_overlap(
+                checker,
+                source,
+                *span,
+                suppress_assign_special_zero_overlap,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    checker.report_all_dedup(spans, || PlusPrefixInAssignment);
+}
+
+fn is_assign_special_zero_overlap(
+    checker: &Checker<'_>,
+    source: &str,
+    span: Span,
+    suppress_assign_special_zero_overlap: bool,
+) -> bool {
+    suppress_assign_special_zero_overlap
+        && span.slice(source).starts_with("0=")
+        && !checker.is_suppressed_at(Rule::AssignSpecialZero, span)
 }
 
 #[cfg(test)]
@@ -83,6 +112,19 @@ network.wan.proto='dhcp'
                 "@VAR@=$(. /etc/profile >/dev/null 2>&1; echo \"${@VAR@}\")"
             ]
         );
+    }
+
+    #[test]
+    fn defers_plain_zero_assignment_to_assign_special_zero_when_enabled() {
+        let source = "#!/bin/sh\n0=demo\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rules([Rule::PlusPrefixInAssignment, Rule::AssignSpecialZero]),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::AssignSpecialZero);
+        assert_eq!(diagnostics[0].span.slice(source), "0=demo");
     }
 
     #[test]
