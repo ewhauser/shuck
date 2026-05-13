@@ -1,0 +1,65 @@
+---
+source: crates/shuck-linter/src/rules/style/literal_backslash_in_single_quotes.rs
+assertion_line: 146
+---
+Diagnostics:
+S039 a backslash inside single quotes stays literal
+ --> <source>:3:15
+  |
+3 | grep ^start'\s'end file.txt
+  |
+
+S039 a backslash inside single quotes stays literal
+ --> <source>:4:18
+  |
+4 | printf '%s\n' '\n'foo
+  |
+
+S039 a backslash inside single quotes stays literal
+ --> <source>:5:20
+  |
+5 | printf '%s\n' 'ab\n'c
+  |
+
+S039 a backslash inside single quotes stays literal
+ --> <source>:6:19
+  |
+6 | printf '%s\n' '\\n'foo
+  |
+
+
+Applied fixes: 4
+
+Diff:
+--- before
++++ after
+@@ -1,9 +1,9 @@
+ #!/bin/sh
+ 
+-grep ^start'\s'end file.txt
+-printf '%s\n' '\n'foo
+-printf '%s\n' 'ab\n'c
+-printf '%s\n' '\\n'foo
++grep ^start"\\s"end file.txt
++printf '%s\n' "\\n"foo
++printf '%s\n' "ab\\n"c
++printf '%s\n' "\\\\n"foo
+ printf '%s\n' 'foo\nbar'
+ printf '%s\n' '\x'41
+ printf '%s\n' '\0'foo
+
+Fixed source:
+#!/bin/sh
+
+grep ^start"\\s"end file.txt
+printf '%s\n' "\\n"foo
+printf '%s\n' "ab\\n"c
+printf '%s\n' "\\\\n"foo
+printf '%s\n' 'foo\nbar'
+printf '%s\n' '\x'41
+printf '%s\n' '\0'foo
+printf '%s\n' $'\n'foo
+printf '%s\n' a'\'bc
+
+Remaining diagnostics:
+<none>

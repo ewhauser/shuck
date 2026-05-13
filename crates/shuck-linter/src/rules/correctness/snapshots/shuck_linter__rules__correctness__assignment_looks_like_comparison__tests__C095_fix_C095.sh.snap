@@ -1,0 +1,30 @@
+---
+source: crates/shuck-linter/src/rules/correctness/assignment_looks_like_comparison.rs
+assertion_line: 316
+---
+Diagnostics:
+C095 assignment value looks like arithmetic subtraction
+ --> <source>:3:4
+  |
+3 | qt=qt-unicode-3.2
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,3 +1,3 @@
+ #!/bin/bash
+ # shellcheck disable=2034
+-qt=qt-unicode-3.2
++qt="qt-unicode-3.2"
+
+Fixed source:
+#!/bin/bash
+# shellcheck disable=2034
+qt="qt-unicode-3.2"
+
+Remaining diagnostics:
+<none>

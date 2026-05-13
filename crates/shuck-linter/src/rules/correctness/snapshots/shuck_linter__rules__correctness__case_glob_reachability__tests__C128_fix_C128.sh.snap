@@ -1,0 +1,96 @@
+---
+source: crates/shuck-linter/src/rules/correctness/case_glob_reachability.rs
+assertion_line: 367
+---
+Diagnostics:
+C128 this case pattern shadows a later pattern
+ --> <source>:7:3
+  |
+7 |   foo) : ;;
+  |
+
+C128 this case pattern shadows a later pattern
+  --> <source>:13:3
+   |
+13 |   foo*) : ;;
+   |
+
+C128 this case pattern shadows a later pattern
+  --> <source>:19:3
+   |
+19 |   *|foo*) : ;;
+   |
+
+C128 this case pattern shadows a later pattern
+  --> <source>:19:5
+   |
+19 |   *|foo*) : ;;
+   |
+
+
+Applied fixes: 3
+
+Diff:
+--- before
++++ after
+@@ -5,18 +5,15 @@
+ # Should trigger: duplicate patterns shadow later case arms.
+ case "$value" in
+   foo) : ;;
+-  foo) : ;;
+ esac
+ 
+ # Should trigger: a wildcard arm shadows a later literal.
+ case "$value" in
+-  foo*) : ;;
+   foobar) : ;;
+ esac
+ 
+ # Should trigger: earlier alternatives in the same arm can shadow later patterns.
+ case "$value" in
+-  *|foo*) : ;;
+   foo) : ;;
+ esac
+ 
+
+Fixed source:
+#!/bin/bash
+
+value=foobar
+
+# Should trigger: duplicate patterns shadow later case arms.
+case "$value" in
+  foo) : ;;
+esac
+
+# Should trigger: a wildcard arm shadows a later literal.
+case "$value" in
+  foobar) : ;;
+esac
+
+# Should trigger: earlier alternatives in the same arm can shadow later patterns.
+case "$value" in
+  foo) : ;;
+esac
+
+# Should not trigger: character classes are intentionally left out of this reachability check.
+case "$value" in
+  [ab]*) : ;;
+  afoo) : ;;
+esac
+
+# Should not trigger: continue-matching terminators keep later arms reachable.
+case "$value" in
+  foo) : ;;&
+  foo) : ;;
+esac
+
+# Should not trigger: extglob reachability is not analyzed here.
+shopt -s extglob
+case "$value" in
+  @(foo|bar)*) : ;;
+  foobar) : ;;
+esac
+
+Remaining diagnostics:
+<none>

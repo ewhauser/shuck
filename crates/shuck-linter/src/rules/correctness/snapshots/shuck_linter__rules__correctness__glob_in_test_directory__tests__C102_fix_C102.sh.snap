@@ -1,0 +1,77 @@
+---
+source: crates/shuck-linter/src/rules/correctness/glob_in_test_directory.rs
+assertion_line: 337
+---
+Diagnostics:
+C102 unquoted globs in file tests can match multiple paths
+ --> <source>:2:6
+  |
+2 | [ -d mtp2* ]
+  |
+
+C102 unquoted globs in file tests can match multiple paths
+ --> <source>:3:6
+  |
+3 | [ -f foo* -a -e bar* -a -L baz* ]
+  |
+
+C102 unquoted globs in file tests can match multiple paths
+ --> <source>:3:17
+  |
+3 | [ -f foo* -a -e bar* -a -L baz* ]
+  |
+
+C102 unquoted globs in file tests can match multiple paths
+ --> <source>:3:28
+  |
+3 | [ -f foo* -a -e bar* -a -L baz* ]
+  |
+
+C102 unquoted globs in file tests can match multiple paths
+ --> <source>:4:7
+  |
+4 | [[ -r qux* && -w quux* ]]
+  |
+
+C102 unquoted globs in file tests can match multiple paths
+ --> <source>:4:18
+  |
+4 | [[ -r qux* && -w quux* ]]
+  |
+
+C102 unquoted globs in file tests can match multiple paths
+ --> <source>:6:9
+  |
+6 | test -d mtp2*
+  |
+
+
+Applied fixes: 7
+
+Diff:
+--- before
++++ after
+@@ -1,7 +1,7 @@
+ #!/bin/bash
+-[ -d mtp2* ]
+-[ -f foo* -a -e bar* -a -L baz* ]
+-[[ -r qux* && -w quux* ]]
+ [ -d "mtp2*" ]
+-test -d mtp2*
++[ -f "foo*" -a -e "bar*" -a -L "baz*" ]
++[[ -r "qux*" && -w "quux*" ]]
++[ -d "mtp2*" ]
++test -d "mtp2*"
+ test -n mtp2*
+
+Fixed source:
+#!/bin/bash
+[ -d "mtp2*" ]
+[ -f "foo*" -a -e "bar*" -a -L "baz*" ]
+[[ -r "qux*" && -w "quux*" ]]
+[ -d "mtp2*" ]
+test -d "mtp2*"
+test -n mtp2*
+
+Remaining diagnostics:
+<none>

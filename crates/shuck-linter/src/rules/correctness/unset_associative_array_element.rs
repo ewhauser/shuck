@@ -1,8 +1,11 @@
-use crate::{Checker, Rule, Violation};
+use crate::facts::surface::rewrite_word_as_single_double_quoted_string;
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct UnsetAssociativeArrayElement;
 
 impl Violation for UnsetAssociativeArrayElement {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::UnsetAssociativeArrayElement
     }
@@ -10,10 +13,15 @@ impl Violation for UnsetAssociativeArrayElement {
     fn message(&self) -> String {
         "quote `unset` array-subscript operands so bracket text stays literal".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("quote the unset operand".to_owned())
+    }
 }
 
 pub fn unset_associative_array_element(checker: &mut Checker) {
-    let mut spans = Vec::new();
+    let source = checker.source();
+    let mut diagnostics = Vec::new();
 
     for fact in checker
         .facts()
@@ -26,18 +34,28 @@ pub fn unset_associative_array_element(checker: &mut Checker) {
 
         for operand in unset.operand_facts() {
             if operand.array_subscript().is_some() {
-                spans.push(operand.word().span);
+                diagnostics.push((
+                    operand.word().span,
+                    rewrite_word_as_single_double_quoted_string(operand.word(), source, None),
+                ));
             }
         }
     }
 
-    checker.report_all_dedup(spans, || UnsetAssociativeArrayElement);
+    for (span, replacement) in diagnostics {
+        checker.report_diagnostic_dedup(
+            Diagnostic::new(UnsetAssociativeArrayElement, span)
+                .with_fix(Fix::unsafe_edit(Edit::replacement(replacement, span))),
+        );
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use std::path::Path;
+
+    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
 
     #[test]
     fn reports_array_subscript_unset_operands() {
@@ -98,5 +116,62 @@ unset \"parts[key]\"
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_array_subscript_unset_operands() {
+        let source = "\
+#!/bin/bash
+unset parts[\"one\"]
+unset parts['two']
+unset parts[$key]
+unset parts[\"$key\"]
+unset parts[\\\"four\\\"]
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::UnsetAssociativeArrayElement),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 5);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+unset \"parts[one]\"
+unset \"parts[two]\"
+unset \"parts[${key}]\"
+unset \"parts[${key}]\"
+unset \"parts[\\\"four\\\"]\"
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn safe_fix_mode_leaves_unset_operands_unchanged() {
+        let source = "#!/bin/bash\nunset parts[key]\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::UnsetAssociativeArrayElement),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert_eq!(result.fixed_diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("correctness").join("C108.sh").as_path(),
+            &LinterSettings::for_rule(Rule::UnsetAssociativeArrayElement),
+            Applicability::Unsafe,
+        )?;
+
+        assert_diagnostics_diff!("C108_fix_C108.sh", result);
+        Ok(())
     }
 }

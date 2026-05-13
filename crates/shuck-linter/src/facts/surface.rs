@@ -2697,7 +2697,7 @@ fn collect_suspect_double_quote_spans(
     }
 }
 
-pub(super) fn rewrite_word_as_single_double_quoted_string(
+pub(crate) fn rewrite_word_as_single_double_quoted_string(
     word: &Word,
     source: &str,
     _assignment_target: Option<&str>,

@@ -1,0 +1,97 @@
+---
+source: crates/shuck-linter/src/rules/correctness/unset_associative_array_element.rs
+assertion_line: 174
+---
+Diagnostics:
+C108 quote `unset` array-subscript operands so bracket text stays literal
+ --> <source>:7:7
+  |
+7 | unset parts["one"]
+  |
+
+C108 quote `unset` array-subscript operands so bracket text stays literal
+ --> <source>:8:7
+  |
+8 | unset parts['two']
+  |
+
+C108 quote `unset` array-subscript operands so bracket text stays literal
+  --> <source>:10:7
+   |
+10 | unset parts[$key]
+   |
+
+C108 quote `unset` array-subscript operands so bracket text stays literal
+  --> <source>:11:7
+   |
+11 | unset parts["$key"]
+   |
+
+C108 quote `unset` array-subscript operands so bracket text stays literal
+  --> <source>:20:7
+   |
+20 | unset nums[1]
+   |
+
+C108 quote `unset` array-subscript operands so bracket text stays literal
+  --> <source>:21:7
+   |
+21 | unset nums["1"]
+   |
+
+
+Applied fixes: 6
+
+Diff:
+--- before
++++ after
+@@ -4,11 +4,11 @@
+ declare -A parts
+ parts[one]=1
+ parts[two]=2
+-unset parts["one"]
+-unset parts['two']
++unset "parts[one]"
++unset "parts[two]"
+ key=two
+-unset parts[$key]
+-unset parts["$key"]
++unset "parts[${key}]"
++unset "parts[${key}]"
+ 
+ # Valid: quote the entire operand to keep it literal.
+ unset 'parts[key]'
+@@ -17,5 +17,5 @@
+ # Invalid: indexed arrays are also subject to this check.
+ declare -a nums
+ nums[1]=one
+-unset nums[1]
+-unset nums["1"]
++unset "nums[1]"
++unset "nums[1]"
+
+Fixed source:
+#!/bin/bash
+
+# Invalid: array-subscript operands in `unset` should stay literal.
+declare -A parts
+parts[one]=1
+parts[two]=2
+unset "parts[one]"
+unset "parts[two]"
+key=two
+unset "parts[${key}]"
+unset "parts[${key}]"
+
+# Valid: quote the entire operand to keep it literal.
+unset 'parts[key]'
+unset "parts[key]"
+
+# Invalid: indexed arrays are also subject to this check.
+declare -a nums
+nums[1]=one
+unset "nums[1]"
+unset "nums[1]"
+
+Remaining diagnostics:
+<none>

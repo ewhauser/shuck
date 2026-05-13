@@ -1,0 +1,38 @@
+---
+source: crates/shuck-linter/src/rules/correctness/continue_outside_loop_in_function.rs
+assertion_line: 194
+---
+Diagnostics:
+C126 `continue` inside a function must be inside a loop
+ --> <source>:4:3
+  |
+4 |   continue
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,7 +1,7 @@
+ #!/bin/sh
+ 
+ myfunc() {
+-  continue
++  return
+ }
+ 
+ myfunc
+
+Fixed source:
+#!/bin/sh
+
+myfunc() {
+  return
+}
+
+myfunc
+
+Remaining diagnostics:
+<none>

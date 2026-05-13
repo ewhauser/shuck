@@ -1,0 +1,92 @@
+---
+source: crates/shuck-linter/src/rules/style/glob_assigned_to_variable.rs
+assertion_line: 157
+---
+Diagnostics:
+S055 quote assigned glob patterns so they stay literal
+ --> <source>:2:6
+  |
+2 | LOCS=*.oxt
+  |
+
+S055 quote assigned glob patterns so they stay literal
+ --> <source>:4:6
+  |
+4 | LOCS=$dir/*.oxt
+  |
+
+S055 quote assigned glob patterns so they stay literal
+ --> <source>:5:6
+  |
+5 | LOCS="$dir"/*.oxt
+  |
+
+S055 quote assigned glob patterns so they stay literal
+ --> <source>:6:6
+  |
+6 | LOCS=${dir}/*.oxt
+  |
+
+S055 quote assigned glob patterns so they stay literal
+ --> <source>:7:6
+  |
+7 | LOCS=$(pwd)/*.oxt
+  |
+
+S055 quote assigned glob patterns so they stay literal
+ --> <source>:9:15
+  |
+9 | readonly LOCS=foo*bar
+  |
+
+S055 quote assigned glob patterns so they stay literal
+  --> <source>:10:13
+   |
+10 | export LOCS=$dir/*.txt
+   |
+
+
+Applied fixes: 7
+
+Diff:
+--- before
++++ after
+@@ -1,13 +1,13 @@
+ #!/bin/sh
+-LOCS=*.oxt
++LOCS='*'.oxt
+ LOCS="*.oxt"
+-LOCS=$dir/*.oxt
+-LOCS="$dir"/*.oxt
+-LOCS=${dir}/*.oxt
+-LOCS=$(pwd)/*.oxt
++LOCS=$dir/'*'.oxt
++LOCS="$dir"/'*'.oxt
++LOCS=${dir}/'*'.oxt
++LOCS=$(pwd)/'*'.oxt
+ LOCS=\*.oxt
+-readonly LOCS=foo*bar
+-export LOCS=$dir/*.txt
++readonly LOCS=foo'*'bar
++export LOCS=$dir/'*'.txt
+ LOCS=(*.oxt)
+ LOCS=("$dir"/*.txt)
+ LOCS=${name#*:}
+
+Fixed source:
+#!/bin/sh
+LOCS='*'.oxt
+LOCS="*.oxt"
+LOCS=$dir/'*'.oxt
+LOCS="$dir"/'*'.oxt
+LOCS=${dir}/'*'.oxt
+LOCS=$(pwd)/'*'.oxt
+LOCS=\*.oxt
+readonly LOCS=foo'*'bar
+export LOCS=$dir/'*'.txt
+LOCS=(*.oxt)
+LOCS=("$dir"/*.txt)
+LOCS=${name#*:}
+
+Remaining diagnostics:
+<none>

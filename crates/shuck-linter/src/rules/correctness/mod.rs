@@ -22,6 +22,7 @@ pub mod c_style_comment;
 pub mod case_arm_not_in_getopts;
 pub mod case_default_before_glob;
 pub mod case_glob_reachability;
+mod case_item_delete;
 pub mod case_pattern_var;
 pub mod chained_test_branches;
 pub mod comma_array_elements;

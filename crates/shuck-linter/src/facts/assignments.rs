@@ -469,6 +469,28 @@ fn zsh_literal_assignment_value_for_command_name_check<'a>(
 struct EnvPrefixScopeSpans {
     assignment_scope_spans: Vec<Span>,
     expansion_scope_spans: Vec<Span>,
+    expansion_fix_facts: Vec<EnvPrefixExpansionFixFact>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EnvPrefixExpansionFixFact {
+    diagnostic_span: Span,
+    assignment_spans: Vec<Span>,
+    delete_span: Span,
+}
+
+impl EnvPrefixExpansionFixFact {
+    pub fn diagnostic_span(&self) -> Span {
+        self.diagnostic_span
+    }
+
+    pub fn assignment_spans(&self) -> &[Span] {
+        &self.assignment_spans
+    }
+
+    pub fn delete_span(&self) -> Span {
+        self.delete_span
+    }
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
@@ -488,6 +510,7 @@ fn build_env_prefix_scope_spans(
 
         let command_span = command.span();
         let assignments = command_assignments(command.command());
+        let fix_seed = env_prefix_expansion_fix_seed(source, assignments);
         let broken_legacy_bracket_tail = match command.command() {
             Command::Simple(simple) => broken_legacy_bracket_tail(simple, source),
             Command::Builtin(_)
@@ -571,10 +594,12 @@ fn build_env_prefix_scope_spans(
                     other,
                     &assignment.target.name,
                     &mut |span| {
-                        push_fact_span(
+                        push_env_prefix_expansion_fact(
                             span,
+                            fix_seed.as_ref(),
                             &mut scope_spans.expansion_scope_spans,
                             &mut seen_expansion_scope_spans,
+                            &mut scope_spans.expansion_fix_facts,
                         );
                         ControlFlow::Continue(())
                     },
@@ -591,10 +616,12 @@ fn build_env_prefix_scope_spans(
                             tail,
                             &assignment.target.name,
                             &mut |span| {
-                                push_fact_span(
+                                push_env_prefix_expansion_fact(
                                     span,
+                                    fix_seed.as_ref(),
                                     &mut scope_spans.expansion_scope_spans,
                                     &mut seen_expansion_scope_spans,
+                                    &mut scope_spans.expansion_fix_facts,
                                 );
                                 ControlFlow::Continue(())
                             },
@@ -622,10 +649,12 @@ fn build_env_prefix_scope_spans(
                     assignment,
                     &assignment.target.name,
                     &mut |span| {
-                        push_fact_span(
+                        push_env_prefix_expansion_fact(
                             span,
+                            fix_seed.as_ref(),
                             &mut scope_spans.expansion_scope_spans,
                             &mut seen_expansion_scope_spans,
+                            &mut scope_spans.expansion_fix_facts,
                         );
                         ControlFlow::Continue(())
                     },
@@ -638,10 +667,12 @@ fn build_env_prefix_scope_spans(
                 source,
                 &assignment.target.name,
                 &mut |span| {
-                    push_fact_span(
+                    push_env_prefix_expansion_fact(
                         span,
+                        fix_seed.as_ref(),
                         &mut scope_spans.expansion_scope_spans,
                         &mut seen_expansion_scope_spans,
+                        &mut scope_spans.expansion_fix_facts,
                     );
                     ControlFlow::Continue(())
                 },
@@ -656,6 +687,80 @@ fn build_env_prefix_scope_spans(
         .expansion_scope_spans
         .sort_by_key(|span| (span.start.offset, span.end.offset));
     scope_spans
+        .expansion_fix_facts
+        .sort_by_key(|fact| (fact.diagnostic_span.start.offset, fact.diagnostic_span.end.offset));
+    scope_spans
+}
+
+#[derive(Debug, Clone)]
+struct EnvPrefixExpansionFixSeed {
+    assignment_spans: Vec<Span>,
+    delete_span: Span,
+}
+
+impl EnvPrefixExpansionFixSeed {
+    fn for_diagnostic(&self, diagnostic_span: Span) -> EnvPrefixExpansionFixFact {
+        EnvPrefixExpansionFixFact {
+            diagnostic_span,
+            assignment_spans: self.assignment_spans.clone(),
+            delete_span: self.delete_span,
+        }
+    }
+}
+
+fn env_prefix_expansion_fix_seed(
+    source: &str,
+    assignments: &[Assignment],
+) -> Option<EnvPrefixExpansionFixSeed> {
+    let first_assignment = assignments.first()?;
+    let last_assignment = assignments.last()?;
+    let prefix = source.get(line_start_offset(source, first_assignment.span.start.offset)..first_assignment.span.start.offset)?;
+    if !prefix.bytes().all(|byte| matches!(byte, b' ' | b'\t')) {
+        return None;
+    }
+
+    let body_start = skip_env_prefix_separator(source, last_assignment.span.end)?;
+    if body_start.offset <= last_assignment.span.end.offset {
+        return None;
+    }
+
+    Some(EnvPrefixExpansionFixSeed {
+        assignment_spans: assignments
+            .iter()
+            .map(|assignment| assignment.span)
+            .collect(),
+        delete_span: Span::from_positions(first_assignment.span.start, body_start),
+    })
+}
+
+fn line_start_offset(source: &str, offset: usize) -> usize {
+    source[..offset]
+        .rfind('\n')
+        .map_or(0, |newline| newline + '\n'.len_utf8())
+}
+
+fn skip_env_prefix_separator(source: &str, start: Position) -> Option<Position> {
+    let mut position = start;
+    let mut tail = source.get(start.offset..)?;
+    while let Some(ch) = tail.chars().next() {
+        if matches!(ch, ' ' | '\t' | '\r' | '\n') {
+            position.advance(ch);
+            tail = &tail[ch.len_utf8()..];
+            continue;
+        }
+        if ch == '\\' {
+            let mut chars = tail.chars();
+            let _ = chars.next();
+            if matches!(chars.next(), Some('\n')) {
+                position.advance('\\');
+                position.advance('\n');
+                tail = &tail['\\'.len_utf8() + '\n'.len_utf8()..];
+                continue;
+            }
+        }
+        break;
+    }
+    Some(position)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1002,10 +1107,29 @@ fn parameter_is_plain_access_to_name(parameter: &ParameterExpansion, name: &Name
     }
 }
 
-fn push_fact_span(span: Span, spans: &mut Vec<Span>, seen: &mut FxHashSet<FactSpan>) {
+fn push_fact_span(span: Span, spans: &mut Vec<Span>, seen: &mut FxHashSet<FactSpan>) -> bool {
     let key = FactSpan::new(span);
     if seen.insert(key) {
         spans.push(span);
+        true
+    } else {
+        false
+    }
+}
+
+fn push_env_prefix_expansion_fact(
+    span: Span,
+    fix_seed: Option<&EnvPrefixExpansionFixSeed>,
+    spans: &mut Vec<Span>,
+    seen: &mut FxHashSet<FactSpan>,
+    fix_facts: &mut Vec<EnvPrefixExpansionFixFact>,
+) {
+    if !push_fact_span(span, spans, seen) {
+        return;
+    }
+
+    if let Some(seed) = fix_seed {
+        fix_facts.push(seed.for_diagnostic(span));
     }
 }
 

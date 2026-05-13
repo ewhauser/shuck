@@ -1,0 +1,59 @@
+---
+source: crates/shuck-linter/src/rules/correctness/backtick_in_command_position.rs
+assertion_line: 157
+---
+Diagnostics:
+C093 run the command directly instead of executing backtick output as a command name
+ --> <source>:4:1
+  |
+4 | `echo hello` | cat
+  |
+
+C093 run the command directly instead of executing backtick output as a command name
+ --> <source>:5:4
+  |
+5 | if `echo true`; then :; fi
+  |
+
+C093 run the command directly instead of executing backtick output as a command name
+ --> <source>:6:7
+  |
+6 | FOO=1 `echo run`
+  |
+
+
+Applied fixes: 3
+
+Diff:
+--- before
++++ after
+@@ -1,9 +1,9 @@
+ #!/bin/sh
+ 
+ # Invalid: backtick output becomes the command name.
+-`echo hello` | cat
+-if `echo true`; then :; fi
+-FOO=1 `echo run`
++echo hello | cat
++if echo true; then :; fi
++FOO=1 echo run
+ 
+ # Valid: wrappers, quoting, and argument positions are outside this rule.
+ command `echo hello`
+
+Fixed source:
+#!/bin/sh
+
+# Invalid: backtick output becomes the command name.
+echo hello | cat
+if echo true; then :; fi
+FOO=1 echo run
+
+# Valid: wrappers, quoting, and argument positions are outside this rule.
+command `echo hello`
+"`echo hello`" | cat
+x`echo hello`
+echo `date`
+
+Remaining diagnostics:
+<none>

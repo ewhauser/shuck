@@ -1,13 +1,18 @@
 use shuck_ast::{ConditionalBinaryOp, Name, Span, is_shell_variable_name, static_word_text};
 use shuck_parser::text_is_self_contained_arithmetic_expression;
 
-use crate::{Checker, ConditionalNodeFact, ConditionalOperandFact, Rule, Violation, WordQuote};
+use crate::{
+    Checker, ConditionalBinaryFact, ConditionalNodeFact, ConditionalOperandFact, Diagnostic, Edit,
+    Fix, FixAvailability, Rule, Violation, WordQuote,
+};
 
 use super::variable_reference_common::binding_defines_variable_name_at;
 
 pub struct StringComparedWithEq;
 
 impl Violation for StringComparedWithEq {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::StringComparedWithEq
     }
@@ -15,11 +20,15 @@ impl Violation for StringComparedWithEq {
     fn message(&self) -> String {
         "this numeric comparison uses text instead of a number".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("use a string comparison".to_owned())
+    }
 }
 
 pub fn string_compared_with_eq(checker: &mut Checker) {
     let source = checker.source();
-    let spans = checker
+    let diagnostics = checker
         .facts()
         .commands()
         .iter()
@@ -30,14 +39,16 @@ pub fn string_compared_with_eq(checker: &mut Checker) {
         })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || StringComparedWithEq);
+    for (span, fix) in diagnostics {
+        checker.report_diagnostic_dedup(Diagnostic::new(StringComparedWithEq, span).with_fix(fix));
+    }
 }
 
 fn conditional_string_eq_spans(
     checker: &Checker<'_>,
     conditional: &crate::ConditionalFact<'_>,
     source: &str,
-) -> Vec<Span> {
+) -> Vec<(Span, Fix)> {
     conditional
         .nodes()
         .iter()
@@ -48,18 +59,7 @@ fn conditional_string_eq_spans(
                     ConditionalBinaryOp::ArithmeticEq | ConditionalBinaryOp::ArithmeticNe
                 ) =>
             {
-                let mut spans = Vec::new();
-                if let Some(span) =
-                    conditional_operand_string_value_span(checker, binary.left(), source)
-                {
-                    spans.push(span);
-                }
-                if let Some(span) =
-                    conditional_operand_string_value_span(checker, binary.right(), source)
-                {
-                    spans.push(span);
-                }
-                spans
+                string_eq_diagnostics(checker, *binary, source)
             }
             ConditionalNodeFact::BareWord(_)
             | ConditionalNodeFact::Unary(_)
@@ -69,11 +69,40 @@ fn conditional_string_eq_spans(
         .collect()
 }
 
-fn conditional_operand_string_value_span(
+fn string_eq_diagnostics(
+    checker: &Checker<'_>,
+    binary: ConditionalBinaryFact<'_>,
+    source: &str,
+) -> Vec<(Span, Fix)> {
+    let operands = [binary.left(), binary.right()]
+        .into_iter()
+        .filter_map(|operand| conditional_operand_string_value(checker, operand, source))
+        .collect::<Vec<_>>();
+    if operands.is_empty() {
+        return Vec::new();
+    }
+
+    let Some(fix) = string_eq_fix(binary, &operands) else {
+        return Vec::new();
+    };
+
+    operands
+        .into_iter()
+        .map(|operand| (operand.span, fix.clone()))
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy)]
+struct StringOperand {
+    span: Span,
+    quote: Option<WordQuote>,
+}
+
+fn conditional_operand_string_value(
     checker: &Checker<'_>,
     operand: ConditionalOperandFact<'_>,
     source: &str,
-) -> Option<Span> {
+) -> Option<StringOperand> {
     operand
         .word()
         .zip(operand.word_classification())
@@ -91,8 +120,47 @@ fn conditional_operand_string_value_span(
                         )
                     })
                 })
-                .map(|word| word.span)
+                .map(|word| StringOperand {
+                    span: word.span,
+                    quote: operand.quote(),
+                })
         })
+}
+
+fn string_eq_fix(binary: ConditionalBinaryFact<'_>, operands: &[StringOperand]) -> Option<Fix> {
+    let operator_replacement = match binary.op() {
+        ConditionalBinaryOp::ArithmeticEq => "=",
+        ConditionalBinaryOp::ArithmeticNe => "!=",
+        ConditionalBinaryOp::RegexMatch
+        | ConditionalBinaryOp::NewerThan
+        | ConditionalBinaryOp::OlderThan
+        | ConditionalBinaryOp::SameFile
+        | ConditionalBinaryOp::ArithmeticLe
+        | ConditionalBinaryOp::ArithmeticGe
+        | ConditionalBinaryOp::ArithmeticLt
+        | ConditionalBinaryOp::ArithmeticGt
+        | ConditionalBinaryOp::And
+        | ConditionalBinaryOp::Or
+        | ConditionalBinaryOp::PatternEqShort
+        | ConditionalBinaryOp::PatternEq
+        | ConditionalBinaryOp::PatternNe
+        | ConditionalBinaryOp::LexicalBefore
+        | ConditionalBinaryOp::LexicalAfter => return None,
+    };
+
+    let mut edits = vec![Edit::replacement(
+        operator_replacement,
+        binary.operator_span(),
+    )];
+    for operand in operands
+        .iter()
+        .filter(|operand| operand.quote == Some(WordQuote::Unquoted))
+    {
+        edits.push(Edit::insertion(operand.span.start.offset, "\""));
+        edits.push(Edit::insertion(operand.span.end.offset, "\""));
+    }
+
+    Some(Fix::unsafe_edits(edits))
 }
 
 fn operand_text_looks_like_string_value(
@@ -146,9 +214,12 @@ fn looks_like_decimal_integer(text: &str) -> bool {
 mod tests {
     use std::fs;
 
-    use crate::test::test_snippet;
-    use crate::test::test_snippet_at_path;
-    use crate::{LinterSettings, Rule};
+    use std::path::Path;
+
+    use crate::test::{
+        test_path_with_fix, test_snippet, test_snippet_at_path, test_snippet_with_fix,
+    };
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
     use tempfile::tempdir;
 
     #[test]
@@ -311,5 +382,58 @@ source ./helper.sh
                 .collect::<Vec<_>>(),
             vec!["flag"]
         );
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_text_numeric_comparisons() {
+        let source = "\
+#!/bin/bash
+[[ $VER -eq \"latest\" ]]
+[[ foo -ne 3 ]]
+[[ foo -eq bar ]]
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::StringComparedWithEq),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 3);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+[[ $VER = \"latest\" ]]
+[[ \"foo\" != 3 ]]
+[[ \"foo\" = \"bar\" ]]
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn safe_fix_mode_leaves_text_numeric_comparisons_unchanged() {
+        let source = "#!/bin/bash\n[[ foo -eq 3 ]]\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::StringComparedWithEq),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert_eq!(result.fixed_diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("correctness").join("C121.sh").as_path(),
+            &LinterSettings::for_rule(Rule::StringComparedWithEq),
+            Applicability::Unsafe,
+        )?;
+
+        assert_diagnostics_diff!("C121_fix_C121.sh", result);
+        Ok(())
     }
 }

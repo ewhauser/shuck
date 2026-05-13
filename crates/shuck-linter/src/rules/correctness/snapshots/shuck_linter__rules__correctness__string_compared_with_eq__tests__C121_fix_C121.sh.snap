@@ -1,0 +1,48 @@
+---
+source: crates/shuck-linter/src/rules/correctness/string_compared_with_eq.rs
+assertion_line: 422
+---
+Diagnostics:
+C121 this numeric comparison uses text instead of a number
+ --> <source>:2:13
+  |
+2 | [[ $VER -eq "latest" ]]
+  |
+
+C121 this numeric comparison uses text instead of a number
+ --> <source>:3:4
+  |
+3 | [[ foo -ne 3 ]]
+  |
+
+C121 this numeric comparison uses text instead of a number
+ --> <source>:4:10
+  |
+4 | [[ 3 -eq bar ]]
+  |
+
+
+Applied fixes: 3
+
+Diff:
+--- before
++++ after
+@@ -1,5 +1,5 @@
+ #!/bin/bash
+-[[ $VER -eq "latest" ]]
+-[[ foo -ne 3 ]]
+-[[ 3 -eq bar ]]
++[[ $VER = "latest" ]]
++[[ "foo" != 3 ]]
++[[ 3 = "bar" ]]
+ [ $VER -eq "latest" ]
+
+Fixed source:
+#!/bin/bash
+[[ $VER = "latest" ]]
+[[ "foo" != 3 ]]
+[[ 3 = "bar" ]]
+[ $VER -eq "latest" ]
+
+Remaining diagnostics:
+<none>

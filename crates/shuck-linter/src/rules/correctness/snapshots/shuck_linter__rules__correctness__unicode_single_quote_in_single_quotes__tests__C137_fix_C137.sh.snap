@@ -1,0 +1,40 @@
+---
+source: crates/shuck-linter/src/rules/correctness/unicode_single_quote_in_single_quotes.rs
+assertion_line: 137
+---
+Diagnostics:
+C137 a unicode curly single quote appears inside a single-quoted string
+ --> <source>:3:13
+  |
+3 | echo 'hello ‘world’'
+  |
+
+C137 a unicode curly single quote appears inside a single-quoted string
+ --> <source>:3:19
+  |
+3 | echo 'hello ‘world’'
+  |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -1,5 +1,5 @@
+ #!/bin/sh
+ 
+-echo 'hello ‘world’'
++echo 'hello '\''world'\'''
+ echo "hello ‘world’"
+ echo 'plain text'
+
+Fixed source:
+#!/bin/sh
+
+echo 'hello '\''world'\'''
+echo "hello ‘world’"
+echo 'plain text'
+
+Remaining diagnostics:
+<none>

@@ -1,0 +1,66 @@
+---
+source: crates/shuck-linter/src/rules/correctness/redirect_before_pipe.rs
+assertion_line: 336
+---
+Diagnostics:
+C119 a stdout redirect before a pipe only affects the command on the left
+ --> <source>:4:5
+  |
+4 | cmd >/dev/null | next
+  |
+
+C119 a stdout redirect before a pipe only affects the command on the left
+ --> <source>:5:5
+  |
+5 | cmd >out | next
+  |
+
+C119 a stdout redirect before a pipe only affects the command on the left
+ --> <source>:8:12
+  |
+8 | left | mid >/dev/null | right
+  |
+
+
+Applied fixes: 3
+
+Diff:
+--- before
++++ after
+@@ -1,11 +1,11 @@
+ #!/bin/sh
+ 
+ # Should trigger: stdout is redirected before the pipe.
+-cmd >/dev/null | next
+-cmd >out | next
++cmd | next >/dev/null
++cmd | next >out
+ 
+ # Should trigger: the middle segment is the one with the redirect.
+-left | mid >/dev/null | right
++left | mid | right >/dev/null
+ 
+ # Should not trigger: stderr-only redirect.
+ 2>/dev/null | next
+
+Fixed source:
+#!/bin/sh
+
+# Should trigger: stdout is redirected before the pipe.
+cmd | next >/dev/null
+cmd | next >out
+
+# Should trigger: the middle segment is the one with the redirect.
+left | mid | right >/dev/null
+
+# Should not trigger: stderr-only redirect.
+2>/dev/null | next
+
+# Should not trigger: the redirect happens after the pipeline.
+cmd | next >/dev/null
+
+# Should not trigger: pipeall is a different operator.
+cmd >/dev/null |& next
+
+Remaining diagnostics:
+<none>

@@ -1,0 +1,41 @@
+---
+source: crates/shuck-linter/src/rules/style/local_declare_combined.rs
+assertion_line: 208
+---
+Diagnostics:
+S066 mix either `local` or `declare`, not both in the same statement
+ --> <source>:3:9
+  |
+3 |   local declare hard_list
+  |
+
+S066 mix either `local` or `declare`, not both in the same statement
+ --> <source>:4:11
+  |
+4 |   declare local other_list
+  |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -1,5 +1,5 @@
+ #!/bin/sh
+ f() {
+-  local declare hard_list
+-  declare local other_list
++  local hard_list
++  declare other_list
+ }
+
+Fixed source:
+#!/bin/sh
+f() {
+  local hard_list
+  declare other_list
+}
+
+Remaining diagnostics:
+<none>

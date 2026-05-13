@@ -1,13 +1,16 @@
 use shuck_ast::{ConditionalUnaryOp, Span, Word};
 
 use crate::{
-    Checker, ConditionalNodeFact, ConditionalOperatorFamily, ExpansionContext, Rule,
-    SimpleTestOperatorFamily, SimpleTestShape, Violation, WordFactContext, WordQuote,
+    Checker, ConditionalNodeFact, ConditionalOperatorFamily, Diagnostic, Edit, ExpansionContext,
+    Fix, FixAvailability, Rule, SimpleTestOperatorFamily, SimpleTestShape, Violation,
+    WordFactContext, WordQuote,
 };
 
 pub struct QuotedCommandInTest;
 
 impl Violation for QuotedCommandInTest {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::QuotedCommandInTest
     }
@@ -15,37 +18,46 @@ impl Violation for QuotedCommandInTest {
     fn message(&self) -> String {
         "this test uses a quoted pipeline literal instead of command output".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("wrap the pipeline in command substitution".to_owned())
+    }
 }
 
 pub fn quoted_command_in_test(checker: &mut Checker) {
     let source = checker.source();
-    let spans = checker
+    let diagnostics = checker
         .facts()
         .commands()
         .iter()
         .flat_map(|command| {
-            let mut spans = Vec::new();
+            let mut diagnostics = Vec::new();
             if let Some(simple_test) = command.simple_test() {
-                spans.extend(collect_simple_test_spans(checker, simple_test));
+                diagnostics.extend(collect_simple_test_diagnostics(checker, simple_test));
             }
             if let Some(conditional) = command.conditional() {
-                spans.extend(collect_conditional_spans(conditional, source));
+                diagnostics.extend(collect_conditional_diagnostics(conditional, source));
             }
-            spans
+            diagnostics
         })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || QuotedCommandInTest);
+    for (span, replacement) in diagnostics {
+        checker.report_diagnostic_dedup(
+            Diagnostic::new(QuotedCommandInTest, span)
+                .with_fix(Fix::unsafe_edit(Edit::replacement(replacement, span))),
+        );
+    }
 }
 
-fn collect_simple_test_spans(
+fn collect_simple_test_diagnostics(
     checker: &Checker<'_>,
     simple_test: &crate::SimpleTestFact<'_>,
-) -> Vec<Span> {
+) -> Vec<(Span, String)> {
     simple_test_condition_operand(simple_test)
         .and_then(|word| {
-            simple_test_word_looks_like_quoted_pipeline(checker, word.span, checker.source())
-                .then_some(word.span)
+            simple_test_quoted_pipeline_replacement(checker, word.span, checker.source())
+                .map(|replacement| (word.span, replacement))
         })
         .into_iter()
         .collect()
@@ -68,8 +80,11 @@ fn simple_test_condition_operand<'a>(
     }
 }
 
-fn collect_conditional_spans(conditional: &crate::ConditionalFact<'_>, source: &str) -> Vec<Span> {
-    let mut spans = Vec::new();
+fn collect_conditional_diagnostics(
+    conditional: &crate::ConditionalFact<'_>,
+    source: &str,
+) -> Vec<(Span, String)> {
+    let mut diagnostics = Vec::new();
     let unary_operand_spans = conditional
         .nodes()
         .iter()
@@ -103,18 +118,24 @@ fn collect_conditional_spans(conditional: &crate::ConditionalFact<'_>, source: &
 
     match conditional.root() {
         ConditionalNodeFact::BareWord(bare_word)
-            if conditional_operand_looks_like_quoted_pipeline(bare_word.operand(), source) =>
+            if conditional_quoted_pipeline_replacement(bare_word.operand(), source).is_some() =>
         {
-            if let Some(word) = bare_word.operand().word() {
-                spans.push(word.span);
+            if let Some(word) = bare_word.operand().word()
+                && let Some(replacement) =
+                    conditional_quoted_pipeline_replacement(bare_word.operand(), source)
+            {
+                diagnostics.push((word.span, replacement));
             }
         }
         ConditionalNodeFact::Unary(unary)
             if conditional_unary_checks_literal_string(unary)
-                && conditional_operand_looks_like_quoted_pipeline(unary.operand(), source) =>
+                && conditional_quoted_pipeline_replacement(unary.operand(), source).is_some() =>
         {
-            if let Some(word) = unary.operand().word() {
-                spans.push(word.span);
+            if let Some(word) = unary.operand().word()
+                && let Some(replacement) =
+                    conditional_quoted_pipeline_replacement(unary.operand(), source)
+            {
+                diagnostics.push((word.span, replacement));
             }
         }
         ConditionalNodeFact::BareWord(_)
@@ -129,22 +150,27 @@ fn collect_conditional_spans(conditional: &crate::ConditionalFact<'_>, source: &
                 if bare_word.operand().word().is_some_and(|word| {
                     !unary_operand_spans.contains(&word.span)
                         && !comparison_operand_spans.contains(&word.span)
-                        && conditional_operand_looks_like_quoted_pipeline(
-                            bare_word.operand(),
-                            source,
-                        )
+                        && conditional_quoted_pipeline_replacement(bare_word.operand(), source)
+                            .is_some()
                 }) =>
             {
-                if let Some(word) = bare_word.operand().word() {
-                    spans.push(word.span);
+                if let Some(word) = bare_word.operand().word()
+                    && let Some(replacement) =
+                        conditional_quoted_pipeline_replacement(bare_word.operand(), source)
+                {
+                    diagnostics.push((word.span, replacement));
                 }
             }
             ConditionalNodeFact::Unary(unary)
                 if conditional_unary_checks_literal_string(unary)
-                    && conditional_operand_looks_like_quoted_pipeline(unary.operand(), source) =>
+                    && conditional_quoted_pipeline_replacement(unary.operand(), source)
+                        .is_some() =>
             {
-                if let Some(word) = unary.operand().word() {
-                    spans.push(word.span);
+                if let Some(word) = unary.operand().word()
+                    && let Some(replacement) =
+                        conditional_quoted_pipeline_replacement(unary.operand(), source)
+                {
+                    diagnostics.push((word.span, replacement));
                 }
             }
             ConditionalNodeFact::BareWord(_)
@@ -154,7 +180,7 @@ fn collect_conditional_spans(conditional: &crate::ConditionalFact<'_>, source: &
         }
     }
 
-    spans
+    diagnostics
 }
 
 fn conditional_unary_checks_literal_string(unary: &crate::ConditionalUnaryFact<'_>) -> bool {
@@ -162,36 +188,38 @@ fn conditional_unary_checks_literal_string(unary: &crate::ConditionalUnaryFact<'
         || unary.op() == ConditionalUnaryOp::Not
 }
 
-fn simple_test_word_looks_like_quoted_pipeline(
+fn simple_test_quoted_pipeline_replacement(
     checker: &Checker<'_>,
     span: Span,
     source: &str,
-) -> bool {
+) -> Option<String> {
     checker
         .facts()
         .word_fact(
             span,
             WordFactContext::Expansion(ExpansionContext::CommandArgument),
         )
-        .is_some_and(|fact| word_fact_looks_like_quoted_pipeline(fact, source))
+        .and_then(|fact| quoted_pipeline_replacement_from_word_fact(fact, source))
 }
 
-fn word_fact_looks_like_quoted_pipeline(
+fn quoted_pipeline_replacement_from_word_fact(
     fact: crate::WordOccurrenceRef<'_, '_>,
     source: &str,
-) -> bool {
-    fact.classification().quote == WordQuote::FullyQuoted
-        && fact.classification().is_fixed_literal()
-        && fact
-            .static_text_cow(source)
-            .as_deref()
-            .is_some_and(looks_like_quoted_pipeline_literal)
+) -> Option<String> {
+    if fact.classification().quote != WordQuote::FullyQuoted
+        || !fact.classification().is_fixed_literal()
+    {
+        return None;
+    }
+
+    let text = fact.static_text_cow(source)?;
+    looks_like_quoted_pipeline_literal(&text).then(|| command_substitution_replacement(&text))
 }
 
-fn conditional_operand_looks_like_quoted_pipeline(
+fn conditional_quoted_pipeline_replacement(
     operand: crate::ConditionalOperandFact<'_>,
     source: &str,
-) -> bool {
+) -> Option<String> {
     operand
         .word()
         .zip(operand.word_classification())
@@ -200,8 +228,14 @@ fn conditional_operand_looks_like_quoted_pipeline(
                 .then(|| shuck_ast::static_word_text(word, source))
         })
         .flatten()
-        .as_deref()
-        .is_some_and(looks_like_quoted_pipeline_literal)
+        .and_then(|text| {
+            looks_like_quoted_pipeline_literal(&text)
+                .then(|| command_substitution_replacement(&text))
+        })
+}
+
+fn command_substitution_replacement(text: &str) -> String {
+    format!("\"$({text})\"")
 }
 
 fn looks_like_quoted_pipeline_literal(text: &str) -> bool {
@@ -229,8 +263,10 @@ fn looks_like_command_word(token: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use std::path::Path;
+
+    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
 
     #[test]
     fn reports_quoted_pipeline_literals_in_simple_tests() {
@@ -335,5 +371,86 @@ test ! -z \"modprobe | grep snd_hda\"
             test_snippet(source, &LinterSettings::for_rule(Rule::QuotedCommandInTest));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_quoted_pipeline_literals() {
+        let source = "\
+#!/bin/sh
+[ \"lsmod | grep v4l2loopback\" ]
+[ -n \"modprobe | grep snd\" ]
+[[ \"$ok\" && \"dmesg | grep usb\" ]]
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedCommandInTest),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 3);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/sh
+[ \"$(lsmod | grep v4l2loopback)\" ]
+[ -n \"$(modprobe | grep snd)\" ]
+[[ \"$ok\" && \"$(dmesg | grep usb)\" ]]
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn preserves_inner_quotes_when_fixing_quoted_pipeline_literals() {
+        let source = "\
+#!/bin/sh
+[ \"printf \\\"%s\\\" foo | grep foo\" ]
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedCommandInTest),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/sh
+[ \"$(printf \"%s\" foo | grep foo)\" ]
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_non_pipeline_literals_unchanged_when_fixing() {
+        let source = "\
+#!/bin/sh
+[ \"echo hi\" ]
+[ \"foo | bar\" = x ]
+[[ -f \"foo | bar\" ]]
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedCommandInTest),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("correctness").join("C089.sh").as_path(),
+            &LinterSettings::for_rule(Rule::QuotedCommandInTest),
+            Applicability::Unsafe,
+        )?;
+
+        assert_diagnostics_diff!("C089_fix_C089.sh", result);
+        Ok(())
     }
 }

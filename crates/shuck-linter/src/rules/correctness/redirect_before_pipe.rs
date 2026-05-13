@@ -1,10 +1,12 @@
-use shuck_ast::{BinaryOp, RedirectKind, Span};
+use shuck_ast::{BinaryOp, Position, RedirectKind, Span};
 
-use crate::{Checker, PipelineFact, Rule, Violation};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, PipelineFact, Rule, Violation};
 
 pub struct RedirectBeforePipe;
 
 impl Violation for RedirectBeforePipe {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::RedirectBeforePipe
     }
@@ -12,20 +14,30 @@ impl Violation for RedirectBeforePipe {
     fn message(&self) -> String {
         "a stdout redirect before a pipe only affects the command on the left".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("move the redirect after the pipeline".to_owned())
+    }
 }
 
 pub fn redirect_before_pipe(checker: &mut Checker) {
-    let spans = checker
+    let diagnostics = checker
         .facts()
         .pipelines()
         .iter()
-        .flat_map(|pipeline| redirect_spans_for_pipeline(checker, pipeline))
+        .flat_map(|pipeline| redirect_diagnostics_for_pipeline(checker, pipeline))
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || RedirectBeforePipe);
+    for (span, fix) in diagnostics {
+        checker.report_diagnostic_dedup(Diagnostic::new(RedirectBeforePipe, span).with_fix(fix));
+    }
 }
 
-fn redirect_spans_for_pipeline(checker: &Checker<'_>, pipeline: &PipelineFact<'_>) -> Vec<Span> {
+fn redirect_diagnostics_for_pipeline(
+    checker: &Checker<'_>,
+    pipeline: &PipelineFact<'_>,
+) -> Vec<(Span, Fix)> {
+    let source = checker.source();
     pipeline
         .segments()
         .iter()
@@ -36,13 +48,69 @@ fn redirect_spans_for_pipeline(checker: &Checker<'_>, pipeline: &PipelineFact<'_
             fact.redirect_facts()
                 .iter()
                 .filter_map(|redirect| {
-                    stdout_redirect_span_before_pipe(redirect, checker.source()).filter(|_| {
-                        !has_independent_stderr_to_stdout_dup(fact.redirect_facts(), redirect)
-                    })
+                    let operator_span =
+                        stdout_redirect_span_before_pipe(redirect, source).filter(|_| {
+                            !has_independent_stderr_to_stdout_dup(fact.redirect_facts(), redirect)
+                        })?;
+                    let fix = move_redirect_after_pipeline_fix(redirect, pipeline, source)?;
+                    Some((operator_span, fix))
                 })
                 .collect::<Vec<_>>()
         })
         .collect()
+}
+
+fn move_redirect_after_pipeline_fix(
+    redirect: &crate::RedirectFact<'_>,
+    pipeline: &PipelineFact<'_>,
+    source: &str,
+) -> Option<Fix> {
+    let redirect_span = redirect.redirect().span;
+    let delete_span = redirect_deletion_span(redirect_span, source);
+    let insertion_offset = trim_trailing_whitespace_offset(
+        pipeline.last_segment()?.stmt().span.start.offset,
+        pipeline.last_segment()?.stmt().span.end.offset,
+        source,
+    );
+    let insertion = format!(" {}", redirect_span.slice(source).trim());
+    Some(Fix::unsafe_edits([
+        Edit::deletion(delete_span),
+        Edit::insertion(insertion_offset, insertion),
+    ]))
+}
+
+fn trim_trailing_whitespace_offset(start: usize, mut end: usize, source: &str) -> usize {
+    while end > start {
+        let previous = source.as_bytes()[end - 1];
+        if !previous.is_ascii_whitespace() {
+            break;
+        }
+        end -= 1;
+    }
+    end
+}
+
+fn redirect_deletion_span(span: Span, source: &str) -> Span {
+    let mut start = span.start.offset;
+    while start > 0 {
+        let previous = source.as_bytes()[start - 1];
+        if !matches!(previous, b' ' | b'\t') {
+            break;
+        }
+        start -= 1;
+    }
+
+    Span::from_positions(
+        Position {
+            offset: start,
+            line: span.start.line,
+            column: span
+                .start
+                .column
+                .saturating_sub(span.start.offset.saturating_sub(start)),
+        },
+        span.end,
+    )
 }
 
 fn has_independent_stderr_to_stdout_dup(
@@ -119,8 +187,10 @@ fn redirect_operator_span(redirect: &crate::RedirectFact<'_>, source: &str) -> O
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use std::path::Path;
+
+    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
 
     #[test]
     fn reports_stdout_redirects_before_plain_pipes() {
@@ -212,5 +282,58 @@ cmd >out 3>&1 | next
                 .collect::<Vec<_>>(),
             vec![">", ">"]
         );
+    }
+
+    #[test]
+    fn applies_unsafe_fix_by_moving_redirect_after_pipeline() {
+        let source = "\
+#!/bin/sh
+cmd >/dev/null | next
+cmd 1>out | next
+left | mid >>log | right
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::RedirectBeforePipe),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 3);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/sh
+cmd | next >/dev/null
+cmd | next 1>out
+left | mid | right >>log
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn safe_fix_mode_leaves_redirect_before_pipe_unchanged() {
+        let source = "#!/bin/sh\ncmd >/dev/null | next\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::RedirectBeforePipe),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert_eq!(result.fixed_diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("correctness").join("C119.sh").as_path(),
+            &LinterSettings::for_rule(Rule::RedirectBeforePipe),
+            Applicability::Unsafe,
+        )?;
+
+        assert_diagnostics_diff!("C119_fix_C119.sh", result);
+        Ok(())
     }
 }

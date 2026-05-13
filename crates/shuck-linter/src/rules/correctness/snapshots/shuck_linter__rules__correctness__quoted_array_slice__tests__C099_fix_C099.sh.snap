@@ -1,0 +1,215 @@
+---
+source: crates/shuck-linter/src/rules/correctness/quoted_array_slice.rs
+assertion_line: 308
+---
+Diagnostics:
+C099 all-elements array expansions collapse in scalar assignment values
+ --> <source>:6:8
+  |
+6 | params="$@"
+  |
+
+C099 all-elements array expansions collapse in scalar assignment values
+ --> <source>:7:8
+  |
+7 | params="${@}"
+  |
+
+C099 all-elements array expansions collapse in scalar assignment values
+ --> <source>:8:8
+  |
+8 | params=${@:5}
+  |
+
+C099 all-elements array expansions collapse in scalar assignment values
+ --> <source>:9:8
+  |
+9 | joined="${arr[@]}"
+  |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:10:10
+   |
+10 | fallback="${arr[@]:-fallback}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:11:8
+   |
+11 | quoted="${arr[@]@Q}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:12:8
+   |
+12 | flags+=" ${add_flags[@]}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:13:15
+   |
+13 | targets[$key]="${items[@]}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:14:9
+   |
+14 | CFLAGS+=" ${add_flags[@]}" make
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:15:9
+   |
+15 | escaped="\\$@"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:16:15
+   |
+16 | escaped_slice="\\${@:2}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:17:18
+   |
+17 | declare declared="$@"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:18:17
+   |
+18 | readonly packed=${arr[@]}
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:21:8
+   |
+21 | params="${@:5}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:22:8
+   |
+22 | joined="prefix${@:2}suffix"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:23:18
+   |
+23 | declare declared="${arr[@]:1}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:24:17
+   |
+24 | readonly packed="${arr[@]:1:2}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:27:16
+   |
+27 |   local nested="${@:3}"
+   |
+
+
+Applied fixes: 18
+
+Diff:
+--- before
++++ after
+@@ -3,28 +3,28 @@
+ # shellcheck disable=2034,2154
+ 
+ # Invalid: all-elements expansions in scalar assignments collapse element boundaries.
+-params="$@"
+-params="${@}"
+-params=${@:5}
+-joined="${arr[@]}"
+-fallback="${arr[@]:-fallback}"
+-quoted="${arr[@]@Q}"
+-flags+=" ${add_flags[@]}"
+-targets[$key]="${items[@]}"
+-CFLAGS+=" ${add_flags[@]}" make
+-escaped="\\$@"
+-escaped_slice="\\${@:2}"
+-declare declared="$@"
+-readonly packed=${arr[@]}
++params="$*"
++params="${*}"
++params=${*:5}
++joined="${arr[*]}"
++fallback="${arr[*]:-fallback}"
++quoted="${arr[*]@Q}"
++flags+=" ${add_flags[*]}"
++targets[$key]="${items[*]}"
++CFLAGS+=" ${add_flags[*]}" make
++escaped="\\$*"
++escaped_slice="\\${*:2}"
++declare declared="$*"
++readonly packed=${arr[*]}
+ 
+ # Invalid: quoted all-elements array slices also collapse in scalar assignments.
+-params="${@:5}"
+-joined="prefix${@:2}suffix"
+-declare declared="${arr[@]:1}"
+-readonly packed="${arr[@]:1:2}"
++params="${*:5}"
++joined="prefix${*:2}suffix"
++declare declared="${arr[*]:1}"
++readonly packed="${arr[*]:1:2}"
+ 
+ f() {
+-  local nested="${@:3}"
++  local nested="${*:3}"
+ }
+ 
+ # Valid: star-selector slices are outside this rule.
+
+Fixed source:
+#!/bin/bash
+
+# shellcheck disable=2034,2154
+
+# Invalid: all-elements expansions in scalar assignments collapse element boundaries.
+params="$*"
+params="${*}"
+params=${*:5}
+joined="${arr[*]}"
+fallback="${arr[*]:-fallback}"
+quoted="${arr[*]@Q}"
+flags+=" ${add_flags[*]}"
+targets[$key]="${items[*]}"
+CFLAGS+=" ${add_flags[*]}" make
+escaped="\\$*"
+escaped_slice="\\${*:2}"
+declare declared="$*"
+readonly packed=${arr[*]}
+
+# Invalid: quoted all-elements array slices also collapse in scalar assignments.
+params="${*:5}"
+joined="prefix${*:2}suffix"
+declare declared="${arr[*]:1}"
+readonly packed="${arr[*]:1:2}"
+
+f() {
+  local nested="${*:3}"
+}
+
+# Valid: star-selector slices are outside this rule.
+joined="${arr[*]:1}"
+
+# Valid: replacement forms substitute the replacement word, not the element list.
+joined="${@:+fallback}"
+joined="${arr[@]:+fallback}"
+joined="\$@"
+joined="\${@:2}"
+
+# Valid: array compound assignments keep element boundaries.
+arr=("${@:2}")
+declare -a copied=("${arr[@]:1}")
+
+# Valid: comparison contexts are handled by C112.
+if [ "${arr[@]:1}" = foo ]; then :; fi
+
+Remaining diagnostics:
+<none>

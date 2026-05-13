@@ -1,0 +1,111 @@
+---
+source: crates/shuck-linter/src/rules/correctness/tilde_in_string_comparison.rs
+assertion_line: 261
+---
+Diagnostics:
+C091 quoted `~/...` stays literal; use `$HOME` or an unquoted tilde
+ --> <source>:4:17
+  |
+4 | [ "$profile" = "~/.bashrc" ]
+  |
+
+C091 quoted `~/...` stays literal; use `$HOME` or an unquoted tilde
+ --> <source>:7:4
+  |
+7 | [ "~/.bash_profile" = "$profile" ]
+  |
+
+C091 quoted `~/...` stays literal; use `$HOME` or an unquoted tilde
+  --> <source>:10:19
+   |
+10 | [[ "$profile" == "~/.zshrc" ]]
+   |
+
+C091 quoted `~/...` stays literal; use `$HOME` or an unquoted tilde
+  --> <source>:13:17
+   |
+13 | [ "$profile" != '~/.config/fish/config.fish' ]
+   |
+
+C091 quoted `~/...` stays literal; use `$HOME` or an unquoted tilde
+  --> <source>:16:9
+   |
+16 | profile='~/.bash_profile'
+   |
+
+C091 quoted `~/...` stays literal; use `$HOME` or an unquoted tilde
+  --> <source>:17:16
+   |
+17 | printf '%s\n' "~/.config/powershell/profile.ps1"
+   |
+
+C091 quoted `~/...` stays literal; use `$HOME` or an unquoted tilde
+  --> <source>:18:7
+   |
+18 | [ -e "~/.cache/app" ]
+   |
+
+
+Applied fixes: 7
+
+Diff:
+--- before
++++ after
+@@ -1,21 +1,21 @@
+ #!/bin/bash
+ 
+ # Invalid: the quoted home-relative path stays literal in `[ ]`.
+-[ "$profile" = "~/.bashrc" ]
++[ "$profile" = "$HOME/.bashrc" ]
+ 
+ # Invalid: either side of the string comparison can carry the quoted `~/...`.
+-[ "~/.bash_profile" = "$profile" ]
++[ "$HOME/.bash_profile" = "$profile" ]
+ 
+ # Invalid: `[[ ]]` string comparisons have the same quoted-tilde issue.
+-[[ "$profile" == "~/.zshrc" ]]
++[[ "$profile" == "$HOME/.zshrc" ]]
+ 
+ # Invalid: single quotes still prevent tilde expansion.
+-[ "$profile" != '~/.config/fish/config.fish' ]
++[ "$profile" != "$HOME/.config/fish/config.fish" ]
+ 
+ # Invalid: assignments and command arguments have the same quoted-tilde issue.
+-profile='~/.bash_profile'
+-printf '%s\n' "~/.config/powershell/profile.ps1"
+-[ -e "~/.cache/app" ]
++profile="$HOME/.bash_profile"
++printf '%s\n' "$HOME/.config/powershell/profile.ps1"
++[ -e "$HOME/.cache/app" ]
+ 
+ # Valid: an unquoted tilde expands before the comparison.
+ [ "$profile" = ~/.bashrc ]
+
+Fixed source:
+#!/bin/bash
+
+# Invalid: the quoted home-relative path stays literal in `[ ]`.
+[ "$profile" = "$HOME/.bashrc" ]
+
+# Invalid: either side of the string comparison can carry the quoted `~/...`.
+[ "$HOME/.bash_profile" = "$profile" ]
+
+# Invalid: `[[ ]]` string comparisons have the same quoted-tilde issue.
+[[ "$profile" == "$HOME/.zshrc" ]]
+
+# Invalid: single quotes still prevent tilde expansion.
+[ "$profile" != "$HOME/.config/fish/config.fish" ]
+
+# Invalid: assignments and command arguments have the same quoted-tilde issue.
+profile="$HOME/.bash_profile"
+printf '%s\n' "$HOME/.config/powershell/profile.ps1"
+[ -e "$HOME/.cache/app" ]
+
+# Valid: an unquoted tilde expands before the comparison.
+[ "$profile" = ~/.bashrc ]
+
+# Valid: `~user` is a different lookup and not interchangeable with `$HOME`.
+[ "$profile" = "~user/.bashrc" ]
+
+Remaining diagnostics:
+<none>

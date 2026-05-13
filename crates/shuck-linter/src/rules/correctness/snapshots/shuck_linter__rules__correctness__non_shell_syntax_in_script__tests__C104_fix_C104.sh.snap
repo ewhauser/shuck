@@ -1,0 +1,39 @@
+---
+source: crates/shuck-linter/src/rules/correctness/non_shell_syntax_in_script.rs
+assertion_line: 148
+---
+Diagnostics:
+C104 line looks like non-shell declaration syntax
+ --> <source>:2:1
+  |
+2 | int value;
+  |
+
+C104 line looks like non-shell declaration syntax
+ --> <source>:3:1
+  |
+3 | char *name;
+  |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -1,4 +1,4 @@
+ #!/bin/sh
+-int value;
+-char *name;
++
++
+ echo int value;
+
+Fixed source:
+#!/bin/sh
+
+
+echo int value;
+
+Remaining diagnostics:
+<none>
