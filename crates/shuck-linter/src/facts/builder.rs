@@ -992,6 +992,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 dollar_in_arithmetic_spans: arithmetic_summary.dollar_in_arithmetic_spans,
                 arithmetic_command_substitution_spans: arithmetic_summary
                     .arithmetic_command_substitution_spans,
+                arithmetic_only_suppressed_subscript_spans,
                 single_quoted_fragments: single_quoted,
                 dollar_double_quoted_fragments: dollar_double_quoted,
                 open_double_quote_fragments: open_double_quotes,

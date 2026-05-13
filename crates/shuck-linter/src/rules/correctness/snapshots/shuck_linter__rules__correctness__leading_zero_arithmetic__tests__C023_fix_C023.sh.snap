@@ -1,0 +1,63 @@
+---
+source: crates/shuck-linter/src/rules/correctness/leading_zero_arithmetic.rs
+---
+Diagnostics:
+C023 this arithmetic literal is not valid octal
+ --> <source>:3:6
+  |
+3 | : $((08))
+  |
+
+C023 this arithmetic literal is not valid octal
+ --> <source>:4:6
+  |
+4 | : $((009 + 010 + 000))
+  |
+
+C023 this arithmetic literal is not valid octal
+ --> <source>:6:8
+  |
+6 | values[018]=x
+  |
+
+
+Applied fixes: 3
+
+Diff:
+--- before
++++ after
+@@ -1,9 +1,9 @@
+ #!/bin/bash
+ 
+-: $((08))
+-: $((009 + 010 + 000))
++: $((8))
++: $((9 + 010 + 000))
+ declare -a values
+-values[018]=x
++values[18]=x
+ 
+ : $((0))
+ : $((10#08))
+
+Fixed source:
+#!/bin/bash
+
+: $((8))
+: $((9 + 010 + 000))
+declare -a values
+values[18]=x
+
+: $((0))
+: $((10#08))
+: $((0x10))
+printf '%s\n' "${value:018:1}"
+
+count=3
+: $(( ${count}08 / 2 ))
+
+declare -A checksums
+checksums[008]=value
+
+Remaining diagnostics:
+<none>
