@@ -198,7 +198,7 @@ fn function_in_alias_definition_fact(
     Some(FunctionInAliasFact::new(
         span,
         replacement_span,
-        format!("{name}() {{ {}; }}", value.trim()).into_boxed_str(),
+        function_in_alias_replacement(name, value),
     ))
 }
 
@@ -217,6 +217,39 @@ fn function_in_alias_definition_span(words: &[&Word], source: &str) -> Option<Sp
 
 fn literal_alias_name_is_fixable(name: &str) -> bool {
     is_shell_variable_name(name) && !is_shell_reserved_word(name) && !is_posix_special_builtin(name)
+}
+
+fn function_in_alias_replacement(name: &str, value: &str) -> Box<str> {
+    let value = value.trim();
+    let terminator = if ends_with_unescaped_command_terminator(value) {
+        ""
+    } else {
+        ";"
+    };
+    format!("{name}() {{ {value}{terminator} }}").into_boxed_str()
+}
+
+fn ends_with_unescaped_command_terminator(text: &str) -> bool {
+    let bytes = text.trim_end().as_bytes();
+    let Some((&last, before_last)) = bytes.split_last() else {
+        return false;
+    };
+
+    if !matches!(last, b';' | b'&') {
+        return false;
+    }
+
+    if last == b'&' && before_last.last() == Some(&b'&') {
+        return false;
+    }
+
+    before_last
+        .iter()
+        .rev()
+        .take_while(|&&byte| byte == b'\\')
+        .count()
+        % 2
+        == 0
 }
 
 fn is_shell_reserved_word(name: &str) -> bool {

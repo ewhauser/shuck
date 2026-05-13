@@ -98,6 +98,20 @@ alias escaped_then_pos='echo \\$$1'
     }
 
     #[test]
+    fn applies_unsafe_fix_without_double_terminating_alias_semicolon() {
+        let source = "#!/bin/sh\nalias greet='echo $1;'\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionInAlias),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(result.fixed_source, "#!/bin/sh\ngreet() { echo $1; }\n");
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
     fn reports_non_fixable_alias_names_without_fix() {
         let source = "\
 #!/bin/sh
