@@ -127,7 +127,8 @@ cd /tmp && pwd
 ";
         let diagnostics = test_snippet(
             source,
-            &LinterSettings::for_rule(Rule::UncheckedDirectoryChange),
+            &LinterSettings::for_rule(Rule::UncheckedDirectoryChange)
+                .with_shell(ShellDialect::Bash),
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");

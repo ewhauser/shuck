@@ -3040,6 +3040,17 @@ fn does_not_treat_long_shebang_options_as_errexit() {
 }
 
 #[test]
+fn does_not_treat_indented_shebang_options_as_errexit() {
+    let source = "  #!/bin/bash -e\ncd /tmp\n";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+
+    assert!(!facts.source_facts().errexit_enabled_anywhere());
+}
+
+#[test]
 fn keeps_read_raw_input_when_option_flags_are_dynamic() {
     let source = "#!/bin/bash\nbuiltin read -${_read_char_flag} 1 -s -r anykey\n";
     let output = Parser::new(source).parse().unwrap();

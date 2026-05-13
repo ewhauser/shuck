@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct ShebangHeaderFacts {
     pub(crate) indented_shebang_span: Option<Span>,
     pub(crate) indented_shebang_indent_span: Option<Span>,
@@ -13,6 +13,22 @@ pub(crate) struct ShebangHeaderFacts {
     pub(crate) duplicate_shebang_flag_span: Option<Span>,
     pub(crate) non_absolute_shebang_span: Option<Span>,
     pub(crate) enables_errexit: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShebangInterpreterFact {
+    interpreter: String,
+    span: Span,
+}
+
+impl ShebangInterpreterFact {
+    pub fn interpreter(&self) -> &str {
+        &self.interpreter
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
@@ -143,6 +159,23 @@ pub(crate) fn build_shebang_header_facts(locator: Locator<'_>) -> ShebangHeaderF
         non_absolute_shebang_span,
         enables_errexit,
     }
+}
+
+pub(crate) fn build_shebang_interpreter_fact(
+    locator: Locator<'_>,
+) -> Option<ShebangInterpreterFact> {
+    let source = locator.source();
+    let line_index = locator.line_index();
+    let first_line = source_line(source, line_index, 1)?;
+    let first_line_text = first_line.text.trim_end_matches('\r');
+    let shebang_text = first_line_text.trim_start();
+    shebang_text
+        .strip_prefix("#!")
+        .and_then(|_| shuck_parser::shebang::interpreter_name(shebang_text))
+        .map(|interpreter| ShebangInterpreterFact {
+            interpreter: interpreter.to_owned(),
+            span: line_span(1, first_line.offset, first_line_text),
+        })
 }
 
 pub(crate) fn source_line_is_header_like(line: &str) -> bool {

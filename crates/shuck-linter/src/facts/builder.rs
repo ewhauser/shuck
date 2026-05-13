@@ -1084,6 +1084,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 missing_shebang_line_span: shebang_header_facts.missing_shebang_line_span,
                 duplicate_shebang_flag_span: shebang_header_facts.duplicate_shebang_flag_span,
                 non_absolute_shebang_span: shebang_header_facts.non_absolute_shebang_span,
+                shebang_interpreter: OnceLock::new(),
                 errexit_enabled_anywhere,
                 region_index: self._indexer.region_index(),
                 commented_continuation_comment_spans,

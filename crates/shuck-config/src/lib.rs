@@ -61,11 +61,12 @@ const CONFIG_OVERRIDE_LINT_ZSH_PLUGIN_KEYS: &[&str] = &[
     "entrypoints",
 ];
 const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &[
-    "c001", "c063", "s084", "s085", "c158", "c159", "c160", "c161", "c162",
+    "c001", "c063", "s078", "s084", "s085", "c158", "c159", "c160", "c161", "c162",
 ];
 const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
     &["treat-indirect-expansion-targets-as-used"];
 const CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS: &[&str] = &["report-unreached-nested-definitions"];
+const CONFIG_OVERRIDE_S078_RULE_OPTION_KEYS: &[&str] = &["allowed-shells"];
 const CONFIG_OVERRIDE_S084_RULE_OPTION_KEYS: &[&str] = &[
     "require-globals",
     "require-arguments",
@@ -337,6 +338,8 @@ pub struct LintRuleOptionsConfig {
     pub c001: Option<C001RuleOptionsConfig>,
     /// Options for rule C063.
     pub c063: Option<C063RuleOptionsConfig>,
+    /// Options for rule S078.
+    pub s078: Option<S078RuleOptionsConfig>,
     /// Options for rule S084.
     pub s084: Option<S084RuleOptionsConfig>,
     /// Options for rule S085.
@@ -360,6 +363,9 @@ impl LintRuleOptionsConfig {
         }
         if let Some(c063) = overrides.c063 {
             self.c063.get_or_insert_default().apply_overrides(c063);
+        }
+        if let Some(s078) = overrides.s078 {
+            self.s078.get_or_insert_default().apply_overrides(s078);
         }
         if let Some(s084) = overrides.s084 {
             self.s084.get_or_insert_default().apply_overrides(s084);
@@ -415,6 +421,22 @@ impl C063RuleOptionsConfig {
         if overrides.report_unreached_nested_definitions.is_some() {
             self.report_unreached_nested_definitions =
                 overrides.report_unreached_nested_definitions;
+        }
+    }
+}
+
+/// Options for rule S078.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct S078RuleOptionsConfig {
+    /// Shell names accepted in shebang interpreters.
+    pub allowed_shells: Option<Vec<String>>,
+}
+
+impl S078RuleOptionsConfig {
+    fn apply_overrides(&mut self, overrides: Self) {
+        if overrides.allowed_shells.is_some() {
+            self.allowed_shells = overrides.allowed_shells;
         }
     }
 }
@@ -475,6 +497,7 @@ impl S085RuleOptionsConfig {
         }
     }
 }
+
 /// Options for rule C158.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
@@ -840,6 +863,18 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
                             default: "false",
                             value_type: "bool",
                             example: "report-unreached-nested-definitions = true",
+                        }],
+                        sections: &[],
+                    },
+                    ConfigSectionMetadata {
+                        key: "s078",
+                        docs: "Behavior overrides for `S078` shebang shell policy.",
+                        fields: &[ConfigFieldMetadata {
+                            key: "allowed-shells",
+                            docs: "Interpreter names accepted in shebangs for this project.",
+                            default: r#"["bash"]"#,
+                            value_type: "list[string]",
+                            example: r#"allowed-shells = ["bash", "zsh"]"#,
                         }],
                         sections: &[],
                     },
@@ -1649,6 +1684,9 @@ fn validate_lint_rule_options_override(value: &toml::Value) -> std::result::Resu
     if let Some(c063_value) = rule_options.get("c063") {
         validate_c063_rule_options_override(c063_value)?;
     }
+    if let Some(s078_value) = rule_options.get("s078") {
+        validate_s078_rule_options_override(s078_value)?;
+    }
     if let Some(s084_value) = rule_options.get("s084") {
         validate_s084_rule_options_override(s084_value)?;
     }
@@ -1706,6 +1744,22 @@ fn validate_c063_rule_options_override(value: &toml::Value) -> std::result::Resu
     Ok(())
 }
 
+fn validate_s078_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let s078 = value
+        .as_table()
+        .ok_or_else(|| "`[lint.rule-options.s078]` must be a TOML table".to_owned())?;
+    for key in s078.keys() {
+        if !CONFIG_OVERRIDE_S078_RULE_OPTION_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.rule-options.s078]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_S078_RULE_OPTION_KEYS.join(", ")
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 fn validate_s084_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
     let s084 = value
         .as_table()
@@ -1737,6 +1791,7 @@ fn validate_s085_rule_options_override(value: &toml::Value) -> std::result::Resu
 
     Ok(())
 }
+
 fn validate_c158_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
     let c158 = value
         .as_table()
@@ -2096,6 +2151,23 @@ mod tests {
         assert_eq!(s085.non_trivial_line_threshold, Some(20));
         assert_eq!(s085.non_trivial_function_count, Some(3));
         assert_eq!(s085.main_name.as_deref(), Some("run"));
+    }
+
+    #[test]
+    fn inline_config_overrides_validate_supported_s078_rule_option_keys() {
+        let config =
+            parse_config_override("lint.rule-options.s078.allowed-shells = ['bash', 'zsh']")
+                .unwrap();
+        assert_eq!(
+            config
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.s078.as_ref())
+                .and_then(|s078| s078.allowed_shells.as_ref())
+                .map(Vec::as_slice),
+            Some(&["bash".to_owned(), "zsh".to_owned()][..])
+        );
     }
 
     #[test]
@@ -2471,6 +2543,37 @@ mod tests {
                 .and_then(|options| options.s085.as_ref())
                 .and_then(|s085| s085.main_name.as_deref()),
             Some("run")
+        );
+    }
+
+    #[test]
+    fn s078_rule_option_config_arguments_allow_last_override_to_win() {
+        let tempdir = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.rule-options.s078.allowed-shells = ['bash']")
+                        .unwrap(),
+                )),
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.rule-options.s078.allowed-shells = ['zsh']")
+                        .unwrap(),
+                )),
+            ],
+            false,
+        )
+        .unwrap();
+
+        let loaded = load_project_config(tempdir.path(), &config).unwrap();
+        assert_eq!(
+            loaded
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.s078.as_ref())
+                .and_then(|s078| s078.allowed_shells.as_ref())
+                .map(Vec::as_slice),
+            Some(&["zsh".to_owned()][..])
         );
     }
 

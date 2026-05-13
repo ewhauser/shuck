@@ -55,7 +55,7 @@ struct EffectivePerFileShell {
 struct EffectiveRuleOptions {
     c001_treat_indirect_expansion_targets_as_used: bool,
     c063_report_unreached_nested_definitions: bool,
-    c162_treat_as_masking: Vec<String>,
+    s078_allowed_shells: Vec<String>,
     s084_require_globals: bool,
     s084_require_arguments: bool,
     s084_require_outputs: bool,
@@ -68,6 +68,7 @@ struct EffectiveRuleOptions {
     c159_allow_conditional_init: bool,
     c160_allowed_anchors: Vec<String>,
     c161_ignore_after_source: bool,
+    c162_treat_as_masking: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -187,7 +188,7 @@ impl EffectiveRuleOptions {
             c063_report_unreached_nested_definitions: rule_options
                 .c063
                 .report_unreached_nested_definitions,
-            c162_treat_as_masking: rule_options.c162.treat_as_masking.clone(),
+            s078_allowed_shells: rule_options.s078.allowed_shells.clone(),
             s084_require_globals: rule_options.s084.require_globals,
             s084_require_arguments: rule_options.s084.require_arguments,
             s084_require_outputs: rule_options.s084.require_outputs,
@@ -200,6 +201,7 @@ impl EffectiveRuleOptions {
             c159_allow_conditional_init: rule_options.c159.allow_conditional_init,
             c160_allowed_anchors: rule_options.c160.allowed_anchors.clone(),
             c161_ignore_after_source: rule_options.c161.ignore_after_source,
+            c162_treat_as_masking: rule_options.c162.treat_as_masking.clone(),
         }
     }
 }
@@ -211,7 +213,7 @@ impl CacheKey for EffectiveRuleOptions {
             .cache_key(state);
         self.c063_report_unreached_nested_definitions
             .cache_key(state);
-        self.c162_treat_as_masking.cache_key(state);
+        self.s078_allowed_shells.cache_key(state);
         self.s084_require_globals.cache_key(state);
         self.s084_require_arguments.cache_key(state);
         self.s084_require_outputs.cache_key(state);
@@ -224,6 +226,7 @@ impl CacheKey for EffectiveRuleOptions {
         self.c159_allow_conditional_init.cache_key(state);
         self.c160_allowed_anchors.cache_key(state);
         self.c161_ignore_after_source.cache_key(state);
+        self.c162_treat_as_masking.cache_key(state);
     }
 }
 
@@ -971,6 +974,14 @@ fn linter_rule_options_for_lint_config(lint: &LintConfig) -> shuck_linter::Linte
         .and_then(|c063| c063.report_unreached_nested_definitions)
     {
         rule_options.c063.report_unreached_nested_definitions = value;
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.s078.as_ref())
+        .and_then(|s078| s078.allowed_shells.as_ref())
+    {
+        rule_options.s078.allowed_shells.clone_from(value);
     }
     if let Some(value) = lint
         .rule_options
