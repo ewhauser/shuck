@@ -81,6 +81,23 @@ f() {
     }
 
     #[test]
+    fn safe_fix_deletes_statement_terminators() {
+        let source = "#!/bin/sh\nf(){ false; return $?; }\ng(){ false; return $? ; }\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::RedundantReturnStatus),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/sh\nf(){ false;  }\ng(){ false;  }\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
     fn ignores_returns_outside_functions_and_with_explicit_statuses() {
         let source = "\
 #!/bin/sh

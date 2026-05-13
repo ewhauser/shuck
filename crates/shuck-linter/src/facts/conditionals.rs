@@ -916,7 +916,7 @@ fn redundant_return_status_span(stmt: &Stmt, source: &str) -> Option<Span> {
                 .code
                 .as_ref()
                 .is_some_and(word_is_unquoted_standalone_status_capture)
-                .then(|| redundant_return_status_delete_span(command.span, source))
+                .then(|| redundant_return_status_delete_span(stmt, command.span, source))
         }
         Command::Simple(command) => {
             if !command.assignments.is_empty() || command.args.len() != 1 {
@@ -924,7 +924,7 @@ fn redundant_return_status_span(stmt: &Stmt, source: &str) -> Option<Span> {
             }
             (static_word_text(&command.name, source).as_deref() == Some("return")
                 && word_is_unquoted_standalone_status_capture(&command.args[0]))
-            .then(|| redundant_return_status_delete_span(command.span, source))
+            .then(|| redundant_return_status_delete_span(stmt, command.span, source))
         }
         Command::Builtin(_)
         | Command::Decl(_)
@@ -935,7 +935,12 @@ fn redundant_return_status_span(stmt: &Stmt, source: &str) -> Option<Span> {
     }
 }
 
-fn redundant_return_status_delete_span(command_span: Span, source: &str) -> Span {
+fn redundant_return_status_delete_span(stmt: &Stmt, command_span: Span, source: &str) -> Span {
+    let command_end = if matches!(stmt.terminator, Some(StmtTerminator::Semicolon)) {
+        stmt.terminator_span.map_or(command_span.end, |span| span.end)
+    } else {
+        command_span.end
+    };
     let line_start = source[..command_span.start.offset]
         .rfind('\n')
         .map_or(0, |offset| offset + 1);
@@ -948,16 +953,16 @@ fn redundant_return_status_delete_span(command_span: Span, source: &str) -> Span
         command_span.start.offset
     };
 
-    let line_end = source[command_span.end.offset..]
+    let line_end = source[command_end.offset..]
         .find('\n')
-        .map_or(source.len(), |offset| command_span.end.offset + offset);
-    let suffix = &source[command_span.end.offset..line_end];
+        .map_or(source.len(), |offset| command_end.offset + offset);
+    let suffix = &source[command_end.offset..line_end];
     let delete_end = if delete_start < command_span.start.offset
         && suffix.bytes().all(|byte| matches!(byte, b' ' | b'\t'))
     {
         line_end.saturating_add((line_end < source.len()) as usize)
     } else {
-        command_span.end.offset
+        command_end.offset
     };
 
     let delete_start_position = Position {
@@ -968,12 +973,10 @@ fn redundant_return_status_delete_span(command_span: Span, source: &str) -> Span
             .saturating_sub(command_span.start.offset - delete_start),
         offset: delete_start,
     };
-    let delete_end_position = if delete_end == command_span.end.offset {
-        command_span.end
+    let delete_end_position = if delete_end == command_end.offset {
+        command_end
     } else {
-        command_span
-            .end
-            .advanced_by(&source[command_span.end.offset..delete_end])
+        command_end.advanced_by(&source[command_end.offset..delete_end])
     };
 
     Span::from_positions(delete_start_position, delete_end_position)
