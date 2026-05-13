@@ -845,7 +845,6 @@ impl<'a> SurfaceFragmentSink<'a> {
     pub(super) fn collect_split_suspect_closing_quote_fragment_in_words(&mut self, words: &[Word]) {
         for (index, word) in words.iter().enumerate() {
             let has_later_words = index + 1 < words.len();
-            let replacement = rewrite_word_as_single_double_quoted_string(word, self.source, None);
             self.split_suspect_closing_quote_scratch.clear();
             collect_split_suspect_closing_quote_spans(
                 word,
@@ -853,6 +852,11 @@ impl<'a> SurfaceFragmentSink<'a> {
                 has_later_words,
                 &mut self.split_suspect_closing_quote_scratch,
             );
+            if self.split_suspect_closing_quote_scratch.is_empty() {
+                continue;
+            }
+
+            let mut replacement = None;
             for index in 0..self.split_suspect_closing_quote_scratch.len() {
                 let span = self.split_suspect_closing_quote_scratch[index];
                 if self
@@ -868,7 +872,11 @@ impl<'a> SurfaceFragmentSink<'a> {
                     .push(SuspectClosingQuoteFragmentFact {
                         span,
                         replacement_span: word.span,
-                        replacement: replacement.clone(),
+                        replacement: replacement
+                            .get_or_insert_with(|| {
+                                rewrite_word_as_single_double_quoted_string(word, self.source, None)
+                            })
+                            .clone(),
                     });
             }
         }
