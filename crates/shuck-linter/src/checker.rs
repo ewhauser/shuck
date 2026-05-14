@@ -1062,6 +1062,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::AssignSpecialZero) {
             rules::correctness::assign_special_zero::assign_special_zero(self);
         }
+        if self.is_rule_enabled(Rule::SpaceyAssign) {
+            rules::correctness::spacey_assign::spacey_assign(self);
+        }
         if self.is_rule_enabled(Rule::IfsSetToLiteralBackslashN) {
             rules::correctness::ifs_set_to_literal_backslash_n::ifs_set_to_literal_backslash_n(
                 self,

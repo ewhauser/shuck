@@ -137,6 +137,7 @@ declare_rules! {
     ("C050", Category::Correctness, Severity::Warning, ArithmeticRedirectionTarget),
     ("C051", Category::Correctness, Severity::Error, DuplicateRedirect),
     ("C052", Category::Correctness, Severity::Error, AssignSpecialZero),
+    ("C053", Category::Correctness, Severity::Warning, SpaceyAssign),
     ("C054", Category::Correctness, Severity::Warning, BareSlashMarker),
     ("C055", Category::Correctness, Severity::Warning, PatternWithVariable),
     ("C056", Category::Correctness, Severity::Warning, StatusCaptureAfterBranchTest),
@@ -815,6 +816,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-060" => Some(Rule::SudoRedirectionOrder),
         "SH-065" => Some(Rule::StrayClosingKeyword),
         "SH-146" => Some(Rule::AssignSpecialZero),
+        "SH-147" => Some(Rule::SpaceyAssign),
         "SH-069" => Some(Rule::ConstantComparisonTest),
         "SH-070" => Some(Rule::LoopControlOutsideLoop),
         "SH-072" => Some(Rule::LiteralUnaryStringTest),
@@ -1070,6 +1072,7 @@ mod tests {
             Some(Rule::BareCommandNameAssignment)
         );
         assert_eq!(code_to_rule("SH-146"), Some(Rule::AssignSpecialZero));
+        assert_eq!(code_to_rule("SH-147"), Some(Rule::SpaceyAssign));
         assert_eq!(code_to_rule("SH-064"), Some(Rule::GrepCountPipeline));
         assert_eq!(code_to_rule("SH-137"), Some(Rule::SingleTestSubshell));
         assert_eq!(code_to_rule("SH-164"), Some(Rule::SubshellTestGroup));

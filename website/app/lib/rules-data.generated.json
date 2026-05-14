@@ -1436,10 +1436,10 @@
       "ksh"
     ],
     "shellcheckCode": null,
-    "implemented": false,
-    "status": "planned",
+    "implemented": true,
+    "status": "implemented",
     "hasKnownShellcheckDivergences": false,
-    "severity": null,
+    "severity": "Warning",
     "fixStatus": "planned",
     "fixAvailability": "none",
     "fixSafety": "unsafe",

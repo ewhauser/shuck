@@ -635,6 +635,28 @@ pub(crate) fn build_assign_special_zero_spans<'a>(
         .collect()
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
+pub(crate) fn build_spacey_assignment_spans<'a>(
+    commands: &[CommandFact<'a>],
+    source: &str,
+) -> Vec<Span> {
+    commands
+        .iter()
+        .filter_map(|fact| match fact.command() {
+            Command::Simple(command) => spacey_assignment_span(command, source),
+            Command::Compound(CompoundCommand::Time(command)) => {
+                spacey_time_assignment_span(command, source)
+            }
+            Command::Builtin(_)
+            | Command::Decl(_)
+            | Command::Binary(_)
+            | Command::Compound(_)
+            | Command::Function(_)
+            | Command::AnonymousFunction(_) => None,
+        })
+        .collect()
+}
+
 pub(crate) fn collect_assignment_like_command_name_spans_in_command(
     fact: &CommandFact<'_>,
     source: &str,
@@ -703,6 +725,63 @@ fn assign_special_zero_span(word: &Word, source: &str) -> Option<Span> {
     }
 
     None
+}
+
+fn spacey_assignment_span(command: &SimpleCommand, source: &str) -> Option<Span> {
+    let target = command.name.span.slice(source);
+    if !is_shell_variable_name(target) {
+        return None;
+    }
+
+    let first_arg = command.args.first()?;
+    let first_arg_text = first_arg.span.slice(source);
+    if first_arg_text == "=" {
+        let end = command
+            .args
+            .get(1)
+            .map(|word| word.span.end)
+            .unwrap_or(first_arg.span.end);
+        return Some(Span::from_positions(command.name.span.start, end));
+    }
+
+    first_arg_text
+        .strip_prefix('=')
+        .filter(|value| !value.is_empty() && !value.starts_with('='))
+        .map(|_| Span::from_positions(command.name.span.start, first_arg.span.end))
+}
+
+fn spacey_time_assignment_span(command: &TimeCommand, source: &str) -> Option<Span> {
+    if command.posix_format {
+        return None;
+    }
+
+    let timed = command.command.as_deref()?;
+    let Command::Simple(inner) = &timed.command else {
+        return None;
+    };
+    if let Some(span) = spacey_assignment_span(inner, source) {
+        return Some(span);
+    }
+
+    let prefix = source.get(command.span.start.offset..inner.name.span.start.offset)?;
+    if prefix.trim() != "time" {
+        return None;
+    }
+
+    let operator_text = inner.name.span.slice(source);
+    if operator_text == "=" {
+        let end = inner
+            .args
+            .first()
+            .map(|word| word.span.end)
+            .unwrap_or(inner.name.span.end);
+        return Some(Span::from_positions(command.span.start, end));
+    }
+
+    operator_text
+        .strip_prefix('=')
+        .filter(|value| !value.is_empty() && !value.starts_with('='))
+        .map(|_| Span::from_positions(command.span.start, inner.name.span.end))
 }
 
 pub(crate) fn zsh_declaration_brace_assignment_target(
