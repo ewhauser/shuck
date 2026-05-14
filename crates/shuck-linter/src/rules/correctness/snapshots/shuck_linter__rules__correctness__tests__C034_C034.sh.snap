@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C034 this `if` block is not closed with `fi`
+ --> <source>:2:1
+  |
+2 | if true; then
+  |

@@ -793,9 +793,10 @@ jobs:
     configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path())
         .args(["check", "--output-format", "concise"]);
+    let path = platform_path(".github/workflows/comment.yml");
     let expected = format!(
-        "{}:12:11: error[C035] jobs.reply.steps[0].run: this `if` block is missing a closing `fi`\n",
-        platform_path(".github/workflows/comment.yml")
+        "{path}:10:11: error[C034] jobs.reply.steps[0].run: this `if` block is not closed with `fi`\n\
+         {path}:12:11: error[C035] jobs.reply.steps[0].run: this `if` block is missing a closing `fi`\n"
     );
     cmd.assert().code(1).stdout(expected);
 }

@@ -140,6 +140,7 @@ pub mod unquoted_globs_in_find;
 pub mod unquoted_grep_regex;
 pub mod unreachable_after_exit;
 pub mod unset_associative_array_element;
+pub mod unterminated_if;
 pub mod until_missing_do;
 pub mod untracked_source_file;
 pub mod unused_assignment;
@@ -190,6 +191,7 @@ mod tests {
     #[test_case(Rule::IndentedHeredocClose, Path::new("C033.sh"))]
     #[test_case(Rule::PositionalTenBraces, Path::new("C025.sh"))]
     #[test_case(Rule::BareDoneWord, Path::new("C027.sh"))]
+    #[test_case(Rule::UnterminatedIf, Path::new("C034.sh"))]
     #[test_case(Rule::MissingFi, Path::new("C035.sh"))]
     #[test_case(Rule::BrokenTestEnd, Path::new("C036.sh"))]
     #[test_case(Rule::BrokenTestParse, Path::new("C037.sh"))]

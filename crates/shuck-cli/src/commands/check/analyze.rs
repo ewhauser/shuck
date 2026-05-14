@@ -251,11 +251,16 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(report.diagnostics.len(), 1);
-        match &report.diagnostics[0].kind {
-            DisplayedDiagnosticKind::Lint { code, .. } => assert_eq!(code, "C035"),
-            other => panic!("expected lint diagnostic, got {other:?}"),
-        }
+        let codes = report
+            .diagnostics
+            .iter()
+            .map(|diagnostic| match &diagnostic.kind {
+                DisplayedDiagnosticKind::Lint { code, .. } => code.as_str(),
+                other => panic!("expected lint diagnostic, got {other:?}"),
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(codes, vec!["C034", "C035"]);
     }
 
     #[test]
@@ -269,7 +274,10 @@ mod tests {
 
         let mut args = check_args(true);
         args.rule_selection = RuleSelectionArgs {
-            ignore: vec![RuleSelector::Rule(Rule::MissingFi)],
+            ignore: vec![
+                RuleSelector::Rule(Rule::UnterminatedIf),
+                RuleSelector::Rule(Rule::MissingFi),
+            ],
             ..RuleSelectionArgs::default()
         };
 

@@ -122,6 +122,7 @@ mod tests {
         assert_eq!(map.resolve("sc2154"), Some(Rule::UndefinedVariable));
         assert_eq!(map.resolve("SC2086"), Some(Rule::UnquotedExpansion));
         assert_eq!(map.resolve("SC1012"), Some(Rule::LiteralControlEscape));
+        assert_eq!(map.resolve("SC1046"), Some(Rule::UnterminatedIf));
         assert_eq!(map.resolve("SC2238"), Some(Rule::RedirectToCommandName));
         assert_eq!(map.resolve("SC2063"), Some(Rule::LeadingGlobInGrepPattern));
         assert_eq!(map.resolve("SC2211"), Some(Rule::BareGlobCommandPath));
