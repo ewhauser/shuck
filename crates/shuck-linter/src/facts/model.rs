@@ -603,16 +603,13 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
 
     pub(crate) fn assignment_spacing_spans(self) -> &'facts [Span] {
         self.facts.command.assignment_spacing_spans.get_or_init(|| {
-            if self.facts.command.commands.iter().any(|command| {
-                command_may_have_assignment_spacing_candidate(
-                    command.command(),
-                    self.facts.source_facts.source,
-                )
-            }) {
-                build_assignment_spacing_spans(
-                    &self.facts.command.commands,
-                    self.facts.source_facts.source,
-                )
+            let source = self.facts.source_facts.source;
+            if source_may_have_assignment_spacing_candidate(source)
+                && self.facts.command.commands.iter().any(|command| {
+                    command_may_have_assignment_spacing_candidate(command.command(), source)
+                })
+            {
+                build_assignment_spacing_spans(&self.facts.command.commands, source)
             } else {
                 Vec::new()
             }

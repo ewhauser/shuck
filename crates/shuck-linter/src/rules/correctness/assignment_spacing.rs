@@ -19,10 +19,6 @@ impl Violation for AssignmentSpacing {
 }
 
 pub fn assignment_spacing(checker: &mut Checker) {
-    if !source_may_contain_assignment_spacing(checker.source()) {
-        return;
-    }
-
     let spans = checker
         .facts()
         .command_facts()
@@ -34,68 +30,6 @@ pub fn assignment_spacing(checker: &mut Checker) {
                 .with_fix(Fix::unsafe_edit(Edit::deletion(span))),
         );
     }
-}
-
-fn source_may_contain_assignment_spacing(source: &str) -> bool {
-    let bytes = source.as_bytes();
-    let mut index = 0;
-
-    while index < bytes.len() {
-        if bytes[index] != b'=' || !assignment_spacing_gap_can_start_at(bytes, index + 1) {
-            index += 1;
-            continue;
-        }
-
-        let target_end = if index > 0 && bytes[index - 1] == b'+' {
-            index - 1
-        } else {
-            index
-        };
-        if target_end == 0 {
-            index += 1;
-            continue;
-        }
-
-        if bytes[target_end - 1] == b']' {
-            return true;
-        }
-
-        let mut target_start = target_end;
-        while target_start > 0 && is_shell_name_continue_byte(bytes[target_start - 1]) {
-            target_start -= 1;
-        }
-        if target_start == target_end
-            || !is_shell_name_start_byte(bytes[target_start])
-            || &source[target_start..target_end] == "IFS"
-        {
-            index += 1;
-            continue;
-        }
-
-        return true;
-    }
-
-    false
-}
-
-fn assignment_spacing_gap_can_start_at(bytes: &[u8], start: usize) -> bool {
-    matches!(bytes.get(start), Some(b' ' | b'\t'))
-        || matches!(
-            (bytes.get(start), bytes.get(start + 1)),
-            (Some(b'\\'), Some(b'\n'))
-        )
-        || matches!(
-            (bytes.get(start), bytes.get(start + 1), bytes.get(start + 2)),
-            (Some(b'\\'), Some(b'\r'), Some(b'\n'))
-        )
-}
-
-fn is_shell_name_start_byte(byte: u8) -> bool {
-    byte == b'_' || byte.is_ascii_alphabetic()
-}
-
-fn is_shell_name_continue_byte(byte: u8) -> bool {
-    is_shell_name_start_byte(byte) || byte.is_ascii_digit()
 }
 
 #[cfg(test)]
@@ -226,38 +160,6 @@ foo= bar
                 .collect::<Vec<_>>(),
             vec![" "]
         );
-    }
-
-    #[test]
-    fn source_prefilter_matches_candidate_shapes() {
-        for source in [
-            "foo= bar\n",
-            "foo+= append\n",
-            "declare foo= bar\n",
-            "array[0]= value\n",
-            "foo=\\\nbar\n",
-            "comment='name= value'\n",
-        ] {
-            assert!(
-                super::source_may_contain_assignment_spacing(source),
-                "source: {source:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn source_prefilter_ignores_common_non_reportable_shapes() {
-        for source in [
-            "foo=bar\n",
-            "foo = bar\n",
-            "[ \"$left\" = right ]\n",
-            "while IFS= read -r line; do :; done\n",
-        ] {
-            assert!(
-                !super::source_may_contain_assignment_spacing(source),
-                "source: {source:?}"
-            );
-        }
     }
 
     #[test]

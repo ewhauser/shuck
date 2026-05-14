@@ -200,6 +200,68 @@ fn declaration_operands_may_have_assignment_spacing_candidate(
     })
 }
 
+pub(crate) fn source_may_have_assignment_spacing_candidate(source: &str) -> bool {
+    let bytes = source.as_bytes();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] != b'=' || !assignment_spacing_gap_can_start_at(bytes, index + 1) {
+            index += 1;
+            continue;
+        }
+
+        let target_end = if index > 0 && bytes[index - 1] == b'+' {
+            index - 1
+        } else {
+            index
+        };
+        if target_end == 0 {
+            index += 1;
+            continue;
+        }
+
+        if bytes[target_end - 1] == b']' {
+            return true;
+        }
+
+        let mut target_start = target_end;
+        while target_start > 0 && is_shell_name_continue_byte(bytes[target_start - 1]) {
+            target_start -= 1;
+        }
+        if target_start == target_end
+            || !is_shell_name_start_byte(bytes[target_start])
+            || &source[target_start..target_end] == "IFS"
+        {
+            index += 1;
+            continue;
+        }
+
+        return true;
+    }
+
+    false
+}
+
+fn assignment_spacing_gap_can_start_at(bytes: &[u8], start: usize) -> bool {
+    matches!(bytes.get(start), Some(b' ' | b'\t'))
+        || matches!(
+            (bytes.get(start), bytes.get(start + 1)),
+            (Some(b'\\'), Some(b'\n'))
+        )
+        || matches!(
+            (bytes.get(start), bytes.get(start + 1), bytes.get(start + 2)),
+            (Some(b'\\'), Some(b'\r'), Some(b'\n'))
+        )
+}
+
+fn is_shell_name_start_byte(byte: u8) -> bool {
+    byte == b'_' || byte.is_ascii_alphabetic()
+}
+
+fn is_shell_name_continue_byte(byte: u8) -> bool {
+    is_shell_name_start_byte(byte) || byte.is_ascii_digit()
+}
+
 #[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn build_assignment_spacing_spans(
     commands: &[CommandFact<'_>],
