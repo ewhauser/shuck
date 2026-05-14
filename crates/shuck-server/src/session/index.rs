@@ -29,6 +29,7 @@ pub(crate) struct Index {
 #[derive(Clone)]
 pub(crate) struct WorkspaceSettingsSnapshot {
     pub(crate) root: PathBuf,
+    pub(crate) canonical_root: Option<PathBuf>,
     pub(crate) options: Option<ClientOptions>,
 }
 
@@ -256,6 +257,7 @@ impl Index {
             .iter()
             .map(|workspace| WorkspaceSettingsSnapshot {
                 root: workspace.root.clone(),
+                canonical_root: workspace.root.canonicalize().ok(),
                 options: workspace.options.clone(),
             })
             .collect()

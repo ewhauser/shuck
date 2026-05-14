@@ -188,12 +188,28 @@ impl Session {
     }
 
     pub(crate) fn workspace_symbol_context(&self) -> crate::symbols::WorkspaceSymbolContext {
+        let workspace_settings = self.index.workspace_settings_snapshot();
+        let workspace_roots = self.index.workspace_roots().to_vec();
+        let mut settings_workspace_roots = workspace_roots.clone();
+        for workspace in &workspace_settings {
+            let Some(canonical_root) = &workspace.canonical_root else {
+                continue;
+            };
+            if !settings_workspace_roots
+                .iter()
+                .any(|root| root == canonical_root)
+            {
+                settings_workspace_roots.push(canonical_root.clone());
+            }
+        }
+
         crate::symbols::WorkspaceSymbolContext {
             index: self.workspace_symbols.clone(),
             options: self.global_settings.workspace_symbol_options(),
             global_options: self.global_settings.options().clone(),
-            workspace_settings: self.index.workspace_settings_snapshot(),
-            workspace_roots: self.index.workspace_roots().to_vec(),
+            workspace_settings,
+            workspace_roots,
+            settings_workspace_roots,
             open_documents: self.index.open_documents_snapshot(),
             encoding: self.position_encoding,
         }

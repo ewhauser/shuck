@@ -29,6 +29,7 @@ pub(crate) struct WorkspaceSymbolContext {
     pub(crate) global_options: ClientOptions,
     pub(crate) workspace_settings: Vec<WorkspaceSettingsSnapshot>,
     pub(crate) workspace_roots: Vec<PathBuf>,
+    pub(crate) settings_workspace_roots: Vec<PathBuf>,
     pub(crate) open_documents: Vec<WorkspaceOpenDocument>,
     pub(crate) encoding: PositionEncoding,
 }
@@ -619,19 +620,34 @@ fn shuck_settings_for_document(
         context
             .workspace_settings
             .iter()
-            .filter(|workspace| path.starts_with(&workspace.root))
-            .max_by_key(|workspace| workspace.root.components().count())
-            .and_then(|workspace| workspace.options.as_ref())
+            .filter_map(|workspace| {
+                workspace_root_match_len(path, workspace).map(|len| (workspace, len))
+            })
+            .max_by_key(|(_, len)| *len)
+            .and_then(|(workspace, _)| workspace.options.as_ref())
     });
     if let Some(workspace_options) = workspace_options {
         return ShuckSettings::resolve(
             path,
-            &context.workspace_roots,
+            &context.settings_workspace_roots,
             &[&context.global_options, workspace_options],
         );
     }
 
-    ShuckSettings::resolve(path, &context.workspace_roots, &[&context.global_options])
+    ShuckSettings::resolve(
+        path,
+        &context.settings_workspace_roots,
+        &[&context.global_options],
+    )
+}
+
+fn workspace_root_match_len(path: &Path, workspace: &WorkspaceSettingsSnapshot) -> Option<usize> {
+    [Some(&workspace.root), workspace.canonical_root.as_ref()]
+        .into_iter()
+        .flatten()
+        .filter(|root| path.starts_with(root))
+        .map(|root| root.components().count())
+        .max()
 }
 
 fn shell_for_source(
@@ -1313,6 +1329,51 @@ build() {
         assert_eq!(names, ["buffer_symlink_symbol"]);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn workspace_symbols_apply_workspace_options_for_symlinked_workspace_root() {
+        let tempdir = tempfile::tempdir().expect("workspace should be created");
+        let real_root = tempdir.path().join("real");
+        let symlink_root = tempdir.path().join("link");
+        std::fs::create_dir(&real_root).expect("real workspace should be created");
+        std::os::unix::fs::symlink(&real_root, &symlink_root)
+            .expect("workspace symlink should be created");
+        std::fs::write(
+            real_root.join("script.sh"),
+            "function zsh_target zsh_alias() { :; }\n",
+        )
+        .expect("fixture should be written");
+
+        let (mut session, client) = make_session(&symlink_root, PositionEncoding::UTF16);
+        let workspace_uri =
+            Url::from_file_path(&symlink_root).expect("workspace URI should convert");
+        let mut workspace_options = crate::session::WorkspaceOptionsMap::default();
+        workspace_options.insert(
+            workspace_uri,
+            crate::ClientOptions {
+                lint: Some(shuck_config::LintConfig {
+                    per_file_shell: Some(std::collections::BTreeMap::from([(
+                        "*.sh".to_owned(),
+                        "zsh".to_owned(),
+                    )])),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+        session.update_configuration(crate::ClientOptions::default(), Some(workspace_options));
+
+        let response = workspace_symbols(
+            session.workspace_symbol_context(),
+            &client,
+            workspace_symbol_params("zsh_alias"),
+        )
+        .expect("workspace symbol request should succeed")
+        .expect("workspace symbol response should be present");
+
+        assert_eq!(workspace_symbol_response_names(response), ["zsh_alias"]);
+    }
+
     #[test]
     fn workspace_symbols_respect_max_files_and_mark_partial_indexes() {
         let tempdir = tempfile::tempdir().expect("workspace should be created");
@@ -1478,6 +1539,7 @@ build() {
             global_options: crate::ClientOptions::default(),
             workspace_settings: Vec::new(),
             workspace_roots: Vec::new(),
+            settings_workspace_roots: Vec::new(),
             open_documents: Vec::new(),
             encoding: PositionEncoding::UTF16,
         };
