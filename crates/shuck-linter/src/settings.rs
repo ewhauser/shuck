@@ -11,7 +11,8 @@ use shuck_semantic::{UnreachedFunctionAnalysisOptions, UnusedAssignmentAnalysisO
 use crate::ambient_contracts::ResolvedAmbientContracts;
 use crate::{Category, Rule, RuleSelector, RuleSet, Severity, ShellDialect};
 
-const DEFAULT_DISABLED_NON_STYLE_RULES: &[Rule] = &[Rule::ImplicitGlobalInFunction];
+const DEFAULT_DISABLED_NON_STYLE_RULES: &[Rule] =
+    &[Rule::ImplicitGlobalInFunction, Rule::MutableGlobal];
 
 /// Per-rule behavior overrides applied during lint analysis.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -26,6 +27,8 @@ pub struct LinterRuleOptions {
     pub s085: S085RuleOptions,
     /// Behavior overrides for `C158`.
     pub c158: C158RuleOptions,
+    /// Behavior overrides for `C159`.
+    pub c159: C159RuleOptions,
 }
 
 /// Behavior overrides for `C001` unused-assignment analysis.
@@ -101,7 +104,6 @@ impl Default for S085RuleOptions {
         }
     }
 }
-
 /// Behavior overrides for `C158` implicit global assignment analysis.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct C158RuleOptions {
@@ -119,6 +121,22 @@ impl Default for C158RuleOptions {
         }
     }
 }
+
+/// Behavior overrides for `C159` mutable-global analysis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct C159RuleOptions {
+    /// Whether self-referential default initializers such as `name=${name:-value}` are allowed.
+    pub allow_conditional_init: bool,
+}
+
+impl Default for C159RuleOptions {
+    fn default() -> Self {
+        Self {
+            allow_conditional_init: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinterSettings {
     pub rules: RuleSet,
@@ -335,7 +353,6 @@ impl LinterSettings {
         self.rule_options.s085.main_name = value.into();
         self
     }
-
     pub fn with_c158_treat_readonly_as_documented(mut self, value: bool) -> Self {
         self.rule_options.c158.treat_readonly_as_documented = value;
         self
@@ -343,6 +360,11 @@ impl LinterSettings {
 
     pub fn with_c158_treat_export_as_intentional(mut self, value: bool) -> Self {
         self.rule_options.c158.treat_export_as_intentional = value;
+        self
+    }
+
+    pub fn with_c159_allow_conditional_init(mut self, value: bool) -> Self {
+        self.rule_options.c159.allow_conditional_init = value;
         self
     }
 
@@ -471,6 +493,7 @@ mod tests {
         assert!(defaults.contains(Rule::ConstantCaseSubject));
         assert!(defaults.contains(Rule::RmGlobOnVariablePath));
         assert!(!defaults.contains(Rule::ImplicitGlobalInFunction));
+        assert!(!defaults.contains(Rule::MutableGlobal));
         assert!(!defaults.contains(Rule::AmpersandSemicolon));
     }
 

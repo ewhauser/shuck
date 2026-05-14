@@ -90,6 +90,7 @@ pub mod missing_fi;
 pub mod missing_semicolon_before_brace;
 pub mod missing_space_before_bracket_close;
 pub mod mixed_and_or_in_condition;
+pub mod mutable_global;
 pub mod nested_parameter_expansion;
 pub mod non_absolute_shebang;
 pub mod non_shell_syntax_in_script;
@@ -307,6 +308,7 @@ mod tests {
     #[test_case(Rule::PossibleVariableMisspelling, Path::new("C156.sh"))]
     #[test_case(Rule::IfBracketGlued, Path::new("C157.sh"))]
     #[test_case(Rule::ImplicitGlobalInFunction, Path::new("C158.sh"))]
+    #[test_case(Rule::MutableGlobal, Path::new("C159.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

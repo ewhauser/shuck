@@ -180,6 +180,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             }
             collect_binding_values(
                 visit.command,
+                self.semantic_artifacts,
                 self.semantic,
                 self.source,
                 &mut binding_values,
