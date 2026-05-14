@@ -41,6 +41,21 @@ pub(super) trait BackgroundDocumentRequestHandler: RequestHandler {
     ) -> Result<<<Self as RequestHandler>::RequestType as Request>::Result>;
 }
 
+pub(super) trait BackgroundRequestHandler: RequestHandler {
+    type Snapshot: Send + 'static;
+
+    fn snapshot(
+        session: &Session,
+        params: &<<Self as RequestHandler>::RequestType as Request>::Params,
+    ) -> Result<Self::Snapshot>;
+
+    fn run_with_snapshot(
+        snapshot: Self::Snapshot,
+        client: &Client,
+        params: <<Self as RequestHandler>::RequestType as Request>::Params,
+    ) -> Result<<<Self as RequestHandler>::RequestType as Request>::Result>;
+}
+
 pub(super) trait NotificationHandler {
     type NotificationType: LspNotification;
     const METHOD: &'static str =

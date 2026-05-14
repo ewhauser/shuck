@@ -1,0 +1,21 @@
+[package]
+name = "shuck-discover"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Workspace file discovery for shuck"
+
+[dependencies]
+anyhow = { workspace = true }
+globset = { workspace = true }
+ignore = { workspace = true }
+shuck-config = { workspace = true }
+shuck-extract = { workspace = true }
+shuck-linter = { workspace = true }
+shuck-parser = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

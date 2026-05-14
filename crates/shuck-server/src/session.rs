@@ -7,14 +7,16 @@ use lsp_types::{ClientCapabilities, FileEvent, Url};
 
 use crate::edit::{DocumentKey, DocumentVersion};
 use crate::session::request_queue::RequestQueue;
-use crate::session::settings::{ClientSettings, GlobalClientSettings, ShuckSettings};
+use crate::session::settings::{ClientSettings, GlobalClientSettings};
 use crate::workspace::Workspaces;
 use crate::{PositionEncoding, TextDocument};
 
 pub(crate) use self::capabilities::ResolvedClientCapabilities;
 pub use self::index::DocumentQuery;
+pub(crate) use self::index::WorkspaceSettingsSnapshot;
 pub(crate) use self::options::{AllOptions, WorkspaceOptionsMap};
-pub use self::options::{ClientOptions, GlobalOptions};
+pub use self::options::{ClientOptions, GlobalOptions, WorkspaceSymbolFeatureOptions};
+pub(crate) use self::settings::ShuckSettings;
 pub use client::Client;
 
 mod capabilities;
@@ -30,6 +32,7 @@ pub struct Session {
     position_encoding: PositionEncoding,
     global_settings: GlobalClientSettings,
     resolved_client_capabilities: Arc<ResolvedClientCapabilities>,
+    workspace_symbols: Arc<crate::symbols::WorkspaceSymbolIndex>,
     request_queue: RequestQueue,
     shutdown_requested: bool,
 }
@@ -59,6 +62,7 @@ impl Session {
             resolved_client_capabilities: Arc::new(ResolvedClientCapabilities::new(
                 client_capabilities,
             )),
+            workspace_symbols: Arc::new(crate::symbols::WorkspaceSymbolIndex::default()),
             request_queue: RequestQueue::new(),
             shutdown_requested: false,
         })
@@ -120,15 +124,20 @@ impl Session {
 
     pub(crate) fn reload_settings(&mut self, changes: &[FileEvent], client: &Client) {
         self.index.reload_settings(changes, client);
+        self.workspace_symbols.invalidate_file_events(changes);
     }
 
     pub(crate) fn open_workspace_folder(&mut self, url: Url, client: &Client) -> crate::Result<()> {
         self.index
-            .open_workspace_folder(url, &self.global_settings, client)
+            .open_workspace_folder(url, &self.global_settings, client)?;
+        self.workspace_symbols.invalidate_all();
+        Ok(())
     }
 
     pub(crate) fn close_workspace_folder(&mut self, url: &Url) -> crate::Result<()> {
-        self.index.close_workspace_folder(url)
+        self.index.close_workspace_folder(url)?;
+        self.workspace_symbols.invalidate_all();
+        Ok(())
     }
 
     pub(crate) fn resolved_client_capabilities(&self) -> &ResolvedClientCapabilities {
@@ -148,6 +157,7 @@ impl Session {
     }
 
     pub(crate) fn update_client_options(&mut self, options: ClientOptions) {
+        self.workspace_symbols.invalidate_all();
         self.global_settings.update_options(options);
         self.index.clear_project_settings_cache();
     }
@@ -157,6 +167,7 @@ impl Session {
         options: ClientOptions,
         workspace_options: Option<WorkspaceOptionsMap>,
     ) {
+        self.workspace_symbols.invalidate_all();
         self.global_settings.update_options(options);
         if let Some(workspace_options) = workspace_options {
             self.index.update_workspace_options(workspace_options);
@@ -171,6 +182,18 @@ impl Session {
 
     pub(crate) fn workspace_roots(&self) -> &[std::path::PathBuf] {
         self.index.workspace_roots()
+    }
+
+    pub(crate) fn workspace_symbol_context(&self) -> crate::symbols::WorkspaceSymbolContext {
+        crate::symbols::WorkspaceSymbolContext {
+            index: self.workspace_symbols.clone(),
+            options: self.global_settings.workspace_symbol_options(),
+            global_options: self.global_settings.options().clone(),
+            workspace_settings: self.index.workspace_settings_snapshot(),
+            workspace_roots: self.index.workspace_roots().to_vec(),
+            open_documents: self.index.open_documents_snapshot(),
+            encoding: self.position_encoding,
+        }
     }
 }
 

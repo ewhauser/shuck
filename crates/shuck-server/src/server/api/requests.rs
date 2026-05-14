@@ -7,6 +7,7 @@ mod format;
 mod format_range;
 mod hover;
 mod shutdown;
+mod workspace_symbol;
 
 use super::{
     define_document_url,
@@ -22,3 +23,4 @@ pub(super) use format::Format;
 pub(super) use format_range::FormatRange;
 pub(super) use hover::Hover;
 pub(super) use shutdown::ShutdownHandler;
+pub(super) use workspace_symbol::WorkspaceSymbols;

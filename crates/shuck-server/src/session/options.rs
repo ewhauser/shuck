@@ -44,6 +44,9 @@ pub struct ClientOptions {
     #[serde(default)]
     /// Whether parser diagnostics should be shown.
     pub show_syntax_errors: Option<bool>,
+    #[serde(default)]
+    /// Server-only editor feature options.
+    pub server: ServerOptions,
 }
 
 impl ClientOptions {
@@ -54,6 +57,44 @@ impl ClientOptions {
             ..ShuckConfig::default()
         }
     }
+}
+
+/// Options for server-only editor features.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerOptions {
+    #[serde(default)]
+    /// Workspace-wide symbol search configuration.
+    pub workspace_symbols: WorkspaceSymbolFeatureOptions,
+}
+
+/// Configuration for `workspace/symbol`.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSymbolFeatureOptions {
+    /// Whether the workspace symbol index should serve requests.
+    #[serde(default = "default_workspace_symbols_enabled")]
+    pub enabled: bool,
+    /// Maximum number of closed workspace files to index.
+    #[serde(default = "default_workspace_symbols_max_files")]
+    pub max_files: usize,
+}
+
+impl Default for WorkspaceSymbolFeatureOptions {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_files: 5000,
+        }
+    }
+}
+
+fn default_workspace_symbols_enabled() -> bool {
+    true
+}
+
+fn default_workspace_symbols_max_files() -> usize {
+    5000
 }
 
 #[derive(Debug, Deserialize, Default)]

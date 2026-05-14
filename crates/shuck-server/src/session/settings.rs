@@ -14,7 +14,7 @@ use shuck_linter::{
     RuleSet, ShellDialect as LinterShellDialect,
 };
 
-use crate::session::ClientOptions;
+use crate::session::{ClientOptions, WorkspaceSymbolFeatureOptions};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ClientSettings {
@@ -232,6 +232,10 @@ impl GlobalClientSettings {
 
     pub(crate) fn options(&self) -> &ClientOptions {
         &self.options
+    }
+
+    pub(crate) fn workspace_symbol_options(&self) -> WorkspaceSymbolFeatureOptions {
+        self.options.server.workspace_symbols
     }
 
     pub(crate) fn update_options(&mut self, options: ClientOptions) {

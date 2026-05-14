@@ -58,6 +58,12 @@ pub(super) fn request(req: server::Request) -> Task {
         request::Hover::METHOD => {
             background_request_task::<request::Hover>(req, BackgroundSchedule::Worker)
         }
+        request::WorkspaceSymbols::METHOD => {
+            background_session_request_task::<request::WorkspaceSymbols>(
+                req,
+                BackgroundSchedule::Worker,
+            )
+        }
         lsp_types::request::Shutdown::METHOD => sync_request_task::<request::ShutdownHandler>(req),
         method => {
             let result: Result<()> = Err(Error::new(
@@ -133,6 +139,51 @@ where
             )),
         };
         respond::<R>(&id, response, client);
+    }))
+}
+
+fn background_session_request_task<R: traits::BackgroundRequestHandler>(
+    req: server::Request,
+    schedule: schedule::BackgroundSchedule,
+) -> Result<Task>
+where
+    <<R as RequestHandler>::RequestType as Request>::Params: UnwindSafe,
+{
+    let (id, params) = cast_request::<R>(req)?;
+    Ok(Task::background(schedule, move |session: &Session| {
+        let cancellation_token = session
+            .request_queue()
+            .incoming()
+            .cancellation_token(&id)
+            .expect("request should be registered before scheduling");
+        let snapshot = R::snapshot(session, &params);
+        Box::new(move |client| {
+            if cancellation_token.is_cancelled() {
+                return;
+            }
+
+            let response = match snapshot {
+                Ok(snapshot) => {
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        R::run_with_snapshot(snapshot, client, params)
+                    }));
+                    match result {
+                        Ok(result) => result,
+                        Err(error) => Err(Error::new(
+                            anyhow!(
+                                panic_message(&error).unwrap_or("request handler panicked".into())
+                            ),
+                            lsp_server::ErrorCode::InternalError,
+                        )),
+                    }
+                }
+                Err(error) => Err(error),
+            };
+            if cancellation_token.is_cancelled() {
+                return;
+            }
+            respond::<R>(&id, response, client);
+        })
     }))
 }
 

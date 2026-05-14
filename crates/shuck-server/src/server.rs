@@ -149,6 +149,12 @@ impl Server {
             document_formatting_provider: None,
             document_range_formatting_provider: None,
             document_symbol_provider: Some(OneOf::Left(true)),
+            workspace_symbol_provider: Some(OneOf::Right(types::WorkspaceSymbolOptions {
+                work_done_progress_options: WorkDoneProgressOptions {
+                    work_done_progress: Some(true),
+                },
+                resolve_provider: Some(false),
+            })),
             diagnostic_provider: Some(types::DiagnosticServerCapabilities::Options(
                 DiagnosticOptions {
                     identifier: Some(crate::DIAGNOSTIC_NAME.into()),
@@ -309,6 +315,15 @@ mod tests {
             capabilities.document_symbol_provider,
             Some(OneOf::Left(true))
         );
+    }
+
+    #[test]
+    fn advertises_workspace_symbol_capability_without_resolve() {
+        let capabilities = Server::server_capabilities(PositionEncoding::UTF16);
+        let Some(OneOf::Right(options)) = capabilities.workspace_symbol_provider else {
+            panic!("expected workspace symbol options");
+        };
+        assert_eq!(options.resolve_provider, Some(false));
     }
 
     #[test]
