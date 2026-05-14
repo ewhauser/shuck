@@ -802,12 +802,12 @@
       "ksh"
     ],
     "shellcheckCode": "SC1020",
-    "implemented": false,
-    "status": "planned",
+    "implemented": true,
+    "status": "implemented",
     "hasKnownShellcheckDivergences": false,
-    "severity": null,
-    "fixStatus": "planned",
-    "fixAvailability": "none",
+    "severity": "Error",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
     "fixSafety": "unsafe",
     "fixDescription": "Insert a space before the trailing `]` in the test operand.",
     "examples": [

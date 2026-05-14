@@ -113,6 +113,7 @@ declare_rules! {
     ("C023", Category::Correctness, Severity::Error, LeadingZeroArithmetic),
     ("C024", Category::Correctness, Severity::Warning, AssignmentSpacing),
     ("C030", Category::Correctness, Severity::Error, MissingBracketSpace),
+    ("C031", Category::Correctness, Severity::Error, MissingSpaceBeforeBracketClose),
     ("C025", Category::Correctness, Severity::Warning, PositionalTenBraces),
     ("C027", Category::Correctness, Severity::Warning, BareDoneWord),
     ("C035", Category::Correctness, Severity::Error, MissingFi),
@@ -814,6 +815,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-134" => Some(Rule::PipeToKill),
         "SH-086" => Some(Rule::PositionalTenBraces),
         "SH-091" => Some(Rule::BareDoneWord),
+        "SH-100" => Some(Rule::MissingSpaceBeforeBracketClose),
         "SH-106" => Some(Rule::MissingFi),
         "SH-107" => Some(Rule::FunctionParamsInSh),
         "SH-109" => Some(Rule::BrokenTestEnd),
@@ -1165,6 +1167,14 @@ mod tests {
         assert_eq!(code_to_rule("SH-084"), Some(Rule::AssignmentSpacing));
         assert_eq!(code_to_rule("C030"), Some(Rule::MissingBracketSpace));
         assert_eq!(code_to_rule("SH-098"), Some(Rule::MissingBracketSpace));
+        assert_eq!(
+            code_to_rule("C031"),
+            Some(Rule::MissingSpaceBeforeBracketClose)
+        );
+        assert_eq!(
+            code_to_rule("SH-100"),
+            Some(Rule::MissingSpaceBeforeBracketClose)
+        );
         assert_eq!(code_to_rule("SH-134"), Some(Rule::PipeToKill));
         assert_eq!(code_to_rule("SH-086"), Some(Rule::PositionalTenBraces));
         assert_eq!(code_to_rule("C027"), Some(Rule::BareDoneWord));

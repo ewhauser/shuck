@@ -1,0 +1,50 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C031 put a space before the closing test bracket
+ --> <source>:3:7
+  |
+3 | [ foo]
+  |
+
+C031 put a space before the closing test bracket
+ --> <source>:5:17
+  |
+5 | [ "$dir" = /tmp]
+  |
+
+C031 put a space before the closing test bracket
+ --> <source>:6:6
+  |
+6 | [foo]
+  |
+
+C031 put a space before the closing test bracket
+ --> <source>:7:9
+  |
+7 | [[ foo]]
+  |
+
+C031 put a space before the closing test bracket
+ --> <source>:8:8
+  |
+8 | [[foo]]
+  |
+
+C031 put a space before the closing test bracket
+ --> <source>:9:9
+  |
+9 | [ foo\]]
+  |
+
+C031 put a space before the closing test bracket
+  --> <source>:10:8
+   |
+10 | [ foo]]
+   |
+
+C031 put a space before the closing test bracket
+  --> <source>:11:19
+   |
+11 | [[ "$x" == foo\)]]
+   |

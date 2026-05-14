@@ -329,6 +329,145 @@ pub(crate) fn build_glued_closing_bracket_insert_offset(
         .map(|operand| operand.span.end.offset - 1)
 }
 
+pub(crate) fn build_missing_space_before_bracket_close_fact(
+    command: &Command,
+    source: &str,
+    locator: Locator<'_>,
+) -> Option<(Span, usize)> {
+    let (diagnostic_offset, insert_offset) =
+        missing_space_before_bracket_close_offsets(command, source)?;
+    let position = locator.position_at_offset(diagnostic_offset)?;
+    Some((Span::from_positions(position, position), insert_offset))
+}
+
+fn missing_space_before_bracket_close_offsets(
+    command: &Command,
+    source: &str,
+) -> Option<(usize, usize)> {
+    match command {
+        Command::Simple(command) => {
+            missing_space_before_simple_bracket_close_offsets(command, source)
+        }
+        Command::Compound(CompoundCommand::Conditional(command)) => {
+            missing_space_before_conditional_bracket_close_offsets(command, source)
+        }
+        Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => None,
+    }
+}
+
+fn missing_space_before_simple_bracket_close_offsets(
+    command: &SimpleCommand,
+    source: &str,
+) -> Option<(usize, usize)> {
+    let name_text = command.name.span.slice(source);
+    if !name_text.starts_with('[') {
+        return None;
+    }
+
+    if let Some(offsets) = missing_space_before_bracket_close_word_offsets(&command.name, source) {
+        return Some(offsets);
+    }
+
+    let (last_arg, leading_args) = command.args.split_last()?;
+    if matches!(last_arg.span.slice(source), "]" | "]]") {
+        return None;
+    }
+    if leading_args
+        .iter()
+        .any(|arg| matches!(arg.span.slice(source), "]" | "]]"))
+    {
+        return None;
+    }
+
+    if name_text == "[" && simple_command_args_form_glued_unary_test(&command.args, source) {
+        return None;
+    }
+
+    for arg in &command.args {
+        if let Some(offsets) = missing_space_before_bracket_close_word_offsets(arg, source) {
+            return Some(offsets);
+        }
+    }
+
+    None
+}
+
+fn missing_space_before_conditional_bracket_close_offsets(
+    command: &ConditionalCommand,
+    source: &str,
+) -> Option<(usize, usize)> {
+    let insert_offset = command.right_bracket_span.start.offset;
+    let previous = source[..insert_offset].chars().next_back()?;
+    if previous.is_whitespace()
+        || (previous == ')'
+            && conditional_expression_ends_with_parenthesized_group(
+                &command.expression,
+                insert_offset,
+            ))
+    {
+        return None;
+    }
+
+    Some((command.right_bracket_span.end.offset, insert_offset))
+}
+
+fn conditional_expression_ends_with_parenthesized_group(
+    mut expression: &ConditionalExpr,
+    end_offset: usize,
+) -> bool {
+    loop {
+        match expression {
+            ConditionalExpr::Parenthesized(parenthesized) => {
+                return parenthesized.right_paren_span.end.offset == end_offset;
+            }
+            ConditionalExpr::Binary(binary) => {
+                expression = &binary.right;
+            }
+            ConditionalExpr::Unary(unary) => {
+                expression = &unary.expr;
+            }
+            ConditionalExpr::Word(_)
+            | ConditionalExpr::Pattern(_)
+            | ConditionalExpr::Regex(_)
+            | ConditionalExpr::VarRef(_) => return false,
+        }
+    }
+}
+
+fn missing_space_before_bracket_close_word_offsets(
+    word: &Word,
+    source: &str,
+) -> Option<(usize, usize)> {
+    let text = word.span.slice(source);
+    if matches!(text, "[" | "[[" | "]" | "]]") || !text.ends_with(']') {
+        return None;
+    }
+
+    let close_run_len = unescaped_final_closing_bracket_len(text)?;
+    let insert_offset = word.span.end.offset.checked_sub(close_run_len)?;
+    Some((word.span.end.offset, insert_offset))
+}
+
+fn unescaped_final_closing_bracket_len(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if bytes.last() != Some(&b']') {
+        return None;
+    }
+
+    let mut slash_start = bytes.len() - 1;
+    while slash_start > 0 && bytes[slash_start - 1] == b'\\' {
+        slash_start -= 1;
+    }
+    (bytes.len() - 1 - slash_start)
+        .is_multiple_of(2)
+        .then_some(1)
+}
+
 pub(crate) fn build_glued_closing_bracket_operand_word<'a>(
     command: &'a Command,
     source: &str,
@@ -360,21 +499,35 @@ pub(crate) fn glued_closing_bracket_unary_operand<'a>(
         };
         return (bang.span.slice(source) == "!"
             && simple_test_is_unary_operator(operator.span.slice(source))
-            && operand
-                .span
-                .slice(source)
-                .strip_suffix(']')
-                .is_some_and(|prefix| !prefix.is_empty()))
+            && word_has_glued_closing_bracket_operand(operand, source))
         .then_some(*operand);
     };
 
     (simple_test_is_unary_operator(first.span.slice(source))
-        && second
-            .span
-            .slice(source)
-            .strip_suffix(']')
-            .is_some_and(|prefix| !prefix.is_empty()))
+        && word_has_glued_closing_bracket_operand(second, source))
     .then_some(*second)
+}
+
+fn simple_command_args_form_glued_unary_test(args: &[Word], source: &str) -> bool {
+    match args {
+        [first, second] => {
+            simple_test_is_unary_operator(first.span.slice(source))
+                && word_has_glued_closing_bracket_operand(second, source)
+        }
+        [bang, operator, operand] => {
+            bang.span.slice(source) == "!"
+                && simple_test_is_unary_operator(operator.span.slice(source))
+                && word_has_glued_closing_bracket_operand(operand, source)
+        }
+        _ => false,
+    }
+}
+
+fn word_has_glued_closing_bracket_operand(word: &Word, source: &str) -> bool {
+    word.span
+        .slice(source)
+        .strip_suffix(']')
+        .is_some_and(|prefix| !prefix.is_empty())
 }
 
 pub(crate) fn simple_test_shape(operand_count: usize) -> SimpleTestShape {
