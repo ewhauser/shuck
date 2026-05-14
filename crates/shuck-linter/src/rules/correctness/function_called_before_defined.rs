@@ -1,7 +1,7 @@
 use compact_str::CompactString;
 use rustc_hash::FxHashSet;
 use shuck_ast::Span;
-use shuck_semantic::{Binding, BindingId, CallSite, ScopeId, ScopeKind, SourceRef, SourceRefKind};
+use shuck_semantic::{Binding, BindingId, CallSite, ScopeId, SourceRef, SourceRefKind};
 
 use crate::{Checker, Rule, ShellDialect, Violation};
 
@@ -45,12 +45,6 @@ pub fn function_called_before_defined(checker: &mut Checker) {
     let mut violations = Vec::<(Span, CompactString)>::new();
 
     for function in semantic.function_definition_bindings() {
-        if !matches!(
-            semantic.scope_kind(function.scope),
-            ScopeKind::File | ScopeKind::Function(_)
-        ) {
-            continue;
-        }
         for call in semantic.call_sites_for(&function.name) {
             if !call_is_reportable_for_function(checker, call, function) {
                 continue;
@@ -775,7 +769,12 @@ fn terminator_blocks_between_call_and_function(
         .structural_commands()
         .filter(|fact| {
             fact.effective_name_is("exit")
-                || (fact.effective_name_is("return") && fact.enclosing_function_scope().is_some())
+                || (fact.effective_name_is("return")
+                    && fact.enclosing_function_scope().is_some()
+                    && checker
+                        .semantic()
+                        .innermost_transient_scope_within_function(fact.scope())
+                        .is_none())
         })
         .filter(|fact| fact.enclosing_function_scope() == call_runtime_scope)
         .filter(|fact| {
@@ -855,6 +854,41 @@ do_thing
 do_thing() {
   echo hi
 }
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledBeforeDefined),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "do_thing");
+    }
+
+    #[test]
+    fn reports_subshell_calls_before_later_subshell_definition() {
+        let source = "\
+#!/bin/bash
+(
+  do_thing
+  do_thing() {
+    echo hi
+  }
+)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledBeforeDefined),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "do_thing");
+    }
+
+    #[test]
+    fn reports_command_substitution_calls_before_later_definition() {
+        let source = "\
+#!/bin/bash
+value=\"$(do_thing; do_thing() { echo hi; })\"
 ";
         let diagnostics = test_snippet(
             source,
@@ -1503,6 +1537,30 @@ return 1
 do_thing() {
   echo hi
 }
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledBeforeDefined),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "do_thing");
+    }
+
+    #[test]
+    fn reports_subshell_calls_before_later_definition_after_return() {
+        let source = "\
+#!/bin/bash
+wrapper() {
+  (
+    do_thing
+    return 1
+    do_thing() {
+      echo hi
+    }
+  )
+}
+wrapper
 ";
         let diagnostics = test_snippet(
             source,
