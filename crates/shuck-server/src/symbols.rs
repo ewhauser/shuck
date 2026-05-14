@@ -553,6 +553,7 @@ fn rebuild_closed_workspace_symbols(
 
     let mut files = BTreeMap::new();
     let mut partial = false;
+    let open_paths = open_document_path_keys(context);
     for root in &context.workspace_roots {
         let options = workspace_symbol_options_for_path(context, Some(root));
         if !options.enabled {
@@ -577,6 +578,7 @@ fn rebuild_closed_workspace_symbols(
         })?
         .into_iter()
         .filter(|file| file.kind == FileKind::Shell)
+        .filter(|file| !open_paths.contains(&file.absolute_path))
         .collect::<Vec<_>>();
         partial |= root_files.len() > options.max_files;
         root_files.truncate(options.max_files);
@@ -767,6 +769,22 @@ fn workspace_uri_keys(uri: &types::Url) -> Vec<String> {
         keys.push(uri.as_str().to_owned());
     }
     keys
+}
+
+fn open_document_path_keys(
+    context: &WorkspaceSymbolContext,
+) -> std::collections::BTreeSet<PathBuf> {
+    let mut paths = std::collections::BTreeSet::new();
+    for document in &context.open_documents {
+        let Ok(path) = document.uri.to_file_path() else {
+            continue;
+        };
+        if let Ok(canonical) = std::fs::canonicalize(&path) {
+            paths.insert(canonical);
+        }
+        paths.insert(path);
+    }
+    paths
 }
 
 fn symbol_query_score(name: &str, query: &str) -> Option<SymbolQueryScore> {
@@ -1580,6 +1598,38 @@ build() {
         let cache = lock_or_recover(&context.index.cache);
         assert!(cache.partial);
         assert!(!cache.dirty);
+    }
+
+    #[test]
+    fn workspace_symbols_apply_max_files_after_excluding_open_documents() {
+        let tempdir = tempfile::tempdir().expect("workspace should be created");
+        let open_path = tempdir.path().join("a.sh");
+        let closed_path = tempdir.path().join("b.sh");
+        std::fs::write(&open_path, "disk_alpha_symbol() { :; }\n")
+            .expect("alpha fixture should be written");
+        std::fs::write(&closed_path, "beta_symbol() { :; }\n")
+            .expect("beta fixture should be written");
+
+        let (mut session, client) = make_session(tempdir.path(), PositionEncoding::UTF16);
+        let open_uri = Url::from_file_path(&open_path).expect("open URI should convert");
+        session.open_text_document(
+            open_uri,
+            TextDocument::new("buffer_alpha_symbol() { :; }\n".to_owned(), 9)
+                .with_language_id("shellscript"),
+        );
+        let mut options = crate::ClientOptions::default();
+        options.server.workspace_symbols.max_files = 1;
+        session.update_client_options(options);
+
+        let response = workspace_symbols(
+            session.workspace_symbol_context(),
+            &client,
+            workspace_symbol_params("beta_symbol"),
+        )
+        .expect("workspace symbol request should succeed")
+        .expect("workspace symbol response should be present");
+
+        assert_eq!(workspace_symbol_response_names(response), ["beta_symbol"]);
     }
 
     #[test]
