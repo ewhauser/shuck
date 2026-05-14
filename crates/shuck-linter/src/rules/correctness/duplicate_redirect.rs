@@ -37,8 +37,15 @@ mod tests {
 : <a <b
 : &>a >b
 : &>a &>b
+: &>>a 2>b
+: &>> a 2>b
 : >&file 2>err
 : 2>&file 2>err
+: 2>a 2>&1
+: 2>&1 2>b
+: <in 0<&3
+: 3<>a 3>b
+: 1<>a 1>&2
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DuplicateRedirect));
 
@@ -48,7 +55,8 @@ mod tests {
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec![
-                ">", ">", ">", ">", "<", "<", ">", ">", ">", ">", ">", ">", ">&", ">", ">&", ">",
+                ">", ">", ">", ">", "<", "<", ">", ">", ">", ">", ">>", ">", ">>", ">", ">&", ">",
+                ">&", ">", ">", ">&", ">&", ">", "<", "<&", "<>", ">", "<>", ">&",
             ]
         );
     }
@@ -60,8 +68,7 @@ mod tests {
 : >a 2>b
 : <>a >b
 : >a <>b
-: 2>&1 2>b
-: 2>a 2>&1
+: 1>out 2>&1 1>other
 : >&- >a
 : >&1 2>err
 exec {fd}>a {fd}>b

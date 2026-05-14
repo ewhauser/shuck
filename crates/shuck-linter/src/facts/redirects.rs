@@ -802,24 +802,36 @@ pub(crate) fn redirect_operator_text(kind: RedirectKind) -> &'static str {
 }
 
 pub(super) fn duplicate_redirect_spans(redirects: &[RedirectFact<'_>], source: &str) -> Vec<Span> {
-    let mut fd_counts = FxHashMap::<i32, usize>::default();
-    for redirect in redirects {
+    let mut last_redirect_by_fd = FxHashMap::<i32, usize>::default();
+    let mut consumed_redirects = FxHashSet::<usize>::default();
+    let mut duplicate_redirects = FxHashSet::<usize>::default();
+
+    for (index, redirect) in redirects.iter().enumerate() {
+        for fd in redirect_read_fds(redirect, source) {
+            if let Some(previous) = last_redirect_by_fd.get(&fd).copied() {
+                consumed_redirects.insert(previous);
+            }
+        }
+
         for fd in duplicate_redirect_fds(redirect, source) {
-            *fd_counts.entry(fd).or_insert(0) += 1;
+            if let Some(previous) = last_redirect_by_fd.insert(fd, index)
+                && !consumed_redirects.contains(&previous)
+            {
+                duplicate_redirects.insert(previous);
+                duplicate_redirects.insert(index);
+            }
         }
     }
 
     let mut spans = Vec::new();
-    for redirect in redirects {
+    for (index, redirect) in redirects.iter().enumerate() {
+        if !duplicate_redirects.contains(&index) {
+            continue;
+        }
         let Some(span) = duplicate_redirect_report_span(redirect, source) else {
             continue;
         };
-
-        for fd in duplicate_redirect_fds(redirect, source) {
-            if fd_counts.get(&fd).copied().unwrap_or(0) > 1 {
-                spans.push(span);
-            }
-        }
+        spans.push(span);
     }
 
     spans
@@ -834,7 +846,9 @@ fn duplicate_redirect_fds(redirect: &RedirectFact<'_>, source: &str) -> SmallVec
 
     match redirect_data.kind {
         RedirectKind::Output | RedirectKind::Clobber | RedirectKind::Append => {
-            if output_redirect_is_csh_both_target(redirect_data, source) {
+            if output_redirect_is_csh_both_target(redirect_data, source)
+                || append_redirect_is_output_both(redirect_data, source)
+            {
                 if let Some(fd) = redirect_data.fd {
                     fds.push(fd);
                 } else {
@@ -846,6 +860,7 @@ fn duplicate_redirect_fds(redirect: &RedirectFact<'_>, source: &str) -> SmallVec
             }
         }
         RedirectKind::Input
+        | RedirectKind::ReadWrite
         | RedirectKind::HereDoc
         | RedirectKind::HereDocStrip
         | RedirectKind::HereString => fds.push(redirect_data.fd.unwrap_or(0)),
@@ -857,12 +872,45 @@ fn duplicate_redirect_fds(redirect: &RedirectFact<'_>, source: &str) -> SmallVec
                 fds.push(2);
             }
         }
+        RedirectKind::DupOutput if dup_redirects_to_descriptor(redirect_data, source) => {
+            fds.push(redirect_data.fd.unwrap_or(1));
+        }
+        RedirectKind::DupInput if dup_redirects_to_descriptor(redirect_data, source) => {
+            fds.push(redirect_data.fd.unwrap_or(0));
+        }
         RedirectKind::OutputBoth => {
             fds.push(1);
             fds.push(2);
         }
-        RedirectKind::ReadWrite | RedirectKind::DupOutput | RedirectKind::DupInput => {}
+        RedirectKind::DupOutput | RedirectKind::DupInput => {}
     }
+    fds
+}
+
+fn redirect_read_fds(redirect: &RedirectFact<'_>, source: &str) -> SmallVec<[i32; 1]> {
+    let mut fds = SmallVec::new();
+    let redirect_data = redirect.redirect();
+    if redirect_data.fd_var.is_some() {
+        return fds;
+    }
+
+    match redirect_data.kind {
+        RedirectKind::DupOutput | RedirectKind::DupInput => {
+            if let Some(fd) = dup_redirect_descriptor_target(redirect_data, source) {
+                fds.push(fd);
+            }
+        }
+        RedirectKind::Output
+        | RedirectKind::Clobber
+        | RedirectKind::Append
+        | RedirectKind::Input
+        | RedirectKind::ReadWrite
+        | RedirectKind::HereDoc
+        | RedirectKind::HereDocStrip
+        | RedirectKind::HereString
+        | RedirectKind::OutputBoth => {}
+    }
+
     fds
 }
 
@@ -895,11 +943,17 @@ fn duplicate_redirect_report_span(redirect: &RedirectFact<'_>, source: &str) -> 
         | RedirectKind::Clobber
         | RedirectKind::Append
         | RedirectKind::Input
+        | RedirectKind::ReadWrite
         | RedirectKind::HereString => Some(redirect.operator_span()),
         RedirectKind::DupOutput if dup_output_redirects_to_file(redirect.redirect(), source) => {
             dup_output_file_redirect_report_span(redirect, source)
         }
-        RedirectKind::ReadWrite | RedirectKind::DupOutput | RedirectKind::DupInput => None,
+        RedirectKind::DupOutput | RedirectKind::DupInput
+            if dup_redirects_to_descriptor(redirect.redirect(), source) =>
+        {
+            Some(redirect.operator_span())
+        }
+        RedirectKind::DupOutput | RedirectKind::DupInput => None,
     }
 }
 
@@ -926,8 +980,34 @@ fn dup_output_redirects_to_file(redirect: &Redirect, source: &str) -> bool {
         .is_some_and(|text| text == "-" || text.parse::<i32>().is_ok())
 }
 
+fn dup_redirects_to_descriptor(redirect: &Redirect, source: &str) -> bool {
+    dup_redirect_descriptor_target(redirect, source).is_some()
+}
+
+fn dup_redirect_descriptor_target(redirect: &Redirect, source: &str) -> Option<i32> {
+    let target = redirect.word_target()?;
+    static_word_text(target, source)
+        .as_deref()
+        .and_then(|text| text.parse::<i32>().ok())
+}
+
 fn output_redirect_is_csh_both_target(redirect: &Redirect, source: &str) -> bool {
     csh_both_output_redirect_span_and_target(redirect, source).is_some()
+}
+
+fn append_redirect_is_output_both(redirect: &Redirect, source: &str) -> bool {
+    if redirect.kind != RedirectKind::Append || redirect.fd.is_some() {
+        return false;
+    }
+    let Some(target) = redirect.word_target() else {
+        return false;
+    };
+    let Some(prefix) = source.get(redirect.span.start.offset..target.span.start.offset) else {
+        return false;
+    };
+    prefix
+        .strip_prefix("&>>")
+        .is_some_and(|gap| gap.bytes().all(|byte| byte.is_ascii_whitespace()))
 }
 
 fn csh_both_output_redirect_report_span(redirect: &RedirectFact<'_>, source: &str) -> Option<Span> {
