@@ -20,19 +20,49 @@ C049 these alternatives make the OR chain unable to fail
    |
 
 C049 these alternatives make the OR chain unable to fail
-  --> <source>:13:26
+  --> <source>:13:18
    |
-13 | [[ a != "$x" ]] || maybe || [[ b != "$x" ]]
-   |
-
-C049 these alternatives make the OR chain unable to fail
-  --> <source>:16:17
-   |
-16 | [[ "$x" != a ]] || [[ "$x" != b ]] || [[ "$x" != c ]]
+13 | [ "$n" -ne 010 ] || [ "$n" -ne 8 ]
    |
 
 C049 these alternatives make the OR chain unable to fail
-  --> <source>:16:36
+  --> <source>:16:20
    |
-16 | [[ "$x" != a ]] || [[ "$x" != b ]] || [[ "$x" != c ]]
+16 | [[ "$n" -ne 010 ]] || [[ "$n" -ne 10 ]]
+   |
+
+C049 these alternatives make the OR chain unable to fail
+  --> <source>:17:21
+   |
+17 | [[ "$n" -ne 64#@ ]] || [[ "$n" -ne 63 ]]
+   |
+
+C049 these alternatives make the OR chain unable to fail
+  --> <source>:20:20
+   |
+20 | [[ "$x" != "a*" ]] || [[ "$x" != "b*" ]]
+   |
+
+C049 these alternatives make the OR chain unable to fail
+  --> <source>:21:20
+   |
+21 | [[ "$x" != 'a*' ]] || [[ "$x" != 'b*' ]]
+   |
+
+C049 these alternatives make the OR chain unable to fail
+  --> <source>:24:26
+   |
+24 | [[ a != "$x" ]] || maybe || [[ b != "$x" ]]
+   |
+
+C049 these alternatives make the OR chain unable to fail
+  --> <source>:27:17
+   |
+27 | [[ "$x" != a ]] || [[ "$x" != b ]] || [[ "$x" != c ]]
+   |
+
+C049 these alternatives make the OR chain unable to fail
+  --> <source>:27:36
+   |
+27 | [[ "$x" != a ]] || [[ "$x" != b ]] || [[ "$x" != c ]]
    |

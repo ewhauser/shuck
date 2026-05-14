@@ -382,6 +382,13 @@ struct NegativeComparison {
     literal_operand: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NumericLiteralNormalization {
+    None,
+    Decimal,
+    ShellArithmetic,
+}
+
 #[cfg_attr(shuck_profiling, inline(never))]
 pub(super) fn build_tautology_chain_operator_spans<'a>(
     commands: &[CommandFact<'a>],
@@ -453,6 +460,11 @@ fn simple_test_negative_comparison(
     if !matches!(operator.as_str(), "!=" | "-ne") {
         return None;
     }
+    let numeric_normalization = if operator == "-ne" {
+        NumericLiteralNormalization::Decimal
+    } else {
+        NumericLiteralNormalization::None
+    };
 
     negative_comparison_from_words(
         simple_test.effective_operands()[0],
@@ -461,6 +473,7 @@ fn simple_test_negative_comparison(
         simple_test.effective_operand_class(2)?,
         source,
         false,
+        numeric_normalization,
     )
 }
 
@@ -472,13 +485,19 @@ fn conditional_negative_comparison(
         return None;
     };
 
-    let skip_pattern_literals = match binary.op() {
-        ConditionalBinaryOp::PatternNe => true,
-        ConditionalBinaryOp::ArithmeticNe => false,
+    let (skip_pattern_literals, numeric_normalization) = match binary.op() {
+        ConditionalBinaryOp::PatternNe => (true, NumericLiteralNormalization::None),
+        ConditionalBinaryOp::ArithmeticNe => (false, NumericLiteralNormalization::ShellArithmetic),
         _ => return None,
     };
 
-    negative_comparison_from_operands(binary.left(), binary.right(), source, skip_pattern_literals)
+    negative_comparison_from_operands(
+        binary.left(),
+        binary.right(),
+        source,
+        skip_pattern_literals,
+        numeric_normalization,
+    )
 }
 
 fn negative_comparison_from_operands(
@@ -486,20 +505,21 @@ fn negative_comparison_from_operands(
     right: ConditionalOperandFact<'_>,
     source: &str,
     skip_pattern_literals: bool,
+    numeric_normalization: NumericLiteralNormalization,
 ) -> Option<NegativeComparison> {
     match (left.class(), right.class()) {
         (TestOperandClass::FixedLiteral, TestOperandClass::RuntimeSensitive) => {
             let literal = conditional_operand_literal_text(left, source, skip_pattern_literals)?;
             Some(NegativeComparison {
                 runtime_operand: conditional_operand_source_text(right, source).to_owned(),
-                literal_operand: literal,
+                literal_operand: normalize_tautology_literal(literal, numeric_normalization)?,
             })
         }
         (TestOperandClass::RuntimeSensitive, TestOperandClass::FixedLiteral) => {
             let literal = conditional_operand_literal_text(right, source, skip_pattern_literals)?;
             Some(NegativeComparison {
                 runtime_operand: conditional_operand_source_text(left, source).to_owned(),
-                literal_operand: literal,
+                literal_operand: normalize_tautology_literal(literal, numeric_normalization)?,
             })
         }
         _ => None,
@@ -513,20 +533,21 @@ fn negative_comparison_from_words(
     right_class: TestOperandClass,
     source: &str,
     skip_pattern_literals: bool,
+    numeric_normalization: NumericLiteralNormalization,
 ) -> Option<NegativeComparison> {
     match (left_class, right_class) {
         (TestOperandClass::FixedLiteral, TestOperandClass::RuntimeSensitive) => {
             let literal = word_literal_text(left, source, skip_pattern_literals)?;
             Some(NegativeComparison {
                 runtime_operand: right.span.slice(source).to_owned(),
-                literal_operand: literal,
+                literal_operand: normalize_tautology_literal(literal, numeric_normalization)?,
             })
         }
         (TestOperandClass::RuntimeSensitive, TestOperandClass::FixedLiteral) => {
             let literal = word_literal_text(right, source, skip_pattern_literals)?;
             Some(NegativeComparison {
                 runtime_operand: left.span.slice(source).to_owned(),
-                literal_operand: literal,
+                literal_operand: normalize_tautology_literal(literal, numeric_normalization)?,
             })
         }
         _ => None,
@@ -560,11 +581,215 @@ fn conditional_operand_source_text<'a>(
 
 fn word_literal_text(word: &Word, source: &str, skip_pattern_literals: bool) -> Option<String> {
     let text = static_word_text(word, source)?;
-    if skip_pattern_literals && looks_like_conditional_pattern_literal(&text) {
+    if skip_pattern_literals && word_has_unquoted_conditional_pattern_literal(word, source) {
         return None;
     }
 
     Some(text.into_owned())
+}
+
+fn normalize_tautology_literal(
+    literal: String,
+    numeric_normalization: NumericLiteralNormalization,
+) -> Option<String> {
+    match numeric_normalization {
+        NumericLiteralNormalization::None => Some(literal),
+        NumericLiteralNormalization::Decimal => normalize_decimal_integer_literal(&literal),
+        NumericLiteralNormalization::ShellArithmetic => {
+            normalize_shell_arithmetic_integer_literal(&literal)
+        }
+    }
+}
+
+fn normalize_decimal_integer_literal(text: &str) -> Option<String> {
+    let (negative, unsigned) = if let Some(digits) = text.strip_prefix('-') {
+        (true, digits)
+    } else if let Some(digits) = text.strip_prefix('+') {
+        (false, digits)
+    } else {
+        (false, text)
+    };
+
+    if unsigned.is_empty() || !unsigned.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+
+    let value = parse_unsigned_digits(unsigned, 10)?;
+    if negative {
+        value.checked_neg().map(|value| value.to_string())
+    } else {
+        Some(value.to_string())
+    }
+}
+
+fn normalize_shell_arithmetic_integer_literal(text: &str) -> Option<String> {
+    parse_shell_arithmetic_integer_value(text).map(|value| value.to_string())
+}
+
+fn parse_shell_arithmetic_integer_value(text: &str) -> Option<i128> {
+    let (negative, unsigned) = if let Some(digits) = text.strip_prefix('-') {
+        (true, digits)
+    } else if let Some(digits) = text.strip_prefix('+') {
+        (false, digits)
+    } else {
+        (false, text)
+    };
+    if unsigned.is_empty() {
+        return None;
+    }
+
+    let value = if let Some((base_text, digits)) = unsigned.split_once('#') {
+        let base = parse_unsigned_digits(base_text, 10)?;
+        if !(2..=64).contains(&base) || digits.is_empty() {
+            return None;
+        }
+        parse_arithmetic_digits(digits, base as u32)?
+    } else if let Some(digits) = unsigned
+        .strip_prefix("0x")
+        .or_else(|| unsigned.strip_prefix("0X"))
+    {
+        if digits.is_empty() {
+            return None;
+        }
+        parse_arithmetic_digits(digits, 16)?
+    } else if unsigned.len() > 1 && unsigned.starts_with('0') {
+        parse_arithmetic_digits(unsigned, 8)?
+    } else {
+        parse_unsigned_digits(unsigned, 10)?
+    };
+
+    if negative {
+        value.checked_neg()
+    } else {
+        Some(value)
+    }
+}
+
+fn parse_unsigned_digits(digits: &str, radix: u32) -> Option<i128> {
+    if digits.is_empty() {
+        return None;
+    }
+    parse_arithmetic_digits(digits, radix)
+}
+
+fn parse_arithmetic_digits(digits: &str, radix: u32) -> Option<i128> {
+    let mut value = 0i128;
+    let radix_value = i128::from(radix);
+    for byte in digits.bytes() {
+        let digit = i128::from(arithmetic_digit_value(byte, radix)?);
+        if digit >= radix_value {
+            return None;
+        }
+        value = value.checked_mul(radix_value)?.checked_add(digit)?;
+    }
+    Some(value)
+}
+
+fn arithmetic_digit_value(byte: u8, radix: u32) -> Option<u32> {
+    match byte {
+        b'0'..=b'9' => Some(u32::from(byte - b'0')),
+        b'a'..=b'z' => Some(u32::from(byte - b'a') + 10),
+        b'A'..=b'Z' if radix <= 36 => Some(u32::from(byte - b'A') + 10),
+        b'A'..=b'Z' => Some(u32::from(byte - b'A') + 36),
+        b'@' => Some(62),
+        b'_' => Some(63),
+        _ => None,
+    }
+}
+
+fn word_has_unquoted_conditional_pattern_literal(word: &Word, source: &str) -> bool {
+    !word_spans::word_unquoted_glob_pattern_spans(word, source).is_empty()
+        || word_has_unquoted_conditional_extglob_operator(&word.parts, source, false)
+}
+
+fn word_has_unquoted_conditional_extglob_operator(
+    parts: &[WordPartNode],
+    source: &str,
+    in_double_quotes: bool,
+) -> bool {
+    let mut literal_run_start = None::<usize>;
+    let mut literal_run_end = None::<usize>;
+
+    let flush_literal_run = |literal_run_start: &mut Option<usize>,
+                             literal_run_end: &mut Option<usize>| {
+        let Some(start_index) = literal_run_start.take() else {
+            return false;
+        };
+        let Some(end_index) = literal_run_end.take() else {
+            return false;
+        };
+        let start = parts[start_index].span.start;
+        let end = parts[end_index].span.end;
+        unquoted_text_has_conditional_extglob_operator(
+            Span::from_positions(start, end).slice(source),
+        )
+    };
+
+    for (index, part) in parts.iter().enumerate() {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                if flush_literal_run(&mut literal_run_start, &mut literal_run_end) {
+                    return true;
+                }
+                if word_has_unquoted_conditional_extglob_operator(parts, source, true) {
+                    return true;
+                }
+            }
+            WordPart::Literal(_) if !in_double_quotes => {
+                literal_run_start.get_or_insert(index);
+                literal_run_end = Some(index);
+            }
+            WordPart::Literal(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::SingleQuoted { .. }
+            | WordPart::Variable(_)
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => {
+                if flush_literal_run(&mut literal_run_start, &mut literal_run_end) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    flush_literal_run(&mut literal_run_start, &mut literal_run_end)
+}
+
+fn unquoted_text_has_conditional_extglob_operator(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+    while index + 1 < bytes.len() {
+        if matches!(bytes[index], b'@' | b'!' | b'+')
+            && bytes[index + 1] == b'('
+            && !byte_is_escaped(bytes, index)
+        {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}
+
+fn byte_is_escaped(bytes: &[u8], index: usize) -> bool {
+    let mut slash_count = 0usize;
+    let mut cursor = index;
+    while cursor > 0 && bytes[cursor - 1] == b'\\' {
+        slash_count += 1;
+        cursor -= 1;
+    }
+    slash_count % 2 == 1
 }
 
 fn looks_like_conditional_pattern_literal(text: &str) -> bool {
