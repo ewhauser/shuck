@@ -41,15 +41,6 @@ fn source_may_contain_assignment_spacing(source: &str) -> bool {
     let mut index = 0;
 
     while index < bytes.len() {
-        if bytes[index] == b'\'' {
-            index += 1;
-            while index < bytes.len() && bytes[index] != b'\'' {
-                index += 1;
-            }
-            index += 1;
-            continue;
-        }
-
         if bytes[index] != b'=' || !assignment_spacing_gap_can_start_at(bytes, index + 1) {
             index += 1;
             continue;
@@ -195,6 +186,7 @@ foo =bar
 echo foo= bar
 foo=bar cmd baz= qux
 export foo=
+comment='name= value'
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::AssignmentSpacing));
 
@@ -219,13 +211,32 @@ export foo=
     }
 
     #[test]
-    fn source_prefilter_matches_reportable_shapes() {
+    fn reports_after_comment_apostrophe() {
+        let source = "\
+#!/bin/sh
+# it's okay to use contractions in comments
+foo= bar
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::AssignmentSpacing));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![" "]
+        );
+    }
+
+    #[test]
+    fn source_prefilter_matches_candidate_shapes() {
         for source in [
             "foo= bar\n",
             "foo+= append\n",
             "declare foo= bar\n",
             "array[0]= value\n",
             "foo=\\\nbar\n",
+            "comment='name= value'\n",
         ] {
             assert!(
                 super::source_may_contain_assignment_spacing(source),
@@ -241,7 +252,6 @@ export foo=
             "foo = bar\n",
             "[ \"$left\" = right ]\n",
             "while IFS= read -r line; do :; done\n",
-            "comment='name= value'\n",
         ] {
             assert!(
                 !super::source_may_contain_assignment_spacing(source),
