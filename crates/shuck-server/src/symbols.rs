@@ -303,9 +303,11 @@ pub(crate) fn workspace_symbols(
         .filter(|document| workspace_symbol_options_for_uri(&context, &document.uri).enabled)
         .filter_map(|document| workspace_symbol_summary_from_open_document(&context, document))
         .collect::<Vec<_>>();
-    let open_uris = summaries
+    let open_uris = context
+        .open_documents
         .iter()
-        .flat_map(workspace_summary_uri_keys)
+        .filter(|document| workspace_symbol_options_for_uri(&context, &document.uri).enabled)
+        .flat_map(|document| workspace_uri_keys(&document.uri))
         .collect::<std::collections::BTreeSet<_>>();
     let (closed_summaries, _partial) = context.index.closed_summaries(&context, client)?;
     summaries.extend(
@@ -583,8 +585,10 @@ fn rebuild_closed_workspace_symbols(
         }
     }
 
+    partial |= files.len() > context.options.max_files;
     let summaries = files
         .values()
+        .take(context.options.max_files)
         .filter_map(|file| closed_workspace_symbol_summary(context, file))
         .collect();
 
@@ -754,9 +758,9 @@ fn workspace_symbol_candidates(
         .collect()
 }
 
-fn workspace_summary_uri_keys(summary: &WorkspaceSymbolSummary) -> Vec<String> {
-    let mut keys = vec![summary.uri.as_str().to_owned()];
-    if let Ok(path) = summary.uri.to_file_path()
+fn workspace_uri_keys(uri: &types::Url) -> Vec<String> {
+    let mut keys = vec![uri.as_str().to_owned()];
+    if let Ok(path) = uri.to_file_path()
         && let Ok(canonical) = std::fs::canonicalize(path)
         && let Ok(uri) = types::Url::from_file_path(canonical)
     {
@@ -1367,6 +1371,31 @@ build() {
         assert!(!names.contains(&"disk_workspace_symbol".to_owned()));
     }
 
+    #[test]
+    fn workspace_symbols_shadow_closed_summaries_for_unclassified_open_buffers() {
+        let tempdir = tempfile::tempdir().expect("workspace should be created");
+        let open_path = tempdir.path().join("script");
+        std::fs::write(&open_path, "#!/bin/sh\ndisk_shadow_symbol() { :; }\n")
+            .expect("open disk fixture should be written");
+
+        let (mut session, client) = make_session(tempdir.path(), PositionEncoding::UTF16);
+        let open_uri = Url::from_file_path(&open_path).expect("open URI should convert");
+        session.open_text_document(
+            open_uri,
+            TextDocument::new("echo no shell hint\n".to_owned(), 8),
+        );
+
+        let response = workspace_symbols(
+            session.workspace_symbol_context(),
+            &client,
+            workspace_symbol_params("disk_shadow"),
+        )
+        .expect("workspace symbol request should succeed")
+        .expect("workspace symbol response should be present");
+
+        assert!(workspace_symbol_response_names(response).is_empty());
+    }
+
     #[cfg(unix)]
     #[test]
     fn workspace_symbols_shadow_closed_summaries_when_open_uri_is_symlink() {
@@ -1508,6 +1537,39 @@ build() {
         let mut workspace_options = crate::session::WorkspaceOptionsMap::default();
         workspace_options.insert(workspace_uri, options);
         session.update_configuration(crate::ClientOptions::default(), Some(workspace_options));
+        let context = session.workspace_symbol_context();
+
+        let response = workspace_symbols(context.clone(), &client, workspace_symbol_params(""))
+            .expect("workspace symbol request should succeed")
+            .expect("workspace symbol response should be present");
+        assert_eq!(workspace_symbol_response_names(response), ["alpha_symbol"]);
+
+        let cache = lock_or_recover(&context.index.cache);
+        assert!(cache.partial);
+        assert!(!cache.dirty);
+    }
+
+    #[test]
+    fn workspace_symbols_enforce_max_files_across_workspace_roots() {
+        let tempdir = tempfile::tempdir().expect("workspace should be created");
+        let first_root = tempdir.path().join("a-root");
+        let second_root = tempdir.path().join("b-root");
+        std::fs::create_dir(&first_root).expect("first root should be created");
+        std::fs::create_dir(&second_root).expect("second root should be created");
+        std::fs::write(first_root.join("a.sh"), "alpha_symbol() { :; }\n")
+            .expect("alpha fixture should be written");
+        std::fs::write(second_root.join("b.sh"), "beta_symbol() { :; }\n")
+            .expect("beta fixture should be written");
+
+        let (mut session, client) = make_session(&first_root, PositionEncoding::UTF16);
+        let second_uri =
+            Url::from_file_path(&second_root).expect("second workspace URI should convert");
+        session
+            .open_workspace_folder(second_uri, &client)
+            .expect("second workspace should open");
+        let mut options = crate::ClientOptions::default();
+        options.server.workspace_symbols.max_files = 1;
+        session.update_client_options(options);
         let context = session.workspace_symbol_context();
 
         let response = workspace_symbols(context.clone(), &client, workspace_symbol_params(""))
