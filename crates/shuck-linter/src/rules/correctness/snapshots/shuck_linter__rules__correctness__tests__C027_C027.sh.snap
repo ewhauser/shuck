@@ -1,6 +1,5 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
-assertion_line: 288
 ---
 C027 put a separator before this loop keyword, or quote it as literal text
  --> <source>:3:15

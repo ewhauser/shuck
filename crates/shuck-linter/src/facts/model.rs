@@ -61,7 +61,7 @@ pub(crate) struct WordFactStore<'a> {
     pub(in crate::facts) word_index: FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
     pub(in crate::facts) array_assignment_split_word_ids: Vec<WordOccurrenceId>,
     pub(in crate::facts) brace_variable_before_bracket_spans: Vec<Span>,
-    pub(in crate::facts) bare_done_word_spans: Vec<Span>,
+    pub(in crate::facts) bare_done_word_spans: OnceLock<Vec<Span>>,
     pub(in crate::facts) array_index_arithmetic_spans: Vec<Span>,
     pub(in crate::facts) arithmetic_score_line_spans: Vec<Span>,
     pub(in crate::facts) dollar_in_arithmetic_spans: Vec<Span>,
@@ -1101,7 +1101,14 @@ impl<'facts, 'a> WordFacts<'facts, 'a> {
     }
 
     pub(crate) fn bare_done_word_spans(self) -> &'facts [Span] {
-        &self.facts.words.bare_done_word_spans
+        self.facts.words.bare_done_word_spans.get_or_init(|| {
+            build_bare_done_word_spans(
+                &self.facts.command.commands,
+                &self.facts.words.word_nodes,
+                &self.facts.words.word_occurrences,
+                self.facts.source_facts.source,
+            )
+        })
     }
 
     pub(crate) fn array_index_arithmetic_spans(self) -> &'facts [Span] {

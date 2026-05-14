@@ -731,8 +731,8 @@
     "name": "bare-done-word",
     "category": "Correctness",
     "categoryPrefix": "C",
-    "description": "A loop-closing `done` is missing a separator before it.",
-    "rationale": "Insert a semicolon or newline before `done`, or quote it if it is meant literally.",
+    "description": "A loop keyword is missing a separator before it.",
+    "rationale": "Insert a semicolon or newline before the loop keyword, or quote it if it is meant literally.",
     "shells": [
       "sh",
       "bash",
@@ -752,6 +752,10 @@
       {
         "kind": "invalid",
         "code": "#!/bin/sh\nprintf '%s\n' done"
+      },
+      {
+        "kind": "invalid",
+        "code": "#!/bin/sh\nrvm 3.1.3 do rvm gemdir"
       }
     ]
   },

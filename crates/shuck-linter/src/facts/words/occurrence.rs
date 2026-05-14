@@ -895,7 +895,7 @@ pub(crate) fn build_bare_done_word_spans(
         .filter(|fact| {
             occurrence_static_text(nodes, fact, source)
                 .as_deref()
-                .is_some_and(is_bare_loop_keyword_text)
+                .is_some_and(|text| bare_loop_keyword_text_reports(fact.context, text))
         })
         .map(|fact| {
             let position = occurrence_span(nodes, fact).start;
@@ -1007,17 +1007,28 @@ fn is_bare_loop_keyword_text(text: &str) -> bool {
     matches!(text, "do" | "done")
 }
 
+fn bare_loop_keyword_text_reports(context: WordFactContext, text: &str) -> bool {
+    match text {
+        "done" => true,
+        "do" => !matches!(
+            context,
+            WordFactContext::Expansion(ExpansionContext::ForList | ExpansionContext::SelectList)
+        ),
+        _ => false,
+    }
+}
+
 fn bare_done_word_context_reports(context: WordFactContext, host_kind: WordFactHostKind) -> bool {
     match context {
         WordFactContext::CaseSubject => true,
         WordFactContext::Expansion(context) => match context {
             ExpansionContext::CommandName => host_kind == WordFactHostKind::CommandWrapperTarget,
             ExpansionContext::CommandArgument
-            | ExpansionContext::AssignmentValue
-            | ExpansionContext::DeclarationAssignmentValue
             | ExpansionContext::RedirectTarget(_)
             | ExpansionContext::DescriptorDupTarget(_)
             | ExpansionContext::HereString
+            | ExpansionContext::AssignmentValue
+            | ExpansionContext::DeclarationAssignmentValue
             | ExpansionContext::ForList
             | ExpansionContext::SelectList
             | ExpansionContext::ConditionalPattern

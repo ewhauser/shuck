@@ -76,6 +76,8 @@ trap done EXIT
 case done in ok) :;; esac
 for value in done; do :; done
 select value in done; do :; done
+for value in do; do :; done
+select value in do; do :; done
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::BareDoneWord));
 
@@ -94,16 +96,23 @@ select value in done; do :; done
 #!/bin/sh
 echo \"done\" 'done' d\"on\"e
 echo \"do\" 'do' d\"o\"
-echo done.x done#suffix
+echo done.x do.x done#suffix do#suffix
 ./do
-case \"$state\" in done) :;; esac
+case \"$state\" in done | do) :;; esac
 [[ $state =~ done ]]
+[[ $state =~ do ]]
 echo ${state:-done}
+echo ${state:-do}
 echo ${state%done}
+echo ${state%do}
 array[done]=value
+array[do]=value
 echo ${array[done]}
-cat <<done
-done
+echo ${array[do]}
+for value in do; do :; done
+select value in do; do :; done
+cat <<do
+do
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::BareDoneWord));
 
