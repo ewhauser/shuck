@@ -80,4 +80,19 @@ exec {fd}>a {fd}>b
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn keeps_overwriting_redirect_when_consumed_by_later_descriptor_copy() {
+        let source = "\
+#!/bin/bash
+: 1>a 1>b 2>&1
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DuplicateRedirect));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.start.offset,
+            source.find('>').expect("first redirect")
+        );
+    }
 }

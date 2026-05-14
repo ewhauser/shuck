@@ -840,7 +840,9 @@ pub(super) fn duplicate_redirect_spans(redirects: &[RedirectFact<'_>], source: &
             }
             changed |= duplicate_redirects.insert(previous);
             for later in later_redirects {
-                changed |= duplicate_redirects.insert(*later);
+                if !protected_redirects.contains(later) {
+                    changed |= duplicate_redirects.insert(*later);
+                }
             }
         }
 
