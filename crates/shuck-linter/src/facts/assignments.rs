@@ -205,9 +205,89 @@ impl<'name, 'uses, 'a> SelfParameterExpansionUseVisitor<'name, 'uses, 'a> {
         let name = self.name;
         let semantic = self.semantic;
         let source = self.source;
-        visit_command_substitution_candidate_words(body, semantic, source, &mut |word| {
-            collect_self_parameter_expansion_uses_in_word(word, name, semantic, source, self.uses);
-        });
+        semantic
+            .command_topology()
+            .body(body)
+            .for_each_command_visit(true, |_, visit| {
+                collect_command_self_parameter_uses(
+                    visit.command,
+                    name,
+                    semantic,
+                    source,
+                    self.uses,
+                );
+                CommandTopologyTraversal::Descend
+            });
+    }
+}
+
+fn collect_command_self_parameter_uses<'a>(
+    command: &'a Command,
+    name: &Name,
+    semantic: &'a LinterSemanticArtifacts<'a>,
+    source: &str,
+    uses: &mut SelfParameterExpansionUses,
+) {
+    visit_command_substitution_loop_header_words(command, &mut |word| {
+        collect_self_parameter_expansion_uses_in_word(word, name, semantic, source, uses);
+    });
+    visit_command_argument_words_for_substitutions(command, source, &mut |word| {
+        collect_self_parameter_expansion_uses_in_word(word, name, semantic, source, uses);
+    });
+    for assignment in command_assignments(command) {
+        collect_assignment_value_self_parameter_uses(
+            &assignment.value,
+            name,
+            semantic,
+            source,
+            uses,
+        );
+    }
+    for operand in declaration_operands(command) {
+        if let DeclOperand::Assignment(assignment) = operand {
+            collect_assignment_value_self_parameter_uses(
+                &assignment.value,
+                name,
+                semantic,
+                source,
+                uses,
+            );
+        }
+    }
+}
+
+fn collect_assignment_value_self_parameter_uses<'a>(
+    value: &'a AssignmentValue,
+    name: &Name,
+    semantic: &'a LinterSemanticArtifacts<'a>,
+    source: &str,
+    uses: &mut SelfParameterExpansionUses,
+) {
+    match value {
+        AssignmentValue::Scalar(word) => {
+            collect_self_parameter_expansion_uses_in_word(word, name, semantic, source, uses);
+        }
+        AssignmentValue::Compound(array) => {
+            for element in &array.elements {
+                match element {
+                    ArrayElem::Sequential(word) => {
+                        collect_self_parameter_expansion_uses_in_word(
+                            word, name, semantic, source, uses,
+                        );
+                    }
+                    ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
+                        visit_subscript_words(Some(key), source, &mut |word| {
+                            collect_self_parameter_expansion_uses_in_word(
+                                word, name, semantic, source, uses,
+                            );
+                        });
+                        collect_self_parameter_expansion_uses_in_word(
+                            value, name, semantic, source, uses,
+                        );
+                    }
+                }
+            }
+        }
     }
 }
 
