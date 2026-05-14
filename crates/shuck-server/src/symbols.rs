@@ -602,7 +602,12 @@ fn closed_workspace_symbol_summary(
         }
     };
     let settings = shuck_settings_for_document(context, Some(&file.absolute_path));
-    let shell = shell_for_source(&settings, &source, Some(&file.absolute_path))?;
+    let shell = crate::lint::infer_document_shell_from_parts(
+        &settings,
+        None,
+        &source,
+        Some(&file.absolute_path),
+    )?;
     Some(workspace_symbol_summary_from_source(
         uri,
         &source,
@@ -648,19 +653,6 @@ fn workspace_root_match_len(path: &Path, workspace: &WorkspaceSettingsSnapshot) 
         .filter(|root| path.starts_with(root))
         .map(|root| root.components().count())
         .max()
-}
-
-fn shell_for_source(
-    settings: &ShuckSettings,
-    source: &str,
-    path: Option<&Path>,
-) -> Option<ShellDialect> {
-    if settings.linter().shell != ShellDialect::Unknown {
-        return Some(settings.linter().shell);
-    }
-
-    let shell = ShellDialect::infer(source, path);
-    (shell != ShellDialect::Unknown).then_some(shell)
 }
 
 fn workspace_symbol_candidates(
@@ -1372,6 +1364,30 @@ build() {
         .expect("workspace symbol response should be present");
 
         assert_eq!(workspace_symbol_response_names(response), ["zsh_alias"]);
+    }
+
+    #[test]
+    fn workspace_symbols_use_source_declared_shell_for_closed_files() {
+        let tempdir = tempfile::tempdir().expect("workspace should be created");
+        std::fs::write(
+            tempdir.path().join("script.sh"),
+            "# shellcheck shell=zsh\nfunction declared_header declared_alias() { :; }\n",
+        )
+        .expect("fixture should be written");
+
+        let (session, client) = make_session(tempdir.path(), PositionEncoding::UTF16);
+        let response = workspace_symbols(
+            session.workspace_symbol_context(),
+            &client,
+            workspace_symbol_params("declared_alias"),
+        )
+        .expect("workspace symbol request should succeed")
+        .expect("workspace symbol response should be present");
+
+        assert_eq!(
+            workspace_symbol_response_names(response),
+            ["declared_alias"]
+        );
     }
 
     #[test]
