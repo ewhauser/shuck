@@ -293,13 +293,14 @@ pub(crate) fn workspace_symbols(
     client: &Client,
     params: types::WorkspaceSymbolParams,
 ) -> crate::server::Result<WorkspaceSymbolResponse> {
-    if !context.options.enabled {
+    if !workspace_symbols_have_enabled_scope(&context) {
         return Ok(Some(types::WorkspaceSymbolResponse::Nested(Vec::new())));
     }
 
     let mut summaries = context
         .open_documents
         .iter()
+        .filter(|document| workspace_symbol_options_for_uri(&context, &document.uri).enabled)
         .filter_map(|document| workspace_symbol_summary_from_open_document(&context, document))
         .collect::<Vec<_>>();
     let open_uris = summaries
@@ -548,29 +549,42 @@ fn rebuild_closed_workspace_symbols(
         });
     }
 
-    let cwd = context
-        .workspace_roots
-        .first()
-        .cloned()
-        .unwrap_or_else(|| PathBuf::from("."));
-    let files = discover_files(
-        &context.workspace_roots,
-        &cwd,
-        &DiscoveryOptions {
-            respect_gitignore: true,
-            parallel: true,
-            use_config_roots: true,
-            ..DiscoveryOptions::default()
-        },
-    )
-    .context("discover workspace shell files for symbols")?
-    .into_iter()
-    .filter(|file| file.kind == FileKind::Shell)
-    .collect::<Vec<_>>();
-    let partial = files.len() > context.options.max_files;
+    let mut files = BTreeMap::new();
+    let mut partial = false;
+    for root in &context.workspace_roots {
+        let options = workspace_symbol_options_for_path(context, Some(root));
+        if !options.enabled {
+            continue;
+        }
+
+        let mut root_files = discover_files(
+            std::slice::from_ref(root),
+            root,
+            &DiscoveryOptions {
+                respect_gitignore: true,
+                parallel: true,
+                use_config_roots: true,
+                ..DiscoveryOptions::default()
+            },
+        )
+        .with_context(|| {
+            format!(
+                "discover workspace shell files for symbols in {}",
+                root.display()
+            )
+        })?
+        .into_iter()
+        .filter(|file| file.kind == FileKind::Shell)
+        .collect::<Vec<_>>();
+        partial |= root_files.len() > options.max_files;
+        root_files.truncate(options.max_files);
+        for file in root_files {
+            files.entry(file.absolute_path.clone()).or_insert(file);
+        }
+    }
+
     let summaries = files
-        .iter()
-        .take(context.options.max_files)
+        .values()
         .filter_map(|file| closed_workspace_symbol_summary(context, file))
         .collect();
 
@@ -653,6 +667,43 @@ fn workspace_root_match_len(path: &Path, workspace: &WorkspaceSettingsSnapshot) 
         .filter(|root| path.starts_with(root))
         .map(|root| root.components().count())
         .max()
+}
+
+fn workspace_symbol_options_for_uri(
+    context: &WorkspaceSymbolContext,
+    uri: &types::Url,
+) -> WorkspaceSymbolFeatureOptions {
+    let path = uri.to_file_path().ok();
+    workspace_symbol_options_for_path(context, path.as_deref())
+}
+
+fn workspace_symbol_options_for_path(
+    context: &WorkspaceSymbolContext,
+    path: Option<&Path>,
+) -> WorkspaceSymbolFeatureOptions {
+    path.and_then(|path| {
+        context
+            .workspace_settings
+            .iter()
+            .filter_map(|workspace| {
+                workspace_root_match_len(path, workspace).map(|len| (workspace, len))
+            })
+            .max_by_key(|(_, len)| *len)
+            .and_then(|(workspace, _)| workspace.options.as_ref())
+            .map(|options| options.server.workspace_symbols)
+    })
+    .unwrap_or(context.options)
+}
+
+fn workspace_symbols_have_enabled_scope(context: &WorkspaceSymbolContext) -> bool {
+    context
+        .open_documents
+        .iter()
+        .any(|document| workspace_symbol_options_for_uri(context, &document.uri).enabled)
+        || context
+            .workspace_roots
+            .iter()
+            .any(|root| workspace_symbol_options_for_path(context, Some(root)).enabled)
 }
 
 fn workspace_symbol_candidates(
@@ -1200,6 +1251,32 @@ build() {
     }
 
     #[test]
+    fn workspace_symbols_honor_workspace_level_disable() {
+        let tempdir = tempfile::tempdir().expect("workspace should be created");
+        std::fs::write(tempdir.path().join("script.sh"), "hidden_symbol() { :; }\n")
+            .expect("fixture should be written");
+
+        let (mut session, client) = make_session(tempdir.path(), PositionEncoding::UTF16);
+        let workspace_uri =
+            Url::from_file_path(tempdir.path()).expect("workspace URI should convert");
+        let mut options = crate::ClientOptions::default();
+        options.server.workspace_symbols.enabled = false;
+        let mut workspace_options = crate::session::WorkspaceOptionsMap::default();
+        workspace_options.insert(workspace_uri, options);
+        session.update_configuration(crate::ClientOptions::default(), Some(workspace_options));
+        let context = session.workspace_symbol_context();
+
+        let response = workspace_symbols(context.clone(), &client, workspace_symbol_params(""))
+            .expect("workspace symbol request should succeed")
+            .expect("workspace symbol response should be present");
+        assert!(workspace_symbol_response_names(response).is_empty());
+
+        let cache = lock_or_recover(&context.index.cache);
+        assert!(cache.dirty);
+        assert!(cache.summaries.is_empty());
+    }
+
+    #[test]
     fn workspace_symbols_include_language_id_only_open_buffers() {
         let tempdir = tempfile::tempdir().expect("workspace should be created");
         let (mut session, client) = make_session(tempdir.path(), PositionEncoding::UTF16);
@@ -1409,6 +1486,34 @@ build() {
             .expect("workspace symbol response should be present");
         let names = workspace_symbol_response_names(response);
         assert_eq!(names, ["alpha_symbol"]);
+
+        let cache = lock_or_recover(&context.index.cache);
+        assert!(cache.partial);
+        assert!(!cache.dirty);
+    }
+
+    #[test]
+    fn workspace_symbols_honor_workspace_level_max_files() {
+        let tempdir = tempfile::tempdir().expect("workspace should be created");
+        std::fs::write(tempdir.path().join("a.sh"), "alpha_symbol() { :; }\n")
+            .expect("alpha fixture should be written");
+        std::fs::write(tempdir.path().join("b.sh"), "beta_symbol() { :; }\n")
+            .expect("beta fixture should be written");
+
+        let (mut session, client) = make_session(tempdir.path(), PositionEncoding::UTF16);
+        let workspace_uri =
+            Url::from_file_path(tempdir.path()).expect("workspace URI should convert");
+        let mut options = crate::ClientOptions::default();
+        options.server.workspace_symbols.max_files = 1;
+        let mut workspace_options = crate::session::WorkspaceOptionsMap::default();
+        workspace_options.insert(workspace_uri, options);
+        session.update_configuration(crate::ClientOptions::default(), Some(workspace_options));
+        let context = session.workspace_symbol_context();
+
+        let response = workspace_symbols(context.clone(), &client, workspace_symbol_params(""))
+            .expect("workspace symbol request should succeed")
+            .expect("workspace symbol response should be present");
+        assert_eq!(workspace_symbol_response_names(response), ["alpha_symbol"]);
 
         let cache = lock_or_recover(&context.index.cache);
         assert!(cache.partial);
