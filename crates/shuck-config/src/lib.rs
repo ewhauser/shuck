@@ -60,7 +60,7 @@ const CONFIG_OVERRIDE_LINT_ZSH_PLUGIN_KEYS: &[&str] = &[
     "theme-loads",
     "entrypoints",
 ];
-const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &["c001", "c063", "s084", "s085"];
+const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &["c001", "c063", "s084", "s085", "c158"];
 const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
     &["treat-indirect-expansion-targets-as-used"];
 const CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS: &[&str] = &["report-unreached-nested-definitions"];
@@ -74,6 +74,10 @@ const CONFIG_OVERRIDE_S085_RULE_OPTION_KEYS: &[&str] = &[
     "non-trivial-line-threshold",
     "non-trivial-function-count",
     "main-name",
+];
+const CONFIG_OVERRIDE_C158_RULE_OPTION_KEYS: &[&str] = &[
+    "treat-readonly-as-documented",
+    "treat-export-as-intentional",
 ];
 const CONFIG_OVERRIDE_RUN_KEYS: &[&str] = &["shell", "shell-version", "shells"];
 const CONFIG_OVERRIDE_RUN_SHELL_NAMES: &[&str] =
@@ -331,6 +335,8 @@ pub struct LintRuleOptionsConfig {
     pub s084: Option<S084RuleOptionsConfig>,
     /// Options for rule S085.
     pub s085: Option<S085RuleOptionsConfig>,
+    /// Options for rule C158.
+    pub c158: Option<C158RuleOptionsConfig>,
 }
 
 impl LintRuleOptionsConfig {
@@ -346,6 +352,9 @@ impl LintRuleOptionsConfig {
         }
         if let Some(s085) = overrides.s085 {
             self.s085.get_or_insert_default().apply_overrides(s085);
+        }
+        if let Some(c158) = overrides.c158 {
+            self.c158.get_or_insert_default().apply_overrides(c158);
         }
     }
 }
@@ -440,6 +449,28 @@ impl S085RuleOptionsConfig {
         }
     }
 }
+
+/// Options for rule C158.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct C158RuleOptionsConfig {
+    /// Whether readonly declarations document intentional globals.
+    pub treat_readonly_as_documented: Option<bool>,
+    /// Whether exported assignments should be treated as intentional globals.
+    pub treat_export_as_intentional: Option<bool>,
+}
+
+impl C158RuleOptionsConfig {
+    fn apply_overrides(&mut self, overrides: Self) {
+        if overrides.treat_readonly_as_documented.is_some() {
+            self.treat_readonly_as_documented = overrides.treat_readonly_as_documented;
+        }
+        if overrides.treat_export_as_intentional.is_some() {
+            self.treat_export_as_intentional = overrides.treat_export_as_intentional;
+        }
+    }
+}
+
 /// Partial formatter settings supplied by CLI flags or config files.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FormatSettingsPatch {
@@ -782,6 +813,27 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
                                 default: r#""main""#,
                                 value_type: "string",
                                 example: r#"main-name = "run""#,
+                            },
+                        ],
+                        sections: &[],
+                    },
+                    ConfigSectionMetadata {
+                        key: "c158",
+                        docs: "Behavior overrides for `C158` implicit global assignment analysis.",
+                        fields: &[
+                            ConfigFieldMetadata {
+                                key: "treat-readonly-as-documented",
+                                docs: "Treat top-level readonly declarations as documented intentional globals.",
+                                default: "true",
+                                value_type: "bool",
+                                example: "treat-readonly-as-documented = false",
+                            },
+                            ConfigFieldMetadata {
+                                key: "treat-export-as-intentional",
+                                docs: "Treat top-level exported bindings as intentional globals.",
+                                default: "true",
+                                value_type: "bool",
+                                example: "treat-export-as-intentional = false",
                             },
                         ],
                         sections: &[],
@@ -1466,6 +1518,9 @@ fn validate_lint_rule_options_override(value: &toml::Value) -> std::result::Resu
     if let Some(s085_value) = rule_options.get("s085") {
         validate_s085_rule_options_override(s085_value)?;
     }
+    if let Some(c158_value) = rule_options.get("c158") {
+        validate_c158_rule_options_override(c158_value)?;
+    }
 
     Ok(())
 }
@@ -1533,6 +1588,23 @@ fn validate_s085_rule_options_override(value: &toml::Value) -> std::result::Resu
 
     Ok(())
 }
+
+fn validate_c158_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let c158 = value
+        .as_table()
+        .ok_or_else(|| "`[lint.rule-options.c158]` must be a TOML table".to_owned())?;
+    for key in c158.keys() {
+        if !CONFIG_OVERRIDE_C158_RULE_OPTION_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.rule-options.c158]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_C158_RULE_OPTION_KEYS.join(", ")
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 fn invalid_config_argument(
     cmd: &clap::Command,
     arg: Option<&clap::Arg>,
@@ -1815,6 +1887,23 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_validate_supported_c158_rule_option_keys() {
+        let config = parse_config_override(
+            "lint.rule-options.c158.treat-readonly-as-documented = false\n\
+             lint.rule-options.c158.treat-export-as-intentional = false",
+        )
+        .unwrap();
+        let c158 = config
+            .lint
+            .rule_options
+            .as_ref()
+            .and_then(|options| options.c158.as_ref())
+            .expect("expected c158 rule options");
+        assert_eq!(c158.treat_readonly_as_documented, Some(false));
+        assert_eq!(c158.treat_export_as_intentional, Some(false));
+    }
+
+    #[test]
     fn inline_config_overrides_validate_supported_zsh_plugin_keys() {
         let config = parse_config_override(
             "lint.zsh.plugins.resolution = false\n\
@@ -2083,6 +2172,40 @@ mod tests {
                 .and_then(|options| options.s085.as_ref())
                 .and_then(|s085| s085.main_name.as_deref()),
             Some("run")
+        );
+    }
+
+    #[test]
+    fn c158_rule_option_config_arguments_allow_last_override_to_win() {
+        let tempdir = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override(
+                        "lint.rule-options.c158.treat-export-as-intentional = true",
+                    )
+                    .unwrap(),
+                )),
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override(
+                        "lint.rule-options.c158.treat-export-as-intentional = false",
+                    )
+                    .unwrap(),
+                )),
+            ],
+            false,
+        )
+        .unwrap();
+
+        let loaded = load_project_config(tempdir.path(), &config).unwrap();
+        assert_eq!(
+            loaded
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.c158.as_ref())
+                .and_then(|c158| c158.treat_export_as_intentional),
+            Some(false)
         );
     }
 

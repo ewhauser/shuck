@@ -68,6 +68,7 @@ pub mod if_bracket_glued;
 pub mod if_dollar_command;
 pub mod if_missing_then;
 pub mod ifs_set_to_literal_backslash_n;
+pub mod implicit_global_in_function;
 pub mod indented_heredoc_close;
 pub mod indented_shebang;
 pub mod invalid_exit_status;
@@ -305,6 +306,7 @@ mod tests {
     #[test_case(Rule::SubshellSideEffect, Path::new("C155.sh"))]
     #[test_case(Rule::PossibleVariableMisspelling, Path::new("C156.sh"))]
     #[test_case(Rule::IfBracketGlued, Path::new("C157.sh"))]
+    #[test_case(Rule::ImplicitGlobalInFunction, Path::new("C158.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(
