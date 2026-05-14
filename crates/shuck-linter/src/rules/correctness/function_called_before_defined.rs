@@ -1,9 +1,9 @@
 use compact_str::CompactString;
 use rustc_hash::FxHashSet;
-use shuck_ast::Span;
+use shuck_ast::{Name, Span};
 use shuck_semantic::{Binding, BindingId, CallSite, ScopeId, SourceRef, SourceRefKind};
 
-use crate::{Checker, Rule, ShellDialect, Violation};
+use crate::{Checker, CommandFactRef, Rule, ShellDialect, Violation, WrapperKind};
 
 pub struct FunctionCalledBeforeDefined {
     pub name: CompactString,
@@ -768,13 +768,8 @@ fn terminator_blocks_between_call_and_function(
         .command_facts()
         .structural_commands()
         .filter(|fact| {
-            fact.effective_name_is("exit")
-                || (fact.effective_name_is("return")
-                    && fact.enclosing_function_scope().is_some()
-                    && checker
-                        .semantic()
-                        .innermost_transient_scope_within_function(fact.scope())
-                        .is_none())
+            exit_command_terminates_runtime_scope(checker, *fact)
+                || return_command_terminates_runtime_scope(checker, *fact)
         })
         .filter(|fact| fact.enclosing_function_scope() == call_runtime_scope)
         .filter(|fact| {
@@ -792,6 +787,45 @@ fn terminator_blocks_between_call_and_function(
                 .to_vec()
         })
         .collect()
+}
+
+fn exit_command_terminates_runtime_scope(
+    checker: &Checker<'_>,
+    fact: CommandFactRef<'_, '_>,
+) -> bool {
+    if !fact.effective_name_is("exit")
+        || checker
+            .semantic()
+            .innermost_transient_scope_within_function(fact.scope())
+            .is_some()
+    {
+        return false;
+    }
+
+    if fact.has_wrapper(WrapperKind::Command) || fact.has_wrapper(WrapperKind::Builtin) {
+        return true;
+    }
+
+    checker
+        .semantic_analysis()
+        .visible_function_binding_defined_before(
+            &Name::from("exit"),
+            fact.scope(),
+            fact.body_span().start.offset,
+        )
+        .is_none()
+}
+
+fn return_command_terminates_runtime_scope(
+    checker: &Checker<'_>,
+    fact: CommandFactRef<'_, '_>,
+) -> bool {
+    fact.effective_name_is("return")
+        && fact.enclosing_function_scope().is_some()
+        && checker
+            .semantic()
+            .innermost_transient_scope_within_function(fact.scope())
+            .is_none()
 }
 
 fn function_definition_is_branch_local(checker: &Checker<'_>, function: &Binding) -> bool {
@@ -1561,6 +1595,47 @@ wrapper() {
   )
 }
 wrapper
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledBeforeDefined),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "do_thing");
+    }
+
+    #[test]
+    fn reports_calls_before_definition_after_shadowed_exit() {
+        let source = "\
+#!/bin/bash
+exit() {
+  :
+}
+do_thing
+exit
+do_thing() {
+  echo hi
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledBeforeDefined),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "do_thing");
+    }
+
+    #[test]
+    fn reports_calls_before_definition_after_subshell_exit() {
+        let source = "\
+#!/bin/bash
+do_thing
+(exit 1)
+do_thing() {
+  echo hi
+}
 ";
         let diagnostics = test_snippet(
             source,
