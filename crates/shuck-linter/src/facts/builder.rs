@@ -323,8 +323,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 build_glued_closing_bracket_operand_span(visit.command, self.source);
             let glued_closing_bracket_insert_offset =
                 build_glued_closing_bracket_insert_offset(visit.command, self.source);
-            let missing_space_before_bracket_close =
-                build_missing_space_before_bracket_close_fact(visit.command, self.source, locator);
             let simple_test = build_simple_test_fact(visit.command, self.source);
             let conditional_expression_visits = self
                 .semantic_artifacts
@@ -350,10 +348,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 declaration_assignment_probes: declaration_assignment_probe_range,
                 glued_closing_bracket_operand_span,
                 glued_closing_bracket_insert_offset,
-                missing_space_before_bracket_close_span: missing_space_before_bracket_close
-                    .map(|fact| fact.0),
-                missing_space_before_bracket_close_insert_offset:
-                    missing_space_before_bracket_close.map(|fact| fact.1),
                 linebreak_in_test_anchor_span: None,
                 linebreak_in_test_insert_offset: None,
                 simple_test,
@@ -985,6 +979,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 command_substitution_command_spans,
                 backtick_command_name_spans,
                 assignment_spacing_spans: OnceLock::new(),
+                missing_space_before_bracket_close_facts: OnceLock::new(),
                 assignment_like_command_name_spans,
                 bare_command_name_assignment_spans,
             },

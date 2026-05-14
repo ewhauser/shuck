@@ -46,6 +46,7 @@ pub(crate) struct CommandFactStore<'a> {
     pub(in crate::facts) command_substitution_command_spans: Vec<Span>,
     pub(in crate::facts) backtick_command_name_spans: Vec<Span>,
     pub(in crate::facts) assignment_spacing_spans: OnceLock<Vec<Span>>,
+    pub(in crate::facts) missing_space_before_bracket_close_facts: OnceLock<Vec<(Span, usize)>>,
     pub(in crate::facts) assignment_like_command_name_spans: Vec<Span>,
     pub(in crate::facts) bare_command_name_assignment_spans: Vec<Span>,
 }
@@ -630,6 +631,30 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
                 Vec::new()
             }
         })
+    }
+
+    pub(crate) fn missing_space_before_bracket_close_facts(self) -> &'facts [(Span, usize)] {
+        self.facts
+            .command
+            .missing_space_before_bracket_close_facts
+            .get_or_init(|| {
+                let locator = Locator::new(
+                    self.facts.source_facts.source,
+                    self.facts.source_facts.line_index,
+                );
+                self.facts
+                    .command
+                    .commands
+                    .iter()
+                    .filter_map(|command| {
+                        build_missing_space_before_bracket_close_fact(
+                            command.command(),
+                            self.facts.source_facts.source,
+                            locator,
+                        )
+                    })
+                    .collect()
+            })
     }
 
     pub(crate) fn assignment_like_command_name_spans(self) -> &'facts [Span] {

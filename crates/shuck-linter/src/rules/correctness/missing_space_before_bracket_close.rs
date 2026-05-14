@@ -27,15 +27,11 @@ pub fn missing_space_before_bracket_close(checker: &mut Checker) {
 
     let diagnostics = checker
         .facts()
-        .commands()
+        .command_facts()
+        .missing_space_before_bracket_close_facts()
         .iter()
-        .filter_map(|fact| {
-            let span = fact.missing_space_before_bracket_close_span()?;
-            let insert_offset = fact.missing_space_before_bracket_close_insert_offset()?;
-            Some(diagnostic_for_missing_space_before_bracket_close(
-                span,
-                insert_offset,
-            ))
+        .map(|(span, insert_offset)| {
+            diagnostic_for_missing_space_before_bracket_close(*span, *insert_offset)
         })
         .collect::<Vec<_>>();
 
@@ -67,7 +63,9 @@ mod tests {
 [foo]
 [[ foo]]
 [[foo]]
-[ foo] ]
+[ foo\\]]
+[ foo]]
+[[ \"$x\" == foo\\)]]
 ";
         let diagnostics = test_snippet(
             source,
@@ -79,7 +77,16 @@ mod tests {
                 .iter()
                 .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
                 .collect::<Vec<_>>(),
-            vec![(2, 7), (3, 11), (4, 17), (5, 6), (6, 9), (7, 8), (8, 7)]
+            vec![
+                (2, 7),
+                (4, 17),
+                (5, 6),
+                (6, 9),
+                (7, 8),
+                (8, 9),
+                (9, 8),
+                (10, 19)
+            ]
         );
     }
 
@@ -91,10 +98,15 @@ mod tests {
 [foo ]
 test foo]
 echo foo]
+[ -d /tmp]
+[ ! -n \"$dir\"]
+[ foo\\] ]
 [ \"foo]\" ]
 [[ foo ]]
 [[ ($x == y)]]
 [ foo ] bar]
+[ [foo] ]
+[ foo] ]
 ";
         let diagnostics = test_snippet(
             source,
@@ -111,6 +123,7 @@ echo foo]
 [ \"$dir\" = /tmp]
 [[ foo]]
 [foo]
+[ foo]]
 ";
         let result = test_snippet_with_fix(
             source,
@@ -118,7 +131,7 @@ echo foo]
             Applicability::Unsafe,
         );
 
-        assert_eq!(result.fixes_applied, 3);
+        assert_eq!(result.fixes_applied, 4);
         assert_eq!(
             result.fixed_source,
             "\
@@ -126,6 +139,7 @@ echo foo]
 [ \"$dir\" = /tmp ]
 [[ foo ]]
 [foo ]
+[ foo] ]
 "
         );
     }

@@ -22,8 +22,6 @@ pub struct CommandFact<'a> {
     pub(crate) declaration_assignment_probes: IdRange<DeclarationAssignmentProbe>,
     pub(crate) glued_closing_bracket_operand_span: Option<Span>,
     pub(crate) glued_closing_bracket_insert_offset: Option<usize>,
-    pub(crate) missing_space_before_bracket_close_span: Option<Span>,
-    pub(crate) missing_space_before_bracket_close_insert_offset: Option<usize>,
     pub(crate) linebreak_in_test_anchor_span: Option<Span>,
     pub(crate) linebreak_in_test_insert_offset: Option<usize>,
     pub(crate) simple_test: Option<SimpleTestFact<'a>>,
@@ -105,14 +103,6 @@ impl<'a> CommandFact<'a> {
 
     pub fn glued_closing_bracket_insert_offset(&self) -> Option<usize> {
         self.glued_closing_bracket_insert_offset
-    }
-
-    pub fn missing_space_before_bracket_close_span(&self) -> Option<Span> {
-        self.missing_space_before_bracket_close_span
-    }
-
-    pub fn missing_space_before_bracket_close_insert_offset(&self) -> Option<usize> {
-        self.missing_space_before_bracket_close_insert_offset
     }
 
     pub fn linebreak_in_test_anchor_span(&self) -> Option<Span> {
@@ -322,14 +312,6 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
 
     pub fn glued_closing_bracket_insert_offset(self) -> Option<usize> {
         self.fact.glued_closing_bracket_insert_offset()
-    }
-
-    pub fn missing_space_before_bracket_close_span(self) -> Option<Span> {
-        self.fact.missing_space_before_bracket_close_span()
-    }
-
-    pub fn missing_space_before_bracket_close_insert_offset(self) -> Option<usize> {
-        self.fact.missing_space_before_bracket_close_insert_offset()
     }
 
     pub fn linebreak_in_test_anchor_span(self) -> Option<Span> {
