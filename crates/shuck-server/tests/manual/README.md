@@ -35,6 +35,7 @@ Available scenarios:
 
 - `diagnostics/open_edit`
 - `hover/rule_directive`
+- `symbols/document_symbols`
 - `code_actions/quick_fix`
 - `code_actions/fix_all`
 - `formatting/request_round_trip`

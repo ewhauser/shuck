@@ -24,6 +24,7 @@ mod logging;
 mod resolve;
 mod server;
 mod session;
+mod symbols;
 mod workspace;
 
 pub(crate) const SERVER_NAME: &str = "shuck";

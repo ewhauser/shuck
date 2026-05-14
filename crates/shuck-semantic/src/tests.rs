@@ -32,6 +32,106 @@ fn model_with_profile(source: &str, profile: ShellProfile) -> SemanticModel {
     )
 }
 
+#[test]
+fn editor_document_symbols_include_top_level_assignments_and_declarations() {
+    let source = "\
+VERSION=1
+declare -A LOOKUP
+declare -n REF=target
+build() { :; }
+";
+    let model = model(source);
+    let symbols = model.editor_query().document_symbols();
+
+    assert_eq!(
+        symbols
+            .iter()
+            .map(|symbol| symbol.name.as_str())
+            .collect::<Vec<_>>(),
+        ["VERSION", "LOOKUP", "REF", "build"]
+    );
+    assert_eq!(symbols[0].kind, EditorSymbolKind::Variable);
+    assert_eq!(symbols[0].range.slice(source), "VERSION");
+    assert_eq!(symbols[1].kind, EditorSymbolKind::AssociativeArray);
+    assert_eq!(symbols[1].range.slice(source), "LOOKUP");
+    assert_eq!(symbols[2].kind, EditorSymbolKind::Declaration);
+    assert_eq!(symbols[2].range.slice(source), "REF=target");
+    assert_eq!(symbols[3].kind, EditorSymbolKind::Function);
+    assert_eq!(symbols[3].selection_span.slice(source), "build");
+    assert_eq!(symbols[3].range.slice(source), "build() { :; }\n");
+}
+
+#[test]
+fn editor_document_symbols_nest_function_locals_loop_variables_and_nested_functions() {
+    let source = "\
+build() {
+  local artifact
+  local -n alias=artifact
+  for item in \"$@\"; do
+    :
+  done
+  helper() {
+    local nested
+  }
+}
+";
+    let model = model(source);
+    let symbols = model.editor_query().document_symbols();
+
+    assert_eq!(symbols.len(), 1);
+    assert_eq!(symbols[0].name.as_str(), "build");
+    assert_eq!(
+        symbols[0]
+            .children
+            .iter()
+            .map(|symbol| symbol.name.as_str())
+            .collect::<Vec<_>>(),
+        ["artifact", "alias", "item", "helper"]
+    );
+    assert_eq!(symbols[0].children[0].kind, EditorSymbolKind::Declaration);
+    assert_eq!(symbols[0].children[1].kind, EditorSymbolKind::Declaration);
+    assert_eq!(symbols[0].children[1].range.slice(source), "alias=artifact");
+    assert_eq!(symbols[0].children[2].kind, EditorSymbolKind::Variable);
+    assert_eq!(symbols[0].children[3].kind, EditorSymbolKind::Function);
+    assert_eq!(
+        symbols[0].children[3]
+            .children
+            .iter()
+            .map(|symbol| symbol.name.as_str())
+            .collect::<Vec<_>>(),
+        ["nested"]
+    );
+}
+
+#[test]
+fn editor_document_symbols_skip_function_local_plain_assignments() {
+    let source = "\
+top=1
+build() {
+  temp=2
+  local kept
+}
+";
+    let model = model(source);
+    let symbols = model.editor_query().document_symbols();
+
+    assert_eq!(
+        symbols
+            .iter()
+            .map(|symbol| symbol.name.as_str())
+            .collect::<Vec<_>>(),
+        ["top", "build"]
+    );
+    assert_eq!(
+        symbols[1]
+            .children
+            .iter()
+            .map(|symbol| symbol.name.as_str())
+            .collect::<Vec<_>>(),
+        ["kept"]
+    );
+}
+
 fn span_for_nth(source: &str, needle: &str, index: usize) -> Span {
     let start_offset = source
         .match_indices(needle)

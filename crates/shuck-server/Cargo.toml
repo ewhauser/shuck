@@ -23,6 +23,7 @@ shuck-formatter = { workspace = true }
 shuck-indexer = { workspace = true }
 shuck-linter = { workspace = true }
 shuck-parser = { workspace = true }
+shuck-semantic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 

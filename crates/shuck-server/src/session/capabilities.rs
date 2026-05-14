@@ -7,6 +7,7 @@ pub(crate) struct ResolvedClientCapabilities {
     pub(crate) document_changes: bool,
     pub(crate) workspace_refresh: bool,
     pub(crate) pull_diagnostics: bool,
+    pub(crate) hierarchical_document_symbols: bool,
 }
 
 impl ResolvedClientCapabilities {
@@ -41,6 +42,13 @@ impl ResolvedClientCapabilities {
             .and_then(|text_document| text_document.diagnostic.as_ref())
             .is_some();
 
+        let hierarchical_document_symbols = client_capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text_document| text_document.document_symbol.as_ref())
+            .and_then(|document_symbol| document_symbol.hierarchical_document_symbol_support)
+            .unwrap_or_default();
+
         Self {
             code_action_deferred_edit_resolution: code_action_data_support
                 && code_action_edit_resolution,
@@ -48,6 +56,7 @@ impl ResolvedClientCapabilities {
             document_changes,
             workspace_refresh: false,
             pull_diagnostics,
+            hierarchical_document_symbols,
         }
     }
 }
