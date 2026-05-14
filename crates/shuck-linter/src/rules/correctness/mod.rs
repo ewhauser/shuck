@@ -136,6 +136,7 @@ pub mod template_brace_in_command;
 pub mod tilde_in_string_comparison;
 pub mod trap_string_expansion;
 pub mod truthy_literal_test;
+pub mod unanchored_source_path;
 pub mod unchecked_directory_change;
 pub mod unchecked_directory_change_in_function;
 pub mod undefined_variable;
@@ -309,6 +310,7 @@ mod tests {
     #[test_case(Rule::IfBracketGlued, Path::new("C157.sh"))]
     #[test_case(Rule::ImplicitGlobalInFunction, Path::new("C158.sh"))]
     #[test_case(Rule::MutableGlobal, Path::new("C159.sh"))]
+    #[test_case(Rule::UnanchoredSourcePath, Path::new("C160.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

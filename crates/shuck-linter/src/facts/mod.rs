@@ -32,6 +32,7 @@ pub(crate) mod pipelines;
 mod presence;
 pub(crate) mod redirects;
 pub(crate) mod simple_tests;
+pub(crate) mod source_paths;
 pub(crate) mod statements;
 pub(crate) mod substitutions;
 pub(crate) mod surface;

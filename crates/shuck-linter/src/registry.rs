@@ -500,6 +500,12 @@ declare_rules! {
         ImplicitGlobalInFunction
     ),
     ("C159", Category::Correctness, Severity::Warning, MutableGlobal),
+    (
+        "C160",
+        Category::Correctness,
+        Severity::Warning,
+        UnanchoredSourcePath
+    ),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
     ("P002", Category::Performance, Severity::Warning, GrepCountPipeline),
     ("P003", Category::Performance, Severity::Warning, SingleTestSubshell),

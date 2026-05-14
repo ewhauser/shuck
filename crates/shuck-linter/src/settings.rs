@@ -11,8 +11,16 @@ use shuck_semantic::{UnreachedFunctionAnalysisOptions, UnusedAssignmentAnalysisO
 use crate::ambient_contracts::ResolvedAmbientContracts;
 use crate::{Category, Rule, RuleSelector, RuleSet, Severity, ShellDialect};
 
-const DEFAULT_DISABLED_NON_STYLE_RULES: &[Rule] =
-    &[Rule::ImplicitGlobalInFunction, Rule::MutableGlobal];
+const DEFAULT_DISABLED_NON_STYLE_RULES: &[Rule] = &[
+    Rule::ImplicitGlobalInFunction,
+    Rule::MutableGlobal,
+    Rule::UnanchoredSourcePath,
+];
+const DEFAULT_C160_ALLOWED_ANCHORS: &[&str] = &[
+    "${BASH_SOURCE[0]%/*}",
+    "$(dirname \"$0\")",
+    "$(dirname \"${BASH_SOURCE[0]}\")",
+];
 
 /// Per-rule behavior overrides applied during lint analysis.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -29,6 +37,8 @@ pub struct LinterRuleOptions {
     pub c158: C158RuleOptions,
     /// Behavior overrides for `C159`.
     pub c159: C159RuleOptions,
+    /// Behavior overrides for `C160`.
+    pub c160: C160RuleOptions,
 }
 
 /// Behavior overrides for `C001` unused-assignment analysis.
@@ -133,6 +143,24 @@ impl Default for C159RuleOptions {
     fn default() -> Self {
         Self {
             allow_conditional_init: true,
+        }
+    }
+}
+
+/// Behavior overrides for `C160` unanchored source path analysis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct C160RuleOptions {
+    /// Path prefix expressions accepted as script-directory anchors.
+    pub allowed_anchors: Vec<String>,
+}
+
+impl Default for C160RuleOptions {
+    fn default() -> Self {
+        Self {
+            allowed_anchors: DEFAULT_C160_ALLOWED_ANCHORS
+                .iter()
+                .map(|anchor| (*anchor).to_owned())
+                .collect(),
         }
     }
 }
@@ -368,6 +396,15 @@ impl LinterSettings {
         self
     }
 
+    pub fn with_c160_allowed_anchors<I, S>(mut self, anchors: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.rule_options.c160.allowed_anchors = anchors.into_iter().map(Into::into).collect();
+        self
+    }
+
     pub fn per_file_ignored_rules(&self, path: Option<&Path>) -> RuleSet {
         path.map_or(RuleSet::EMPTY, |path| {
             self.per_file_ignores.ignored_rules(path)
@@ -494,6 +531,7 @@ mod tests {
         assert!(defaults.contains(Rule::RmGlobOnVariablePath));
         assert!(!defaults.contains(Rule::ImplicitGlobalInFunction));
         assert!(!defaults.contains(Rule::MutableGlobal));
+        assert!(!defaults.contains(Rule::UnanchoredSourcePath));
         assert!(!defaults.contains(Rule::AmpersandSemicolon));
     }
 

@@ -65,6 +65,7 @@ struct EffectiveRuleOptions {
     c158_treat_readonly_as_documented: bool,
     c158_treat_export_as_intentional: bool,
     c159_allow_conditional_init: bool,
+    c160_allowed_anchors: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,6 +195,7 @@ impl EffectiveRuleOptions {
             c158_treat_readonly_as_documented: rule_options.c158.treat_readonly_as_documented,
             c158_treat_export_as_intentional: rule_options.c158.treat_export_as_intentional,
             c159_allow_conditional_init: rule_options.c159.allow_conditional_init,
+            c160_allowed_anchors: rule_options.c160.allowed_anchors.clone(),
         }
     }
 }
@@ -215,6 +217,7 @@ impl CacheKey for EffectiveRuleOptions {
         self.c158_treat_readonly_as_documented.cache_key(state);
         self.c158_treat_export_as_intentional.cache_key(state);
         self.c159_allow_conditional_init.cache_key(state);
+        self.c160_allowed_anchors.cache_key(state);
     }
 }
 
@@ -1042,6 +1045,14 @@ fn linter_rule_options_for_lint_config(lint: &LintConfig) -> shuck_linter::Linte
         .and_then(|c159| c159.allow_conditional_init)
     {
         rule_options.c159.allow_conditional_init = value;
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.c160.as_ref())
+        .and_then(|c160| c160.allowed_anchors.as_ref())
+    {
+        rule_options.c160.allowed_anchors = value.clone();
     }
 
     rule_options
