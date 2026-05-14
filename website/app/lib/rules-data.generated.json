@@ -1179,12 +1179,12 @@
       "ksh"
     ],
     "shellcheckCode": "SC2211",
-    "implemented": false,
-    "status": "planned",
+    "implemented": true,
+    "status": "implemented",
     "hasKnownShellcheckDivergences": false,
-    "severity": null,
-    "fixStatus": "planned",
-    "fixAvailability": "none",
+    "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
     "fixSafety": "unsafe",
     "fixDescription": "Wrap the wildcard command-path word in quotes.",
     "examples": [
