@@ -981,6 +981,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 backtick_command_name_spans,
                 assignment_spacing_spans: OnceLock::new(),
                 missing_space_before_bracket_close_facts: OnceLock::new(),
+                jammed_test_bracket_facts: OnceLock::new(),
                 assignment_like_command_name_spans,
                 bare_command_name_assignment_spans,
             },

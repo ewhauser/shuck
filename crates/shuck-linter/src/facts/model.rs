@@ -48,6 +48,7 @@ pub(crate) struct CommandFactStore<'a> {
     pub(in crate::facts) backtick_command_name_spans: Vec<Span>,
     pub(in crate::facts) assignment_spacing_spans: OnceLock<Vec<Span>>,
     pub(in crate::facts) missing_space_before_bracket_close_facts: OnceLock<Vec<(Span, usize)>>,
+    pub(in crate::facts) jammed_test_bracket_facts: OnceLock<Vec<(Span, usize)>>,
     pub(in crate::facts) assignment_like_command_name_spans: Vec<Span>,
     pub(in crate::facts) bare_command_name_assignment_spans: Vec<Span>,
 }
@@ -676,6 +677,25 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
                             command.command(),
                             self.facts.source_facts.source,
                             locator,
+                        )
+                    })
+                    .collect()
+            })
+    }
+
+    pub(crate) fn jammed_test_bracket_facts(self) -> &'facts [(Span, usize)] {
+        self.facts
+            .command
+            .jammed_test_bracket_facts
+            .get_or_init(|| {
+                self.facts
+                    .command
+                    .commands
+                    .iter()
+                    .filter_map(|command| {
+                        build_jammed_test_bracket_fact(
+                            command.command(),
+                            self.facts.source_facts.source,
                         )
                     })
                     .collect()

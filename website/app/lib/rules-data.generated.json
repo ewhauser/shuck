@@ -831,12 +831,12 @@
       "ksh"
     ],
     "shellcheckCode": "SC1035",
-    "implemented": false,
-    "status": "planned",
+    "implemented": true,
+    "status": "implemented",
     "hasKnownShellcheckDivergences": false,
-    "severity": null,
-    "fixStatus": "planned",
-    "fixAvailability": "none",
+    "severity": "Error",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
     "fixSafety": "unsafe",
     "fixDescription": "Insert a space after `[` so the test starts as `[ ! ... ]`.",
     "examples": [
