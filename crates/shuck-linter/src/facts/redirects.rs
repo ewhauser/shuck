@@ -803,27 +803,54 @@ pub(crate) fn redirect_operator_text(kind: RedirectKind) -> &'static str {
 
 pub(super) fn duplicate_redirect_spans(redirects: &[RedirectFact<'_>], source: &str) -> Vec<Span> {
     let mut last_redirect_by_fd = FxHashMap::<i32, usize>::default();
-    let mut consumed_redirects = FxHashSet::<usize>::default();
+    let mut consumers_by_redirect = vec![SmallVec::<[usize; 2]>::new(); redirects.len()];
+    let mut overwritten_by_redirect = vec![SmallVec::<[usize; 2]>::new(); redirects.len()];
     let mut duplicate_redirects = FxHashSet::<usize>::default();
 
     for (index, redirect) in redirects.iter().enumerate() {
         for fd in redirect_read_fds(redirect, source) {
             if let Some(previous) = last_redirect_by_fd.get(&fd).copied() {
-                consumed_redirects.insert(previous);
+                consumers_by_redirect[previous].push(index);
             }
         }
 
         for fd in duplicate_redirect_fds(redirect, source) {
-            if let Some(previous) = last_redirect_by_fd.insert(fd, index)
-                && !consumed_redirects.contains(&previous)
-            {
-                duplicate_redirects.insert(previous);
-                duplicate_redirects.insert(index);
+            if let Some(previous) = last_redirect_by_fd.insert(fd, index) {
+                overwritten_by_redirect[previous].push(index);
             }
         }
     }
 
+    loop {
+        let protected_redirects = consumers_by_redirect
+            .iter()
+            .enumerate()
+            .filter(|(_, consumers)| {
+                consumers
+                    .iter()
+                    .any(|consumer| !duplicate_redirects.contains(consumer))
+            })
+            .map(|(index, _)| index)
+            .collect::<FxHashSet<_>>();
+
+        let mut changed = false;
+        for (previous, later_redirects) in overwritten_by_redirect.iter().enumerate() {
+            if later_redirects.is_empty() || protected_redirects.contains(&previous) {
+                continue;
+            }
+            changed |= duplicate_redirects.insert(previous);
+            for later in later_redirects {
+                changed |= duplicate_redirects.insert(*later);
+            }
+        }
+
+        if !changed {
+            break;
+        }
+    }
+
     let mut spans = Vec::new();
+    let mut seen_spans = FxHashSet::<(usize, usize)>::default();
     for (index, redirect) in redirects.iter().enumerate() {
         if !duplicate_redirects.contains(&index) {
             continue;
@@ -831,7 +858,9 @@ pub(super) fn duplicate_redirect_spans(redirects: &[RedirectFact<'_>], source: &
         let Some(span) = duplicate_redirect_report_span(redirect, source) else {
             continue;
         };
-        spans.push(span);
+        if seen_spans.insert((span.start.offset, span.end.offset)) {
+            spans.push(span);
+        }
     }
 
     spans
@@ -938,6 +967,9 @@ fn duplicate_redirect_report_span(redirect: &RedirectFact<'_>, source: &str) -> 
         RedirectKind::OutputBoth => output_both_redirect_report_span(redirect.redirect(), source),
         RedirectKind::Output if output_redirect_is_csh_both_target(redirect.redirect(), source) => {
             csh_both_output_redirect_report_span(redirect, source)
+        }
+        RedirectKind::Append if append_redirect_is_output_both(redirect.redirect(), source) => {
+            output_both_redirect_report_span(redirect.redirect(), source)
         }
         RedirectKind::Output
         | RedirectKind::Clobber
