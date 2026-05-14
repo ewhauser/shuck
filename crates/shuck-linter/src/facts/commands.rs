@@ -396,7 +396,9 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
             }
             _ => {
                 !word.has_quoted_parts()
-                    && self.literal_name().is_some_and(|name| name.starts_with('-'))
+                    && self
+                        .literal_name()
+                        .is_some_and(|name| name.starts_with('-'))
             }
         }
     }

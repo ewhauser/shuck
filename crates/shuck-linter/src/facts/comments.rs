@@ -363,9 +363,12 @@ pub(crate) fn build_commented_continuation_comment_spans(
         .collect()
 }
 
-pub(crate) fn build_escaped_dash_command_name_spans(source: &str, indexer: &Indexer) -> Vec<Span> {
-    let line_index = indexer.line_index();
-
+pub(crate) fn build_escaped_dash_command_name_spans(
+    source: &str,
+    line_index: &LineIndex,
+    region_index: &RegionIndex,
+    command_name_offsets: &[usize],
+) -> Vec<Span> {
     (1..=line_index.line_count())
         .filter_map(|line_number| {
             let source_line = source_line(source, line_index, line_number)?;
@@ -377,16 +380,24 @@ pub(crate) fn build_escaped_dash_command_name_spans(source: &str, indexer: &Inde
             if !rest.starts_with("\\-") {
                 return None;
             }
+            if previous_line_ends_with_unescaped_continuation(source, line_index, line_number) {
+                return None;
+            }
 
             let marker_offset = source_line.offset + marker_start;
+            if command_name_offsets.binary_search(&marker_offset).is_err() {
+                return None;
+            }
+
             let marker_text_size = TextSize::from(marker_offset as u32);
-            if indexer.region_index().is_heredoc(marker_text_size)
-                || indexer.region_index().is_quoted(marker_text_size)
+            if region_index.is_heredoc(marker_text_size) || region_index.is_quoted(marker_text_size)
             {
                 return None;
             }
 
-            let marker_len = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            let marker_len = rest
+                .find(escaped_dash_command_name_token_delimiter)
+                .unwrap_or(rest.len());
             Some(line_slice_span(
                 line_number,
                 source_line.offset,
@@ -396,6 +407,35 @@ pub(crate) fn build_escaped_dash_command_name_spans(source: &str, indexer: &Inde
             ))
         })
         .collect()
+}
+
+fn escaped_dash_command_name_token_delimiter(ch: char) -> bool {
+    ch.is_whitespace() || matches!(ch, ';' | '&' | '|' | '(' | ')' | '<' | '>')
+}
+
+fn previous_line_ends_with_unescaped_continuation(
+    source: &str,
+    line_index: &LineIndex,
+    line_number: usize,
+) -> bool {
+    let Some(previous_line_number) = line_number.checked_sub(1) else {
+        return false;
+    };
+    if previous_line_number == 0 {
+        return false;
+    }
+
+    let Some(previous_line) = source_line(source, line_index, previous_line_number) else {
+        return false;
+    };
+    let trimmed = previous_line.text.trim_end_matches([' ', '\t', '\r']);
+    let backslash_count = trimmed
+        .as_bytes()
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'\\')
+        .count();
+    backslash_count % 2 == 1
 }
 
 pub(crate) fn build_comment_double_quote_nesting_spans(

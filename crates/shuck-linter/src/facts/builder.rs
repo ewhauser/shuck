@@ -862,8 +862,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         );
         let assignment_like_command_name_spans =
             build_assignment_like_command_name_spans(&commands, self.source);
-        let escaped_dash_command_name_spans =
-            build_escaped_dash_command_name_spans(self.source, self._indexer);
         let bare_command_name_assignment_spans = build_bare_command_name_assignment_spans(
             &commands,
             &word_nodes,
@@ -1083,9 +1081,10 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 duplicate_shebang_flag_span: shebang_header_facts.duplicate_shebang_flag_span,
                 non_absolute_shebang_span: shebang_header_facts.non_absolute_shebang_span,
                 errexit_enabled_anywhere,
+                region_index: self._indexer.region_index(),
                 commented_continuation_comment_spans,
                 comment_double_quote_nesting_spans,
-                escaped_dash_command_name_spans,
+                escaped_dash_command_name_spans: OnceLock::new(),
                 trailing_directive_comment_spans,
                 backtick_substitution_spans,
                 backtick_escaped_parameters,

@@ -1213,7 +1213,7 @@
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
     "fixStatus": "implemented",
-    "fixAvailability": "always",
+    "fixAvailability": "sometimes",
     "fixSafety": "unsafe",
     "fixDescription": "Prefix the patch-marker line with `# ` to turn it into a shell comment.",
     "examples": [
