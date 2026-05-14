@@ -1208,12 +1208,12 @@
       "ksh"
     ],
     "shellcheckCode": "SC2215",
-    "implemented": false,
-    "status": "planned",
+    "implemented": true,
+    "status": "implemented",
     "hasKnownShellcheckDivergences": false,
-    "severity": null,
-    "fixStatus": "planned",
-    "fixAvailability": "none",
+    "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "sometimes",
     "fixSafety": "unsafe",
     "fixDescription": "Prefix the patch-marker line with `# ` to turn it into a shell comment.",
     "examples": [

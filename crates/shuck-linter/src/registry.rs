@@ -129,6 +129,7 @@ declare_rules! {
     ("C042", Category::Correctness, Severity::Warning, CPrototypeFragment),
     ("C043", Category::Correctness, Severity::Warning, BadRedirectionFdOrder),
     ("C044", Category::Correctness, Severity::Warning, BareGlobCommandPath),
+    ("C045", Category::Correctness, Severity::Warning, DiffMarkerLine),
     ("C046", Category::Correctness, Severity::Warning, PipeToKill),
     ("C047", Category::Correctness, Severity::Error, InvalidExitStatus),
     ("C048", Category::Correctness, Severity::Warning, CasePatternVar),
@@ -822,6 +823,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-098" => Some(Rule::MissingBracketSpace),
         "SH-102" => Some(Rule::JammedTestBracket),
         "SH-104" => Some(Rule::IndentedHeredocClose),
+        "SH-133" => Some(Rule::DiffMarkerLine),
         "SH-134" => Some(Rule::PipeToKill),
         "SH-086" => Some(Rule::PositionalTenBraces),
         "SH-091" => Some(Rule::BareDoneWord),
@@ -1247,6 +1249,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-129"), Some(Rule::BadRedirectionFdOrder));
         assert_eq!(code_to_rule("C044"), Some(Rule::BareGlobCommandPath));
         assert_eq!(code_to_rule("SH-130"), Some(Rule::BareGlobCommandPath));
+        assert_eq!(code_to_rule("C045"), Some(Rule::DiffMarkerLine));
+        assert_eq!(code_to_rule("SH-133"), Some(Rule::DiffMarkerLine));
         assert_eq!(code_to_rule("C085"), Some(Rule::StderrBeforeStdoutRedirect));
         assert_eq!(code_to_rule("C094"), Some(Rule::RedirectClobbersInput));
         assert_eq!(

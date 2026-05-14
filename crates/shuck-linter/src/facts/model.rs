@@ -151,8 +151,10 @@ pub(crate) struct SourceFactStore<'a> {
     pub(in crate::facts) duplicate_shebang_flag_span: Option<Span>,
     pub(in crate::facts) non_absolute_shebang_span: Option<Span>,
     pub(in crate::facts) errexit_enabled_anywhere: bool,
+    pub(in crate::facts) region_index: &'a RegionIndex,
     pub(in crate::facts) commented_continuation_comment_spans: Vec<Span>,
     pub(in crate::facts) comment_double_quote_nesting_spans: Vec<Span>,
+    pub(in crate::facts) escaped_dash_command_name_spans: OnceLock<Vec<Span>>,
     pub(in crate::facts) trailing_directive_comment_spans: Vec<Span>,
     pub(in crate::facts) backtick_substitution_spans: Vec<Span>,
     pub(in crate::facts) backtick_escaped_parameters: Vec<BacktickEscapedParameter>,
@@ -1020,6 +1022,30 @@ impl<'facts, 'a> SourceFacts<'facts, 'a> {
 
     pub(crate) fn comment_double_quote_nesting_spans(self) -> &'facts [Span] {
         &self.facts.source_facts.comment_double_quote_nesting_spans
+    }
+
+    pub(crate) fn escaped_dash_command_name_spans(self) -> &'facts [Span] {
+        self.facts
+            .source_facts
+            .escaped_dash_command_name_spans
+            .get_or_init(|| {
+                let mut command_name_offsets = self
+                    .facts
+                    .command_facts()
+                    .structural_commands()
+                    .filter_map(|command| command.command_name_word())
+                    .map(|word| word.span.start.offset)
+                    .collect::<Vec<_>>();
+                command_name_offsets.sort_unstable();
+                command_name_offsets.dedup();
+
+                build_escaped_dash_command_name_spans(
+                    self.facts.source_facts.source,
+                    self.facts.source_facts.line_index,
+                    self.facts.source_facts.region_index,
+                    &command_name_offsets,
+                )
+            })
     }
 
     pub(crate) fn trailing_directive_comment_spans(self) -> &'facts [Span] {

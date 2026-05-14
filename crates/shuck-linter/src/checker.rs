@@ -514,6 +514,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::CPrototypeFragment) {
             rules::correctness::c_prototype_fragment::c_prototype_fragment(self);
         }
+        if self.is_rule_enabled(Rule::DiffMarkerLine) {
+            rules::correctness::diff_marker_line::diff_marker_line(self);
+        }
         if self.is_rule_enabled(Rule::BareSlashMarker) {
             rules::correctness::bare_slash_marker::bare_slash_marker(self);
         }
