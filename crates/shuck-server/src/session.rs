@@ -119,7 +119,10 @@ impl Session {
     }
 
     pub(crate) fn close_document(&mut self, key: &DocumentKey) -> crate::Result<()> {
-        self.index.close_document(key)
+        self.index.close_document(key)?;
+        self.workspace_symbols
+            .invalidate_uri(&key.clone().into_url());
+        Ok(())
     }
 
     pub(crate) fn reload_settings(&mut self, changes: &[FileEvent], client: &Client) {

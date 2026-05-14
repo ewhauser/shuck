@@ -150,6 +150,19 @@ impl WorkspaceSymbolIndex {
         self.rebuild_finished.notify_all();
     }
 
+    pub(crate) fn invalidate_uri(&self, uri: &types::Url) {
+        self.invalidate_uri_key(uri.as_str());
+    }
+
+    fn invalidate_uri_key(&self, uri: &str) {
+        let mut cache = lock_or_recover(&self.cache);
+        cache.summaries.remove(uri);
+        cache.dirty = true;
+        cache.generation = cache.generation.wrapping_add(1);
+        drop(cache);
+        self.rebuild_finished.notify_all();
+    }
+
     fn closed_summaries(
         &self,
         context: &WorkspaceSymbolContext,
@@ -1323,6 +1336,72 @@ build() {
         let cache = lock_or_recover(&context.index.cache);
         assert!(cache.partial);
         assert!(!cache.dirty);
+    }
+
+    #[test]
+    fn workspace_symbols_rebuild_disk_summary_after_open_document_closes() {
+        let tempdir = tempfile::tempdir().expect("workspace should be created");
+        let script = tempdir.path().join("script.sh");
+        std::fs::write(&script, "old_closed_symbol() { :; }\n")
+            .expect("script fixture should be written");
+
+        let (mut session, client) = make_session(tempdir.path(), PositionEncoding::UTF16);
+        let response = workspace_symbols(
+            session.workspace_symbol_context(),
+            &client,
+            workspace_symbol_params("old_closed"),
+        )
+        .expect("workspace symbol request should succeed")
+        .expect("workspace symbol response should be present");
+        assert_eq!(
+            workspace_symbol_response_names(response),
+            ["old_closed_symbol"]
+        );
+
+        std::fs::write(&script, "new_closed_symbol() { :; }\n")
+            .expect("script fixture should be updated");
+        let uri = Url::from_file_path(&script).expect("script URI should convert");
+        session.open_text_document(
+            uri.clone(),
+            TextDocument::new("new_closed_symbol() { :; }\n".to_owned(), 2)
+                .with_language_id("shellscript"),
+        );
+
+        let response = workspace_symbols(
+            session.workspace_symbol_context(),
+            &client,
+            workspace_symbol_params("new_closed"),
+        )
+        .expect("workspace symbol request should succeed")
+        .expect("workspace symbol response should be present");
+        assert_eq!(
+            workspace_symbol_response_names(response),
+            ["new_closed_symbol"]
+        );
+
+        let key = session.key_from_url(uri);
+        session
+            .close_document(&key)
+            .expect("document close should succeed");
+        let context = session.workspace_symbol_context();
+        assert!(lock_or_recover(&context.index.cache).dirty);
+
+        let stale = workspace_symbols(
+            context.clone(),
+            &client,
+            workspace_symbol_params("old_closed"),
+        )
+        .expect("workspace symbol request should succeed")
+        .expect("workspace symbol response should be present");
+        assert!(workspace_symbol_response_names(stale).is_empty());
+
+        let fresh = workspace_symbols(context, &client, workspace_symbol_params("new_closed"))
+            .expect("workspace symbol request should succeed")
+            .expect("workspace symbol response should be present");
+        assert_eq!(
+            workspace_symbol_response_names(fresh),
+            ["new_closed_symbol"]
+        );
     }
 
     #[test]
