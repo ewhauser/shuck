@@ -297,6 +297,6 @@ check-scripts:
 	cargo run -q -p shuck-cli -- check --no-cache scripts
 check:
 	cargo fmt -- --check
-	cargo clippy --all-targets -- -D warnings
+	cargo clippy --workspace --all-targets --all-features -- -D warnings
 	$(NIX_DEVELOP) cargo shear
 	$(MAKE) --no-print-directory check-scripts
