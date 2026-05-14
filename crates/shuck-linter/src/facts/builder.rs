@@ -1094,6 +1094,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 heredoc_closer_not_alone_spans: heredoc_summary.heredoc_closer_not_alone_spans,
                 misquoted_heredoc_close_spans: heredoc_summary.misquoted_heredoc_close_spans,
                 heredoc_end_space_spans: heredoc_summary.heredoc_end_space_spans,
+                indented_heredoc_close_facts: OnceLock::new(),
                 echo_here_doc_spans: heredoc_summary.echo_here_doc_spans,
                 spaced_tabstrip_close_spans: heredoc_summary.spaced_tabstrip_close_spans,
             },

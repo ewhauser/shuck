@@ -860,12 +860,12 @@
       "ksh"
     ],
     "shellcheckCode": "SC1039",
-    "implemented": false,
-    "status": "planned",
+    "implemented": true,
+    "status": "implemented",
     "hasKnownShellcheckDivergences": false,
-    "severity": null,
-    "fixStatus": "planned",
-    "fixAvailability": "none",
+    "severity": "Error",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
     "fixSafety": "unsafe",
     "fixDescription": "Remove the leading indentation from the reported here-doc terminator line so it starts at column 1.",
     "examples": [

@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 288
+---
+C033 move this here-document terminator to the start of the line
+ --> <source>:5:1
+  |
+5 |  EOF
+  |
+
+C033 move this here-document terminator to the start of the line
+ --> <source>:6:1
+  |
+6 |   EOF
+  |

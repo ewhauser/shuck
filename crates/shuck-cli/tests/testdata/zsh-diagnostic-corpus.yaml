@@ -7497,6 +7497,17 @@ repos:
           line: 471
           column: 29
         classification: real
+      - path: "gitstatus/build"
+        code: "C033"
+        severity: "error"
+        message: "move this here-document terminator to the start of the line"
+        start:
+          line: 449
+          column: 1
+        end:
+          line: 449
+          column: 1
+        classification: false_positive
       - path: "gitstatus/gitstatus.plugin.sh"
         code: "C086"
         severity: "warning"

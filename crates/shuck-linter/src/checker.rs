@@ -955,6 +955,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::HeredocMissingEnd) {
             rules::correctness::heredoc_missing_end::heredoc_missing_end(self);
         }
+        if self.is_rule_enabled(Rule::IndentedHeredocClose) {
+            rules::correctness::indented_heredoc_close::indented_heredoc_close(self);
+        }
         if self.is_rule_enabled(Rule::HeredocCloserNotAlone) {
             rules::correctness::heredoc_closer_not_alone::heredoc_closer_not_alone(self);
         }
