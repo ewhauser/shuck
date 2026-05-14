@@ -137,6 +137,7 @@ mod tests {
             map.resolve("SC1087"),
             Some(Rule::BraceVariableBeforeBracket)
         );
+        assert_eq!(map.resolve("SC2280"), Some(Rule::AssignSpecialZero));
         assert_eq!(map.resolve("SC2317"), Some(Rule::UnreachableAfterExit));
         assert_eq!(map.resolve("SC7777"), None);
     }

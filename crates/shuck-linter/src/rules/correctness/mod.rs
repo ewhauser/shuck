@@ -4,6 +4,7 @@ pub mod append_with_escaped_quotes;
 pub mod arithmetic_redirection_target;
 pub mod array_slice_in_comparison;
 pub mod array_to_string_conversion;
+pub mod assign_special_zero;
 pub mod assignment_looks_like_comparison;
 pub mod assignment_spacing;
 pub mod assignment_to_numeric_variable;
@@ -210,6 +211,7 @@ mod tests {
     #[test_case(Rule::TautologyChain, Path::new("C049.sh"))]
     #[test_case(Rule::ArithmeticRedirectionTarget, Path::new("C050.sh"))]
     #[test_case(Rule::DuplicateRedirect, Path::new("C051.sh"))]
+    #[test_case(Rule::AssignSpecialZero, Path::new("C052.sh"))]
     #[test_case(Rule::BareSlashMarker, Path::new("C054.sh"))]
     #[test_case(Rule::PatternWithVariable, Path::new("C055.sh"))]
     #[test_case(Rule::StatusCaptureAfterBranchTest, Path::new("C056.sh"))]

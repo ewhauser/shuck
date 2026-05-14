@@ -1407,10 +1407,10 @@
       "sh"
     ],
     "shellcheckCode": "SC2280",
-    "implemented": false,
-    "status": "planned",
+    "implemented": true,
+    "status": "implemented",
     "hasKnownShellcheckDivergences": false,
-    "severity": null,
+    "severity": "Error",
     "fixStatus": "none",
     "fixAvailability": "none",
     "fixSafety": null,

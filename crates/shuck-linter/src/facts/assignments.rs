@@ -616,6 +616,25 @@ pub(crate) fn build_assignment_like_command_name_spans<'a>(
     spans
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
+pub(crate) fn build_assign_special_zero_spans<'a>(
+    commands: &[CommandFact<'a>],
+    source: &str,
+) -> Vec<Span> {
+    commands
+        .iter()
+        .filter_map(|fact| match fact.command() {
+            Command::Simple(command) => assign_special_zero_span(&command.name, source),
+            Command::Builtin(_)
+            | Command::Decl(_)
+            | Command::Binary(_)
+            | Command::Compound(_)
+            | Command::Function(_)
+            | Command::AnonymousFunction(_) => None,
+        })
+        .collect()
+}
+
 pub(crate) fn collect_assignment_like_command_name_spans_in_command(
     fact: &CommandFact<'_>,
     source: &str,
@@ -668,6 +687,22 @@ pub(crate) fn assignment_like_command_name_span(word: &Word, source: &str) -> Op
     } else {
         (!is_shell_variable_name(target)).then_some(word.span)
     }
+}
+
+fn assign_special_zero_span(word: &Word, source: &str) -> Option<Span> {
+    let text = word.span.slice(source);
+    if text.starts_with("0=") {
+        return Some(word.span);
+    }
+
+    if text.starts_with("+0=") {
+        return Some(Span::from_positions(
+            word.span.start.advanced_by("+"),
+            word.span.end,
+        ));
+    }
+
+    None
 }
 
 pub(crate) fn zsh_declaration_brace_assignment_target(

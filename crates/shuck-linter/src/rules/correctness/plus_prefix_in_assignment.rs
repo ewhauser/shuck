@@ -1,4 +1,6 @@
-use crate::{Checker, Rule, Violation};
+use shuck_ast::Span;
+
+use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct PlusPrefixInAssignment;
 
@@ -13,10 +15,41 @@ impl Violation for PlusPrefixInAssignment {
 }
 
 pub fn plus_prefix_in_assignment(checker: &mut Checker) {
-    checker.report_fact_slice_dedup(
-        |facts| facts.command_facts().assignment_like_command_name_spans(),
-        || PlusPrefixInAssignment,
-    );
+    let suppress_assign_special_zero_overlap =
+        checker.shell() == ShellDialect::Sh && checker.is_rule_enabled(Rule::AssignSpecialZero);
+    let assign_special_zero_spans = if suppress_assign_special_zero_overlap {
+        checker.facts().command_facts().assign_special_zero_spans()
+    } else {
+        &[]
+    };
+    let spans = checker
+        .facts()
+        .command_facts()
+        .assignment_like_command_name_spans()
+        .iter()
+        .copied()
+        .filter(|span| {
+            !is_assign_special_zero_overlap(
+                checker,
+                assign_special_zero_spans,
+                *span,
+                suppress_assign_special_zero_overlap,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    checker.report_all_dedup(spans, || PlusPrefixInAssignment);
+}
+
+fn is_assign_special_zero_overlap(
+    checker: &Checker<'_>,
+    assign_special_zero_spans: &[Span],
+    span: Span,
+    suppress_assign_special_zero_overlap: bool,
+) -> bool {
+    suppress_assign_special_zero_overlap
+        && assign_special_zero_spans.contains(&span)
+        && !checker.is_suppressed_at(Rule::AssignSpecialZero, span)
 }
 
 #[cfg(test)]
@@ -83,6 +116,32 @@ network.wan.proto='dhcp'
                 "@VAR@=$(. /etc/profile >/dev/null 2>&1; echo \"${@VAR@}\")"
             ]
         );
+    }
+
+    #[test]
+    fn defers_plain_zero_assignment_to_assign_special_zero_when_enabled() {
+        let source = "#!/bin/sh\n0=demo\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rules([Rule::PlusPrefixInAssignment, Rule::AssignSpecialZero]),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::AssignSpecialZero);
+        assert_eq!(diagnostics[0].span.slice(source), "0=demo");
+    }
+
+    #[test]
+    fn keeps_declaration_zero_operands_with_assign_special_zero_enabled() {
+        let source = "#!/bin/sh\nexport 0=demo\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rules([Rule::PlusPrefixInAssignment, Rule::AssignSpecialZero]),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::PlusPrefixInAssignment);
+        assert_eq!(diagnostics[0].span.slice(source), "0=demo");
     }
 
     #[test]
