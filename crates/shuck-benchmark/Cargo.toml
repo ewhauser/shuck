@@ -68,6 +68,10 @@ name = "semantic"
 harness = false
 
 [[bench]]
+name = "editor"
+harness = false
+
+[[bench]]
 name = "unused_assignment"
 harness = false
 

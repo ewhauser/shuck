@@ -148,6 +148,7 @@ impl Server {
             }),
             document_formatting_provider: None,
             document_range_formatting_provider: None,
+            document_symbol_provider: Some(OneOf::Left(true)),
             diagnostic_provider: Some(types::DiagnosticServerCapabilities::Options(
                 DiagnosticOptions {
                     identifier: Some(crate::DIAGNOSTIC_NAME.into()),
@@ -299,6 +300,15 @@ mod tests {
         let capabilities = Server::server_capabilities(PositionEncoding::UTF16);
         assert!(capabilities.document_formatting_provider.is_none());
         assert!(capabilities.document_range_formatting_provider.is_none());
+    }
+
+    #[test]
+    fn advertises_document_symbol_capability() {
+        let capabilities = Server::server_capabilities(PositionEncoding::UTF16);
+        assert_eq!(
+            capabilities.document_symbol_provider,
+            Some(OneOf::Left(true))
+        );
     }
 
     #[test]

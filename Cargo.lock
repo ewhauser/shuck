@@ -1943,6 +1943,7 @@ dependencies = [
  "shuck-indexer",
  "shuck-linter",
  "shuck-parser",
+ "shuck-semantic",
  "tempfile",
  "tracing",
  "tracing-subscriber",

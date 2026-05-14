@@ -45,6 +45,9 @@ pub(super) fn request(req: server::Request) -> Task {
         request::DocumentDiagnostic::METHOD => {
             background_request_task::<request::DocumentDiagnostic>(req, BackgroundSchedule::Worker)
         }
+        request::DocumentSymbols::METHOD => {
+            background_request_task::<request::DocumentSymbols>(req, BackgroundSchedule::Worker)
+        }
         request::ExecuteCommand::METHOD => sync_request_task::<request::ExecuteCommand>(req),
         request::Format::METHOD => {
             background_request_task::<request::Format>(req, BackgroundSchedule::Fmt)
