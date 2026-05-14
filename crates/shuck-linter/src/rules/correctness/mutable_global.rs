@@ -84,7 +84,7 @@ pub fn mutable_global(checker: &mut Checker) {
             if write.kind == GlobalWriteKind::File && write.binding_id == first_file_write {
                 continue;
             }
-            if allow_conditional_init && is_conditional_default_init(binding, checker.source()) {
+            if allow_conditional_init && is_conditional_default_init(binding, checker) {
                 continue;
             }
             if reported.insert(write.binding_id) {
@@ -227,7 +227,7 @@ fn is_mutable_global_write_candidate(binding: &Binding) -> bool {
     }
 }
 
-fn is_conditional_default_init(binding: &Binding, source: &str) -> bool {
+fn is_conditional_default_init(binding: &Binding, checker: &Checker<'_>) -> bool {
     if matches!(binding.kind, BindingKind::ParameterDefaultAssignment) {
         return true;
     }
@@ -236,234 +236,11 @@ fn is_conditional_default_init(binding: &Binding, source: &str) -> bool {
         .attributes
         .contains(BindingAttributes::SELF_REFERENTIAL_READ)
         && matches!(binding.origin, BindingOrigin::Assignment { .. })
-        && assignment_value_uses_self_default_operator(binding, source)
-}
-
-fn assignment_value_uses_self_default_operator(binding: &Binding, source: &str) -> bool {
-    let Some(value) = source
-        .get(binding.span.end.offset..)
-        .and_then(|remainder| remainder.strip_prefix('='))
-    else {
-        return false;
-    };
-    let value_word = assignment_value_word(value);
-    let value_word = assignment_value_without_trailing_comment(value_word);
-    value_uses_only_self_default_parameter_expansions(value_word, binding.name.as_str())
-}
-
-fn assignment_value_word(value: &str) -> &str {
-    let bytes = value.as_bytes();
-    let mut index = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'\n' | b'\r' | b';' => return &value[..index],
-            b'\'' => index = skip_single_quoted_assignment_value(bytes, index + 1),
-            b'"' => index = skip_double_quoted_assignment_value(bytes, index + 1),
-            b'`' => index = skip_backtick_assignment_value(bytes, index + 1),
-            b'\\' => index = (index + 2).min(bytes.len()),
-            b'$' => index = skip_dollar_assignment_expansion(bytes, index),
-            _ => index += 1,
-        }
-    }
-
-    value
-}
-
-fn assignment_value_without_trailing_comment(value: &str) -> &str {
-    let mut escaped = false;
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut comment_can_start = false;
-
-    for (index, ch) in value.char_indices() {
-        if escaped {
-            escaped = false;
-            comment_can_start = false;
-            continue;
-        }
-
-        if in_single_quote {
-            if ch == '\'' {
-                in_single_quote = false;
-            }
-            continue;
-        }
-
-        if in_double_quote {
-            match ch {
-                '\\' => escaped = true,
-                '"' => in_double_quote = false,
-                _ => {}
-            }
-            continue;
-        }
-
-        match ch {
-            '#' if comment_can_start => return &value[..index],
-            '\\' => {
-                escaped = true;
-                comment_can_start = false;
-            }
-            '\'' => {
-                in_single_quote = true;
-                comment_can_start = false;
-            }
-            '"' => {
-                in_double_quote = true;
-                comment_can_start = false;
-            }
-            ' ' | '\t' => comment_can_start = true,
-            _ => comment_can_start = false,
-        }
-    }
-
-    value
-}
-
-fn skip_single_quoted_assignment_value(bytes: &[u8], mut index: usize) -> usize {
-    while index < bytes.len() {
-        if bytes[index] == b'\'' {
-            return index + 1;
-        }
-        index += 1;
-    }
-    bytes.len()
-}
-
-fn skip_double_quoted_assignment_value(bytes: &[u8], mut index: usize) -> usize {
-    while index < bytes.len() {
-        match bytes[index] {
-            b'\\' => index = (index + 2).min(bytes.len()),
-            b'"' => return index + 1,
-            _ => index += 1,
-        }
-    }
-    bytes.len()
-}
-
-fn skip_backtick_assignment_value(bytes: &[u8], mut index: usize) -> usize {
-    while index < bytes.len() {
-        match bytes[index] {
-            b'\\' => index = (index + 2).min(bytes.len()),
-            b'`' => return index + 1,
-            _ => index += 1,
-        }
-    }
-    bytes.len()
-}
-
-fn skip_dollar_assignment_expansion(bytes: &[u8], index: usize) -> usize {
-    let Some(next) = bytes.get(index + 1).copied() else {
-        return bytes.len();
-    };
-
-    match next {
-        b'{' => skip_balanced_assignment_value(bytes, index + 2, b'{', b'}'),
-        b'(' => skip_balanced_assignment_value(bytes, index + 2, b'(', b')'),
-        b'[' => skip_balanced_assignment_value(bytes, index + 2, b'[', b']'),
-        _ => index + 1,
-    }
-}
-
-fn skip_balanced_assignment_value(bytes: &[u8], mut index: usize, open: u8, close: u8) -> usize {
-    let mut depth = 1usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'\'' => index = skip_single_quoted_assignment_value(bytes, index + 1),
-            b'"' => index = skip_double_quoted_assignment_value(bytes, index + 1),
-            b'`' => index = skip_backtick_assignment_value(bytes, index + 1),
-            b'\\' => index = (index + 2).min(bytes.len()),
-            b'$' => index = skip_dollar_assignment_expansion(bytes, index),
-            byte if byte == open => {
-                depth += 1;
-                index += 1;
-            }
-            byte if byte == close => {
-                depth -= 1;
-                index += 1;
-                if depth == 0 {
-                    return index;
-                }
-            }
-            _ => index += 1,
-        }
-    }
-    bytes.len()
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-struct SelfParameterExpansionUses {
-    default_operator: bool,
-    other_read: bool,
-}
-
-fn value_uses_only_self_default_parameter_expansions(value: &str, name: &str) -> bool {
-    let uses = self_parameter_expansion_uses(value, name);
-    uses.default_operator && !uses.other_read
-}
-
-fn self_parameter_expansion_uses(value: &str, name: &str) -> SelfParameterExpansionUses {
-    let bytes = value.as_bytes();
-    let name_bytes = name.as_bytes();
-    let mut uses = SelfParameterExpansionUses::default();
-    let mut index = 0usize;
-
-    while index < bytes.len() {
-        match bytes[index] {
-            b'\'' => index = skip_single_quoted_assignment_value(bytes, index + 1),
-            b'\\' => index = (index + 2).min(bytes.len()),
-            b'$' => {
-                if bytes.get(index + 1) == Some(&b'{') {
-                    let name_start = index + 2;
-                    let name_end = name_start + name_bytes.len();
-                    if bytes
-                        .get(name_start..name_end)
-                        .is_some_and(|candidate| candidate == name_bytes)
-                        && braced_parameter_name_has_boundary(bytes, name_end)
-                    {
-                        if braced_parameter_tail_starts_default_operator(&bytes[name_end..]) {
-                            uses.default_operator = true;
-                        } else {
-                            uses.other_read = true;
-                        }
-                    }
-                } else {
-                    let name_start = index + 1;
-                    let name_end = name_start + name_bytes.len();
-                    if bytes
-                        .get(name_start..name_end)
-                        .is_some_and(|candidate| candidate == name_bytes)
-                        && bare_parameter_name_has_boundary(bytes, name_end)
-                    {
-                        uses.other_read = true;
-                    }
-                }
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-
-    uses
-}
-
-fn braced_parameter_name_has_boundary(bytes: &[u8], index: usize) -> bool {
-    !bytes
-        .get(index)
-        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
-}
-
-fn bare_parameter_name_has_boundary(bytes: &[u8], index: usize) -> bool {
-    !bytes
-        .get(index)
-        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
-}
-
-fn braced_parameter_tail_starts_default_operator(tail: &[u8]) -> bool {
-    matches!(
-        tail,
-        [b':', b'-', ..] | [b':', b'=', ..] | [b'-', ..] | [b'=', ..]
-    )
+        && checker
+            .facts()
+            .assignments()
+            .binding_value(binding.id)
+            .is_some_and(|value| value.uses_only_self_default_parameter_expansions())
 }
 
 fn report_span_for_binding(binding: &Binding) -> Span {

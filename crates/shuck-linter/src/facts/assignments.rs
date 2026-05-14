@@ -40,6 +40,7 @@ impl DeclarationAssignmentProbe {
 pub struct BindingValueFact<'a> {
     kind: BindingValueKind<'a>,
     standalone_status_or_pid_capture: bool,
+    uses_only_self_default_parameter_expansions: bool,
     conditional_assignment_shortcut: bool,
     one_sided_short_circuit_assignment: bool,
     zsh_selectorless_subscript_value_base_names: Box<[Name]>,
@@ -52,10 +53,17 @@ pub(crate) enum BindingValueKind<'a> {
 }
 
 impl<'a> BindingValueFact<'a> {
-    fn scalar(word: &'a Word, source: &str) -> Self {
+    fn scalar(
+        word: &'a Word,
+        target_name: &Name,
+        semantic: &'a LinterSemanticArtifacts<'a>,
+        source: &str,
+    ) -> Self {
         Self::scalar_with_status_or_pid_capture(
             word,
             word_is_standalone_status_or_pid_capture(word),
+            target_name,
+            semantic,
             source,
         )
     }
@@ -63,11 +71,20 @@ impl<'a> BindingValueFact<'a> {
     fn scalar_with_status_or_pid_capture(
         word: &'a Word,
         standalone_status_or_pid_capture: bool,
+        target_name: &Name,
+        semantic: &'a LinterSemanticArtifacts<'a>,
         source: &str,
     ) -> Self {
         Self {
             kind: BindingValueKind::Scalar(word),
             standalone_status_or_pid_capture,
+            uses_only_self_default_parameter_expansions:
+                word_uses_only_self_default_parameter_expansions(
+                    word,
+                    target_name,
+                    semantic,
+                    source,
+                ),
             conditional_assignment_shortcut: false,
             one_sided_short_circuit_assignment: false,
             zsh_selectorless_subscript_value_base_names:
@@ -79,6 +96,7 @@ impl<'a> BindingValueFact<'a> {
         Self {
             kind: BindingValueKind::Loop(words),
             standalone_status_or_pid_capture: false,
+            uses_only_self_default_parameter_expansions: false,
             conditional_assignment_shortcut: false,
             one_sided_short_circuit_assignment: false,
             zsh_selectorless_subscript_value_base_names: Box::default(),
@@ -111,6 +129,10 @@ impl<'a> BindingValueFact<'a> {
         self.standalone_status_or_pid_capture
     }
 
+    pub fn uses_only_self_default_parameter_expansions(&self) -> bool {
+        self.uses_only_self_default_parameter_expansions
+    }
+
     pub fn zsh_selectorless_subscript_value(&self) -> bool {
         !self.zsh_selectorless_subscript_value_base_names.is_empty()
     }
@@ -127,6 +149,245 @@ impl<'a> BindingValueFact<'a> {
 
     fn mark_one_sided_short_circuit_assignment(&mut self) {
         self.one_sided_short_circuit_assignment = true;
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct SelfParameterExpansionUses {
+    default_operator: bool,
+    other_read: bool,
+}
+
+fn word_uses_only_self_default_parameter_expansions<'a>(
+    word: &'a Word,
+    name: &Name,
+    semantic: &'a LinterSemanticArtifacts<'a>,
+    source: &str,
+) -> bool {
+    let mut uses = SelfParameterExpansionUses::default();
+    collect_self_parameter_expansion_uses_in_word(word, name, semantic, source, &mut uses);
+    uses.default_operator && !uses.other_read
+}
+
+fn collect_self_parameter_expansion_uses_in_word<'a>(
+    word: &'a Word,
+    name: &Name,
+    semantic: &'a LinterSemanticArtifacts<'a>,
+    source: &str,
+    uses: &mut SelfParameterExpansionUses,
+) {
+    let mut visitor = SelfParameterExpansionUseVisitor {
+        name,
+        semantic,
+        source,
+        uses,
+    };
+    walk_word_subtree(
+        word,
+        WordTraversalContext {
+            source,
+            locator: None,
+            shell_dialect: shuck_semantic::ShellDialect::Bash,
+        },
+        &mut visitor,
+    );
+}
+
+struct SelfParameterExpansionUseVisitor<'name, 'uses, 'a> {
+    name: &'name Name,
+    semantic: &'a LinterSemanticArtifacts<'a>,
+    source: &'a str,
+    uses: &'uses mut SelfParameterExpansionUses,
+}
+
+impl<'name, 'uses, 'a> SelfParameterExpansionUseVisitor<'name, 'uses, 'a> {
+    fn collect_command_body(&mut self, body: &'a StmtSeq) {
+        let name = self.name;
+        let semantic = self.semantic;
+        let source = self.source;
+        visit_command_substitution_candidate_words(body, semantic, source, &mut |word| {
+            collect_self_parameter_expansion_uses_in_word(word, name, semantic, source, self.uses);
+        });
+    }
+}
+
+impl<'name, 'uses, 'a> WordSubtreeVisitor<'a>
+    for SelfParameterExpansionUseVisitor<'name, 'uses, 'a>
+{
+    fn visit_part(&mut self, part: &'a WordPartNode, _state: WordTraversalState<'a>) {
+        match &part.kind {
+            WordPart::Literal(_)
+            | WordPart::ZshQualifiedGlob(_)
+            | WordPart::SingleQuoted { .. }
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. } => {}
+            WordPart::ProcessSubstitution { body, .. } => self.collect_command_body(body),
+            WordPart::DoubleQuoted { .. } => {}
+            WordPart::Variable(name) => record_name_read(name, self.name, self.uses),
+            WordPart::Parameter(parameter) => collect_parameter_expansion_self_uses(
+                parameter,
+                self.name,
+                self.semantic,
+                self.source,
+                self.uses,
+            ),
+            WordPart::ParameterExpansion {
+                reference,
+                operator,
+                ..
+            } => record_parameter_operation_use(
+                reference,
+                operator,
+                self.name,
+                self.semantic,
+                self.source,
+                self.uses,
+            ),
+            WordPart::Length(reference)
+            | WordPart::ArrayAccess(reference)
+            | WordPart::ArrayLength(reference)
+            | WordPart::ArrayIndices(reference)
+            | WordPart::Substring { reference, .. }
+            | WordPart::ArraySlice { reference, .. }
+            | WordPart::Transformation { reference, .. } => {
+                record_var_ref_read(reference, self.name, self.semantic, self.source, self.uses)
+            }
+            WordPart::IndirectExpansion { reference, .. } => {
+                record_var_ref_read(reference, self.name, self.semantic, self.source, self.uses)
+            }
+            WordPart::PrefixMatch { .. } => {}
+        }
+    }
+
+    fn visit_command_substitution(
+        &mut self,
+        part: &'a WordPartNode,
+        _state: WordTraversalState<'a>,
+    ) {
+        if let WordPart::CommandSubstitution { body, .. } = &part.kind {
+            self.collect_command_body(body);
+        }
+    }
+}
+
+fn collect_parameter_expansion_self_uses(
+    parameter: &ParameterExpansion,
+    name: &Name,
+    semantic: &LinterSemanticArtifacts<'_>,
+    source: &str,
+    uses: &mut SelfParameterExpansionUses,
+) {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => {
+            collect_bourne_parameter_expansion_self_uses(syntax, name, semantic, source, uses);
+        }
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            collect_zsh_parameter_expansion_self_uses(syntax, name, semantic, source, uses);
+        }
+    }
+}
+
+fn collect_bourne_parameter_expansion_self_uses(
+    syntax: &BourneParameterExpansion,
+    name: &Name,
+    semantic: &LinterSemanticArtifacts<'_>,
+    source: &str,
+    uses: &mut SelfParameterExpansionUses,
+) {
+    match syntax {
+        BourneParameterExpansion::Access { reference }
+        | BourneParameterExpansion::Length { reference }
+        | BourneParameterExpansion::Indices { reference }
+        | BourneParameterExpansion::Transformation { reference, .. } => {
+            record_var_ref_read(reference, name, semantic, source, uses);
+        }
+        BourneParameterExpansion::Operation {
+            reference,
+            operator,
+            ..
+        } => record_parameter_operation_use(reference, operator, name, semantic, source, uses),
+        BourneParameterExpansion::Indirect { reference, .. } => {
+            record_var_ref_read(reference, name, semantic, source, uses);
+        }
+        BourneParameterExpansion::Slice { reference, .. } => {
+            record_var_ref_read(reference, name, semantic, source, uses);
+        }
+        BourneParameterExpansion::PrefixMatch { .. } => {}
+    }
+}
+
+fn collect_zsh_parameter_expansion_self_uses(
+    syntax: &ZshParameterExpansion,
+    name: &Name,
+    semantic: &LinterSemanticArtifacts<'_>,
+    source: &str,
+    uses: &mut SelfParameterExpansionUses,
+) {
+    match &syntax.target {
+        ZshExpansionTarget::Reference(reference) => match &syntax.operation {
+            Some(ZshExpansionOperation::Defaulting {
+                kind:
+                    shuck_ast::ZshDefaultingOp::UseDefault | shuck_ast::ZshDefaultingOp::AssignDefault,
+                ..
+            }) => record_parameter_default_use(reference, name, semantic, source, uses),
+            _ => record_var_ref_read(reference, name, semantic, source, uses),
+        },
+        ZshExpansionTarget::Nested(parameter) => {
+            collect_parameter_expansion_self_uses(parameter, name, semantic, source, uses);
+        }
+        ZshExpansionTarget::Word(_) | ZshExpansionTarget::Empty => {}
+    }
+}
+
+fn record_parameter_operation_use(
+    reference: &VarRef,
+    operator: &ParameterOp,
+    name: &Name,
+    semantic: &LinterSemanticArtifacts<'_>,
+    source: &str,
+    uses: &mut SelfParameterExpansionUses,
+) {
+    if matches!(
+        operator,
+        ParameterOp::UseDefault | ParameterOp::AssignDefault
+    ) {
+        record_parameter_default_use(reference, name, semantic, source, uses);
+    } else {
+        record_var_ref_read(reference, name, semantic, source, uses);
+    }
+}
+
+fn record_parameter_default_use(
+    reference: &VarRef,
+    name: &Name,
+    semantic: &LinterSemanticArtifacts<'_>,
+    source: &str,
+    uses: &mut SelfParameterExpansionUses,
+) {
+    if reference.name.as_str() == name.as_str() {
+        uses.default_operator = true;
+    }
+    visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+        collect_self_parameter_expansion_uses_in_word(word, name, semantic, source, uses);
+    });
+}
+
+fn record_var_ref_read(
+    reference: &VarRef,
+    name: &Name,
+    semantic: &LinterSemanticArtifacts<'_>,
+    source: &str,
+    uses: &mut SelfParameterExpansionUses,
+) {
+    record_name_read(&reference.name, name, uses);
+    visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+        collect_self_parameter_expansion_uses_in_word(word, name, semantic, source, uses);
+    });
+}
+
+fn record_name_read(name: &Name, target_name: &Name, uses: &mut SelfParameterExpansionUses) {
+    if name.as_str() == target_name.as_str() {
+        uses.other_read = true;
     }
 }
 
@@ -3280,6 +3541,7 @@ pub(crate) fn advance_escaped_char_boundary(text: &str, start: usize) -> usize {
 
 pub(crate) fn collect_binding_values<'a>(
     command: &'a Command,
+    semantic_artifacts: &'a LinterSemanticArtifacts<'a>,
     semantic: &SemanticModel,
     source: &str,
     binding_values: &mut FxHashMap<BindingId, BindingValueFact<'a>>,
@@ -3301,7 +3563,10 @@ pub(crate) fn collect_binding_values<'a>(
         if let Some(binding_id) =
             binding_value_definition_id_for_span(semantic, assignment.target.name_span)
         {
-            binding_values.insert(binding_id, BindingValueFact::scalar(word, source));
+            binding_values.insert(
+                binding_id,
+                BindingValueFact::scalar(word, &assignment.target.name, semantic_artifacts, source),
+            );
         }
     }
 
@@ -3315,7 +3580,10 @@ pub(crate) fn collect_binding_values<'a>(
         if let Some(binding_id) =
             binding_value_definition_id_for_span(semantic, assignment.target.name_span)
         {
-            binding_values.insert(binding_id, BindingValueFact::scalar(word, source));
+            binding_values.insert(
+                binding_id,
+                BindingValueFact::scalar(word, &assignment.target.name, semantic_artifacts, source),
+            );
         }
     }
 
@@ -3338,11 +3606,14 @@ pub(crate) fn collect_binding_values<'a>(
             let standalone_status_or_pid_capture =
                 word_span_is_standalone_status_or_pid_capture(word, *value_span);
             if let Some(binding_id) = binding_value_definition_id_for_span(semantic, *name_span) {
+                let binding_name = &semantic.binding(binding_id).name;
                 binding_values.insert(
                     binding_id,
                     BindingValueFact::scalar_with_status_or_pid_capture(
                         word,
                         standalone_status_or_pid_capture,
+                        binding_name,
+                        semantic_artifacts,
                         source,
                     ),
                 );
