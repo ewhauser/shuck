@@ -23,7 +23,7 @@
             pkgs.shfmt
             pkgs.zsh
             pkgs.cargo-fuzz
-            pkgs.cargo-udeps
+            pkgs.cargo-shear
             pkgs.yq
           ];
         };

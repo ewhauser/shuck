@@ -21,7 +21,7 @@ Before opening this PR, please confirm:
 ## Test plan
 
 <!-- How did you verify this works? Tick what applies; add commands you ran. -->
-- [ ] `make check` (fmt + clippy + udeps)
+- [ ] `make check` (fmt + clippy + cargo-shear)
 - [ ] `make test`
 - [ ] `make test-large-corpus` (for rule changes that affect conformance)
 - [ ] Added or updated unit / integration / insta snapshot tests

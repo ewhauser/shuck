@@ -298,5 +298,5 @@ check-scripts:
 check:
 	cargo fmt -- --check
 	cargo clippy --all-targets -- -D warnings
-	$(NIX_DEVELOP) env RUSTC_BOOTSTRAP=1 cargo udeps --all-targets
+	$(NIX_DEVELOP) cargo shear
 	$(MAKE) --no-print-directory check-scripts

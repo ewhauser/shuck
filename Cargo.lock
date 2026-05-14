@@ -1795,7 +1795,6 @@ dependencies = [
  "colored",
  "etcetera",
  "globset",
- "ignore",
  "insta",
  "notify",
  "predicates",
