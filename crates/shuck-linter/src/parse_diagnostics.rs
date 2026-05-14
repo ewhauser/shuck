@@ -700,7 +700,9 @@ fn stray_closing_keyword_spans(
 
 fn is_more_specific_parse_diagnostic(locator: Locator<'_>, diagnostic: &ParseDiagnostic) -> bool {
     let diagnostic = std::slice::from_ref(diagnostic);
-    if_missing_then_span(locator, diagnostic).is_some()
+    let keyword = diagnostic[0].span.slice(locator.source());
+    (matches!(keyword, "fi" | "else" | "elif")
+        && if_missing_then_span(locator, diagnostic).is_some())
         || until_missing_do_span(locator, diagnostic).is_some()
 }
 
@@ -2068,6 +2070,24 @@ esac
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_later_stray_closing_keyword_with_missing_then_recovery() {
+        let source = "#!/bin/sh\nif true\n  echo hi\nfi\ndone\n";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::StrayClosingKeyword);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::StrayClosingKeyword);
+        assert_eq!(diagnostics[0].span.slice(source), "done");
     }
 
     #[test]
