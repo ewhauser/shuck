@@ -80,8 +80,12 @@ fn documented_global_names(
         .iter()
         .filter(|binding| binding_is_top_level_declaration_site(semantic, binding))
         .filter(|binding| {
-            (treat_readonly_as_documented && binding_documents_readonly(binding))
-                || (treat_export_as_intentional && binding_documents_export(binding))
+            declaration_binding_documents_global(
+                semantic,
+                binding,
+                treat_readonly_as_documented,
+                treat_export_as_intentional,
+            )
         })
         .map(|binding| binding.name.clone())
         .collect::<FxHashSet<_>>();
@@ -118,6 +122,19 @@ fn documented_global_names(
     documented
 }
 
+fn declaration_binding_documents_global(
+    semantic: &shuck_semantic::SemanticModel,
+    binding: &Binding,
+    treat_readonly_as_documented: bool,
+    treat_export_as_intentional: bool,
+) -> bool {
+    semantic.declarations().iter().any(|declaration| {
+        declaration_covers_binding(declaration, binding)
+            && ((treat_readonly_as_documented && declaration_documents_readonly(declaration))
+                || (treat_export_as_intentional && declaration_documents_export(declaration)))
+    })
+}
+
 fn declaration_reference_documents_global(
     semantic: &shuck_semantic::SemanticModel,
     reference: &shuck_semantic::Reference,
@@ -128,6 +145,22 @@ fn declaration_reference_documents_global(
         declaration_covers_reference(declaration, reference)
             && ((treat_readonly_as_documented && declaration_documents_readonly(declaration))
                 || (treat_export_as_intentional && declaration_documents_export(declaration)))
+    })
+}
+
+fn declaration_covers_binding(
+    declaration: &shuck_semantic::Declaration,
+    binding: &Binding,
+) -> bool {
+    declaration.operands.iter().any(|operand| match operand {
+        DeclarationOperand::Name { name, span } => name == &binding.name && *span == binding.span,
+        DeclarationOperand::Assignment {
+            name,
+            target_span,
+            name_span,
+            ..
+        } => name == &binding.name && (*name_span == binding.span || *target_span == binding.span),
+        DeclarationOperand::Flag { .. } | DeclarationOperand::DynamicWord { .. } => false,
     })
 }
 
@@ -152,14 +185,42 @@ fn declaration_documents_readonly(declaration: &shuck_semantic::Declaration) -> 
 }
 
 fn declaration_documents_export(declaration: &shuck_semantic::Declaration) -> bool {
+    if declaration_has_flag(declaration, 'n') || declaration_disables_flag(declaration, 'x') {
+        return false;
+    }
+
     matches!(declaration.builtin, DeclarationBuiltin::Export)
         || declaration_has_flag(declaration, 'x')
 }
 
 fn declaration_has_flag(declaration: &shuck_semantic::Declaration, flag: char) -> bool {
-    declaration.operands.iter().any(|operand| {
-        matches!(operand, DeclarationOperand::Flag { flag: candidate, .. } if *candidate == flag)
-    })
+    declaration_flag_state(declaration, flag) == Some(true)
+}
+
+fn declaration_disables_flag(declaration: &shuck_semantic::Declaration, flag: char) -> bool {
+    declaration_flag_state(declaration, flag) == Some(false)
+}
+
+fn declaration_flag_state(declaration: &shuck_semantic::Declaration, flag: char) -> Option<bool> {
+    let mut state = None;
+    for operand in &declaration.operands {
+        let DeclarationOperand::Flag { flags, .. } = operand else {
+            continue;
+        };
+        let mut chars = flags.chars();
+        let Some(polarity) = chars.next() else {
+            continue;
+        };
+        let enabled = match polarity {
+            '-' => true,
+            '+' => false,
+            _ => continue,
+        };
+        if chars.any(|candidate| candidate == flag) {
+            state = Some(enabled);
+        }
+    }
+    state
 }
 
 fn binding_is_top_level_declaration_site(
@@ -439,6 +500,26 @@ work() {
         );
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn unexport_declarations_do_not_document_globals() {
+        let source = "\
+#!/bin/bash
+SHARED=old
+export -n SHARED
+work() {
+  SHARED=new
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ImplicitGlobalInFunction),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "SHARED");
+        assert_eq!(diagnostics[0].span.start.line, 5);
     }
 
     #[test]
