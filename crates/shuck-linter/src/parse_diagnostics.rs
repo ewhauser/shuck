@@ -700,15 +700,10 @@ fn mask_non_code_text(state: &mut ShellMultilineState, line: &str) -> String {
                     index = end;
                 }
                 b'`' => {
-                    let (end, closed) = backtick_end(bytes, index + 1);
-                    mask_span(&mut masked, index, end);
-                    *state = if closed {
-                        ShellMultilineState::Code
-                    } else {
-                        ShellMultilineState::Backtick
-                    };
-                    comment_can_start = false;
-                    index = end;
+                    masked[index] = b'(';
+                    *state = ShellMultilineState::Backtick;
+                    comment_can_start = true;
+                    index += 1;
                 }
                 b'$' => {
                     if starts_command_substitution(bytes, index) {
@@ -767,17 +762,26 @@ fn mask_non_code_text(state: &mut ShellMultilineState, line: &str) -> String {
                 comment_can_start = false;
                 index = end;
             }
-            ShellMultilineState::Backtick => {
-                let (end, closed) = backtick_end(bytes, index);
-                mask_span(&mut masked, index, end);
-                *state = if closed {
-                    ShellMultilineState::Code
-                } else {
-                    ShellMultilineState::Backtick
-                };
-                comment_can_start = false;
-                index = end;
-            }
+            ShellMultilineState::Backtick => match bytes[index] {
+                b'`' => {
+                    masked[index] = b')';
+                    *state = ShellMultilineState::Code;
+                    comment_can_start = false;
+                    index += 1;
+                }
+                b'\\' => {
+                    index = (index + 2).min(bytes.len());
+                    comment_can_start = false;
+                }
+                byte if byte.is_ascii_whitespace() || is_shell_word_separator(byte as char) => {
+                    comment_can_start = true;
+                    index += 1;
+                }
+                _ => {
+                    comment_can_start = false;
+                    index += 1;
+                }
+            },
             ShellMultilineState::DollarExpansion(expansion) => {
                 let (end, next_state) =
                     mask_dollar_expansion(&mut masked, bytes, index, index, expansion);
@@ -871,17 +875,6 @@ fn double_quote_end(bytes: &[u8], mut index: usize) -> (usize, bool) {
         match bytes[index] {
             b'\\' => index = (index + 2).min(bytes.len()),
             b'"' => return (index + 1, true),
-            _ => index += 1,
-        }
-    }
-    (bytes.len(), false)
-}
-
-fn backtick_end(bytes: &[u8], mut index: usize) -> (usize, bool) {
-    while index < bytes.len() {
-        match bytes[index] {
-            b'\\' => index = (index + 2).min(bytes.len()),
-            b'`' => return (index + 1, true),
             _ => index += 1,
         }
     }
@@ -1948,8 +1941,8 @@ impl<'a> Iterator for ShellLikeCommandWordPositions<'a> {
                     self.after_time_prefix = false;
                 }
                 b'`' => {
-                    self.index = skip_backtick_text(bytes, self.index + 1);
-                    self.at_command_start = false;
+                    self.index += 1;
+                    self.at_command_start = true;
                     self.after_time_prefix = false;
                 }
                 b'$' => {
@@ -1965,8 +1958,7 @@ impl<'a> Iterator for ShellLikeCommandWordPositions<'a> {
                 }
                 b'<' | b'>' if bytes.get(self.index + 1) == Some(&b'(') => {
                     self.index += 2;
-                    self.index = skip_balanced_text(bytes, self.index, b'(', b')');
-                    self.at_command_start = false;
+                    self.at_command_start = true;
                     self.after_time_prefix = false;
                 }
                 b'\\' => {
@@ -2702,6 +2694,42 @@ x=$(if true; then
         assert_eq!(
             unterminated_if_position_from_source(source),
             Some((2, 5, if_offset))
+        );
+    }
+
+    #[test]
+    fn c034_tracks_if_inside_backtick_command_substitution() {
+        let source = "\
+#!/bin/sh
+x=`if true; then
+  :
+`
+";
+        let if_offset = source
+            .find("if true")
+            .expect("fixture has a backtick substitution if");
+
+        assert_eq!(
+            unterminated_if_position_from_source(source),
+            Some((2, 4, if_offset))
+        );
+    }
+
+    #[test]
+    fn c034_tracks_if_inside_process_substitution() {
+        let source = "\
+#!/bin/bash
+cat <(if true; then
+  :
+)
+";
+        let if_offset = source
+            .find("if true")
+            .expect("fixture has a process substitution if");
+
+        assert_eq!(
+            unterminated_if_position_from_source(source),
+            Some((2, 7, if_offset))
         );
     }
 
