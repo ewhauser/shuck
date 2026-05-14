@@ -11,7 +11,7 @@ use shuck_linter::{
 use shuck_parser::parser::Parser;
 
 use crate::edit::{LanguageId, RangeExt};
-use crate::session::DocumentSnapshot;
+use crate::session::{DocumentSnapshot, ShuckSettings};
 use crate::{DIAGNOSTIC_NAME, PositionEncoding};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -368,8 +368,22 @@ fn infer_document_shell(
     query_source: &str,
     path: Option<&Path>,
 ) -> Option<ShellDialect> {
-    if snapshot.shuck_settings().linter().shell != ShellDialect::Unknown {
-        return Some(snapshot.shuck_settings().linter().shell);
+    infer_document_shell_from_parts(
+        snapshot.shuck_settings(),
+        snapshot.query().language_id(),
+        query_source,
+        path,
+    )
+}
+
+pub(crate) fn infer_document_shell_from_parts(
+    settings: &ShuckSettings,
+    language_id: Option<LanguageId>,
+    query_source: &str,
+    path: Option<&Path>,
+) -> Option<ShellDialect> {
+    if settings.linter().shell != ShellDialect::Unknown {
+        return Some(settings.linter().shell);
     }
 
     if let Some(shell) = infer_source_declared_shell(query_source) {
@@ -378,7 +392,7 @@ fn infer_document_shell(
 
     let shell = ShellDialect::infer(query_source, path);
 
-    match language_id_preference(snapshot.query().language_id()) {
+    match language_id_preference(language_id) {
         LanguageIdPreference::Concrete(shell) => Some(shell),
         LanguageIdPreference::GenericShell => Some(match shell {
             ShellDialect::Unknown => ShellDialect::Sh,

@@ -1809,6 +1809,7 @@ dependencies = [
  "shuck-ast",
  "shuck-cache",
  "shuck-config",
+ "shuck-discover",
  "shuck-extract",
  "shuck-formatter",
  "shuck-indexer",
@@ -1836,6 +1837,20 @@ dependencies = [
  "shuck-run",
  "tempfile",
  "toml",
+]
+
+[[package]]
+name = "shuck-discover"
+version = "0.0.40"
+dependencies = [
+ "anyhow",
+ "globset",
+ "ignore",
+ "shuck-config",
+ "shuck-extract",
+ "shuck-linter",
+ "shuck-parser",
+ "tempfile",
 ]
 
 [[package]]
@@ -1937,8 +1952,10 @@ dependencies = [
  "rustc-hash 2.1.2",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "shuck-ast",
  "shuck-config",
+ "shuck-discover",
  "shuck-formatter",
  "shuck-indexer",
  "shuck-linter",

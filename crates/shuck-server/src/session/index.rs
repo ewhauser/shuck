@@ -27,6 +27,13 @@ pub(crate) struct Index {
 }
 
 #[derive(Clone)]
+pub(crate) struct WorkspaceSettingsSnapshot {
+    pub(crate) root: PathBuf,
+    pub(crate) canonical_root: Option<PathBuf>,
+    pub(crate) options: Option<ClientOptions>,
+}
+
+#[derive(Clone)]
 struct WorkspaceSettings {
     url: Url,
     root: PathBuf,
@@ -243,6 +250,26 @@ impl Index {
 
     pub(super) fn workspace_roots(&self) -> &[PathBuf] {
         &self.workspace_roots
+    }
+
+    pub(super) fn workspace_settings_snapshot(&self) -> Vec<WorkspaceSettingsSnapshot> {
+        self.workspace_settings
+            .iter()
+            .map(|workspace| WorkspaceSettingsSnapshot {
+                root: workspace.root.clone(),
+                canonical_root: workspace.root.canonicalize().ok(),
+                options: workspace.options.clone(),
+            })
+            .collect()
+    }
+
+    pub(super) fn open_documents_snapshot(&self) -> Vec<crate::symbols::WorkspaceOpenDocument> {
+        self.documents
+            .iter()
+            .map(|(url, document)| {
+                crate::symbols::WorkspaceOpenDocument::new(url.clone(), document.clone())
+            })
+            .collect()
     }
 
     pub(super) fn workspace_options_for_url(&self, url: &Url) -> Option<&ClientOptions> {
