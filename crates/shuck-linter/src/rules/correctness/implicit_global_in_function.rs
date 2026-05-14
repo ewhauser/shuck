@@ -212,6 +212,7 @@ fn function_local_declarations(
     semantic: &shuck_semantic::SemanticModel,
 ) -> FxHashMap<(ScopeId, Name), Vec<usize>> {
     let mut declarations = FxHashMap::<(ScopeId, Name), Vec<usize>>::default();
+
     for binding in semantic.bindings() {
         if !binding_declares_function_local(binding) {
             continue;
@@ -226,7 +227,50 @@ fn function_local_declarations(
         }
     }
 
+    for declaration in semantic.declarations() {
+        if !declaration_declares_function_global(declaration) {
+            continue;
+        }
+
+        let declaration_scope = semantic.scope_at(declaration.span.start.offset);
+        let Some(function_scope) = semantic.enclosing_function_scope(declaration_scope) else {
+            continue;
+        };
+        if declaration_scope != function_scope {
+            continue;
+        }
+
+        for (name, offset) in declaration_operand_names(declaration) {
+            declarations
+                .entry((function_scope, name.clone()))
+                .or_default()
+                .push(offset);
+        }
+    }
+
     declarations
+}
+
+fn declaration_declares_function_global(declaration: &shuck_semantic::Declaration) -> bool {
+    matches!(
+        declaration.builtin,
+        DeclarationBuiltin::Declare | DeclarationBuiltin::Typeset
+    ) && declaration_has_flag(declaration, 'g')
+}
+
+fn declaration_operand_names(
+    declaration: &shuck_semantic::Declaration,
+) -> impl Iterator<Item = (&Name, usize)> {
+    declaration
+        .operands
+        .iter()
+        .filter_map(|operand| match operand {
+            DeclarationOperand::Name { name, span } => Some((name, span.start.offset)),
+            DeclarationOperand::Assignment {
+                name, name_span, ..
+            } => Some((name, name_span.start.offset)),
+            DeclarationOperand::Flag { .. } | DeclarationOperand::DynamicWord { .. } => None,
+        })
 }
 
 fn binding_declares_function_local(binding: &Binding) -> bool {
@@ -304,6 +348,25 @@ work() {
   path=/tmp
   readonly pinned=1
   pinned=2
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ImplicitGlobalInFunction),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn accepts_assignments_after_explicit_function_global_declarations() {
+        let source = "\
+#!/bin/bash
+work() {
+  declare -g shared
+  shared=1
+  typeset -g other=0
+  other=1
 }
 ";
         let diagnostics = test_snippet(
