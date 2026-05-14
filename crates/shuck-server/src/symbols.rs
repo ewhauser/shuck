@@ -299,12 +299,14 @@ pub(crate) fn workspace_symbols(
     let mut summaries = context
         .open_documents
         .iter()
+        .filter(|document| workspace_symbol_document_in_workspace(&context, document))
         .filter(|document| workspace_symbol_options_for_uri(&context, &document.uri).enabled)
         .filter_map(|document| workspace_symbol_summary_from_open_document(&context, document))
         .collect::<Vec<_>>();
     let open_uris = context
         .open_documents
         .iter()
+        .filter(|document| workspace_symbol_document_in_workspace(&context, document))
         .filter(|document| workspace_symbol_options_for_uri(&context, &document.uri).enabled)
         .flat_map(|document| workspace_uri_keys(&document.uri))
         .collect::<std::collections::BTreeSet<_>>();
@@ -698,6 +700,24 @@ fn workspace_symbol_options_for_path(
         .unwrap_or(context.options)
 }
 
+fn workspace_symbol_document_in_workspace(
+    context: &WorkspaceSymbolContext,
+    document: &WorkspaceOpenDocument,
+) -> bool {
+    let Ok(path) = document.uri.to_file_path() else {
+        return false;
+    };
+    workspace_path_in_workspace(context, &path)
+}
+
+fn workspace_path_in_workspace(context: &WorkspaceSymbolContext, path: &Path) -> bool {
+    workspace_settings_for_path(context, path).is_some()
+        || context
+            .workspace_roots
+            .iter()
+            .any(|root| path.starts_with(root))
+}
+
 fn workspace_path_owned_by_root(
     context: &WorkspaceSymbolContext,
     path: &Path,
@@ -723,14 +743,13 @@ fn workspace_settings_for_path<'a>(
 }
 
 fn workspace_symbols_have_enabled_scope(context: &WorkspaceSymbolContext) -> bool {
-    context
-        .open_documents
+    context.open_documents.iter().any(|document| {
+        workspace_symbol_document_in_workspace(context, document)
+            && workspace_symbol_options_for_uri(context, &document.uri).enabled
+    }) || context
+        .workspace_roots
         .iter()
-        .any(|document| workspace_symbol_options_for_uri(context, &document.uri).enabled)
-        || context
-            .workspace_roots
-            .iter()
-            .any(|root| workspace_symbol_options_for_path(context, Some(root)).enabled)
+        .any(|root| workspace_symbol_options_for_path(context, Some(root)).enabled)
 }
 
 fn workspace_symbol_candidates(
@@ -1342,6 +1361,44 @@ build() {
         assert_eq!(
             workspace_symbol_response_names(response),
             ["language_only_symbol"]
+        );
+    }
+
+    #[test]
+    fn workspace_symbols_exclude_open_buffers_outside_workspace_roots() {
+        let tempdir = tempfile::tempdir().expect("workspace should be created");
+        let workspace_root = tempdir.path().join("workspace");
+        let external_root = tempdir.path().join("external");
+        std::fs::create_dir(&workspace_root).expect("workspace root should be created");
+        std::fs::create_dir(&external_root).expect("external root should be created");
+
+        let (mut session, client) = make_session(&workspace_root, PositionEncoding::UTF16);
+        let workspace_uri = Url::from_file_path(workspace_root.join("scratch.sh"))
+            .expect("workspace buffer URI should convert");
+        session.open_text_document(
+            workspace_uri,
+            TextDocument::new("workspace_open_symbol() { :; }\n".to_owned(), 3)
+                .with_language_id("shellscript"),
+        );
+        let external_uri = Url::from_file_path(external_root.join("script.sh"))
+            .expect("external buffer URI should convert");
+        session.open_text_document(
+            external_uri,
+            TextDocument::new("external_open_symbol() { :; }\n".to_owned(), 4)
+                .with_language_id("shellscript"),
+        );
+
+        let response = workspace_symbols(
+            session.workspace_symbol_context(),
+            &client,
+            workspace_symbol_params("open_symbol"),
+        )
+        .expect("workspace symbol request should succeed")
+        .expect("workspace symbol response should be present");
+
+        assert_eq!(
+            workspace_symbol_response_names(response),
+            ["workspace_open_symbol"]
         );
     }
 
