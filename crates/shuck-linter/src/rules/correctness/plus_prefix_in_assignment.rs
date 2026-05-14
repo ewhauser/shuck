@@ -15,9 +15,13 @@ impl Violation for PlusPrefixInAssignment {
 }
 
 pub fn plus_prefix_in_assignment(checker: &mut Checker) {
-    let source = checker.source();
     let suppress_assign_special_zero_overlap =
         checker.shell() == ShellDialect::Sh && checker.is_rule_enabled(Rule::AssignSpecialZero);
+    let assign_special_zero_spans = if suppress_assign_special_zero_overlap {
+        checker.facts().command_facts().assign_special_zero_spans()
+    } else {
+        &[]
+    };
     let spans = checker
         .facts()
         .command_facts()
@@ -27,7 +31,7 @@ pub fn plus_prefix_in_assignment(checker: &mut Checker) {
         .filter(|span| {
             !is_assign_special_zero_overlap(
                 checker,
-                source,
+                assign_special_zero_spans,
                 *span,
                 suppress_assign_special_zero_overlap,
             )
@@ -39,12 +43,12 @@ pub fn plus_prefix_in_assignment(checker: &mut Checker) {
 
 fn is_assign_special_zero_overlap(
     checker: &Checker<'_>,
-    source: &str,
+    assign_special_zero_spans: &[Span],
     span: Span,
     suppress_assign_special_zero_overlap: bool,
 ) -> bool {
     suppress_assign_special_zero_overlap
-        && span.slice(source).starts_with("0=")
+        && assign_special_zero_spans.contains(&span)
         && !checker.is_suppressed_at(Rule::AssignSpecialZero, span)
 }
 
@@ -124,6 +128,19 @@ network.wan.proto='dhcp'
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::AssignSpecialZero);
+        assert_eq!(diagnostics[0].span.slice(source), "0=demo");
+    }
+
+    #[test]
+    fn keeps_declaration_zero_operands_with_assign_special_zero_enabled() {
+        let source = "#!/bin/sh\nexport 0=demo\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rules([Rule::PlusPrefixInAssignment, Rule::AssignSpecialZero]),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::PlusPrefixInAssignment);
         assert_eq!(diagnostics[0].span.slice(source), "0=demo");
     }
 
