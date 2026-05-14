@@ -907,6 +907,17 @@ repos:
           line: 2110
           column: 61
         classification: real
+      - path: "check_update.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 301
+          column: 49
+        end:
+          line: 301
+          column: 50
+        classification: real
   - name: "holman-dotfiles"
     github_url: "https://github.com/holman/dotfiles.git"
     commit: "af5071cd804b63dc59caeb21f7d0d0d0d1f55efa"
@@ -1042,6 +1053,28 @@ repos:
         end:
           line: 17
           column: 38
+        classification: real
+      - path: "script/bootstrap"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 56
+          column: 19
+        end:
+          line: 56
+          column: 20
+        classification: real
+      - path: "script/bootstrap"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 56
+          column: 27
+        end:
+          line: 56
+          column: 28
         classification: real
   - name: "ohmyzsh"
     github_url: "https://github.com/ohmyzsh/ohmyzsh.git"
@@ -6964,6 +6997,457 @@ repos:
         end:
           line: 257
           column: 38
+        classification: real
+      - path: "plugins/gitfast/git-completion.bash"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 697
+          column: 15
+        end:
+          line: 697
+          column: 16
+        classification: real
+      - path: "plugins/gitfast/git-completion.bash"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 697
+          column: 21
+        end:
+          line: 697
+          column: 22
+        classification: real
+      - path: "plugins/gitfast/git-completion.bash"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 697
+          column: 26
+        end:
+          line: 697
+          column: 27
+        classification: real
+      - path: "plugins/gitfast/git-completion.bash"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 1005
+          column: 25
+        end:
+          line: 1005
+          column: 26
+        classification: real
+      - path: "plugins/gitfast/git-completion.bash"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 1129
+          column: 15
+        end:
+          line: 1129
+          column: 16
+        classification: real
+      - path: "plugins/gitfast/git-completion.bash"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 2347
+          column: 34
+        end:
+          line: 2347
+          column: 35
+        classification: real
+      - path: "tools/install.sh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 113
+          column: 10
+        end:
+          line: 113
+          column: 11
+        classification: real
+      - path: "plugins/archlinux/archlinux.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 183
+          column: 30
+        end:
+          line: 183
+          column: 31
+        classification: real
+      - path: "plugins/archlinux/archlinux.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 184
+          column: 28
+        end:
+          line: 184
+          column: 29
+        classification: real
+      - path: "plugins/jump/jump.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 30
+          column: 7
+        end:
+          line: 30
+          column: 8
+        classification: real
+      - path: "plugins/nvm/nvm.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 32
+          column: 19
+        end:
+          line: 32
+          column: 20
+        classification: real
+      - path: "plugins/svn-fast-info/svn-fast-info.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 3
+          column: 15
+        end:
+          line: 3
+          column: 16
+        classification: real
+      - path: "plugins/svn-fast-info/svn-fast-info.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 34
+          column: 46
+        end:
+          line: 34
+          column: 47
+        classification: real
+      - path: "plugins/svn-fast-info/svn-fast-info.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 45
+          column: 54
+        end:
+          line: 45
+          column: 55
+        classification: real
+      - path: "plugins/svn-fast-info/svn-fast-info.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 49
+          column: 21
+        end:
+          line: 49
+          column: 22
+        classification: real
+      - path: "plugins/svn/svn.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 3
+          column: 16
+        end:
+          line: 3
+          column: 17
+        classification: real
+      - path: "plugins/svn/svn.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 30
+          column: 21
+        end:
+          line: 30
+          column: 22
+        classification: real
+      - path: "plugins/svn/svn.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 37
+          column: 21
+        end:
+          line: 37
+          column: 22
+        classification: real
+      - path: "plugins/svn/svn.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 58
+          column: 45
+        end:
+          line: 58
+          column: 46
+        classification: real
+      - path: "plugins/svn/svn.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 62
+          column: 33
+        end:
+          line: 62
+          column: 34
+        classification: real
+      - path: "plugins/svn/svn.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 67
+          column: 67
+        end:
+          line: 67
+          column: 68
+        classification: real
+      - path: "plugins/svn/svn.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 68
+          column: 11
+        end:
+          line: 68
+          column: 12
+        classification: real
+      - path: "plugins/svn/svn.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 82
+          column: 11
+        end:
+          line: 82
+          column: 12
+        classification: real
+      - path: "plugins/systemadmin/systemadmin.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 67
+          column: 10
+        end:
+          line: 67
+          column: 11
+        classification: real
+      - path: "plugins/systemadmin/systemadmin.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 68
+          column: 13
+        end:
+          line: 68
+          column: 14
+        classification: real
+      - path: "plugins/systemadmin/systemadmin.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 75
+          column: 10
+        end:
+          line: 75
+          column: 11
+        classification: real
+      - path: "plugins/systemadmin/systemadmin.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 75
+          column: 27
+        end:
+          line: 75
+          column: 28
+        classification: real
+      - path: "plugins/systemadmin/systemadmin.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 82
+          column: 10
+        end:
+          line: 82
+          column: 11
+        classification: real
+      - path: "plugins/systemadmin/systemadmin.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 83
+          column: 13
+        end:
+          line: 83
+          column: 14
+        classification: real
+      - path: "plugins/systemadmin/systemadmin.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 90
+          column: 10
+        end:
+          line: 90
+          column: 11
+        classification: real
+      - path: "plugins/systemadmin/systemadmin.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 91
+          column: 13
+        end:
+          line: 91
+          column: 14
+        classification: real
+      - path: "plugins/systemadmin/systemadmin.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 103
+          column: 10
+        end:
+          line: 103
+          column: 11
+        classification: real
+      - path: "plugins/systemadmin/systemadmin.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 104
+          column: 13
+        end:
+          line: 104
+          column: 14
+        classification: real
+      - path: "plugins/systemadmin/systemadmin.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 111
+          column: 10
+        end:
+          line: 111
+          column: 11
+        classification: real
+      - path: "plugins/systemadmin/systemadmin.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 112
+          column: 13
+        end:
+          line: 112
+          column: 14
+        classification: real
+      - path: "plugins/systemadmin/systemadmin.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 118
+          column: 8
+        end:
+          line: 118
+          column: 9
+        classification: real
+      - path: "plugins/systemadmin/systemadmin.plugin.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 119
+          column: 11
+        end:
+          line: 119
+          column: 12
+        classification: real
+      - path: "tools/check_for_upgrade.sh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 121
+          column: 13
+        end:
+          line: 121
+          column: 14
+        classification: real
+      - path: "tools/check_for_upgrade.sh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 127
+          column: 19
+        end:
+          line: 127
+          column: 20
+        classification: real
+      - path: "tools/check_for_upgrade.sh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 209
+          column: 40
+        end:
+          line: 209
+          column: 41
+        classification: real
+      - path: "tools/upgrade.sh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 245
+          column: 9
+        end:
+          line: 245
+          column: 10
         classification: real
   - name: "powerlevel10k"
     github_url: "https://github.com/romkatv/powerlevel10k.git"
@@ -12909,6 +13393,402 @@ repos:
           line: 94
           column: 48
         classification: real
+      - path: "gitstatus/gitstatus.plugin.sh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 363
+          column: 17
+        end:
+          line: 363
+          column: 18
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 21
+          column: 18
+        end:
+          line: 21
+          column: 19
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 21
+          column: 30
+        end:
+          line: 21
+          column: 31
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 21
+          column: 39
+        end:
+          line: 21
+          column: 40
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 21
+          column: 48
+        end:
+          line: 21
+          column: 49
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 21
+          column: 63
+        end:
+          line: 21
+          column: 64
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 21
+          column: 74
+        end:
+          line: 21
+          column: 75
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 22
+          column: 13
+        end:
+          line: 22
+          column: 14
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 22
+          column: 21
+        end:
+          line: 22
+          column: 22
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 157
+          column: 31
+        end:
+          line: 157
+          column: 32
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 176
+          column: 24
+        end:
+          line: 176
+          column: 25
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 176
+          column: 38
+        end:
+          line: 176
+          column: 39
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 176
+          column: 44
+        end:
+          line: 176
+          column: 45
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 176
+          column: 53
+        end:
+          line: 176
+          column: 54
+        classification: real
+      - path: "gitstatus/install"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 287
+          column: 23
+        end:
+          line: 287
+          column: 24
+        classification: real
+      - path: "internal/p10k.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 1838
+          column: 23
+        end:
+          line: 1838
+          column: 24
+        classification: real
+      - path: "internal/p10k.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 5940
+          column: 17
+        end:
+          line: 5940
+          column: 18
+        classification: real
+      - path: "internal/p10k.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 5940
+          column: 31
+        end:
+          line: 5940
+          column: 32
+        classification: real
+      - path: "internal/p10k.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 5940
+          column: 44
+        end:
+          line: 5940
+          column: 45
+        classification: real
+      - path: "internal/p10k.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 5940
+          column: 57
+        end:
+          line: 5940
+          column: 58
+        classification: real
+      - path: "internal/p10k.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 5940
+          column: 69
+        end:
+          line: 5940
+          column: 70
+        classification: real
+      - path: "internal/p10k.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 5940
+          column: 81
+        end:
+          line: 5940
+          column: 82
+        classification: real
+      - path: "internal/p10k.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 7473
+          column: 18
+        end:
+          line: 7473
+          column: 19
+        classification: real
+      - path: "internal/p10k.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 7473
+          column: 24
+        end:
+          line: 7473
+          column: 25
+        classification: real
+      - path: "internal/p10k.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 7919
+          column: 15
+        end:
+          line: 7919
+          column: 16
+        classification: real
+      - path: "internal/wizard.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 2099
+          column: 46
+        end:
+          line: 2099
+          column: 47
+        classification: real
+      - path: "internal/wizard.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 2099
+          column: 60
+        end:
+          line: 2099
+          column: 61
+        classification: real
+      - path: "internal/wizard.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 2101
+          column: 27
+        end:
+          line: 2101
+          column: 28
+        classification: real
+      - path: "internal/wizard.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 2101
+          column: 69
+        end:
+          line: 2101
+          column: 70
+        classification: real
+      - path: "internal/wizard.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 2101
+          column: 84
+        end:
+          line: 2101
+          column: 85
+        classification: real
+      - path: "internal/wizard.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 2103
+          column: 21
+        end:
+          line: 2103
+          column: 22
+        classification: real
+      - path: "internal/wizard.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 2103
+          column: 35
+        end:
+          line: 2103
+          column: 36
+        classification: real
+      - path: "internal/wizard.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 2103
+          column: 46
+        end:
+          line: 2103
+          column: 47
+        classification: real
+      - path: "internal/wizard.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 2103
+          column: 58
+        end:
+          line: 2103
+          column: 59
+        classification: real
+      - path: "internal/wizard.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 2103
+          column: 69
+        end:
+          line: 2103
+          column: 70
+        classification: real
+      - path: "internal/wizard.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 2103
+          column: 81
+        end:
+          line: 2103
+          column: 82
+        classification: real
   - name: "prezto"
     github_url: "https://github.com/sorin-ionescu/prezto.git"
     commit: "cff2d01871425b1b80710f8ec6a475c5a53145b4"
@@ -13686,6 +14566,17 @@ repos:
         end:
           line: 49
           column: 41
+        classification: real
+      - path: "hooks/post-up"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 24
+          column: 16
+        end:
+          line: 24
+          column: 17
         classification: real
   - name: "zdot"
     github_url: "https://github.com/georgeharker/zdot.git"
@@ -17413,6 +18304,116 @@ repos:
           line: 3284
           column: 59
         classification: real
+      - path: "zinit.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 563
+          column: 40
+        end:
+          line: 563
+          column: 41
+        classification: real
+      - path: "zinit.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 577
+          column: 40
+        end:
+          line: 577
+          column: 41
+        classification: real
+      - path: "zinit.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 1136
+          column: 27
+        end:
+          line: 1136
+          column: 40
+        classification: real
+      - path: "zinit.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 1138
+          column: 37
+        end:
+          line: 1138
+          column: 39
+        classification: real
+      - path: "zinit.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 1141
+          column: 28
+        end:
+          line: 1141
+          column: 39
+        classification: real
+      - path: "zinit.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 1144
+          column: 34
+        end:
+          line: 1144
+          column: 39
+        classification: real
+      - path: "zinit.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 1146
+          column: 28
+        end:
+          line: 1146
+          column: 39
+        classification: real
+      - path: "zinit.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 1147
+          column: 35
+        end:
+          line: 1147
+          column: 39
+        classification: real
+      - path: "zinit.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 1725
+          column: 20
+        end:
+          line: 1725
+          column: 21
+        classification: real
+      - path: "zinit.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 1725
+          column: 39
+        end:
+          line: 1725
+          column: 40
+        classification: real
   - name: "zsh-autosuggestions"
     github_url: "https://github.com/zsh-users/zsh-autosuggestions.git"
     commit: "85919cd1ffa7d2d5412f6d3fe437ebdbeeec4fc5"
@@ -18938,4 +19939,15 @@ repos:
         end:
           line: 578
           column: 64
+        classification: real
+      - path: "tests/test-perfs.zsh"
+        code: "C024"
+        severity: "warning"
+        message: "a space after `=` keeps this from being one assignment word"
+        start:
+          line: 70
+          column: 13
+        end:
+          line: 70
+          column: 14
         classification: real

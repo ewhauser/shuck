@@ -7,7 +7,7 @@ rate=${3:-1000}
 profile_iterations=${4:-1}
 fixture_iterations=${5:-1}
 
-repo_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+repo_root=$(CDPATH="" cd -- "$(dirname "$0")/../.." && pwd)
 output_dir="$repo_root/$profile_root/large-corpus"
 
 mkdir -p "$output_dir"

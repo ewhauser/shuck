@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-repo_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+repo_root=$(CDPATH="" cd -- "$(dirname "$0")/.." && pwd)
 default_corpus_dir="$repo_root/.cache/large-corpus"
 archive_file="${SHUCK_LARGE_CORPUS_ARCHIVE_FILE:-shuck-cache-v3.tar.zst}"
 archive_url="${SHUCK_LARGE_CORPUS_ARCHIVE_URL:-https://github.com/ewhauser/shuck/releases/download/v0.0.0-test-files/$archive_file}"

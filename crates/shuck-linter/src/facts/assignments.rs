@@ -130,6 +130,456 @@ impl<'a> BindingValueFact<'a> {
     }
 }
 
+pub(crate) fn command_may_have_assignment_spacing_candidate(
+    command: &Command,
+    source: &str,
+) -> bool {
+    match command {
+        Command::Simple(command) => {
+            simple_command_may_have_assignment_spacing_candidate(command, source)
+        }
+        Command::Decl(command) => {
+            command
+                .assignments
+                .iter()
+                .any(assignment_reports_assignment_spacing)
+                || declaration_operands_may_have_assignment_spacing_candidate(
+                    &command.operands,
+                    source,
+                )
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Break(command) => command
+                .assignments
+                .iter()
+                .any(assignment_reports_assignment_spacing),
+            BuiltinCommand::Continue(command) => command
+                .assignments
+                .iter()
+                .any(assignment_reports_assignment_spacing),
+            BuiltinCommand::Return(command) => command
+                .assignments
+                .iter()
+                .any(assignment_reports_assignment_spacing),
+            BuiltinCommand::Exit(command) => command
+                .assignments
+                .iter()
+                .any(assignment_reports_assignment_spacing),
+        },
+        Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => false,
+    }
+}
+
+fn simple_command_may_have_assignment_spacing_candidate(
+    command: &SimpleCommand,
+    source: &str,
+) -> bool {
+    for (index, assignment) in command.assignments.iter().enumerate() {
+        if assignment_reports_assignment_spacing(assignment)
+            && (index + 1 < command.assignments.len() || !span_is_empty(command.name.span))
+        {
+            return true;
+        }
+    }
+
+    !span_is_empty(command.name.span)
+        && word_reports_assignment_spacing(&command.name, source)
+        && !command.args.is_empty()
+}
+
+fn declaration_operands_may_have_assignment_spacing_candidate(
+    operands: &[DeclOperand],
+    source: &str,
+) -> bool {
+    operands.iter().enumerate().any(|(index, operand)| {
+        declaration_operand_reports_assignment_spacing(operand, source)
+            && index + 1 < operands.len()
+    })
+}
+
+pub(crate) fn source_may_have_assignment_spacing_candidate(source: &str) -> bool {
+    let bytes = source.as_bytes();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] != b'=' || !assignment_spacing_gap_can_start_at(bytes, index + 1) {
+            index += 1;
+            continue;
+        }
+
+        let target_end = if index > 0 && bytes[index - 1] == b'+' {
+            index - 1
+        } else {
+            index
+        };
+        if target_end == 0 {
+            index += 1;
+            continue;
+        }
+
+        if bytes[target_end - 1] == b']' {
+            return true;
+        }
+
+        let mut target_start = target_end;
+        while target_start > 0 && is_shell_name_continue_byte(bytes[target_start - 1]) {
+            target_start -= 1;
+        }
+        if target_start == target_end
+            || !is_shell_name_start_byte(bytes[target_start])
+            || &source[target_start..target_end] == "IFS"
+        {
+            index += 1;
+            continue;
+        }
+
+        return true;
+    }
+
+    false
+}
+
+fn assignment_spacing_gap_can_start_at(bytes: &[u8], start: usize) -> bool {
+    matches!(bytes.get(start), Some(b' ' | b'\t'))
+        || matches!(
+            (bytes.get(start), bytes.get(start + 1)),
+            (Some(b'\\'), Some(b'\n'))
+        )
+        || matches!(
+            (bytes.get(start), bytes.get(start + 1), bytes.get(start + 2)),
+            (Some(b'\\'), Some(b'\r'), Some(b'\n'))
+        )
+}
+
+fn is_shell_name_start_byte(byte: u8) -> bool {
+    byte == b'_' || byte.is_ascii_alphabetic()
+}
+
+fn is_shell_name_continue_byte(byte: u8) -> bool {
+    is_shell_name_start_byte(byte) || byte.is_ascii_digit()
+}
+
+#[cfg_attr(shuck_profiling, inline(never))]
+pub(crate) fn build_assignment_spacing_spans(
+    commands: &[CommandFact<'_>],
+    source: &str,
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    for fact in commands {
+        collect_assignment_spacing_spans_in_command(fact.command(), source, &mut spans);
+    }
+
+    spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+    spans.dedup();
+    spans
+}
+
+fn collect_assignment_spacing_spans_in_command(
+    command: &Command,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match command {
+        Command::Simple(command) => {
+            collect_simple_assignment_spacing_spans(command, source, spans);
+        }
+        Command::Decl(command) => {
+            collect_prefix_assignment_spacing_spans(
+                &command.assignments,
+                command.variant_span,
+                source,
+                spans,
+            );
+            collect_declaration_operand_assignment_spacing_spans(&command.operands, source, spans);
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Break(command) => {
+                collect_prefix_assignment_spacing_spans(
+                    &command.assignments,
+                    first_word_start_after(command.span, &command.assignments, source),
+                    source,
+                    spans,
+                );
+            }
+            BuiltinCommand::Continue(command) => {
+                collect_prefix_assignment_spacing_spans(
+                    &command.assignments,
+                    first_word_start_after(command.span, &command.assignments, source),
+                    source,
+                    spans,
+                );
+            }
+            BuiltinCommand::Return(command) => {
+                collect_prefix_assignment_spacing_spans(
+                    &command.assignments,
+                    first_word_start_after(command.span, &command.assignments, source),
+                    source,
+                    spans,
+                );
+            }
+            BuiltinCommand::Exit(command) => {
+                collect_prefix_assignment_spacing_spans(
+                    &command.assignments,
+                    first_word_start_after(command.span, &command.assignments, source),
+                    source,
+                    spans,
+                );
+            }
+        },
+        Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => {}
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AssignmentSpacingItem {
+    span: Span,
+    report: bool,
+}
+
+fn collect_simple_assignment_spacing_spans(
+    command: &SimpleCommand,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let mut previous = None;
+    for assignment in &command.assignments {
+        let item = AssignmentSpacingItem {
+            span: assignment.span,
+            report: assignment_reports_assignment_spacing(assignment),
+        };
+        collect_assignment_spacing_gap_from_previous(previous, item, source, spans);
+        previous = Some(item);
+    }
+
+    if !span_is_empty(command.name.span) {
+        let name_item = AssignmentSpacingItem {
+            span: command.name.span,
+            report: word_reports_assignment_spacing(&command.name, source),
+        };
+        collect_assignment_spacing_gap_from_previous(previous, name_item, source, spans);
+
+        if name_item.report {
+            previous = Some(name_item);
+            for arg in &command.args {
+                let arg_item = AssignmentSpacingItem {
+                    span: arg.span,
+                    report: word_reports_assignment_spacing(arg, source),
+                };
+                collect_assignment_spacing_gap_from_previous(previous, arg_item, source, spans);
+                if !arg_item.report {
+                    break;
+                }
+                previous = Some(arg_item);
+            }
+        }
+    }
+}
+
+fn collect_prefix_assignment_spacing_spans(
+    assignments: &[Assignment],
+    fallback_next_span: Span,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    if assignments.is_empty() {
+        return;
+    }
+
+    let mut previous = None;
+    for assignment in assignments {
+        let item = AssignmentSpacingItem {
+            span: assignment.span,
+            report: assignment_reports_assignment_spacing(assignment),
+        };
+        collect_assignment_spacing_gap_from_previous(previous, item, source, spans);
+        previous = Some(item);
+    }
+    collect_assignment_spacing_gap_from_previous(
+        previous,
+        AssignmentSpacingItem {
+            span: fallback_next_span,
+            report: false,
+        },
+        source,
+        spans,
+    );
+}
+
+fn collect_declaration_operand_assignment_spacing_spans(
+    operands: &[DeclOperand],
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let mut previous = None;
+    for operand in operands {
+        let item = AssignmentSpacingItem {
+            span: declaration_operand_span(operand),
+            report: declaration_operand_has_empty_assignment_value(operand, source),
+        };
+        collect_assignment_spacing_gap_from_previous(previous, item, source, spans);
+        previous = Some(item);
+    }
+}
+
+fn collect_assignment_spacing_gap_from_previous(
+    previous: Option<AssignmentSpacingItem>,
+    current: AssignmentSpacingItem,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let Some(previous) = previous else {
+        return;
+    };
+    if !previous.report {
+        return;
+    }
+    if let Some(span) =
+        horizontal_whitespace_span_between(previous.span.end, current.span.start, source)
+    {
+        spans.push(span);
+    }
+}
+
+fn assignment_has_empty_scalar_value(assignment: &Assignment) -> bool {
+    matches!(
+        &assignment.value,
+        AssignmentValue::Scalar(word) if span_is_empty(word.span)
+    )
+}
+
+fn assignment_reports_assignment_spacing(assignment: &Assignment) -> bool {
+    assignment_has_empty_scalar_value(assignment)
+        && !is_assignment_spacing_exempt_target(assignment.target.name.as_str())
+}
+
+fn declaration_operand_has_empty_assignment_value(operand: &DeclOperand, source: &str) -> bool {
+    declaration_operand_reports_assignment_spacing(operand, source)
+}
+
+fn declaration_operand_reports_assignment_spacing(operand: &DeclOperand, source: &str) -> bool {
+    match operand {
+        DeclOperand::Assignment(assignment) => assignment_reports_assignment_spacing(assignment),
+        DeclOperand::Dynamic(word) => word_reports_assignment_spacing(word, source),
+        DeclOperand::Flag(_) | DeclOperand::Name(_) => false,
+    }
+}
+
+fn declaration_operand_span(operand: &DeclOperand) -> Span {
+    match operand {
+        DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => word.span,
+        DeclOperand::Name(reference) => reference.span,
+        DeclOperand::Assignment(assignment) => assignment.span,
+    }
+}
+
+fn word_reports_assignment_spacing(word: &Word, source: &str) -> bool {
+    let Some(target) = plain_literal_assignment_spacing_target(word, source) else {
+        return false;
+    };
+    is_shell_variable_name(target) && !is_assignment_spacing_exempt_target(target)
+}
+
+fn plain_literal_assignment_spacing_target<'a>(word: &'a Word, source: &'a str) -> Option<&'a str> {
+    let [part] = word.parts.as_slice() else {
+        return None;
+    };
+    let WordPart::Literal(text) = &part.kind else {
+        return None;
+    };
+    let text = text.as_str(source, part.span);
+    let target = text.strip_suffix("+=").or_else(|| text.strip_suffix('='))?;
+    (!target.is_empty() && !target.chars().any(char::is_whitespace)).then_some(target)
+}
+
+fn is_assignment_spacing_exempt_target(target: &str) -> bool {
+    target == "IFS"
+}
+
+fn first_word_start_after(command_span: Span, assignments: &[Assignment], source: &str) -> Span {
+    let start = assignments
+        .last()
+        .map_or(command_span.start.offset, |assignment| {
+            assignment.span.end.offset
+        });
+    let end = command_span.end.offset.min(source.len());
+    let next = first_command_word_offset_in_gap(source, start, end);
+    let position = command_span
+        .start
+        .advanced_by(&source[command_span.start.offset..next]);
+    Span::from_positions(position, position)
+}
+
+fn first_command_word_offset_in_gap(source: &str, start: usize, end: usize) -> usize {
+    let bytes = source.as_bytes();
+    let mut index = start;
+
+    while index < end {
+        match bytes[index] {
+            b' ' | b'\t' | b'\r' | b'\n' => index += 1,
+            b'\\' if index + 1 < end && bytes[index + 1] == b'\n' => index += 2,
+            b'\\' if index + 2 < end && bytes[index + 1] == b'\r' && bytes[index + 2] == b'\n' => {
+                index += 3;
+            }
+            _ => return index,
+        }
+    }
+
+    end
+}
+
+fn horizontal_whitespace_span_between(
+    start: Position,
+    end: Position,
+    source: &str,
+) -> Option<Span> {
+    if start.offset >= end.offset || end.offset > source.len() {
+        return None;
+    }
+    let gap = source.get(start.offset..end.offset)?;
+    if gap_is_assignment_spacing_whitespace(gap) {
+        Some(Span::from_positions(start, end))
+    } else {
+        None
+    }
+}
+
+fn gap_is_assignment_spacing_whitespace(gap: &str) -> bool {
+    let bytes = gap.as_bytes();
+    let mut index = 0;
+    let mut saw_line_continuation = false;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b' ' | b'\t' => index += 1,
+            b'\\' if bytes.get(index + 1) == Some(&b'\n') => {
+                saw_line_continuation = true;
+                index += 2;
+            }
+            b'\\'
+                if bytes.get(index + 1) == Some(&b'\r') && bytes.get(index + 2) == Some(&b'\n') =>
+            {
+                saw_line_continuation = true;
+                index += 3;
+            }
+            _ => return false,
+        }
+    }
+
+    !gap.is_empty()
+        && (saw_line_continuation || bytes.iter().all(|byte| matches!(byte, b' ' | b'\t')))
+}
+
+fn span_is_empty(span: Span) -> bool {
+    span.start.offset == span.end.offset
+}
+
 #[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn build_bare_command_name_assignment_spans<'a>(
     commands: &[CommandFact<'a>],

@@ -5,6 +5,7 @@ pub mod arithmetic_redirection_target;
 pub mod array_slice_in_comparison;
 pub mod array_to_string_conversion;
 pub mod assignment_looks_like_comparison;
+pub mod assignment_spacing;
 pub mod assignment_to_numeric_variable;
 pub mod at_sign_in_string_compare;
 pub mod backslash_before_closing_backtick;
@@ -175,6 +176,7 @@ mod tests {
     #[test_case(Rule::ConstantCaseSubject, Path::new("C021.sh"))]
     #[test_case(Rule::EmptyTest, Path::new("C022.sh"))]
     #[test_case(Rule::LeadingZeroArithmetic, Path::new("C023.sh"))]
+    #[test_case(Rule::AssignmentSpacing, Path::new("C024.sh"))]
     #[test_case(Rule::MissingBracketSpace, Path::new("C030.sh"))]
     #[test_case(Rule::PositionalTenBraces, Path::new("C025.sh"))]
     #[test_case(Rule::MissingFi, Path::new("C035.sh"))]

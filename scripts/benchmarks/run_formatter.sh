@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-repo_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+repo_root=$(CDPATH="" cd -- "$(dirname "$0")/../.." && pwd)
 fixtures_dir="$repo_root/crates/shuck-benchmark/resources/files"
 shuck="$repo_root/target/release/shuck"
 cache_dir="$repo_root/.cache"

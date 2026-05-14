@@ -111,6 +111,7 @@ declare_rules! {
     ("C021", Category::Correctness, Severity::Warning, ConstantCaseSubject),
     ("C022", Category::Correctness, Severity::Error, EmptyTest),
     ("C023", Category::Correctness, Severity::Error, LeadingZeroArithmetic),
+    ("C024", Category::Correctness, Severity::Warning, AssignmentSpacing),
     ("C030", Category::Correctness, Severity::Error, MissingBracketSpace),
     ("C025", Category::Correctness, Severity::Warning, PositionalTenBraces),
     ("C035", Category::Correctness, Severity::Error, MissingFi),
@@ -806,6 +807,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-073" => Some(Rule::TruthyLiteralTest),
         "SH-074" => Some(Rule::ConstantCaseSubject),
         "SH-075" => Some(Rule::EmptyTest),
+        "SH-084" => Some(Rule::AssignmentSpacing),
         "SH-098" => Some(Rule::MissingBracketSpace),
         "SH-134" => Some(Rule::PipeToKill),
         "SH-086" => Some(Rule::PositionalTenBraces),
@@ -1155,6 +1157,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-075"), Some(Rule::EmptyTest));
         assert_eq!(code_to_rule("C023"), Some(Rule::LeadingZeroArithmetic));
         assert_eq!(code_to_rule("SH-078"), Some(Rule::LeadingZeroArithmetic));
+        assert_eq!(code_to_rule("C024"), Some(Rule::AssignmentSpacing));
+        assert_eq!(code_to_rule("SH-084"), Some(Rule::AssignmentSpacing));
         assert_eq!(code_to_rule("C030"), Some(Rule::MissingBracketSpace));
         assert_eq!(code_to_rule("SH-098"), Some(Rule::MissingBracketSpace));
         assert_eq!(code_to_rule("SH-134"), Some(Rule::PipeToKill));

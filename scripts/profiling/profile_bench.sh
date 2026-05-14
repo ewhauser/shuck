@@ -7,7 +7,7 @@ profile_root=${3:-.cache/profiles}
 rate=${4:-1000}
 iterations=${5:-1}
 
-repo_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+repo_root=$(CDPATH="" cd -- "$(dirname "$0")/../.." && pwd)
 output_dir="$repo_root/$profile_root/$bench_name"
 
 mkdir -p "$output_dir"

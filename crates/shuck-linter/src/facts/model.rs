@@ -44,6 +44,7 @@ pub(crate) struct CommandFactStore<'a> {
     pub(in crate::facts) condition_status_capture_spans: Vec<Span>,
     pub(in crate::facts) command_substitution_command_spans: Vec<Span>,
     pub(in crate::facts) backtick_command_name_spans: Vec<Span>,
+    pub(in crate::facts) assignment_spacing_spans: OnceLock<Vec<Span>>,
     pub(in crate::facts) assignment_like_command_name_spans: Vec<Span>,
     pub(in crate::facts) bare_command_name_assignment_spans: Vec<Span>,
 }
@@ -598,6 +599,21 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
 
     pub(crate) fn backtick_command_name_spans(self) -> &'facts [Span] {
         &self.facts.command.backtick_command_name_spans
+    }
+
+    pub(crate) fn assignment_spacing_spans(self) -> &'facts [Span] {
+        self.facts.command.assignment_spacing_spans.get_or_init(|| {
+            let source = self.facts.source_facts.source;
+            if source_may_have_assignment_spacing_candidate(source)
+                && self.facts.command.commands.iter().any(|command| {
+                    command_may_have_assignment_spacing_candidate(command.command(), source)
+                })
+            {
+                build_assignment_spacing_spans(&self.facts.command.commands, source)
+            } else {
+                Vec::new()
+            }
+        })
     }
 
     pub(crate) fn assignment_like_command_name_spans(self) -> &'facts [Span] {
