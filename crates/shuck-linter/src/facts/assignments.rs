@@ -219,8 +219,30 @@ impl<'name, 'uses, 'a> WordSubtreeVisitor<'a>
             WordPart::Literal(_)
             | WordPart::ZshQualifiedGlob(_)
             | WordPart::SingleQuoted { .. }
-            | WordPart::CommandSubstitution { .. }
-            | WordPart::ArithmeticExpansion { .. } => {}
+            | WordPart::CommandSubstitution { .. } => {}
+            WordPart::ArithmeticExpansion {
+                expression_ast,
+                expression_word_ast,
+                ..
+            } => {
+                if let Some(expression) = expression_ast {
+                    collect_arithmetic_expression_self_uses(
+                        expression,
+                        self.name,
+                        self.semantic,
+                        self.source,
+                        self.uses,
+                    );
+                } else {
+                    collect_self_parameter_expansion_uses_in_word(
+                        expression_word_ast,
+                        self.name,
+                        self.semantic,
+                        self.source,
+                        self.uses,
+                    );
+                }
+            }
             WordPart::ProcessSubstitution { body, .. } => self.collect_command_body(body),
             WordPart::DoubleQuoted { .. } => {}
             WordPart::Variable(name) => record_name_read(name, self.name, self.uses),
@@ -266,6 +288,71 @@ impl<'name, 'uses, 'a> WordSubtreeVisitor<'a>
     ) {
         if let WordPart::CommandSubstitution { body, .. } = &part.kind {
             self.collect_command_body(body);
+        }
+    }
+}
+
+fn collect_arithmetic_expression_self_uses(
+    expression: &ArithmeticExprNode,
+    name: &Name,
+    semantic: &LinterSemanticArtifacts<'_>,
+    source: &str,
+    uses: &mut SelfParameterExpansionUses,
+) {
+    match &expression.kind {
+        ArithmeticExpr::Number(_) => {}
+        ArithmeticExpr::Variable(variable) => record_name_read(variable, name, uses),
+        ArithmeticExpr::Indexed {
+            name: variable,
+            index,
+        } => {
+            record_name_read(variable, name, uses);
+            collect_arithmetic_expression_self_uses(index, name, semantic, source, uses);
+        }
+        ArithmeticExpr::ShellWord(word) => {
+            collect_self_parameter_expansion_uses_in_word(word, name, semantic, source, uses);
+        }
+        ArithmeticExpr::Parenthesized { expression } => {
+            collect_arithmetic_expression_self_uses(expression, name, semantic, source, uses);
+        }
+        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+            collect_arithmetic_expression_self_uses(expr, name, semantic, source, uses);
+        }
+        ArithmeticExpr::Binary { left, right, .. } => {
+            collect_arithmetic_expression_self_uses(left, name, semantic, source, uses);
+            collect_arithmetic_expression_self_uses(right, name, semantic, source, uses);
+        }
+        ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            collect_arithmetic_expression_self_uses(condition, name, semantic, source, uses);
+            collect_arithmetic_expression_self_uses(then_expr, name, semantic, source, uses);
+            collect_arithmetic_expression_self_uses(else_expr, name, semantic, source, uses);
+        }
+        ArithmeticExpr::Assignment { target, value, .. } => {
+            collect_arithmetic_lvalue_self_uses(target, name, semantic, source, uses);
+            collect_arithmetic_expression_self_uses(value, name, semantic, source, uses);
+        }
+    }
+}
+
+fn collect_arithmetic_lvalue_self_uses(
+    target: &ArithmeticLvalue,
+    name: &Name,
+    semantic: &LinterSemanticArtifacts<'_>,
+    source: &str,
+    uses: &mut SelfParameterExpansionUses,
+) {
+    match target {
+        ArithmeticLvalue::Variable(variable) => record_name_read(variable, name, uses),
+        ArithmeticLvalue::Indexed {
+            name: variable,
+            index,
+        } => {
+            record_name_read(variable, name, uses);
+            collect_arithmetic_expression_self_uses(index, name, semantic, source, uses);
         }
     }
 }

@@ -437,6 +437,20 @@ path=${path:-/tmp}${other:-$path}
     }
 
     #[test]
+    fn reports_arithmetic_self_reads_after_conditional_defaults() {
+        let source = "\
+#!/bin/bash
+mode=dev
+mode=${mode:-prod}$((mode + 1))
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MutableGlobal));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "mode");
+        assert_eq!(diagnostics[0].span.start.line, 3);
+    }
+
+    #[test]
     fn ignores_default_operators_in_trailing_comments() {
         let source = "\
 #!/bin/bash
