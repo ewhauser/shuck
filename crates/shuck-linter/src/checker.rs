@@ -380,6 +380,11 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::FunctionCalledWithoutArgs) {
             rules::correctness::function_called_without_args::function_called_without_args(self);
         }
+        if self.is_rule_enabled(Rule::FunctionCalledBeforeDefined) {
+            rules::correctness::function_called_before_defined::function_called_before_defined(
+                self,
+            );
+        }
         if self.is_rule_enabled(Rule::FunctionBodyWithoutBraces) {
             rules::style::function_body_without_braces::function_body_without_braces(self);
         }

@@ -6,9 +6,13 @@ runtime_kind: ast
 shellcheck_code: SC2218
 shellcheck_level: error
 shells:
+  - sh
   - bash
-description: A function is called at a top-level position that is reached before the function's definition has been evaluated.
-rationale: Shell scripts are interpreted top-to-bottom at runtime. Invoking a function whose definition appears later in the file will fail at the point of the call because the name has not yet been registered. Move the function definition above its first call site, or restructure the script so all function definitions are grouped at the top and executable code runs after them.
+  - dash
+  - ksh
+  - mksh
+description: A function is called at a runtime position that can be evaluated before the function's definition has been evaluated.
+rationale: Shell scripts and function bodies are interpreted top-to-bottom at runtime. Invoking a function whose definition appears later can fail at the point of the call because the name has not yet been registered. Move the function definition above its first call site, or restructure the script so definitions are evaluated before executable code calls them.
 safe_fix: false
 fix_description: ~
 default_enabled: false

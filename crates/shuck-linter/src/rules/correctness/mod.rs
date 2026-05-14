@@ -52,6 +52,7 @@ pub mod find_or_without_grouping;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
 mod function_arity;
+pub mod function_called_before_defined;
 pub mod function_called_without_args;
 pub mod function_references_unset_param;
 pub mod getopts_option_not_in_case;
@@ -311,6 +312,7 @@ mod tests {
     #[test_case(Rule::ImplicitGlobalInFunction, Path::new("C158.sh"))]
     #[test_case(Rule::MutableGlobal, Path::new("C159.sh"))]
     #[test_case(Rule::UnanchoredSourcePath, Path::new("C160.sh"))]
+    #[test_case(Rule::FunctionCalledBeforeDefined, Path::new("C161.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

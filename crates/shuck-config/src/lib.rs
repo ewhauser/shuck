@@ -60,8 +60,9 @@ const CONFIG_OVERRIDE_LINT_ZSH_PLUGIN_KEYS: &[&str] = &[
     "theme-loads",
     "entrypoints",
 ];
-const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] =
-    &["c001", "c063", "s084", "s085", "c158", "c159", "c160"];
+const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &[
+    "c001", "c063", "s084", "s085", "c158", "c159", "c160", "c161",
+];
 const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
     &["treat-indirect-expansion-targets-as-used"];
 const CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS: &[&str] = &["report-unreached-nested-definitions"];
@@ -82,6 +83,7 @@ const CONFIG_OVERRIDE_C158_RULE_OPTION_KEYS: &[&str] = &[
 ];
 const CONFIG_OVERRIDE_C159_RULE_OPTION_KEYS: &[&str] = &["allow-conditional-init"];
 const CONFIG_OVERRIDE_C160_RULE_OPTION_KEYS: &[&str] = &["allowed-anchors"];
+const CONFIG_OVERRIDE_C161_RULE_OPTION_KEYS: &[&str] = &["ignore-after-source"];
 const CONFIG_OVERRIDE_RUN_KEYS: &[&str] = &["shell", "shell-version", "shells"];
 const CONFIG_OVERRIDE_RUN_SHELL_NAMES: &[&str] =
     &["bash", "gbash", "bashkit", "zsh", "dash", "mksh", "busybox"];
@@ -344,6 +346,8 @@ pub struct LintRuleOptionsConfig {
     pub c159: Option<C159RuleOptionsConfig>,
     /// Options for rule C160.
     pub c160: Option<C160RuleOptionsConfig>,
+    /// Options for rule C161.
+    pub c161: Option<C161RuleOptionsConfig>,
 }
 
 impl LintRuleOptionsConfig {
@@ -368,6 +372,9 @@ impl LintRuleOptionsConfig {
         }
         if let Some(c160) = overrides.c160 {
             self.c160.get_or_insert_default().apply_overrides(c160);
+        }
+        if let Some(c161) = overrides.c161 {
+            self.c161.get_or_insert_default().apply_overrides(c161);
         }
     }
 }
@@ -511,6 +518,22 @@ impl C160RuleOptionsConfig {
     fn apply_overrides(&mut self, overrides: Self) {
         if overrides.allowed_anchors.is_some() {
             self.allowed_anchors = overrides.allowed_anchors;
+        }
+    }
+}
+
+/// Options for rule C161.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct C161RuleOptionsConfig {
+    /// Whether calls after a source command should be exempted.
+    pub ignore_after_source: Option<bool>,
+}
+
+impl C161RuleOptionsConfig {
+    fn apply_overrides(&mut self, overrides: Self) {
+        if overrides.ignore_after_source.is_some() {
+            self.ignore_after_source = overrides.ignore_after_source;
         }
     }
 }
@@ -903,6 +926,18 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
                             default: r#"["${BASH_SOURCE[0]%/*}", "$(dirname \"$0\")", "$(dirname \"${BASH_SOURCE[0]}\")"]"#,
                             value_type: "list[string]",
                             example: r#"allowed-anchors = ["$SCRIPT_DIR"]"#,
+                        }],
+                        sections: &[],
+                    },
+                    ConfigSectionMetadata {
+                        key: "c161",
+                        docs: "Behavior overrides for `C161` function call ordering analysis.",
+                        fields: &[ConfigFieldMetadata {
+                            key: "ignore-after-source",
+                            docs: "Ignore later calls after a source command because the sourced file may define functions.",
+                            default: "true",
+                            value_type: "bool",
+                            example: "ignore-after-source = false",
                         }],
                         sections: &[],
                     },
@@ -1595,6 +1630,9 @@ fn validate_lint_rule_options_override(value: &toml::Value) -> std::result::Resu
     if let Some(c160_value) = rule_options.get("c160") {
         validate_c160_rule_options_override(c160_value)?;
     }
+    if let Some(c161_value) = rule_options.get("c161") {
+        validate_c161_rule_options_override(c161_value)?;
+    }
 
     Ok(())
 }
@@ -1703,6 +1741,22 @@ fn validate_c160_rule_options_override(value: &toml::Value) -> std::result::Resu
             return Err(format!(
                 "unsupported `[lint.rule-options.c160]` option `{key}`; expected one of: {}",
                 CONFIG_OVERRIDE_C160_RULE_OPTION_KEYS.join(", ")
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_c161_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let c161 = value
+        .as_table()
+        .ok_or_else(|| "`[lint.rule-options.c161]` must be a TOML table".to_owned())?;
+    for key in c161.keys() {
+        if !CONFIG_OVERRIDE_C161_RULE_OPTION_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.rule-options.c161]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_C161_RULE_OPTION_KEYS.join(", ")
             ));
         }
     }
@@ -2041,6 +2095,21 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_validate_supported_c161_rule_option_keys() {
+        let config =
+            parse_config_override("lint.rule-options.c161.ignore-after-source = false").unwrap();
+        assert_eq!(
+            config
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.c161.as_ref())
+                .and_then(|c161| c161.ignore_after_source),
+            Some(false)
+        );
+    }
+
+    #[test]
     fn inline_config_overrides_validate_supported_zsh_plugin_keys() {
         let config = parse_config_override(
             "lint.zsh.plugins.resolution = false\n\
@@ -2157,6 +2226,12 @@ mod tests {
     fn inline_config_overrides_reject_unknown_c160_rule_option_keys() {
         let err = parse_config_override("lint.rule-options.c160.preview = true").unwrap_err();
         assert!(err.contains("unsupported `[lint.rule-options.c160]` option `preview`"));
+    }
+
+    #[test]
+    fn inline_config_overrides_reject_unknown_c161_rule_option_keys() {
+        let err = parse_config_override("lint.rule-options.c161.preview = true").unwrap_err();
+        assert!(err.contains("unsupported `[lint.rule-options.c161]` option `preview`"));
     }
 
     #[test]
@@ -2420,6 +2495,36 @@ mod tests {
                 .and_then(|c160| c160.allowed_anchors.as_ref())
                 .map(Vec::as_slice),
             Some(&["$REPO_ROOT".to_owned()][..])
+        );
+    }
+
+    #[test]
+    fn c161_rule_option_config_arguments_allow_last_override_to_win() {
+        let tempdir = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.rule-options.c161.ignore-after-source = false")
+                        .unwrap(),
+                )),
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.rule-options.c161.ignore-after-source = true")
+                        .unwrap(),
+                )),
+            ],
+            false,
+        )
+        .unwrap();
+
+        let loaded = load_project_config(tempdir.path(), &config).unwrap();
+        assert_eq!(
+            loaded
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.c161.as_ref())
+                .and_then(|c161| c161.ignore_after_source),
+            Some(true)
         );
     }
 

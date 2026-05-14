@@ -506,6 +506,12 @@ declare_rules! {
         Severity::Warning,
         UnanchoredSourcePath
     ),
+    (
+        "C161",
+        Category::Correctness,
+        Severity::Error,
+        FunctionCalledBeforeDefined
+    ),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
     ("P002", Category::Performance, Severity::Warning, GrepCountPipeline),
     ("P003", Category::Performance, Severity::Warning, SingleTestSubshell),
