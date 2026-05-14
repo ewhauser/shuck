@@ -574,6 +574,7 @@ declare_rules! {
     ("K002", Category::Security, Severity::Warning, SshLocalExpansion),
     ("K003", Category::Security, Severity::Warning, EvalOnArray),
     ("K004", Category::Security, Severity::Warning, FindExecDirWithShell),
+    ("K006", Category::Security, Severity::Warning, RmRootishTarget),
     ("S001", Category::Style, Severity::Warning, UnquotedExpansion),
     ("S002", Category::Style, Severity::Warning, ReadWithoutRaw),
     ("S003", Category::Style, Severity::Warning, LoopFromCommandOutput),
@@ -796,6 +797,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-044" => Some(Rule::RmGlobOnVariablePath),
         "SH-047" => Some(Rule::SshLocalExpansion),
         "SH-151" => Some(Rule::EvalOnArray),
+        "SH-324" => Some(Rule::RmRootishTarget),
         "SH-045" => Some(Rule::ChainedTestBranches),
         "C079" => Some(Rule::ChainedTestBranches),
         "SH-201" => Some(Rule::ChainedTestBranches),
@@ -1143,6 +1145,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-043"), Some(Rule::QuotedBashRegex));
         assert_eq!(code_to_rule("SH-044"), Some(Rule::RmGlobOnVariablePath));
         assert_eq!(code_to_rule("SH-047"), Some(Rule::SshLocalExpansion));
+        assert_eq!(code_to_rule("SH-324"), Some(Rule::RmRootishTarget));
         assert_eq!(code_to_rule("SH-045"), Some(Rule::ChainedTestBranches));
         assert_eq!(code_to_rule("C079"), Some(Rule::ChainedTestBranches));
         assert_eq!(code_to_rule("SH-201"), Some(Rule::ChainedTestBranches));
