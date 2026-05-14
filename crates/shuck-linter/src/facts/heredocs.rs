@@ -55,16 +55,6 @@ pub(crate) fn build_heredoc_fact_summary(
                 summary.heredoc_end_space_spans.push(span);
             }
 
-            if !redirect_uses_tab_stripping_heredoc(redirect, heredoc, source) {
-                summary
-                    .indented_heredoc_close_facts
-                    .extend(indented_heredoc_close_facts(
-                        heredoc.body.span,
-                        delimiter,
-                        locator,
-                    ));
-            }
-
             if redirect.kind == RedirectKind::HereDocStrip {
                 summary
                     .spaced_tabstrip_close_spans
@@ -106,26 +96,37 @@ pub(crate) fn is_heredoc_redirect_kind(kind: RedirectKind) -> bool {
     matches!(kind, RedirectKind::HereDoc | RedirectKind::HereDocStrip)
 }
 
-fn redirect_uses_tab_stripping_heredoc(
-    redirect: &Redirect,
-    heredoc: &shuck_ast::Heredoc,
-    source: &str,
-) -> bool {
+fn redirect_uses_tab_stripping_heredoc(redirect: &Redirect) -> bool {
     redirect.kind == RedirectKind::HereDocStrip
-        || heredoc.delimiter.strip_tabs
-        || redirect.span.slice(source).contains("<<-")
-        || heredoc_delimiter_line_contains_tabstrip_operator(heredoc, source)
 }
 
-fn heredoc_delimiter_line_contains_tabstrip_operator(
-    heredoc: &shuck_ast::Heredoc,
-    source: &str,
-) -> bool {
-    let delimiter_start = heredoc.delimiter.span.start.offset;
-    let line_start = source[..delimiter_start]
-        .rfind('\n')
-        .map_or(0, |offset| offset + '\n'.len_utf8());
-    source[line_start..delimiter_start].contains("<<-")
+pub(crate) fn build_indented_heredoc_close_facts(
+    commands: &[CommandFact<'_>],
+    locator: Locator<'_>,
+) -> Vec<(Span, Span)> {
+    let mut facts = Vec::new();
+
+    for command in commands {
+        for redirect in command.redirects() {
+            if !is_heredoc_redirect_kind(redirect.kind) {
+                continue;
+            }
+            let Some(heredoc) = redirect.heredoc() else {
+                continue;
+            };
+            let delimiter = heredoc.delimiter.cooked.as_str();
+            if delimiter.is_empty() || redirect_uses_tab_stripping_heredoc(redirect) {
+                continue;
+            }
+            facts.extend(indented_heredoc_close_facts(
+                heredoc.body.span,
+                delimiter,
+                locator,
+            ));
+        }
+    }
+
+    facts
 }
 
 pub(crate) fn heredoc_closer_not_alone_span(

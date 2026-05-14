@@ -95,6 +95,41 @@ EOF
     }
 
     #[test]
+    fn reports_plain_heredocs_after_literal_tabstrip_text() {
+        let source = "\
+#!/bin/sh
+cat \"<<-\" <<EOF
+hi
+ EOF
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::IndentedHeredocClose),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 4);
+    }
+
+    #[test]
+    fn reports_plain_heredocs_with_quoted_tabstrip_like_delimiters() {
+        let source = "\
+#!/bin/sh
+cat <<'<<-'
+hi
+ <<-
+<<-
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::IndentedHeredocClose),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 4);
+    }
+
+    #[test]
     fn skips_zsh() {
         let source = "#!/bin/zsh\ncat <<EOF\nhi\n EOF\n";
         let diagnostics = test_snippet(
