@@ -968,6 +968,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 getopts_cases,
                 pipelines,
                 lists,
+                tautology_chain_operator_spans: OnceLock::new(),
                 statement_facts,
                 background_semicolon_spans,
                 single_test_subshell_spans,
