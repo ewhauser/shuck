@@ -131,6 +131,7 @@ declare_rules! {
     ("C048", Category::Correctness, Severity::Warning, CasePatternVar),
     ("C049", Category::Correctness, Severity::Warning, TautologyChain),
     ("C050", Category::Correctness, Severity::Warning, ArithmeticRedirectionTarget),
+    ("C051", Category::Correctness, Severity::Error, DuplicateRedirect),
     ("C054", Category::Correctness, Severity::Warning, BareSlashMarker),
     ("C055", Category::Correctness, Severity::Warning, PatternWithVariable),
     ("C056", Category::Correctness, Severity::Warning, StatusCaptureAfterBranchTest),
@@ -855,6 +856,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-142" => Some(Rule::CasePatternVar),
         "SH-143" => Some(Rule::TautologyChain),
         "SH-144" => Some(Rule::ArithmeticRedirectionTarget),
+        "SH-145" => Some(Rule::DuplicateRedirect),
         "SH-148" => Some(Rule::BareSlashMarker),
         "SH-152" => Some(Rule::PatternWithVariable),
         "SH-155" => Some(Rule::StatusCaptureAfterBranchTest),
@@ -1244,6 +1246,7 @@ mod tests {
             code_to_rule("SH-144"),
             Some(Rule::ArithmeticRedirectionTarget)
         );
+        assert_eq!(code_to_rule("SH-145"), Some(Rule::DuplicateRedirect));
         assert_eq!(code_to_rule("SH-148"), Some(Rule::BareSlashMarker));
         assert_eq!(code_to_rule("SH-151"), Some(Rule::EvalOnArray));
         assert_eq!(code_to_rule("SH-152"), Some(Rule::PatternWithVariable));

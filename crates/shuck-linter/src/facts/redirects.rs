@@ -800,3 +800,305 @@ pub(crate) fn redirect_operator_text(kind: RedirectKind) -> &'static str {
         RedirectKind::OutputBoth => "&>",
     }
 }
+
+pub(super) fn duplicate_redirect_spans(redirects: &[RedirectFact<'_>], source: &str) -> Vec<Span> {
+    let mut last_redirect_by_fd = FxHashMap::<i32, usize>::default();
+    let mut consumers_by_redirect = vec![SmallVec::<[usize; 2]>::new(); redirects.len()];
+    let mut overwritten_by_redirect = vec![SmallVec::<[usize; 2]>::new(); redirects.len()];
+    let mut duplicate_redirects = FxHashSet::<usize>::default();
+
+    for (index, redirect) in redirects.iter().enumerate() {
+        for fd in redirect_read_fds(redirect, source) {
+            if let Some(previous) = last_redirect_by_fd.get(&fd).copied() {
+                consumers_by_redirect[previous].push(index);
+            }
+        }
+
+        for fd in duplicate_redirect_fds(redirect, source) {
+            if let Some(previous) = last_redirect_by_fd.insert(fd, index) {
+                overwritten_by_redirect[previous].push(index);
+            }
+        }
+    }
+
+    loop {
+        let protected_redirects = consumers_by_redirect
+            .iter()
+            .enumerate()
+            .filter(|(_, consumers)| {
+                consumers
+                    .iter()
+                    .any(|consumer| !duplicate_redirects.contains(consumer))
+            })
+            .map(|(index, _)| index)
+            .collect::<FxHashSet<_>>();
+
+        let mut changed = false;
+        for (previous, later_redirects) in overwritten_by_redirect.iter().enumerate() {
+            if later_redirects.is_empty() || protected_redirects.contains(&previous) {
+                continue;
+            }
+            changed |= duplicate_redirects.insert(previous);
+            for later in later_redirects {
+                if !protected_redirects.contains(later) {
+                    changed |= duplicate_redirects.insert(*later);
+                }
+            }
+        }
+
+        if !changed {
+            break;
+        }
+    }
+
+    let mut spans = Vec::new();
+    let mut seen_spans = FxHashSet::<(usize, usize)>::default();
+    for (index, redirect) in redirects.iter().enumerate() {
+        if !duplicate_redirects.contains(&index) {
+            continue;
+        }
+        let Some(span) = duplicate_redirect_report_span(redirect, source) else {
+            continue;
+        };
+        if seen_spans.insert((span.start.offset, span.end.offset)) {
+            spans.push(span);
+        }
+    }
+
+    spans
+}
+
+fn duplicate_redirect_fds(redirect: &RedirectFact<'_>, source: &str) -> SmallVec<[i32; 2]> {
+    let mut fds = SmallVec::new();
+    let redirect_data = redirect.redirect();
+    if redirect_data.fd_var.is_some() {
+        return fds;
+    }
+
+    match redirect_data.kind {
+        RedirectKind::Output | RedirectKind::Clobber | RedirectKind::Append => {
+            if output_redirect_is_csh_both_target(redirect_data, source)
+                || append_redirect_is_output_both(redirect_data, source)
+            {
+                if redirect_data.fd == Some(1) {
+                    fds.push(1);
+                    fds.push(2);
+                } else if let Some(fd) = redirect_data.fd {
+                    fds.push(fd);
+                } else {
+                    fds.push(1);
+                    fds.push(2);
+                }
+            } else {
+                fds.push(redirect_data.fd.unwrap_or(1));
+            }
+        }
+        RedirectKind::Input
+        | RedirectKind::ReadWrite
+        | RedirectKind::HereDoc
+        | RedirectKind::HereDocStrip
+        | RedirectKind::HereString => fds.push(redirect_data.fd.unwrap_or(0)),
+        RedirectKind::DupOutput if dup_output_redirects_to_file(redirect_data, source) => {
+            if explicit_numeric_redirect_fd(redirect_data, source) == Some(1) {
+                fds.push(1);
+                fds.push(2);
+            } else if let Some(fd) = explicit_numeric_redirect_fd(redirect_data, source) {
+                fds.push(fd);
+            } else {
+                fds.push(1);
+                fds.push(2);
+            }
+        }
+        RedirectKind::DupOutput if dup_redirects_to_descriptor(redirect_data, source) => {
+            fds.push(redirect_data.fd.unwrap_or(1));
+        }
+        RedirectKind::DupInput if dup_redirects_to_descriptor(redirect_data, source) => {
+            fds.push(redirect_data.fd.unwrap_or(0));
+        }
+        RedirectKind::OutputBoth => {
+            fds.push(1);
+            fds.push(2);
+        }
+        RedirectKind::DupOutput | RedirectKind::DupInput => {}
+    }
+    fds
+}
+
+fn redirect_read_fds(redirect: &RedirectFact<'_>, source: &str) -> SmallVec<[i32; 1]> {
+    let mut fds = SmallVec::new();
+    let redirect_data = redirect.redirect();
+    if redirect_data.fd_var.is_some() {
+        return fds;
+    }
+
+    match redirect_data.kind {
+        RedirectKind::DupOutput | RedirectKind::DupInput => {
+            if let Some(fd) = dup_redirect_descriptor_target(redirect_data, source) {
+                fds.push(fd);
+            }
+        }
+        RedirectKind::Output
+        | RedirectKind::Clobber
+        | RedirectKind::Append
+        | RedirectKind::Input
+        | RedirectKind::ReadWrite
+        | RedirectKind::HereDoc
+        | RedirectKind::HereDocStrip
+        | RedirectKind::HereString
+        | RedirectKind::OutputBoth => {}
+    }
+
+    fds
+}
+
+fn explicit_numeric_redirect_fd(redirect: &Redirect, source: &str) -> Option<i32> {
+    let text = redirect.span.slice(source);
+    let digit_len = text
+        .bytes()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    if digit_len == 0 {
+        return None;
+    }
+
+    text[..digit_len]
+        .parse::<i32>()
+        .ok()
+        .filter(|fd| Some(*fd) == redirect.fd)
+}
+
+fn duplicate_redirect_report_span(redirect: &RedirectFact<'_>, source: &str) -> Option<Span> {
+    match redirect.redirect().kind {
+        RedirectKind::HereDoc | RedirectKind::HereDocStrip => {
+            Some(redirect.redirect().heredoc()?.delimiter.span)
+        }
+        RedirectKind::OutputBoth => output_both_redirect_report_span(redirect.redirect(), source),
+        RedirectKind::Output if output_redirect_is_csh_both_target(redirect.redirect(), source) => {
+            csh_both_output_redirect_report_span(redirect, source)
+        }
+        RedirectKind::Append if append_redirect_is_output_both(redirect.redirect(), source) => {
+            output_both_redirect_report_span(redirect.redirect(), source)
+        }
+        RedirectKind::Output
+        | RedirectKind::Clobber
+        | RedirectKind::Append
+        | RedirectKind::Input
+        | RedirectKind::ReadWrite
+        | RedirectKind::HereString => Some(redirect.operator_span()),
+        RedirectKind::DupOutput if dup_output_redirects_to_file(redirect.redirect(), source) => {
+            dup_output_file_redirect_report_span(redirect, source)
+        }
+        RedirectKind::DupOutput | RedirectKind::DupInput
+            if dup_redirects_to_descriptor(redirect.redirect(), source) =>
+        {
+            Some(redirect.operator_span())
+        }
+        RedirectKind::DupOutput | RedirectKind::DupInput => None,
+    }
+}
+
+fn dup_output_file_redirect_report_span(redirect: &RedirectFact<'_>, source: &str) -> Option<Span> {
+    if explicit_numeric_redirect_fd(redirect.redirect(), source).is_some() {
+        return Some(redirect.operator_span());
+    }
+
+    let text = redirect.redirect().span.slice(source);
+    text.starts_with(">&").then(|| {
+        Span::from_positions(
+            redirect.redirect().span.start,
+            redirect.redirect().span.start.advanced_by(">&"),
+        )
+    })
+}
+
+fn dup_output_redirects_to_file(redirect: &Redirect, source: &str) -> bool {
+    let Some(target) = redirect.word_target() else {
+        return false;
+    };
+    !static_word_text(target, source)
+        .as_deref()
+        .is_some_and(|text| text == "-" || text.parse::<i32>().is_ok())
+}
+
+fn dup_redirects_to_descriptor(redirect: &Redirect, source: &str) -> bool {
+    dup_redirect_descriptor_target(redirect, source).is_some()
+}
+
+fn dup_redirect_descriptor_target(redirect: &Redirect, source: &str) -> Option<i32> {
+    let target = redirect.word_target()?;
+    static_word_text(target, source)
+        .as_deref()
+        .and_then(|text| text.parse::<i32>().ok())
+}
+
+fn output_redirect_is_csh_both_target(redirect: &Redirect, source: &str) -> bool {
+    csh_both_output_redirect_span_and_target(redirect, source).is_some()
+}
+
+fn append_redirect_is_output_both(redirect: &Redirect, source: &str) -> bool {
+    if redirect.kind != RedirectKind::Append || redirect.fd.is_some() {
+        return false;
+    }
+    let Some(target) = redirect.word_target() else {
+        return false;
+    };
+    let Some(prefix) = source.get(redirect.span.start.offset..target.span.start.offset) else {
+        return false;
+    };
+    prefix
+        .strip_prefix("&>>")
+        .is_some_and(|gap| gap.bytes().all(|byte| byte.is_ascii_whitespace()))
+}
+
+fn csh_both_output_redirect_report_span(redirect: &RedirectFact<'_>, source: &str) -> Option<Span> {
+    csh_both_output_redirect_span_and_target(redirect.redirect(), source).map(|(span, _)| span)
+}
+
+fn csh_both_output_redirect_span_and_target<'a>(
+    redirect: &Redirect,
+    source: &'a str,
+) -> Option<(Span, &'a str)> {
+    if redirect.kind != RedirectKind::Output {
+        return None;
+    }
+    let target = redirect.word_target()?;
+    let operator_start = redirect
+        .fd
+        .map(|fd| redirect.span.start.advanced_by(&fd.to_string()))
+        .unwrap_or(redirect.span.start);
+    let prefix = source.get(operator_start.offset..target.span.start.offset)?;
+
+    let (span, target_text) = if prefix == ">&" {
+        (
+            Span::from_positions(operator_start, target.span.start),
+            target.span.slice(source),
+        )
+    } else if prefix == ">" {
+        let target_text = target.span.slice(source);
+        (
+            Span::from_positions(operator_start, target.span.start.advanced_by("&")),
+            target_text.strip_prefix('&')?,
+        )
+    } else {
+        return None;
+    };
+
+    (!target_text.is_empty() && target_text != "-" && target_text.parse::<i32>().is_err())
+        .then_some((span, target_text))
+}
+
+fn output_both_redirect_report_span(redirect: &Redirect, source: &str) -> Option<Span> {
+    let text = redirect.span.slice(source);
+    let start_offset = text.find('>')?;
+    let operator_text = &text[start_offset..];
+    let width = operator_text
+        .bytes()
+        .take_while(|byte| *byte == b'>')
+        .count()
+        .max(1);
+    let start = redirect.span.start.advanced_by(&text[..start_offset]);
+    Some(Span::from_positions(
+        start,
+        start.advanced_by(&operator_text[..width]),
+    ))
+}
