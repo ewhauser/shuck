@@ -696,7 +696,11 @@ fn workspace_symbol_options_for_path(
 ) -> WorkspaceSymbolFeatureOptions {
     path.and_then(|path| workspace_settings_for_path(context, path))
         .and_then(|workspace| workspace.options.as_ref())
-        .map(|options| options.server.workspace_symbols)
+        .map(|options| {
+            options
+                .server
+                .workspace_symbols_layered_over(context.options)
+        })
         .unwrap_or(context.options)
 }
 
@@ -1336,6 +1340,66 @@ build() {
         let cache = lock_or_recover(&context.index.cache);
         assert!(cache.dirty);
         assert!(cache.summaries.is_empty());
+    }
+
+    #[test]
+    fn workspace_symbols_preserve_global_disable_when_workspace_symbols_are_omitted() {
+        let tempdir = tempfile::tempdir().expect("workspace should be created");
+        std::fs::write(tempdir.path().join("script.sh"), "hidden_symbol() { :; }\n")
+            .expect("fixture should be written");
+
+        let (mut session, client) = make_session(tempdir.path(), PositionEncoding::UTF16);
+        let workspace_uri =
+            Url::from_file_path(tempdir.path()).expect("workspace URI should convert");
+        let mut global_options = crate::ClientOptions::default();
+        global_options.server.workspace_symbols.enabled = false;
+        let workspace_options = serde_json::from_value::<crate::ClientOptions>(serde_json::json!({
+            "showSyntaxErrors": false
+        }))
+        .expect("workspace options should deserialize");
+        let mut workspace_options_map = crate::session::WorkspaceOptionsMap::default();
+        workspace_options_map.insert(workspace_uri, workspace_options);
+        session.update_configuration(global_options, Some(workspace_options_map));
+
+        let response = workspace_symbols(
+            session.workspace_symbol_context(),
+            &client,
+            workspace_symbol_params("hidden"),
+        )
+        .expect("workspace symbol request should succeed")
+        .expect("workspace symbol response should be present");
+
+        assert!(workspace_symbol_response_names(response).is_empty());
+    }
+
+    #[test]
+    fn workspace_symbols_preserve_global_max_files_when_workspace_symbols_are_omitted() {
+        let tempdir = tempfile::tempdir().expect("workspace should be created");
+        std::fs::write(tempdir.path().join("a.sh"), "alpha_symbol() { :; }\n")
+            .expect("alpha fixture should be written");
+        std::fs::write(tempdir.path().join("b.sh"), "beta_symbol() { :; }\n")
+            .expect("beta fixture should be written");
+
+        let (mut session, client) = make_session(tempdir.path(), PositionEncoding::UTF16);
+        let workspace_uri =
+            Url::from_file_path(tempdir.path()).expect("workspace URI should convert");
+        let mut global_options = crate::ClientOptions::default();
+        global_options.server.workspace_symbols.max_files = 1;
+        let workspace_options = serde_json::from_value::<crate::ClientOptions>(serde_json::json!({
+            "showSyntaxErrors": false
+        }))
+        .expect("workspace options should deserialize");
+        let mut workspace_options_map = crate::session::WorkspaceOptionsMap::default();
+        workspace_options_map.insert(workspace_uri, workspace_options);
+        session.update_configuration(global_options, Some(workspace_options_map));
+        let context = session.workspace_symbol_context();
+
+        let response = workspace_symbols(context.clone(), &client, workspace_symbol_params(""))
+            .expect("workspace symbol request should succeed")
+            .expect("workspace symbol response should be present");
+
+        assert_eq!(workspace_symbol_response_names(response), ["alpha_symbol"]);
+        assert!(lock_or_recover(&context.index.cache).partial);
     }
 
     #[test]
