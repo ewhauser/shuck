@@ -96,6 +96,26 @@ EARCH= \\
     }
 
     #[test]
+    fn reports_line_continued_builtin_assignment_gaps() {
+        let source = "\
+#!/bin/sh
+foo= \\
+\treturn
+bar= \\
+\texit
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::AssignmentSpacing));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![" \\\n\t", " \\\n\t"]
+        );
+    }
+
+    #[test]
     fn ignores_ifs_empty_assignments() {
         let source = "\
 #!/bin/sh

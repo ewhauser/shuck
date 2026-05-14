@@ -509,18 +509,29 @@ fn first_word_start_after(command_span: Span, assignments: &[Assignment], source
             assignment.span.end.offset
         });
     let end = command_span.end.offset.min(source.len());
-    let next = source
-        .get(start..end)
-        .and_then(|tail| {
-            tail.char_indices()
-                .find(|(_, ch)| !matches!(ch, ' ' | '\t' | '\r' | '\n'))
-                .map(|(offset, _)| start + offset)
-        })
-        .unwrap_or(end);
+    let next = first_command_word_offset_in_gap(source, start, end);
     let position = command_span
         .start
         .advanced_by(&source[command_span.start.offset..next]);
     Span::from_positions(position, position)
+}
+
+fn first_command_word_offset_in_gap(source: &str, start: usize, end: usize) -> usize {
+    let bytes = source.as_bytes();
+    let mut index = start;
+
+    while index < end {
+        match bytes[index] {
+            b' ' | b'\t' | b'\r' | b'\n' => index += 1,
+            b'\\' if index + 1 < end && bytes[index + 1] == b'\n' => index += 2,
+            b'\\' if index + 2 < end && bytes[index + 1] == b'\r' && bytes[index + 2] == b'\n' => {
+                index += 3;
+            }
+            _ => return index,
+        }
+    }
+
+    end
 }
 
 fn horizontal_whitespace_span_between(
