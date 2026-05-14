@@ -80,15 +80,22 @@ fn call_is_reportable_for_function(
     if call.name_span.start.offset >= function.span.start.offset {
         return false;
     }
+    let call_runtime_scope = checker.semantic().enclosing_function_scope(call.scope);
+    let definition_runtime_scope = checker.semantic().enclosing_function_scope(function.scope);
+    if definition_runtime_scope.is_some() && call_runtime_scope != definition_runtime_scope {
+        return false;
+    }
     if function_definition_is_branch_local(checker, function)
-        && call_is_in_branch_local_context(checker, call)
+        && call_is_in_condition_context(checker, call)
     {
         return false;
     }
     if !call_can_run_before_definition(checker, call, function) {
         return false;
     }
-    if checker.rule_options().c161.ignore_after_source && has_prior_source_ref(checker, call) {
+    if checker.rule_options().c161.ignore_after_source
+        && source_ref_can_explain_later_definition(checker, call, function)
+    {
         return false;
     }
     if call_is_unreachable(checker, call) {
@@ -248,6 +255,16 @@ fn short_circuit_call_can_target_later_definition(checker: &Checker<'_>, call: &
     })
 }
 
+fn source_ref_can_explain_later_definition(
+    checker: &Checker<'_>,
+    call: &CallSite,
+    function: &Binding,
+) -> bool {
+    has_prior_source_ref(checker, call)
+        || has_source_ref_before_later_definition(checker, call, function)
+        || has_branch_local_loader_source_after_definition(checker, call, function)
+}
+
 fn has_prior_source_ref(checker: &Checker<'_>, call: &CallSite) -> bool {
     let call_runtime_scope = checker.semantic().enclosing_function_scope(call.scope);
     let call_blocks = checker.semantic_analysis().block_ids_for_span(call.span);
@@ -291,6 +308,93 @@ fn has_prior_source_ref(checker: &Checker<'_>, call: &CallSite) -> bool {
             call_blocks,
         )
     })
+}
+
+fn has_source_ref_before_later_definition(
+    checker: &Checker<'_>,
+    call: &CallSite,
+    function: &Binding,
+) -> bool {
+    let call_runtime_scope = checker.semantic().enclosing_function_scope(call.scope);
+    if call_runtime_scope.is_none() {
+        return false;
+    }
+
+    checker.semantic().source_refs().iter().any(|source_ref| {
+        if matches!(source_ref.kind, SourceRefKind::DirectiveDevNull)
+            || !source_ref_has_runtime_source_command(checker, source_ref)
+            || source_ref.span.start.offset <= call.name_span.start.offset
+            || source_ref.span.start.offset >= function.span.start.offset
+        {
+            return false;
+        }
+
+        let source_runtime_scope = checker
+            .semantic()
+            .enclosing_function_scope(checker.semantic().scope_at(source_ref.span.start.offset));
+        source_runtime_scope == call_runtime_scope
+            && span_can_run_before_definition(checker, source_ref.span, function)
+    })
+}
+
+fn has_branch_local_loader_source_after_definition(
+    checker: &Checker<'_>,
+    call: &CallSite,
+    function: &Binding,
+) -> bool {
+    if !function_definition_is_branch_local(checker, function) {
+        return false;
+    }
+
+    let call_runtime_scope = checker.semantic().enclosing_function_scope(call.scope);
+    let definition_runtime_scope = checker.semantic().enclosing_function_scope(function.scope);
+    if call_runtime_scope != definition_runtime_scope {
+        return false;
+    }
+
+    checker.semantic().source_refs().iter().any(|source_ref| {
+        if matches!(source_ref.kind, SourceRefKind::DirectiveDevNull)
+            || !source_ref_has_runtime_source_command(checker, source_ref)
+            || source_ref.span.start.offset <= function.span.start.offset
+        {
+            return false;
+        }
+
+        let source_runtime_scope = checker
+            .semantic()
+            .enclosing_function_scope(checker.semantic().scope_at(source_ref.span.start.offset));
+        source_runtime_scope == definition_runtime_scope
+            && definition_can_run_before_source_ref(checker, function, source_ref.span)
+    })
+}
+
+fn definition_can_run_before_source_ref(
+    checker: &Checker<'_>,
+    function: &Binding,
+    source_span: Span,
+) -> bool {
+    let definition_blocks = checker
+        .semantic_analysis()
+        .blocks_containing_binding(function.id);
+    let source_blocks = checker.semantic_analysis().block_ids_for_span(source_span);
+    if definition_blocks.is_empty() || source_blocks.is_empty() {
+        return function.span.start.offset < source_span.start.offset;
+    }
+
+    let reachable_definition_blocks = definition_blocks
+        .iter()
+        .copied()
+        .filter(|block| !checker.semantic_analysis().block_is_unreachable(*block))
+        .collect::<Vec<_>>();
+    if reachable_definition_blocks.is_empty() {
+        return false;
+    }
+
+    checker.semantic_analysis().blocks_have_path_avoiding(
+        &reachable_definition_blocks,
+        source_blocks,
+        &FxHashSet::default(),
+    )
 }
 
 fn source_ref_has_runtime_source_command(checker: &Checker<'_>, source_ref: &SourceRef) -> bool {
@@ -701,19 +805,12 @@ fn function_definition_is_branch_local(checker: &Checker<'_>, function: &Binding
         .any(|block| block_is_inside_branch(cfg, block))
 }
 
-fn call_is_in_branch_local_context(checker: &Checker<'_>, call: &CallSite) -> bool {
-    let cfg = checker.semantic_analysis().cfg();
+fn call_is_in_condition_context(checker: &Checker<'_>, call: &CallSite) -> bool {
     checker
-        .semantic_analysis()
-        .block_ids_for_span(call.span)
-        .iter()
-        .copied()
-        .any(|block| block_is_inside_branch(cfg, block))
-        || checker
-            .semantic()
-            .innermost_command_id_at(call.name_span.start.offset)
-            .and_then(|id| checker.semantic().command_condition_role(id))
-            .is_some()
+        .semantic()
+        .innermost_command_id_at(call.name_span.start.offset)
+        .and_then(|id| checker.semantic().command_condition_role(id))
+        .is_some()
 }
 
 fn block_is_inside_branch(
@@ -870,7 +967,27 @@ fi
     }
 
     #[test]
-    fn reports_top_level_calls_before_later_nested_definition() {
+    fn reports_branch_local_calls_before_later_branch_definition() {
+        let source = "\
+#!/bin/bash
+if [[ $ready ]]; then
+  do_thing
+  do_thing() {
+    echo later
+  }
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledBeforeDefined),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "do_thing");
+    }
+
+    #[test]
+    fn ignores_top_level_calls_before_later_nested_definition() {
         let source = "\
 #!/bin/bash
 do_thing
@@ -885,8 +1002,7 @@ loader() {
             &LinterSettings::for_rule(Rule::FunctionCalledBeforeDefined),
         );
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "do_thing");
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]
@@ -1434,6 +1550,50 @@ fi
     }
 
     #[test]
+    fn ignores_calls_before_later_definitions_after_runtime_source() {
+        let source = "\
+#!/bin/sh
+wrapper() {
+  do_thing
+  . ./helpers.sh
+  do_thing() {
+    echo hi
+  }
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledBeforeDefined)
+                .with_shell(ShellDialect::Sh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_calls_before_later_definitions_after_runtime_source_when_option_disabled() {
+        let source = "\
+#!/bin/sh
+wrapper() {
+  do_thing
+  . ./helpers.sh
+  do_thing() {
+    echo hi
+  }
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledBeforeDefined)
+                .with_shell(ShellDialect::Sh)
+                .with_c161_ignore_after_source(false),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "do_thing");
+    }
+
+    #[test]
     fn ignores_nested_branch_local_loader_stubs() {
         let source = "\
 #!/bin/sh
@@ -1452,6 +1612,29 @@ wrapper() {
         );
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_nested_branch_local_loader_stubs_when_source_option_disabled() {
+        let source = "\
+#!/bin/sh
+wrapper() {
+  if [ \"$COUNT\" -gt 0 ]; then
+    _ rebuild
+    _() { false; }
+    . /tmp/loader
+  fi
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledBeforeDefined)
+                .with_shell(ShellDialect::Sh)
+                .with_c161_ignore_after_source(false),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "_");
     }
 
     #[test]
