@@ -578,6 +578,7 @@ fn rebuild_closed_workspace_symbols(
         })?
         .into_iter()
         .filter(|file| file.kind == FileKind::Shell)
+        .filter(|file| workspace_path_owned_by_root(context, &file.absolute_path, root))
         .filter(|file| !open_paths.contains(&file.absolute_path))
         .collect::<Vec<_>>();
         partial |= root_files.len() > options.max_files;
@@ -687,18 +688,34 @@ fn workspace_symbol_options_for_path(
     context: &WorkspaceSymbolContext,
     path: Option<&Path>,
 ) -> WorkspaceSymbolFeatureOptions {
-    path.and_then(|path| {
-        context
-            .workspace_settings
-            .iter()
-            .filter_map(|workspace| {
-                workspace_root_match_len(path, workspace).map(|len| (workspace, len))
-            })
-            .max_by_key(|(_, len)| *len)
-            .and_then(|(workspace, _)| workspace.options.as_ref())
-            .map(|options| options.server.workspace_symbols)
-    })
-    .unwrap_or(context.options)
+    path.and_then(|path| workspace_settings_for_path(context, path))
+        .and_then(|workspace| workspace.options.as_ref())
+        .map(|options| options.server.workspace_symbols)
+        .unwrap_or(context.options)
+}
+
+fn workspace_path_owned_by_root(
+    context: &WorkspaceSymbolContext,
+    path: &Path,
+    root: &Path,
+) -> bool {
+    workspace_settings_for_path(context, path)
+        .map(|workspace| workspace.root == root)
+        .unwrap_or(true)
+}
+
+fn workspace_settings_for_path<'a>(
+    context: &'a WorkspaceSymbolContext,
+    path: &Path,
+) -> Option<&'a WorkspaceSettingsSnapshot> {
+    context
+        .workspace_settings
+        .iter()
+        .filter_map(|workspace| {
+            workspace_root_match_len(path, workspace).map(|len| (workspace, len))
+        })
+        .max_by_key(|(_, len)| *len)
+        .map(|(workspace, _)| workspace)
 }
 
 fn workspace_symbols_have_enabled_scope(context: &WorkspaceSymbolContext) -> bool {
@@ -1598,6 +1615,40 @@ build() {
         let cache = lock_or_recover(&context.index.cache);
         assert!(cache.partial);
         assert!(!cache.dirty);
+    }
+
+    #[test]
+    fn workspace_symbols_do_not_index_nested_workspace_files_from_parent_root() {
+        let tempdir = tempfile::tempdir().expect("workspace should be created");
+        let parent_root = tempdir.path().join("parent");
+        let nested_root = parent_root.join("nested");
+        std::fs::create_dir_all(&nested_root).expect("nested root should be created");
+        std::fs::write(parent_root.join("a.sh"), "parent_symbol() { :; }\n")
+            .expect("parent fixture should be written");
+        std::fs::write(nested_root.join("b.sh"), "nested_symbol() { :; }\n")
+            .expect("nested fixture should be written");
+
+        let (mut session, client) = make_session(&parent_root, PositionEncoding::UTF16);
+        let nested_uri =
+            Url::from_file_path(&nested_root).expect("nested workspace URI should convert");
+        session
+            .open_workspace_folder(nested_uri.clone(), &client)
+            .expect("nested workspace should open");
+        let mut nested_options = crate::ClientOptions::default();
+        nested_options.server.workspace_symbols.enabled = false;
+        let mut workspace_options = crate::session::WorkspaceOptionsMap::default();
+        workspace_options.insert(nested_uri, nested_options);
+        session.update_configuration(crate::ClientOptions::default(), Some(workspace_options));
+
+        let response = workspace_symbols(
+            session.workspace_symbol_context(),
+            &client,
+            workspace_symbol_params("symbol"),
+        )
+        .expect("workspace symbol request should succeed")
+        .expect("workspace symbol response should be present");
+
+        assert_eq!(workspace_symbol_response_names(response), ["parent_symbol"]);
     }
 
     #[test]
