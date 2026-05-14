@@ -878,7 +878,10 @@ fn duplicate_redirect_fds(redirect: &RedirectFact<'_>, source: &str) -> SmallVec
             if output_redirect_is_csh_both_target(redirect_data, source)
                 || append_redirect_is_output_both(redirect_data, source)
             {
-                if let Some(fd) = redirect_data.fd {
+                if redirect_data.fd == Some(1) {
+                    fds.push(1);
+                    fds.push(2);
+                } else if let Some(fd) = redirect_data.fd {
                     fds.push(fd);
                 } else {
                     fds.push(1);
@@ -894,7 +897,10 @@ fn duplicate_redirect_fds(redirect: &RedirectFact<'_>, source: &str) -> SmallVec
         | RedirectKind::HereDocStrip
         | RedirectKind::HereString => fds.push(redirect_data.fd.unwrap_or(0)),
         RedirectKind::DupOutput if dup_output_redirects_to_file(redirect_data, source) => {
-            if let Some(fd) = explicit_numeric_redirect_fd(redirect_data, source) {
+            if explicit_numeric_redirect_fd(redirect_data, source) == Some(1) {
+                fds.push(1);
+                fds.push(2);
+            } else if let Some(fd) = explicit_numeric_redirect_fd(redirect_data, source) {
                 fds.push(fd);
             } else {
                 fds.push(1);
