@@ -952,6 +952,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 completion_registered_function_scopes,
                 external_entrypoint_function_scopes,
                 function_headers,
+                function_doc_content: OnceLock::new(),
                 function_definition_command_ids_by_scope,
                 case_cli_reachable_function_scopes,
                 function_in_alias_spans,
@@ -1063,6 +1064,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             source_facts: SourceFactStore {
                 source,
                 line_index: self._indexer.line_index(),
+                comment_index: self._indexer.comment_index(),
                 shell: self.shell,
                 indented_shebang_span: shebang_header_facts.indented_shebang_span,
                 indented_shebang_indent_span: shebang_header_facts.indented_shebang_indent_span,

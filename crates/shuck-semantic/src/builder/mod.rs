@@ -838,11 +838,19 @@ fn mapfile_flag_takes_value(flag: char) -> bool {
 }
 
 fn printf_v_target(args: &[&Word], source: &str) -> Option<(Name, Span)> {
-    args.windows(2).find_map(|window| {
-        (static_word_text(window[0], source).as_deref() == Some("-v"))
-            .then_some(window[1])
-            .and_then(|word| named_target_word(word, source))
-    })
+    let word = args.first()?;
+    let text = static_word_text(word, source)?;
+
+    match text.as_ref() {
+        "--" => None,
+        "-v" => args.get(1).and_then(|word| named_target_word(word, source)),
+        text => {
+            let target = text
+                .strip_prefix("-v")
+                .filter(|target| !target.is_empty())?;
+            printf_attached_v_target(word, source, target)
+        }
+    }
 }
 
 fn getopts_target(args: &[&Word], source: &str) -> Option<(Name, Span)> {
@@ -1810,6 +1818,23 @@ fn read_attached_array_target(
     source: &str,
     target_text: &str,
 ) -> Option<(Name, Span)> {
+    if !is_name(target_text) {
+        return None;
+    }
+
+    let target_span = word
+        .span
+        .slice(source)
+        .rfind(target_text)
+        .map(|start| {
+            read_option_attached_target_span(word.span, source, start, start + target_text.len())
+        })
+        .unwrap_or(word.span);
+
+    Some((Name::from(target_text), target_span))
+}
+
+fn printf_attached_v_target(word: &Word, source: &str, target_text: &str) -> Option<(Name, Span)> {
     if !is_name(target_text) {
         return None;
     }

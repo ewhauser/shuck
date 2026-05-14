@@ -4240,6 +4240,9 @@ read -ar
 mapfile mapfile_target
 readarray readarray_target
 printf -v printf_target '%s' value
+printf -vattached_printf_target '%s' value
+printf -- -vnot_a_printf_target
+printf '%s' -vformat_text
 getopts 'ab' getopts_target
 ";
     let model = model(source);
@@ -4319,6 +4322,23 @@ getopts 'ab' getopts_target
         })
         .unwrap();
     assert_eq!(printf_target.span.slice(source), "printf_target");
+
+    let attached_printf_target = model
+        .bindings()
+        .iter()
+        .find(|binding| {
+            binding.name == "attached_printf_target"
+                && matches!(binding.kind, BindingKind::PrintfTarget)
+        })
+        .unwrap();
+    assert_eq!(
+        attached_printf_target.span.slice(source),
+        "attached_printf_target"
+    );
+    assert!(!model.bindings().iter().any(|binding| {
+        matches!(binding.kind, BindingKind::PrintfTarget)
+            && matches!(binding.name.as_str(), "not_a_printf_target" | "format_text")
+    }));
 
     let getopts_target = model
         .bindings()

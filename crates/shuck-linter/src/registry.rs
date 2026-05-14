@@ -676,6 +676,7 @@ declare_rules! {
     ("S073", Category::Style, Severity::Warning, SpacedTabstripClose),
     ("S074", Category::Style, Severity::Warning, AmpersandSemicolon),
     ("S075", Category::Style, Severity::Warning, CombineAppends),
+    ("S084", Category::Style, Severity::Warning, FunctionDocContent),
     ("S085", Category::Style, Severity::Warning, MissingMainEntrypoint),
 }
 

@@ -18,6 +18,7 @@ pub(crate) struct CommandFactStore<'a> {
     pub(in crate::facts) completion_registered_function_scopes: FxHashSet<ScopeId>,
     pub(in crate::facts) external_entrypoint_function_scopes: FxHashSet<ScopeId>,
     pub(in crate::facts) function_headers: Vec<FunctionHeaderFact<'a>>,
+    pub(in crate::facts) function_doc_content: OnceLock<Vec<FunctionDocContentFact>>,
     pub(in crate::facts) function_definition_command_ids_by_scope: FxHashMap<ScopeId, CommandId>,
     pub(in crate::facts) case_cli_reachable_function_scopes: FxHashSet<ScopeId>,
     pub(in crate::facts) function_in_alias_spans: Vec<Span>,
@@ -136,6 +137,7 @@ pub(crate) struct AssignmentFactStore<'a> {
 pub(crate) struct SourceFactStore<'a> {
     pub(in crate::facts) source: &'a str,
     pub(in crate::facts) line_index: &'a LineIndex,
+    pub(in crate::facts) comment_index: &'a CommentIndex,
     pub(in crate::facts) shell: ShellDialect,
     pub(in crate::facts) indented_shebang_span: Option<Span>,
     pub(in crate::facts) indented_shebang_indent_span: Option<Span>,
@@ -518,6 +520,20 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
 
     pub(crate) fn function_headers(self) -> &'facts [FunctionHeaderFact<'a>] {
         &self.facts.command.function_headers
+    }
+
+    pub(crate) fn function_doc_content(self) -> &'facts [FunctionDocContentFact] {
+        self.facts.command.function_doc_content.get_or_init(|| {
+            build_function_doc_content_facts(
+                self.facts.semantic,
+                &self.facts.command.function_headers,
+                &self.facts.command.commands,
+                &self.facts.command.function_positional_parameter_facts,
+                self.facts.source_facts.source,
+                self.facts.source_facts.line_index,
+                self.facts.source_facts.comment_index,
+            )
+        })
     }
 
     pub(crate) fn function_in_alias_spans(self) -> &'facts [Span] {
@@ -1332,6 +1348,144 @@ impl<'facts, 'a> CompatFacts<'facts, 'a> {
             .compat
             .possible_variable_misspelling_scope_compat_name_uses
             .get_or_init(|| build_possible_variable_misspelling_scope_compat_name_uses(self.facts))
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct FunctionDocSections {
+    globals: bool,
+    arguments: bool,
+    outputs: bool,
+    returns: bool,
+}
+
+impl FunctionDocSections {
+    pub(crate) fn record_comment_body(&mut self, body: &str) {
+        let lower = body.trim().to_ascii_lowercase();
+        if lower.starts_with("globals:") {
+            self.globals = true;
+        } else if lower.starts_with("arguments:") {
+            self.arguments = true;
+        } else if lower.starts_with("outputs:") {
+            self.outputs = true;
+        } else if lower.starts_with("returns:") {
+            self.returns = true;
+        }
+    }
+
+    pub(crate) fn has_globals(self) -> bool {
+        self.globals
+    }
+
+    pub(crate) fn has_arguments(self) -> bool {
+        self.arguments
+    }
+
+    pub(crate) fn has_outputs(self) -> bool {
+        self.outputs
+    }
+
+    pub(crate) fn has_returns(self) -> bool {
+        self.returns
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FunctionDocContentFact {
+    name: Name,
+    name_span: Span,
+    leading_comment_span: Option<Span>,
+    documented_sections: FunctionDocSections,
+    body_behavior: FunctionDocBodyBehavior,
+}
+
+impl FunctionDocContentFact {
+    pub(crate) fn new(
+        name: &Name,
+        name_span: Span,
+        leading_comment_span: Option<Span>,
+        documented_sections: FunctionDocSections,
+        body_behavior: FunctionDocBodyBehavior,
+    ) -> Self {
+        Self {
+            name: name.clone(),
+            name_span,
+            leading_comment_span,
+            documented_sections,
+            body_behavior,
+        }
+    }
+
+    pub(crate) fn name(&self) -> &Name {
+        &self.name
+    }
+
+    pub(crate) fn name_span(&self) -> Span {
+        self.name_span
+    }
+
+    pub(crate) fn has_leading_comment(&self) -> bool {
+        self.leading_comment_span.is_some()
+    }
+
+    pub(crate) fn documented_sections(&self) -> FunctionDocSections {
+        self.documented_sections
+    }
+
+    pub(crate) fn uses_global_variables(&self) -> bool {
+        self.body_behavior.uses_global_variables()
+    }
+
+    pub(crate) fn uses_positional_parameters(&self) -> bool {
+        self.body_behavior.uses_positional_parameters()
+    }
+
+    pub(crate) fn writes_stdout(&self) -> bool {
+        self.body_behavior.writes_stdout()
+    }
+
+    pub(crate) fn has_explicit_return(&self) -> bool {
+        self.body_behavior.has_explicit_return()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct FunctionDocBodyBehavior {
+    uses_global_variables: bool,
+    uses_positional_parameters: bool,
+    writes_stdout: bool,
+    has_explicit_return: bool,
+}
+
+impl FunctionDocBodyBehavior {
+    pub(crate) fn new(
+        uses_global_variables: bool,
+        uses_positional_parameters: bool,
+        writes_stdout: bool,
+        has_explicit_return: bool,
+    ) -> Self {
+        Self {
+            uses_global_variables,
+            uses_positional_parameters,
+            writes_stdout,
+            has_explicit_return,
+        }
+    }
+
+    pub(crate) fn uses_global_variables(self) -> bool {
+        self.uses_global_variables
+    }
+
+    pub(crate) fn uses_positional_parameters(self) -> bool {
+        self.uses_positional_parameters
+    }
+
+    pub(crate) fn writes_stdout(self) -> bool {
+        self.writes_stdout
+    }
+
+    pub(crate) fn has_explicit_return(self) -> bool {
+        self.has_explicit_return
     }
 }
 

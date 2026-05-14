@@ -85,7 +85,7 @@ use shuck_ast::{
     ZshQualifiedGlob, is_shell_variable_name, static_command_name_text,
     static_command_wrapper_target_index, static_word_text, word_is_standalone_status_capture,
 };
-use shuck_indexer::{Indexer, LineIndex, RegionIndex};
+use shuck_indexer::{CommentIndex, Indexer, LineIndex, RegionIndex};
 #[cfg(test)]
 use shuck_parser::parser::Parser;
 use shuck_semantic::{

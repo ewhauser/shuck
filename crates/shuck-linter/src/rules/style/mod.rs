@@ -27,6 +27,7 @@ pub mod escaped_underscore;
 pub mod export_command_substitution;
 pub mod fgrep_deprecated;
 pub mod function_body_without_braces;
+pub mod function_doc_content;
 pub mod function_in_alias;
 pub mod getopts_invalid_flag_handler;
 pub mod glob_assigned_to_variable;
@@ -167,6 +168,7 @@ mod tests {
     #[test_case(Rule::SpacedTabstripClose, Path::new("S073.sh"))]
     #[test_case(Rule::AmpersandSemicolon, Path::new("S074.sh"))]
     #[test_case(Rule::CombineAppends, Path::new("S075.sh"))]
+    #[test_case(Rule::FunctionDocContent, Path::new("S084.sh"))]
     #[test_case(Rule::MissingMainEntrypoint, Path::new("S085.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
