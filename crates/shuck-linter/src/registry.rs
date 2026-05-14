@@ -110,6 +110,7 @@ declare_rules! {
     ("C020", Category::Correctness, Severity::Warning, TruthyLiteralTest),
     ("C021", Category::Correctness, Severity::Warning, ConstantCaseSubject),
     ("C022", Category::Correctness, Severity::Error, EmptyTest),
+    ("C023", Category::Correctness, Severity::Error, LeadingZeroArithmetic),
     ("C030", Category::Correctness, Severity::Error, MissingBracketSpace),
     ("C025", Category::Correctness, Severity::Warning, PositionalTenBraces),
     ("C035", Category::Correctness, Severity::Error, MissingFi),
@@ -728,6 +729,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-277" => Some(Rule::BasePrefixInArithmetic),
         "SH-034" => Some(Rule::LegacyBackticks),
         "SH-035" => Some(Rule::LegacyArithmeticExpansion),
+        "SH-078" => Some(Rule::LeadingZeroArithmetic),
         "SH-157" => Some(Rule::ArrayIndexArithmetic),
         "SH-161" => Some(Rule::ArithmeticScoreLine),
         "SH-197" => Some(Rule::DollarInArithmetic),
@@ -1151,6 +1153,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-073"), Some(Rule::TruthyLiteralTest));
         assert_eq!(code_to_rule("SH-074"), Some(Rule::ConstantCaseSubject));
         assert_eq!(code_to_rule("SH-075"), Some(Rule::EmptyTest));
+        assert_eq!(code_to_rule("C023"), Some(Rule::LeadingZeroArithmetic));
+        assert_eq!(code_to_rule("SH-078"), Some(Rule::LeadingZeroArithmetic));
         assert_eq!(code_to_rule("C030"), Some(Rule::MissingBracketSpace));
         assert_eq!(code_to_rule("SH-098"), Some(Rule::MissingBracketSpace));
         assert_eq!(code_to_rule("SH-134"), Some(Rule::PipeToKill));

@@ -653,12 +653,12 @@
       "ksh"
     ],
     "shellcheckCode": "SC2080",
-    "implemented": false,
-    "status": "planned",
+    "implemented": true,
+    "status": "implemented",
     "hasKnownShellcheckDivergences": false,
-    "severity": null,
-    "fixStatus": "planned",
-    "fixAvailability": "none",
+    "severity": "Error",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
     "fixSafety": "unsafe",
     "fixDescription": "Remove the leading zeroes from the arithmetic literal, leaving a single `0` if needed.",
     "examples": [

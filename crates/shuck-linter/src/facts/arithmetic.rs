@@ -458,13 +458,15 @@ pub(crate) fn collect_base_prefix_spans_in_command_parts(
                     }
                 }
             }
+            CompoundCommand::Conditional(command) => {
+                collect_base_prefix_spans_in_conditional_expr(&command.expression, source, spans);
+            }
             CompoundCommand::Select(command) => {
                 for word in &command.words {
                     collect_base_prefix_spans_in_word(word, source, spans);
                 }
             }
             CompoundCommand::If(_)
-            | CompoundCommand::Conditional(_)
             | CompoundCommand::While(_)
             | CompoundCommand::Until(_)
             | CompoundCommand::Subshell(_)
@@ -475,6 +477,123 @@ pub(crate) fn collect_base_prefix_spans_in_command_parts(
         },
         Command::Binary(_) | Command::Function(_) | Command::AnonymousFunction(_) => {}
     }
+}
+
+pub(crate) fn collect_base_prefix_spans_in_conditional_expr(
+    expression: &ConditionalExpr,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    match expression {
+        ConditionalExpr::Binary(expr) => {
+            if conditional_binary_op_is_arithmetic(expr.op) {
+                collect_base_prefix_spans_in_conditional_arithmetic_operand(
+                    &expr.left, source, spans,
+                );
+                collect_base_prefix_spans_in_conditional_arithmetic_operand(
+                    &expr.right,
+                    source,
+                    spans,
+                );
+            } else {
+                collect_base_prefix_spans_in_conditional_expr(&expr.left, source, spans);
+                collect_base_prefix_spans_in_conditional_expr(&expr.right, source, spans);
+            }
+        }
+        ConditionalExpr::Unary(expr) => {
+            collect_base_prefix_spans_in_conditional_expr(&expr.expr, source, spans);
+        }
+        ConditionalExpr::Parenthesized(expr) => {
+            collect_base_prefix_spans_in_conditional_expr(&expr.expr, source, spans);
+        }
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            collect_base_prefix_spans_in_word(word, source, spans);
+        }
+        ConditionalExpr::Pattern(pattern) => {
+            collect_base_prefix_spans_in_pattern(pattern, source, spans);
+        }
+        ConditionalExpr::VarRef(reference) => {
+            collect_base_prefix_spans_in_var_ref(reference, source, spans);
+        }
+    }
+}
+
+fn collect_base_prefix_spans_in_conditional_arithmetic_operand(
+    expression: &ConditionalExpr,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    match expression {
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            collect_base_prefix_spans_in_conditional_arithmetic_word(word, source, spans);
+        }
+        ConditionalExpr::Parenthesized(expr) => {
+            collect_base_prefix_spans_in_conditional_arithmetic_operand(&expr.expr, source, spans);
+        }
+        ConditionalExpr::VarRef(reference) => {
+            collect_base_prefix_spans_in_var_ref(reference, source, spans);
+        }
+        ConditionalExpr::Binary(_) | ConditionalExpr::Unary(_) | ConditionalExpr::Pattern(_) => {
+            collect_base_prefix_spans_in_conditional_expr(expression, source, spans);
+        }
+    }
+}
+
+fn collect_base_prefix_spans_in_conditional_arithmetic_word(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    collect_base_prefix_spans_in_word(word, source, spans);
+    collect_base_prefix_spans_in_conditional_arithmetic_word_parts(&word.parts, source, spans);
+}
+
+fn collect_base_prefix_spans_in_conditional_arithmetic_word_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {
+                collect_base_prefix_spans_in_text(part.span, source, spans);
+                collect_leading_zero_integer_spans_in_text(part.span, source, spans);
+            }
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_base_prefix_spans_in_conditional_arithmetic_word_parts(
+                    parts, source, spans,
+                );
+            }
+            WordPart::ZshQualifiedGlob(_)
+            | WordPart::Variable(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. } => {}
+        }
+    }
+}
+
+fn conditional_binary_op_is_arithmetic(op: ConditionalBinaryOp) -> bool {
+    matches!(
+        op,
+        ConditionalBinaryOp::ArithmeticEq
+            | ConditionalBinaryOp::ArithmeticNe
+            | ConditionalBinaryOp::ArithmeticLe
+            | ConditionalBinaryOp::ArithmeticGe
+            | ConditionalBinaryOp::ArithmeticLt
+            | ConditionalBinaryOp::ArithmeticGt
+    )
 }
 
 pub(crate) fn collect_base_prefix_spans_in_assignment(
@@ -798,8 +917,13 @@ pub(crate) fn collect_base_prefix_spans_in_subscript(
     source: &str,
     spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
 ) {
-    if let Some(expression) = subscript.and_then(|subscript| subscript.arithmetic_ast.as_ref()) {
+    let Some(subscript) = subscript else {
+        return;
+    };
+    if let Some(expression) = subscript.arithmetic_ast.as_ref() {
         collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+    } else if let Some(word) = subscript.word_ast() {
+        collect_base_prefix_spans_in_word(word, source, spans);
     }
 }
 
