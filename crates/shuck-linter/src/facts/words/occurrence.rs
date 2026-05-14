@@ -878,6 +878,174 @@ pub(crate) fn build_brace_variable_before_bracket_spans<'a>(
     spans
 }
 
+pub(crate) fn build_bare_done_word_spans(
+    commands: &[CommandFact<'_>],
+    nodes: &[WordNode<'_>],
+    occurrences: &[WordOccurrence],
+    source: &str,
+) -> Vec<Span> {
+    let mut spans = occurrences
+        .iter()
+        .filter(|fact| bare_done_word_context_reports(fact.context, fact.host_kind))
+        .filter(|fact| {
+            let analysis = occurrence_analysis(nodes, fact);
+            analysis.quote == WordQuote::Unquoted
+                && analysis.literalness == WordLiteralness::FixedLiteral
+        })
+        .filter(|fact| {
+            occurrence_static_text(nodes, fact, source)
+                .as_deref()
+                .is_some_and(|text| bare_loop_keyword_text_reports(fact.context, text))
+        })
+        .map(|fact| {
+            let position = occurrence_span(nodes, fact).start;
+            Span::from_positions(position, position)
+        })
+        .collect::<Vec<_>>();
+    collect_bare_done_word_conditional_spans(commands, source, &mut spans);
+    sort_and_dedup_spans(&mut spans);
+    spans
+}
+
+fn collect_bare_done_word_conditional_spans(
+    commands: &[CommandFact<'_>],
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for command in commands {
+        let Some(conditional) = command.conditional() else {
+            continue;
+        };
+
+        for node in conditional.nodes() {
+            match node {
+                ConditionalNodeFact::BareWord(fact) => {
+                    collect_bare_done_word_conditional_operand(fact.operand(), source, spans);
+                }
+                ConditionalNodeFact::Unary(fact) => {
+                    collect_bare_done_word_conditional_operand(fact.operand(), source, spans);
+                }
+                ConditionalNodeFact::Binary(fact) => {
+                    collect_bare_done_word_conditional_operand(fact.left(), source, spans);
+                    if fact.operator_family() != ConditionalOperatorFamily::Regex {
+                        collect_bare_done_word_conditional_operand(fact.right(), source, spans);
+                    }
+                }
+                ConditionalNodeFact::Other(_) => {}
+            }
+        }
+    }
+}
+
+fn collect_bare_done_word_conditional_operand(
+    operand: ConditionalOperandFact<'_>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    if let ConditionalExpr::Pattern(pattern) = operand.expression() {
+        collect_bare_done_word_conditional_pattern(pattern, source, spans);
+        return;
+    }
+
+    let Some(word) = operand.word() else {
+        return;
+    };
+    collect_bare_done_word_if_static(word, operand.word_classification(), source, spans);
+}
+
+fn collect_bare_done_word_conditional_pattern(
+    pattern: &Pattern,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let [part] = pattern.parts.as_slice() else {
+        return;
+    };
+
+    match &part.kind {
+        PatternPart::Literal(text) if is_bare_loop_keyword_text(text.as_str(source, part.span)) => {
+            let position = part.span.start;
+            spans.push(Span::from_positions(position, position));
+        }
+        PatternPart::Word(word) => {
+            collect_bare_done_word_if_static(word, Some(classify_word(word, source)), source, spans);
+        }
+        PatternPart::Literal(_)
+        | PatternPart::AnyString
+        | PatternPart::AnyChar
+        | PatternPart::CharClass(_)
+        | PatternPart::Group { .. } => {}
+    }
+}
+
+fn collect_bare_done_word_if_static(
+    word: &Word,
+    classification: Option<WordClassification>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let Some(classification) = classification else {
+        return;
+    };
+    if classification.quote != WordQuote::Unquoted
+        || classification.literalness != WordLiteralness::FixedLiteral
+    {
+        return;
+    }
+    if !static_word_text(word, source)
+        .as_deref()
+        .is_some_and(is_bare_loop_keyword_text)
+    {
+        return;
+    }
+
+    let position = word.span.start;
+    spans.push(Span::from_positions(position, position));
+}
+
+fn is_bare_loop_keyword_text(text: &str) -> bool {
+    matches!(text, "do" | "done")
+}
+
+fn bare_loop_keyword_text_reports(context: WordFactContext, text: &str) -> bool {
+    match text {
+        "done" => true,
+        "do" => !matches!(
+            context,
+            WordFactContext::Expansion(ExpansionContext::ForList | ExpansionContext::SelectList)
+        ),
+        _ => false,
+    }
+}
+
+fn bare_done_word_context_reports(context: WordFactContext, host_kind: WordFactHostKind) -> bool {
+    match context {
+        WordFactContext::CaseSubject => true,
+        WordFactContext::Expansion(context) => match context {
+            ExpansionContext::CommandName => host_kind == WordFactHostKind::CommandWrapperTarget,
+            ExpansionContext::CommandArgument
+            | ExpansionContext::RedirectTarget(_)
+            | ExpansionContext::DescriptorDupTarget(_)
+            | ExpansionContext::HereString
+            | ExpansionContext::AssignmentValue
+            | ExpansionContext::DeclarationAssignmentValue
+            | ExpansionContext::ForList
+            | ExpansionContext::SelectList
+            | ExpansionContext::ConditionalPattern
+            | ExpansionContext::StringTestOperand
+            | ExpansionContext::TrapAction => matches!(
+                host_kind,
+                WordFactHostKind::Direct | WordFactHostKind::CommandWrapperTarget
+            ),
+            ExpansionContext::CasePattern
+            | ExpansionContext::RegexOperand
+            | ExpansionContext::ConditionalVarRefSubscript
+            | ExpansionContext::ParameterPattern => false,
+        },
+        WordFactContext::ArithmeticCommand | WordFactContext::ParameterOperand => false,
+    }
+}
+
 pub(crate) fn contains_template_placeholder_text_in_word(text: &str) -> bool {
     let Some(start) = text.find("{{") else {
         return false;
