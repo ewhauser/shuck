@@ -4,6 +4,9 @@
 resolver = "2"
 members = ["crates/*"]
 
+[workspace.metadata.cargo-shear]
+ignored = ["shuck-benchmark", "shuck-format"]
+
 [workspace.package]
 version = "0.0.40"
 edition = "2024"
