@@ -27,13 +27,10 @@ pub fn jammed_test_bracket(checker: &mut Checker) {
 
     let diagnostics = checker
         .facts()
-        .commands()
+        .command_facts()
+        .jammed_test_bracket_facts()
         .iter()
-        .filter_map(|fact| {
-            let span = fact.jammed_test_bracket_span()?;
-            let insert_offset = fact.jammed_test_bracket_insert_offset()?;
-            Some(diagnostic_for_jammed_test_bracket(span, insert_offset))
-        })
+        .map(|(span, insert_offset)| diagnostic_for_jammed_test_bracket(*span, *insert_offset))
         .collect::<Vec<_>>();
 
     for diagnostic in diagnostics {
