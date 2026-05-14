@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
-use anyhow::Context as _;
 use lsp_types as types;
 use sha2::{Digest, Sha256};
 use shuck_discover::{DiscoveredFile, DiscoveryOptions, FileKind, discover_files};
@@ -560,7 +559,7 @@ fn rebuild_closed_workspace_symbols(
             continue;
         }
 
-        let mut root_files = discover_files(
+        let discovered = match discover_files(
             std::slice::from_ref(root),
             root,
             &DiscoveryOptions {
@@ -569,18 +568,23 @@ fn rebuild_closed_workspace_symbols(
                 use_config_roots: true,
                 ..DiscoveryOptions::default()
             },
-        )
-        .with_context(|| {
-            format!(
-                "discover workspace shell files for symbols in {}",
-                root.display()
-            )
-        })?
-        .into_iter()
-        .filter(|file| file.kind == FileKind::Shell)
-        .filter(|file| workspace_path_owned_by_root(context, &file.absolute_path, root))
-        .filter(|file| !open_paths.contains(&file.absolute_path))
-        .collect::<Vec<_>>();
+        ) {
+            Ok(files) => files,
+            Err(error) => {
+                tracing::warn!(
+                    "Failed to discover workspace symbol files in {}: {error}",
+                    root.display()
+                );
+                partial = true;
+                continue;
+            }
+        };
+        let mut root_files = discovered
+            .into_iter()
+            .filter(|file| file.kind == FileKind::Shell)
+            .filter(|file| workspace_path_owned_by_root(context, &file.absolute_path, root))
+            .filter(|file| !open_paths.contains(&file.absolute_path))
+            .collect::<Vec<_>>();
         partial |= root_files.len() > options.max_files;
         root_files.truncate(options.max_files);
         for file in root_files {
@@ -1649,6 +1653,45 @@ build() {
         .expect("workspace symbol response should be present");
 
         assert_eq!(workspace_symbol_response_names(response), ["parent_symbol"]);
+    }
+
+    #[test]
+    fn workspace_symbols_tolerate_discovery_failure_for_one_root() {
+        let tempdir = tempfile::tempdir().expect("workspace should be created");
+        let healthy_root = tempdir.path().join("healthy");
+        let missing_root = tempdir.path().join("missing");
+        std::fs::create_dir(&healthy_root).expect("healthy root should be created");
+        std::fs::create_dir(&missing_root).expect("missing root should initially exist");
+        std::fs::write(healthy_root.join("a.sh"), "healthy_symbol() { :; }\n")
+            .expect("healthy fixture should be written");
+
+        let (mut session, client) = make_session(&healthy_root, PositionEncoding::UTF16);
+        let missing_uri =
+            Url::from_file_path(&missing_root).expect("missing workspace URI should convert");
+        session
+            .open_workspace_folder(missing_uri, &client)
+            .expect("missing workspace should open");
+        let open_uri = Url::from_file_path(missing_root.join("scratch.sh"))
+            .expect("open buffer URI should convert");
+        session.open_text_document(
+            open_uri,
+            TextDocument::new("open_buffer_symbol() { :; }\n".to_owned(), 3)
+                .with_language_id("shellscript"),
+        );
+        std::fs::remove_dir(&missing_root).expect("missing root should be removed");
+        let context = session.workspace_symbol_context();
+
+        let response = workspace_symbols(context.clone(), &client, workspace_symbol_params(""))
+            .expect("workspace symbol request should tolerate one bad root")
+            .expect("workspace symbol response should be present");
+        assert_eq!(
+            workspace_symbol_response_names(response),
+            ["healthy_symbol", "open_buffer_symbol"]
+        );
+
+        let cache = lock_or_recover(&context.index.cache);
+        assert!(cache.partial);
+        assert!(!cache.dirty);
     }
 
     #[test]
