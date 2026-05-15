@@ -1048,6 +1048,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::TrailingDirective) {
             rules::style::trailing_directive::trailing_directive(self);
         }
+        if self.is_rule_enabled(Rule::TodoFormat) {
+            rules::style::todo_format::todo_format(self);
+        }
         if self.is_rule_enabled(Rule::PositionalTenBraces) {
             rules::correctness::positional_ten_braces::positional_ten_braces(self);
         }

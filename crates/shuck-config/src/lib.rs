@@ -61,8 +61,8 @@ const CONFIG_OVERRIDE_LINT_ZSH_PLUGIN_KEYS: &[&str] = &[
     "entrypoints",
 ];
 const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &[
-    "c001", "c063", "s078", "s079", "s080", "s081", "s084", "s085", "c158", "c159", "c160", "c161",
-    "c162",
+    "c001", "c063", "s078", "s079", "s080", "s081", "s082", "s084", "s085", "c158", "c159", "c160",
+    "c161", "c162",
 ];
 const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
     &["treat-indirect-expansion-targets-as-used"];
@@ -72,6 +72,8 @@ const CONFIG_OVERRIDE_S079_RULE_OPTION_KEYS: &[&str] = &["allowed-forms", "allow
 const CONFIG_OVERRIDE_S080_RULE_OPTION_KEYS: &[&str] = &["max-lines", "count"];
 const CONFIG_OVERRIDE_S080_COUNT_VALUES: &[&str] = &["physical", "non-comment-non-blank"];
 const CONFIG_OVERRIDE_S081_RULE_OPTION_KEYS: &[&str] = &["ignore-shebang-only-files"];
+const CONFIG_OVERRIDE_S082_RULE_OPTION_KEYS: &[&str] =
+    &["kinds", "require-owner", "require-message"];
 const CONFIG_OVERRIDE_S084_RULE_OPTION_KEYS: &[&str] = &[
     "require-globals",
     "require-arguments",
@@ -351,6 +353,8 @@ pub struct LintRuleOptionsConfig {
     pub s080: Option<S080RuleOptionsConfig>,
     /// Options for rule S081.
     pub s081: Option<S081RuleOptionsConfig>,
+    /// Options for rule S082.
+    pub s082: Option<S082RuleOptionsConfig>,
     /// Options for rule S084.
     pub s084: Option<S084RuleOptionsConfig>,
     /// Options for rule S085.
@@ -386,6 +390,9 @@ impl LintRuleOptionsConfig {
         }
         if let Some(s081) = overrides.s081 {
             self.s081.get_or_insert_default().apply_overrides(s081);
+        }
+        if let Some(s082) = overrides.s082 {
+            self.s082.get_or_insert_default().apply_overrides(s082);
         }
         if let Some(s084) = overrides.s084 {
             self.s084.get_or_insert_default().apply_overrides(s084);
@@ -515,6 +522,32 @@ impl S081RuleOptionsConfig {
     fn apply_overrides(&mut self, overrides: Self) {
         if overrides.ignore_shebang_only_files.is_some() {
             self.ignore_shebang_only_files = overrides.ignore_shebang_only_files;
+        }
+    }
+}
+
+/// Options for rule S082.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct S082RuleOptionsConfig {
+    /// Marker names treated as action comments.
+    pub kinds: Option<Vec<String>>,
+    /// Whether action comments must include an owner annotation.
+    pub require_owner: Option<bool>,
+    /// Whether action comments must include explanatory text.
+    pub require_message: Option<bool>,
+}
+
+impl S082RuleOptionsConfig {
+    fn apply_overrides(&mut self, overrides: Self) {
+        if overrides.kinds.is_some() {
+            self.kinds = overrides.kinds;
+        }
+        if overrides.require_owner.is_some() {
+            self.require_owner = overrides.require_owner;
+        }
+        if overrides.require_message.is_some() {
+            self.require_message = overrides.require_message;
         }
     }
 }
@@ -1008,6 +1041,34 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
                             value_type: "bool",
                             example: "ignore-shebang-only-files = true",
                         }],
+                        sections: &[],
+                    },
+                    ConfigSectionMetadata {
+                        key: "s082",
+                        docs: "Behavior overrides for `S082` action comment formatting.",
+                        fields: &[
+                            ConfigFieldMetadata {
+                                key: "kinds",
+                                docs: "Comment markers checked at the start of a comment.",
+                                default: r#"["TODO", "FIXME", "XXX"]"#,
+                                value_type: "list[string]",
+                                example: r#"kinds = ["TODO", "FIXME"]"#,
+                            },
+                            ConfigFieldMetadata {
+                                key: "require-owner",
+                                docs: "Require a checked marker to be followed immediately by a parenthesized owner.",
+                                default: "true",
+                                value_type: "bool",
+                                example: "require-owner = false",
+                            },
+                            ConfigFieldMetadata {
+                                key: "require-message",
+                                docs: "Require a checked marker to include non-empty explanatory text.",
+                                default: "true",
+                                value_type: "bool",
+                                example: "require-message = false",
+                            },
+                        ],
                         sections: &[],
                     },
                     ConfigSectionMetadata {
@@ -1828,6 +1889,9 @@ fn validate_lint_rule_options_override(value: &toml::Value) -> std::result::Resu
     if let Some(s081_value) = rule_options.get("s081") {
         validate_s081_rule_options_override(s081_value)?;
     }
+    if let Some(s082_value) = rule_options.get("s082") {
+        validate_s082_rule_options_override(s082_value)?;
+    }
     if let Some(s084_value) = rule_options.get("s084") {
         validate_s084_rule_options_override(s084_value)?;
     }
@@ -1976,6 +2040,22 @@ fn validate_s081_rule_options_override(value: &toml::Value) -> std::result::Resu
             return Err(format!(
                 "unsupported `[lint.rule-options.s081]` option `{key}`; expected one of: {}",
                 CONFIG_OVERRIDE_S081_RULE_OPTION_KEYS.join(", ")
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_s082_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let s082 = value
+        .as_table()
+        .ok_or_else(|| "`[lint.rule-options.s082]` must be a TOML table".to_owned())?;
+    for key in s082.keys() {
+        if !CONFIG_OVERRIDE_S082_RULE_OPTION_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.rule-options.s082]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_S082_RULE_OPTION_KEYS.join(", ")
             ));
         }
     }
@@ -2378,6 +2458,28 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_validate_supported_s082_rule_option_keys() {
+        let config = parse_config_override(
+            "lint.rule-options.s082.kinds = ['TODO', 'FIXME']\n\
+             lint.rule-options.s082.require-owner = false\n\
+             lint.rule-options.s082.require-message = true",
+        )
+        .unwrap();
+        let s082 = config
+            .lint
+            .rule_options
+            .as_ref()
+            .and_then(|options| options.s082.as_ref())
+            .expect("missing s082 options");
+        assert_eq!(
+            s082.kinds,
+            Some(vec!["TODO".to_owned(), "FIXME".to_owned()])
+        );
+        assert_eq!(s082.require_owner, Some(false));
+        assert_eq!(s082.require_message, Some(true));
+    }
+
+    #[test]
     fn inline_config_overrides_validate_supported_s084_rule_option_keys() {
         let config = parse_config_override(
             "lint.rule-options.s084.require-globals = false\n\
@@ -2636,6 +2738,12 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_reject_unknown_s082_rule_option_keys() {
+        let err = parse_config_override("lint.rule-options.s082.preview = true").unwrap_err();
+        assert!(err.contains("unsupported `[lint.rule-options.s082]` option `preview`"));
+    }
+
+    #[test]
     fn inline_config_overrides_reject_unknown_s085_rule_option_keys() {
         let err = parse_config_override("lint.rule-options.s085.preview = true").unwrap_err();
         assert!(err.contains("unsupported `[lint.rule-options.s085]` option `preview`"));
@@ -2864,6 +2972,34 @@ mod tests {
                 .as_ref()
                 .and_then(|options| options.s081.as_ref())
                 .and_then(|s081| s081.ignore_shebang_only_files),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn s082_rule_option_config_arguments_allow_last_override_to_win() {
+        let tempdir = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.rule-options.s082.require-owner = true").unwrap(),
+                )),
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.rule-options.s082.require-owner = false").unwrap(),
+                )),
+            ],
+            false,
+        )
+        .unwrap();
+
+        let loaded = load_project_config(tempdir.path(), &config).unwrap();
+        assert_eq!(
+            loaded
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.s082.as_ref())
+                .and_then(|s082| s082.require_owner),
             Some(false)
         );
     }

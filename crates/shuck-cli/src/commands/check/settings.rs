@@ -61,6 +61,9 @@ struct EffectiveRuleOptions {
     s080_max_lines: usize,
     s080_count: String,
     s081_ignore_shebang_only_files: bool,
+    s082_kinds: Vec<String>,
+    s082_require_owner: bool,
+    s082_require_message: bool,
     s084_require_globals: bool,
     s084_require_arguments: bool,
     s084_require_outputs: bool,
@@ -199,6 +202,9 @@ impl EffectiveRuleOptions {
             s080_max_lines: rule_options.s080.max_lines,
             s080_count: rule_options.s080.count.clone(),
             s081_ignore_shebang_only_files: rule_options.s081.ignore_shebang_only_files,
+            s082_kinds: rule_options.s082.kinds.clone(),
+            s082_require_owner: rule_options.s082.require_owner,
+            s082_require_message: rule_options.s082.require_message,
             s084_require_globals: rule_options.s084.require_globals,
             s084_require_arguments: rule_options.s084.require_arguments,
             s084_require_outputs: rule_options.s084.require_outputs,
@@ -229,6 +235,9 @@ impl CacheKey for EffectiveRuleOptions {
         self.s080_max_lines.cache_key(state);
         self.s080_count.cache_key(state);
         self.s081_ignore_shebang_only_files.cache_key(state);
+        self.s082_kinds.cache_key(state);
+        self.s082_require_owner.cache_key(state);
+        self.s082_require_message.cache_key(state);
         self.s084_require_globals.cache_key(state);
         self.s084_require_arguments.cache_key(state);
         self.s084_require_outputs.cache_key(state);
@@ -991,6 +1000,30 @@ fn linter_rule_options_for_lint_config(
         .and_then(|c063| c063.report_unreached_nested_definitions)
     {
         rule_options.c063.report_unreached_nested_definitions = value;
+    }
+    if let Some(kinds) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.s082.as_ref())
+        .and_then(|s082| s082.kinds.as_ref())
+    {
+        rule_options.s082.kinds.clone_from(kinds);
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.s082.as_ref())
+        .and_then(|s082| s082.require_owner)
+    {
+        rule_options.s082.require_owner = value;
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.s082.as_ref())
+        .and_then(|s082| s082.require_message)
+    {
+        rule_options.s082.require_message = value;
     }
     if let Some(value) = lint
         .rule_options
