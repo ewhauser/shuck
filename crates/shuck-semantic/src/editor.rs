@@ -236,17 +236,18 @@ fn hover_target_rank(target: &EditorHoverTarget) -> HoverTargetRank {
 fn build_editor_hover_targets(model: &SemanticModel) -> EditorHoverTargets {
     let mut targets = Vec::new();
     for binding in model.bindings() {
-        if hover_symbol_kind_for_binding(binding).is_some() && !binding.span.to_range().is_empty() {
+        let span = binding_hover_span(binding);
+        if hover_symbol_kind_for_binding(binding).is_some() && !span.to_range().is_empty() {
             targets.push(EditorHoverTarget {
-                span: binding.span,
+                span,
                 kind: EditorHoverTargetKind::Binding(binding.id),
             });
         }
     }
     for reference in model.references() {
-        if !reference.span.to_range().is_empty() {
+        if !reference.name_span.to_range().is_empty() {
             targets.push(EditorHoverTarget {
-                span: reference.span,
+                span: reference.name_span,
                 kind: EditorHoverTargetKind::Reference(reference.id),
             });
         }
@@ -276,12 +277,16 @@ fn hover_for_target(model: &SemanticModel, target: &EditorHoverTarget) -> Option
         EditorHoverTargetKind::Reference(reference_id) => {
             let reference = model.reference(*reference_id);
             if let Some(binding) = model.resolved_binding(*reference_id) {
-                return hover_for_binding(model, binding, reference.span);
+                return hover_for_binding(model, binding, reference.name_span);
             }
             if model.predefined_runtime_refs.contains(reference_id)
-                || model.name_is_known_runtime(reference.name.as_str())
+                || model.name_is_predefined_runtime(reference.name.as_str())
             {
-                return Some(runtime_hover(model, reference.name.clone(), reference.span));
+                return Some(runtime_hover(
+                    model,
+                    reference.name.clone(),
+                    reference.name_span,
+                ));
             }
             None
         }
@@ -377,6 +382,13 @@ fn function_call_count_for_binding(model: &SemanticModel, binding: &Binding) -> 
         .resolved_function_call_sites(&binding.name)
         .filter(|(_, binding_id)| *binding_id == binding.id)
         .count()
+}
+
+fn binding_hover_span(binding: &Binding) -> Span {
+    match binding.origin {
+        crate::BindingOrigin::ParameterDefaultAssignment { target_span, .. } => target_span,
+        _ => binding.span,
+    }
 }
 
 fn document_symbol_parent_for_binding(
@@ -570,7 +582,9 @@ fn binding_definition_span(binding: &Binding) -> Span {
         | crate::BindingOrigin::LoopVariable {
             definition_span, ..
         }
-        | crate::BindingOrigin::ParameterDefaultAssignment { definition_span }
+        | crate::BindingOrigin::ParameterDefaultAssignment {
+            definition_span, ..
+        }
         | crate::BindingOrigin::Imported { definition_span }
         | crate::BindingOrigin::FunctionDefinition { definition_span }
         | crate::BindingOrigin::BuiltinTarget {

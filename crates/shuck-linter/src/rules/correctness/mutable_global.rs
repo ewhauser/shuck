@@ -251,7 +251,9 @@ fn report_span_for_binding(binding: &Binding) -> Span {
         | BindingOrigin::Assignment {
             definition_span, ..
         }
-        | BindingOrigin::ParameterDefaultAssignment { definition_span }
+        | BindingOrigin::ParameterDefaultAssignment {
+            definition_span, ..
+        }
         | BindingOrigin::Imported { definition_span }
         | BindingOrigin::FunctionDefinition { definition_span }
         | BindingOrigin::BuiltinTarget {

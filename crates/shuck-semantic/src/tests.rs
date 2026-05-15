@@ -148,7 +148,7 @@ echo \"$foo\"
     assert_eq!(definition.target_span.slice(source), "foo");
     assert!(!definition.runtime);
 
-    let reference_span = span_for_nth(source, "$foo", 0);
+    let reference_span = span_for_nth(source, "foo", 1);
     let reference = model
         .editor_query()
         .hover_at_offset(reference_span.start.offset)
@@ -204,7 +204,7 @@ build
 fn editor_hover_reports_runtime_names_without_definitions() {
     let source = "printf '%s\\n' \"$HOME\"\n";
     let model = model(source);
-    let name = span_for_nth(source, "$HOME", 0);
+    let name = span_for_nth(source, "HOME", 0);
     let hover = model
         .editor_query()
         .hover_at_offset(name.start.offset)
@@ -214,6 +214,53 @@ fn editor_hover_reports_runtime_names_without_definitions() {
     assert_eq!(hover.target_span, name);
     assert!(hover.runtime);
     assert!(hover.symbol.binding.is_none());
+}
+
+#[test]
+fn editor_hover_uses_name_span_inside_parameter_expansions() {
+    let source = "\
+foo=1
+printf '%s\\n' \"${foo:-fallback}\"
+printf '%s\\n' \"${created:=fallback}\"
+";
+    let model = model(source);
+    let query = model.editor_query();
+
+    let braced_reference = span_for_nth(source, "foo", 1);
+    let hover = query
+        .hover_at_offset(braced_reference.start.offset)
+        .expect("braced reference name should have hover");
+    assert_eq!(hover.symbol.name.as_str(), "foo");
+    assert_eq!(hover.target_span, braced_reference);
+
+    let default_assignment = span_for_nth(source, "created", 0);
+    let hover = query
+        .hover_at_offset(default_assignment.start.offset)
+        .expect("default assignment name should have hover");
+    assert_eq!(hover.symbol.name.as_str(), "created");
+    assert_eq!(hover.target_span, default_assignment);
+
+    for offset in [
+        source.find(":-").unwrap(),
+        source.find(":=").unwrap(),
+        span_for_nth(source, "fallback", 0).start.offset,
+        span_for_nth(source, "fallback", 1).start.offset,
+    ] {
+        assert!(query.hover_at_offset(offset).is_none(), "{offset}");
+    }
+}
+
+#[test]
+fn editor_hover_skips_known_runtime_names_that_are_not_active_for_shell() {
+    let source = "#!/bin/sh\nprintf '%s\\n' \"$BASH_VERSION\"\n";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Posix));
+    let name = span_for_nth(source, "BASH_VERSION", 0);
+    assert!(
+        model
+            .editor_query()
+            .hover_at_offset(name.start.offset)
+            .is_none()
+    );
 }
 
 #[test]

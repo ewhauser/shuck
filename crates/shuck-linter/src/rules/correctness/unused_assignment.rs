@@ -322,7 +322,9 @@ fn report_span_for_binding(checker: &Checker<'_>, binding: &Binding) -> shuck_as
         BindingOrigin::Assignment {
             definition_span, ..
         }
-        | BindingOrigin::ParameterDefaultAssignment { definition_span }
+        | BindingOrigin::ParameterDefaultAssignment {
+            definition_span, ..
+        }
         | BindingOrigin::Imported { definition_span }
         | BindingOrigin::FunctionDefinition { definition_span }
         | BindingOrigin::BuiltinTarget {
