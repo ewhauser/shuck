@@ -16,6 +16,7 @@ const DEFAULT_DISABLED_NON_STYLE_RULES: &[Rule] = &[
     Rule::MutableGlobal,
     Rule::UnanchoredSourcePath,
     Rule::FunctionCalledBeforeDefined,
+    Rule::ExtraMaskedReturns,
 ];
 const DEFAULT_C160_ALLOWED_ANCHORS: &[&str] = &[
     "${BASH_SOURCE[0]%/*}",
@@ -42,6 +43,8 @@ pub struct LinterRuleOptions {
     pub c160: C160RuleOptions,
     /// Behavior overrides for `C161`.
     pub c161: C161RuleOptions,
+    /// Behavior overrides for `C162`.
+    pub c162: C162RuleOptions,
 }
 
 /// Behavior overrides for `C001` unused-assignment analysis.
@@ -179,6 +182,22 @@ impl Default for C161RuleOptions {
     fn default() -> Self {
         Self {
             ignore_after_source: true,
+        }
+    }
+}
+
+/// Behavior overrides for `C162` extra masked-return declaration analysis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct C162RuleOptions {
+    /// Declaration forms beyond the default S010 set that should be treated as masking command
+    /// substitution status.
+    pub treat_as_masking: Vec<String>,
+}
+
+impl Default for C162RuleOptions {
+    fn default() -> Self {
+        Self {
+            treat_as_masking: vec!["readonly".to_owned(), "typeset".to_owned()],
         }
     }
 }
@@ -428,6 +447,15 @@ impl LinterSettings {
         self
     }
 
+    pub fn with_c162_treat_as_masking<I, S>(mut self, forms: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.rule_options.c162.treat_as_masking = forms.into_iter().map(Into::into).collect();
+        self
+    }
+
     pub fn per_file_ignored_rules(&self, path: Option<&Path>) -> RuleSet {
         path.map_or(RuleSet::EMPTY, |path| {
             self.per_file_ignores.ignored_rules(path)
@@ -556,6 +584,7 @@ mod tests {
         assert!(!defaults.contains(Rule::MutableGlobal));
         assert!(!defaults.contains(Rule::UnanchoredSourcePath));
         assert!(!defaults.contains(Rule::FunctionCalledBeforeDefined));
+        assert!(!defaults.contains(Rule::ExtraMaskedReturns));
         assert!(!defaults.contains(Rule::AmpersandSemicolon));
     }
 

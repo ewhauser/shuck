@@ -693,6 +693,7 @@ fn resolve_rule_selection(
 ) -> Result<ResolvedCompatSelection, CompatCliError> {
     let mut rules = compat_default_rules(shellcheck_map);
     let mut optional_state = CompatOptionalState::default();
+    let mut enabled_optional_rules = RuleSet::EMPTY;
 
     let mut requested_optional = config.enable_checks.clone();
     requested_optional.extend(cli.enable_checks.clone());
@@ -700,7 +701,9 @@ fn resolve_rule_selection(
         for name in requested_optional {
             if name == "all" {
                 for check in supported_optional_checks() {
-                    rules = rules.union(&check.enabled_rule_set());
+                    let check_rules = check.enabled_rule_set();
+                    rules = rules.union(&check_rules);
+                    enabled_optional_rules = enabled_optional_rules.union(&check_rules);
                     optional_state.enable(check);
                 }
                 continue;
@@ -716,7 +719,9 @@ fn resolve_rule_selection(
                 continue;
             }
 
-            rules = rules.union(&check.enabled_rule_set());
+            let check_rules = check.enabled_rule_set();
+            rules = rules.union(&check_rules);
+            enabled_optional_rules = enabled_optional_rules.union(&check_rules);
             optional_state.enable(check);
         }
     }
@@ -725,6 +730,7 @@ fn resolve_rule_selection(
     let exclude_codes = combined_codes(&config.exclude_codes, &cli.exclude_codes);
     if !include_codes.is_empty() {
         rules = rules_for_codes(shellcheck_map, &include_codes)?;
+        rules = rules.subtract(&compat_default_disabled_rules().subtract(&enabled_optional_rules));
     }
     if !exclude_codes.is_empty() {
         let excluded = rules_for_codes(shellcheck_map, &exclude_codes)?;

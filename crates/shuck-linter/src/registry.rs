@@ -512,6 +512,7 @@ declare_rules! {
         Severity::Error,
         FunctionCalledBeforeDefined
     ),
+    ("C162", Category::Correctness, Severity::Warning, ExtraMaskedReturns),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
     ("P002", Category::Performance, Severity::Warning, GrepCountPipeline),
     ("P003", Category::Performance, Severity::Warning, SingleTestSubshell),

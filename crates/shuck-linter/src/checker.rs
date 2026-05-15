@@ -371,6 +371,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::LocalTopLevel) {
             rules::correctness::script_scope_local::local_top_level(self);
         }
+        if self.is_rule_enabled(Rule::ExtraMaskedReturns) {
+            rules::correctness::extra_masked_returns::extra_masked_returns(self);
+        }
     }
 
     fn check_call_sites(&mut self) {
