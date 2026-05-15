@@ -213,6 +213,7 @@ pub(crate) fn build_shebang_invocation_fact(
     let first_line = source_line(source, line_index, 1)?;
     let first_line_text = first_line.text.trim_end_matches('\r');
     first_line_text
+        .trim_start()
         .strip_prefix("#!")
         .map(str::trim)
         .filter(|text| !text.is_empty())

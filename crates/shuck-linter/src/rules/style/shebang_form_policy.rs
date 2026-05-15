@@ -65,6 +65,20 @@ mod tests {
     }
 
     #[test]
+    fn reports_indented_shebangs_outside_the_allowed_form_policy() {
+        let source = "  #!/usr/local/bin/bash\necho hello\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ShebangFormPolicy));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["  #!/usr/local/bin/bash"]
+        );
+    }
+
+    #[test]
     fn accepts_default_env_form_and_default_exact_paths() {
         for source in [
             "#!/usr/bin/env bash\necho hello\n",
