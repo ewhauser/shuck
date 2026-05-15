@@ -714,6 +714,7 @@ declare_rules! {
     ("S075", Category::Style, Severity::Warning, CombineAppends),
     ("S078", Category::Style, Severity::Warning, ShebangShellPolicy),
     ("S079", Category::Style, Severity::Warning, ShebangFormPolicy),
+    ("S080", Category::Style, Severity::Warning, ScriptSizeThreshold),
     ("S084", Category::Style, Severity::Warning, FunctionDocContent),
     ("S085", Category::Style, Severity::Warning, MissingMainEntrypoint),
 }

@@ -61,13 +61,15 @@ const CONFIG_OVERRIDE_LINT_ZSH_PLUGIN_KEYS: &[&str] = &[
     "entrypoints",
 ];
 const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &[
-    "c001", "c063", "s078", "s079", "s084", "s085", "c158", "c159", "c160", "c161", "c162",
+    "c001", "c063", "s078", "s079", "s080", "s084", "s085", "c158", "c159", "c160", "c161", "c162",
 ];
 const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
     &["treat-indirect-expansion-targets-as-used"];
 const CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS: &[&str] = &["report-unreached-nested-definitions"];
 const CONFIG_OVERRIDE_S078_RULE_OPTION_KEYS: &[&str] = &["allowed-shells"];
 const CONFIG_OVERRIDE_S079_RULE_OPTION_KEYS: &[&str] = &["allowed-forms", "allowed-paths"];
+const CONFIG_OVERRIDE_S080_RULE_OPTION_KEYS: &[&str] = &["max-lines", "count"];
+const CONFIG_OVERRIDE_S080_COUNT_VALUES: &[&str] = &["physical", "non-comment-non-blank"];
 const CONFIG_OVERRIDE_S084_RULE_OPTION_KEYS: &[&str] = &[
     "require-globals",
     "require-arguments",
@@ -343,6 +345,8 @@ pub struct LintRuleOptionsConfig {
     pub s078: Option<S078RuleOptionsConfig>,
     /// Options for rule S079.
     pub s079: Option<S079RuleOptionsConfig>,
+    /// Options for rule S080.
+    pub s080: Option<S080RuleOptionsConfig>,
     /// Options for rule S084.
     pub s084: Option<S084RuleOptionsConfig>,
     /// Options for rule S085.
@@ -372,6 +376,9 @@ impl LintRuleOptionsConfig {
         }
         if let Some(s079) = overrides.s079 {
             self.s079.get_or_insert_default().apply_overrides(s079);
+        }
+        if let Some(s080) = overrides.s080 {
+            self.s080.get_or_insert_default().apply_overrides(s080);
         }
         if let Some(s084) = overrides.s084 {
             self.s084.get_or_insert_default().apply_overrides(s084);
@@ -464,6 +471,27 @@ impl S079RuleOptionsConfig {
         }
         if overrides.allowed_paths.is_some() {
             self.allowed_paths = overrides.allowed_paths;
+        }
+    }
+}
+
+/// Options for rule S080.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct S080RuleOptionsConfig {
+    /// Maximum line count allowed by the policy.
+    pub max_lines: Option<usize>,
+    /// Line counting mode used by the policy.
+    pub count: Option<String>,
+}
+
+impl S080RuleOptionsConfig {
+    fn apply_overrides(&mut self, overrides: Self) {
+        if overrides.max_lines.is_some() {
+            self.max_lines = overrides.max_lines;
+        }
+        if overrides.count.is_some() {
+            self.count = overrides.count;
         }
     }
 }
@@ -922,6 +950,27 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
                                 default: r#"["/bin/bash", "/usr/bin/env bash"]"#,
                                 value_type: "list[string]",
                                 example: r#"allowed-paths = ["/usr/bin/env bash"]"#,
+                            },
+                        ],
+                        sections: &[],
+                    },
+                    ConfigSectionMetadata {
+                        key: "s080",
+                        docs: "Behavior overrides for `S080` script size policy.",
+                        fields: &[
+                            ConfigFieldMetadata {
+                                key: "max-lines",
+                                docs: "Maximum accepted line count for one script.",
+                                default: "100",
+                                value_type: "integer",
+                                example: "max-lines = 100",
+                            },
+                            ConfigFieldMetadata {
+                                key: "count",
+                                docs: "Line-counting mode. Supported values are `physical` and `non-comment-non-blank`.",
+                                default: r#""physical""#,
+                                value_type: "string",
+                                example: r#"count = "non-comment-non-blank""#,
                             },
                         ],
                         sections: &[],
@@ -1738,6 +1787,9 @@ fn validate_lint_rule_options_override(value: &toml::Value) -> std::result::Resu
     if let Some(s079_value) = rule_options.get("s079") {
         validate_s079_rule_options_override(s079_value)?;
     }
+    if let Some(s080_value) = rule_options.get("s080") {
+        validate_s080_rule_options_override(s080_value)?;
+    }
     if let Some(s084_value) = rule_options.get("s084") {
         validate_s084_rule_options_override(s084_value)?;
     }
@@ -1825,6 +1877,40 @@ fn validate_s079_rule_options_override(value: &toml::Value) -> std::result::Resu
     }
 
     Ok(())
+}
+
+fn validate_s080_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let s080 = value
+        .as_table()
+        .ok_or_else(|| "`[lint.rule-options.s080]` must be a TOML table".to_owned())?;
+    for key in s080.keys() {
+        if !CONFIG_OVERRIDE_S080_RULE_OPTION_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.rule-options.s080]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_S080_RULE_OPTION_KEYS.join(", ")
+            ));
+        }
+    }
+    if let Some(count) = s080.get("count") {
+        validate_s080_count_value(count)?;
+    }
+
+    Ok(())
+}
+
+fn validate_s080_count_value(value: &toml::Value) -> std::result::Result<(), String> {
+    let count = value
+        .as_str()
+        .ok_or_else(|| "`[lint.rule-options.s080].count` must be a string".to_owned())?;
+    let normalized = count.trim().to_ascii_lowercase();
+    if CONFIG_OVERRIDE_S080_COUNT_VALUES.contains(&normalized.as_str()) {
+        Ok(())
+    } else {
+        Err(format!(
+            "unsupported `[lint.rule-options.s080].count` value `{count}`; expected one of: {}",
+            CONFIG_OVERRIDE_S080_COUNT_VALUES.join(", ")
+        ))
+    }
 }
 
 fn validate_s084_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
@@ -2204,6 +2290,24 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_validate_supported_s080_rule_option_keys() {
+        let config = parse_config_override(
+            "lint.rule-options.s080.max-lines = 120\n\
+             lint.rule-options.s080.count = 'non-comment-non-blank'",
+        )
+        .unwrap();
+        let s080 = config
+            .lint
+            .rule_options
+            .as_ref()
+            .and_then(|options| options.s080.as_ref())
+            .expect("expected s080 options");
+
+        assert_eq!(s080.max_lines, Some(120));
+        assert_eq!(s080.count.as_deref(), Some("non-comment-non-blank"));
+    }
+
+    #[test]
     fn inline_config_overrides_validate_supported_s084_rule_option_keys() {
         let config = parse_config_override(
             "lint.rule-options.s084.require-globals = false\n\
@@ -2437,6 +2541,19 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_reject_unknown_s080_rule_option_keys() {
+        let err = parse_config_override("lint.rule-options.s080.preview = true").unwrap_err();
+        assert!(err.contains("unsupported `[lint.rule-options.s080]` option `preview`"));
+    }
+
+    #[test]
+    fn inline_config_overrides_reject_unknown_s080_count_values() {
+        let err = parse_config_override("lint.rule-options.s080.count = 'non-comment-nonblank'")
+            .unwrap_err();
+        assert!(err.contains("unsupported `[lint.rule-options.s080].count` value"));
+    }
+
+    #[test]
     fn inline_config_overrides_reject_unknown_s084_rule_option_keys() {
         let err = parse_config_override("lint.rule-options.s084.preview = true").unwrap_err();
         assert!(err.contains("unsupported `[lint.rule-options.s084]` option `preview`"));
@@ -2610,6 +2727,34 @@ mod tests {
                 .and_then(|s079| s079.allowed_forms.as_ref())
                 .map(Vec::as_slice),
             Some(&["absolute-path".to_owned()][..])
+        );
+    }
+
+    #[test]
+    fn s080_rule_option_config_arguments_allow_last_override_to_win() {
+        let tempdir = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.rule-options.s080.max-lines = 120").unwrap(),
+                )),
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.rule-options.s080.max-lines = 80").unwrap(),
+                )),
+            ],
+            false,
+        )
+        .unwrap();
+
+        let loaded = load_project_config(tempdir.path(), &config).unwrap();
+        assert_eq!(
+            loaded
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.s080.as_ref())
+                .and_then(|s080| s080.max_lines),
+            Some(80)
         );
     }
 

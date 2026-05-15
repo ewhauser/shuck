@@ -6556,10 +6556,10 @@
       "bash"
     ],
     "shellcheckCode": null,
-    "implemented": false,
-    "status": "planned",
+    "implemented": true,
+    "status": "implemented",
     "hasKnownShellcheckDivergences": false,
-    "severity": null,
+    "severity": "Warning",
     "fixStatus": "none",
     "fixAvailability": "none",
     "fixSafety": null,

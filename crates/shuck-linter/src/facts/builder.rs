@@ -1071,6 +1071,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 line_index: self._indexer.line_index(),
                 comment_index: self._indexer.comment_index(),
                 shell: self.shell,
+                script_line_count: OnceLock::new(),
                 indented_shebang_span: shebang_header_facts.indented_shebang_span,
                 indented_shebang_indent_span: shebang_header_facts.indented_shebang_indent_span,
                 space_after_hash_bang_span: shebang_header_facts.space_after_hash_bang_span,

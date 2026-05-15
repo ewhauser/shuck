@@ -35,6 +35,8 @@ pub struct LinterRuleOptions {
     pub s078: S078RuleOptions,
     /// Behavior overrides for `S079`.
     pub s079: S079RuleOptions,
+    /// Behavior overrides for `S080`.
+    pub s080: S080RuleOptions,
     /// Behavior overrides for `S084`.
     pub s084: S084RuleOptions,
     /// Behavior overrides for `S085`.
@@ -81,6 +83,23 @@ impl C063RuleOptions {
     pub(crate) fn semantic_options(&self) -> UnreachedFunctionAnalysisOptions {
         UnreachedFunctionAnalysisOptions {
             report_unreached_nested_definitions: self.report_unreached_nested_definitions,
+        }
+    }
+}
+/// Behavior overrides for `S080` script size policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct S080RuleOptions {
+    /// Maximum line count accepted for one script.
+    pub max_lines: usize,
+    /// Which source lines count toward the threshold.
+    pub count: String,
+}
+
+impl Default for S080RuleOptions {
+    fn default() -> Self {
+        Self {
+            max_lines: 100,
+            count: "physical".to_owned(),
         }
     }
 }
@@ -420,6 +439,16 @@ impl LinterSettings {
 
     pub fn with_c063_report_unreached_nested_definitions(mut self, value: bool) -> Self {
         self.rule_options.c063.report_unreached_nested_definitions = value;
+        self
+    }
+
+    pub fn with_s080_max_lines(mut self, value: usize) -> Self {
+        self.rule_options.s080.max_lines = value;
+        self
+    }
+
+    pub fn with_s080_count(mut self, value: impl Into<String>) -> Self {
+        self.rule_options.s080.count = value.into();
         self
     }
 
