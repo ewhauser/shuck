@@ -60,6 +60,7 @@ struct EffectiveRuleOptions {
     s079_allowed_paths: Vec<String>,
     s080_max_lines: usize,
     s080_count: String,
+    s081_ignore_shebang_only_files: bool,
     s084_require_globals: bool,
     s084_require_arguments: bool,
     s084_require_outputs: bool,
@@ -197,6 +198,7 @@ impl EffectiveRuleOptions {
             s079_allowed_paths: rule_options.s079.allowed_paths.clone(),
             s080_max_lines: rule_options.s080.max_lines,
             s080_count: rule_options.s080.count.clone(),
+            s081_ignore_shebang_only_files: rule_options.s081.ignore_shebang_only_files,
             s084_require_globals: rule_options.s084.require_globals,
             s084_require_arguments: rule_options.s084.require_arguments,
             s084_require_outputs: rule_options.s084.require_outputs,
@@ -226,6 +228,7 @@ impl CacheKey for EffectiveRuleOptions {
         self.s079_allowed_paths.cache_key(state);
         self.s080_max_lines.cache_key(state);
         self.s080_count.cache_key(state);
+        self.s081_ignore_shebang_only_files.cache_key(state);
         self.s084_require_globals.cache_key(state);
         self.s084_require_arguments.cache_key(state);
         self.s084_require_outputs.cache_key(state);
@@ -1033,6 +1036,14 @@ fn linter_rule_options_for_lint_config(
     if let Some(value) = lint
         .rule_options
         .as_ref()
+        .and_then(|options| options.s081.as_ref())
+        .and_then(|s081| s081.ignore_shebang_only_files)
+    {
+        rule_options.s081.ignore_shebang_only_files = value;
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
         .and_then(|options| options.s084.as_ref())
         .and_then(|s084| s084.require_globals)
     {
@@ -1760,7 +1771,7 @@ mod tests {
         let tempdir = tempdir().unwrap();
         fs::write(
             tempdir.path().join("script.sh"),
-            "#!/bin/bash\nprintf '%s\\n' x &;\n",
+            "#!/bin/bash\n# Exercises style-rule selection.\nprintf '%s\\n' x &;\n",
         )
         .unwrap();
 
@@ -1780,7 +1791,7 @@ mod tests {
         let tempdir = tempdir().unwrap();
         fs::write(
             tempdir.path().join("script.sh"),
-            "#!/bin/bash\nprintf '%s\\n' x &;\n",
+            "#!/bin/bash\n# Exercises style-rule selection.\nprintf '%s\\n' x &;\n",
         )
         .unwrap();
 
@@ -1809,7 +1820,7 @@ mod tests {
         let tempdir = tempdir().unwrap();
         fs::write(
             tempdir.path().join("script.sh"),
-            "#!/bin/bash\nprintf '%s\\n' x &;\n",
+            "#!/bin/bash\n# Exercises style-rule selection.\nprintf '%s\\n' x &;\n",
         )
         .unwrap();
 
@@ -1838,7 +1849,7 @@ mod tests {
         let tempdir = tempdir().unwrap();
         fs::write(
             tempdir.path().join("script.sh"),
-            "#!/bin/bash\nprintf '%s\\n' x &;\n",
+            "#!/bin/bash\n# Exercises style-rule selection.\nprintf '%s\\n' x &;\n",
         )
         .unwrap();
 

@@ -276,6 +276,43 @@ pub(crate) fn build_shebang_invocation_fact(
         })
 }
 
+pub(crate) fn build_missing_file_description_comment_fact(
+    source: &str,
+    line_index: &LineIndex,
+) -> Option<FileDescriptionCommentFact> {
+    let mut leading_shebang_span = None;
+
+    for line_number in 1..=line_index.line_count() {
+        let source_line = source_line(source, line_index, line_number)?;
+        let line = source_line.text;
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if trimmed.starts_with("#!") {
+            leading_shebang_span
+                .get_or_insert_with(|| line_span(line_number, source_line.offset, line));
+            continue;
+        }
+
+        if trimmed.starts_with('#') {
+            return None;
+        }
+
+        return Some(FileDescriptionCommentFact {
+            span: line_span(line_number, source_line.offset, line),
+            shebang_only_file: false,
+        });
+    }
+
+    leading_shebang_span.map(|span| FileDescriptionCommentFact {
+        span,
+        shebang_only_file: true,
+    })
+}
+
 pub(crate) fn source_line_is_header_like(line: &str) -> bool {
     let trimmed = line.trim_start();
     trimmed.is_empty() || trimmed.starts_with('#')

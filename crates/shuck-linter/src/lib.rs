@@ -71,15 +71,15 @@ pub use facts::{
     CommandFact, CommandFactRef, CommandFacts, ConditionalBareWordFact, ConditionalBinaryFact,
     ConditionalFact, ConditionalMixedLogicalOperatorFact, ConditionalNodeFact,
     ConditionalOperandFact, ConditionalOperatorFamily, ConditionalPortabilityFacts,
-    ConditionalUnaryFact, ForHeaderFact, FunctionCallArityFacts, FunctionHeaderFact,
-    IndexedArrayReferenceFragment, IndexedArrayReferenceFragmentFact, LegacyArithmeticFragmentFact,
-    ListFact, ListOperatorFact, LoopHeaderWordFact, NativeZshScalarArrayReference, PipelineFact,
-    PipelineOperatorFact, PipelineSegmentFact, PlainUnindexedArrayReferenceFact,
-    PositionalParameterFragmentFact, RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis,
-    RedirectTargetKind, ScriptLineCountFact, SelectHeaderFact, SelectorRequiredArrayReference,
-    SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax,
-    SingleQuotedFragmentFact, StatementFact, SubstitutionFact, SubstitutionHostKind,
-    SubstitutionOutputIntent, SudoFamilyInvoker,
+    ConditionalUnaryFact, FileDescriptionCommentFact, ForHeaderFact, FunctionCallArityFacts,
+    FunctionHeaderFact, IndexedArrayReferenceFragment, IndexedArrayReferenceFragmentFact,
+    LegacyArithmeticFragmentFact, ListFact, ListOperatorFact, LoopHeaderWordFact,
+    NativeZshScalarArrayReference, PipelineFact, PipelineOperatorFact, PipelineSegmentFact,
+    PlainUnindexedArrayReferenceFact, PositionalParameterFragmentFact, RedirectDevNullStatus,
+    RedirectFact, RedirectTargetAnalysis, RedirectTargetKind, ScriptLineCountFact,
+    SelectHeaderFact, SelectorRequiredArrayReference, SimpleTestFact, SimpleTestOperatorFamily,
+    SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact, StatementFact, SubstitutionFact,
+    SubstitutionHostKind, SubstitutionOutputIntent, SudoFamilyInvoker,
 };
 /// Fact collection types and stable identifiers into those collections.
 pub use facts::{
@@ -109,7 +109,7 @@ pub use settings::{
     AmbientShellOptions, C001RuleOptions, C063RuleOptions, C158RuleOptions, C159RuleOptions,
     C160RuleOptions, C161RuleOptions, C162RuleOptions, CompiledPerFileIgnoreList,
     LinterRuleOptions, LinterSettings, PerFileIgnore, S078RuleOptions, S079RuleOptions,
-    S080RuleOptions, S084RuleOptions, S085RuleOptions,
+    S080RuleOptions, S081RuleOptions, S084RuleOptions, S085RuleOptions,
 };
 /// Shell dialect selection used by the linter.
 pub use shell::ShellDialect;

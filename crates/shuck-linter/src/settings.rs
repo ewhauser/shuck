@@ -37,6 +37,8 @@ pub struct LinterRuleOptions {
     pub s079: S079RuleOptions,
     /// Behavior overrides for `S080`.
     pub s080: S080RuleOptions,
+    /// Behavior overrides for `S081`.
+    pub s081: S081RuleOptions,
     /// Behavior overrides for `S084`.
     pub s084: S084RuleOptions,
     /// Behavior overrides for `S085`.
@@ -135,6 +137,13 @@ impl Default for S079RuleOptions {
             allowed_paths: vec!["/bin/bash".to_owned(), "/usr/bin/env bash".to_owned()],
         }
     }
+}
+
+/// Behavior overrides for `S081` file description comments.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct S081RuleOptions {
+    /// Whether files containing only a shebang are exempt from the rule.
+    pub ignore_shebang_only_files: bool,
 }
 
 /// Behavior overrides for `S084` function documentation content.
@@ -449,6 +458,11 @@ impl LinterSettings {
 
     pub fn with_s080_count(mut self, value: impl Into<String>) -> Self {
         self.rule_options.s080.count = value.into();
+        self
+    }
+
+    pub fn with_s081_ignore_shebang_only_files(mut self, value: bool) -> Self {
+        self.rule_options.s081.ignore_shebang_only_files = value;
         self
     }
 
