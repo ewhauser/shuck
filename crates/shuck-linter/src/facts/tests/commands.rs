@@ -3594,11 +3594,13 @@ chmod a=rw /etc/ssh/sshd_config
 chmod =777 ~/.ssh/config
 chmod +002 ~/.aws
 chmod o-w,o+w ~/.kube
+chmod o-w+w ~/.docker
 chmod 700 ~/.ssh
 chmod 755 ~/.ssh
 chmod u+w ~/.ssh/config
 chmod +w ~/.ssh/config
 chmod o+w,o-w ~/.ssh
+chmod o+w-w ~/.docker
 chmod a=rw,o-w ~/.gnupg
 chmod -002 ~/.aws
 chmod 777 ./tmp
@@ -3628,7 +3630,8 @@ chmod --reference ref ~/.ssh
                 "/etc/ssh/sshd_config",
                 "~/.ssh/config",
                 "~/.aws",
-                "~/.kube"
+                "~/.kube",
+                "~/.docker"
             ]
         );
     });

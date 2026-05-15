@@ -1211,16 +1211,33 @@ impl ChmodSymbolicWriteState {
             return;
         };
 
-        let (who, rest) = clause.split_at(operator_index);
-        let Some(operator) = rest.chars().next() else {
-            return;
-        };
-        let permissions = &rest[operator.len_utf8()..];
+        let who = &clause[..operator_index];
         let targets = chmod_symbolic_targets(who);
         if !targets.targets_any() {
             return;
         }
 
+        let mut cursor = operator_index;
+        while cursor < clause.len() {
+            let Some(operator) = clause[cursor..].chars().next() else {
+                return;
+            };
+            let permissions_start = cursor + operator.len_utf8();
+            let permissions_end = clause[permissions_start..]
+                .find(['+', '=', '-'])
+                .map_or(clause.len(), |next| permissions_start + next);
+            let permissions = &clause[permissions_start..permissions_end];
+            self.apply_operation(targets, operator, permissions);
+            cursor = permissions_end;
+        }
+    }
+
+    fn apply_operation(
+        &mut self,
+        targets: ChmodSymbolicTargets,
+        operator: char,
+        permissions: &str,
+    ) {
         let write_value = self.permissions_write_value(permissions);
         match operator {
             '+' => {

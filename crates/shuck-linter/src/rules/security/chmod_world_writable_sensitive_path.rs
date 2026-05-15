@@ -37,7 +37,7 @@ mod tests {
 
     #[test]
     fn reports_world_writable_sensitive_targets() {
-        let source = "#!/bin/sh\nchmod -R 777 ~/.ssh\nchmod o+w \"$HOME/.gnupg\"\nchmod a=rw /etc/ssh/sshd_config\nchmod =777 ~/.ssh/config\nchmod +002 ~/.aws\nchmod o-w,o+w ~/.kube\nchmod u+w,o=u ~/.docker\n";
+        let source = "#!/bin/sh\nchmod -R 777 ~/.ssh\nchmod o+w \"$HOME/.gnupg\"\nchmod a=rw /etc/ssh/sshd_config\nchmod =777 ~/.ssh/config\nchmod +002 ~/.aws\nchmod o-w,o+w ~/.kube\nchmod u+w,o=u ~/.docker\nchmod o-w+w ~/.ssh/authorized_keys\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::ChmodWorldWritableSensitivePath),
@@ -55,14 +55,15 @@ mod tests {
                 "~/.ssh/config",
                 "~/.aws",
                 "~/.kube",
-                "~/.docker"
+                "~/.docker",
+                "~/.ssh/authorized_keys"
             ]
         );
     }
 
     #[test]
     fn ignores_bounded_or_non_world_writable_chmod_targets() {
-        let source = "#!/bin/sh\nchmod 700 ~/.ssh\nchmod 755 ~/.ssh\nchmod u+w ~/.ssh/config\nchmod +w ~/.ssh/config\nchmod o+w,o-w ~/.ssh\nchmod a=rw,o-w ~/.gnupg\nchmod u-w,o=u ~/.docker\nchmod -002 ~/.aws\nchmod 777 ./tmp\nchmod 777 /tmp\nchmod --reference ref ~/.ssh\n";
+        let source = "#!/bin/sh\nchmod 700 ~/.ssh\nchmod 755 ~/.ssh\nchmod u+w ~/.ssh/config\nchmod +w ~/.ssh/config\nchmod o+w,o-w ~/.ssh\nchmod o+w-w ~/.ssh/authorized_keys\nchmod a=rw,o-w ~/.gnupg\nchmod u-w,o=u ~/.docker\nchmod -002 ~/.aws\nchmod 777 ./tmp\nchmod 777 /tmp\nchmod --reference ref ~/.ssh\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::ChmodWorldWritableSensitivePath),
