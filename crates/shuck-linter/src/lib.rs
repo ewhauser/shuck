@@ -108,7 +108,8 @@ pub(crate) use rules::common::word::conditional_binary_op_is_string_match;
 pub use settings::{
     AmbientShellOptions, C001RuleOptions, C063RuleOptions, C158RuleOptions, C159RuleOptions,
     C160RuleOptions, C161RuleOptions, C162RuleOptions, CompiledPerFileIgnoreList,
-    LinterRuleOptions, LinterSettings, PerFileIgnore, S084RuleOptions, S085RuleOptions,
+    LinterRuleOptions, LinterSettings, PerFileIgnore, S078RuleOptions, S084RuleOptions,
+    S085RuleOptions,
 };
 /// Shell dialect selection used by the linter.
 pub use shell::ShellDialect;

@@ -1277,6 +1277,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::DuplicateShebangFlag) {
             rules::style::duplicate_shebang_flag::duplicate_shebang_flag(self);
         }
+        if self.is_rule_enabled(Rule::ShebangShellPolicy) {
+            rules::style::shebang_shell_policy::shebang_shell_policy(self);
+        }
         if self.is_rule_enabled(Rule::NonAbsoluteShebang) {
             rules::correctness::non_absolute_shebang::non_absolute_shebang(self);
         }

@@ -31,6 +31,8 @@ pub struct LinterRuleOptions {
     pub c001: C001RuleOptions,
     /// Behavior overrides for `C063`.
     pub c063: C063RuleOptions,
+    /// Behavior overrides for `S078`.
+    pub s078: S078RuleOptions,
     /// Behavior overrides for `S084`.
     pub s084: S084RuleOptions,
     /// Behavior overrides for `S085`.
@@ -80,6 +82,22 @@ impl C063RuleOptions {
         }
     }
 }
+
+/// Behavior overrides for `S078` shebang shell policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct S078RuleOptions {
+    /// Interpreter names accepted in shebangs for this project.
+    pub allowed_shells: Vec<String>,
+}
+
+impl Default for S078RuleOptions {
+    fn default() -> Self {
+        Self {
+            allowed_shells: vec!["bash".to_owned()],
+        }
+    }
+}
+
 /// Behavior overrides for `S084` function documentation content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct S084RuleOptions {
@@ -120,6 +138,7 @@ impl Default for S085RuleOptions {
         }
     }
 }
+
 /// Behavior overrides for `C158` implicit global assignment analysis.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct C158RuleOptions {
@@ -418,6 +437,16 @@ impl LinterSettings {
         self.rule_options.s085.main_name = value.into();
         self
     }
+
+    pub fn with_s078_allowed_shells(
+        mut self,
+        allowed_shells: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.rule_options.s078.allowed_shells =
+            allowed_shells.into_iter().map(Into::into).collect();
+        self
+    }
+
     pub fn with_c158_treat_readonly_as_documented(mut self, value: bool) -> Self {
         self.rule_options.c158.treat_readonly_as_documented = value;
         self
