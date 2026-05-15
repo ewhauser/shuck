@@ -7,8 +7,7 @@ use sha2::{Digest, Sha256};
 use shuck_discover::{DiscoveredFile, DiscoveryOptions, FileKind, discover_files};
 use shuck_indexer::LineIndex;
 use shuck_linter::ShellDialect;
-use shuck_parser::parser::Parser;
-use shuck_semantic::{EditorDocumentSymbol, EditorSymbolKind, SemanticBuildOptions, SemanticModel};
+use shuck_semantic::{EditorDocumentSymbol, EditorSymbolKind};
 
 use crate::PositionEncoding;
 use crate::TextDocument;
@@ -414,21 +413,9 @@ fn editor_document_symbols(
     path: Option<&Path>,
     shell: ShellDialect,
 ) -> Vec<EditorDocumentSymbol> {
-    let shell_profile = shell.shell_profile();
-    let parse_result = Parser::with_profile(source, shell_profile.clone()).parse();
-    let indexer = shuck_indexer::Indexer::new(source, &parse_result);
-    let semantic = SemanticModel::build_with_options(
-        &parse_result.file,
-        source,
-        &indexer,
-        SemanticBuildOptions {
-            source_path: path,
-            shell_profile: Some(shell_profile),
-            resolve_source_closure: false,
-            ..SemanticBuildOptions::default()
-        },
-    );
-    semantic.editor_query().document_symbols()
+    crate::editor::analyze_editor_document(source, path, shell)
+        .editor_query()
+        .document_symbols()
 }
 
 fn workspace_symbol_summary_from_open_document(

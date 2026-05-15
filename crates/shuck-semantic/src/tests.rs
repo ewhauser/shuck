@@ -132,6 +132,102 @@ build() {
     );
 }
 
+#[test]
+fn editor_hover_returns_binding_and_reference_symbols() {
+    let source = "\
+foo=1
+echo \"$foo\"
+";
+    let model = model(source);
+    let definition = model
+        .editor_query()
+        .hover_at_offset(source.find("foo").unwrap())
+        .expect("definition should have hover");
+    assert_eq!(definition.symbol.name.as_str(), "foo");
+    assert_eq!(definition.symbol.kind, EditorSymbolKind::Variable);
+    assert_eq!(definition.target_span.slice(source), "foo");
+    assert!(!definition.runtime);
+
+    let reference_span = span_for_nth(source, "$foo", 0);
+    let reference = model
+        .editor_query()
+        .hover_at_offset(reference_span.start.offset)
+        .expect("reference should have hover");
+    assert_eq!(reference.symbol.name.as_str(), "foo");
+    assert_eq!(reference.symbol.definition_span.slice(source), "foo");
+    assert_eq!(reference.target_span, reference_span);
+}
+
+#[test]
+fn editor_hover_reports_declaration_attributes() {
+    let source = "\
+build() {
+  local -a items
+  printf '%s\\n' \"${items[@]}\"
+}
+";
+    let model = model(source);
+    let declaration = span_for_nth(source, "items", 0);
+    let hover = model
+        .editor_query()
+        .hover_at_offset(declaration.start.offset)
+        .expect("declaration should have hover");
+    assert_eq!(hover.symbol.name.as_str(), "items");
+    assert_eq!(hover.symbol.kind, EditorSymbolKind::Array);
+    assert!(hover.attributes.contains(BindingAttributes::LOCAL));
+    assert!(hover.attributes.contains(BindingAttributes::ARRAY));
+}
+
+#[test]
+fn editor_hover_resolves_function_calls() {
+    let source = "\
+build() { :; }
+build
+";
+    let model = model(source);
+    let call = span_for_nth(source, "build", 1);
+    let hover = model
+        .editor_query()
+        .hover_at_offset(call.start.offset)
+        .expect("function call should have hover");
+    assert_eq!(hover.symbol.name.as_str(), "build");
+    assert_eq!(hover.symbol.kind, EditorSymbolKind::Function);
+    assert_eq!(
+        hover.symbol.definition_span.slice(source),
+        "build() { :; }\n"
+    );
+    assert_eq!(hover.target_span, call);
+    assert_eq!(hover.function_call_count, Some(1));
+}
+
+#[test]
+fn editor_hover_reports_runtime_names_without_definitions() {
+    let source = "printf '%s\\n' \"$HOME\"\n";
+    let model = model(source);
+    let name = span_for_nth(source, "$HOME", 0);
+    let hover = model
+        .editor_query()
+        .hover_at_offset(name.start.offset)
+        .expect("runtime name should have hover");
+    assert_eq!(hover.symbol.name.as_str(), "HOME");
+    assert_eq!(hover.symbol.kind, EditorSymbolKind::RuntimeName);
+    assert_eq!(hover.target_span, name);
+    assert!(hover.runtime);
+    assert!(hover.symbol.binding.is_none());
+}
+
+#[test]
+fn editor_hover_ignores_comments_and_single_quoted_text() {
+    let source = "\
+# foo in a comment
+printf '%s\\n' '$foo'
+";
+    let model = model(source);
+    for offset in [source.find("foo").unwrap(), source.rfind("foo").unwrap()] {
+        assert!(model.editor_query().hover_at_offset(offset).is_none());
+    }
+}
+
 fn span_for_nth(source: &str, needle: &str, index: usize) -> Span {
     let start_offset = source
         .match_indices(needle)

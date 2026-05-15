@@ -68,7 +68,7 @@ pub use dataflow::{
 /// Declaration records discovered while building the semantic model.
 pub use declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 /// Editor-facing semantic query types.
-pub use editor::{EditorDocumentSymbol, EditorQuery, EditorSymbol, EditorSymbolKind};
+pub use editor::{EditorDocumentSymbol, EditorHover, EditorQuery, EditorSymbol, EditorSymbolKind};
 /// Direct function-call reachability query types.
 pub use function_call_reachability::{
     DirectFunctionCallReachability, DirectFunctionCallWindow, FunctionCallCandidate,
@@ -792,6 +792,7 @@ pub struct SemanticModel {
     guarded_or_defaulting_reference_offsets_by_name: OnceLock<FxHashMap<Name, Box<[usize]>>>,
     declarations_by_command_span: OnceLock<FxHashMap<SpanKey, usize>>,
     editor_document_symbol_ranges_by_binding: OnceLock<Vec<Option<Span>>>,
+    editor_hover_targets: OnceLock<editor::EditorHoverTargets>,
     unconditional_function_bindings: OnceLock<FxHashSet<BindingId>>,
     function_bindings_by_scope: OnceLock<FxHashMap<ScopeId, SmallVec<[BindingId; 2]>>>,
     visible_function_call_bindings: OnceLock<FxHashMap<SpanKey, BindingId>>,
@@ -907,6 +908,7 @@ impl SemanticModel {
             guarded_or_defaulting_reference_offsets_by_name: OnceLock::new(),
             declarations_by_command_span: OnceLock::new(),
             editor_document_symbol_ranges_by_binding: OnceLock::new(),
+            editor_hover_targets: OnceLock::new(),
             unconditional_function_bindings: OnceLock::new(),
             function_bindings_by_scope: OnceLock::new(),
             visible_function_call_bindings: OnceLock::new(),
