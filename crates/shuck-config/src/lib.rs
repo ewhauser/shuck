@@ -61,8 +61,8 @@ const CONFIG_OVERRIDE_LINT_ZSH_PLUGIN_KEYS: &[&str] = &[
     "entrypoints",
 ];
 const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &[
-    "c001", "c063", "s078", "s079", "s080", "s081", "s082", "s084", "s085", "c158", "c159", "c160",
-    "c161", "c162",
+    "c001", "c063", "s078", "s079", "s080", "s081", "s082", "s083", "s084", "s085", "c158", "c159",
+    "c160", "c161", "c162",
 ];
 const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
     &["treat-indirect-expansion-targets-as-used"];
@@ -80,6 +80,8 @@ const CONFIG_OVERRIDE_S084_RULE_OPTION_KEYS: &[&str] = &[
     "require-outputs",
     "require-returns",
 ];
+const CONFIG_OVERRIDE_S083_RULE_OPTION_KEYS: &[&str] =
+    &["require-for", "long-function-line-threshold"];
 const CONFIG_OVERRIDE_S085_RULE_OPTION_KEYS: &[&str] = &[
     "non-trivial-line-threshold",
     "non-trivial-function-count",
@@ -355,6 +357,8 @@ pub struct LintRuleOptionsConfig {
     pub s081: Option<S081RuleOptionsConfig>,
     /// Options for rule S082.
     pub s082: Option<S082RuleOptionsConfig>,
+    /// Options for rule S083.
+    pub s083: Option<S083RuleOptionsConfig>,
     /// Options for rule S084.
     pub s084: Option<S084RuleOptionsConfig>,
     /// Options for rule S085.
@@ -393,6 +397,9 @@ impl LintRuleOptionsConfig {
         }
         if let Some(s082) = overrides.s082 {
             self.s082.get_or_insert_default().apply_overrides(s082);
+        }
+        if let Some(s083) = overrides.s083 {
+            self.s083.get_or_insert_default().apply_overrides(s083);
         }
         if let Some(s084) = overrides.s084 {
             self.s084.get_or_insert_default().apply_overrides(s084);
@@ -548,6 +555,44 @@ impl S082RuleOptionsConfig {
         }
         if overrides.require_message.is_some() {
             self.require_message = overrides.require_message;
+        }
+    }
+}
+
+/// Which functions require a leading documentation comment for rule S083.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub enum S083RequireForConfig {
+    /// Require documentation for every function.
+    #[serde(rename = "all")]
+    All,
+    /// Require documentation for functions that do not use a private-style name.
+    #[serde(rename = "exported")]
+    Exported,
+    /// Require documentation for functions whose bodies exceed the configured line threshold.
+    #[serde(rename = "long")]
+    Long,
+    /// Require documentation for functions that read positional parameters.
+    #[serde(rename = "parameterized")]
+    Parameterized,
+}
+
+/// Options for rule S083.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct S083RuleOptionsConfig {
+    /// Function subset that requires documentation.
+    pub require_for: Option<S083RequireForConfig>,
+    /// Minimum function body size for the `long` requirement mode.
+    pub long_function_line_threshold: Option<usize>,
+}
+
+impl S083RuleOptionsConfig {
+    fn apply_overrides(&mut self, overrides: Self) {
+        if overrides.require_for.is_some() {
+            self.require_for = overrides.require_for;
+        }
+        if overrides.long_function_line_threshold.is_some() {
+            self.long_function_line_threshold = overrides.long_function_line_threshold;
         }
     }
 }
@@ -1067,6 +1112,27 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
                                 default: "true",
                                 value_type: "bool",
                                 example: "require-message = false",
+                            },
+                        ],
+                        sections: &[],
+                    },
+                    ConfigSectionMetadata {
+                        key: "s083",
+                        docs: "Behavior overrides for `S083` missing function documentation.",
+                        fields: &[
+                            ConfigFieldMetadata {
+                                key: "require-for",
+                                docs: "Choose which functions require a leading documentation comment: all, exported, long, or parameterized.",
+                                default: "long",
+                                value_type: "string",
+                                example: r#"require-for = "exported""#,
+                            },
+                            ConfigFieldMetadata {
+                                key: "long-function-line-threshold",
+                                docs: "Minimum body line count for `require-for = \"long\"`.",
+                                default: "10",
+                                value_type: "integer",
+                                example: "long-function-line-threshold = 20",
                             },
                         ],
                         sections: &[],
@@ -1892,6 +1958,9 @@ fn validate_lint_rule_options_override(value: &toml::Value) -> std::result::Resu
     if let Some(s082_value) = rule_options.get("s082") {
         validate_s082_rule_options_override(s082_value)?;
     }
+    if let Some(s083_value) = rule_options.get("s083") {
+        validate_s083_rule_options_override(s083_value)?;
+    }
     if let Some(s084_value) = rule_options.get("s084") {
         validate_s084_rule_options_override(s084_value)?;
     }
@@ -2056,6 +2125,22 @@ fn validate_s082_rule_options_override(value: &toml::Value) -> std::result::Resu
             return Err(format!(
                 "unsupported `[lint.rule-options.s082]` option `{key}`; expected one of: {}",
                 CONFIG_OVERRIDE_S082_RULE_OPTION_KEYS.join(", ")
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_s083_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let s083 = value
+        .as_table()
+        .ok_or_else(|| "`[lint.rule-options.s083]` must be a TOML table".to_owned())?;
+    for key in s083.keys() {
+        if !CONFIG_OVERRIDE_S083_RULE_OPTION_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.rule-options.s083]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_S083_RULE_OPTION_KEYS.join(", ")
             ));
         }
     }
@@ -2480,6 +2565,23 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_validate_supported_s083_rule_option_keys() {
+        let config = parse_config_override(
+            "lint.rule-options.s083.require-for = 'exported'\n\
+             lint.rule-options.s083.long-function-line-threshold = 20",
+        )
+        .unwrap();
+        let s083 = config
+            .lint
+            .rule_options
+            .as_ref()
+            .and_then(|options| options.s083.as_ref())
+            .expect("missing s083 options");
+        assert_eq!(s083.require_for, Some(S083RequireForConfig::Exported));
+        assert_eq!(s083.long_function_line_threshold, Some(20));
+    }
+
+    #[test]
     fn inline_config_overrides_validate_supported_s084_rule_option_keys() {
         let config = parse_config_override(
             "lint.rule-options.s084.require-globals = false\n\
@@ -2744,6 +2846,12 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_reject_unknown_s083_rule_option_keys() {
+        let err = parse_config_override("lint.rule-options.s083.preview = true").unwrap_err();
+        assert!(err.contains("unsupported `[lint.rule-options.s083]` option `preview`"));
+    }
+
+    #[test]
     fn inline_config_overrides_reject_unknown_s085_rule_option_keys() {
         let err = parse_config_override("lint.rule-options.s085.preview = true").unwrap_err();
         assert!(err.contains("unsupported `[lint.rule-options.s085]` option `preview`"));
@@ -3001,6 +3109,34 @@ mod tests {
                 .and_then(|options| options.s082.as_ref())
                 .and_then(|s082| s082.require_owner),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn s083_rule_option_config_arguments_allow_last_override_to_win() {
+        let tempdir = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.rule-options.s083.require-for = 'all'").unwrap(),
+                )),
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.rule-options.s083.require-for = 'long'").unwrap(),
+                )),
+            ],
+            false,
+        )
+        .unwrap();
+
+        let loaded = load_project_config(tempdir.path(), &config).unwrap();
+        assert_eq!(
+            loaded
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.s083.as_ref())
+                .and_then(|s083| s083.require_for),
+            Some(S083RequireForConfig::Long)
         );
     }
 

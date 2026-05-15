@@ -1628,6 +1628,7 @@ impl FunctionDocSections {
 pub(crate) struct FunctionDocContentFact {
     name: Name,
     name_span: Span,
+    body_line_count: usize,
     leading_comment_span: Option<Span>,
     documented_sections: FunctionDocSections,
     body_behavior: FunctionDocBodyBehavior,
@@ -1637,6 +1638,7 @@ impl FunctionDocContentFact {
     pub(crate) fn new(
         name: &Name,
         name_span: Span,
+        body_line_count: usize,
         leading_comment_span: Option<Span>,
         documented_sections: FunctionDocSections,
         body_behavior: FunctionDocBodyBehavior,
@@ -1644,6 +1646,7 @@ impl FunctionDocContentFact {
         Self {
             name: name.clone(),
             name_span,
+            body_line_count,
             leading_comment_span,
             documented_sections,
             body_behavior,
@@ -1656,6 +1659,10 @@ impl FunctionDocContentFact {
 
     pub(crate) fn name_span(&self) -> Span {
         self.name_span
+    }
+
+    pub(crate) fn body_line_count(&self) -> usize {
+        self.body_line_count
     }
 
     pub(crate) fn has_leading_comment(&self) -> bool {
@@ -1674,6 +1681,10 @@ impl FunctionDocContentFact {
         self.body_behavior.uses_positional_parameters()
     }
 
+    pub(crate) fn uses_any_positional_parameters(&self) -> bool {
+        self.body_behavior.uses_any_positional_parameters()
+    }
+
     pub(crate) fn writes_stdout(&self) -> bool {
         self.body_behavior.writes_stdout()
     }
@@ -1687,6 +1698,7 @@ impl FunctionDocContentFact {
 pub(crate) struct FunctionDocBodyBehavior {
     uses_global_variables: bool,
     uses_positional_parameters: bool,
+    uses_any_positional_parameters: bool,
     writes_stdout: bool,
     has_explicit_return: bool,
 }
@@ -1695,12 +1707,14 @@ impl FunctionDocBodyBehavior {
     pub(crate) fn new(
         uses_global_variables: bool,
         uses_positional_parameters: bool,
+        uses_any_positional_parameters: bool,
         writes_stdout: bool,
         has_explicit_return: bool,
     ) -> Self {
         Self {
             uses_global_variables,
             uses_positional_parameters,
+            uses_any_positional_parameters,
             writes_stdout,
             has_explicit_return,
         }
@@ -1712,6 +1726,10 @@ impl FunctionDocBodyBehavior {
 
     pub(crate) fn uses_positional_parameters(self) -> bool {
         self.uses_positional_parameters
+    }
+
+    pub(crate) fn uses_any_positional_parameters(self) -> bool {
+        self.uses_any_positional_parameters
     }
 
     pub(crate) fn writes_stdout(self) -> bool {

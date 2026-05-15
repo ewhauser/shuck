@@ -190,6 +190,11 @@ pub(crate) fn build_function_doc_content_facts<'a>(
     comment_index: &CommentIndex,
 ) -> Vec<FunctionDocContentFact> {
     let mut summaries = build_function_doc_body_summaries(semantic, commands, source);
+    let scopes_using_any_positional_parameters = build_function_scopes_using_positional_parameters(
+        semantic,
+        commands,
+        positional_parameter_facts,
+    );
 
     headers
         .iter()
@@ -207,10 +212,13 @@ pub(crate) fn build_function_doc_content_facts<'a>(
             let uses_positional_parameters = positional_parameter_facts
                 .get(&function_scope)
                 .is_some_and(|facts| facts.uses_positional_parameters());
+            let uses_any_positional_parameters =
+                scopes_using_any_positional_parameters.contains(&function_scope);
 
             Some(FunctionDocContentFact::new(
                 name,
                 name_span,
+                span_line_count(header.function().body.span),
                 comment_block.map(|block| block.span),
                 comment_block
                     .map(|block| block.sections)
@@ -218,6 +226,7 @@ pub(crate) fn build_function_doc_content_facts<'a>(
                 FunctionDocBodyBehavior::new(
                     summary.uses_global_variables,
                     uses_positional_parameters,
+                    uses_any_positional_parameters,
                     summary.writes_stdout,
                     summary.has_explicit_return,
                 ),
@@ -520,6 +529,48 @@ fn is_function_doc_comment_body(body: &str) -> bool {
 
     let lower = body.to_ascii_lowercase();
     !lower.starts_with("shellcheck ") && !lower.starts_with("shuck:")
+}
+
+fn build_function_scopes_using_positional_parameters(
+    semantic: &SemanticModel,
+    commands: &[CommandFact<'_>],
+    positional_parameter_facts: &FxHashMap<ScopeId, FunctionPositionalParameterFacts>,
+) -> FxHashSet<ScopeId> {
+    let local_reset_offsets_by_scope = local_positional_reset_offsets_by_scope(semantic, commands);
+    let mut scopes = positional_parameter_facts
+        .iter()
+        .filter_map(|(&scope, facts)| facts.uses_positional_parameters().then_some(scope))
+        .collect::<FxHashSet<_>>();
+
+    for reference in semantic.references() {
+        if !semantic.is_guarded_parameter_reference(reference.id)
+            || !is_positional_parameter_reference_name(reference.name.as_str())
+        {
+            continue;
+        }
+        if reference_has_local_positional_reset(
+            semantic,
+            reference.scope,
+            reference.span.start.offset,
+            &local_reset_offsets_by_scope,
+        ) {
+            continue;
+        }
+        if let Some(scope) = semantic.enclosing_function_scope(reference.scope) {
+            scopes.insert(scope);
+        }
+    }
+
+    scopes
+}
+
+fn is_positional_parameter_reference_name(name: &str) -> bool {
+    matches!(name, "@" | "*" | "#")
+        || (!name.is_empty() && name != "0" && name.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+fn span_line_count(span: Span) -> usize {
+    span.end.line.saturating_sub(span.start.line) + 1
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
@@ -1768,6 +1819,69 @@ pub(crate) fn build_function_positional_parameter_facts(
     commands: &[CommandFact<'_>],
     positional_parameter_fragments: &[PositionalParameterFragmentFact],
 ) -> FxHashMap<ScopeId, FunctionPositionalParameterFacts> {
+    let local_reset_offsets_by_scope = local_positional_reset_offsets_by_scope(semantic, commands);
+
+    let mut facts = semantic
+        .function_positional_reference_summary(&local_reset_offsets_by_scope)
+        .into_iter()
+        .map(|(scope, summary)| {
+            (
+                scope,
+                FunctionPositionalParameterFacts {
+                    required_arg_count: summary.required_arg_count(),
+                    uses_unprotected_positional_parameters: summary
+                        .uses_unprotected_positional_parameters(),
+                    resets_positional_parameters: false,
+                },
+            )
+        })
+        .collect::<FxHashMap<_, _>>();
+
+    for fragment in positional_parameter_fragments {
+        let fragment_offset = fragment.span().start.offset;
+        let fragment_scope = semantic.scope_at(fragment_offset);
+        if reference_has_local_positional_reset(
+            semantic,
+            fragment_scope,
+            fragment_offset,
+            &local_reset_offsets_by_scope,
+        ) {
+            continue;
+        }
+
+        let Some(scope) = semantic.enclosing_function_scope(fragment_scope) else {
+            continue;
+        };
+
+        let entry = facts.entry(scope).or_default();
+        if !fragment.is_guarded() {
+            entry.uses_unprotected_positional_parameters = true;
+        }
+    }
+
+    for command in commands {
+        let Some(scope) =
+            semantic.enclosing_function_scope_without_transient_boundary(command.scope())
+        else {
+            continue;
+        };
+
+        if command
+            .options()
+            .set()
+            .is_some_and(|set| set.resets_positional_parameters())
+        {
+            facts.entry(scope).or_default().resets_positional_parameters = true;
+        }
+    }
+
+    facts
+}
+
+fn local_positional_reset_offsets_by_scope(
+    semantic: &SemanticModel,
+    commands: &[CommandFact<'_>],
+) -> FxHashMap<ScopeId, Vec<usize>> {
     let mut local_reset_offsets_by_scope: FxHashMap<ScopeId, Vec<usize>> = FxHashMap::default();
 
     for command in commands {
@@ -1788,65 +1902,7 @@ pub(crate) fn build_function_positional_parameter_facts(
         }
     }
 
-    let mut facts = semantic
-        .function_positional_reference_summary(&local_reset_offsets_by_scope)
-        .into_iter()
-        .map(|(scope, summary)| {
-            (
-                scope,
-                FunctionPositionalParameterFacts {
-                    required_arg_count: summary.required_arg_count(),
-                    uses_unprotected_positional_parameters: summary
-                        .uses_unprotected_positional_parameters(),
-                    resets_positional_parameters: false,
-                },
-            )
-        })
-        .collect::<FxHashMap<_, _>>();
-
-    for fragment in positional_parameter_fragments {
-        if fragment.is_guarded() {
-            continue;
-        }
-
-        let fragment_offset = fragment.span().start.offset;
-        let fragment_scope = semantic.scope_at(fragment_offset);
-        if reference_has_local_positional_reset(
-            semantic,
-            fragment_scope,
-            fragment_offset,
-            &local_reset_offsets_by_scope,
-        ) {
-            continue;
-        }
-
-        let Some(scope) = semantic.enclosing_function_scope(fragment_scope) else {
-            continue;
-        };
-
-        facts
-            .entry(scope)
-            .or_default()
-            .uses_unprotected_positional_parameters = true;
-    }
-
-    for command in commands {
-        let Some(scope) =
-            semantic.enclosing_function_scope_without_transient_boundary(command.scope())
-        else {
-            continue;
-        };
-
-        if command
-            .options()
-            .set()
-            .is_some_and(|set| set.resets_positional_parameters())
-        {
-            facts.entry(scope).or_default().resets_positional_parameters = true;
-        }
-    }
-
-    facts
+    local_reset_offsets_by_scope
 }
 
 pub(crate) fn reference_has_local_positional_reset(

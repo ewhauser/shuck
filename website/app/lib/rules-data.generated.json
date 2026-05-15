@@ -6641,15 +6641,15 @@
     "category": "Style",
     "categoryPrefix": "S",
     "description": "A function definition lacks a leading comment block describing its purpose.",
-    "rationale": "Well-documented functions reduce the cognitive overhead of reading, reviewing, and maintaining shell scripts. A comment block immediately before a function definition tells callers what the function does, what arguments it expects, which global variables it touches, and what it returns — information that is not recoverable from the implementation alone without reading every line. Because mandating a doc block for every trivial two-liner would produce more noise than signal, the rule is configurable: teams can require documentation only for all functions, only for long functions (those above a configurable line threshold), only for functions that accept positional parameters, or only for functions whose names follow a \"public\" naming convention. The rule fires when a function matching the configured policy has no associated comment block at all; the companion rule S084 checks whether a present comment block covers the required content.\n",
+    "rationale": "Well-documented functions reduce the cognitive overhead of reading, reviewing, and maintaining shell scripts. A comment block immediately before a function definition tells callers what the function does, what arguments it expects, which global variables it touches, and what it returns — information that is not recoverable from the implementation alone without reading every line. Because mandating a doc block for every trivial two-liner would produce more noise than signal, the default policy only checks long functions. The rule is configurable: teams can require documentation for all functions, only for long functions (those above a configurable line threshold), only for functions that accept positional parameters, or only for functions whose names follow a \"public\" naming convention. The rule fires when a function matching the configured policy has no associated comment block at all; the companion rule S084 checks whether a present comment block covers the required content.\n",
     "shells": [
       "bash"
     ],
     "shellcheckCode": null,
-    "implemented": false,
-    "status": "planned",
+    "implemented": true,
+    "status": "implemented",
     "hasKnownShellcheckDivergences": false,
-    "severity": null,
+    "severity": "Warning",
     "fixStatus": "none",
     "fixAvailability": "none",
     "fixSafety": null,
@@ -6657,7 +6657,7 @@
     "examples": [
       {
         "kind": "invalid",
-        "code": "#!/bin/bash\ndo_work() {\n  local input=$1\n  echo \"processing: $input\"\n}\ndo_work \"$1\""
+        "code": "#!/bin/bash\ndo_work() {\n  local input=$1\n  echo \"processing: $input\"\n  echo \"validating: $input\"\n  echo \"loading: $input\"\n  echo \"normalizing: $input\"\n  echo \"planning: $input\"\n  echo \"executing: $input\"\n  echo \"collecting: $input\"\n  echo \"summarizing: $input\"\n  echo \"finished: $input\"\n}\ndo_work \"$1\""
       },
       {
         "kind": "valid",
