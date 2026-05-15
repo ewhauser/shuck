@@ -607,6 +607,7 @@ declare_rules! {
         Severity::Warning,
         ChmodWorldWritableSensitivePath
     ),
+    ("K008", Category::Security, Severity::Warning, ForkBombPattern),
     ("S001", Category::Style, Severity::Warning, UnquotedExpansion),
     ("S002", Category::Style, Severity::Warning, ReadWithoutRaw),
     ("S003", Category::Style, Severity::Warning, LoopFromCommandOutput),
@@ -831,6 +832,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-151" => Some(Rule::EvalOnArray),
         "SH-324" => Some(Rule::RmRootishTarget),
         "SH-325" => Some(Rule::ChmodWorldWritableSensitivePath),
+        "SH-326" => Some(Rule::ForkBombPattern),
         "SH-045" => Some(Rule::ChainedTestBranches),
         "C079" => Some(Rule::ChainedTestBranches),
         "SH-201" => Some(Rule::ChainedTestBranches),
@@ -1191,6 +1193,7 @@ mod tests {
             code_to_rule("SH-325"),
             Some(Rule::ChmodWorldWritableSensitivePath)
         );
+        assert_eq!(code_to_rule("SH-326"), Some(Rule::ForkBombPattern));
         assert_eq!(code_to_rule("SH-045"), Some(Rule::ChainedTestBranches));
         assert_eq!(code_to_rule("C079"), Some(Rule::ChainedTestBranches));
         assert_eq!(code_to_rule("SH-201"), Some(Rule::ChainedTestBranches));
