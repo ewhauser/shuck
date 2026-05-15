@@ -155,6 +155,7 @@ pub(crate) struct SourceFactStore<'a> {
     pub(in crate::facts) duplicate_shebang_flag_span: Option<Span>,
     pub(in crate::facts) non_absolute_shebang_span: Option<Span>,
     pub(in crate::facts) shebang_interpreter: OnceLock<Option<ShebangInterpreterFact>>,
+    pub(in crate::facts) shebang_invocation: OnceLock<Option<ShebangInvocationFact>>,
     pub(in crate::facts) errexit_enabled_anywhere: bool,
     pub(in crate::facts) region_index: &'a RegionIndex,
     pub(in crate::facts) commented_continuation_comment_spans: Vec<Span>,
@@ -1085,6 +1086,19 @@ impl<'facts, 'a> SourceFacts<'facts, 'a> {
                     self.facts.source_facts.source,
                     self.facts.source_facts.line_index,
                 ))
+            })
+            .as_ref()
+    }
+
+    pub(crate) fn shebang_invocation(self) -> Option<&'facts ShebangInvocationFact> {
+        self.facts
+            .source_facts
+            .shebang_invocation
+            .get_or_init(|| {
+                build_shebang_invocation_fact(
+                    self.facts.source_facts.source,
+                    self.facts.source_facts.line_index,
+                )
             })
             .as_ref()
     }

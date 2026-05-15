@@ -56,6 +56,8 @@ struct EffectiveRuleOptions {
     c001_treat_indirect_expansion_targets_as_used: bool,
     c063_report_unreached_nested_definitions: bool,
     s078_allowed_shells: Vec<String>,
+    s079_allowed_forms: Vec<String>,
+    s079_allowed_paths: Vec<String>,
     s084_require_globals: bool,
     s084_require_arguments: bool,
     s084_require_outputs: bool,
@@ -189,6 +191,8 @@ impl EffectiveRuleOptions {
                 .c063
                 .report_unreached_nested_definitions,
             s078_allowed_shells: rule_options.s078.allowed_shells.clone(),
+            s079_allowed_forms: rule_options.s079.allowed_forms.clone(),
+            s079_allowed_paths: rule_options.s079.allowed_paths.clone(),
             s084_require_globals: rule_options.s084.require_globals,
             s084_require_arguments: rule_options.s084.require_arguments,
             s084_require_outputs: rule_options.s084.require_outputs,
@@ -214,6 +218,8 @@ impl CacheKey for EffectiveRuleOptions {
         self.c063_report_unreached_nested_definitions
             .cache_key(state);
         self.s078_allowed_shells.cache_key(state);
+        self.s079_allowed_forms.cache_key(state);
+        self.s079_allowed_paths.cache_key(state);
         self.s084_require_globals.cache_key(state);
         self.s084_require_arguments.cache_key(state);
         self.s084_require_outputs.cache_key(state);
@@ -982,6 +988,22 @@ fn linter_rule_options_for_lint_config(lint: &LintConfig) -> shuck_linter::Linte
         .and_then(|s078| s078.allowed_shells.as_ref())
     {
         rule_options.s078.allowed_shells.clone_from(value);
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.s079.as_ref())
+        .and_then(|s079| s079.allowed_forms.as_ref())
+    {
+        rule_options.s079.allowed_forms.clone_from(value);
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.s079.as_ref())
+        .and_then(|s079| s079.allowed_paths.as_ref())
+    {
+        rule_options.s079.allowed_paths.clone_from(value);
     }
     if let Some(value) = lint
         .rule_options

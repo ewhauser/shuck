@@ -33,6 +33,8 @@ pub struct LinterRuleOptions {
     pub c063: C063RuleOptions,
     /// Behavior overrides for `S078`.
     pub s078: S078RuleOptions,
+    /// Behavior overrides for `S079`.
+    pub s079: S079RuleOptions,
     /// Behavior overrides for `S084`.
     pub s084: S084RuleOptions,
     /// Behavior overrides for `S085`.
@@ -94,6 +96,24 @@ impl Default for S078RuleOptions {
     fn default() -> Self {
         Self {
             allowed_shells: vec!["bash".to_owned()],
+        }
+    }
+}
+
+/// Behavior overrides for `S079` shebang invocation form policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct S079RuleOptions {
+    /// Invocation forms accepted for shebangs in this project.
+    pub allowed_forms: Vec<String>,
+    /// Exact shebang invocation strings that are accepted regardless of form.
+    pub allowed_paths: Vec<String>,
+}
+
+impl Default for S079RuleOptions {
+    fn default() -> Self {
+        Self {
+            allowed_forms: vec!["env-lookup".to_owned()],
+            allowed_paths: vec!["/bin/bash".to_owned(), "/usr/bin/env bash".to_owned()],
         }
     }
 }
@@ -482,6 +502,22 @@ impl LinterSettings {
         S: Into<String>,
     {
         self.rule_options.c162.treat_as_masking = forms.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn with_s079_allowed_forms(
+        mut self,
+        allowed_forms: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.rule_options.s079.allowed_forms = allowed_forms.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn with_s079_allowed_paths(
+        mut self,
+        allowed_paths: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.rule_options.s079.allowed_paths = allowed_paths.into_iter().map(Into::into).collect();
         self
     }
 

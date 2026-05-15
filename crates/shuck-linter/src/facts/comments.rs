@@ -31,6 +31,34 @@ impl ShebangInterpreterFact {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShebangInvocationFact {
+    text: String,
+    span: Span,
+    form: ShebangInvocationForm,
+}
+
+impl ShebangInvocationFact {
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn form(&self) -> ShebangInvocationForm {
+        self.form
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShebangInvocationForm {
+    AbsolutePath,
+    EnvLookup,
+    Other,
+}
+
 #[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn build_shebang_header_facts(locator: Locator<'_>) -> ShebangHeaderFacts {
     let source = locator.source();
@@ -178,6 +206,24 @@ pub(crate) fn build_shebang_interpreter_fact(
         })
 }
 
+pub(crate) fn build_shebang_invocation_fact(
+    source: &str,
+    line_index: &LineIndex,
+) -> Option<ShebangInvocationFact> {
+    let first_line = source_line(source, line_index, 1)?;
+    let first_line_text = first_line.text.trim_end_matches('\r');
+    first_line_text
+        .trim_start()
+        .strip_prefix("#!")
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| ShebangInvocationFact {
+            text: text.to_owned(),
+            span: line_span(1, first_line.offset, first_line_text),
+            form: shebang_invocation_form(text),
+        })
+}
+
 pub(crate) fn source_line_is_header_like(line: &str) -> bool {
     let trimmed = line.trim_start();
     trimmed.is_empty() || trimmed.starts_with('#')
@@ -261,6 +307,27 @@ pub(crate) fn line_with_ending_span(
 
 pub(crate) fn parse_shebang_words(shebang: &str) -> Vec<&str> {
     shebang.split_whitespace().collect()
+}
+
+fn shebang_invocation_form(text: &str) -> ShebangInvocationForm {
+    let Some(first_word) = text.split_whitespace().next() else {
+        return ShebangInvocationForm::Other;
+    };
+
+    let Some(name) = std::path::Path::new(first_word)
+        .file_name()
+        .and_then(|name| name.to_str())
+    else {
+        return ShebangInvocationForm::Other;
+    };
+
+    if name == "env" {
+        ShebangInvocationForm::EnvLookup
+    } else if first_word.starts_with('/') {
+        ShebangInvocationForm::AbsolutePath
+    } else {
+        ShebangInvocationForm::Other
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

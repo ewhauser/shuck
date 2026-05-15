@@ -1280,6 +1280,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ShebangShellPolicy) {
             rules::style::shebang_shell_policy::shebang_shell_policy(self);
         }
+        if self.is_rule_enabled(Rule::ShebangFormPolicy) {
+            rules::style::shebang_form_policy::shebang_form_policy(self);
+        }
         if self.is_rule_enabled(Rule::NonAbsoluteShebang) {
             rules::correctness::non_absolute_shebang::non_absolute_shebang(self);
         }
