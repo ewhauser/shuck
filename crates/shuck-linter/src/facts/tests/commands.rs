@@ -3585,6 +3585,59 @@ rm -rf \"$HOME\"/\"*\"
 }
 
 #[test]
+fn chmod_command_facts_track_world_writable_sensitive_paths() {
+    let source = "\
+#!/bin/sh
+chmod -R 777 ~/.ssh
+chmod o+w \"$HOME/.gnupg\"
+chmod a=rw /etc/ssh/sshd_config
+chmod =777 ~/.ssh/config
+chmod +002 ~/.aws
+chmod o-w,o+w ~/.kube
+chmod o-w+w ~/.docker
+chmod 700 ~/.ssh
+chmod 755 ~/.ssh
+chmod u+w ~/.ssh/config
+chmod +w ~/.ssh/config
+chmod o+w,o-w ~/.ssh
+chmod o+w-w ~/.docker
+chmod a=rw,o-w ~/.gnupg
+chmod -002 ~/.aws
+chmod 777 ./tmp
+chmod 777 /tmp
+chmod --reference ref ~/.ssh
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .commands()
+            .iter()
+            .filter_map(|fact| fact.options().chmod())
+            .flat_map(|chmod| {
+                chmod
+                    .world_writable_sensitive_path_spans(source)
+                    .iter()
+                    .copied()
+            })
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            spans,
+            vec![
+                "~/.ssh",
+                "\"$HOME/.gnupg\"",
+                "/etc/ssh/sshd_config",
+                "~/.ssh/config",
+                "~/.aws",
+                "~/.kube",
+                "~/.docker"
+            ]
+        );
+    });
+}
+
+#[test]
 fn builds_redirect_facts_with_cached_target_analysis() {
     let source = "#!/bin/bash\necho hi 2>&3 >/dev/null >> \"$((i++))\"\necho hi > \"$((i + 1))\"\n";
 
