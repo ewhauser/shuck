@@ -37,7 +37,7 @@ pub(crate) fn format_document(
 
 pub(crate) fn format_range(
     snapshot: DocumentSnapshot,
-    client: &Client,
+    _client: &Client,
     params: types::DocumentRangeFormattingParams,
 ) -> crate::server::Result<FormatResponse> {
     let Some(analysis) = snapshot.analysis() else {
@@ -47,25 +47,45 @@ pub(crate) fn format_range(
     let requested = params
         .range
         .to_text_range(source, analysis.line_index(), snapshot.encoding());
-    if smallest_statement_span_containing(&analysis.parse_result().file.body, requested).is_none() {
+    let Some(statement_span) =
+        smallest_statement_span_containing(&analysis.parse_result().file.body, requested)
+    else {
         return Ok(None);
-    }
-
-    format_document(
-        snapshot,
-        client,
-        types::DocumentFormattingParams {
-            text_document: types::TextDocumentIdentifier {
-                uri: lsp_types::Url::parse("file:///dev/null").expect("static URI should parse"),
-            },
-            options: types::FormattingOptions {
-                tab_size: 8,
-                insert_spaces: false,
-                ..types::FormattingOptions::default()
-            },
-            work_done_progress_params: types::WorkDoneProgressParams::default(),
-        },
+    };
+    let statement_range = statement_span.to_range();
+    let statement_source =
+        &source[usize::from(statement_range.start())..usize::from(statement_range.end())];
+    let formatted = shuck_formatter::format_source(
+        statement_source,
+        snapshot.query().file_path().as_deref(),
+        snapshot.shuck_settings().formatter(),
     )
+    .map_err(Error::new)?;
+
+    Ok(Some(format_response_for_range(
+        source,
+        statement_range,
+        formatted,
+        analysis.line_index(),
+        snapshot.encoding(),
+    )))
+}
+
+fn format_response_for_range(
+    source: &str,
+    range: TextRange,
+    formatted: FormattedSource,
+    line_index: &shuck_indexer::LineIndex,
+    encoding: crate::PositionEncoding,
+) -> Vec<types::TextEdit> {
+    match formatted {
+        FormattedSource::Unchanged => Vec::new(),
+        FormattedSource::Formatted(code) => crate::edit::single_replacement_edit_in_range(
+            source, range, &code, line_index, encoding,
+        )
+        .into_iter()
+        .collect(),
+    }
 }
 
 fn smallest_statement_span_containing(body: &StmtSeq, range: TextRange) -> Option<Span> {
@@ -272,5 +292,23 @@ mod tests {
         .expect("range formatting should succeed");
 
         assert!(edits.is_none());
+    }
+
+    #[test]
+    fn range_formatting_edit_helper_does_not_escape_statement_range() {
+        let source = "echo one\necho two\n";
+        let index = shuck_indexer::LineIndex::new(source);
+        let edits = format_response_for_range(
+            source,
+            TextRange::new(shuck_ast::TextSize::new(9), shuck_ast::TextSize::new(18)),
+            FormattedSource::Formatted("printf two\n".to_owned()),
+            &index,
+            PositionEncoding::UTF16,
+        );
+
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].range.start, types::Position::new(1, 0));
+        assert_eq!(edits[0].range.end, types::Position::new(1, 4));
+        assert_eq!(edits[0].new_text, "printf");
     }
 }
