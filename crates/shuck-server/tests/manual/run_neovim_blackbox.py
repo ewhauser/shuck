@@ -19,6 +19,7 @@ FIXTURE_ROOT = MANUAL_ROOT / "fixtures" / "workspace"
 SCENARIOS = [
     "diagnostics/open_edit",
     "hover/rule_directive",
+    "hover/semantic_symbol",
     "symbols/document_symbols",
     "symbols/workspace_symbols",
     "code_actions/quick_fix",

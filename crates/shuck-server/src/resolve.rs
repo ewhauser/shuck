@@ -2,7 +2,7 @@ use lsp_types as types;
 use shuck_linter::{
     ShellCheckCodeMap, SuppressionAction, SuppressionSource, rule_metadata_by_code,
 };
-use shuck_parser::parser::Parser;
+use shuck_semantic::{BindingAttributes, EditorHover, EditorSymbolKind, ScopeKind, SemanticModel};
 
 use crate::edit::RangeExt;
 use crate::session::{Client, DocumentSnapshot};
@@ -12,17 +12,15 @@ pub(crate) fn hover(
     _client: &Client,
     params: types::HoverParams,
 ) -> crate::server::Result<Option<types::Hover>> {
-    if crate::lint::document_shell(&snapshot).is_none() {
+    let Some(shell) = crate::lint::document_shell(&snapshot) else {
         return Ok(None);
-    }
+    };
 
     let query = snapshot.query();
     let source = query.document().contents();
-    let parse_result = Parser::new(source).parse();
-    let indexer = shuck_indexer::Indexer::new(source, &parse_result);
+    let path = query.file_path();
+    let parsed = crate::editor::parse_editor_document(source, shell);
     let shellcheck_map = ShellCheckCodeMap::default();
-    let directives =
-        shuck_linter::parse_directives(source, indexer.comment_index(), &shellcheck_map);
     let position = params.text_document_position_params.position;
     let offset = usize::from(
         types::Range {
@@ -32,9 +30,44 @@ pub(crate) fn hover(
         .to_text_range(source, query.document().index(), snapshot.encoding())
         .start(),
     );
-    let line =
-        usize::try_from(params.text_document_position_params.position.line).unwrap_or_default() + 1;
-    let Some(directive) = directives.iter().find(|directive| {
+
+    if let Some(hover) = directive_hover(
+        &snapshot,
+        source,
+        query.document().index(),
+        parsed.indexer.comment_index(),
+        &shellcheck_map,
+        params.text_document_position_params.position,
+        offset,
+    ) {
+        return Ok(Some(hover));
+    }
+
+    let semantic = crate::editor::semantic_for_parsed_document(&parsed, source, path.as_deref());
+    let Some(semantic_hover) = semantic.editor_query().hover_at_offset(offset) else {
+        return Ok(None);
+    };
+    Ok(Some(render_semantic_hover(
+        &snapshot,
+        source,
+        query.document().index(),
+        &semantic,
+        &semantic_hover,
+    )))
+}
+
+fn directive_hover(
+    snapshot: &DocumentSnapshot,
+    source: &str,
+    line_index: &shuck_indexer::LineIndex,
+    comment_index: &shuck_indexer::CommentIndex,
+    shellcheck_map: &ShellCheckCodeMap,
+    position: types::Position,
+    offset: usize,
+) -> Option<types::Hover> {
+    let directives = shuck_linter::parse_directives(source, comment_index, shellcheck_map);
+    let line = usize::try_from(position.line).unwrap_or_default() + 1;
+    let directive = directives.iter().find(|directive| {
         usize::try_from(directive.line).ok() == Some(line)
             && offset >= usize::from(directive.range.start())
             && offset <= usize::from(directive.range.end())
@@ -47,20 +80,14 @@ pub(crate) fn hover(
                         | SuppressionAction::DisableFile
                 ) | (SuppressionSource::ShellCheck, SuppressionAction::Disable)
             )
-    }) else {
-        return Ok(None);
-    };
+    })?;
 
-    let Some((display_code, canonical_code, start_offset, end_offset)) = code_at_offset(
+    let (display_code, canonical_code, start_offset, end_offset) = code_at_offset(
         directive.range.slice(source),
         usize::from(directive.range.start()),
         offset,
-    ) else {
-        return Ok(None);
-    };
-    let Some(metadata) = rule_metadata_by_code(&canonical_code) else {
-        return Ok(None);
-    };
+    )?;
+    let metadata = rule_metadata_by_code(&canonical_code)?;
 
     let rule_name = humanize_rule_name(&canonical_code);
     let fix_marker = if metadata.fix_description.is_some() {
@@ -80,7 +107,7 @@ pub(crate) fn hover(
         markdown.push_str(&format!("\n\nSee also: SC{shellcheck_code:04}"));
     }
 
-    Ok(Some(types::Hover {
+    Some(types::Hover {
         contents: types::HoverContents::Markup(types::MarkupContent {
             kind: types::MarkupKind::Markdown,
             value: markdown,
@@ -91,10 +118,113 @@ pub(crate) fn hover(
                 shuck_ast::TextSize::new(end_offset as u32),
             ),
             source,
-            query.document().index(),
+            line_index,
             snapshot.encoding(),
         )),
-    }))
+    })
+}
+
+fn render_semantic_hover(
+    snapshot: &DocumentSnapshot,
+    source: &str,
+    line_index: &shuck_indexer::LineIndex,
+    semantic: &SemanticModel,
+    hover: &EditorHover,
+) -> types::Hover {
+    let mut markdown = format!(
+        "### {}\n\n{}",
+        markdown_code(hover.symbol.name.as_str()),
+        symbol_kind_label(hover.symbol.kind)
+    );
+
+    if hover.runtime {
+        markdown.push_str("\n\nProvided by the active shell runtime.");
+    } else {
+        markdown.push_str(&format!(
+            "\n\nDefined at line {}, column {}.",
+            hover.symbol.definition_span.start.line, hover.symbol.definition_span.start.column
+        ));
+    }
+
+    markdown.push_str(&format!(
+        "\n\nScope: {}.",
+        scope_summary(semantic, hover.symbol.scope)
+    ));
+
+    let attributes = attribute_labels(hover.attributes);
+    if !attributes.is_empty() {
+        markdown.push_str(&format!("\n\nAttributes: {}.", attributes.join(", ")));
+    }
+    if hover.imported {
+        markdown.push_str("\n\nImported into this analysis.");
+    }
+    if let Some(count) = hover.function_call_count {
+        let noun = if count == 1 { "site" } else { "sites" };
+        markdown.push_str(&format!("\n\nFile-local call sites: {count} {noun}."));
+    }
+
+    types::Hover {
+        contents: types::HoverContents::Markup(types::MarkupContent {
+            kind: types::MarkupKind::Markdown,
+            value: markdown,
+        }),
+        range: Some(crate::edit::to_lsp_range(
+            hover.target_span.to_range(),
+            source,
+            line_index,
+            snapshot.encoding(),
+        )),
+    }
+}
+
+fn markdown_code(text: &str) -> String {
+    format!("`{}`", text.replace('`', "\\`"))
+}
+
+fn symbol_kind_label(kind: EditorSymbolKind) -> &'static str {
+    match kind {
+        EditorSymbolKind::Function => "Function",
+        EditorSymbolKind::Variable => "Variable",
+        EditorSymbolKind::Array => "Array variable",
+        EditorSymbolKind::AssociativeArray => "Associative array variable",
+        EditorSymbolKind::Declaration => "Declaration",
+        EditorSymbolKind::RuntimeName => "Runtime name",
+    }
+}
+
+fn scope_summary(semantic: &SemanticModel, scope: shuck_semantic::ScopeId) -> String {
+    match semantic.scope_kind(scope) {
+        ScopeKind::File => "top-level".to_owned(),
+        ScopeKind::Function(function) => function
+            .static_names()
+            .first()
+            .map(|name| format!("function {}", markdown_code(name.as_str())))
+            .unwrap_or_else(|| "function-local".to_owned()),
+        ScopeKind::Subshell => "subshell".to_owned(),
+        ScopeKind::CommandSubstitution => "command substitution".to_owned(),
+        ScopeKind::Pipeline => "pipeline".to_owned(),
+    }
+}
+
+fn attribute_labels(attributes: BindingAttributes) -> Vec<&'static str> {
+    [
+        (BindingAttributes::EXPORTED, "exported"),
+        (BindingAttributes::READONLY, "readonly"),
+        (BindingAttributes::LOCAL, "local"),
+        (BindingAttributes::INTEGER, "integer"),
+        (BindingAttributes::ARRAY, "array"),
+        (BindingAttributes::ASSOC, "associative array"),
+        (BindingAttributes::NAMEREF, "nameref"),
+        (BindingAttributes::LOWERCASE, "lowercase"),
+        (BindingAttributes::UPPERCASE, "uppercase"),
+        (
+            BindingAttributes::DECLARATION_INITIALIZED,
+            "initialized by declaration",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(flag, label)| attributes.contains(flag).then_some(label))
+    .collect()
 }
 
 fn code_at_offset(
@@ -158,6 +288,8 @@ mod tests {
         ClientCapabilities, HoverParams, Position, TextDocumentIdentifier,
         TextDocumentPositionParams, Url, WorkDoneProgressParams,
     };
+    use shuck_ast::{TextRange, TextSize};
+    use shuck_indexer::LineIndex;
 
     use super::*;
     use crate::{
@@ -165,6 +297,13 @@ mod tests {
     };
 
     fn make_snapshot(source: &str) -> (DocumentSnapshot, Client) {
+        make_snapshot_with_encoding(source, PositionEncoding::UTF16)
+    }
+
+    fn make_snapshot_with_encoding(
+        source: &str,
+        encoding: PositionEncoding,
+    ) -> (DocumentSnapshot, Client) {
         let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
         let (client_sender, _client_receiver) = channel::unbounded();
         let client = Client::new(main_loop_sender, client_sender);
@@ -175,15 +314,14 @@ mod tests {
         let global = GlobalOptions::default().into_settings(client.clone());
         let mut session = Session::new(
             &ClientCapabilities::default(),
-            PositionEncoding::UTF16,
+            encoding,
             global,
             &workspaces,
             &client,
         )
         .expect("test session should initialize");
 
-        let uri = Url::from_file_path(workspace_root.join("script.sh"))
-            .expect("script path should convert to a URL");
+        let uri = script_uri();
         session.open_text_document(
             uri.clone(),
             TextDocument::new(source.to_owned(), 1).with_language_id("shellscript"),
@@ -195,6 +333,40 @@ mod tests {
                 .expect("test document should produce a snapshot"),
             client,
         )
+    }
+
+    fn script_uri() -> Url {
+        Url::from_file_path(std::env::temp_dir().join("shuck-server-hover-tests/script.sh"))
+            .expect("script path should convert to a URL")
+    }
+
+    fn hover_params(source: &str, needle: &str, encoding: PositionEncoding) -> HoverParams {
+        let offset = source.find(needle).expect("needle should exist") + needle.len() / 2;
+        HoverParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri: script_uri() },
+                position: position_for_offset(source, offset, encoding),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        }
+    }
+
+    fn position_for_offset(source: &str, offset: usize, encoding: PositionEncoding) -> Position {
+        let index = LineIndex::new(source);
+        crate::edit::to_lsp_range(
+            TextRange::new(TextSize::new(offset as u32), TextSize::new(offset as u32)),
+            source,
+            &index,
+            encoding,
+        )
+        .start
+    }
+
+    fn hover_markdown(hover: types::Hover) -> String {
+        let types::HoverContents::Markup(markup) = hover.contents else {
+            panic!("expected markdown hover content");
+        };
+        markup.value
     }
 
     #[test]
@@ -261,6 +433,92 @@ mod tests {
         assert!(markup.value.contains("SC2154"));
         assert!(markup.value.contains("See also: C006"));
         assert!(markup.value.contains("Fix available") || markup.value.contains("No auto-fix"));
+    }
+
+    #[test]
+    fn hover_falls_back_to_semantic_symbols() {
+        let source = "#!/bin/bash\nname=world\nprintf '%s\\n' \"$name\"\n";
+        let (snapshot, client) = make_snapshot(source);
+        let hover = hover(
+            snapshot,
+            &client,
+            hover_params(source, "name\"", PositionEncoding::UTF16),
+        )
+        .expect("hover request should succeed")
+        .expect("semantic hover should be present");
+
+        let markdown = hover_markdown(hover.clone());
+        assert!(markdown.contains("`name`"));
+        assert!(markdown.contains("Variable"));
+        assert!(markdown.contains("Defined at line 2, column 1"));
+        assert!(markdown.contains("Scope: top-level"));
+        let range = hover.range.expect("semantic hover should have a range");
+        assert_eq!(range.start.line, 2);
+    }
+
+    #[test]
+    fn hover_reports_semantic_function_call_details() {
+        let source = "#!/bin/bash\nbuild() { :; }\nbuild\n";
+        let (snapshot, client) = make_snapshot(source);
+        let hover = hover(
+            snapshot,
+            &client,
+            hover_params(source, "build\n", PositionEncoding::UTF16),
+        )
+        .expect("hover request should succeed")
+        .expect("function hover should be present");
+
+        let markdown = hover_markdown(hover);
+        assert!(markdown.contains("`build`"));
+        assert!(markdown.contains("Function"));
+        assert!(markdown.contains("File-local call sites: 1 site"));
+    }
+
+    #[test]
+    fn hover_reports_runtime_names() {
+        let source = "#!/bin/bash\nprintf '%s\\n' \"$HOME\"\n";
+        let (snapshot, client) = make_snapshot(source);
+        let hover = hover(
+            snapshot,
+            &client,
+            hover_params(source, "HOME", PositionEncoding::UTF16),
+        )
+        .expect("hover request should succeed")
+        .expect("runtime hover should be present");
+
+        let markdown = hover_markdown(hover);
+        assert!(markdown.contains("`HOME`"));
+        assert!(markdown.contains("Runtime name"));
+        assert!(markdown.contains("Provided by the active shell runtime"));
+    }
+
+    #[test]
+    fn semantic_hover_ranges_use_negotiated_position_encoding() {
+        let source = "#!/bin/bash\nname=world\nprintf 'é' \"$name\"\n";
+        let (utf16_snapshot, utf16_client) =
+            make_snapshot_with_encoding(source, PositionEncoding::UTF16);
+        let utf16_hover = hover(
+            utf16_snapshot,
+            &utf16_client,
+            hover_params(source, "name\"", PositionEncoding::UTF16),
+        )
+        .expect("hover request should succeed")
+        .expect("utf16 hover should be present");
+
+        let (utf8_snapshot, utf8_client) =
+            make_snapshot_with_encoding(source, PositionEncoding::UTF8);
+        let utf8_hover = hover(
+            utf8_snapshot,
+            &utf8_client,
+            hover_params(source, "name\"", PositionEncoding::UTF8),
+        )
+        .expect("hover request should succeed")
+        .expect("utf8 hover should be present");
+
+        let utf16_range = utf16_hover.range.expect("utf16 hover range");
+        let utf8_range = utf8_hover.range.expect("utf8 hover range");
+        assert_eq!(utf16_range.start.line, utf8_range.start.line);
+        assert!(utf8_range.start.character > utf16_range.start.character);
     }
 
     #[test]

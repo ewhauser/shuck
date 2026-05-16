@@ -253,7 +253,12 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         span: Span,
     ) -> ReferenceId {
         let reference_kind = self.word_reference_kind_override.unwrap_or(reference_kind);
-        let id = self.add_reference(&reference.name, reference_kind, span);
+        let id = self.add_reference_with_name_span(
+            &reference.name,
+            reference_kind,
+            span,
+            reference.name_span,
+        );
         self.visit_var_ref_subscript_words(
             Some(&reference.name),
             reference.subscript.as_deref(),

@@ -17,6 +17,7 @@ pub use session::{Client, ClientOptions, DocumentQuery, DocumentSnapshot, Global
 pub use workspace::{Workspace, Workspaces};
 
 mod edit;
+mod editor;
 mod fix;
 mod format;
 mod lint;

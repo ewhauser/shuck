@@ -25,6 +25,8 @@ pub struct Reference {
     pub scope: ScopeId,
     /// Source span of the use.
     pub span: Span,
+    /// Source span of the referenced name token.
+    pub name_span: Span,
 }
 
 /// Semantic category for a shell name use.

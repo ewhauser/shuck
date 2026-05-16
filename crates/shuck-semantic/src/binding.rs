@@ -55,6 +55,8 @@ pub enum BindingOrigin {
     ParameterDefaultAssignment {
         /// Span of the operator site that introduces the binding.
         definition_span: Span,
+        /// Span of the parameter name assigned by the operator.
+        target_span: Span,
     },
     /// A binding imported from a sourced file or ambient contract.
     Imported {

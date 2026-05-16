@@ -7,7 +7,22 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         kind: ReferenceKind,
         span: Span,
     ) -> ReferenceId {
+        self.add_reference_with_name_span(name, kind, span, Span::new())
+    }
+
+    pub(super) fn add_reference_with_name_span(
+        &mut self,
+        name: &Name,
+        kind: ReferenceKind,
+        span: Span,
+        name_span: Span,
+    ) -> ReferenceId {
         let span = self.normalize_reference_span(name, kind, span);
+        let name_span = if name_span.to_range().is_empty() {
+            self.reference_name_span(name, span).unwrap_or(span)
+        } else {
+            name_span
+        };
         let id = ReferenceId(self.references.len() as u32);
         let scope = self.current_scope();
         let resolved = self.resolve_reference(name, scope, span.start.offset);
@@ -19,6 +34,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             kind,
             scope,
             span,
+            name_span,
         });
         self.reference_index
             .entry(name.clone())
@@ -106,6 +122,21 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         } else {
             span
         }
+    }
+
+    fn reference_name_span(&self, name: &Name, span: Span) -> Option<Span> {
+        let syntax = span.slice(self.source);
+        let (relative_start, name_len) = if let Some(start) = syntax.find(name.as_str()) {
+            (start, name.as_str().len())
+        } else if let Some(stripped) = name.as_str().strip_prefix('+') {
+            (syntax.find(stripped)?, stripped.len())
+        } else {
+            return None;
+        };
+        let start_offset = span.start.offset + relative_start;
+        let end_offset = start_offset + name_len;
+        let (start, end) = self.source_positions_for_offsets(start_offset, end_offset)?;
+        (start.offset < end.offset).then(|| Span::from_positions(start, end))
     }
 
     pub(super) fn recover_braced_reference_span(&self, name: &Name, span: Span) -> Option<Span> {
@@ -249,6 +280,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             reference.span,
             BindingOrigin::ParameterDefaultAssignment {
                 definition_span: reference.span,
+                target_span: reference.name_span,
             },
             attributes,
         );
