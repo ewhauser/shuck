@@ -12,7 +12,7 @@ pub(crate) use text_document::LanguageId;
 pub use text_document::TextDocument;
 
 /// Client/server position encoding negotiated for LSP text ranges.
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PositionEncoding {
     /// UTF-16 code-unit positions, the LSP default.
     #[default]

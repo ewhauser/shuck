@@ -16,6 +16,7 @@ pub use server::Server;
 pub use session::{Client, ClientOptions, DocumentQuery, DocumentSnapshot, GlobalOptions, Session};
 pub use workspace::{Workspace, Workspaces};
 
+mod analysis;
 mod edit;
 mod editor;
 mod fix;

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use lsp_types::{ClientCapabilities, FileEvent, Url};
 
+use crate::analysis::{DocumentAnalysis, DocumentAnalysisCache};
 use crate::edit::{DocumentKey, DocumentVersion};
 use crate::session::request_queue::RequestQueue;
 use crate::session::settings::{ClientSettings, GlobalClientSettings};
@@ -33,6 +34,7 @@ pub struct Session {
     global_settings: GlobalClientSettings,
     resolved_client_capabilities: Arc<ResolvedClientCapabilities>,
     workspace_symbols: Arc<crate::symbols::WorkspaceSymbolIndex>,
+    analysis_cache: Arc<DocumentAnalysisCache>,
     request_queue: RequestQueue,
     shutdown_requested: bool,
 }
@@ -44,6 +46,8 @@ pub struct DocumentSnapshot {
     client_settings: Arc<ClientSettings>,
     document_ref: index::DocumentQuery,
     position_encoding: PositionEncoding,
+    analysis_cache: Arc<DocumentAnalysisCache>,
+    analysis_settings_epoch: u64,
 }
 
 impl Session {
@@ -63,6 +67,7 @@ impl Session {
                 client_capabilities,
             )),
             workspace_symbols: Arc::new(crate::symbols::WorkspaceSymbolIndex::default()),
+            analysis_cache: Arc::new(DocumentAnalysisCache::new()),
             request_queue: RequestQueue::new(),
             shutdown_requested: false,
         })
@@ -100,6 +105,8 @@ impl Session {
             client_settings,
             document_ref: self.index.make_document_ref(key, settings)?,
             position_encoding: self.position_encoding,
+            analysis_cache: self.analysis_cache.clone(),
+            analysis_settings_epoch: self.analysis_cache.current_settings_epoch(),
         })
     }
 
@@ -109,17 +116,24 @@ impl Session {
         content_changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
         new_version: DocumentVersion,
     ) -> crate::Result<()> {
-        self.index
-            .update_text_document(key, content_changes, new_version, self.encoding())
+        let result =
+            self.index
+                .update_text_document(key, content_changes, new_version, self.encoding());
+        if result.is_ok() {
+            self.analysis_cache.invalidate_uri(&key.clone().into_url());
+        }
+        result
     }
 
     /// Open or replace an in-memory text document.
     pub fn open_text_document(&mut self, url: Url, document: TextDocument) {
+        self.analysis_cache.invalidate_uri(&url);
         self.index.open_text_document(url, document);
     }
 
     pub(crate) fn close_document(&mut self, key: &DocumentKey) -> crate::Result<()> {
         self.index.close_document(key)?;
+        self.analysis_cache.invalidate_uri(&key.clone().into_url());
         self.workspace_symbols
             .invalidate_uri(&key.clone().into_url());
         Ok(())
@@ -127,18 +141,21 @@ impl Session {
 
     pub(crate) fn reload_settings(&mut self, changes: &[FileEvent], client: &Client) {
         self.index.reload_settings(changes, client);
+        self.analysis_cache.clear();
         self.workspace_symbols.invalidate_file_events(changes);
     }
 
     pub(crate) fn open_workspace_folder(&mut self, url: Url, client: &Client) -> crate::Result<()> {
         self.index
             .open_workspace_folder(url, &self.global_settings, client)?;
+        self.analysis_cache.clear();
         self.workspace_symbols.invalidate_all();
         Ok(())
     }
 
     pub(crate) fn close_workspace_folder(&mut self, url: &Url) -> crate::Result<()> {
         self.index.close_workspace_folder(url)?;
+        self.analysis_cache.clear();
         self.workspace_symbols.invalidate_all();
         Ok(())
     }
@@ -160,6 +177,7 @@ impl Session {
     }
 
     pub(crate) fn update_client_options(&mut self, options: ClientOptions) {
+        self.analysis_cache.clear();
         self.workspace_symbols.invalidate_all();
         self.global_settings.update_options(options);
         self.index.clear_project_settings_cache();
@@ -170,6 +188,7 @@ impl Session {
         options: ClientOptions,
         workspace_options: Option<WorkspaceOptionsMap>,
     ) {
+        self.analysis_cache.clear();
         self.workspace_symbols.invalidate_all();
         self.global_settings.update_options(options);
         if let Some(workspace_options) = workspace_options {
@@ -237,14 +256,22 @@ impl DocumentSnapshot {
     pub(crate) fn encoding(&self) -> PositionEncoding {
         self.position_encoding
     }
+
+    pub(crate) fn analysis(&self) -> Option<Arc<DocumentAnalysis>> {
+        self.analysis_cache.get_or_build(self)
+    }
+
+    pub(crate) fn analysis_settings_epoch(&self) -> u64 {
+        self.analysis_settings_epoch
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crossbeam::channel;
     use lsp_types::{
-        ClientCapabilities, DidChangeWatchedFilesClientCapabilities, Url,
-        WorkspaceClientCapabilities,
+        ClientCapabilities, DidChangeWatchedFilesClientCapabilities,
+        TextDocumentContentChangeEvent, Url, WorkspaceClientCapabilities,
     };
 
     use super::*;
@@ -261,6 +288,113 @@ mod tests {
             }),
             ..ClientCapabilities::default()
         }
+    }
+
+    fn make_test_session() -> (tempfile::TempDir, Session, Url) {
+        let workspace = tempfile::tempdir().expect("workspace should be created");
+        let workspace_uri =
+            Url::from_file_path(workspace.path()).expect("workspace path should convert");
+        let workspaces = Workspaces::new(vec![Workspace::default(workspace_uri)]);
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, _client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+        let global = GlobalOptions::default().into_settings(client.clone());
+        let mut session = Session::new(
+            &ClientCapabilities::default(),
+            PositionEncoding::UTF16,
+            global,
+            &workspaces,
+            &client,
+        )
+        .expect("test session should initialize");
+        let uri = Url::from_file_path(workspace.path().join("script.sh"))
+            .expect("script path should convert to a URL");
+        session.open_text_document(
+            uri.clone(),
+            TextDocument::new("#!/bin/bash\nname=value\necho \"$name\"\n".to_owned(), 1)
+                .with_language_id("shellscript"),
+        );
+        (workspace, session, uri)
+    }
+
+    #[test]
+    fn document_analysis_cache_reuses_same_document_version() {
+        let (_workspace, session, uri) = make_test_session();
+        let first = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot")
+            .analysis()
+            .expect("shell document should have analysis");
+        let second = session
+            .take_snapshot(uri)
+            .expect("test document should produce a snapshot")
+            .analysis()
+            .expect("shell document should have analysis");
+
+        assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn document_analysis_cache_invalidates_after_document_change() {
+        let (_workspace, mut session, uri) = make_test_session();
+        let before = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot")
+            .analysis()
+            .expect("shell document should have analysis");
+        let key = session.key_from_url(uri.clone());
+
+        session
+            .update_text_document(
+                &key,
+                vec![TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: "#!/bin/bash\nother=value\necho \"$other\"\n".to_owned(),
+                }],
+                2,
+            )
+            .expect("document change should apply");
+
+        let after = session
+            .take_snapshot(uri)
+            .expect("test document should produce a snapshot")
+            .analysis()
+            .expect("shell document should have analysis");
+
+        assert!(!Arc::ptr_eq(&before, &after));
+        assert!(after.source().contains("other=value"));
+    }
+
+    #[test]
+    fn document_analysis_cache_invalidates_after_configuration_change() {
+        let (_workspace, mut session, uri) = make_test_session();
+        let stale_snapshot = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot");
+        let before = stale_snapshot
+            .analysis()
+            .expect("shell document should have analysis");
+
+        session.update_client_options(ClientOptions {
+            lint: Some(shuck_config::LintConfig {
+                select: Some(vec!["C006".to_owned()]),
+                ..shuck_config::LintConfig::default()
+            }),
+            ..ClientOptions::default()
+        });
+
+        let stale_after_clear = stale_snapshot
+            .analysis()
+            .expect("stale snapshot can still analyze its own settings epoch");
+        let after = session
+            .take_snapshot(uri)
+            .expect("test document should produce a snapshot")
+            .analysis()
+            .expect("shell document should have analysis");
+
+        assert!(!Arc::ptr_eq(&before, &after));
+        assert!(!Arc::ptr_eq(&stale_after_clear, &after));
     }
 
     #[test]

@@ -8,7 +8,6 @@ use shuck_linter::{
     AnalysisRequest, Applicability, Diagnostic as ShuckDiagnostic, Edit as ShuckEdit, Fix,
     Severity, ShellCheckCodeMap, ShellDialect,
 };
-use shuck_parser::parser::Parser;
 
 use crate::edit::{LanguageId, RangeExt};
 use crate::session::{DocumentSnapshot, ShuckSettings};
@@ -38,6 +37,7 @@ pub(crate) struct AssociatedDiagnosticData {
     pub(crate) applicability: DiagnosticApplicability,
 }
 
+#[derive(Clone)]
 pub(crate) struct RawDocumentDiagnostics {
     pub(crate) shell_diagnostics: Vec<ShuckDiagnostic>,
     pub(crate) parse_error: Option<ParseErrorDiagnostic>,
@@ -52,24 +52,22 @@ pub(crate) struct ParseErrorDiagnostic {
 
 /// Generate LSP diagnostics for a document snapshot.
 pub fn generate_diagnostics(snapshot: &DocumentSnapshot) -> Vec<types::Diagnostic> {
-    let query = snapshot.query();
-    let source = query.document().contents();
-    let path = query.file_path();
-    let Some(shell) = infer_document_shell(snapshot, source, path.as_deref()) else {
+    let Some(analysis) = snapshot.analysis() else {
         return Vec::new();
     };
 
-    let raw = collect_raw_diagnostics(snapshot, shell, source, path.as_deref());
+    let source = analysis.source();
+    let raw = analysis.raw_diagnostics(snapshot);
     let directive_edits = directive_edits_by_line(
         snapshot,
         source,
-        query.document().index(),
-        path.as_deref(),
+        analysis.line_index(),
+        analysis.path(),
         &raw.shell_diagnostics,
     );
     let mut diagnostics = raw
         .shell_diagnostics
-        .into_iter()
+        .iter()
         .map(|diagnostic| {
             let directive_edit = directive_edits
                 .get(&diagnostic.span.start.line)
@@ -77,20 +75,20 @@ pub fn generate_diagnostics(snapshot: &DocumentSnapshot) -> Vec<types::Diagnosti
                 .flatten();
             to_lsp_diagnostic(
                 snapshot,
-                &diagnostic,
+                diagnostic,
                 source,
-                query.document().index(),
+                analysis.line_index(),
                 directive_edit,
             )
         })
         .collect::<Vec<_>>();
 
     if snapshot.client_settings().show_syntax_errors()
-        && let Some(parse_error) = raw.parse_error
+        && let Some(parse_error) = raw.parse_error.clone()
     {
         diagnostics.insert(
             0,
-            parse_error_to_lsp(snapshot, source, query.document().index(), parse_error),
+            parse_error_to_lsp(snapshot, source, analysis.line_index(), parse_error),
         );
     }
 
@@ -100,18 +98,9 @@ pub fn generate_diagnostics(snapshot: &DocumentSnapshot) -> Vec<types::Diagnosti
 pub(crate) fn collect_raw_diagnostics_for_snapshot(
     snapshot: &DocumentSnapshot,
 ) -> Option<RawDocumentDiagnostics> {
-    let query = snapshot.query();
-    let source = query.document().contents();
-    let path = query.file_path();
-    document_shell(snapshot)
-        .map(|shell| collect_raw_diagnostics(snapshot, shell, source, path.as_deref()))
-}
-
-pub(crate) fn document_shell(snapshot: &DocumentSnapshot) -> Option<ShellDialect> {
-    let query = snapshot.query();
-    let source = query.document().contents();
-    let path = query.file_path();
-    infer_document_shell(snapshot, source, path.as_deref())
+    snapshot
+        .analysis()
+        .map(|analysis| analysis.raw_diagnostics(snapshot).clone())
 }
 
 pub(crate) fn fix_all_document_edits(
@@ -181,28 +170,25 @@ pub(crate) fn associated_diagnostic_data(
         .and_then(|value| serde_json::from_value(value).ok())
 }
 
-fn collect_raw_diagnostics(
+pub(crate) fn collect_raw_diagnostics_for_analysis(
     snapshot: &DocumentSnapshot,
-    shell: ShellDialect,
-    source: &str,
-    path: Option<&Path>,
+    analysis: &crate::analysis::DocumentAnalysis,
 ) -> RawDocumentDiagnostics {
-    let parse_result = Parser::with_profile(source, shell.shell_profile()).parse();
     let shellcheck_map = ShellCheckCodeMap::default();
     let shell_diagnostics = AnalysisRequest::from_parse_result(
-        &parse_result,
-        source,
+        analysis.parse_result(),
+        analysis.source(),
         snapshot.shuck_settings().linter(),
     )
-    .with_optional_source_path(path)
+    .with_optional_source_path(analysis.path())
     .with_shellcheck_map(&shellcheck_map)
     .lint();
-    let parse_error = parse_result.is_err().then(|| {
+    let parse_error = analysis.parse_result().is_err().then(|| {
         let shuck_parser::Error::Parse {
             message,
             line,
             column,
-        } = parse_result.strict_error();
+        } = analysis.parse_result().strict_error();
         ParseErrorDiagnostic {
             line,
             column,
@@ -361,19 +347,6 @@ fn diagnostic_severity(severity: Severity) -> types::DiagnosticSeverity {
         Severity::Warning => types::DiagnosticSeverity::WARNING,
         Severity::Error => types::DiagnosticSeverity::ERROR,
     }
-}
-
-fn infer_document_shell(
-    snapshot: &DocumentSnapshot,
-    query_source: &str,
-    path: Option<&Path>,
-) -> Option<ShellDialect> {
-    infer_document_shell_from_parts(
-        snapshot.shuck_settings(),
-        snapshot.query().language_id(),
-        query_source,
-        path,
-    )
 }
 
 pub(crate) fn infer_document_shell_from_parts(
