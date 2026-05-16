@@ -3,11 +3,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use shuck_benchmark::TEST_FILES;
 use shuck_formatter::{FormattedSource, ShellDialect, ShellFormatOptions, format_source};
 use similar::TextDiff;
 
-const BENCHMARK_ORACLE_FILE_COUNT: usize = 6;
 const MAX_ORACLE_DIFF_LINES: usize = 200;
 
 struct OracleCase {
@@ -20,39 +18,6 @@ struct OracleCase {
 
 struct ShfmtProbe {
     supported_flags: String,
-}
-
-#[test]
-#[ignore = "requires SHUCK_RUN_SHFMT_ORACLE=1 and shfmt on PATH (for example via `nix develop`)"]
-fn benchmark_corpus_matches_shfmt() {
-    if std::env::var_os("SHUCK_RUN_SHFMT_ORACLE").is_none() {
-        eprintln!("set SHUCK_RUN_SHFMT_ORACLE=1 to run the shfmt oracle");
-        return;
-    }
-
-    let _ = probe_shfmt().expect("shfmt not found on PATH; run under `nix develop`");
-    assert_eq!(
-        TEST_FILES.len(),
-        BENCHMARK_ORACLE_FILE_COUNT,
-        "benchmark-backed oracle expects the benchmark corpus to stay at six scripts"
-    );
-
-    let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-    let mut mismatches = Vec::new();
-    for file in TEST_FILES.iter() {
-        let filename = format!("{}.bash", file.name);
-        let shuck = run_shuck_formatter(file.source, &filename, &options);
-        let shfmt = run_shfmt(file.source, &filename, &["-ln=bash"]);
-        if let Some(mismatch) = render_oracle_mismatch(file.name, &filename, &shfmt, &shuck) {
-            mismatches.push(mismatch);
-        }
-    }
-
-    assert!(
-        mismatches.is_empty(),
-        "benchmark corpus diverged from shfmt:\n\n{}",
-        mismatches.join("\n\n")
-    );
 }
 
 #[test]

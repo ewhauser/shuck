@@ -1768,6 +1768,7 @@ dependencies = [
  "shuck-linter",
  "shuck-parser",
  "shuck-semantic",
+ "similar",
  "tempfile",
  "tikv-jemallocator",
  "walkdir",
@@ -1873,7 +1874,6 @@ name = "shuck-formatter"
 version = "0.0.40"
 dependencies = [
  "shuck-ast",
- "shuck-benchmark",
  "shuck-format",
  "shuck-linter",
  "shuck-parser",

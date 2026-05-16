@@ -53,10 +53,10 @@ impl<'source> StreamOutput<'source> {
         }
     }
 
-    fn finish_matches_source(mut self) -> bool {
+    fn finish_matches_source(mut self, line_ending: LineEnding) -> bool {
         match &mut self {
             Self::Buffer(_) => panic!("buffer formatter cannot compare against the source"),
-            Self::Compare(compare) => compare.finish(),
+            Self::Compare(compare) => compare.finish(line_ending),
         }
     }
 }
@@ -113,12 +113,12 @@ impl<'source> CompareSink<'source> {
         }
     }
 
-    fn finish(&mut self) -> bool {
+    fn finish(&mut self, line_ending: LineEnding) -> bool {
         if self.mismatch {
             return false;
         }
 
-        crate::ensure_single_trailing_newline(&mut self.pending_tail);
+        crate::ensure_single_trailing_newline(&mut self.pending_tail, line_ending);
         let tail = mem::take(&mut self.pending_tail);
         self.compare_prefix(&tail);
 
@@ -267,7 +267,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
     fn finish_matches_source(mut self) -> bool {
         self.flush_pending_heredocs();
-        self.output.finish_matches_source()
+        self.output
+            .finish_matches_source(self.options.line_ending())
     }
 
     fn push_output_char(&mut self, ch: char) {

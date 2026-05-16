@@ -205,7 +205,7 @@ fn format_output(
     if resolved.minify() {
         preserve_initial_shebang(source, &mut output, resolved.line_ending());
     }
-    ensure_single_trailing_newline(&mut output);
+    ensure_single_trailing_newline(&mut output, resolved.line_ending());
 
     Ok(output)
 }
@@ -310,15 +310,44 @@ pub fn build_formatter_facts(source: &str, file: &File) -> usize {
     FormatterFacts::build(source, file, &resolved).len()
 }
 
-fn ensure_single_trailing_newline(output: &mut String) {
-    while output.ends_with("\n\n") {
-        output.pop();
+fn ensure_single_trailing_newline(output: &mut String, line_ending: LineEnding) {
+    while has_multiple_trailing_line_endings(output) {
+        truncate_trailing_line_ending(output);
     }
-    if !output.ends_with('\n') {
+    if trailing_line_ending_start(output).is_none() {
         if trailing_backslash_count(output) % 2 == 1 {
             output.push('\\');
         }
-        output.push('\n');
+        output.push_str(line_ending_str(line_ending));
+    }
+}
+
+fn has_multiple_trailing_line_endings(text: &str) -> bool {
+    trailing_line_ending_start(text)
+        .and_then(|start| trailing_line_ending_start(&text[..start]))
+        .is_some()
+}
+
+fn truncate_trailing_line_ending(output: &mut String) {
+    if let Some(start) = trailing_line_ending_start(output) {
+        output.truncate(start);
+    }
+}
+
+fn trailing_line_ending_start(text: &str) -> Option<usize> {
+    if text.ends_with("\r\n") {
+        Some(text.len() - 2)
+    } else if text.ends_with('\n') {
+        Some(text.len() - 1)
+    } else {
+        None
+    }
+}
+
+fn line_ending_str(line_ending: LineEnding) -> &'static str {
+    match line_ending {
+        LineEnding::Lf => "\n",
+        LineEnding::CrLf => "\r\n",
     }
 }
 
@@ -329,10 +358,7 @@ fn preserve_initial_shebang(source: &str, output: &mut String, line_ending: Line
 
     let shebang_end = source.find(['\r', '\n']).unwrap_or(source.len());
     let shebang = &source[..shebang_end];
-    let line_ending = match line_ending {
-        LineEnding::Lf => "\n",
-        LineEnding::CrLf => "\r\n",
-    };
+    let line_ending = line_ending_str(line_ending);
     let body = output.trim_start_matches(['\r', '\n']);
 
     let mut prefixed = String::with_capacity(shebang.len() + line_ending.len() + body.len());
@@ -370,7 +396,6 @@ mod tests {
     use std::path::PathBuf;
 
     use shuck_ast::{AssignmentValue, Command};
-    use shuck_benchmark::TEST_FILES;
     use shuck_linter::{AnalysisRequest, Diagnostic, LinterSettings};
     use shuck_parser::ShellDialect as ParseShellDialect;
 
@@ -1341,6 +1366,18 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_extra_crlf_trailing_newlines() {
+        let source = "echo hi\r\n\r\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, Some(Path::new("test.sh")), &options).unwrap(),
+            FormattedSource::Formatted("echo hi\r\n".to_string())
+        );
+        assert!(!source_is_formatted(source, Some(Path::new("test.sh")), &options).unwrap());
+    }
+
+    #[test]
     fn never_split_prefers_compact_layouts() {
         let options = ShellFormatOptions::default().with_never_split(true);
         let formatted = format_source("if true; then\necho hi\nfi\n", None, &options).unwrap();
@@ -1484,16 +1521,6 @@ print hidden &!
             FormattedSource::Unchanged
         );
         assert_source_and_ast_paths_match(source, None, &options);
-    }
-
-    #[test]
-    fn format_file_ast_matches_format_source_for_benchmark_corpus() {
-        let options = ShellFormatOptions::default();
-
-        for file in TEST_FILES.iter() {
-            let filename = std::format!("{}.bash", file.name);
-            assert_source_and_ast_paths_match(file.source, Some(Path::new(&filename)), &options);
-        }
     }
 
     #[test]
