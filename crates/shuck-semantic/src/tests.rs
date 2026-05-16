@@ -423,6 +423,24 @@ build() {{ {segment}
 }
 
 #[test]
+fn editor_completion_is_blocked_at_first_comment_byte() {
+    let source = "echo ok\n# comment\n";
+    let output = Parser::with_dialect(source, ShellDialect::Bash)
+        .parse()
+        .unwrap();
+    let indexer = Indexer::new(source, &output);
+    let model = SemanticModel::build(&output.file, source, &indexer);
+    let offset = source.find('#').unwrap();
+
+    assert!(
+        model
+            .editor_query()
+            .completions_at_offset(source, &indexer, offset, EditorCompletionOptions::default())
+            .is_none()
+    );
+}
+
+#[test]
 fn editor_rename_is_conservative() {
     let source = "\
 build() { :; }

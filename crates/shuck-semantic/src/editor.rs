@@ -872,7 +872,12 @@ fn completion_context(source: &str, indexer: &Indexer, offset: usize) -> Option<
 }
 
 fn completion_is_blocked_by_region(indexer: &Indexer, offset: usize) -> bool {
-    let probe = TextSize::new(offset.saturating_sub(1) as u32);
+    completion_probe_is_blocked(indexer, offset)
+        || (offset > 0 && completion_probe_is_blocked(indexer, offset - 1))
+}
+
+fn completion_probe_is_blocked(indexer: &Indexer, offset: usize) -> bool {
+    let probe = TextSize::new(offset as u32);
     indexer.comment_index().is_comment(probe)
         || matches!(
             indexer.region_index().region_at(probe),
