@@ -1646,7 +1646,7 @@ fn format_check_and_diff_are_clean_for_valid_input() {
 }
 
 #[test]
-fn format_check_and_diff_are_clean_for_noncanonical_input() {
+fn format_check_and_diff_report_noncanonical_input() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("fn.sh"), "foo(){\necho hi\n}\n").unwrap();
 
@@ -1656,18 +1656,20 @@ fn format_check_and_diff_are_clean_for_noncanonical_input() {
     check
         .current_dir(tempdir.path())
         .args(["format", "--check", "--function-next-line"]);
-    check.assert().success().stdout("");
+    check.assert().code(1).stdout("");
 
     let mut diff = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut diff, tempdir.path());
     enable_experimental(&mut diff);
     diff.current_dir(tempdir.path())
         .args(["format", "--diff", "--function-next-line"]);
-    diff.assert().success().stdout("");
+    diff.assert()
+        .code(1)
+        .stdout(predicate::str::contains("+foo()"));
 }
 
 #[test]
-fn format_broken_file_succeeds_without_parsing() {
+fn format_broken_file_reports_parse_error() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
 
@@ -1675,7 +1677,9 @@ fn format_broken_file_succeeds_without_parsing() {
     configure_env_cache(&mut cmd, tempdir.path());
     enable_experimental(&mut cmd);
     cmd.current_dir(tempdir.path()).arg("format");
-    cmd.assert().success().stdout("");
+    cmd.assert()
+        .code(2)
+        .stdout(predicate::str::contains("broken.sh:2:8: parse error"));
 }
 
 #[test]
@@ -1689,12 +1693,14 @@ fn format_stdin_round_trips_valid_input() {
 }
 
 #[test]
-fn format_stdin_filename_does_not_parse_input() {
+fn format_stdin_filename_reports_parse_errors() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     enable_experimental(&mut cmd);
     cmd.args(["format", "--stdin-filename", "foo.sh"])
         .write_stdin("#!/bin/bash\nif true\n");
-    cmd.assert().success().stdout("#!/bin/bash\nif true\n");
+    cmd.assert()
+        .code(2)
+        .stdout(predicate::str::contains("foo.sh:2:8: parse error"));
 }
 
 #[test]
@@ -1711,26 +1717,28 @@ fn format_stdin_uses_current_project_config() {
     cmd.current_dir(tempdir.path())
         .args(["format", "-"])
         .write_stdin("foo(){\necho hi\n}\n");
-    cmd.assert().success().stdout("foo(){\necho hi\n}\n");
+    cmd.assert().success().stdout("foo()\n{\n\techo hi\n}\n");
 }
 
 #[test]
-fn format_stdin_filename_does_not_enforce_inferred_posix_dialect() {
+fn format_stdin_filename_enforces_inferred_posix_dialect() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     enable_experimental(&mut cmd);
     cmd.args(["format", "--stdin-filename", "script.sh"])
         .write_stdin("[[ foo == bar ]]\n");
-    cmd.assert().success().stdout("[[ foo == bar ]]\n");
+    cmd.assert()
+        .code(2)
+        .stdout(predicate::str::contains("script.sh:1:1: parse error"));
 }
 
 #[test]
-fn format_stdin_filename_accepts_common_shell_extensions_without_parsing() {
+fn format_stdin_filename_accepts_common_shell_extensions() {
     for path in ["script.bash", "script.mksh", "script.ksh", "script.dash"] {
         let mut cmd = Command::cargo_bin("shuck").unwrap();
         enable_experimental(&mut cmd);
         cmd.args(["format", "--stdin-filename", path])
-            .write_stdin("[[ foo == bar ]]\n");
-        cmd.assert().success().stdout("[[ foo == bar ]]\n");
+            .write_stdin("echo ok\n");
+        cmd.assert().success().stdout("echo ok\n");
     }
 }
 
@@ -1778,6 +1786,7 @@ fn check_zsh_extension_parses_with_inferred_zsh_dialect() {
     fs::write(tempdir.path().join("ok.zsh"), "foo=bar\nprint ${(m)foo}\n").unwrap();
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path()).arg("check");
     cmd.assert().success().stdout("");
 }
@@ -1792,6 +1801,7 @@ fn check_zsh_extension_parses_repeat_and_foreach_with_inferred_zsh_dialect() {
     .unwrap();
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path()).arg("check");
     cmd.assert().success().stdout("");
 }
@@ -1806,6 +1816,7 @@ fn check_zsh_shebang_parses_with_inferred_zsh_dialect() {
     .unwrap();
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path()).arg("check");
     cmd.assert().success().stdout("");
 }
@@ -1974,7 +1985,10 @@ fn check_watch_reruns_when_files_change() {
 fn format_exclude_skips_walked_files_but_not_explicit_files_without_force_exclude() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
-    fs::write(tempdir.path().join("ignored.sh"), "#!/bin/bash\nif true\n").unwrap();
+    let ignored = tempdir.path().join("ignored.sh");
+    let unformatted = "#!/bin/bash\n echo ignored\n";
+    let formatted = "#!/bin/bash\necho ignored\n";
+    fs::write(&ignored, unformatted).unwrap();
 
     let mut walked = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut walked, tempdir.path());
@@ -1983,6 +1997,7 @@ fn format_exclude_skips_walked_files_but_not_explicit_files_without_force_exclud
         .current_dir(tempdir.path())
         .args(["format", "--exclude", "ignored.sh"]);
     walked.assert().success().stdout("");
+    assert_eq!(fs::read_to_string(&ignored).unwrap(), unformatted);
 
     let mut explicit = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut explicit, tempdir.path());
@@ -1991,6 +2006,9 @@ fn format_exclude_skips_walked_files_but_not_explicit_files_without_force_exclud
         .current_dir(tempdir.path())
         .args(["format", "--exclude", "ignored.sh", "ignored.sh"]);
     explicit.assert().success().stdout("");
+    assert_eq!(fs::read_to_string(&ignored).unwrap(), formatted);
+
+    fs::write(&ignored, unformatted).unwrap();
 
     let mut forced = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut forced, tempdir.path());
@@ -2003,19 +2021,24 @@ fn format_exclude_skips_walked_files_but_not_explicit_files_without_force_exclud
         "ignored.sh",
     ]);
     forced.assert().success().stdout("");
+    assert_eq!(fs::read_to_string(&ignored).unwrap(), unformatted);
 }
 
 #[test]
 fn format_gitignore_and_force_exclude_flags_control_explicit_files() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join(".gitignore"), "ignored.sh\n").unwrap();
-    fs::write(tempdir.path().join("ignored.sh"), "#!/bin/bash\nif true\n").unwrap();
+    let ignored = tempdir.path().join("ignored.sh");
+    let unformatted = "#!/bin/bash\n echo ignored\n";
+    let formatted = "#!/bin/bash\necho ignored\n";
+    fs::write(&ignored, unformatted).unwrap();
 
     let mut default_walk = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut default_walk, tempdir.path());
     enable_experimental(&mut default_walk);
     default_walk.current_dir(tempdir.path()).arg("format");
     default_walk.assert().success().stdout("");
+    assert_eq!(fs::read_to_string(&ignored).unwrap(), unformatted);
 
     let mut no_respect = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut no_respect, tempdir.path());
@@ -2024,6 +2047,9 @@ fn format_gitignore_and_force_exclude_flags_control_explicit_files() {
         .current_dir(tempdir.path())
         .args(["format", "--no-respect-gitignore"]);
     no_respect.assert().success().stdout("");
+    assert_eq!(fs::read_to_string(&ignored).unwrap(), formatted);
+
+    fs::write(&ignored, unformatted).unwrap();
 
     let mut explicit = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut explicit, tempdir.path());
@@ -2032,6 +2058,9 @@ fn format_gitignore_and_force_exclude_flags_control_explicit_files() {
         .current_dir(tempdir.path())
         .args(["format", "ignored.sh"]);
     explicit.assert().success().stdout("");
+    assert_eq!(fs::read_to_string(&ignored).unwrap(), formatted);
+
+    fs::write(&ignored, unformatted).unwrap();
 
     let mut forced = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut forced, tempdir.path());
@@ -2040,6 +2069,7 @@ fn format_gitignore_and_force_exclude_flags_control_explicit_files() {
         .current_dir(tempdir.path())
         .args(["format", "--force-exclude", "ignored.sh"]);
     forced.assert().success().stdout("");
+    assert_eq!(fs::read_to_string(&ignored).unwrap(), unformatted);
 }
 
 #[test]
@@ -2060,7 +2090,10 @@ fn format_honors_project_config_and_cli_overrides_it() {
         .args(["format", "--function-next-line"]);
     cmd.assert().success().stdout("");
 
-    assert_eq!(fs::read_to_string(script).unwrap(), "foo(){\necho hi\n}\n");
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "foo()\n{\n\techo hi\n}\n"
+    );
 }
 
 #[test]
@@ -2080,7 +2113,10 @@ fn format_honors_explicit_global_config_file() {
         .arg("format");
     cmd.assert().success().stdout("");
 
-    assert_eq!(fs::read_to_string(script).unwrap(), "foo(){\necho hi\n}\n");
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "foo()\n{\n\techo hi\n}\n"
+    );
 }
 
 #[test]
@@ -2102,7 +2138,10 @@ fn format_inline_global_config_override_beats_global_config_file() {
         .arg("format");
     cmd.assert().success().stdout("");
 
-    assert_eq!(fs::read_to_string(script).unwrap(), "foo(){\necho hi\n}\n");
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "foo()\n{\n\techo hi\n}\n"
+    );
 }
 
 #[test]
@@ -2124,7 +2163,10 @@ fn format_isolated_ignores_discovered_project_config() {
         .arg("format");
     cmd.assert().success().stdout("");
 
-    assert_eq!(fs::read_to_string(script).unwrap(), "foo(){\necho hi\n}\n");
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "foo() {\n\techo hi\n}\n"
+    );
 }
 
 #[test]
@@ -2152,7 +2194,10 @@ fn format_prefers_nested_project_config_for_explicit_files() {
         .args(["format", "nested/fn.sh"]);
     cmd.assert().success().stdout("");
 
-    assert_eq!(fs::read_to_string(script).unwrap(), "foo(){\necho hi\n}\n");
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "foo()\n{\n\techo hi\n}\n"
+    );
 }
 
 #[test]
@@ -2172,7 +2217,7 @@ fn format_cache_invalidates_when_formatter_options_change() {
     check
         .current_dir(tempdir.path())
         .args(["format", "--check", "--function-next-line"]);
-    check.assert().success().stdout("");
+    check.assert().code(1).stdout("");
 }
 
 #[test]
@@ -2318,6 +2363,7 @@ fn check_color_always_forces_ansi_output() {
     fs::write(tempdir.path().join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path())
         .arg("--color")
         .arg("always")
@@ -2333,6 +2379,7 @@ fn check_color_never_overrides_force_color_env() {
     fs::write(tempdir.path().join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path())
         .env("FORCE_COLOR", "1")
         .arg("--color")
