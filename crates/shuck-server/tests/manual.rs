@@ -99,8 +99,31 @@ fn replays_a_small_lsp_session() {
         }),
     );
     let initialize = recv_response(&client_connection, 1);
-    assert!(initialize["capabilities"]["documentFormattingProvider"].is_null());
-    assert!(initialize["capabilities"]["documentRangeFormattingProvider"].is_null());
+    assert_eq!(
+        initialize["capabilities"]["documentFormattingProvider"],
+        serde_json::json!(true)
+    );
+    assert_eq!(
+        initialize["capabilities"]["documentRangeFormattingProvider"],
+        serde_json::json!(true)
+    );
+    assert_eq!(
+        initialize["capabilities"]["definitionProvider"],
+        serde_json::json!(true)
+    );
+    assert_eq!(
+        initialize["capabilities"]["referencesProvider"],
+        serde_json::json!(true)
+    );
+    assert_eq!(
+        initialize["capabilities"]["documentHighlightProvider"],
+        serde_json::json!(true)
+    );
+    assert!(initialize["capabilities"]["completionProvider"].is_object());
+    assert_eq!(
+        initialize["capabilities"]["renameProvider"]["prepareProvider"],
+        serde_json::json!(true)
+    );
 
     client_connection
         .sender

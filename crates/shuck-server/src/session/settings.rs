@@ -14,13 +14,17 @@ use shuck_linter::{
     RuleSet, ShellDialect as LinterShellDialect,
 };
 
-use crate::session::{ClientOptions, WorkspaceSymbolFeatureOptions};
+use crate::session::{
+    ClientOptions, CompletionFeatureOptions, RenameFeatureOptions, WorkspaceSymbolFeatureOptions,
+};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ClientSettings {
     fix_all: bool,
     unsafe_fixes: bool,
     show_syntax_errors: bool,
+    completion: CompletionFeatureOptions,
+    rename: RenameFeatureOptions,
 }
 
 #[derive(Clone, Debug)]
@@ -70,6 +74,14 @@ impl ClientSettings {
         self.show_syntax_errors
     }
 
+    pub(crate) fn completion(&self) -> CompletionFeatureOptions {
+        self.completion
+    }
+
+    pub(crate) fn rename(&self) -> RenameFeatureOptions {
+        self.rename
+    }
+
     pub(crate) fn from_options(options: &ClientOptions) -> Self {
         Self::from_layered_options(&[options])
     }
@@ -78,6 +90,8 @@ impl ClientSettings {
         let mut fix_all = None;
         let mut unsafe_fixes = None;
         let mut show_syntax_errors = None;
+        let mut completion = CompletionFeatureOptions::default();
+        let mut rename = RenameFeatureOptions::default();
 
         for options in option_layers {
             if options.fix_all.is_some() {
@@ -89,12 +103,16 @@ impl ClientSettings {
             if options.show_syntax_errors.is_some() {
                 show_syntax_errors = options.show_syntax_errors;
             }
+            completion = options.server.completion_layered_over(completion);
+            rename = options.server.rename_layered_over(rename);
         }
 
         Self {
             fix_all: fix_all.unwrap_or(true),
             unsafe_fixes: unsafe_fixes.unwrap_or(false),
             show_syntax_errors: show_syntax_errors.unwrap_or(false),
+            completion,
+            rename,
         }
     }
 }

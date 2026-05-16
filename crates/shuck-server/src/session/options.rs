@@ -64,7 +64,13 @@ impl ClientOptions {
 pub struct ServerOptions {
     /// Workspace-wide symbol search configuration.
     pub workspace_symbols: WorkspaceSymbolFeatureOptions,
+    /// Completion configuration.
+    pub completion: CompletionFeatureOptions,
+    /// Rename configuration.
+    pub rename: RenameFeatureOptions,
     workspace_symbols_overrides: WorkspaceSymbolFeatureOptionsOverrides,
+    completion_overrides: CompletionFeatureOptionsOverrides,
+    rename_overrides: RenameFeatureOptionsOverrides,
 }
 
 impl ServerOptions {
@@ -76,6 +82,29 @@ impl ServerOptions {
             self.workspace_symbols_overrides.apply_to(base)
         } else if self.workspace_symbols != WorkspaceSymbolFeatureOptions::default() {
             self.workspace_symbols
+        } else {
+            base
+        }
+    }
+
+    pub(crate) fn completion_layered_over(
+        &self,
+        base: CompletionFeatureOptions,
+    ) -> CompletionFeatureOptions {
+        if self.completion_overrides.has_overrides() {
+            self.completion_overrides.apply_to(base)
+        } else if self.completion != CompletionFeatureOptions::default() {
+            self.completion
+        } else {
+            base
+        }
+    }
+
+    pub(crate) fn rename_layered_over(&self, base: RenameFeatureOptions) -> RenameFeatureOptions {
+        if self.rename_overrides.has_overrides() {
+            self.rename_overrides.apply_to(base)
+        } else if self.rename != RenameFeatureOptions::default() {
+            self.rename
         } else {
             base
         }
@@ -92,6 +121,10 @@ impl<'de> Deserialize<'de> for ServerOptions {
         struct RawServerOptions {
             #[serde(default)]
             workspace_symbols: WorkspaceSymbolFeatureOptionsOverrides,
+            #[serde(default)]
+            completion: CompletionFeatureOptionsOverrides,
+            #[serde(default)]
+            rename: RenameFeatureOptionsOverrides,
         }
 
         let raw = RawServerOptions::deserialize(deserializer)?;
@@ -99,7 +132,11 @@ impl<'de> Deserialize<'de> for ServerOptions {
             workspace_symbols: raw
                 .workspace_symbols
                 .apply_to(WorkspaceSymbolFeatureOptions::default()),
+            completion: raw.completion.apply_to(CompletionFeatureOptions::default()),
+            rename: raw.rename.apply_to(RenameFeatureOptions::default()),
             workspace_symbols_overrides: raw.workspace_symbols,
+            completion_overrides: raw.completion,
+            rename_overrides: raw.rename,
         })
     }
 }
@@ -138,6 +175,79 @@ pub struct WorkspaceSymbolFeatureOptions {
     pub max_files: usize,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct CompletionFeatureOptionsOverrides {
+    #[serde(default)]
+    include_runtime_names: Option<bool>,
+    #[serde(default)]
+    include_keywords: Option<bool>,
+}
+
+impl CompletionFeatureOptionsOverrides {
+    fn has_overrides(self) -> bool {
+        self.include_runtime_names.is_some() || self.include_keywords.is_some()
+    }
+
+    fn apply_to(self, base: CompletionFeatureOptions) -> CompletionFeatureOptions {
+        CompletionFeatureOptions {
+            include_runtime_names: self
+                .include_runtime_names
+                .unwrap_or(base.include_runtime_names),
+            include_keywords: self.include_keywords.unwrap_or(base.include_keywords),
+        }
+    }
+}
+
+/// Configuration for `textDocument/completion`.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionFeatureOptions {
+    /// Include runtime-provided parameter names.
+    #[serde(default = "default_completion_include_runtime_names")]
+    pub include_runtime_names: bool,
+    /// Include shell keywords in command-position completion.
+    #[serde(default = "default_completion_include_keywords")]
+    pub include_keywords: bool,
+}
+
+impl Default for CompletionFeatureOptions {
+    fn default() -> Self {
+        Self {
+            include_runtime_names: true,
+            include_keywords: true,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct RenameFeatureOptionsOverrides {
+    #[serde(default)]
+    allow_cross_file: Option<bool>,
+}
+
+impl RenameFeatureOptionsOverrides {
+    fn has_overrides(self) -> bool {
+        self.allow_cross_file.is_some()
+    }
+
+    fn apply_to(self, base: RenameFeatureOptions) -> RenameFeatureOptions {
+        RenameFeatureOptions {
+            allow_cross_file: self.allow_cross_file.unwrap_or(base.allow_cross_file),
+        }
+    }
+}
+
+/// Configuration for rename requests.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameFeatureOptions {
+    /// Allow rename edits outside the current document.
+    #[serde(default)]
+    pub allow_cross_file: bool,
+}
+
 impl Default for WorkspaceSymbolFeatureOptions {
     fn default() -> Self {
         Self {
@@ -153,6 +263,14 @@ fn default_workspace_symbols_enabled() -> bool {
 
 fn default_workspace_symbols_max_files() -> usize {
     5000
+}
+
+fn default_completion_include_runtime_names() -> bool {
+    true
+}
+
+fn default_completion_include_keywords() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize, Default)]
