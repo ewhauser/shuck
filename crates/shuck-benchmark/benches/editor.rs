@@ -3,14 +3,17 @@ use criterion::{
 };
 use shuck_benchmark::{TestFile, benchmark_cases, configure_benchmark_allocator, parse_fixture};
 use shuck_indexer::Indexer;
-use shuck_semantic::{EditorDocumentSymbol, SemanticModel};
+use shuck_semantic::{EditorCompletionOptions, EditorDocumentSymbol, SemanticModel};
 
 configure_benchmark_allocator!();
 
 struct PreparedEditorInput {
+    source: &'static str,
+    indexer: Indexer,
     semantic: SemanticModel,
     binding_count: u64,
     hover_probes: Vec<usize>,
+    completion_probes: Vec<usize>,
 }
 
 fn prepare_editor_input(source: &'static str) -> PreparedEditorInput {
@@ -19,11 +22,15 @@ fn prepare_editor_input(source: &'static str) -> PreparedEditorInput {
     let semantic = SemanticModel::build(&output.file, source, &indexer);
     let binding_count = semantic.bindings().len() as u64;
     let hover_probes = hover_probes(source, &semantic);
+    let completion_probes = completion_probes(source);
 
     PreparedEditorInput {
+        source,
+        indexer,
         semantic,
         binding_count,
         hover_probes,
+        completion_probes,
     }
 }
 
@@ -103,10 +110,117 @@ fn run_hover_queries_for_inputs(inputs: &[PreparedEditorInput]) -> usize {
     inputs.iter().map(run_hover_queries).sum()
 }
 
+fn completion_probes(source: &str) -> Vec<usize> {
+    let mut probes = source
+        .match_indices('$')
+        .take(64)
+        .map(|(offset, _)| offset + 1)
+        .collect::<Vec<_>>();
+    probes.extend(
+        source
+            .match_indices('\n')
+            .take(64)
+            .map(|(offset, _)| offset + 1),
+    );
+    probes.sort_unstable();
+    probes.dedup();
+    if probes.is_empty() {
+        probes.push(source.len());
+    }
+    probes
+}
+
+fn run_completion_queries(input: &PreparedEditorInput) -> usize {
+    let query = input.semantic.editor_query();
+    let count = input
+        .completion_probes
+        .iter()
+        .filter_map(|offset| {
+            query.completions_at_offset(
+                input.source,
+                &input.indexer,
+                *offset,
+                EditorCompletionOptions::default(),
+            )
+        })
+        .map(|completions| completions.items.len())
+        .sum();
+    black_box(count)
+}
+
+fn run_completion_queries_for_inputs(inputs: &[PreparedEditorInput]) -> usize {
+    inputs.iter().map(run_completion_queries).sum()
+}
+
+fn run_definition_queries(input: &PreparedEditorInput) -> usize {
+    let query = input.semantic.editor_query();
+    let count = input
+        .hover_probes
+        .iter()
+        .map(|offset| query.definition_spans_at_offset(*offset).len())
+        .sum();
+    black_box(count)
+}
+
+fn run_definition_queries_for_inputs(inputs: &[PreparedEditorInput]) -> usize {
+    inputs.iter().map(run_definition_queries).sum()
+}
+
+fn run_references_queries(input: &PreparedEditorInput) -> usize {
+    let query = input.semantic.editor_query();
+    let count = input
+        .hover_probes
+        .iter()
+        .map(|offset| query.occurrences_at_offset(*offset, true).len())
+        .sum();
+    black_box(count)
+}
+
+fn run_references_queries_for_inputs(inputs: &[PreparedEditorInput]) -> usize {
+    inputs.iter().map(run_references_queries).sum()
+}
+
+fn run_document_highlight_queries(input: &PreparedEditorInput) -> usize {
+    let query = input.semantic.editor_query();
+    let count = input
+        .hover_probes
+        .iter()
+        .map(|offset| query.occurrences_at_offset(*offset, true).len())
+        .sum();
+    black_box(count)
+}
+
+fn run_document_highlight_queries_for_inputs(inputs: &[PreparedEditorInput]) -> usize {
+    inputs.iter().map(run_document_highlight_queries).sum()
+}
+
+fn run_rename_queries(input: &PreparedEditorInput) -> usize {
+    let query = input.semantic.editor_query();
+    let count = input
+        .hover_probes
+        .iter()
+        .filter_map(|offset| query.rename_set_at_offset(*offset).ok())
+        .map(|rename| rename.spans.len())
+        .sum();
+    black_box(count)
+}
+
+fn run_rename_queries_for_inputs(inputs: &[PreparedEditorInput]) -> usize {
+    inputs.iter().map(run_rename_queries).sum()
+}
+
 fn hover_probe_count(inputs: &[PreparedEditorInput]) -> u64 {
     inputs
         .iter()
         .map(|input| input.hover_probes.len() as u64)
+        .sum::<u64>()
+        .max(1)
+}
+
+fn completion_probe_count(inputs: &[PreparedEditorInput]) -> u64 {
+    inputs
+        .iter()
+        .map(|input| input.completion_probes.len() as u64)
         .sum::<u64>()
         .max(1)
 }
@@ -172,5 +286,73 @@ fn bench_editor_hover(c: &mut Criterion) {
     warm_group.finish();
 }
 
-criterion_group!(benches, bench_editor_document_symbols, bench_editor_hover);
+fn bench_editor_completion(c: &mut Criterion) {
+    let mut group = c.benchmark_group("editor_completion");
+    for case in benchmark_cases() {
+        let inputs = prepare_editor_inputs(case.files);
+        group.sample_size(case.speed.sample_size());
+        group.throughput(Throughput::Elements(completion_probe_count(&inputs)));
+        group.bench_function(BenchmarkId::from_parameter(case.name), move |b| {
+            b.iter(|| run_completion_queries_for_inputs(&inputs));
+        });
+    }
+    group.finish();
+}
+
+fn bench_editor_navigation(c: &mut Criterion) {
+    let mut definition_group = c.benchmark_group("editor_definition");
+    for case in benchmark_cases() {
+        let inputs = prepare_editor_inputs(case.files);
+        definition_group.sample_size(case.speed.sample_size());
+        definition_group.throughput(Throughput::Elements(hover_probe_count(&inputs)));
+        definition_group.bench_function(BenchmarkId::from_parameter(case.name), move |b| {
+            b.iter(|| run_definition_queries_for_inputs(&inputs));
+        });
+    }
+    definition_group.finish();
+
+    let mut references_group = c.benchmark_group("editor_references");
+    for case in benchmark_cases() {
+        let inputs = prepare_editor_inputs(case.files);
+        references_group.sample_size(case.speed.sample_size());
+        references_group.throughput(Throughput::Elements(hover_probe_count(&inputs)));
+        references_group.bench_function(BenchmarkId::from_parameter(case.name), move |b| {
+            b.iter(|| run_references_queries_for_inputs(&inputs));
+        });
+    }
+    references_group.finish();
+
+    let mut highlight_group = c.benchmark_group("editor_document_highlight");
+    for case in benchmark_cases() {
+        let inputs = prepare_editor_inputs(case.files);
+        highlight_group.sample_size(case.speed.sample_size());
+        highlight_group.throughput(Throughput::Elements(hover_probe_count(&inputs)));
+        highlight_group.bench_function(BenchmarkId::from_parameter(case.name), move |b| {
+            b.iter(|| run_document_highlight_queries_for_inputs(&inputs));
+        });
+    }
+    highlight_group.finish();
+}
+
+fn bench_editor_rename(c: &mut Criterion) {
+    let mut group = c.benchmark_group("editor_rename");
+    for case in benchmark_cases() {
+        let inputs = prepare_editor_inputs(case.files);
+        group.sample_size(case.speed.sample_size());
+        group.throughput(Throughput::Elements(hover_probe_count(&inputs)));
+        group.bench_function(BenchmarkId::from_parameter(case.name), move |b| {
+            b.iter(|| run_rename_queries_for_inputs(&inputs));
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_editor_document_symbols,
+    bench_editor_hover,
+    bench_editor_completion,
+    bench_editor_navigation,
+    bench_editor_rename
+);
 criterion_main!(benches);

@@ -146,8 +146,16 @@ impl Server {
                 }),
                 file_operations: None,
             }),
-            document_formatting_provider: None,
-            document_range_formatting_provider: None,
+            completion_provider: Some(types::CompletionOptions {
+                resolve_provider: Some(true),
+                trigger_characters: Some(vec!["$".to_owned(), "{".to_owned()]),
+                ..types::CompletionOptions::default()
+            }),
+            definition_provider: Some(OneOf::Left(true)),
+            references_provider: Some(OneOf::Left(true)),
+            document_highlight_provider: Some(OneOf::Left(true)),
+            document_formatting_provider: Some(OneOf::Left(true)),
+            document_range_formatting_provider: Some(OneOf::Left(true)),
             document_symbol_provider: Some(OneOf::Left(true)),
             workspace_symbol_provider: Some(OneOf::Right(types::WorkspaceSymbolOptions {
                 work_done_progress_options: WorkDoneProgressOptions {
@@ -174,6 +182,12 @@ impl Server {
                 },
             }),
             hover_provider: Some(types::HoverProviderCapability::Simple(true)),
+            rename_provider: Some(OneOf::Right(types::RenameOptions {
+                prepare_provider: Some(true),
+                work_done_progress_options: WorkDoneProgressOptions {
+                    work_done_progress: Some(true),
+                },
+            })),
             text_document_sync: Some(TextDocumentSyncCapability::Options(
                 TextDocumentSyncOptions {
                     open_close: Some(true),
@@ -302,10 +316,32 @@ mod tests {
     use crate::Client;
 
     #[test]
-    fn does_not_advertise_formatting_capabilities() {
+    fn advertises_formatting_capabilities() {
         let capabilities = Server::server_capabilities(PositionEncoding::UTF16);
-        assert!(capabilities.document_formatting_provider.is_none());
-        assert!(capabilities.document_range_formatting_provider.is_none());
+        assert_eq!(
+            capabilities.document_formatting_provider,
+            Some(OneOf::Left(true))
+        );
+        assert_eq!(
+            capabilities.document_range_formatting_provider,
+            Some(OneOf::Left(true))
+        );
+    }
+
+    #[test]
+    fn advertises_navigation_completion_and_rename_capabilities() {
+        let capabilities = Server::server_capabilities(PositionEncoding::UTF16);
+        assert!(capabilities.completion_provider.is_some());
+        assert_eq!(capabilities.definition_provider, Some(OneOf::Left(true)));
+        assert_eq!(capabilities.references_provider, Some(OneOf::Left(true)));
+        assert_eq!(
+            capabilities.document_highlight_provider,
+            Some(OneOf::Left(true))
+        );
+        let Some(OneOf::Right(rename)) = capabilities.rename_provider else {
+            panic!("expected rename options");
+        };
+        assert_eq!(rename.prepare_provider, Some(true));
     }
 
     #[test]

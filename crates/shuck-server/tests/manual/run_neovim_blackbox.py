@@ -18,10 +18,13 @@ FIXTURE_ROOT = MANUAL_ROOT / "fixtures" / "workspace"
 
 SCENARIOS = [
     "diagnostics/open_edit",
+    "completion/semantic_completion",
     "hover/rule_directive",
     "hover/semantic_symbol",
+    "navigation/definition_references_highlights",
     "symbols/document_symbols",
     "symbols/workspace_symbols",
+    "rename/same_file",
     "code_actions/quick_fix",
     "code_actions/fix_all",
     "formatting/request_round_trip",

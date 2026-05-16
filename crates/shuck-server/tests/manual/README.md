@@ -34,10 +34,13 @@ python3 crates/shuck-server/tests/manual/run_neovim_blackbox.py --case code_acti
 Available scenarios:
 
 - `diagnostics/open_edit`
+- `completion/semantic_completion`
 - `hover/rule_directive`
 - `hover/semantic_symbol`
+- `navigation/definition_references_highlights`
 - `symbols/document_symbols`
 - `symbols/workspace_symbols`
+- `rename/same_file`
 - `code_actions/quick_fix`
 - `code_actions/fix_all`
 - `formatting/request_round_trip`
@@ -48,6 +51,5 @@ temporary workspace, launches `nvim --headless`, and exits non-zero if either
 the Neovim-side assertions or the server transport fail.
 
 The formatting scenario currently verifies request round-trip behavior only.
-`shuck-server` does not advertise formatting capabilities yet, and
 `shuck-formatter` is still a no-op stub, so the expected result today is an
 empty edit list rather than rewritten buffer contents.

@@ -42,8 +42,18 @@ pub(super) fn request(req: server::Request) -> Task {
         request::CodeActionResolve::METHOD => {
             sync_request_task::<request::CodeActionResolve>(req)
         }
+        request::Completion::METHOD => {
+            background_request_task::<request::Completion>(req, BackgroundSchedule::Worker)
+        }
+        request::CompletionResolve::METHOD => sync_request_task::<request::CompletionResolve>(req),
+        request::Definition::METHOD => {
+            background_request_task::<request::Definition>(req, BackgroundSchedule::Worker)
+        }
         request::DocumentDiagnostic::METHOD => {
             background_request_task::<request::DocumentDiagnostic>(req, BackgroundSchedule::Worker)
+        }
+        request::DocumentHighlight::METHOD => {
+            background_request_task::<request::DocumentHighlight>(req, BackgroundSchedule::Worker)
         }
         request::DocumentSymbols::METHOD => {
             background_request_task::<request::DocumentSymbols>(req, BackgroundSchedule::Worker)
@@ -57,6 +67,15 @@ pub(super) fn request(req: server::Request) -> Task {
         }
         request::Hover::METHOD => {
             background_request_task::<request::Hover>(req, BackgroundSchedule::Worker)
+        }
+        request::PrepareRename::METHOD => {
+            background_request_task::<request::PrepareRename>(req, BackgroundSchedule::Worker)
+        }
+        request::References::METHOD => {
+            background_request_task::<request::References>(req, BackgroundSchedule::Worker)
+        }
+        request::Rename::METHOD => {
+            background_request_task::<request::Rename>(req, BackgroundSchedule::Worker)
         }
         request::WorkspaceSymbols::METHOD => {
             background_session_request_task::<request::WorkspaceSymbols>(

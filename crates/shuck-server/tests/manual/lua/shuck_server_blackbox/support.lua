@@ -131,6 +131,44 @@ function M.buffer_text(bufnr)
   return table.concat(M.buffer_lines(bufnr), "\n")
 end
 
+function M.document_identifier(bufnr)
+  return { uri = vim.uri_from_bufnr(bufnr) }
+end
+
+function M.position_for_nth(bufnr, needle, index)
+  local text = M.buffer_text(bufnr)
+  local start = 1
+  local found
+  for _ = 0, index do
+    found = string.find(text, needle, start, true)
+    assert(found ~= nil, "failed to find " .. vim.inspect(needle) .. " occurrence " .. tostring(index))
+    start = found + #needle
+  end
+
+  local before = string.sub(text, 1, found - 1)
+  local line = 0
+  local line_start = 1
+  while true do
+    local newline = string.find(before, "\n", line_start, true)
+    if newline == nil then
+      break
+    end
+    line = line + 1
+    line_start = newline + 1
+  end
+
+  return {
+    line = line,
+    character = #string.sub(before, line_start),
+  }
+end
+
+function M.position_after_nth(bufnr, needle, index)
+  local position = M.position_for_nth(bufnr, needle, index)
+  position.character = position.character + #needle
+  return position
+end
+
 function M.set_buffer_contents(bufnr, lines)
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
 end
@@ -207,10 +245,6 @@ function M.client_request_sync(client, method, params, bufnr, timeout_ms)
   return result
 end
 
-local function document_identifier(bufnr)
-  return { uri = vim.uri_from_bufnr(bufnr) }
-end
-
 function M.document_range(bufnr)
   local line_count = vim.api.nvim_buf_line_count(bufnr)
   local last_line = vim.api.nvim_buf_get_lines(bufnr, line_count - 1, line_count, false)[1] or ""
@@ -225,7 +259,7 @@ end
 
 function M.pull_diagnostics(bufnr)
   local report = M.buffer_request_sync(bufnr, "textDocument/diagnostic", {
-    textDocument = document_identifier(bufnr),
+    textDocument = M.document_identifier(bufnr),
   }, 5000)
 
   if report == nil then
@@ -255,7 +289,7 @@ end
 function M.code_actions(bufnr, diagnostics, opts)
   opts = opts or {}
   return M.buffer_request_sync(bufnr, "textDocument/codeAction", {
-    textDocument = document_identifier(bufnr),
+    textDocument = M.document_identifier(bufnr),
     range = opts.range or diagnostics[1].range or M.document_range(bufnr),
     context = {
       diagnostics = diagnostics,
@@ -293,7 +327,7 @@ end
 
 function M.hover_at(bufnr, line, character)
   local result = M.buffer_request_sync(bufnr, "textDocument/hover", {
-    textDocument = document_identifier(bufnr),
+    textDocument = M.document_identifier(bufnr),
     position = { line = line, character = character },
   }, 5000)
   assert(result ~= nil, "hover response was empty")

@@ -68,7 +68,12 @@ pub use dataflow::{
 /// Declaration records discovered while building the semantic model.
 pub use declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 /// Editor-facing semantic query types.
-pub use editor::{EditorDocumentSymbol, EditorHover, EditorQuery, EditorSymbol, EditorSymbolKind};
+pub use editor::{
+    EditorCompletion, EditorCompletionKind, EditorCompletionOptions, EditorCompletions,
+    EditorDocumentSymbol, EditorFunctionCallTarget, EditorHover, EditorOccurrence,
+    EditorOccurrenceKind, EditorQuery, EditorRuntimeNameTarget, EditorSymbol, EditorSymbolKind,
+    EditorSymbolTarget, RenameSet, RenameUnavailable,
+};
 /// Direct function-call reachability query types.
 pub use function_call_reachability::{
     DirectFunctionCallReachability, DirectFunctionCallWindow, FunctionCallCandidate,

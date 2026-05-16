@@ -215,6 +215,41 @@ pub(crate) fn single_replacement_edit(
     })
 }
 
+pub(crate) fn single_replacement_edit_in_range(
+    text: &str,
+    range: TextRange,
+    replacement: &str,
+    index: &shuck_indexer::LineIndex,
+    encoding: PositionEncoding,
+) -> Option<lsp_types::TextEdit> {
+    let start = usize::from(range.start());
+    let end = usize::from(range.end());
+    let original = text
+        .get(start..end)
+        .expect("replacement range must use valid text boundaries");
+    if original == replacement {
+        return None;
+    }
+
+    let prefix_len = common_prefix_len(original, replacement);
+    let suffix_len = common_suffix_len(&original[prefix_len..], &replacement[prefix_len..]);
+    let original_end = original.len().saturating_sub(suffix_len);
+    let replacement_end = replacement.len().saturating_sub(suffix_len);
+
+    Some(lsp_types::TextEdit {
+        range: to_lsp_range(
+            TextRange::new(
+                shuck_ast::TextSize::new((start + prefix_len) as u32),
+                shuck_ast::TextSize::new((start + original_end) as u32),
+            ),
+            text,
+            index,
+            encoding,
+        ),
+        new_text: replacement[prefix_len..replacement_end].to_owned(),
+    })
+}
+
 fn common_prefix_len(left: &str, right: &str) -> usize {
     left.chars()
         .zip(right.chars())
@@ -261,5 +296,23 @@ mod tests {
         let index = shuck_indexer::LineIndex::new(source);
 
         assert!(single_replacement_edit(source, source, &index, PositionEncoding::UTF16).is_none());
+    }
+
+    #[test]
+    fn ranged_replacement_edit_stays_within_target_range() {
+        let source = "echo one\necho two\n";
+        let index = shuck_indexer::LineIndex::new(source);
+        let edit = single_replacement_edit_in_range(
+            source,
+            TextRange::new(shuck_ast::TextSize::new(9), shuck_ast::TextSize::new(18)),
+            "printf two\n",
+            &index,
+            PositionEncoding::UTF16,
+        )
+        .expect("replacement should produce an edit");
+
+        assert_eq!(edit.range.start, lsp_types::Position::new(1, 0));
+        assert_eq!(edit.range.end, lsp_types::Position::new(1, 4));
+        assert_eq!(edit.new_text, "printf");
     }
 }

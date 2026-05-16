@@ -1920,7 +1920,7 @@ fn check_invalid_extend_exclude_pattern_reports_discovery_error() {
 fn check_watch_reruns_when_files_change() {
     let tempdir = tempdir().unwrap();
     let script = tempdir.path().join("watch.sh");
-    fs::write(&script, "#!/bin/bash\necho ok\n").unwrap();
+    fs::write(&script, "#!/bin/bash\nunused=1\necho ok\n").unwrap();
 
     let mut child = ProcessCommand::new(assert_cmd::cargo::cargo_bin("shuck"));
     child
@@ -1940,22 +1940,23 @@ fn check_watch_reruns_when_files_change() {
 
     let initial_ready = wait_for_output(&rx, &mut captured, Duration::from_secs(10), |output| {
         output.stderr.contains("Starting linter in watch mode...")
+            && output.stdout.contains("watch.sh:2:1: warning[C001]")
     });
     if !initial_ready {
         stop_child(&mut child);
         let _ = stdout_reader.join();
         let _ = stderr_reader.join();
         panic!(
-            "watch mode did not emit its startup banner\nstdout:\n{}\nstderr:\n{}",
+            "watch mode did not emit its startup banner and initial report\nstdout:\n{}\nstderr:\n{}",
             captured.stdout, captured.stderr
         );
     }
 
-    fs::write(&script, "#!/bin/bash\nunused=1\necho ok\n").unwrap();
+    fs::write(&script, "#!/bin/bash\necho ok\nunused=1\n").unwrap();
 
     let rerun_ready = wait_for_output(&rx, &mut captured, Duration::from_secs(10), |output| {
         output.stderr.contains("File change detected...")
-            && output.stdout.contains("watch.sh:2:1: warning[C001]")
+            && output.stdout.contains("watch.sh:3:1: warning[C001]")
     });
 
     stop_child(&mut child);

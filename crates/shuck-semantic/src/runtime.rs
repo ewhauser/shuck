@@ -256,6 +256,12 @@ const ALWAYS_USED_BINDINGS: &[&str] = &["IFS", "PATH", "CDPATH", "COMPREPLY", "F
 const BASH_ALWAYS_USED_BINDINGS: &[&str] = &["COMPREPLY"];
 const EMPTY_IMPLICIT_READS: &[&str] = &[];
 const READ_IMPLICIT_READS: &[&str] = &["IFS"];
+const COMMON_KNOWN_BUILTINS: &[&str] = &[
+    "break", "builtin", "command", "continue", "exit", "export", "getopts", "printf", "read",
+    "readonly", "return",
+];
+const BASH_KNOWN_BUILTINS: &[&str] = &["mapfile", "readarray"];
+const ZSH_KNOWN_BUILTINS: &[&str] = &["compinit", "integer", "zparseopts", "zstyle"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RuntimePrelude {
@@ -310,6 +316,34 @@ impl RuntimePrelude {
     pub(crate) fn is_preinitialized_associative_array(&self, name: &Name) -> bool {
         self.shell_dialect == ShellDialect::Zsh
             && contains_name(ZSH_PREINITIALIZED_ASSOCIATIVE_ARRAYS, name)
+    }
+
+    pub(crate) fn preinitialized_names(&self) -> Vec<&'static str> {
+        let mut names = Vec::new();
+        names.extend_from_slice(self.common_preinitialized);
+        if self.bash_enabled {
+            names.extend_from_slice(self.bash_preinitialized);
+        }
+        if self.shell_dialect == ShellDialect::Zsh {
+            names.extend_from_slice(self.zsh_preinitialized);
+        }
+        names.sort_unstable();
+        names.dedup();
+        names
+    }
+
+    pub(crate) fn known_builtin_names(&self) -> Vec<&'static str> {
+        let mut names = Vec::new();
+        names.extend_from_slice(COMMON_KNOWN_BUILTINS);
+        if self.bash_enabled {
+            names.extend_from_slice(BASH_KNOWN_BUILTINS);
+        }
+        if self.shell_dialect == ShellDialect::Zsh {
+            names.extend_from_slice(ZSH_KNOWN_BUILTINS);
+        }
+        names.sort_unstable();
+        names.dedup();
+        names
     }
 
     pub(crate) fn is_always_used_binding(&self, name: &Name) -> bool {

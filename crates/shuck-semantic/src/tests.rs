@@ -275,6 +275,217 @@ printf '%s\\n' '$foo'
     }
 }
 
+#[test]
+fn editor_navigation_returns_definitions_references_and_highlights() {
+    let source = "\
+build() { :; }
+name=one
+name=two
+echo \"$name\"
+build
+";
+    let model = model(source);
+    let query = model.editor_query();
+
+    let variable_ref = span_for_nth(source, "name", 2);
+    let definitions = query.definition_spans_at_offset(variable_ref.start.offset);
+    assert_eq!(
+        definitions
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>(),
+        ["name", "name"]
+    );
+
+    let variable_occurrences = query.occurrences_at_offset(variable_ref.start.offset, true);
+    assert_eq!(
+        variable_occurrences
+            .iter()
+            .map(|occurrence| (occurrence.span.slice(source), occurrence.kind))
+            .collect::<Vec<_>>(),
+        [
+            ("name", EditorOccurrenceKind::Write),
+            ("name", EditorOccurrenceKind::Write),
+            ("name", EditorOccurrenceKind::Read)
+        ]
+    );
+
+    let function_call = span_for_nth(source, "build", 1);
+    assert_eq!(
+        query
+            .definition_spans_at_offset(function_call.start.offset)
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>(),
+        ["build() { :; }\n"]
+    );
+    assert_eq!(
+        query
+            .occurrences_at_offset(function_call.start.offset, true)
+            .iter()
+            .map(|occurrence| (occurrence.span.slice(source), occurrence.kind))
+            .collect::<Vec<_>>(),
+        [
+            ("build", EditorOccurrenceKind::Write),
+            ("build", EditorOccurrenceKind::Read)
+        ]
+    );
+}
+
+#[test]
+fn editor_completion_is_context_aware() {
+    let source = "\
+build() {
+  local inside=1
+  printf '%s\\n' \"$\"
+}
+outside=1
+";
+    let output = Parser::with_dialect(source, ShellDialect::Bash)
+        .parse()
+        .unwrap();
+    let indexer = Indexer::new(source, &output);
+    let model = SemanticModel::build(&output.file, source, &indexer);
+    let query = model.editor_query();
+
+    let parameter_offset = source.find("\"$").unwrap() + 2;
+    let parameter_names = query
+        .completions_at_offset(
+            source,
+            &indexer,
+            parameter_offset,
+            EditorCompletionOptions {
+                include_runtime_names: false,
+                include_keywords: true,
+            },
+        )
+        .expect("parameter completion should be available")
+        .items
+        .into_iter()
+        .map(|item| item.name.to_string())
+        .collect::<Vec<_>>();
+    assert!(parameter_names.contains(&"inside".to_owned()));
+    assert!(!parameter_names.contains(&"outside".to_owned()));
+
+    let command_names = query
+        .completions_at_offset(
+            source,
+            &indexer,
+            source.len(),
+            EditorCompletionOptions::default(),
+        )
+        .expect("command completion should be available")
+        .items
+        .into_iter()
+        .map(|item| (item.name.to_string(), item.kind))
+        .collect::<Vec<_>>();
+    assert!(command_names.contains(&("build".to_owned(), EditorCompletionKind::Function)));
+    assert!(command_names.contains(&("printf".to_owned(), EditorCompletionKind::Builtin)));
+    assert!(command_names.contains(&("if".to_owned(), EditorCompletionKind::Keyword)));
+}
+
+#[test]
+fn editor_declaration_completion_uses_current_command_segment() {
+    for segment in [
+        "echo ok; local ex",
+        "echo ok && local ex",
+        "echo ok || local ex",
+    ] {
+        let source = format!(
+            "\
+existing=1
+build() {{ {segment}
+}}
+"
+        );
+        let output = Parser::with_dialect(&source, ShellDialect::Bash)
+            .parse()
+            .unwrap();
+        let indexer = Indexer::new(&source, &output);
+        let model = SemanticModel::build(&output.file, &source, &indexer);
+        let offset = source.find("local ex").unwrap() + "local ex".len();
+        let names = model
+            .editor_query()
+            .completions_at_offset(
+                &source,
+                &indexer,
+                offset,
+                EditorCompletionOptions::default(),
+            )
+            .unwrap_or_else(|| panic!("declaration completion should be available for {segment}"))
+            .items
+            .into_iter()
+            .map(|item| item.name.to_string())
+            .collect::<Vec<_>>();
+
+        assert!(names.contains(&"existing".to_owned()), "{segment}");
+    }
+}
+
+#[test]
+fn editor_completion_is_blocked_at_first_comment_byte() {
+    let source = "echo ok\n# comment\n";
+    let output = Parser::with_dialect(source, ShellDialect::Bash)
+        .parse()
+        .unwrap();
+    let indexer = Indexer::new(source, &output);
+    let model = SemanticModel::build(&output.file, source, &indexer);
+    let offset = source.find('#').unwrap();
+
+    assert!(
+        model
+            .editor_query()
+            .completions_at_offset(source, &indexer, offset, EditorCompletionOptions::default())
+            .is_none()
+    );
+}
+
+#[test]
+fn editor_rename_is_conservative() {
+    let source = "\
+build() { :; }
+name=one
+echo \"$name\"
+declare -n ref=name
+build
+";
+    let model = model(source);
+    let query = model.editor_query();
+
+    let variable_ref = span_for_nth(source, "name", 1);
+    let rename = query
+        .rename_set_at_offset(variable_ref.start.offset)
+        .expect("plain variable should be renameable");
+    assert_eq!(rename.name.as_str(), "name");
+    assert_eq!(
+        rename
+            .spans
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>(),
+        ["name", "name"]
+    );
+
+    let function_call = span_for_nth(source, "build", 1);
+    let rename = query
+        .rename_set_at_offset(function_call.start.offset)
+        .expect("function call should be renameable");
+    assert_eq!(
+        rename
+            .spans
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>(),
+        ["build", "build"]
+    );
+
+    let nameref = span_for_nth(source, "ref", 0);
+    assert_eq!(
+        query.rename_set_at_offset(nameref.start.offset),
+        Err(RenameUnavailable::Nameref)
+    );
+}
+
 fn span_for_nth(source: &str, needle: &str, index: usize) -> Span {
     let start_offset = source
         .match_indices(needle)

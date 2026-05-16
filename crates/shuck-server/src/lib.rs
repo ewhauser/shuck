@@ -19,6 +19,7 @@ pub use workspace::{Workspace, Workspaces};
 mod analysis;
 mod edit;
 mod editor;
+mod editor_features;
 mod fix;
 mod format;
 mod lint;

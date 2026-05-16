@@ -16,7 +16,10 @@ pub(crate) use self::capabilities::ResolvedClientCapabilities;
 pub use self::index::DocumentQuery;
 pub(crate) use self::index::WorkspaceSettingsSnapshot;
 pub(crate) use self::options::{AllOptions, WorkspaceOptionsMap};
-pub use self::options::{ClientOptions, GlobalOptions, WorkspaceSymbolFeatureOptions};
+pub use self::options::{
+    ClientOptions, CompletionFeatureOptions, GlobalOptions, RenameFeatureOptions,
+    WorkspaceSymbolFeatureOptions,
+};
 pub(crate) use self::settings::ShuckSettings;
 pub use client::Client;
 
