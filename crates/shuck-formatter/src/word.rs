@@ -943,7 +943,8 @@ fn render_command_substitution(
         push_indented_rendered_block(rendered, trimmed, options, 1);
         rendered.push_str("\n)");
     } else {
-        let compacted_brace_group = compact_inline_brace_group_command_substitution(trimmed);
+        let compacted_brace_group =
+            compact_inline_brace_group_command_substitution(trimmed, options);
         let trimmed = compacted_brace_group.as_deref().unwrap_or(trimmed);
         rendered.push_str("$(");
         if trimmed.starts_with('(') {
@@ -956,7 +957,10 @@ fn render_command_substitution(
     Some(())
 }
 
-fn compact_inline_brace_group_command_substitution(rendered: &str) -> Option<String> {
+fn compact_inline_brace_group_command_substitution(
+    rendered: &str,
+    options: &ResolvedShellFormatOptions,
+) -> Option<String> {
     let body = rendered.strip_prefix("{\n")?;
     let close_offset = body.rfind("\n}")?;
     let group_body = &body[..close_offset];
@@ -971,9 +975,10 @@ fn compact_inline_brace_group_command_substitution(rendered: &str) -> Option<Str
     let mut compacted = String::new();
     compacted.push_str("{ ");
     compacted.push_str(first);
+    let indent = command_substitution_indent_prefix(options, 1);
     for line in rest {
         compacted.push('\n');
-        compacted.push('\t');
+        compacted.push_str(&indent);
         compacted.push_str(line);
     }
     if !compacted.trim_end().ends_with(';') {
@@ -1007,21 +1012,18 @@ fn push_indented_rendered_block(
     options: &ResolvedShellFormatOptions,
     levels: usize,
 ) {
-    let prefix = match options.indent_style() {
-        IndentStyle::Tab => "\t".repeat(levels),
-        IndentStyle::Space => " ".repeat(levels * usize::from(options.indent_width())),
-    };
+    let prefix = command_substitution_indent_prefix(options, levels);
     let mut pending_heredocs = Vec::new();
-    let mut active_heredoc = None;
+    let mut active_heredoc: Option<RenderedHeredocDelimiter> = None;
 
     for (index, line) in rendered.lines().enumerate() {
         if index > 0 {
             target.push('\n');
         }
 
-        if let Some(delimiter) = active_heredoc.as_deref() {
+        if let Some(delimiter) = active_heredoc.as_ref() {
             target.push_str(line);
-            if line == delimiter {
+            if delimiter.matches_line(line) {
                 active_heredoc = pop_next_heredoc_delimiter(&mut pending_heredocs);
             }
             continue;
@@ -1037,11 +1039,35 @@ fn push_indented_rendered_block(
     }
 }
 
-fn pop_next_heredoc_delimiter(pending: &mut Vec<String>) -> Option<String> {
+fn command_substitution_indent_prefix(
+    options: &ResolvedShellFormatOptions,
+    levels: usize,
+) -> String {
+    match options.indent_style() {
+        IndentStyle::Tab => "\t".repeat(levels),
+        IndentStyle::Space => " ".repeat(levels * usize::from(options.indent_width())),
+    }
+}
+
+fn pop_next_heredoc_delimiter(
+    pending: &mut Vec<RenderedHeredocDelimiter>,
+) -> Option<RenderedHeredocDelimiter> {
     (!pending.is_empty()).then(|| pending.remove(0))
 }
 
-pub(crate) fn heredoc_delimiters_in_rendered_line(line: &str) -> Vec<String> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RenderedHeredocDelimiter {
+    pub(crate) delimiter: String,
+    pub(crate) strip_tabs: bool,
+}
+
+impl RenderedHeredocDelimiter {
+    pub(crate) fn matches_line(&self, line: &str) -> bool {
+        line == self.delimiter || self.strip_tabs && line.trim_start_matches('\t') == self.delimiter
+    }
+}
+
+pub(crate) fn heredoc_delimiters_in_rendered_line(line: &str) -> Vec<RenderedHeredocDelimiter> {
     let mut delimiters = Vec::new();
     let mut search_start = 0;
     while let Some(offset) = line[search_start..].find("<<") {
@@ -1058,6 +1084,7 @@ pub(crate) fn heredoc_delimiters_in_rendered_line(line: &str) -> Vec<String> {
         }
 
         let mut rest = rest;
+        let strip_tabs = rest.starts_with('-');
         if rest.starts_with('-') {
             delimiter_start += '-'.len_utf8();
             rest = &line[delimiter_start..];
@@ -1074,7 +1101,10 @@ pub(crate) fn heredoc_delimiters_in_rendered_line(line: &str) -> Vec<String> {
         }
 
         let token = &rest[..token_end];
-        delimiters.push(unquote_heredoc_delimiter(token));
+        delimiters.push(RenderedHeredocDelimiter {
+            delimiter: unquote_heredoc_delimiter(token),
+            strip_tabs,
+        });
         search_start = delimiter_start + token_end;
     }
     delimiters
@@ -2135,5 +2165,20 @@ mod tests {
         );
 
         assert_eq!(rendered, "\tcat <<EOF\nbody\nEOF\n\techo done");
+    }
+
+    #[test]
+    fn indented_rendered_block_closes_tab_stripped_heredocs() {
+        let options = ShellFormatOptions::default().resolve("", None);
+        let mut rendered = String::new();
+
+        push_indented_rendered_block(
+            &mut rendered,
+            "cat <<-EOF\n\tbody\n\tEOF\necho done",
+            &options,
+            1,
+        );
+
+        assert_eq!(rendered, "\tcat <<-EOF\n\tbody\n\tEOF\n\techo done");
     }
 }

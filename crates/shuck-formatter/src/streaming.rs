@@ -24,8 +24,8 @@ use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::word::{
-    heredoc_delimiters_in_rendered_line, render_arithmetic_expr_to_buf, render_heredoc_body_to_buf,
-    render_pattern_syntax_to_buf, render_word_syntax_with_facts_to_buf,
+    RenderedHeredocDelimiter, heredoc_delimiters_in_rendered_line, render_arithmetic_expr_to_buf,
+    render_heredoc_body_to_buf, render_pattern_syntax_to_buf, render_word_syntax_with_facts_to_buf,
 };
 
 enum StreamOutput<'source> {
@@ -362,7 +362,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
     fn write_heredoc_aware_multiline_text(&mut self, text: &str) {
         let mut pending_heredocs = Vec::new();
-        let mut active_heredoc = None;
+        let mut active_heredoc: Option<RenderedHeredocDelimiter> = None;
         for (index, line) in text.split('\n').enumerate() {
             if index > 0 {
                 self.push_output_str(self.line_ending());
@@ -373,9 +373,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 continue;
             }
 
-            if let Some(delimiter) = active_heredoc.as_deref() {
+            if let Some(delimiter) = active_heredoc.as_ref() {
                 self.write_verbatim(line);
-                if line == delimiter {
+                if delimiter.matches_line(line) {
                     active_heredoc = pop_next_heredoc_delimiter(&mut pending_heredocs);
                 }
                 continue;
@@ -3571,7 +3571,9 @@ fn sequence_verbatim_span(statements: &StmtSeq, source: &str) -> Option<Span> {
         .reduce(|left, right| left.merge(right))
 }
 
-fn pop_next_heredoc_delimiter(pending: &mut Vec<String>) -> Option<String> {
+fn pop_next_heredoc_delimiter(
+    pending: &mut Vec<RenderedHeredocDelimiter>,
+) -> Option<RenderedHeredocDelimiter> {
     (!pending.is_empty()).then(|| pending.remove(0))
 }
 

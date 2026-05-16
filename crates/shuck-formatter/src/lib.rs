@@ -766,9 +766,13 @@ mod tests {
 
     #[test]
     fn heredoc_delimiter_scan_ignores_non_redirection_operators() {
+        let delimiters = heredoc_delimiters_in_rendered_line("cat <<EOF 2<<-'ERR'");
         assert_eq!(
-            heredoc_delimiters_in_rendered_line("cat <<EOF 2<<-'ERR'"),
-            vec!["EOF".to_string(), "ERR".to_string()]
+            delimiters
+                .iter()
+                .map(|delimiter| (delimiter.delimiter.as_str(), delimiter.strip_tabs))
+                .collect::<Vec<_>>(),
+            vec![("EOF", false), ("ERR", true)]
         );
         assert!(heredoc_delimiters_in_rendered_line("echo $((1 << 2))").is_empty());
         assert!(heredoc_delimiters_in_rendered_line("((1 << 2))").is_empty());
@@ -1155,6 +1159,23 @@ mod tests {
             formatted,
             FormattedSource::Formatted(
                 "num=\"$({ getconf _NPROCESSORS_ONLN ||\n\tgrep -c ^processor /proc/cpuinfo; } 2>/dev/null)\"\n"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn compacted_inline_brace_group_command_substitution_honors_space_indent() {
+        let source = "num=\"$({ getconf _NPROCESSORS_ONLN ||\n             grep -c ^processor /proc/cpuinfo; } 2>/dev/null)\"\n";
+        let options = ShellFormatOptions::default()
+            .with_indent_style(IndentStyle::Space)
+            .with_indent_width(2);
+        let formatted = format_source(source, None, &options).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "num=\"$({ getconf _NPROCESSORS_ONLN ||\n  grep -c ^processor /proc/cpuinfo; } 2>/dev/null)\"\n"
                     .to_string()
             )
         );
