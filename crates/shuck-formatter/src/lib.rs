@@ -174,20 +174,12 @@ fn format_file(
     file: File,
     resolved: ResolvedShellFormatOptions,
 ) -> Result<FormattedSource> {
-    if resolved.keep_padding() {
-        return Ok(FormattedSource::Unchanged);
-    }
-
     let output = format_output(source, file, &resolved)?;
 
     Ok(formatted_source_from_output(source, output))
 }
 
 fn check_file(source: &str, mut file: File, resolved: ResolvedShellFormatOptions) -> Result<bool> {
-    if resolved.keep_padding() {
-        return Ok(true);
-    }
-
     if resolved.minify() {
         let output = format_output(source, file, &resolved)?;
         return Ok(output == source);
@@ -1334,6 +1326,18 @@ mod tests {
         let formatted = format_source("a=1  b=2\n", None, &options).unwrap();
 
         assert_eq!(formatted, FormattedSource::Unchanged);
+    }
+
+    #[test]
+    fn keep_padding_still_formats_unpadded_syntax() {
+        let options = ShellFormatOptions::default().with_keep_padding(true);
+        let formatted = format_source("#!/bin/bash\n echo hi\n", None, &options).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted("#!/bin/bash\necho hi\n".to_string())
+        );
+        assert!(!source_is_formatted("#!/bin/bash\n echo hi\n", None, &options).unwrap());
     }
 
     #[test]
