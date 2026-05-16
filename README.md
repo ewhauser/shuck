@@ -1,18 +1,19 @@
 # shuck
 
-A shell script linter, written in Rust.
+A fast shell script linter, formatter, and language server, written in Rust.
 
-Shuck parses and analyzes shell scripts to catch common bugs, style issues, and portability problems. It also lints shell embedded in supported non-shell files such as GitHub Actions workflows. A caching layer keeps incremental runs fast.
+Shuck parses, analyzes, formats, and powers editor feedback for shell scripts. It catches common bugs, style issues, security hazards, performance traps, and portability problems; formats shell sources with configurable layout rules; and ships a first-party Language Server Protocol (LSP) server for editor diagnostics, fixes, navigation, symbols, hover, completion, and formatting. It also lints shell embedded in supported non-shell files such as GitHub Actions workflows. A caching layer keeps incremental runs fast.
 
 ## Features
 
-- High performance — ~20x faster than ShellCheck
+- High performance — ~20-100x faster than ShellCheck
 - Linting with rules across correctness, security, performance, portability, and style categories
 - Safe and unsafe fix support for selected diagnostics
+- Shell formatting with write, check, diff, stdin, and configuration-file modes
 - Multi-dialect support: bash, sh/POSIX, mksh, zsh
 - Automatic file discovery via extensions and shebang detection
 - Embedded shell extraction for GitHub Actions workflows and composite actions
-- First-party Language Server Protocol server for editor diagnostics and code actions
+- First-party Language Server Protocol server for editor diagnostics, code actions, navigation, symbols, hover, completion, and formatting
 - ShellCheck suppression compatibility (`# shellcheck disable=SC2086`)
 
 ## Installation
@@ -44,6 +45,15 @@ Pre-built binaries are available for macOS (aarch64) and Linux (x86_64) from the
 
 ## Usage
 
+Shuck's main workflows are split across subcommands:
+
+| Workflow | Command |
+|----------|---------|
+| Lint files, directories, and supported embedded shell | `shuck check` |
+| Format shell files | `shuck format` |
+| Run the editor language server over stdio | `shuck server` |
+| Remove project cache entries | `shuck clean` |
+
 ### Lint
 
 ```sh
@@ -74,6 +84,31 @@ shuck check --no-cache .
 # Override the cache location
 shuck --cache-dir .tmp/shuck-cache check .
 ```
+
+### Format
+
+The formatter CLI is currently experimental, so set `SHUCK_EXPERIMENTAL=1` when invoking `shuck format`:
+
+```sh
+# Format files in place
+SHUCK_EXPERIMENTAL=1 shuck format .
+
+# Check formatting without modifying files
+SHUCK_EXPERIMENTAL=1 shuck format --check .
+
+# Show unified diffs for files that would change
+SHUCK_EXPERIMENTAL=1 shuck format --diff .
+
+# Format stdin and infer the dialect from a filename
+printf 'foo(){\necho hi\n}\n' | SHUCK_EXPERIMENTAL=1 shuck format --stdin-filename script.bash -
+
+# Override formatting options for a single run
+SHUCK_EXPERIMENTAL=1 shuck format --indent-style space --indent-width 2 --function-next-line .
+```
+
+`shuck format` uses the same file discovery, exclusion, gitignore, project-root, and cache behavior as `shuck check`, but it only rewrites standalone shell files. Embedded GitHub Actions `run:` blocks are linted by `shuck check`; they are not rewritten by the formatter.
+
+In `--check` and `--diff` modes, `shuck format` exits with status `1` when files would change and leaves the files untouched. Formatter parse errors exit with status `2`.
 
 ### Pre-commit
 
@@ -119,7 +154,7 @@ Shuck ships with a first-party Language Server Protocol (LSP) server in the main
 shuck server
 ```
 
-The server analyzes the editor's in-memory buffer, publishes diagnostics as you edit, and reuses the same parser, lint rules, configuration, and fix machinery as `shuck check`. It currently supports incremental document sync, real-time diagnostics, quick fixes, `source.fixAll.shuck`, disable-this-line actions, and hover help for rule codes in `# shuck:` and `# shellcheck` directives.
+The server analyzes the editor's in-memory buffer, publishes diagnostics as you edit, and reuses the same parser, lint rules, formatter settings, configuration, and fix machinery as the CLI. It currently supports incremental document sync, real-time diagnostics, quick fixes, `source.fixAll.shuck`, disable-this-line actions, whole-document and range formatting, hover help for rule codes in `# shuck:` and `# shellcheck` directives, completion, go-to-definition, references, document highlights, document symbols, and workspace symbols.
 
 Any editor that can launch a stdio LSP server can use Shuck by pointing shell buffers at `shuck server`. See the [editor integration guide](https://ewhauser.github.io/shuck/docs/editors/) for setup examples.
 
@@ -237,7 +272,20 @@ embedded = true
 per-file-shell = { "scripts/bash/**" = "bash", "vendor/**/*.sh" = "sh" }
 # Add shell overrides on top of earlier config or CLI layers.
 extend-per-file-shell = { "tools/**/*.zsh" = "zsh" }
+
+[format]
+# Configure `shuck format` and editor formatting.
+indent-style = "tab"       # tab | space
+indent-width = 4           # used when indent-style = "space"
+binary-next-line = false   # put binary operators on continuation lines
+switch-case-indent = false # indent case branch bodies
+space-redirects = false    # add spaces around redirection operators
+keep-padding = false       # preserve safe horizontal padding
+function-next-line = false # put function opening braces on their own line
+never-split = false        # prefer compact layouts
 ```
+
+Formatter dialect is inferred from the file name or shebang. For stdin or one-off formatting runs, use `shuck format --dialect bash|posix|mksh|zsh`.
 
 ## File discovery
 
@@ -259,7 +307,7 @@ Gitignore and `.ignore` files are respected by default. Use `--no-respect-gitign
 
 ## Caching
 
-Shuck caches lint results per file in a shared cache root outside the project tree by default. The default location follows the OS cache directory convention, which is typically `~/Library/Caches/shuck` on macOS and `$XDG_CACHE_HOME/shuck` or `~/.cache/shuck` on Linux.
+Shuck caches lint and format results per file in a shared cache root outside the project tree by default. The default location follows the OS cache directory convention, which is typically `~/Library/Caches/shuck` on macOS and `$XDG_CACHE_HOME/shuck` or `~/.cache/shuck` on Linux.
 
 Override the cache root with `--cache-dir` or `SHUCK_CACHE_DIR`.
 
