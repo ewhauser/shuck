@@ -254,17 +254,17 @@ pub(crate) fn document_symbols(
     _client: &Client,
     _params: types::DocumentSymbolParams,
 ) -> crate::server::Result<DocumentSymbolResponse> {
-    let Some(shell) = crate::lint::document_shell(&snapshot) else {
+    let Some(analysis) = snapshot.analysis() else {
         return Ok(None);
     };
 
     let query = snapshot.query();
-    let source = query.document().contents();
-    let editor_symbols = editor_document_symbols(source, query.file_path().as_deref(), shell);
+    let source = analysis.source();
+    let editor_symbols = analysis.semantic().editor_query().document_symbols();
     let render = SymbolRenderContext {
         uri: query.file_url(),
         source,
-        line_index: query.document().index(),
+        line_index: analysis.line_index(),
         encoding: snapshot.encoding(),
     };
 

@@ -12,14 +12,12 @@ pub(crate) fn hover(
     _client: &Client,
     params: types::HoverParams,
 ) -> crate::server::Result<Option<types::Hover>> {
-    let Some(shell) = crate::lint::document_shell(&snapshot) else {
+    let Some(analysis) = snapshot.analysis() else {
         return Ok(None);
     };
 
     let query = snapshot.query();
-    let source = query.document().contents();
-    let path = query.file_path();
-    let parsed = crate::editor::parse_editor_document(source, shell);
+    let source = analysis.source();
     let shellcheck_map = ShellCheckCodeMap::default();
     let position = params.text_document_position_params.position;
     let offset = usize::from(
@@ -34,8 +32,8 @@ pub(crate) fn hover(
     if let Some(hover) = directive_hover(
         &snapshot,
         source,
-        query.document().index(),
-        parsed.indexer.comment_index(),
+        analysis.line_index(),
+        analysis.indexer().comment_index(),
         &shellcheck_map,
         params.text_document_position_params.position,
         offset,
@@ -43,15 +41,15 @@ pub(crate) fn hover(
         return Ok(Some(hover));
     }
 
-    let semantic = crate::editor::semantic_for_parsed_document(&parsed, source, path.as_deref());
+    let semantic = analysis.semantic();
     let Some(semantic_hover) = semantic.editor_query().hover_at_offset(offset) else {
         return Ok(None);
     };
     Ok(Some(render_semantic_hover(
         &snapshot,
         source,
-        query.document().index(),
-        &semantic,
+        analysis.line_index(),
+        semantic,
         &semantic_hover,
     )))
 }
