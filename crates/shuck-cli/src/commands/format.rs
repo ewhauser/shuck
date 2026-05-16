@@ -312,12 +312,6 @@ mod tests {
     use crate::args::FileSelectionArgs;
     use shuck_config::ConfigArguments;
 
-    fn make_file_read_only(path: &Path) {
-        let mut permissions = fs::metadata(path).unwrap().permissions();
-        permissions.set_readonly(true);
-        fs::set_permissions(path, permissions).unwrap();
-    }
-
     fn format_args(no_cache: bool) -> FormatCommand {
         FormatCommand {
             files: vec![PathBuf::from(".")],
@@ -347,7 +341,7 @@ mod tests {
     }
 
     #[test]
-    fn no_op_formatter_does_not_parse_sources() {
+    fn formatter_reports_parse_errors() {
         let tempdir = tempdir().unwrap();
         fs::write(tempdir.path().join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
 
@@ -360,8 +354,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(report.exit_status(FormatMode::Write), ExitStatus::Success);
-        assert!(report.errors.is_empty());
+        assert_eq!(report.exit_status(FormatMode::Write), ExitStatus::Error);
+        assert_eq!(report.errors.len(), 1);
         assert_eq!(report.cache_hits, 0);
         assert_eq!(report.cache_misses, 1);
     }
@@ -411,8 +405,7 @@ mod tests {
         assert_eq!(first.cache_hits, 0);
         assert_eq!(first.cache_misses, 1);
 
-        fs::write(&script, "#!/bin/bash\nif true\n").unwrap();
-        make_file_read_only(&script);
+        fs::write(&script, "#!/bin/bash\n echo ok\n").unwrap();
 
         let second = run_format_with_cwd(
             &format_args(false),
@@ -425,6 +418,11 @@ mod tests {
         assert_eq!(second.cache_hits, 0);
         assert_eq!(second.cache_misses, 1);
         assert!(second.errors.is_empty());
+        assert_eq!(second.changed_files, vec![PathBuf::from("script.sh")]);
+        assert_eq!(
+            fs::read_to_string(&script).unwrap(),
+            "#!/bin/bash\necho ok\n"
+        );
     }
 
     #[test]
@@ -447,7 +445,7 @@ mod tests {
     }
 
     #[test]
-    fn check_mode_treats_no_op_output_as_unchanged() {
+    fn check_mode_reports_unformatted_files_without_writing() {
         let tempdir = tempdir().unwrap();
         let script = tempdir.path().join("script.sh");
         let source = "#!/bin/bash\n echo ok\n";
@@ -465,8 +463,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(report.exit_status(FormatMode::Check), ExitStatus::Success);
-        assert!(report.changed_files.is_empty());
+        assert_eq!(report.exit_status(FormatMode::Check), ExitStatus::Failure);
+        assert_eq!(report.changed_files, vec![PathBuf::from("script.sh")]);
         assert_eq!(fs::read_to_string(&script).unwrap(), source);
     }
 

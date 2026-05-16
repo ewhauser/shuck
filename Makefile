@@ -143,7 +143,7 @@ test-oracle-shfmt-fixtures:
 
 test-oracle-shfmt-benchmark:
 	SHUCK_RUN_SHFMT_ORACLE=1 \
-	$(NIX_DEVELOP) cargo test -p shuck-formatter --test oracle_shfmt benchmark_corpus_matches_shfmt -- --ignored --exact --nocapture
+	$(NIX_DEVELOP) cargo test -p shuck-benchmark --test formatter_corpus formatter_benchmark_corpus_matches_shfmt_baseline -- --ignored --exact --nocapture
 
 test-oracle-shellcheck-cli:
 	$(NIX_DEVELOP) cargo test -p shuck-cli --test oracle_shellcheck_cli -- --ignored --nocapture

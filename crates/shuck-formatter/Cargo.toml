@@ -15,3 +15,10 @@ readme = "README.md"
 benchmarking = []
 
 [dependencies]
+shuck-ast = { workspace = true }
+shuck-format = { workspace = true }
+shuck-parser = { workspace = true }
+
+[dev-dependencies]
+shuck-linter = { workspace = true }
+similar = { workspace = true }

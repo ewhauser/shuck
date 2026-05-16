@@ -13,11 +13,16 @@ function M.run(t)
   }, bufnr, 5000)
 
   assert(edits ~= nil, "expected formatting request to return an edit list")
-  assert(#edits == 0, "expected formatting request to reflect the current formatter no-op behavior")
+  assert(#edits == 1, "expected formatting request to indent the command body")
+  assert(vim.deep_equal(edits[1].range.start, { line = 2, character = 0 }))
+  assert(vim.deep_equal(edits[1].range["end"], { line = 2, character = 0 }))
+  assert(edits[1].newText == "\t", "expected formatting edit to insert one tab")
+
+  t.apply_text_edits(bufnr, client, edits)
   t.wait_for_buffer_lines(bufnr, {
     "#!/bin/sh",
     "if true; then",
-    "echo ok",
+    "\techo ok",
     "fi",
   })
 end
