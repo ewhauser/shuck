@@ -212,6 +212,7 @@ pub(crate) fn prepare_rename(
     _client: &Client,
     params: types::TextDocumentPositionParams,
 ) -> crate::server::Result<PrepareRenameResponse> {
+    reject_unsupported_cross_file_rename(&snapshot)?;
     let Some(analysis) = snapshot.analysis() else {
         return Ok(None);
     };
@@ -240,6 +241,7 @@ pub(crate) fn rename(
     _client: &Client,
     params: types::RenameParams,
 ) -> crate::server::Result<RenameResponse> {
+    reject_unsupported_cross_file_rename(&snapshot)?;
     let Some(analysis) = snapshot.analysis() else {
         return Ok(None);
     };
@@ -269,6 +271,16 @@ pub(crate) fn rename(
         &rename,
         &params.new_name,
     )))
+}
+
+fn reject_unsupported_cross_file_rename(snapshot: &DocumentSnapshot) -> crate::server::Result<()> {
+    if snapshot.client_settings().rename().allow_cross_file {
+        return Err(Error::new(
+            anyhow!("cross-file rename is not supported yet"),
+            ErrorCode::InvalidRequest,
+        ));
+    }
+    Ok(())
 }
 
 fn workspace_edit_for_rename(
@@ -429,10 +441,18 @@ mod tests {
 
     use super::*;
     use crate::{
-        Client, GlobalOptions, PositionEncoding, Session, TextDocument, Workspace, Workspaces,
+        Client, ClientOptions, GlobalOptions, PositionEncoding, Session, TextDocument, Workspace,
+        Workspaces,
     };
 
     fn make_snapshot(source: &str) -> (DocumentSnapshot, Client, Url) {
+        make_snapshot_with_options(source, ClientOptions::default())
+    }
+
+    fn make_snapshot_with_options(
+        source: &str,
+        options: ClientOptions,
+    ) -> (DocumentSnapshot, Client, Url) {
         let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
         let (client_sender, _client_receiver) = channel::unbounded();
         let client = Client::new(main_loop_sender, client_sender);
@@ -449,6 +469,7 @@ mod tests {
             &client,
         )
         .expect("session should initialize");
+        session.update_client_options(options);
         let uri = Url::from_file_path(workspace_root.join("script.sh"))
             .expect("script path should convert to URL");
         session.open_text_document(
@@ -626,5 +647,38 @@ mod tests {
         let edits = changes.get(&uri).expect("uri should have edits");
         assert_eq!(edits.len(), 2);
         assert!(edits.iter().all(|edit| edit.new_text == "other"));
+    }
+
+    #[test]
+    fn rename_rejects_cross_file_mode_until_supported() {
+        let source = "name=1\necho \"$name\"\n";
+        let options = serde_json::from_value(serde_json::json!({
+            "server": {
+                "rename": {
+                    "allowCrossFile": true
+                }
+            }
+        }))
+        .expect("rename options should deserialize");
+        let (snapshot, client, uri) = make_snapshot_with_options(source, options);
+        let reference_position = position_for_nth(source, "name", 1);
+
+        let error = rename(
+            snapshot,
+            &client,
+            RenameParams {
+                text_document_position: text_position(uri, reference_position),
+                new_name: "other".to_owned(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            },
+        )
+        .expect_err("cross-file rename mode should be rejected until supported");
+
+        assert_eq!(error.code as i32, ErrorCode::InvalidRequest as i32);
+        assert!(
+            error
+                .to_string()
+                .contains("cross-file rename is not supported yet")
+        );
     }
 }
