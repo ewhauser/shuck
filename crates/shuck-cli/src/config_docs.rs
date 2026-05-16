@@ -65,9 +65,10 @@ mod tests {
         let reference = generate_settings_reference();
 
         assert!(reference.contains("## `[check]`"));
+        assert!(reference.contains("## `[format]`"));
         assert!(reference.contains("## `[lint]`"));
         assert!(reference.contains("### `[lint.rule-options.c001]`"));
         assert!(reference.contains("#### `embedded`"));
-        assert!(!reference.contains("## `[format]`"));
+        assert!(reference.contains("#### `indent-style`"));
     }
 }

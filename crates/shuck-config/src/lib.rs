@@ -777,7 +777,7 @@ pub fn configuration_metadata() -> &'static [ConfigSectionMetadata] {
     &CONFIGURATION_METADATA
 }
 
-const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
+const CONFIGURATION_METADATA: [ConfigSectionMetadata; 4] = [
     ConfigSectionMetadata {
         key: "check",
         docs: "File-level analysis behavior for `shuck check`.",
@@ -788,6 +788,69 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
             value_type: "bool",
             example: "embedded = false",
         }],
+        sections: &[],
+    },
+    ConfigSectionMetadata {
+        key: "format",
+        docs: "Formatter style options for `shuck format`.",
+        fields: &[
+            ConfigFieldMetadata {
+                key: "binary-next-line",
+                docs: "Place binary list and pipeline operators at the start of continuation lines when a command is split.",
+                default: "false",
+                value_type: "bool",
+                example: "binary-next-line = true",
+            },
+            ConfigFieldMetadata {
+                key: "function-next-line",
+                docs: "Place function opening braces on the line after the function name.",
+                default: "false",
+                value_type: "bool",
+                example: "function-next-line = true",
+            },
+            ConfigFieldMetadata {
+                key: "indent-style",
+                docs: "Indent with tabs or spaces. Supported values are `tab` and `space`.",
+                default: r#""tab""#,
+                value_type: "string",
+                example: r#"indent-style = "space""#,
+            },
+            ConfigFieldMetadata {
+                key: "indent-width",
+                docs: "Number of spaces to use for each indentation level when `indent-style = \"space\"`.",
+                default: "8",
+                value_type: "integer",
+                example: "indent-width = 2",
+            },
+            ConfigFieldMetadata {
+                key: "keep-padding",
+                docs: "Preserve existing horizontal padding in source regions where the formatter can do so safely.",
+                default: "false",
+                value_type: "bool",
+                example: "keep-padding = true",
+            },
+            ConfigFieldMetadata {
+                key: "never-split",
+                docs: "Prefer compact layouts and avoid optional line splitting.",
+                default: "false",
+                value_type: "bool",
+                example: "never-split = true",
+            },
+            ConfigFieldMetadata {
+                key: "space-redirects",
+                docs: "Insert spaces between redirection operators and their targets where the shell grammar allows it.",
+                default: "false",
+                value_type: "bool",
+                example: "space-redirects = true",
+            },
+            ConfigFieldMetadata {
+                key: "switch-case-indent",
+                docs: "Indent `case` branch bodies one level deeper than the branch pattern.",
+                default: "false",
+                value_type: "bool",
+                example: "switch-case-indent = true",
+            },
+        ],
         sections: &[],
     },
     ConfigSectionMetadata {

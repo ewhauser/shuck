@@ -34,10 +34,6 @@ fn configure_default_cache_env(cmd: &mut Command, root: &Path) {
     cmd.env("LOCALAPPDATA", local_appdata);
 }
 
-fn enable_experimental(cmd: &mut Command) {
-    cmd.env("SHUCK_EXPERIMENTAL", "1");
-}
-
 fn run_check_output(root: &Path, args: &[&str]) -> std::process::Output {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut cmd, root);
@@ -152,18 +148,6 @@ fn help_shows_commands() {
         .stdout(predicate::str::contains("--config <CONFIG_OPTION>"))
         .stdout(predicate::str::contains("--isolated"))
         .stdout(predicate::str::contains("--color <WHEN>"))
-        .stdout(predicate::str::contains("Format shell files").not())
-        .stdout(predicate::str::contains("clean"));
-}
-
-#[test]
-fn help_shows_format_when_experimental_enabled() {
-    let mut cmd = Command::cargo_bin("shuck").unwrap();
-    enable_experimental(&mut cmd);
-    cmd.arg("--help");
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("check"))
         .stdout(predicate::str::contains("Format shell files"))
         .stdout(predicate::str::contains("clean"));
 }
@@ -225,7 +209,6 @@ fn check_help_shows_rule_selection_options() {
 #[test]
 fn format_help_shows_file_selection_options() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
-    enable_experimental(&mut cmd);
     cmd.args(["format", "--help"]);
     cmd.assert()
         .success()
@@ -265,12 +248,12 @@ fn config_file_and_isolated_conflict() {
 }
 
 #[test]
-fn format_subcommand_requires_experimental_env() {
+fn format_subcommand_is_available_without_env() {
+    let tempdir = tempdir().unwrap();
     let mut cmd = Command::cargo_bin("shuck").unwrap();
-    cmd.arg("format");
-    cmd.assert().code(2).stderr(predicate::str::contains(
-        "the `format` subcommand is experimental; set SHUCK_EXPERIMENTAL=1 to enable it",
-    ));
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path()).arg("format");
+    cmd.assert().success().stdout("");
 }
 
 #[test]
@@ -1618,7 +1601,6 @@ fn format_good_file_succeeds_and_preserves_contents() {
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut cmd, tempdir.path());
-    enable_experimental(&mut cmd);
     cmd.current_dir(tempdir.path()).arg("format");
     cmd.assert().success().stdout("");
 
@@ -1632,7 +1614,6 @@ fn format_check_and_diff_are_clean_for_valid_input() {
 
     let mut check = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut check, tempdir.path());
-    enable_experimental(&mut check);
     check
         .current_dir(tempdir.path())
         .args(["format", "--check"]);
@@ -1640,7 +1621,6 @@ fn format_check_and_diff_are_clean_for_valid_input() {
 
     let mut diff = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut diff, tempdir.path());
-    enable_experimental(&mut diff);
     diff.current_dir(tempdir.path()).args(["format", "--diff"]);
     diff.assert().success().stdout("");
 }
@@ -1652,7 +1632,6 @@ fn format_check_and_diff_report_noncanonical_input() {
 
     let mut check = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut check, tempdir.path());
-    enable_experimental(&mut check);
     check
         .current_dir(tempdir.path())
         .args(["format", "--check", "--function-next-line"]);
@@ -1660,7 +1639,6 @@ fn format_check_and_diff_report_noncanonical_input() {
 
     let mut diff = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut diff, tempdir.path());
-    enable_experimental(&mut diff);
     diff.current_dir(tempdir.path())
         .args(["format", "--diff", "--function-next-line"]);
     diff.assert()
@@ -1675,7 +1653,6 @@ fn format_broken_file_reports_parse_error() {
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut cmd, tempdir.path());
-    enable_experimental(&mut cmd);
     cmd.current_dir(tempdir.path()).arg("format");
     cmd.assert()
         .code(2)
@@ -1687,7 +1664,6 @@ fn format_stdin_round_trips_valid_input() {
     let source = "#!/bin/bash\necho ok\n";
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
-    enable_experimental(&mut cmd);
     cmd.args(["format", "-"]).write_stdin(source);
     cmd.assert().success().stdout(source);
 }
@@ -1695,7 +1671,6 @@ fn format_stdin_round_trips_valid_input() {
 #[test]
 fn format_stdin_filename_reports_parse_errors() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
-    enable_experimental(&mut cmd);
     cmd.args(["format", "--stdin-filename", "foo.sh"])
         .write_stdin("#!/bin/bash\nif true\n");
     cmd.assert()
@@ -1713,7 +1688,6 @@ fn format_stdin_uses_current_project_config() {
     .unwrap();
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
-    enable_experimental(&mut cmd);
     cmd.current_dir(tempdir.path())
         .args(["format", "-"])
         .write_stdin("foo(){\necho hi\n}\n");
@@ -1723,7 +1697,6 @@ fn format_stdin_uses_current_project_config() {
 #[test]
 fn format_stdin_filename_enforces_inferred_posix_dialect() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
-    enable_experimental(&mut cmd);
     cmd.args(["format", "--stdin-filename", "script.sh"])
         .write_stdin("[[ foo == bar ]]\n");
     cmd.assert()
@@ -1735,7 +1708,6 @@ fn format_stdin_filename_enforces_inferred_posix_dialect() {
 fn format_stdin_filename_accepts_common_shell_extensions() {
     for path in ["script.bash", "script.mksh", "script.ksh", "script.dash"] {
         let mut cmd = Command::cargo_bin("shuck").unwrap();
-        enable_experimental(&mut cmd);
         cmd.args(["format", "--stdin-filename", path])
             .write_stdin("echo ok\n");
         cmd.assert().success().stdout("echo ok\n");
@@ -1745,7 +1717,6 @@ fn format_stdin_filename_accepts_common_shell_extensions() {
 #[test]
 fn format_stdin_filename_infers_zsh_dialect() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
-    enable_experimental(&mut cmd);
     cmd.args(["format", "--stdin-filename", "script.zsh"])
         .write_stdin("print ${(m)foo}\n");
     cmd.assert().success().stdout("print ${(m)foo}\n");
@@ -1761,7 +1732,6 @@ fn format_stdin_rejects_configured_dialect() {
     .unwrap();
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
-    enable_experimental(&mut cmd);
     cmd.current_dir(tempdir.path())
         .args(["format", "-"])
         .write_stdin("print ${(m)foo}\n");
@@ -1774,7 +1744,6 @@ fn format_stdin_rejects_configured_dialect() {
 #[test]
 fn format_stdin_uses_cli_zsh_dialect_override() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
-    enable_experimental(&mut cmd);
     cmd.args(["format", "--dialect", "zsh", "-"])
         .write_stdin("print ${(m)foo}\n");
     cmd.assert().success().stdout("print ${(m)foo}\n");
@@ -1992,7 +1961,6 @@ fn format_exclude_skips_walked_files_but_not_explicit_files_without_force_exclud
 
     let mut walked = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut walked, tempdir.path());
-    enable_experimental(&mut walked);
     walked
         .current_dir(tempdir.path())
         .args(["format", "--exclude", "ignored.sh"]);
@@ -2001,7 +1969,6 @@ fn format_exclude_skips_walked_files_but_not_explicit_files_without_force_exclud
 
     let mut explicit = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut explicit, tempdir.path());
-    enable_experimental(&mut explicit);
     explicit
         .current_dir(tempdir.path())
         .args(["format", "--exclude", "ignored.sh", "ignored.sh"]);
@@ -2012,7 +1979,6 @@ fn format_exclude_skips_walked_files_but_not_explicit_files_without_force_exclud
 
     let mut forced = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut forced, tempdir.path());
-    enable_experimental(&mut forced);
     forced.current_dir(tempdir.path()).args([
         "format",
         "--exclude",
@@ -2035,14 +2001,12 @@ fn format_gitignore_and_force_exclude_flags_control_explicit_files() {
 
     let mut default_walk = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut default_walk, tempdir.path());
-    enable_experimental(&mut default_walk);
     default_walk.current_dir(tempdir.path()).arg("format");
     default_walk.assert().success().stdout("");
     assert_eq!(fs::read_to_string(&ignored).unwrap(), unformatted);
 
     let mut no_respect = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut no_respect, tempdir.path());
-    enable_experimental(&mut no_respect);
     no_respect
         .current_dir(tempdir.path())
         .args(["format", "--no-respect-gitignore"]);
@@ -2053,7 +2017,6 @@ fn format_gitignore_and_force_exclude_flags_control_explicit_files() {
 
     let mut explicit = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut explicit, tempdir.path());
-    enable_experimental(&mut explicit);
     explicit
         .current_dir(tempdir.path())
         .args(["format", "ignored.sh"]);
@@ -2064,7 +2027,6 @@ fn format_gitignore_and_force_exclude_flags_control_explicit_files() {
 
     let mut forced = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut forced, tempdir.path());
-    enable_experimental(&mut forced);
     forced
         .current_dir(tempdir.path())
         .args(["format", "--force-exclude", "ignored.sh"]);
@@ -2085,7 +2047,6 @@ fn format_honors_project_config_and_cli_overrides_it() {
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut cmd, tempdir.path());
-    enable_experimental(&mut cmd);
     cmd.current_dir(tempdir.path())
         .args(["format", "--function-next-line"]);
     cmd.assert().success().stdout("");
@@ -2106,7 +2067,6 @@ fn format_honors_explicit_global_config_file() {
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut cmd, tempdir.path());
-    enable_experimental(&mut cmd);
     cmd.current_dir(tempdir.path())
         .arg("--config")
         .arg(&config_path)
@@ -2129,7 +2089,6 @@ fn format_inline_global_config_override_beats_global_config_file() {
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut cmd, tempdir.path());
-    enable_experimental(&mut cmd);
     cmd.current_dir(tempdir.path())
         .arg("--config")
         .arg(&config_path)
@@ -2157,7 +2116,6 @@ fn format_isolated_ignores_discovered_project_config() {
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut cmd, tempdir.path());
-    enable_experimental(&mut cmd);
     cmd.current_dir(tempdir.path())
         .arg("--isolated")
         .arg("format");
@@ -2189,7 +2147,6 @@ fn format_prefers_nested_project_config_for_explicit_files() {
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut cmd, tempdir.path());
-    enable_experimental(&mut cmd);
     cmd.current_dir(tempdir.path())
         .args(["format", "nested/fn.sh"]);
     cmd.assert().success().stdout("");
@@ -2207,13 +2164,11 @@ fn format_cache_invalidates_when_formatter_options_change() {
 
     let mut initial = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut initial, tempdir.path());
-    enable_experimental(&mut initial);
     initial.current_dir(tempdir.path()).arg("format");
     initial.assert().success().stdout("");
 
     let mut check = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut check, tempdir.path());
-    enable_experimental(&mut check);
     check
         .current_dir(tempdir.path())
         .args(["format", "--check", "--function-next-line"]);

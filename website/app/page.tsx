@@ -42,7 +42,7 @@ export default function Home() {
                 </pre>
               </div>
               <div>
-                <p className="text-xs text-fg-dim mb-1 font-medium">Editor LSP</p>
+                <p className="text-xs text-fg-dim mb-1 font-medium">LSP Server</p>
                 <pre className="rounded-md bg-bg-secondary border border-fg-dim/20 px-3 py-2 text-sm font-mono text-fg-primary overflow-x-auto">
                   shuck server
                 </pre>
@@ -58,10 +58,10 @@ export default function Home() {
                 Docs
               </Link>
               <Link
-                href="/docs/editors"
+                href="/docs/lsp"
                 className="text-accent hover:underline"
               >
-                Editor Setup
+                LSP Server
               </Link>
               <Link
                 href="/docs/performance/benchmarks"

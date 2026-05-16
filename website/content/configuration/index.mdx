@@ -2,7 +2,7 @@
 
 Shuck can be configured through a `shuck.toml` or `.shuck.toml` file.
 
-This page covers Shuck's stable native configuration for `shuck check`, `shuck run`, and related native commands. ShellCheck compatibility mode uses `.shellcheckrc` instead; see the [ShellCheck compatibility guide](/docs/shellcheck-compat).
+This page covers Shuck's native configuration for `shuck check`, `shuck format`, `shuck run`, and related native commands. ShellCheck compatibility mode uses `.shellcheckrc` instead; see the [ShellCheck compatibility guide](/docs/shellcheck-compat).
 
 ## Default behavior
 
@@ -204,6 +204,28 @@ See the dedicated [Contracts guide](/docs/contracts) for the discovery boundary,
 examples, and when to prefer Contracts over more source resolution. The
 [Settings Reference](/docs/settings) includes the exact `[lint.contracts]`
 syntax.
+
+## Format settings
+
+The formatter reads style options from `[format]`.
+
+```toml
+[format]
+indent-style = "space"
+indent-width = 2
+binary-next-line = true
+switch-case-indent = true
+space-redirects = true
+keep-padding = true
+function-next-line = false
+never-split = false
+```
+
+Formatter config follows the same discovery and override rules as the rest of Shuck config. CLI flags passed to `shuck format` override `[format]` for that invocation.
+
+Dialect is the exception: `[format].dialect` is rejected so projects do not accidentally force one parser mode for every file. Use file names, shebangs, or `shuck format --dialect ...` for a one-off override.
+
+See the dedicated [Formatting guide](/docs/formatting) for command examples, stdin behavior, `--check`, `--diff`, `--simplify`, and `--minify`.
 
 ## Runtime settings
 

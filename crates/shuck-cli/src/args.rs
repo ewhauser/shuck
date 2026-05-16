@@ -5,7 +5,6 @@ use std::path::PathBuf;
 
 use clap::builder::Styles;
 use clap::builder::styling::{AnsiColor, Effects};
-use clap::error::ErrorKind;
 use clap::{
     Args as ClapArgs, ColorChoice, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum,
 };
@@ -20,7 +19,6 @@ const STYLES: Styles = Styles::styled()
     .usage(AnsiColor::Green.on_default().effects(Effects::BOLD))
     .literal(AnsiColor::Cyan.on_default().effects(Effects::BOLD))
     .placeholder(AnsiColor::Cyan.on_default());
-const EXPERIMENTAL_ENV_VAR: &str = "SHUCK_EXPERIMENTAL";
 
 /// Shell dialect override accepted by `shuck format`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -148,18 +146,6 @@ struct StableCli {
     command: StableCommand,
 }
 
-#[derive(Debug, Parser)]
-#[command(name = "shuck")]
-#[command(about = "Shell checker CLI for shuck")]
-#[command(version = env!("CARGO_PKG_VERSION"))]
-#[command(styles = STYLES)]
-struct ExperimentalCli {
-    #[command(flatten)]
-    global: GlobalArgs,
-    #[command(subcommand)]
-    command: ExperimentalCommand,
-}
-
 #[derive(Debug, Clone, ClapArgs)]
 struct GlobalArgs {
     /// Either a path to a TOML configuration file (`shuck.toml`), or a TOML
@@ -212,24 +198,6 @@ enum StableCommand {
     Install(InstallCommand),
     /// Spawn a shell session using a managed interpreter.
     Shell(ShellCommand),
-    #[command(hide = true)]
-    Format(FormatCommand),
-    /// Remove shuck cache entries for the provided paths' projects.
-    Clean(CleanCommand),
-}
-
-#[derive(Debug, Subcommand)]
-enum ExperimentalCommand {
-    /// Lint shell files and supported embedded shell scripts.
-    Check(Box<CheckCommand>),
-    /// Start the language server over stdio.
-    Server(ServerCommand),
-    /// Run a shell script with a managed interpreter.
-    Run(RunCommand),
-    /// Pre-install a managed shell interpreter or list available versions.
-    Install(InstallCommand),
-    /// Spawn a shell session using a managed interpreter.
-    Shell(ShellCommand),
     /// Format shell files.
     Format(FormatCommand),
     /// Remove shuck cache entries for the provided paths' projects.
@@ -264,13 +232,8 @@ impl Args {
         I: IntoIterator<Item = T>,
         T: Into<OsString> + Clone,
     {
-        if experimental_enabled() {
-            let parsed = parse_with_color::<ExperimentalCli, _, _>(itr)?;
-            Self::from_experimental(parsed)
-        } else {
-            let parsed = parse_with_color::<StableCli, _, _>(itr)?;
-            Self::from_stable(parsed)
-        }
+        let parsed = parse_with_color::<StableCli, _, _>(itr)?;
+        Self::from_stable(parsed)
     }
 }
 
@@ -289,41 +252,8 @@ impl Args {
             StableCommand::Run(command) => Command::Run(command),
             StableCommand::Install(command) => Command::Install(command),
             StableCommand::Shell(command) => Command::Shell(command),
-            StableCommand::Format(_) => {
-                return Err(clap::Error::raw(
-                    ErrorKind::InvalidSubcommand,
-                    format!(
-                        "the `format` subcommand is experimental; set {EXPERIMENTAL_ENV_VAR}=1 to enable it"
-                    ),
-                ));
-            }
+            StableCommand::Format(command) => Command::Format(command),
             StableCommand::Clean(command) => Command::Clean(command),
-        };
-
-        Ok(Self {
-            cache_dir,
-            config: ConfigArguments::from_cli(config, isolated)?,
-            color,
-            command,
-        })
-    }
-
-    fn from_experimental(value: ExperimentalCli) -> Result<Self, clap::Error> {
-        let ExperimentalCli { global, command } = value;
-        let GlobalArgs {
-            cache_dir,
-            config,
-            isolated,
-            color,
-        } = global;
-        let command = match command {
-            ExperimentalCommand::Check(command) => Command::Check(command),
-            ExperimentalCommand::Server(command) => Command::Server(command),
-            ExperimentalCommand::Run(command) => Command::Run(command),
-            ExperimentalCommand::Install(command) => Command::Install(command),
-            ExperimentalCommand::Shell(command) => Command::Shell(command),
-            ExperimentalCommand::Format(command) => Command::Format(command),
-            ExperimentalCommand::Clean(command) => Command::Clean(command),
         };
 
         Ok(Self {
@@ -352,15 +282,6 @@ pub enum Command {
     Format(FormatCommand),
     /// Remove shuck cache entries for the provided paths' projects.
     Clean(CleanCommand),
-}
-
-fn experimental_enabled() -> bool {
-    std::env::var_os(EXPERIMENTAL_ENV_VAR).is_some_and(|value| {
-        !matches!(
-            value.to_string_lossy().trim().to_ascii_lowercase().as_str(),
-            "" | "0" | "false" | "no" | "off"
-        )
-    })
 }
 
 /// Arguments for `shuck server`.
@@ -1166,6 +1087,7 @@ pub struct CleanCommand {
 mod tests {
     use super::*;
     use clap::builder::TypedValueParser;
+    use clap::error::ErrorKind;
     use shuck_linter::Rule;
 
     #[test]
