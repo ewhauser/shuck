@@ -5115,8 +5115,8 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
-    "fixStatus": "planned",
-    "fixAvailability": "none",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
     "fixSafety": "unsafe",
     "fixDescription": "Rewrite the surrounding split word as one double-quoted word, escaping literal inner quotes and bracing embedded scalar expansions as needed.",
     "examples": [
