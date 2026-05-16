@@ -101,6 +101,23 @@ fn test_nonempty_while_body_accepted() {
     );
 }
 
+#[test]
+fn test_background_terminator_before_loop_done_is_preserved() {
+    let input = "for item in a; do\n  echo \"$item\" &\ndone\n";
+    let script = Parser::new(input).parse().unwrap().file;
+    let (compound, redirects) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::For(command) = compound else {
+        panic!("expected for loop");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(
+        command.body[0].terminator,
+        Some(StmtTerminator::Background(BackgroundOperator::Plain))
+    );
+    assert_eq!(command.body[0].terminator_span.unwrap().slice(input), "&");
+}
+
 /// Issue #600: Subscript reader must handle nested ${...} containing brackets.
 
 #[test]

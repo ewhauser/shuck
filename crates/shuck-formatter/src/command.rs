@@ -78,7 +78,9 @@ impl FormatNodeRule<Stmt> for FormatStatement {
         }
 
         if !stmt.redirects.is_empty() && !emit_redirects_first {
-            write!(formatter, [space()])?;
+            if !redirect_has_adjacent_numeric_fd(&stmt.redirects[0], source) {
+                write!(formatter, [space()])?;
+            }
             format_redirect_list(&stmt.redirects, formatter)?;
         }
 
@@ -1102,6 +1104,7 @@ fn format_case_item(
     upper_bound: Option<usize>,
 ) -> FormatResult<()> {
     let source = formatter.context().source();
+    let body_upper_bound = case_item_body_upper_bound(item, upper_bound);
     let base_indent = usize::from(
         !formatter.context().options().compact_layout()
             && formatter.context().options().switch_case_indent(),
@@ -1130,7 +1133,7 @@ fn format_case_item(
         )
     } else if formatter.context().options().compact_layout() {
         write!(formatter, [space()])?;
-        format_stmt_sequence_with_upper_bound(item.body.as_slice(), formatter, upper_bound)?;
+        format_stmt_sequence_with_upper_bound(item.body.as_slice(), formatter, body_upper_bound)?;
         write!(
             formatter,
             [token("; "), token(case_terminator(item.terminator))]
@@ -1147,7 +1150,7 @@ fn format_case_item(
         }
 
         let commands_document = format_into_document(formatter, |nested| {
-            format_stmt_sequence_with_upper_bound(item.body.as_slice(), nested, upper_bound)
+            format_stmt_sequence_with_upper_bound(item.body.as_slice(), nested, body_upper_bound)
         })?;
         write!(
             formatter,
@@ -1596,7 +1599,7 @@ fn render_assignment_inner(
     rendered: &mut String,
 ) {
     let start = rendered.len();
-    render_assignment_head_to_buf(assignment, source, rendered);
+    render_assignment_head_with_options_to_buf(assignment, source, options, rendered);
     match &assignment.value {
         AssignmentValue::Scalar(value) => {
             render_word_syntax_with_optional_facts_to_buf(
@@ -1650,7 +1653,7 @@ fn render_keyed_array_elem_to_buf(
     rendered: &mut String,
 ) {
     rendered.push('[');
-    render_subscript_to_buf(key, source, rendered);
+    render_subscript_with_options_to_buf(key, source, options, rendered);
     rendered.push(']');
     rendered.push_str(operator);
     render_word_syntax_with_optional_facts_to_buf(
@@ -1669,10 +1672,32 @@ pub(crate) fn render_assignment_head_to_buf(
     source: &str,
     rendered: &mut String,
 ) {
+    render_assignment_head_inner(assignment, source, None, rendered);
+}
+
+fn render_assignment_head_with_options_to_buf(
+    assignment: &Assignment,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+    rendered: &mut String,
+) {
+    render_assignment_head_inner(assignment, source, Some(options), rendered);
+}
+
+fn render_assignment_head_inner(
+    assignment: &Assignment,
+    source: &str,
+    options: Option<&ResolvedShellFormatOptions>,
+    rendered: &mut String,
+) {
     rendered.push_str(assignment.target.name.as_str());
     if let Some(index) = &assignment.target.subscript {
         rendered.push('[');
-        render_subscript_to_buf(index, source, rendered);
+        if let Some(options) = options {
+            render_subscript_with_options_to_buf(index, source, options, rendered);
+        } else {
+            render_subscript_to_buf(index, source, rendered);
+        }
         rendered.push(']');
     }
     if assignment.append {
@@ -1796,6 +1821,24 @@ pub(crate) fn render_subscript_to_buf(subscript: &Subscript, source: &str, rende
     }
 
     render_source_text_to_buf(subscript.syntax_source_text(), source, rendered);
+}
+
+fn render_subscript_with_options_to_buf(
+    subscript: &Subscript,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+    rendered: &mut String,
+) {
+    if let Some(selector) = subscript.selector() {
+        rendered.push(selector.as_char());
+        return;
+    }
+
+    if let Some(word) = subscript.word_ast() {
+        render_word_syntax_to_buf(word, source, options, rendered);
+    } else {
+        render_source_text_to_buf(subscript.syntax_source_text(), source, rendered);
+    }
 }
 
 fn trim_unescaped_trailing_whitespace(text: &str) -> &str {
@@ -2329,7 +2372,7 @@ fn simple_command_format_span(command: &SimpleCommand) -> Span {
     for assignment in &command.assignments {
         span = merge_non_empty_span(span, assignment.span);
     }
-    if !command.name.parts.is_empty() {
+    if command.name.span != Span::new() {
         span = merge_non_empty_span(span, command.name.span);
     }
     for argument in &command.args {
@@ -2496,7 +2539,7 @@ fn emit_dangling_comments(
 }
 
 pub(crate) fn line_gap_break_count(current_line: usize, next_line: usize) -> usize {
-    next_line.saturating_sub(current_line).max(1)
+    next_line.saturating_sub(current_line).clamp(1, 2)
 }
 
 pub(crate) fn rendered_stmt_end_line(
@@ -2511,6 +2554,7 @@ pub(crate) fn rendered_stmt_end_line(
         _ if has_heredoc(stmt) => {
             span_render_end_line(stmt_verbatim_span(stmt, source), source, source_map)
         }
+        Command::Binary(command) => rendered_stmt_end_line(&command.right, source, source_map),
         Command::Compound(CompoundCommand::Subshell(commands)) => {
             let mut span = group_attachment_span(commands.as_slice(), source_map, '(', ')')
                 .unwrap_or_else(|| stmt_span(stmt));
@@ -2690,6 +2734,9 @@ pub(crate) fn stmt_render_start_line(
     options: &crate::options::ResolvedShellFormatOptions,
 ) -> usize {
     match &stmt.command {
+        Command::Binary(command) => {
+            stmt_render_start_line(&command.left, source, source_map, options)
+        }
         Command::Compound(CompoundCommand::BraceGroup(commands)) => {
             group_render_start_line(stmt, commands.as_slice(), source, source_map, '{', options)
         }
@@ -2776,6 +2823,12 @@ pub(crate) fn case_item_was_inline_in_source(item: &CaseItem) -> bool {
     item.patterns
         .last()
         .is_some_and(|pattern| pattern.span.end.line == stmt_span(stmt).start.line)
+}
+
+fn case_item_body_upper_bound(item: &CaseItem, fallback: Option<usize>) -> Option<usize> {
+    item.terminator_span
+        .map(|span| span.start.offset)
+        .or(fallback)
 }
 
 fn command_token_spans(command: &Command) -> Vec<Span> {
@@ -2992,6 +3045,17 @@ fn indent_levels(mut document: Document, levels: usize) -> Document {
         document = Document::from_element(indent(document));
     }
     document
+}
+
+fn redirect_has_adjacent_numeric_fd(redirect: &Redirect, source: &str) -> bool {
+    let start = redirect.span.start.offset.min(source.len());
+    let Some(prefix) = source.get(..start) else {
+        return false;
+    };
+    let token = prefix
+        .rsplit_once(|ch: char| ch.is_whitespace() || ch == ';' || ch == '&' || ch == '|')
+        .map_or(prefix, |(_, token)| token);
+    !token.is_empty() && token.chars().all(|ch| ch.is_ascii_digit())
 }
 
 pub(crate) fn case_terminator(terminator: CaseTerminator) -> &'static str {
