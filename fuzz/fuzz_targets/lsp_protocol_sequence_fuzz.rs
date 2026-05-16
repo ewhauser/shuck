@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use libfuzzer_sys::{Corpus, fuzz_target};
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
-use lsp_types::Url;
+use lsp_types::{TextDocumentContentChangeEvent, Url};
 
 fuzz_target!(|data: &[u8]| -> Corpus {
     let input = match common::filtered_input(data) {
@@ -99,6 +99,18 @@ fn run_protocol_sequence(source: &str, data: &[u8]) -> Result<(), String> {
                 version += 1;
                 let range = lsp_common::range_from_bytes(&current_source, chunk, encoding);
                 let text = lsp_common::replacement_from_bytes(source, chunk);
+                let state = shuck_server::fuzzing::apply_text_document_changes(
+                    &current_source,
+                    version - 1,
+                    vec![TextDocumentContentChangeEvent {
+                        range: Some(range.clone()),
+                        range_length: None,
+                        text: text.clone(),
+                    }],
+                    version,
+                    encoding,
+                );
+                current_source = state.contents;
                 send_notification(
                     &client_connection,
                     "textDocument/didChange",
