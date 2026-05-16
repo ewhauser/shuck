@@ -175,6 +175,12 @@ impl<'a> Parser<'a> {
                     .current_keyword()
                     .is_some_and(Self::is_non_command_keyword)
                 {
+                    if matches!(terminator, StmtTerminator::Background(_)) {
+                        current.terminator = Some(terminator);
+                        current.terminator_span = Some(operator_span);
+                        stmts.push(current);
+                        return Ok(Some(stmts));
+                    }
                     break;
                 }
                 if matches!(

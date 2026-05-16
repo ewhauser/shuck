@@ -12,13 +12,7 @@ use similar::TextDiff;
 
 const BENCHMARK_ORACLE_FILE_COUNT: usize = 6;
 const MAX_ORACLE_DIFF_LINES: usize = 200;
-const KNOWN_BENCHMARK_DIVERGENCES: &[&str] = &[
-    "homebrew-install",
-    "ruby-build",
-    "pyenv-python-build",
-    "nvm",
-    "bashtop",
-];
+const KNOWN_BENCHMARK_DIVERGENCES: &[&str] = &[];
 
 #[test]
 fn formatter_source_and_ast_paths_match_benchmark_corpus() {

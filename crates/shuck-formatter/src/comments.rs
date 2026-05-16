@@ -438,6 +438,16 @@ fn compute_sequence_attachment<'a>(
         }
 
         if comment.inline {
+            if prev.is_none() && next == Some(0) && end <= first_child_start {
+                record_claimed_index(
+                    &mut claimed_indices,
+                    track_claimed_indices,
+                    base_index + index,
+                );
+                index += 1;
+                continue;
+            }
+
             if let Some(prev_idx) = prev
                 && child_spans[prev_idx].end.line == comment.line
                 && child_spans[prev_idx].start.offset <= start

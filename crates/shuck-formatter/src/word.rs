@@ -4,11 +4,12 @@ use shuck_ast::{
     ArithmeticAssignOp, ArithmeticBinaryOp, ArithmeticExpansionSyntax, ArithmeticExpr,
     ArithmeticExprNode, ArithmeticLvalue, ArithmeticPostfixOp, ArithmeticUnaryOp,
     BourneParameterExpansion, Command, CommandSubstitutionSyntax, CompoundCommand, HeredocBody,
-    HeredocBodyPart, ParameterOp, Pattern, Stmt, StmtSeq, SubscriptSelector, VarRef, Word,
-    WordPart,
+    HeredocBodyPart, ParameterOp, Pattern, Stmt, StmtSeq, Subscript, SubscriptSelector, VarRef,
+    Word, WordPart,
 };
 use shuck_format::IndentStyle;
 use shuck_format::{FormatResult, text, write};
+use shuck_parser::parser::Parser;
 
 use crate::FormatNodeRule;
 use crate::command::stmt_seq_has_heredoc;
@@ -100,7 +101,21 @@ fn render_word_syntax_internal(
         return;
     }
 
-    if word_needs_special_rendering(word) {
+    if let Some(raw) = raw_word_source_slice(word, source)
+        && let Some(without_continuation) = raw_simple_expansion_without_line_continuation(raw)
+    {
+        rendered.push_str(without_continuation);
+        return;
+    }
+
+    if let Some(raw) = raw_word_source_slice(word, source)
+        && let Some(formatted) = format_parameter_default_arithmetic_in_raw_word(raw, options)
+    {
+        rendered.push_str(&formatted);
+        return;
+    }
+
+    if word_needs_special_rendering(word, source) {
         if render_word_parts(
             word.parts.as_slice(),
             source,
@@ -120,6 +135,7 @@ fn render_word_syntax_internal(
         && !options.minify()
         && let Some(slice) = raw_word_source_slice(word, source)
         && could_need_preserve_raw_syntax(slice)
+        && !simple_expansion_word_has_line_continuation_suffix(word, slice)
     {
         let start = rendered.len();
         word.render_syntax_to_buf(source, rendered);
@@ -131,6 +147,99 @@ fn render_word_syntax_internal(
     }
 
     word.render_syntax_to_buf(source, rendered);
+}
+
+fn raw_simple_expansion_without_line_continuation(raw: &str) -> Option<&str> {
+    if !raw.contains('\n') {
+        return None;
+    }
+    let trimmed = raw.trim_end_matches([' ', '\t', '\r', '\n']);
+    let without_backslash = trimmed.strip_suffix('\\')?.trim_end();
+    if without_backslash.starts_with("${") && without_backslash.ends_with('}') {
+        Some(without_backslash)
+    } else {
+        None
+    }
+}
+
+fn simple_expansion_word_has_line_continuation_suffix(word: &Word, raw: &str) -> bool {
+    raw.contains('\n')
+        && raw
+            .trim_end_matches([' ', '\t', '\r', '\n'])
+            .ends_with('\\')
+        && word.parts.iter().all(|part| {
+            matches!(
+                part.kind,
+                WordPart::Parameter(_)
+                    | WordPart::ParameterExpansion { .. }
+                    | WordPart::ArrayAccess(_)
+                    | WordPart::ArrayLength(_)
+                    | WordPart::ArrayIndices(_)
+                    | WordPart::Length(_)
+                    | WordPart::Variable(_)
+            )
+        })
+}
+
+fn format_parameter_default_arithmetic_in_raw_word(
+    raw: &str,
+    options: &ResolvedShellFormatOptions,
+) -> Option<String> {
+    if !(raw.contains(":-$((")
+        || raw.contains(":=$((")
+        || raw.contains(":+$((")
+        || raw.contains(":?$((")
+        || raw.contains("-$((")
+        || raw.contains("=$((")
+        || raw.contains("+$((")
+        || raw.contains("?$(("))
+    {
+        return None;
+    }
+
+    let mut formatted = String::new();
+    let mut index = 0;
+    let mut changed = false;
+    while let Some(relative) = raw[index..].find("$((") {
+        let start = index + relative;
+        let operator_prefix = &raw[..start];
+        if !parameter_default_operator_precedes_operand(operator_prefix) {
+            formatted.push_str(&raw[index..start + "$(".len()]);
+            index = start + "$(".len();
+            continue;
+        }
+        let Some(end) = raw[start + "$((".len()..].find("))") else {
+            break;
+        };
+        let end = start + "$((".len() + end + "))".len();
+        formatted.push_str(&raw[index..start]);
+        if let Some(arithmetic) = format_arithmetic_expansion_operand(&raw[start..end], options) {
+            changed |= arithmetic != &raw[start..end];
+            formatted.push_str(&arithmetic);
+        } else {
+            formatted.push_str(&raw[start..end]);
+        }
+        index = end;
+    }
+    formatted.push_str(&raw[index..]);
+    changed.then_some(formatted)
+}
+
+fn parameter_default_operator_precedes_operand(prefix: &str) -> bool {
+    if [":-", ":=", ":+", ":?"]
+        .iter()
+        .any(|operator| prefix.ends_with(operator))
+    {
+        return true;
+    }
+
+    let Some((_, parameter_body_prefix)) = prefix.rsplit_once("${") else {
+        return false;
+    };
+    !parameter_body_prefix.contains(':')
+        && ["-", "=", "+", "?"]
+            .iter()
+            .any(|operator| parameter_body_prefix.ends_with(operator))
 }
 
 /// Returns `true` when a word contains a backtick command-substitution node
@@ -149,21 +258,39 @@ fn word_has_escaped_backtick_substitution(word: &Word, source: &str) -> bool {
     })
 }
 
-fn word_needs_special_rendering(word: &Word) -> bool {
+fn word_needs_special_rendering(word: &Word, source: &str) -> bool {
     word.parts
         .iter()
-        .any(|part| part_needs_special_rendering(&part.kind))
+        .any(|part| part_needs_special_rendering(&part.kind, source))
 }
 
-fn part_needs_special_rendering(part: &WordPart) -> bool {
+fn part_needs_special_rendering(part: &WordPart, source: &str) -> bool {
     match part {
         WordPart::DoubleQuoted { parts, .. } => parts
             .iter()
-            .any(|part| part_needs_special_rendering(&part.kind)),
+            .any(|part| part_needs_special_rendering(&part.kind, source)),
         WordPart::ArithmeticExpansion { expression_ast, .. } => expression_ast.is_some(),
-        WordPart::Parameter(parameter) => parameter_needs_special_rendering(parameter),
+        WordPart::Parameter(parameter) => parameter_needs_special_rendering(parameter, source),
+        WordPart::ParameterExpansion {
+            reference,
+            operator,
+            operand,
+            ..
+        } => {
+            var_ref_needs_special_rendering(reference, source)
+                || operand.as_ref().is_some_and(|operand| {
+                    parameter_default_operand_needs_special_rendering(
+                        operator.as_ref(),
+                        operand.slice(source),
+                    )
+                })
+        }
+        WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Length(_) => true,
         WordPart::Substring { .. } | WordPart::ArraySlice { .. } => true,
-        WordPart::CommandSubstitution { .. } => true,
+        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => true,
         _ => false,
     }
 }
@@ -184,6 +311,15 @@ fn render_word_parts(
     Ok(())
 }
 
+fn double_quoted_multiline_can_preserve_raw(parts: &[shuck_ast::WordPartNode]) -> bool {
+    !parts.iter().any(|part| {
+        matches!(
+            part.kind,
+            WordPart::CommandSubstitution { .. } | WordPart::ArithmeticExpansion { .. }
+        )
+    })
+}
+
 fn render_heredoc_body_part(
     rendered: &mut String,
     part: &HeredocBodyPart,
@@ -199,7 +335,9 @@ fn render_heredoc_body_part(
         }
         HeredocBodyPart::CommandSubstitution { body, syntax } => {
             let raw = raw_source_slice(span, source);
-            let multiline = raw.is_some_and(|raw| raw.contains('\n'))
+            let multiline = raw.is_some_and(command_substitution_opens_on_own_line)
+                || body.as_slice().len() > 1
+                || stmt_seq_has_heredoc(body)
                 || raw.is_none() && *syntax == CommandSubstitutionSyntax::DollarParen;
 
             if render_command_substitution(
@@ -310,14 +448,24 @@ fn render_word_part(
             rendered.push('\'');
         }
         WordPart::DoubleQuoted { parts, dollar } => {
+            if let Some(raw) = raw_source_slice(span, source)
+                && (raw.contains("\\\"")
+                    || raw.contains('\n') && double_quoted_multiline_can_preserve_raw(parts))
+            {
+                rendered.push_str(raw);
+                return Ok(());
+            }
             if *dollar {
                 rendered.push('$');
             }
             rendered.push('"');
             for part in parts {
                 match &part.kind {
+                    WordPart::Literal(text) if text.is_source_backed() => {
+                        rendered.push_str(text.syntax_str(source, part.span));
+                    }
                     WordPart::Literal(text) => {
-                        render_double_quoted_literal(rendered, text.as_str(source, part.span))
+                        render_double_quoted_literal(rendered, text.as_str(source, part.span));
                     }
                     other => render_word_part(
                         rendered, other, part.span, source, options, source_map, facts,
@@ -339,7 +487,11 @@ fn render_word_part(
                     span.end.offset,
                     source,
                     options,
-                    raw.contains('\n'),
+                    command_substitution_opens_on_own_line(raw)
+                        || command_substitution_has_line_continuation(raw)
+                            && !command_substitution_starts_with_inline_brace_group(raw)
+                        || body.as_slice().len() > 1
+                        || stmt_seq_has_heredoc(body),
                     source_map,
                     facts,
                 )
@@ -477,10 +629,16 @@ fn render_word_part(
             rendered.push_str("${");
             push_var_ref(rendered, reference, source, options);
             rendered.push(':');
-            push_arithmetic_source_text(rendered, offset, offset_ast.as_deref(), source, options);
+            push_parameter_slice_arithmetic(
+                rendered,
+                offset,
+                offset_ast.as_deref(),
+                source,
+                options,
+            );
             if let Some(length) = length {
                 rendered.push(':');
-                push_arithmetic_source_text(
+                push_parameter_slice_arithmetic(
                     rendered,
                     length,
                     length_ast.as_deref(),
@@ -513,9 +671,29 @@ fn render_word_part(
         WordPart::PrefixMatch { prefix, kind } => {
             std::write!(rendered, "${{!{}{}}}", prefix, kind.as_char())?;
         }
-        WordPart::ProcessSubstitution { .. }
-        | WordPart::Transformation { .. }
-        | WordPart::ZshQualifiedGlob(_) => {
+        WordPart::ProcessSubstitution { body, is_input } => {
+            if let Some(facts) = facts {
+                let mut body_rendered = String::new();
+                if format_stmt_sequence_streaming_to_buf(
+                    source,
+                    body,
+                    options,
+                    facts,
+                    None,
+                    &mut body_rendered,
+                )
+                .is_ok()
+                {
+                    rendered.push(if *is_input { '<' } else { '>' });
+                    rendered.push('(');
+                    rendered.push_str(body_rendered.trim_end());
+                    rendered.push(')');
+                    return Ok(());
+                }
+            }
+            rendered.push_str(span.slice(source));
+        }
+        WordPart::Transformation { .. } | WordPart::ZshQualifiedGlob(_) => {
             rendered.push_str(span.slice(source));
         }
     }
@@ -554,17 +732,65 @@ fn preferred_raw_word_part_source<'a>(
     }
 }
 
-fn parameter_needs_special_rendering(parameter: &shuck_ast::ParameterExpansion) -> bool {
+fn parameter_needs_special_rendering(
+    parameter: &shuck_ast::ParameterExpansion,
+    source: &str,
+) -> bool {
     parameter.bourne().is_some_and(|syntax| match syntax {
-        BourneParameterExpansion::Operation { operator, .. } => {
-            matches!(
-                operator.as_ref(),
-                ParameterOp::ReplaceFirst { .. } | ParameterOp::ReplaceAll { .. }
-            )
+        BourneParameterExpansion::Access { reference }
+        | BourneParameterExpansion::Length { reference }
+        | BourneParameterExpansion::Indices { reference } => {
+            var_ref_needs_special_rendering(reference, source)
+        }
+        BourneParameterExpansion::Operation {
+            reference,
+            operator,
+            operand,
+            ..
+        } => {
+            var_ref_needs_special_rendering(reference, source)
+                || matches!(
+                    operator.as_ref(),
+                    ParameterOp::ReplaceFirst { .. } | ParameterOp::ReplaceAll { .. }
+                )
+                || operand.as_ref().is_some_and(|operand| {
+                    parameter_default_operand_needs_special_rendering(
+                        operator.as_ref(),
+                        operand.slice(source),
+                    )
+                })
         }
         BourneParameterExpansion::Slice { .. } => true,
         _ => false,
     })
+}
+
+fn parameter_default_operand_needs_special_rendering(operator: &ParameterOp, raw: &str) -> bool {
+    matches!(
+        operator,
+        ParameterOp::UseDefault
+            | ParameterOp::AssignDefault
+            | ParameterOp::UseReplacement
+            | ParameterOp::Error
+    ) && raw.trim().starts_with("$((")
+        && raw.trim().ends_with("))")
+}
+
+fn var_ref_needs_special_rendering(reference: &VarRef, source: &str) -> bool {
+    reference.subscript.as_deref().is_some_and(|subscript| {
+        subscript.arithmetic_ast.is_some()
+            && subscript_prefers_structured_arithmetic(subscript, source)
+            || subscript
+                .word_ast()
+                .is_some_and(word_contains_structured_arithmetic_expansion)
+    })
+}
+
+fn subscript_prefers_structured_arithmetic(subscript: &Subscript, source: &str) -> bool {
+    subscript
+        .syntax_text(source)
+        .trim_start()
+        .starts_with("$((")
 }
 
 fn parameter_prefers_raw_source(
@@ -573,6 +799,18 @@ fn parameter_prefers_raw_source(
     source: &str,
 ) -> bool {
     parameter.bourne().is_none_or(|syntax| match syntax {
+        BourneParameterExpansion::Access { reference }
+        | BourneParameterExpansion::Length { reference }
+        | BourneParameterExpansion::Indices { reference }
+            if var_ref_needs_special_rendering(reference, source) =>
+        {
+            false
+        }
+        BourneParameterExpansion::Operation {
+            reference,
+            operator,
+            ..
+        } if var_ref_needs_special_rendering(reference, source) => false,
         BourneParameterExpansion::Operation { operator, .. } => match operator.as_ref() {
             ParameterOp::ReplaceFirst { replacement, .. }
             | ParameterOp::ReplaceAll { replacement, .. } => {
@@ -671,10 +909,6 @@ fn render_command_substitution(
     _source_map: Option<&SourceMap<'_>>,
     facts: Option<&FormatterFacts<'_>>,
 ) -> Option<()> {
-    if stmt_seq_has_heredoc(body) {
-        return None;
-    }
-
     let mut nested = String::new();
     let owned_facts;
     let facts = match facts {
@@ -709,7 +943,12 @@ fn render_command_substitution(
         push_indented_rendered_block(rendered, trimmed, options, 1);
         rendered.push_str("\n)");
     } else {
+        let compacted_brace_group = compact_inline_brace_group_command_substitution(trimmed);
+        let trimmed = compacted_brace_group.as_deref().unwrap_or(trimmed);
         rendered.push_str("$(");
+        if trimmed.starts_with('(') {
+            rendered.push(' ');
+        }
         rendered.push_str(trimmed);
         rendered.push(')');
     }
@@ -717,8 +956,49 @@ fn render_command_substitution(
     Some(())
 }
 
+fn compact_inline_brace_group_command_substitution(rendered: &str) -> Option<String> {
+    let body = rendered.strip_prefix("{\n")?;
+    let close_offset = body.rfind("\n}")?;
+    let group_body = &body[..close_offset];
+    let suffix = &body[close_offset + 2..];
+    let lines = group_body
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    let (first, rest) = lines.split_first()?;
+
+    let mut compacted = String::new();
+    compacted.push_str("{ ");
+    compacted.push_str(first);
+    for line in rest {
+        compacted.push('\n');
+        compacted.push('\t');
+        compacted.push_str(line);
+    }
+    if !compacted.trim_end().ends_with(';') {
+        compacted.push(';');
+    }
+    compacted.push_str(" }");
+    compacted.push_str(suffix);
+    Some(compacted)
+}
+
 fn trim_trailing_line_endings(rendered: &str) -> &str {
     rendered.trim_end_matches(&['\r', '\n'][..])
+}
+
+fn command_substitution_opens_on_own_line(raw: &str) -> bool {
+    raw.strip_prefix("$(")
+        .is_some_and(|body| body.starts_with(['\n', '\r']))
+}
+
+fn command_substitution_has_line_continuation(raw: &str) -> bool {
+    raw.contains("\\\n") || raw.contains("\\\r\n")
+}
+
+fn command_substitution_starts_with_inline_brace_group(raw: &str) -> bool {
+    raw.starts_with("$({")
 }
 
 fn push_indented_rendered_block(
@@ -731,16 +1011,76 @@ fn push_indented_rendered_block(
         IndentStyle::Tab => "\t".repeat(levels),
         IndentStyle::Space => " ".repeat(levels * usize::from(options.indent_width())),
     };
+    let mut pending_heredocs = Vec::new();
+    let mut active_heredoc = None;
 
     for (index, line) in rendered.lines().enumerate() {
         if index > 0 {
             target.push('\n');
         }
+
+        if let Some(delimiter) = active_heredoc.as_deref() {
+            target.push_str(line);
+            if line == delimiter {
+                active_heredoc = pop_next_heredoc_delimiter(&mut pending_heredocs);
+            }
+            continue;
+        }
+
         if line_needs_command_substitution_indent(line, options) {
             target.push_str(&prefix);
         }
         target.push_str(line);
+
+        pending_heredocs.extend(heredoc_delimiters_in_rendered_line(line));
+        active_heredoc = pop_next_heredoc_delimiter(&mut pending_heredocs);
     }
+}
+
+fn pop_next_heredoc_delimiter(pending: &mut Vec<String>) -> Option<String> {
+    (!pending.is_empty()).then(|| pending.remove(0))
+}
+
+pub(crate) fn heredoc_delimiters_in_rendered_line(line: &str) -> Vec<String> {
+    let mut delimiters = Vec::new();
+    let mut rest = line;
+    while let Some(offset) = rest.find("<<") {
+        rest = &rest[offset + 2..];
+        if rest.starts_with('<') {
+            continue;
+        }
+        rest = rest.strip_prefix('-').unwrap_or(rest).trim_start();
+        let token_end = rest
+            .find(|ch: char| ch.is_whitespace() || matches!(ch, ';' | '&' | '|'))
+            .unwrap_or(rest.len());
+        if token_end == 0 {
+            continue;
+        }
+
+        let token = &rest[..token_end];
+        delimiters.push(unquote_heredoc_delimiter(token));
+        rest = &rest[token_end..];
+    }
+    delimiters
+}
+
+fn unquote_heredoc_delimiter(token: &str) -> String {
+    let mut delimiter = String::with_capacity(token.len());
+    let mut chars = token.chars().peekable();
+    let mut quote = None;
+    while let Some(ch) = chars.next() {
+        match (quote, ch) {
+            (None, '\'' | '"') => quote = Some(ch),
+            (Some(active), current) if active == current => quote = None,
+            (_, '\\') => {
+                if let Some(next) = chars.next() {
+                    delimiter.push(next);
+                }
+            }
+            _ => delimiter.push(ch),
+        }
+    }
+    delimiter
 }
 
 fn line_needs_command_substitution_indent(
@@ -771,7 +1111,7 @@ fn render_double_quoted_literal(rendered: &mut String, text: &str) {
     }
 }
 
-fn render_arithmetic_expr_to_buf(
+pub(crate) fn render_arithmetic_expr_to_buf(
     rendered: &mut String,
     expr: &ArithmeticExprNode,
     source: &str,
@@ -849,9 +1189,13 @@ fn push_arithmetic_expr(
                 source,
                 options,
             );
-            rendered.push(' ');
-            rendered.push_str(arithmetic_binary_operator(*op));
-            rendered.push(' ');
+            if matches!(op, ArithmeticBinaryOp::Comma) {
+                rendered.push_str(", ");
+            } else {
+                rendered.push(' ');
+                rendered.push_str(arithmetic_binary_operator(*op));
+                rendered.push(' ');
+            }
             push_arithmetic_expr(
                 rendered,
                 right,
@@ -1108,27 +1452,73 @@ fn push_arithmetic_source_text(
     }
 }
 
+fn push_parameter_slice_arithmetic(
+    rendered: &mut String,
+    text: &shuck_ast::SourceText,
+    ast: Option<&ArithmeticExprNode>,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+) {
+    let start = rendered.len();
+    push_arithmetic_source_text(rendered, text, ast, source, options);
+    if text.slice(source).trim_start().starts_with('(') {
+        let trimmed = rendered[start..].trim_start().to_string();
+        rendered.truncate(start);
+        rendered.push_str(&trimmed);
+    }
+}
+
 fn render_arithmetic_slice_shell_word(
     word: &Word,
     source: &str,
     options: &ResolvedShellFormatOptions,
 ) -> String {
+    let trim_leading_parenthesized_offset = word.span.slice(source).trim_start().starts_with('(');
     let [part] = word.parts.as_slice() else {
-        return render_word_syntax(word, source, options);
+        let rendered = render_word_syntax(word, source, options);
+        return if trim_leading_parenthesized_offset {
+            rendered.trim_start().to_string()
+        } else {
+            rendered
+        };
     };
 
     match &part.kind {
         WordPart::ArithmeticExpansion {
-            expression, syntax, ..
+            expression,
+            expression_ast,
+            syntax,
+            ..
         } => match syntax {
             ArithmeticExpansionSyntax::DollarParenParen => {
-                format!("$(({}))", expression.slice(source).trim())
+                let mut rendered = String::from("$((");
+                if let Some(ast) = expression_ast.as_deref() {
+                    render_arithmetic_expr_to_buf(&mut rendered, ast, source, options);
+                } else {
+                    rendered.push_str(expression.slice(source).trim());
+                }
+                rendered.push_str("))");
+                rendered
             }
             ArithmeticExpansionSyntax::LegacyBracket => {
-                format!("$[{}]", expression.slice(source).trim())
+                let mut rendered = String::from("$[");
+                if let Some(ast) = expression_ast.as_deref() {
+                    render_arithmetic_expr_to_buf(&mut rendered, ast, source, options);
+                } else {
+                    rendered.push_str(expression.slice(source).trim());
+                }
+                rendered.push(']');
+                rendered
             }
         },
-        _ => render_word_syntax(word, source, options),
+        _ => {
+            let rendered = render_word_syntax(word, source, options);
+            if trim_leading_parenthesized_offset {
+                rendered.trim_start().to_string()
+            } else {
+                rendered
+            }
+        }
     }
 }
 
@@ -1165,12 +1555,37 @@ fn push_var_ref(
                 SubscriptSelector::At => '@',
                 SubscriptSelector::Star => '*',
             });
-        } else if let Some(ast) = subscript.arithmetic_ast.as_ref() {
+        } else if let Some(ast) = subscript.arithmetic_ast.as_ref()
+            && subscript_prefers_structured_arithmetic(subscript, source)
+        {
             render_arithmetic_expr_to_buf(rendered, ast, source, options);
+        } else if let Some(word) = subscript.word_ast()
+            && word_contains_structured_arithmetic_expansion(word)
+        {
+            render_word_syntax_to_buf(word, source, options, rendered);
         } else {
             rendered.push_str(subscript.syntax_text(source));
         }
         rendered.push(']');
+    }
+}
+
+fn word_contains_structured_arithmetic_expansion(word: &Word) -> bool {
+    word.parts
+        .iter()
+        .any(|part| part_contains_structured_arithmetic_expansion(&part.kind))
+}
+
+fn part_contains_structured_arithmetic_expansion(part: &WordPart) -> bool {
+    match part {
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| part_contains_structured_arithmetic_expansion(&part.kind)),
+        WordPart::ArithmeticExpansion {
+            expression_ast: Some(_),
+            ..
+        } => true,
+        _ => false,
     }
 }
 
@@ -1241,10 +1656,16 @@ fn push_parameter_word(
             rendered.push_str("${");
             push_var_ref(rendered, reference, source, options);
             rendered.push(':');
-            push_arithmetic_source_text(rendered, offset, offset_ast.as_deref(), source, options);
+            push_parameter_slice_arithmetic(
+                rendered,
+                offset,
+                offset_ast.as_deref(),
+                source,
+                options,
+            );
             if let Some(length) = length {
                 rendered.push(':');
-                push_arithmetic_source_text(
+                push_parameter_slice_arithmetic(
                     rendered,
                     length,
                     length_ast.as_deref(),
@@ -1307,7 +1728,7 @@ fn render_parameter_expansion(
             }
             rendered.push_str(parameter_defaulting_operator(operator));
             if let Some(operand) = operand {
-                rendered.push_str(operand.slice(source));
+                push_parameter_default_operand(rendered, operand, source, options);
             }
         }
         ParameterOp::RemovePrefixShort { pattern } => {
@@ -1353,6 +1774,89 @@ fn render_parameter_expansion(
     }
     rendered.push('}');
     Ok(())
+}
+
+fn push_parameter_default_operand(
+    rendered: &mut String,
+    operand: &shuck_ast::SourceText,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+) {
+    let raw = operand.slice(source);
+    if let Some(formatted) = format_arithmetic_expansion_operand(raw, options) {
+        rendered.push_str(&formatted);
+    } else {
+        rendered.push_str(raw);
+    }
+}
+
+fn format_arithmetic_expansion_operand(
+    raw: &str,
+    options: &ResolvedShellFormatOptions,
+) -> Option<String> {
+    let trimmed = raw.trim();
+    let inner = trimmed.strip_prefix("$((")?.strip_suffix("))")?;
+    let spaced_inner = format_simple_arithmetic_operand_spacing(inner);
+    let synthetic = format!("(( {inner} ))");
+    let parsed = Parser::new(&synthetic).parse();
+    if parsed.is_err() {
+        return (spaced_inner != inner.trim()).then(|| format!("$(({spaced_inner}))"));
+    }
+    let statement = parsed.file.body.first()?;
+    let Command::Compound(CompoundCommand::Arithmetic(command)) = &statement.command else {
+        return None;
+    };
+    let expr = command.expr_ast.as_ref()?;
+    let mut formatted = String::from("$((");
+    render_arithmetic_expr_to_buf(&mut formatted, expr, &synthetic, options);
+    if formatted == "$((" && spaced_inner != inner.trim() {
+        formatted.push_str(&spaced_inner);
+        formatted.push_str("))");
+        return Some(formatted);
+    }
+    formatted.push_str("))");
+    if formatted == trimmed && spaced_inner != inner.trim() {
+        return Some(format!("$(({spaced_inner}))"));
+    }
+    Some(formatted)
+}
+
+fn format_simple_arithmetic_operand_spacing(inner: &str) -> String {
+    let mut formatted = String::new();
+    let chars = inner.trim().chars().collect::<Vec<_>>();
+    let mut index = 0;
+    let mut parameter_depth = 0usize;
+    while index < chars.len() {
+        let ch = chars[index];
+        if ch == '$' && chars.get(index + 1) == Some(&'{') {
+            parameter_depth += 1;
+            formatted.push(ch);
+            index += 1;
+            continue;
+        }
+        if ch == '}' && parameter_depth > 0 {
+            parameter_depth -= 1;
+            formatted.push(ch);
+            index += 1;
+            continue;
+        }
+        if parameter_depth == 0 && matches!(ch, '+' | '-' | '*' | '/' | '%') {
+            while formatted.ends_with(' ') {
+                formatted.pop();
+            }
+            formatted.push(' ');
+            formatted.push(ch);
+            formatted.push(' ');
+            index += 1;
+            while chars.get(index).is_some_and(|next| next.is_whitespace()) {
+                index += 1;
+            }
+            continue;
+        }
+        formatted.push(ch);
+        index += 1;
+    }
+    formatted
 }
 
 fn parameter_defaulting_operator(operator: &ParameterOp) -> &'static str {

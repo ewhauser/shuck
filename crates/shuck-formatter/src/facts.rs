@@ -54,6 +54,19 @@ impl SequenceSiteKey {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct StmtSiteKey {
+    ptr: usize,
+}
+
+impl StmtSiteKey {
+    fn new(stmt: &Stmt) -> Self {
+        Self {
+            ptr: stmt as *const Stmt as usize,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct StmtFacts {
     attachment_span: Span,
@@ -145,7 +158,8 @@ impl<'source> SequenceFacts<'source> {
 #[derive(Debug, Clone)]
 pub(crate) struct FormatterFacts<'source> {
     source_map: SourceMap<'source>,
-    stmt_facts: HashMap<FactSpan, StmtFacts>,
+    stmt_facts: HashMap<StmtSiteKey, StmtFacts>,
+    stmt_facts_by_span: HashMap<FactSpan, StmtFacts>,
     sequence_facts: HashMap<SequenceSiteKey, SequenceFacts<'source>>,
     pipeline_breaks: HashSet<FactSpan>,
     list_item_breaks: HashSet<FactSpan>,
@@ -168,7 +182,10 @@ impl<'source> FormatterFacts<'source> {
     }
 
     pub(crate) fn stmt(&self, stmt: &Stmt) -> &StmtFacts {
-        let Some(facts) = self.stmt_facts.get(&FactSpan::from(stmt_span(stmt))) else {
+        let Some(facts) = self.stmt_facts.get(&StmtSiteKey::new(stmt)).or_else(|| {
+            self.stmt_facts_by_span
+                .get(&FactSpan::from(stmt_span(stmt)))
+        }) else {
             unreachable!("missing statement facts");
         };
         facts
@@ -190,11 +207,6 @@ impl<'source> FormatterFacts<'source> {
             };
             facts
         })
-    }
-
-    pub(crate) fn pipeline_has_explicit_line_break(&self, pipeline: &BinaryCommand) -> bool {
-        self.pipeline_breaks
-            .contains(&FactSpan::from(pipeline.span))
     }
 
     pub(crate) fn list_item_has_explicit_line_break(&self, operator_span: Span) -> bool {
@@ -225,6 +237,7 @@ impl<'source> FormatterFacts<'source> {
     #[cfg(feature = "benchmarking")]
     pub(crate) fn len(&self) -> usize {
         self.stmt_facts.len()
+            + self.stmt_facts_by_span.len()
             + self.sequence_facts.len()
             + self.pipeline_breaks.len()
             + self.list_item_breaks.len()
@@ -249,6 +262,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             facts: FormatterFacts {
                 source_map: SourceMap::new(source),
                 stmt_facts: HashMap::new(),
+                stmt_facts_by_span: HashMap::new(),
                 sequence_facts: HashMap::new(),
                 pipeline_breaks: HashSet::new(),
                 list_item_breaks: HashSet::new(),
@@ -302,7 +316,19 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             })
             .or(upper_bound);
 
-        let lower_bound = sequence_comment_lower_bound(sequence);
+        let mut lower_bound = sequence_comment_lower_bound(sequence);
+        if let Some(open) = group_open_char {
+            let close = match open {
+                '{' => '}',
+                '(' => ')',
+                other => other,
+            };
+            if let Some(span) =
+                group_attachment_span(sequence.as_slice(), self.source_map(), open, close)
+            {
+                lower_bound = lower_bound.min(span.start.offset);
+            }
+        }
         let comment_window = self.comment_window(lower_bound, sequence_limit);
 
         if sequence.is_empty() {
@@ -389,7 +415,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_stmt(&mut self, stmt: &Stmt) {
-        let stmt_key = FactSpan::from(stmt_span(stmt));
+        let stmt_key = StmtSiteKey::new(stmt);
         if !self.facts.stmt_facts.contains_key(&stmt_key) {
             let preserve_verbatim = should_render_verbatim(stmt, self.source_map(), self.options);
             let render_span = if preserve_verbatim {
@@ -397,21 +423,23 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             } else {
                 stmt_format_span(stmt)
             };
-            self.facts.stmt_facts.insert(
-                stmt_key,
-                StmtFacts {
-                    attachment_span: stmt_attachment_span(
-                        stmt,
-                        self.source,
-                        self.source_map(),
-                        self.options,
-                    ),
-                    render_span,
-                    rendered_end_line: rendered_stmt_end_line(stmt, self.source, self.source_map()),
-                    has_trailing_comment: stmt_has_trailing_comment(stmt, self.source_map()),
-                    preserve_verbatim,
-                },
-            );
+            let facts = StmtFacts {
+                attachment_span: stmt_attachment_span(
+                    stmt,
+                    self.source,
+                    self.source_map(),
+                    self.options,
+                ),
+                render_span,
+                rendered_end_line: rendered_stmt_end_line(stmt, self.source, self.source_map()),
+                has_trailing_comment: stmt_has_trailing_comment(stmt, self.source_map()),
+                preserve_verbatim,
+            };
+            self.facts
+                .stmt_facts_by_span
+                .entry(FactSpan::from(stmt_span(stmt)))
+                .or_insert_with(|| facts.clone());
+            self.facts.stmt_facts.insert(stmt_key, facts);
         }
 
         for redirect in &stmt.redirects {
@@ -537,14 +565,26 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
 
         if matches!(command.op, BinaryOp::And | BinaryOp::Or) {
             let mut rest = Vec::new();
-            collect_command_list_first(command, &mut rest);
+            let first = collect_command_list_first(command, &mut rest);
+            let mut previous_stmt = first;
             for item in rest {
+                let previous_span_end = stmt_span(previous_stmt).end.offset;
+                let previous_end = if previous_span_end <= item.operator_span.start.offset {
+                    previous_span_end
+                } else {
+                    self.facts.stmt(previous_stmt).render_span().end.offset
+                };
                 let next_start = self.facts.stmt(item.stmt).attachment_span().start.offset;
-                if has_newline_between(self.source, item.operator_span.end.offset, next_start) {
+                let has_break_before_operator =
+                    has_newline_between(self.source, previous_end, item.operator_span.start.offset);
+                let has_break_after_operator =
+                    has_newline_between(self.source, item.operator_span.end.offset, next_start);
+                if has_break_before_operator || has_break_after_operator {
                     self.facts
                         .list_item_breaks
                         .insert(FactSpan::from(item.operator_span));
                 }
+                previous_stmt = item.stmt;
             }
         }
     }
@@ -753,7 +793,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     .inline_case_item_bodies
                     .insert(FactSpan::from(item.body.span));
             }
-            self.visit_sequence(&item.body, Some(command.span.end.offset), None);
+            self.visit_sequence(
+                &item.body,
+                case_item_body_upper_bound(item, Some(command.span.end.offset)),
+                None,
+            );
         }
     }
 
@@ -918,6 +962,9 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             {
                 self.visit_sequence(body, Some(span.end.offset), None);
             }
+            WordPart::ProcessSubstitution { body, .. } => {
+                self.visit_sequence(body, Some(span.end.offset), None);
+            }
             WordPart::CommandSubstitution { .. }
             | WordPart::Literal(_)
             | WordPart::SingleQuoted { .. }
@@ -933,7 +980,6 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             | WordPart::ArraySlice { .. }
             | WordPart::IndirectExpansion { .. }
             | WordPart::PrefixMatch { .. }
-            | WordPart::ProcessSubstitution { .. }
             | WordPart::Transformation { .. }
             | WordPart::ZshQualifiedGlob(_) => {}
             WordPart::DoubleQuoted { parts, .. } => {
@@ -1038,35 +1084,79 @@ fn sequence_comment_lower_bound(sequence: &StmtSeq) -> usize {
     lower_bound
 }
 
+fn case_item_body_upper_bound(item: &CaseItem, fallback: Option<usize>) -> Option<usize> {
+    item.terminator_span
+        .map(|span| span.start.offset)
+        .or(fallback)
+}
+
 fn span_contains_comment(span: Span, comment: SourceComment<'_>) -> bool {
     span.start.offset <= comment.span().start.offset && comment.span().end.offset <= span.end.offset
 }
 
 fn if_branch_upper_bound(command: &IfCommand, branch_index: usize, source: &str) -> usize {
     let current_branch_end = if branch_index == 0 {
-        command.then_branch.span.end.offset
+        stmt_seq_content_end(&command.then_branch, source)
     } else {
         command
             .elif_branches
             .get(branch_index - 1)
-            .map(|(_, body)| body.span.end.offset)
-            .unwrap_or(command.then_branch.span.end.offset)
+            .map(|(_, body)| stmt_seq_content_end(body, source))
+            .unwrap_or_else(|| stmt_seq_content_end(&command.then_branch, source))
     };
 
     if let Some((condition, _)) = command.elif_branches.get(branch_index) {
-        branch_keyword_offset(
+        let keyword_offset = branch_keyword_offset(
             source,
             current_branch_end,
             condition.span.start.offset,
             "elif",
         )
-        .unwrap_or(condition.span.start.offset)
+        .unwrap_or(condition.span.start.offset);
+        branch_leading_comment_start(source, current_branch_end, keyword_offset)
+            .unwrap_or(keyword_offset)
     } else if let Some(body) = &command.else_branch {
-        branch_keyword_offset(source, current_branch_end, body.span.start.offset, "else")
-            .unwrap_or(body.span.start.offset)
+        let keyword_offset =
+            branch_keyword_offset(source, current_branch_end, body.span.start.offset, "else")
+                .unwrap_or(body.span.start.offset);
+        branch_leading_comment_start(source, current_branch_end, keyword_offset)
+            .unwrap_or(keyword_offset)
     } else {
         command.span.end.offset
     }
+}
+
+fn stmt_seq_content_end(commands: &StmtSeq, source: &str) -> usize {
+    commands
+        .last()
+        .map(|stmt| stmt_verbatim_span(stmt, source).end.offset)
+        .unwrap_or(commands.span.end.offset)
+}
+
+fn branch_leading_comment_start(source: &str, start: usize, end: usize) -> Option<usize> {
+    let start = start.min(end).min(source.len());
+    let end = end.min(source.len());
+    let mut offset = start;
+    let mut first_comment = None;
+    while offset < end {
+        let relative_end = source[offset..end]
+            .find('\n')
+            .map_or(end - offset, |index| index);
+        let line_end = offset + relative_end;
+        let line = &source[offset..line_end];
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed == "\\" {
+            offset = (line_end + 1).min(end);
+            continue;
+        }
+        if trimmed.starts_with('#') {
+            first_comment.get_or_insert(offset);
+            offset = (line_end + 1).min(end);
+            continue;
+        }
+        return None;
+    }
+    first_comment
 }
 
 fn branch_keyword_offset(source: &str, start: usize, end: usize, keyword: &str) -> Option<usize> {
@@ -1147,7 +1237,33 @@ mod tests {
     }
 
     #[test]
-    fn marks_inline_leading_comments_as_ambiguous() {
+    fn captures_group_body_comment_after_open_suffix_comment() {
+        let source = "{ # open\n\n# inner\nx=1\n}\n";
+        let file = parse(source);
+        let options = ShellFormatOptions::default();
+        let resolved = options.resolve(source, Some(Path::new("test.sh")));
+        let facts = FormatterFacts::build(source, &file, &resolved);
+
+        let body = match &file.body[0].command {
+            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
+            _ => panic!("expected brace group"),
+        };
+        let sequence = facts.sequence(body, Some(file.body[0].span.end.offset));
+        assert_eq!(facts.stmt(&body[0]).attachment_span().slice(source), "x=1");
+
+        assert!(sequence.group_open_suffix_span().is_some());
+        assert_eq!(
+            sequence
+                .leading_for(0)
+                .iter()
+                .map(SourceComment::text)
+                .collect::<Vec<_>>(),
+            ["# inner"]
+        );
+    }
+
+    #[test]
+    fn skips_header_suffix_comments_before_first_body_statement() {
         let source = "if foo; then # note\n  bar\nfi\n";
         let file = parse(source);
         let options = ShellFormatOptions::default();
@@ -1169,7 +1285,8 @@ mod tests {
                 source,
             )),
         );
-        assert!(sequence.is_ambiguous());
+        assert!(!sequence.is_ambiguous());
+        assert!(!sequence.has_comments());
     }
 
     #[test]
