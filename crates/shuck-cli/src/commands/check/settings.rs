@@ -78,7 +78,6 @@ struct EffectiveRuleOptions {
     c159_allow_conditional_init: bool,
     c160_allowed_anchors: Vec<String>,
     c161_ignore_after_source: bool,
-    c162_treat_as_masking: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -221,7 +220,6 @@ impl EffectiveRuleOptions {
             c159_allow_conditional_init: rule_options.c159.allow_conditional_init,
             c160_allowed_anchors: rule_options.c160.allowed_anchors.clone(),
             c161_ignore_after_source: rule_options.c161.ignore_after_source,
-            c162_treat_as_masking: rule_options.c162.treat_as_masking.clone(),
         }
     }
 }
@@ -256,7 +254,6 @@ impl CacheKey for EffectiveRuleOptions {
         self.c159_allow_conditional_init.cache_key(state);
         self.c160_allowed_anchors.cache_key(state);
         self.c161_ignore_after_source.cache_key(state);
-        self.c162_treat_as_masking.cache_key(state);
     }
 }
 
@@ -1120,14 +1117,6 @@ fn linter_rule_options_for_lint_config(
         .and_then(|s084| s084.require_returns)
     {
         rule_options.s084.require_returns = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.c162.as_ref())
-        .and_then(|c162| c162.treat_as_masking.as_ref())
-    {
-        rule_options.c162.treat_as_masking = value.clone();
     }
     if let Some(value) = lint
         .rule_options

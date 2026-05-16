@@ -140,7 +140,7 @@ pub(crate) use self::{
 
 pub use self::{
     arithmetic::ArithmeticUpdateOperatorFixFact,
-    assignments::{EnvPrefixExpansionFixFact, ExtraMaskedReturnDeclarationFact},
+    assignments::EnvPrefixExpansionFixFact,
     case_patterns::CaseItemFact,
     commands::{CommandFact, RedundantEchoSpaceFact},
     conditionals::{

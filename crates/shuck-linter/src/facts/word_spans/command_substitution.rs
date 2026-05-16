@@ -21,29 +21,6 @@ pub fn unquoted_command_substitution_part_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
-pub(crate) fn command_substitution_part_spans(
-    word: &Word,
-    source: &str,
-    locator: Locator<'_>,
-) -> Vec<Span> {
-    let mut spans = Vec::new();
-    let mut visitor = CommandSubstitutionSpanVisitor {
-        spans: &mut spans,
-        only_unquoted: false,
-    };
-    walk_word_subtree(
-        word,
-        WordTraversalContext {
-            source,
-            locator: Some(locator),
-            shell_dialect: shuck_semantic::ShellDialect::Bash,
-        },
-        &mut visitor,
-    );
-    normalize_command_substitution_spans(&mut spans, locator);
-    spans
-}
-
 pub(crate) fn collect_arithmetic_expansion_spans(word: &Word, spans: &mut Vec<Span>) {
     let mut visitor = ArithmeticExpansionSpanVisitor {
         spans,
