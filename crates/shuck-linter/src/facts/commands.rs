@@ -19,7 +19,7 @@ pub struct CommandFact<'a> {
     pub(crate) scope_name_read_uses: IdRange<ComparableNameUse>,
     pub(crate) scope_heredoc_name_read_uses: IdRange<ComparableNameUse>,
     pub(crate) scope_name_write_uses: IdRange<ComparableNameUse>,
-    pub(crate) declaration_assignment_probes: IdRange<DeclarationAssignmentProbe<'a>>,
+    pub(crate) declaration_assignment_probes: IdRange<DeclarationAssignmentProbe>,
     pub(crate) glued_closing_bracket_operand_span: Option<Span>,
     pub(crate) glued_closing_bracket_insert_offset: Option<usize>,
     pub(crate) linebreak_in_test_anchor_span: Option<Span>,
@@ -293,7 +293,7 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
             .scope_name_write_uses(self.fact.scope_name_write_uses)
     }
 
-    pub fn declaration_assignment_probes(self) -> &'facts [DeclarationAssignmentProbe<'a>] {
+    pub fn declaration_assignment_probes(self) -> &'facts [DeclarationAssignmentProbe] {
         self.store
             .declaration_assignment_probes(self.fact.declaration_assignment_probes)
     }

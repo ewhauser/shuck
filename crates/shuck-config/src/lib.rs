@@ -62,7 +62,7 @@ const CONFIG_OVERRIDE_LINT_ZSH_PLUGIN_KEYS: &[&str] = &[
 ];
 const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &[
     "c001", "c063", "s078", "s079", "s080", "s081", "s082", "s083", "s084", "s085", "c158", "c159",
-    "c160", "c161", "c162",
+    "c160", "c161",
 ];
 const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
     &["treat-indirect-expansion-targets-as-used"];
@@ -94,7 +94,6 @@ const CONFIG_OVERRIDE_C158_RULE_OPTION_KEYS: &[&str] = &[
 const CONFIG_OVERRIDE_C159_RULE_OPTION_KEYS: &[&str] = &["allow-conditional-init"];
 const CONFIG_OVERRIDE_C160_RULE_OPTION_KEYS: &[&str] = &["allowed-anchors"];
 const CONFIG_OVERRIDE_C161_RULE_OPTION_KEYS: &[&str] = &["ignore-after-source"];
-const CONFIG_OVERRIDE_C162_RULE_OPTION_KEYS: &[&str] = &["treat-as-masking"];
 const CONFIG_OVERRIDE_RUN_KEYS: &[&str] = &["shell", "shell-version", "shells"];
 const CONFIG_OVERRIDE_RUN_SHELL_NAMES: &[&str] =
     &["bash", "gbash", "bashkit", "zsh", "dash", "mksh", "busybox"];
@@ -371,8 +370,6 @@ pub struct LintRuleOptionsConfig {
     pub c160: Option<C160RuleOptionsConfig>,
     /// Options for rule C161.
     pub c161: Option<C161RuleOptionsConfig>,
-    /// Options for rule C162.
-    pub c162: Option<C162RuleOptionsConfig>,
 }
 
 impl LintRuleOptionsConfig {
@@ -418,9 +415,6 @@ impl LintRuleOptionsConfig {
         }
         if let Some(c161) = overrides.c161 {
             self.c161.get_or_insert_default().apply_overrides(c161);
-        }
-        if let Some(c162) = overrides.c162 {
-            self.c162.get_or_insert_default().apply_overrides(c162);
         }
     }
 }
@@ -719,22 +713,6 @@ impl C161RuleOptionsConfig {
     fn apply_overrides(&mut self, overrides: Self) {
         if overrides.ignore_after_source.is_some() {
             self.ignore_after_source = overrides.ignore_after_source;
-        }
-    }
-}
-
-/// Options for rule C162.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
-pub struct C162RuleOptionsConfig {
-    /// Declaration forms treated as masking command substitution returns.
-    pub treat_as_masking: Option<Vec<String>>,
-}
-
-impl C162RuleOptionsConfig {
-    fn apply_overrides(&mut self, overrides: Self) {
-        if overrides.treat_as_masking.is_some() {
-            self.treat_as_masking = overrides.treat_as_masking;
         }
     }
 }
@@ -1254,18 +1232,6 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
                             default: "true",
                             value_type: "bool",
                             example: "ignore-after-source = false",
-                        }],
-                        sections: &[],
-                    },
-                    ConfigSectionMetadata {
-                        key: "c162",
-                        docs: "Behavior overrides for `C162` extra masked-return declaration analysis.",
-                        fields: &[ConfigFieldMetadata {
-                            key: "treat-as-masking",
-                            docs: "Declaration forms beyond the default masked-return set to report.",
-                            default: r#"["readonly", "typeset"]"#,
-                            value_type: "list[string]",
-                            example: r#"treat-as-masking = ["readonly", "typeset"]"#,
                         }],
                         sections: &[],
                     },
@@ -1979,9 +1945,6 @@ fn validate_lint_rule_options_override(value: &toml::Value) -> std::result::Resu
     if let Some(c161_value) = rule_options.get("c161") {
         validate_c161_rule_options_override(c161_value)?;
     }
-    if let Some(c162_value) = rule_options.get("c162") {
-        validate_c162_rule_options_override(c162_value)?;
-    }
 
     Ok(())
 }
@@ -2221,22 +2184,6 @@ fn validate_c161_rule_options_override(value: &toml::Value) -> std::result::Resu
             return Err(format!(
                 "unsupported `[lint.rule-options.c161]` option `{key}`; expected one of: {}",
                 CONFIG_OVERRIDE_C161_RULE_OPTION_KEYS.join(", ")
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_c162_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
-    let c162 = value
-        .as_table()
-        .ok_or_else(|| "`[lint.rule-options.c162]` must be a TOML table".to_owned())?;
-    for key in c162.keys() {
-        if !CONFIG_OVERRIDE_C162_RULE_OPTION_KEYS.contains(&key.as_str()) {
-            return Err(format!(
-                "unsupported `[lint.rule-options.c162]` option `{key}`; expected one of: {}",
-                CONFIG_OVERRIDE_C162_RULE_OPTION_KEYS.join(", ")
             ));
         }
     }
@@ -2704,22 +2651,6 @@ mod tests {
     }
 
     #[test]
-    fn inline_config_overrides_validate_supported_c162_rule_option_keys() {
-        let config =
-            parse_config_override(r#"lint.rule-options.c162.treat-as-masking = ["typeset"]"#)
-                .unwrap();
-        assert_eq!(
-            config
-                .lint
-                .rule_options
-                .as_ref()
-                .and_then(|options| options.c162.as_ref())
-                .and_then(|c162| c162.treat_as_masking.as_ref()),
-            Some(&vec!["typeset".to_owned()])
-        );
-    }
-
-    #[test]
     fn inline_config_overrides_validate_supported_zsh_plugin_keys() {
         let config = parse_config_override(
             "lint.zsh.plugins.resolution = false\n\
@@ -2873,12 +2804,6 @@ mod tests {
     fn inline_config_overrides_reject_unknown_c161_rule_option_keys() {
         let err = parse_config_override("lint.rule-options.c161.preview = true").unwrap_err();
         assert!(err.contains("unsupported `[lint.rule-options.c161]` option `preview`"));
-    }
-
-    #[test]
-    fn inline_config_overrides_reject_unknown_c162_rule_option_keys() {
-        let err = parse_config_override("lint.rule-options.c162.preview = true").unwrap_err();
-        assert!(err.contains("unsupported `[lint.rule-options.c162]` option `preview`"));
     }
 
     #[test]
@@ -3354,38 +3279,6 @@ mod tests {
                 .and_then(|options| options.c161.as_ref())
                 .and_then(|c161| c161.ignore_after_source),
             Some(true)
-        );
-    }
-
-    #[test]
-    fn c162_rule_option_config_arguments_allow_last_override_to_win() {
-        let tempdir = tempdir().unwrap();
-        let config = ConfigArguments::from_cli(
-            vec![
-                SingleConfigArgument::SettingsOverride(Box::new(
-                    parse_config_override(
-                        r#"lint.rule-options.c162.treat-as-masking = ["readonly", "typeset"]"#,
-                    )
-                    .unwrap(),
-                )),
-                SingleConfigArgument::SettingsOverride(Box::new(
-                    parse_config_override(r#"lint.rule-options.c162.treat-as-masking = []"#)
-                        .unwrap(),
-                )),
-            ],
-            false,
-        )
-        .unwrap();
-
-        let loaded = load_project_config(tempdir.path(), &config).unwrap();
-        assert_eq!(
-            loaded
-                .lint
-                .rule_options
-                .as_ref()
-                .and_then(|options| options.c162.as_ref())
-                .and_then(|c162| c162.treat_as_masking.as_ref()),
-            Some(&Vec::<String>::new())
         );
     }
 

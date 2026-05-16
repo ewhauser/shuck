@@ -61,10 +61,10 @@ pub const OPTIONAL_CHECKS: &[OptionalCheck] = &[
         description: "Looks for command substitutions whose failures are easy to miss.",
         example: "rm -r \"$(helper)/home\"",
         guidance: "Split the substitution into a checked step before using the result.",
-        enable_rules: &[Rule::ExtraMaskedReturns],
-        default_disabled_rules: &[Rule::ExtraMaskedReturns],
+        enable_rules: &[],
+        default_disabled_rules: &[],
         behavior: OptionalCheckBehavior::None,
-        supported: true,
+        supported: false,
     },
     OptionalCheck {
         name: "check-set-e-suppressed",

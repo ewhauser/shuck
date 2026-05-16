@@ -179,7 +179,7 @@ pub(crate) struct FactStore<'a> {
     pub(crate) scope_name_read_uses: ListArena<ComparableNameUse>,
     pub(crate) scope_heredoc_name_read_uses: ListArena<ComparableNameUse>,
     pub(crate) scope_name_write_uses: ListArena<ComparableNameUse>,
-    pub(crate) declaration_assignment_probes: ListArena<DeclarationAssignmentProbe<'a>>,
+    pub(crate) declaration_assignment_probes: ListArena<DeclarationAssignmentProbe>,
     pub(crate) word_occurrence_ids: ListArena<WordOccurrenceId>,
     pub(crate) word_occurrence_ids_by_command: Vec<IdRange<WordOccurrenceId>>,
     pub(crate) word_spans: ListArena<Span>,
@@ -297,8 +297,8 @@ impl<'a> FactStore<'a> {
 
     pub(crate) fn declaration_assignment_probes(
         &self,
-        range: IdRange<DeclarationAssignmentProbe<'a>>,
-    ) -> &[DeclarationAssignmentProbe<'a>] {
+        range: IdRange<DeclarationAssignmentProbe>,
+    ) -> &[DeclarationAssignmentProbe] {
         self.declaration_assignment_probes.get(range)
     }
 
