@@ -425,6 +425,7 @@ fn valid_function_name(name: &str) -> bool {
                         | ']'
                         | '*'
                         | '?'
+                        | '='
                         | '/'
                 )
         })
@@ -680,5 +681,25 @@ mod tests {
                 .to_string()
                 .contains("cross-file rename is not supported yet")
         );
+    }
+
+    #[test]
+    fn function_rename_rejects_assignment_like_names() {
+        let source = "build() { :; }\nbuild\n";
+        let (snapshot, client, uri) = make_snapshot(source);
+        let call_position = position_for_nth(source, "build", 1);
+
+        let error = rename(
+            snapshot,
+            &client,
+            RenameParams {
+                text_document_position: text_position(uri, call_position),
+                new_name: "foo=bar".to_owned(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            },
+        )
+        .expect_err("assignment-like function names should be rejected");
+
+        assert_eq!(error.code as i32, ErrorCode::InvalidParams as i32);
     }
 }
