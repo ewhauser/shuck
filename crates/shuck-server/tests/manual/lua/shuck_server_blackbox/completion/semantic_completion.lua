@@ -52,6 +52,11 @@ function M.run(t)
   assert_has(braced_labels, "top_level")
   assert_missing(braced_labels, "hidden_name")
 
+  local declaration_labels = labels_for(complete_at(t, bufnr, t.position_after_nth(bufnr, "local to", 0)))
+  assert_has(declaration_labels, "top_level")
+  assert_missing(declaration_labels, "hidden_name")
+  assert_missing(declaration_labels, "build")
+
   local command_labels = labels_for(complete_at(t, bufnr, t.position_after_nth(bufnr, "b", 2)))
   assert_has(command_labels, "build")
   assert_has(command_labels, "break")

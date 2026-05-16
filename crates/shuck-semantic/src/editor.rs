@@ -941,10 +941,19 @@ fn declaration_operand_context(source: &str, indexer: &Indexer, word_start: usiz
     };
     let line_start = usize::from(line_range.start());
     let before = &source[line_start..word_start];
-    let mut words = before
-        .split(|ch: char| ch.is_whitespace() || matches!(ch, ';' | '|' | '&'))
-        .filter(|word| !word.is_empty());
-    let Some(first) = words.next() else {
+    let command_start = before
+        .char_indices()
+        .rev()
+        .find_map(|(index, ch)| {
+            matches!(ch, ';' | '|' | '&' | '(' | '{').then_some(index + ch.len_utf8())
+        })
+        .unwrap_or(0);
+    let mut words = before[command_start..].split_whitespace();
+    let first = match words.next() {
+        Some("then" | "do" | "else") => words.next(),
+        first => first,
+    };
+    let Some(first) = first else {
         return false;
     };
     matches!(

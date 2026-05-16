@@ -6,6 +6,7 @@ outer() {
   local local_name=2
   echo "$top_level"
   echo "${top_level}"
+  echo ok; local to
 }
 
 other() {

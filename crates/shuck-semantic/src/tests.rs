@@ -385,6 +385,31 @@ outside=1
 }
 
 #[test]
+fn editor_declaration_completion_uses_current_command_segment() {
+    let source = "\
+existing=1
+build() { echo ok; local ex
+}
+";
+    let output = Parser::with_dialect(source, ShellDialect::Bash)
+        .parse()
+        .unwrap();
+    let indexer = Indexer::new(source, &output);
+    let model = SemanticModel::build(&output.file, source, &indexer);
+    let offset = source.find("local ex").unwrap() + "local ex".len();
+    let names = model
+        .editor_query()
+        .completions_at_offset(source, &indexer, offset, EditorCompletionOptions::default())
+        .expect("declaration completion should be available")
+        .items
+        .into_iter()
+        .map(|item| item.name.to_string())
+        .collect::<Vec<_>>();
+
+    assert!(names.contains(&"existing".to_owned()));
+}
+
+#[test]
 fn editor_rename_is_conservative() {
     let source = "\
 build() { :; }
