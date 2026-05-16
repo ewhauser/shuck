@@ -1,8 +1,10 @@
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct SuspectClosingQuote;
 
 impl Violation for SuspectClosingQuote {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::SuspectClosingQuote
     }
@@ -10,24 +12,34 @@ impl Violation for SuspectClosingQuote {
     fn message(&self) -> String {
         "quote is closed but the following character looks ambiguous".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("rewrite the word as one double-quoted string".to_owned())
+    }
 }
 
 pub fn suspect_closing_quote(checker: &mut Checker) {
-    let spans = checker
+    let diagnostics = checker
         .facts()
         .words()
         .suspect_closing_quote_fragments()
         .iter()
-        .map(|fragment| fragment.span())
+        .map(|fragment| {
+            Diagnostic::new(SuspectClosingQuote, fragment.span()).with_fix(Fix::unsafe_edit(
+                Edit::replacement(fragment.replacement(), fragment.replacement_span()),
+            ))
+        })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || SuspectClosingQuote);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
     fn reports_suspicious_closing_quote() {
@@ -39,6 +51,20 @@ mod tests {
         assert_eq!(diagnostics[0].span.start.line, 3);
         assert_eq!(diagnostics[0].span.start.column, 7);
         assert_eq!(diagnostics[0].span.start, diagnostics[0].span.end);
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_rewrite_suspicious_split_word() {
+        let source = "#!/bin/bash\necho \"alpha\n\"_beta\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SuspectClosingQuote),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(result.fixed_source, "#!/bin/bash\necho \"alpha\n_beta\"\n");
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]

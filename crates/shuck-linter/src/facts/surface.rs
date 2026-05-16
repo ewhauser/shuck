@@ -109,14 +109,24 @@ impl CasePatternExpansionFact {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct SuspectClosingQuoteFragmentFact {
     span: Span,
+    replacement_span: Span,
+    replacement: Box<str>,
 }
 
 impl SuspectClosingQuoteFragmentFact {
     pub fn span(&self) -> Span {
         self.span
+    }
+
+    pub fn replacement_span(&self) -> Span {
+        self.replacement_span
+    }
+
+    pub fn replacement(&self) -> &str {
+        &self.replacement
     }
 }
 
@@ -824,7 +834,11 @@ impl<'a> SurfaceFragmentSink<'a> {
                 });
             self.facts
                 .suspect_closing_quotes
-                .push(SuspectClosingQuoteFragmentFact { span: closing_span });
+                .push(SuspectClosingQuoteFragmentFact {
+                    span: closing_span,
+                    replacement_span: word.span,
+                    replacement: replacement.clone(),
+                });
         }
     }
 
@@ -838,6 +852,11 @@ impl<'a> SurfaceFragmentSink<'a> {
                 has_later_words,
                 &mut self.split_suspect_closing_quote_scratch,
             );
+            if self.split_suspect_closing_quote_scratch.is_empty() {
+                continue;
+            }
+
+            let mut replacement = None;
             for index in 0..self.split_suspect_closing_quote_scratch.len() {
                 let span = self.split_suspect_closing_quote_scratch[index];
                 if self
@@ -850,7 +869,15 @@ impl<'a> SurfaceFragmentSink<'a> {
                 }
                 self.facts
                     .suspect_closing_quotes
-                    .push(SuspectClosingQuoteFragmentFact { span });
+                    .push(SuspectClosingQuoteFragmentFact {
+                        span,
+                        replacement_span: word.span,
+                        replacement: replacement
+                            .get_or_insert_with(|| {
+                                rewrite_word_as_single_double_quoted_string(word, self.source, None)
+                            })
+                            .clone(),
+                    });
             }
         }
     }
