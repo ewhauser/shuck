@@ -214,7 +214,7 @@ fn format_parameter_default_arithmetic_in_raw_word(
         let end = start + "$((".len() + end + "))".len();
         formatted.push_str(&raw[index..start]);
         if let Some(arithmetic) = format_arithmetic_expansion_operand(&raw[start..end], options) {
-            changed |= arithmetic != &raw[start..end];
+            changed |= arithmetic != raw[start..end];
             formatted.push_str(&arithmetic);
         } else {
             formatted.push_str(&raw[start..end]);
@@ -1043,25 +1043,169 @@ fn pop_next_heredoc_delimiter(pending: &mut Vec<String>) -> Option<String> {
 
 pub(crate) fn heredoc_delimiters_in_rendered_line(line: &str) -> Vec<String> {
     let mut delimiters = Vec::new();
-    let mut rest = line;
-    while let Some(offset) = rest.find("<<") {
-        rest = &rest[offset + 2..];
+    let mut search_start = 0;
+    while let Some(offset) = line[search_start..].find("<<") {
+        let operator_start = search_start + offset;
+        let mut delimiter_start = operator_start + "<<".len();
+        let rest = &line[delimiter_start..];
         if rest.starts_with('<') {
+            search_start = delimiter_start + '<'.len_utf8();
             continue;
         }
-        rest = rest.strip_prefix('-').unwrap_or(rest).trim_start();
+        if heredoc_operator_is_in_non_redirection_context(line, operator_start) {
+            search_start = delimiter_start;
+            continue;
+        }
+
+        let mut rest = rest;
+        if rest.starts_with('-') {
+            delimiter_start += '-'.len_utf8();
+            rest = &line[delimiter_start..];
+        }
+        let trimmed = rest.trim_start();
+        delimiter_start += rest.len() - trimmed.len();
+        rest = trimmed;
         let token_end = rest
             .find(|ch: char| ch.is_whitespace() || matches!(ch, ';' | '&' | '|'))
             .unwrap_or(rest.len());
         if token_end == 0 {
+            search_start = delimiter_start;
             continue;
         }
 
         let token = &rest[..token_end];
         delimiters.push(unquote_heredoc_delimiter(token));
-        rest = &rest[token_end..];
+        search_start = delimiter_start + token_end;
     }
     delimiters
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RenderedLineQuote {
+    Single,
+    Double,
+}
+
+fn heredoc_operator_is_in_non_redirection_context(line: &str, operator_start: usize) -> bool {
+    let mut index = 0;
+    let mut quote = None;
+    let mut escaped = false;
+    let mut arithmetic_depth = 0usize;
+    let mut conditional_depth = 0usize;
+    let mut double_quoted_command_substitution_depth = 0usize;
+
+    while index < operator_start {
+        let rest = &line[index..operator_start];
+        let Some(ch) = rest.chars().next() else {
+            break;
+        };
+        let ch_len = ch.len_utf8();
+
+        if escaped {
+            escaped = false;
+            index += ch_len;
+            continue;
+        }
+
+        match quote {
+            Some(RenderedLineQuote::Single) => {
+                if ch == '\'' {
+                    quote = None;
+                }
+                index += ch_len;
+                continue;
+            }
+            Some(RenderedLineQuote::Double) => {
+                if ch == '\\' {
+                    escaped = true;
+                    index += ch_len;
+                    continue;
+                }
+                if rest.starts_with("$((") {
+                    arithmetic_depth += 1;
+                    index += "$((".len();
+                    continue;
+                }
+                if arithmetic_depth > 0 && rest.starts_with("))") {
+                    arithmetic_depth -= 1;
+                    index += "))".len();
+                    continue;
+                }
+                if rest.starts_with("$(") {
+                    double_quoted_command_substitution_depth += 1;
+                    index += "$(".len();
+                    continue;
+                }
+                if double_quoted_command_substitution_depth > 0 && ch == ')' {
+                    double_quoted_command_substitution_depth -= 1;
+                    index += ch_len;
+                    continue;
+                }
+                if ch == '"' && double_quoted_command_substitution_depth == 0 {
+                    quote = None;
+                }
+                index += ch_len;
+                continue;
+            }
+            None => {}
+        }
+
+        if ch == '\\' {
+            escaped = true;
+            index += ch_len;
+            continue;
+        }
+        if ch == '\'' {
+            quote = Some(RenderedLineQuote::Single);
+            index += ch_len;
+            continue;
+        }
+        if ch == '"' {
+            quote = Some(RenderedLineQuote::Double);
+            index += ch_len;
+            continue;
+        }
+        if rest.starts_with("$((") {
+            arithmetic_depth += 1;
+            index += "$((".len();
+            continue;
+        }
+        if arithmetic_depth > 0 && rest.starts_with("))") {
+            arithmetic_depth -= 1;
+            index += "))".len();
+            continue;
+        }
+        if rest.starts_with("((") && shell_word_starts_at_boundary(line, index) {
+            arithmetic_depth += 1;
+            index += "((".len();
+            continue;
+        }
+        if rest.starts_with("[[") && shell_word_starts_at_boundary(line, index) {
+            conditional_depth += 1;
+            index += "[[".len();
+            continue;
+        }
+        if conditional_depth > 0 && rest.starts_with("]]") {
+            conditional_depth -= 1;
+            index += "]]".len();
+            continue;
+        }
+
+        index += ch_len;
+    }
+
+    escaped
+        || arithmetic_depth > 0
+        || conditional_depth > 0
+        || matches!(quote, Some(RenderedLineQuote::Single))
+        || matches!(quote, Some(RenderedLineQuote::Double))
+            && double_quoted_command_substitution_depth == 0
+}
+
+fn shell_word_starts_at_boundary(line: &str, index: usize) -> bool {
+    line[..index].chars().next_back().is_none_or(|ch| {
+        ch.is_whitespace() || matches!(ch, ';' | '&' | '|' | '(' | ')' | '{' | '}')
+    })
 }
 
 fn unquote_heredoc_delimiter(token: &str) -> String {
@@ -1960,4 +2104,36 @@ fn trim_unescaped_trailing_whitespace(text: &str) -> &str {
     }
 
     &text[..end]
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ShellFormatOptions;
+
+    use super::*;
+
+    #[test]
+    fn indented_rendered_block_ignores_arithmetic_shift_as_heredoc() {
+        let options = ShellFormatOptions::default().resolve("", None);
+        let mut rendered = String::new();
+
+        push_indented_rendered_block(&mut rendered, "echo $((1 << 2))\necho done", &options, 1);
+
+        assert_eq!(rendered, "\techo $((1 << 2))\n\techo done");
+    }
+
+    #[test]
+    fn indented_rendered_block_keeps_heredoc_body_verbatim() {
+        let options = ShellFormatOptions::default().resolve("", None);
+        let mut rendered = String::new();
+
+        push_indented_rendered_block(
+            &mut rendered,
+            "cat <<EOF\nbody\nEOF\necho done",
+            &options,
+            1,
+        );
+
+        assert_eq!(rendered, "\tcat <<EOF\nbody\nEOF\n\techo done");
+    }
 }

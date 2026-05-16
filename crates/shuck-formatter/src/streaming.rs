@@ -1425,11 +1425,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             let multiline_condition = self
                 .condition_starts_after_keyword_continuation("elif", condition)
                 && !self.options().compact_layout();
-            if self.options().compact_layout() {
-                self.write_text("; elif ");
-                self.format_inline_stmts(condition)?;
-                self.write_text(self.then_separator(condition));
-            } else if elif_stays_on_previous_line {
+            if self.options().compact_layout() || elif_stays_on_previous_line {
                 self.write_text("; elif ");
                 self.format_inline_stmts(condition)?;
                 self.write_text(self.then_separator(condition));
@@ -1522,9 +1518,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     source_breaks.clamp(1, 2)
                 };
             }
-            if self.options().compact_layout() {
-                self.write_text("; else");
-            } else if else_stays_on_then_line {
+            if self.options().compact_layout() || else_stays_on_then_line {
                 self.write_text("; else");
             } else if self.else_body_starts_on_else_line(command, body)
                 && self.can_keep_multiline_assignment_on_else_line(body)
@@ -1765,10 +1759,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             .rev()
             .find_map(Option::as_mut)
             .filter(|line| !line.is_empty())
+            && let Some(without_semicolon) = last.strip_suffix(';')
         {
-            if let Some(without_semicolon) = last.strip_suffix(';') {
-                *last = without_semicolon.trim_end().to_string();
-            }
+            *last = without_semicolon.trim_end().to_string();
         }
         while lines
             .last()
@@ -1776,10 +1769,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         {
             lines.pop();
         }
-        if let Some(last) = lines.iter_mut().rev().find_map(Option::as_mut) {
-            if let Some(without_continuation) = last.trim_end().strip_suffix('\\') {
-                *last = without_continuation.trim_end().to_string();
-            }
+        if let Some(last) = lines.iter_mut().rev().find_map(Option::as_mut)
+            && let Some(without_continuation) = last.trim_end().strip_suffix('\\')
+        {
+            *last = without_continuation.trim_end().to_string();
         }
 
         for (index, line) in lines.iter().enumerate() {
@@ -3909,13 +3902,9 @@ fn shfmt_keeps_source_continuation_before(
     next_start: usize,
     previous_end: usize,
 ) -> Option<bool> {
-    let Some(before_next) = source.get(..next_start.min(source.len())) else {
-        return None;
-    };
+    let before_next = source.get(..next_start.min(source.len()))?;
     let trimmed = before_next.trim_end_matches([' ', '\t']);
-    let Some(line_end) = trimmed.rfind(['\n', '\r']) else {
-        return None;
-    };
+    let line_end = trimmed.rfind(['\n', '\r'])?;
     let continued_line = &trimmed[..line_end];
     if !continued_line.ends_with('\\') {
         return None;

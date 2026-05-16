@@ -302,10 +302,28 @@ fn source_may_need_case_comment_alignment(source: &str) -> bool {
 
 fn source_may_need_branch_comment_relocation(source: &str) -> bool {
     let lines = source.lines().collect::<Vec<_>>();
-    lines.windows(2).any(|window| {
-        window[0].trim_start().starts_with('#')
-            && (window[1].trim_start() == "else" || window[1].trim_start().starts_with("elif "))
+    lines.iter().enumerate().any(|(index, line)| {
+        if !line.trim_start().starts_with('#') {
+            return false;
+        }
+
+        let Some(next) = lines.get(index + 1) else {
+            return false;
+        };
+        if is_branch_keyword_line(next) {
+            return true;
+        }
+
+        next.is_empty()
+            && lines
+                .get(index + 2)
+                .is_some_and(|line| is_branch_keyword_line(line))
     })
+}
+
+fn is_branch_keyword_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed == "else" || trimmed.starts_with("elif ")
 }
 
 fn relocate_branch_leading_comments(output: &mut String, line_ending: LineEnding) {
@@ -456,6 +474,8 @@ mod tests {
     use shuck_ast::{AssignmentValue, Command};
     use shuck_linter::{AnalysisRequest, Diagnostic, LinterSettings};
     use shuck_parser::ShellDialect as ParseShellDialect;
+
+    use crate::word::heredoc_delimiters_in_rendered_line;
 
     use super::*;
 
@@ -742,6 +762,17 @@ mod tests {
             formatted,
             FormattedSource::Formatted("declare -x foo=1 <<EOF\nhi\nEOF\n".to_string())
         );
+    }
+
+    #[test]
+    fn heredoc_delimiter_scan_ignores_non_redirection_operators() {
+        assert_eq!(
+            heredoc_delimiters_in_rendered_line("cat <<EOF 2<<-'ERR'"),
+            vec!["EOF".to_string(), "ERR".to_string()]
+        );
+        assert!(heredoc_delimiters_in_rendered_line("echo $((1 << 2))").is_empty());
+        assert!(heredoc_delimiters_in_rendered_line("((1 << 2))").is_empty());
+        assert!(heredoc_delimiters_in_rendered_line("[[ $a << $b ]]").is_empty());
     }
 
     #[test]
@@ -1762,6 +1793,21 @@ mod tests {
             formatted,
             FormattedSource::Formatted(
                 "if foo; then\n\tbar\nelse\n\t# branch comment\n\tbaz\nfi\n".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn source_is_formatted_checks_blank_line_branch_comment_relocation() {
+        let source = "if foo; then\n\tbar\n\t# else branch\n\nelse\n\tbaz\nfi\n";
+        let options = ShellFormatOptions::default();
+
+        assert!(source_may_need_branch_comment_relocation(source));
+        assert!(!source_is_formatted(source, None, &options).unwrap());
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if foo; then\n\tbar\n\t# else branch\nelse\n\tbaz\nfi\n".to_string()
             )
         );
     }
