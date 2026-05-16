@@ -16,6 +16,9 @@ COMMON_TARGETS=(
   glob_fuzz
   recovered_parser_fuzz
   linter_no_panic_fuzz
+  lsp_document_sync_fuzz
+  lsp_request_surface_fuzz
+  lsp_protocol_sequence_fuzz
 )
 
 # FORMATTER_TARGETS=(

@@ -56,6 +56,9 @@ fuzz-smoke:
 	bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) recovered_parser_fuzz -- $(FUZZ_SMOKE_ARGS)'
 	# bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) formatter_consistency_fuzz -- $(FUZZ_SMOKE_ARGS)'
 	bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) linter_no_panic_fuzz -- $(FUZZ_SMOKE_ARGS)'
+	bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) lsp_document_sync_fuzz -- $(FUZZ_SMOKE_ARGS)'
+	bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) lsp_request_surface_fuzz -- $(FUZZ_SMOKE_ARGS)'
+	bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) lsp_protocol_sequence_fuzz -- $(FUZZ_SMOKE_ARGS)'
 
 fuzz-run:
 	test -n "$(FUZZ_TARGET)"

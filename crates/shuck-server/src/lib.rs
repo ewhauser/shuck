@@ -22,6 +22,9 @@ mod editor;
 mod editor_features;
 mod fix;
 mod format;
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub mod fuzzing;
 mod lint;
 mod logging;
 mod resolve;
