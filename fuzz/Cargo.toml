@@ -8,13 +8,18 @@ edition = "2024"
 cargo-fuzz = true
 
 [dependencies]
+crossbeam = "0.8.4"
 libfuzzer-sys = "0.4"
+lsp-server = "0.7.6"
+lsp-types = { version = "0.95.1", features = ["proposed"] }
+serde_json = "1"
 similar = "2"
 shuck-ast = { path = "../crates/shuck-ast" }
 # shuck-formatter = { path = "../crates/shuck-formatter" }
 shuck-indexer = { path = "../crates/shuck-indexer" }
 shuck-linter = { path = "../crates/shuck-linter" }
 shuck-parser = { path = "../crates/shuck-parser" }
+shuck-server = { path = "../crates/shuck-server", features = ["fuzzing"] }
 
 [workspace]
 members = ["."]
@@ -74,6 +79,27 @@ bench = false
 [[bin]]
 name = "linter_no_panic_fuzz"
 path = "fuzz_targets/linter_no_panic_fuzz.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lsp_document_sync_fuzz"
+path = "fuzz_targets/lsp_document_sync_fuzz.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lsp_request_surface_fuzz"
+path = "fuzz_targets/lsp_request_surface_fuzz.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lsp_protocol_sequence_fuzz"
+path = "fuzz_targets/lsp_protocol_sequence_fuzz.rs"
 test = false
 doc = false
 bench = false

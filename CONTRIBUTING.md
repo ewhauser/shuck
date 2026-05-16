@@ -181,6 +181,14 @@ Available `cargo-fuzz` targets:
 - `glob_fuzz`
 - `recovered_parser_fuzz`
 - `linter_no_panic_fuzz`
+- `lsp_document_sync_fuzz`
+- `lsp_request_surface_fuzz`
+- `lsp_protocol_sequence_fuzz`
+
+The LSP fuzz targets exercise document synchronization, editor request handlers, and bounded
+in-memory protocol transcripts. Invalid generated LSP inputs may return normal LSP errors; fuzz
+failures are panics, hangs, invalid response ranges/edits, malformed serializations, or server
+sessions that do not shut down cleanly.
 
 Run the CLI generator-driven fuzzer:
 

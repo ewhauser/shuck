@@ -8,6 +8,9 @@ authors.workspace = true
 repository.workspace = true
 description = "Language server scaffold for shuck"
 
+[features]
+fuzzing = []
+
 [dependencies]
 anyhow = { workspace = true }
 crossbeam = { workspace = true }
