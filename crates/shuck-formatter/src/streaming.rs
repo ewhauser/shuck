@@ -9,7 +9,7 @@ use shuck_ast::{
     DeclOperand, File, ForCommand, ForSyntax, ForeachCommand, ForeachSyntax, FunctionDef, Heredoc,
     IfCommand, IfSyntax, Pattern, Redirect, RedirectKind, RepeatCommand, RepeatSyntax,
     SelectCommand, SimpleCommand, Span, Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand,
-    VarRef, WhileCommand, Word,
+    VarRef, WhileCommand, Word, WordPart,
 };
 use shuck_format::{IndentStyle, LineEnding};
 
@@ -19,8 +19,8 @@ use crate::command::{
     format_arithmetic_for_init_source, group_attachment_span, line_gap_break_count,
     multiline_compound_assignment_layout, multiline_compound_assignment_lines,
     render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
-    render_var_ref_to_buf, slice_span, stmt_format_span, stmt_render_start_line, stmt_span,
-    stmt_verbatim_span,
+    render_var_ref_to_buf, slice_span, stmt_format_span, stmt_render_start_line,
+    stmt_seq_has_heredoc, stmt_span, stmt_verbatim_span,
 };
 use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
@@ -653,7 +653,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
         if assignment_has_multiline_literal_source(assignment, self.source()) {
             self.write_rendered_shell_text(&scratch);
-        } else if rendered_shell_text_has_heredoc_tail(&scratch) {
+        } else if assignment_contains_command_heredoc(assignment)
+            && rendered_shell_text_has_heredoc_tail(&scratch)
+        {
             self.write_rendered_shell_text_preserving_heredoc_tails(&scratch);
         } else {
             self.write_text(&scratch);
@@ -3347,6 +3349,35 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
 fn heredoc_body_needs_separator(body: &str) -> bool {
     !body.is_empty() && !body.ends_with('\n') && !body.ends_with('\r')
+}
+
+fn assignment_contains_command_heredoc(assignment: &Assignment) -> bool {
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => word_contains_command_heredoc(word),
+        AssignmentValue::Compound(array) => array.elements.iter().any(|element| match element {
+            ArrayElem::Sequential(word)
+            | ArrayElem::Keyed { value: word, .. }
+            | ArrayElem::KeyedAppend { value: word, .. } => word_contains_command_heredoc(word),
+        }),
+    }
+}
+
+fn word_contains_command_heredoc(word: &Word) -> bool {
+    word.parts
+        .iter()
+        .any(|part| word_part_contains_command_heredoc(&part.kind))
+}
+
+fn word_part_contains_command_heredoc(part: &WordPart) -> bool {
+    match part {
+        WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
+            stmt_seq_has_heredoc(body)
+        }
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| word_part_contains_command_heredoc(&part.kind)),
+        _ => false,
+    }
 }
 
 #[derive(Debug, Clone)]
