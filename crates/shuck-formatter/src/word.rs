@@ -2251,8 +2251,57 @@ fn push_raw_shell_line_with_normalized_source_indent(
     {
         indent = body_indent;
     }
-    target.push_str(&normalized_raw_shell_indent(indent, options));
+    let trimmed_content = content.trim_matches([' ', '\t', '\r']);
+    if body_indent == Some("") && !trimmed_content.is_empty() && trimmed_content != ")" {
+        push_indent_units(target, options, 1);
+    } else {
+        target.push_str(&normalized_raw_shell_indent(indent, options));
+    }
+    let normalized_content;
+    let content = if body_indent.is_some() {
+        normalized_content = strip_semicolon_before_trailing_comment(content);
+        normalized_content.as_deref().unwrap_or(content)
+    } else {
+        content
+    };
     push_raw_shell_line_with_normalized_redirect_spacing(target, content);
+}
+
+fn strip_semicolon_before_trailing_comment(line: &str) -> Option<String> {
+    let comment_start = trailing_comment_start(line)?;
+    let before_comment = line[..comment_start].trim_end_matches([' ', '\t', '\r']);
+    let before_semicolon = before_comment.strip_suffix(';')?;
+    if before_semicolon.ends_with(';') {
+        return None;
+    }
+
+    let mut rendered = String::with_capacity(line.len().saturating_sub(1));
+    rendered.push_str(before_semicolon.trim_end_matches([' ', '\t', '\r']));
+    rendered.push(' ');
+    rendered.push_str(&line[comment_start..]);
+    Some(rendered)
+}
+
+fn trailing_comment_start(line: &str) -> Option<usize> {
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut escaped = false;
+
+    for (index, ch) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' if !in_single_quotes => escaped = true,
+            '\'' if !in_double_quotes => in_single_quotes = !in_single_quotes,
+            '"' if !in_single_quotes => in_double_quotes = !in_double_quotes,
+            '#' if !in_single_quotes && !in_double_quotes => return Some(index),
+            _ => {}
+        }
+    }
+
+    None
 }
 
 fn push_raw_shell_text_with_normalized_redirect_spacing(target: &mut String, text: &str) {

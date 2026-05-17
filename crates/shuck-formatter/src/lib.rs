@@ -1661,6 +1661,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn formats_block_command_substitutions_with_trailing_comments() {
+        let source = "size=$(\nstat -f\"%z\" \"$tmpFile\" 2> /dev/null; # OS X `stat`\nstat -c\"%s\" \"$tmpFile\" 2> /dev/null # GNU `stat`\n)\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "size=$(\n\tstat -f\"%z\" \"$tmpFile\" 2>/dev/null # OS X `stat`\n\tstat -c\"%s\" \"$tmpFile\" 2>/dev/null # GNU `stat`\n)\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_command_substitutions_with_closing_paren_on_own_line() {
         let source = "output=\"$(foo |\n          bar\n         )\"\n";
         let options = ShellFormatOptions::default();
