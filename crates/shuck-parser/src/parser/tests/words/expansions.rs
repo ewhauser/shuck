@@ -326,10 +326,12 @@ fn test_command_substitution_rebases_for_target_word() {
     let command = expect_simple(&script.body[0]);
     let word = &command.args[0];
 
-    let [WordPartNode {
-        kind: WordPart::DoubleQuoted { parts, .. },
-        ..
-    }] = word.parts.as_slice()
+    let [
+        WordPartNode {
+            kind: WordPart::DoubleQuoted { parts, .. },
+            ..
+        },
+    ] = word.parts.as_slice()
     else {
         panic!("expected double-quoted argument");
     };

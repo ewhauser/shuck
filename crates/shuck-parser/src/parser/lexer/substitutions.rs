@@ -189,7 +189,7 @@ impl<'a> Lexer<'a> {
                     } else if self.peek_char() == Some('{') {
                         Self::push_capture_char(content, '{');
                         self.advance();
-                        if !self.read_param_expansion_into(content, segment_start) {
+                        if !self.read_param_expansion_into(content, segment_start, false) {
                             return false;
                         }
                     } else if self.peek_char() == Some('[') {
@@ -752,6 +752,7 @@ impl<'a> Lexer<'a> {
         &mut self,
         content: &mut Option<String>,
         segment_start: Position,
+        preserve_escape_width: bool,
     ) -> bool {
         let mut borrowable = true;
         let mut depth = 1;
@@ -848,6 +849,9 @@ impl<'a> Lexer<'a> {
                                     segment_start,
                                     escape_start,
                                 );
+                                if preserve_escape_width {
+                                    Self::push_capture_char(content, '\x00');
+                                }
                                 Self::push_capture_char(content, esc);
                                 self.advance();
                             }
@@ -884,7 +888,11 @@ impl<'a> Lexer<'a> {
                     } else if self.peek_char() == Some('{') {
                         Self::push_capture_char(content, '{');
                         self.advance();
-                        borrowable &= self.read_param_expansion_into(content, segment_start);
+                        borrowable &= self.read_param_expansion_into(
+                            content,
+                            segment_start,
+                            preserve_escape_width,
+                        );
                     }
                 }
                 _ => {
