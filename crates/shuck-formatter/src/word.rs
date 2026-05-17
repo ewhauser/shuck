@@ -443,8 +443,10 @@ fn render_word_syntax_internal(
         let normalized = normalize_raw_arithmetic_command_substitution_padding(&normalized)
             .or_else(|| normalize_raw_arithmetic_expansion_padding(&normalized))
             .unwrap_or(normalized);
-        push_raw_shell_text_with_normalized_redirect_spacing(rendered, &normalized);
-        return;
+        if !raw_command_substitution_needs_structural_spacing(&normalized) {
+            push_raw_shell_text_with_normalized_redirect_spacing(rendered, &normalized);
+            return;
+        }
     }
 
     if word_has_escaped_command_substitution(word, source)
@@ -2357,6 +2359,126 @@ fn raw_command_redirect_spacing_would_change(raw: &str) -> bool {
     let mut normalized = String::with_capacity(raw.len());
     push_raw_shell_text_with_normalized_redirect_spacing(&mut normalized, raw);
     normalized != raw
+}
+
+fn raw_command_substitution_needs_structural_spacing(raw: &str) -> bool {
+    let bytes = raw.as_bytes();
+    let mut index = 0usize;
+
+    while index + 1 < bytes.len() {
+        if bytes[index] == b'$'
+            && bytes[index + 1] == b'('
+            && index
+                .checked_sub(1)
+                .and_then(|previous| bytes.get(previous))
+                .is_none_or(|byte| *byte != b'\\')
+            && bytes.get(index + 2).is_none_or(|byte| *byte != b'(')
+            && let Some(close_offset) = matching_raw_command_substitution_close(raw, index + 2)
+        {
+            if raw_shell_body_needs_structural_spacing(&raw[index + 2..close_offset]) {
+                return true;
+            }
+            index = close_offset + 1;
+            continue;
+        }
+        index += 1;
+    }
+
+    false
+}
+
+fn raw_shell_body_needs_structural_spacing(body: &str) -> bool {
+    let body = body.trim_matches([' ', '\t']);
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    let mut horizontal_run = 0usize;
+    let mut index = 0usize;
+
+    while index < body.len() {
+        let rest = &body[index..];
+        let Some(ch) = rest.chars().next() else {
+            break;
+        };
+        let next_index = index + ch.len_utf8();
+
+        if escaped {
+            escaped = false;
+            index = next_index;
+            continue;
+        }
+
+        match quote {
+            Some('\'') => {
+                if ch == '\'' {
+                    quote = None;
+                }
+            }
+            Some('"') => match ch {
+                '"' => quote = None,
+                '\\' => escaped = true,
+                _ => {}
+            },
+            Some('`') => match ch {
+                '`' => quote = None,
+                '\\' => escaped = true,
+                _ => {}
+            },
+            _ => {
+                if rest.starts_with("$(")
+                    && !rest.starts_with("$((")
+                    && let Some(close_offset) =
+                        matching_raw_command_substitution_close(body, index + 2)
+                {
+                    if raw_shell_body_needs_structural_spacing(&body[index + 2..close_offset]) {
+                        return true;
+                    }
+                    horizontal_run = 0;
+                    index = close_offset + 1;
+                    continue;
+                }
+
+                match ch {
+                    '\\' => {
+                        escaped = true;
+                        horizontal_run = 0;
+                    }
+                    '\'' | '"' | '`' => {
+                        quote = Some(ch);
+                        horizontal_run = 0;
+                    }
+                    ' ' | '\t' | '\r' => {
+                        if ch != ' ' {
+                            return true;
+                        }
+                        horizontal_run += 1;
+                        if horizontal_run > 1 {
+                            return true;
+                        }
+                    }
+                    '|' if !rest.starts_with("||") => {
+                        let op_len = if rest.starts_with("|&") { 2 } else { 1 };
+                        let previous_is_space = body[..index]
+                            .chars()
+                            .next_back()
+                            .is_some_and(|previous| matches!(previous, ' ' | '\t' | '\r'));
+                        let next_is_space = body[index + op_len..]
+                            .chars()
+                            .next()
+                            .is_some_and(|next| matches!(next, ' ' | '\t' | '\r'));
+                        if !previous_is_space || !next_is_space {
+                            return true;
+                        }
+                        horizontal_run = 0;
+                    }
+                    _ => horizontal_run = 0,
+                }
+            }
+        }
+
+        index = next_index;
+    }
+
+    false
 }
 
 fn normalize_raw_command_substitution_padding(raw: &str) -> Option<String> {

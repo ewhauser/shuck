@@ -1634,6 +1634,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn normalizes_inline_command_substitution_internal_spacing() {
+        let source = "nlq=\"$(  _sanitizer run \"$nlq\"  numeric )\"\nline=$( head -n 2 $file|tail -n 1 )\nfile2patch=\"$( echo \"$line\" | cut -d' ' -f2 |cut -f1 )\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "nlq=\"$(_sanitizer run \"$nlq\" numeric)\"\nline=$(head -n 2 $file | tail -n 1)\nfile2patch=\"$(echo \"$line\" | cut -d' ' -f2 | cut -f1)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn formats_multiline_command_substitutions() {
         let source = "result=$(\necho foo\necho bar\n)\n";
         let options = ShellFormatOptions::default();
