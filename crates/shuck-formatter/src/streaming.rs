@@ -16,10 +16,10 @@ use shuck_format::{IndentStyle, LineEnding};
 use crate::Result;
 use crate::command::{
     binary_operator, case_terminator, command_format_span, format_arithmetic_command_source,
-    group_attachment_span, line_gap_break_count, multiline_compound_assignment_lines,
-    render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
-    render_var_ref_to_buf, slice_span, stmt_format_span, stmt_render_start_line, stmt_span,
-    stmt_verbatim_span,
+    group_attachment_span, line_gap_break_count, multiline_compound_assignment_layout,
+    multiline_compound_assignment_lines, render_assignment_head_to_buf,
+    render_assignment_with_facts_to_buf, render_background_operator, render_var_ref_to_buf,
+    slice_span, stmt_format_span, stmt_render_start_line, stmt_span, stmt_verbatim_span,
 };
 use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
@@ -1325,21 +1325,66 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn format_inline_multiline_compound_assignment(&mut self, assignment: &Assignment) {
-        let Some(lines) = multiline_compound_assignment_lines(assignment, self.source()) else {
+        let Some(layout) = multiline_compound_assignment_layout(assignment, self.source()) else {
             self.write_assignment(assignment);
             return;
         };
 
         self.write_assignment_head(assignment);
         self.write_text("(");
-        for (index, line) in lines.iter().enumerate() {
-            if index > 0 {
-                self.newline();
-                self.write_indent_units(1);
+        let body_start = if layout.open_inline {
+            if let Some(first) = layout.lines.first() {
+                self.write_text(first);
             }
+            1
+        } else {
+            0
+        };
+
+        for line in &layout.lines[body_start..] {
+            self.newline();
+            self.write_indent_units(1);
             self.write_text(line);
         }
-        self.write_text(")");
+        if layout.close_inline {
+            self.write_text(")");
+        } else {
+            self.newline();
+            self.write_text(")");
+        }
+    }
+
+    fn write_standalone_multiline_compound_assignment_layout(
+        &mut self,
+        layout: &crate::command::MultilineCompoundAssignmentLayout,
+    ) {
+        let body_start = if layout.open_inline {
+            if let Some(first) = layout.lines.first() {
+                self.write_text(first);
+            }
+            1
+        } else {
+            0
+        };
+
+        if body_start < layout.lines.len() {
+            self.newline();
+            self.with_indent(|formatter| {
+                for (index, line) in layout.lines[body_start..].iter().enumerate() {
+                    if index > 0 {
+                        formatter.newline();
+                    }
+                    formatter.write_text(line);
+                }
+            });
+        }
+
+        if layout.close_inline {
+            self.write_text(")");
+        } else {
+            self.newline();
+            self.write_text(")");
+        }
     }
 
     fn format_binary_command(&mut self, command: &BinaryCommand) -> Result<()> {
@@ -2948,24 +2993,14 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return Ok(());
         }
 
-        let Some(lines) = multiline_compound_assignment_lines(assignment, source) else {
+        let Some(layout) = multiline_compound_assignment_layout(assignment, source) else {
             self.write_assignment(assignment);
             return Ok(());
         };
 
         self.write_assignment_head(assignment);
         self.write_text("(");
-        self.newline();
-        self.with_indent(|formatter| {
-            for (index, line) in lines.iter().enumerate() {
-                if index > 0 {
-                    formatter.newline();
-                }
-                formatter.write_text(line);
-            }
-        });
-        self.newline();
-        self.write_text(")");
+        self.write_standalone_multiline_compound_assignment_layout(&layout);
         Ok(())
     }
 

@@ -1913,7 +1913,7 @@ fn format_standalone_multiline_compound_assignment(
     formatter: &mut ShellFormatter<'_, '_>,
 ) -> FormatResult<()> {
     let source = formatter.context().source();
-    let Some(lines) = multiline_compound_assignment_lines(assignment, source) else {
+    let Some(layout) = multiline_compound_assignment_layout(assignment, source) else {
         return write!(
             formatter,
             [text(render_assignment(
@@ -1929,29 +1929,44 @@ fn format_standalone_multiline_compound_assignment(
         [text(render_assignment_head(assignment, source)), token("(")]
     )?;
 
-    let mut body = Document::new();
-    for (index, line) in lines.iter().enumerate() {
-        if index > 0 {
-            body.push(hard_line_break());
+    let body_start = if layout.open_inline {
+        if let Some(first) = layout.lines.first() {
+            write!(formatter, [text(first.clone())])?;
         }
-        body.push(text(line.clone()));
+        1
+    } else {
+        0
+    };
+
+    if body_start < layout.lines.len() {
+        let mut body = Document::new();
+        for (index, line) in layout.lines[body_start..].iter().enumerate() {
+            if index > 0 {
+                body.push(hard_line_break());
+            }
+            body.push(text(line.clone()));
+        }
+        write!(formatter, [hard_line_break(), indent(body)])?;
     }
 
-    write!(
-        formatter,
-        [
-            hard_line_break(),
-            indent(body),
-            hard_line_break(),
-            token(")")
-        ]
-    )
+    if layout.close_inline {
+        write!(formatter, [token(")")])
+    } else {
+        write!(formatter, [hard_line_break(), token(")")])
+    }
 }
 
-pub(crate) fn multiline_compound_assignment_lines(
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MultilineCompoundAssignmentLayout {
+    pub(crate) lines: Vec<String>,
+    pub(crate) open_inline: bool,
+    pub(crate) close_inline: bool,
+}
+
+pub(crate) fn multiline_compound_assignment_layout(
     assignment: &Assignment,
     source: &str,
-) -> Option<Vec<String>> {
+) -> Option<MultilineCompoundAssignmentLayout> {
     let AssignmentValue::Compound(_) = &assignment.value else {
         return None;
     };
@@ -1967,14 +1982,28 @@ pub(crate) fn multiline_compound_assignment_lines(
         return None;
     }
 
-    let lines = slice[open + 1..close]
+    let body = &slice[open + 1..close];
+    let open_line = body.split_once('\n').map_or(body, |(line, _)| line);
+    let close_line = body.rsplit_once('\n').map_or(body, |(_, line)| line);
+    let lines = body
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
 
-    (!lines.is_empty()).then_some(lines)
+    (!lines.is_empty()).then_some(MultilineCompoundAssignmentLayout {
+        lines,
+        open_inline: !open_line.trim().is_empty(),
+        close_inline: !close_line.trim().is_empty(),
+    })
+}
+
+pub(crate) fn multiline_compound_assignment_lines(
+    assignment: &Assignment,
+    source: &str,
+) -> Option<Vec<String>> {
+    multiline_compound_assignment_layout(assignment, source).map(|layout| layout.lines)
 }
 
 pub(crate) fn render_var_ref(reference: &VarRef, source: &str) -> String {

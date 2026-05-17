@@ -1575,6 +1575,21 @@ mod tests {
     }
 
     #[test]
+    fn preserves_inline_multiline_compound_assignment_delimiters() {
+        let source = "options=(path frozen without\n  ssl_verify_mode system_bindir user_agent)\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "options=(path frozen without\n\tssl_verify_mode system_bindir user_agent)\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_case_pattern_escapes() {
         let source = "case \"$archi\" in\nDarwin\\ arm64*) download foo ;;\nesac\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
@@ -2157,6 +2172,20 @@ mod tests {
             FormattedSource::Formatted(
                 "case $prev in\n--warnings)\n\tlocal cats=(cross gnu obsolete override portability syntax\n\t\tunsupported)\n\treturn\n\t;;\nesac\n"
                     .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn preserves_expanded_decl_compound_assignment_delimiters() {
+        let source = "f() {\n  local commands=(\n    build\n    version\n  )\n}\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\tlocal commands=(\n\t\tbuild\n\t\tversion\n\t)\n}\n".to_string()
             )
         );
         assert_source_and_ast_paths_match(source, None, &options);
