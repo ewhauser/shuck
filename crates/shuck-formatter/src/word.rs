@@ -2426,22 +2426,29 @@ fn push_raw_block_command_substitution_without_outer_indent(
             .strip_prefix(outer_indent)
             .unwrap_or_else(|| strip_one_indent_unit(line, options))
             .to_string();
+        let carried_pipeline_indent = previous_pipeline_indent.clone();
         let indent = line_leading_shell_indent(&line);
         let content = &line[indent.len()..];
         if let Some(previous_indent) = previous_pipeline_indent.as_deref()
             && !content.trim().is_empty()
-            && !content.starts_with('#')
         {
-            if !normalized_pipeline_continuation
-                && body_indent.as_deref() == Some(previous_indent)
-                && indent.len() <= previous_indent.len()
-            {
+            if content.starts_with('#') {
                 line = format!(
                     "{}{content}",
                     source_indent_plus_one_unit(previous_indent, options)
                 );
-            } else if indent.len() < previous_indent.len() {
-                line = format!("{previous_indent}{content}");
+            } else {
+                if !normalized_pipeline_continuation
+                    && body_indent.as_deref() == Some(previous_indent)
+                    && indent.len() <= previous_indent.len()
+                {
+                    line = format!(
+                        "{}{content}",
+                        source_indent_plus_one_unit(previous_indent, options)
+                    );
+                } else if indent.len() < previous_indent.len() {
+                    line = format!("{previous_indent}{content}");
+                }
             }
         }
         let indent = line_leading_shell_indent(&line);
@@ -2449,14 +2456,25 @@ fn push_raw_block_command_substitution_without_outer_indent(
         if body_indent.is_none() && !content.trim().is_empty() && !content.starts_with('#') {
             body_indent = Some(indent.to_string());
         }
+        let is_pipeline_continuation_comment =
+            content.starts_with('#') && carried_pipeline_indent.is_some();
         push_raw_shell_line_with_normalized_source_indent(
             target,
             &line,
             options,
-            body_indent.as_deref(),
+            if is_pipeline_continuation_comment {
+                None
+            } else {
+                body_indent.as_deref()
+            },
         );
-        previous_pipeline_indent =
-            line_ends_with_pipeline_operator(&line).then(|| indent.to_string());
+        previous_pipeline_indent = if content.trim().is_empty() {
+            None
+        } else if content.starts_with('#') {
+            carried_pipeline_indent
+        } else {
+            line_ends_with_pipeline_operator(&line).then(|| indent.to_string())
+        };
     }
 }
 
