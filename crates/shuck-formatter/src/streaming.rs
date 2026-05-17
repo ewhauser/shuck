@@ -5857,7 +5857,7 @@ fn sequence_verbatim_span(statements: &StmtSeq, source: &str) -> Option<Span> {
 }
 
 fn multiline_compound_assignment_line_extra_indent(line: &str) -> usize {
-    usize::from(!line.starts_with(')'))
+    usize::from(!line.is_empty() && !line.starts_with(')'))
 }
 
 fn case_prefix_comment_uses_body_indent(

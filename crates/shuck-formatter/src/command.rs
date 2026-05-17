@@ -2085,11 +2085,16 @@ pub(crate) fn multiline_compound_assignment_layout(
     let body = &slice[open + 1..close];
     let open_line = body.split_once('\n').map_or(body, |(line, _)| line);
     let close_line = body.rsplit_once('\n').map_or(body, |(_, line)| line);
-    let raw_lines = body
+    let mut raw_lines = body
         .lines()
         .map(|line| line.trim_end_matches([' ', '\t', '\r']))
-        .filter(|line| !line.trim().is_empty())
         .collect::<Vec<_>>();
+    if open_line.trim().is_empty() && raw_lines.first().is_some_and(|line| line.is_empty()) {
+        raw_lines.remove(0);
+    }
+    if close_line.trim().is_empty() && raw_lines.last().is_some_and(|line| line.is_empty()) {
+        raw_lines.pop();
+    }
     let common_indent =
         multiline_compound_assignment_common_body_indent(&raw_lines, !open_line.trim().is_empty());
     let residual_space_indent_width = multiline_compound_assignment_residual_space_indent_width(
@@ -2124,6 +2129,9 @@ fn normalize_multiline_compound_assignment_line(
     open_inline_line: bool,
 ) -> String {
     let trimmed = line.trim_start_matches([' ', '\t']);
+    if trimmed.is_empty() {
+        return String::new();
+    }
     if open_inline_line || trimmed.starts_with(')') {
         return trimmed.to_string();
     }
@@ -2141,6 +2149,9 @@ fn multiline_compound_assignment_common_body_indent(lines: &[&str], open_inline:
             continue;
         }
         let trimmed = line.trim_start_matches([' ', '\t']);
+        if trimmed.is_empty() {
+            continue;
+        }
         if trimmed.starts_with(')') || trimmed.starts_with('#') {
             continue;
         }
@@ -2170,6 +2181,9 @@ fn multiline_compound_assignment_residual_space_indent_width(
             continue;
         }
         let trimmed = line.trim_start_matches([' ', '\t']);
+        if trimmed.is_empty() {
+            continue;
+        }
         if trimmed.starts_with(')') || trimmed.starts_with('#') {
             continue;
         }
