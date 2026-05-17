@@ -1635,10 +1635,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.format_inline_stmts(condition)?;
                 self.write_text(self.then_separator_for_condition(condition));
             } else {
-                self.emit_branch_prefix_comments(command, index);
                 if if_next_branch_has_blank_line_before_keyword(command, index, source) {
                     self.newline();
                 }
+                self.emit_branch_prefix_comments(command, index);
                 self.newline();
                 self.write_text("elif ");
                 self.format_inline_stmts(condition)?;
@@ -1664,7 +1664,6 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             if self.options().compact_layout() {
                 self.write_text("; else");
             } else {
-                self.emit_branch_prefix_comments(command, command.elif_branches.len());
                 if if_next_branch_has_blank_line_before_keyword(
                     command,
                     command.elif_branches.len(),
@@ -1672,6 +1671,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 ) {
                     self.newline();
                 }
+                self.emit_branch_prefix_comments(command, command.elif_branches.len());
                 self.newline();
                 self.write_text("else");
             }
@@ -1708,13 +1708,19 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         command: &IfCommand,
         then_upper_bound: usize,
     ) -> bool {
-        if !command.elif_branches.is_empty() {
-            return false;
-        }
-        let body = command.else_branch.as_ref().unwrap_or(&command.then_branch);
         let _ = then_upper_bound;
+        let body = command
+            .else_branch
+            .as_ref()
+            .or_else(|| command.elif_branches.last().map(|(_, body)| body))
+            .unwrap_or(&command.then_branch);
         !body.is_empty()
-            && source_has_blank_line_before_last_keyword(self.source(), command.span, "fi")
+            && source_has_blank_line_before_last_keyword_after(
+                self.source(),
+                branch_body_content_end(body, self.source()),
+                command.span,
+                "fi",
+            )
     }
 
     fn emit_branch_prefix_comments(&mut self, command: &IfCommand, branch_index: usize) {
@@ -3266,6 +3272,12 @@ fn heredoc_body_needs_separator(body: &str) -> bool {
 }
 
 fn heredoc_closing_marker_source(heredoc: &Heredoc, source: &str) -> Option<String> {
+    let (start, line_end) = heredoc_closing_marker_bounds(heredoc, source)?;
+    let line = source.get(start..line_end)?;
+    (line.trim_start_matches('\t') == heredoc.delimiter.cooked.as_str()).then(|| line.to_string())
+}
+
+fn heredoc_closing_marker_bounds(heredoc: &Heredoc, source: &str) -> Option<(usize, usize)> {
     let mut start = heredoc.body.span.end.offset.min(source.len());
     if source
         .as_bytes()
@@ -3278,7 +3290,8 @@ fn heredoc_closing_marker_source(heredoc: &Heredoc, source: &str) -> Option<Stri
         .find(['\n', '\r'])
         .map_or(source.len(), |offset| start + offset);
     let line = source.get(start..line_end)?;
-    (line.trim_start_matches('\t') == heredoc.delimiter.cooked.as_str()).then(|| line.to_string())
+    (line.trim_start_matches('\t') == heredoc.delimiter.cooked.as_str())
+        .then_some((start, line_end))
 }
 
 fn raw_redirect_source_slice<'a>(redirect: &Redirect, source: &'a str) -> Option<&'a str> {
@@ -3591,6 +3604,12 @@ fn source_has_blank_line_immediately_before_offset(source: &str, offset: usize) 
     let close_line_start = source[..offset]
         .rfind('\n')
         .map_or(0, |index| index.saturating_add(1));
+    if !source[close_line_start..offset]
+        .trim_matches([' ', '\t', '\r'])
+        .is_empty()
+    {
+        return false;
+    }
     if close_line_start == 0 {
         return false;
     }
@@ -3609,10 +3628,41 @@ fn source_has_blank_line_before_last_keyword(source: &str, span: Span, keyword: 
     let Some(slice) = source.get(lower..upper) else {
         return false;
     };
-    let Some(keyword_start) = slice.rfind(keyword) else {
+    let Some(keyword_start) = slice
+        .match_indices(keyword)
+        .filter_map(|(start, _)| {
+            let end = start + keyword.len();
+            shell_keyword_boundaries_match(slice, start, end).then_some(start)
+        })
+        .last()
+    else {
         return false;
     };
     source_has_blank_line_immediately_before_offset(source, lower + keyword_start)
+}
+
+fn source_has_blank_line_before_last_keyword_after(
+    source: &str,
+    start_offset: usize,
+    span: Span,
+    keyword: &str,
+) -> bool {
+    let upper = span.end.offset.min(source.len());
+    let lower = start_offset.max(span.start.offset).min(upper);
+    let Some(slice) = source.get(lower..upper) else {
+        return false;
+    };
+    let Some(keyword_start) = slice
+        .match_indices(keyword)
+        .filter_map(|(start, _)| {
+            let end = start + keyword.len();
+            shell_keyword_boundaries_match(slice, start, end).then_some(start)
+        })
+        .last()
+    else {
+        return false;
+    };
+    gap_has_empty_physical_line(source, lower, lower + keyword_start)
 }
 
 fn sequence_first_content_offset(
@@ -4273,8 +4323,13 @@ fn if_next_branch_has_blank_line_before_keyword(
     branch_index: usize,
     source: &str,
 ) -> bool {
-    if_next_branch_region(command, branch_index, source)
-        .is_some_and(|(_, end)| source_has_blank_line_immediately_before_offset(source, end))
+    if_next_branch_region(command, branch_index, source).is_some_and(|(start, end)| {
+        let first_prefix = branch_prefix_comments(source, start, end)
+            .first()
+            .map(|comment| comment.offset)
+            .unwrap_or(end);
+        gap_has_empty_physical_line(source, start, first_prefix)
+    })
 }
 
 fn if_next_branch_region(
@@ -4283,13 +4338,13 @@ fn if_next_branch_region(
     source: &str,
 ) -> Option<(usize, usize)> {
     let current_branch_end = if branch_index == 0 {
-        branch_body_content_end(&command.then_branch)
+        branch_body_content_end(&command.then_branch, source)
     } else {
         command
             .elif_branches
             .get(branch_index - 1)
-            .map(|(_, body)| branch_body_content_end(body))
-            .unwrap_or_else(|| branch_body_content_end(&command.then_branch))
+            .map(|(_, body)| branch_body_content_end(body, source))
+            .unwrap_or_else(|| branch_body_content_end(&command.then_branch, source))
     };
 
     if let Some((condition, _)) = command.elif_branches.get(branch_index) {
@@ -4313,10 +4368,32 @@ fn if_next_branch_region(
     }
 }
 
-fn branch_body_content_end(body: &StmtSeq) -> usize {
-    body.last()
+fn branch_body_content_end(body: &StmtSeq, source: &str) -> usize {
+    let mut end = body
+        .last()
         .map(|stmt| stmt_span(stmt).end.offset)
-        .unwrap_or(body.span.end.offset)
+        .unwrap_or(body.span.end.offset);
+    if let Some(stmt) = body.last() {
+        for redirect in &stmt.redirects {
+            let Some(heredoc) = redirect.heredoc() else {
+                continue;
+            };
+            let heredoc_end = heredoc_closing_marker_bounds(heredoc, source)
+                .map(|(_, line_end)| line_end)
+                .unwrap_or(heredoc.body.span.end.offset);
+            end = end.max(heredoc_end);
+        }
+    }
+    let end = end.min(source.len());
+    trim_trailing_gap_before_offset(source, end)
+}
+
+fn trim_trailing_gap_before_offset(source: &str, mut offset: usize) -> usize {
+    let bytes = source.as_bytes();
+    while offset > 0 && matches!(bytes[offset - 1], b' ' | b'\t' | b'\r' | b'\n') {
+        offset -= 1;
+    }
+    offset
 }
 
 fn branch_keyword_offset(source: &str, start: usize, end: usize, keyword: &str) -> Option<usize> {

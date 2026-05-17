@@ -2638,6 +2638,50 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_blank_line_before_commented_if_branch() {
+        let source =
+            "if true; then\n  echo yes\n\n# try the fallback\nelif false; then\n  echo no\nfi\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if true; then\n\techo yes\n\n# try the fallback\nelif false; then\n\techo no\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn preserves_blank_line_before_fi_after_elif_branch() {
+        let source = "if true; then\n  echo yes\nelif false; then\n  echo no\n\nfi\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if true; then\n\techo yes\nelif false; then\n\techo no\n\nfi\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn does_not_preserve_branch_blanks_from_inline_keywords() {
+        let source = "# setup\n\nif true; then yes; else\n  no\nfi\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "# setup\n\nif true; then\n\tyes\nelse\n\tno\nfi\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_blank_line_after_while_do() {
         let source = "while read -r dep; do\n\n  ver=${dep#*=}\ndone\n";
         let options = ShellFormatOptions::default();
