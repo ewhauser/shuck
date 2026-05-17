@@ -403,7 +403,7 @@ fn render_word_syntax_internal(
         && let Some(raw) = raw_word_source_slice(word, source)
         && (word_has_multiline_double_quoted_source(word, source)
             || (raw.starts_with('"') && raw.contains("\\\n")))
-        && !word_is_quoted_block_command_substitution_only(word, source)
+        && !word_is_quoted_command_substitution_only(word)
         && could_need_preserve_raw_syntax(raw)
     {
         push_raw_word_with_normalized_command_redirect_spacing(rendered, word, raw, source);
@@ -545,7 +545,11 @@ fn word_has_multiline_double_quoted_source(word: &Word, source: &str) -> bool {
     })
 }
 
-pub(crate) fn word_is_quoted_block_command_substitution_only(word: &Word, source: &str) -> bool {
+pub(crate) fn word_is_quoted_command_substitution_only(word: &Word) -> bool {
+    quoted_command_substitution_only_span(word).is_some()
+}
+
+fn quoted_command_substitution_only_span(word: &Word) -> Option<shuck_ast::Span> {
     let [
         shuck_ast::WordPartNode {
             kind:
@@ -557,7 +561,7 @@ pub(crate) fn word_is_quoted_block_command_substitution_only(word: &Word, source
         },
     ] = word.parts.as_slice()
     else {
-        return false;
+        return None;
     };
     let [
         shuck_ast::WordPartNode {
@@ -566,10 +570,10 @@ pub(crate) fn word_is_quoted_block_command_substitution_only(word: &Word, source
         },
     ] = parts.as_slice()
     else {
-        return false;
+        return None;
     };
 
-    raw_source_slice(*span, source).is_some_and(command_substitution_source_starts_with_body_line)
+    Some(*span)
 }
 
 fn part_needs_special_rendering(part: &WordPart) -> bool {
