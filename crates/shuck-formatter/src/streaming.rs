@@ -4791,7 +4791,8 @@ fn trimmed_line_width(text: &str) -> Option<usize> {
 
 fn normalized_comment_alignment_width(text: &str) -> usize {
     let collapsed = collapse_horizontal_whitespace_runs(text);
-    let normalized = trim_arithmetic_expansion_padding_for_alignment(&collapsed);
+    let redirect_normalized = trim_redirect_padding_for_alignment(&collapsed);
+    let normalized = trim_arithmetic_expansion_padding_for_alignment(&redirect_normalized);
     normalized.chars().count() + moved_function_brace_alignment_width(&normalized)
 }
 
@@ -4825,6 +4826,100 @@ fn collapse_horizontal_whitespace_runs(text: &str) -> String {
         }
     }
     collapsed
+}
+
+fn trim_redirect_padding_for_alignment(text: &str) -> String {
+    let mut rendered = String::with_capacity(text.len());
+    let mut last = 0;
+    let mut index = 0;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut escaped = false;
+    let bytes = text.as_bytes();
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if byte == b'\'' && !in_double_quotes && !escaped {
+            in_single_quotes = !in_single_quotes;
+            index += 1;
+            continue;
+        }
+        if byte == b'"' && !in_single_quotes && !escaped {
+            in_double_quotes = !in_double_quotes;
+            index += 1;
+            continue;
+        }
+
+        if !in_single_quotes && !in_double_quotes && byte.is_ascii_digit() {
+            let fd_start = index;
+            let mut operator_start = index + 1;
+            while operator_start < bytes.len() && bytes[operator_start].is_ascii_digit() {
+                operator_start += 1;
+            }
+            if let Some(operator_end) = alignment_redirect_operator_end(bytes, operator_start)
+                && let Some(target_start) = redirect_target_start_after_padding(bytes, operator_end)
+            {
+                rendered.push_str(&text[last..operator_end]);
+                last = target_start;
+                index = target_start;
+                escaped = false;
+                continue;
+            }
+            index = fd_start;
+        }
+
+        if !in_single_quotes
+            && !in_double_quotes
+            && bytes.get(index..index + 3) == Some(b"<<<")
+            && let Some(target_start) = redirect_target_start_after_padding(bytes, index + 3)
+        {
+            rendered.push_str(&text[last..index + 3]);
+            last = target_start;
+            index = target_start;
+            escaped = false;
+            continue;
+        }
+
+        escaped = !in_single_quotes && byte == b'\\' && !escaped;
+        if byte != b'\\' {
+            escaped = false;
+        }
+        index += 1;
+    }
+
+    rendered.push_str(&text[last..]);
+    rendered
+}
+
+fn redirect_target_start_after_padding(bytes: &[u8], operator_end: usize) -> Option<usize> {
+    let mut target_start = operator_end;
+    while target_start < bytes.len() && matches!(bytes[target_start], b' ' | b'\t' | b'\r') {
+        target_start += 1;
+    }
+    (target_start > operator_end
+        && target_start < bytes.len()
+        && !matches!(bytes[target_start], b'<' | b'>' | b'&'))
+    .then_some(target_start)
+}
+
+fn alignment_redirect_operator_end(bytes: &[u8], start: usize) -> Option<usize> {
+    match bytes.get(start).copied()? {
+        b'>' => Some(match bytes.get(start + 1).copied() {
+            Some(b'>' | b'|' | b'&') => start + 2,
+            _ => start + 1,
+        }),
+        b'<' => Some(match bytes.get(start + 1).copied() {
+            Some(b'<' | b'>' | b'&') => {
+                if bytes.get(start + 2) == Some(&b'<') {
+                    start + 3
+                } else {
+                    start + 2
+                }
+            }
+            _ => start + 1,
+        }),
+        _ => None,
+    }
 }
 
 fn trim_arithmetic_expansion_padding_for_alignment(text: &str) -> String {
