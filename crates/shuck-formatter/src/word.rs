@@ -962,10 +962,26 @@ fn push_raw_command_substitution_with_normalized_spacing(
         quote.scan_line(first);
     }
     let mut previous_pipeline_indent: Option<String> = None;
+    let mut continuation_indent: Option<String> = None;
     for line in lines {
         target.push('\n');
         if quote.in_multiline_literal() {
-            target.push_str(line);
+            let line_continues = line_without_continuation_backslash(line).is_some();
+            if let Some(previous_indent) = continuation_indent.as_deref() {
+                let stripped = line
+                    .strip_prefix(outer_indent)
+                    .unwrap_or_else(|| strip_one_indent_unit(line, options));
+                let content = stripped.trim_start_matches([' ', '\t']);
+                target.push_str(previous_indent);
+                target.push_str(content);
+            } else {
+                target.push_str(line);
+            }
+            quote.scan_line(&line);
+            continuation_indent = line_continues
+                .then(|| continuation_indent.clone())
+                .flatten();
+            continue;
         } else {
             let mut line = line
                 .strip_prefix(outer_indent)
@@ -980,11 +996,30 @@ fn push_raw_command_substitution_with_normalized_spacing(
             {
                 line = format!("{previous_indent}{content}");
             }
+            let indent = line_leading_shell_indent(&line);
+            let content = &line[indent.len()..];
+            if let Some(previous_indent) = continuation_indent.as_deref()
+                && !content.trim().is_empty()
+                && !content.starts_with('#')
+                && normalized_raw_shell_indent(indent, options) != previous_indent
+            {
+                line = format!("{previous_indent}{content}");
+            }
             push_raw_shell_line_with_normalized_source_indent(target, &line, options, None);
             previous_pipeline_indent = line_ends_with_pipeline_operator(&line)
                 .then(|| line_leading_shell_indent(&line).to_string());
+            let line_continues = line_without_continuation_backslash(&line).is_some();
+            let line_indent = line_leading_shell_indent(&line).to_string();
+            quote.scan_line(&line);
+            continuation_indent = line_continues.then(|| {
+                if quote.in_multiline_literal() {
+                    line_indent
+                } else {
+                    source_indent_plus_one_unit(&line_indent, options)
+                }
+            });
+            continue;
         }
-        quote.scan_line(line);
     }
 }
 
@@ -1955,9 +1990,15 @@ fn indent_inline_pipeline_continuations(
         if index > 0 {
             rendered.push('\n');
         }
-        if (previous_ends_pipeline || previous_ends_continuation)
-            && line_needs_inline_pipeline_indent(line)
-        {
+        if previous_ends_continuation && !line.trim().is_empty() {
+            rendered.push_str(&prefix);
+            rendered.push_str(line.trim_start_matches([' ', '\t']));
+            changed = true;
+            previous_ends_pipeline = line_ends_with_pipeline_operator(line);
+            previous_ends_continuation = line_without_continuation_backslash(line).is_some();
+            continue;
+        }
+        if previous_ends_pipeline && line_needs_inline_pipeline_indent(line) {
             rendered.push_str(&prefix);
             changed = true;
         }

@@ -795,6 +795,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             if assignment_has_multiline_literal_source(assignment, self.source()) {
                 if assignment_value_is_quoted_command_substitution_only(assignment) {
                     self.write_command_substitution_assignment_text(&scratch);
+                } else if assignment_source_has_leading_pipe_continuation(assignment, self.source())
+                {
+                    self.write_text_preserving_current_line_indent(&scratch);
                 } else {
                     self.write_rendered_shell_text(&scratch);
                 }
@@ -4690,6 +4693,20 @@ fn assignment_has_raw_backslash_continuation_literal(
 fn assignment_source_has_command_substitution(assignment: &Assignment, source: &str) -> bool {
     let raw = assignment.span.slice(source);
     raw.contains("$(") || raw.contains('`') || raw.contains("<(") || raw.contains(">(")
+}
+
+fn assignment_source_has_leading_pipe_continuation(assignment: &Assignment, source: &str) -> bool {
+    let raw = assignment.span.slice(source);
+    let mut rest = raw;
+    while let Some(index) = rest.find("\\\n") {
+        let after_break = &rest[index + 2..];
+        let trimmed = after_break.trim_start_matches([' ', '\t', '\r']);
+        if trimmed.starts_with('|') && !trimmed.starts_with("||") {
+            return true;
+        }
+        rest = after_break;
+    }
+    false
 }
 
 fn assignment_value_is_quoted_formattable_command_substitution_only(
