@@ -1853,6 +1853,32 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_blank_line_before_case_item_terminator() {
+        let source = "case $x in\na)\n  echo a\n\n  ;;\nesac\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted("case $x in\na)\n\techo a\n\n\t;;\nesac\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn does_not_treat_comment_internal_blank_as_case_terminator_gap() {
+        let source = "case $x in\na)\n  echo a\n\n  # note\n  ;;\nesac\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case $x in\na)\n\techo a\n\n\t# note\n\t;;\nesac\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_blank_line_between_case_items() {
         let source = "case $x in\na) echo a ;;\n\nb) echo b ;;\nesac\n";
         let options = ShellFormatOptions::default();

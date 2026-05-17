@@ -2190,6 +2190,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     first_pattern_start,
                 )
             })?;
+            if case_item_has_blank_line_before_terminator(item, self.source()) {
+                self.newline();
+            }
             self.newline();
             self.write_case_prefix(base_indent + 1);
             self.write_case_terminator(item);
@@ -3884,6 +3887,23 @@ fn case_item_has_blank_line_after_pattern(
             .and_then(|index| lines.get(index))
             .is_some_and(|text| text.trim_matches([' ', '\t', '\r']).is_empty())
     })
+}
+
+fn case_item_has_blank_line_before_terminator(item: &CaseItem, source: &str) -> bool {
+    let Some(terminator_start) = item.terminator_span.map(|span| span.start.offset) else {
+        return false;
+    };
+    if item.body.is_empty() {
+        return false;
+    }
+    let content_end = item
+        .body
+        .trailing_comments
+        .iter()
+        .map(|comment| usize::from(comment.range.end()))
+        .max()
+        .unwrap_or_else(|| branch_body_content_end(&item.body, source));
+    gap_has_empty_physical_line(source, content_end, terminator_start)
 }
 
 fn case_has_blank_line_before_esac(command: &CaseCommand, source: &str) -> bool {
