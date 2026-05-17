@@ -398,12 +398,13 @@ fn render_word_syntax_internal(
         && let Some(raw) = raw_word_source_slice(word, source)
         && could_need_preserve_raw_syntax(raw)
     {
-        rendered.push_str(raw);
+        push_raw_word_with_normalized_command_redirect_spacing(rendered, word, raw, source);
         return;
     }
 
     if word_needs_special_rendering(word)
         || word_has_parameter_raw_subscript_needs_compaction(word, source)
+        || word_has_parameter_command_redirect_spacing_needs_normalization(word, source)
     {
         if render_word_parts(
             word.parts.as_slice(),
@@ -498,6 +499,35 @@ fn word_has_parameter_raw_subscript_needs_compaction(word: &Word, source: &str) 
         }),
         _ => false,
     })
+}
+
+fn word_has_parameter_command_redirect_spacing_needs_normalization(
+    word: &Word,
+    source: &str,
+) -> bool {
+    word.parts.iter().any(|part| {
+        word_part_has_parameter_command_redirect_spacing_needs_normalization(
+            &part.kind, part.span, source,
+        )
+    })
+}
+
+fn word_part_has_parameter_command_redirect_spacing_needs_normalization(
+    part: &WordPart,
+    span: shuck_ast::Span,
+    source: &str,
+) -> bool {
+    match part {
+        WordPart::Parameter(_) | WordPart::ParameterExpansion { .. } => {
+            raw_source_slice(span, source).is_some_and(raw_command_redirect_spacing_would_change)
+        }
+        WordPart::DoubleQuoted { parts, .. } => parts.iter().any(|part| {
+            word_part_has_parameter_command_redirect_spacing_needs_normalization(
+                &part.kind, part.span, source,
+            )
+        }),
+        _ => false,
+    }
 }
 
 fn word_has_multiline_double_quoted_source(word: &Word, source: &str) -> bool {
@@ -656,6 +686,57 @@ fn render_heredoc_body_part(
     }
 
     Ok(())
+}
+
+fn push_raw_word_with_normalized_command_redirect_spacing(
+    rendered: &mut String,
+    word: &Word,
+    raw: &str,
+    source: &str,
+) {
+    let mut spans = Vec::new();
+    collect_raw_command_substitution_spans(word.parts.as_slice(), &mut spans);
+    spans.sort_by_key(|span| span.start.offset);
+    let mut cursor = word.span.start.offset;
+    let word_end = word.span.end.offset.min(source.len());
+    let mut wrote_span = false;
+    for span in spans {
+        let start = span.start.offset;
+        let end = span.end.offset;
+        if start < cursor || end > word_end || start >= end {
+            continue;
+        }
+        if let Some(prefix) = source.get(cursor..start) {
+            rendered.push_str(prefix);
+        }
+        if let Some(command) = source.get(start..end) {
+            push_raw_shell_text_with_normalized_redirect_spacing(rendered, command);
+            wrote_span = true;
+        }
+        cursor = end;
+    }
+    if wrote_span {
+        if let Some(suffix) = source.get(cursor..word_end) {
+            rendered.push_str(suffix);
+        }
+    } else {
+        rendered.push_str(raw);
+    }
+}
+
+fn collect_raw_command_substitution_spans(
+    parts: &[shuck_ast::WordPartNode],
+    spans: &mut Vec<shuck_ast::Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::CommandSubstitution { .. } => spans.push(part.span),
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_raw_command_substitution_spans(parts.as_slice(), spans);
+            }
+            _ => {}
+        }
+    }
 }
 
 fn render_word_part(
@@ -997,11 +1078,17 @@ fn preferred_raw_word_part_source<'a>(
 
     match part {
         WordPart::SingleQuoted { .. } => raw_source_slice(span, source),
-        WordPart::Parameter(parameter) => (parameter_prefers_raw_source(parameter, span, source)
-            && !parameter_raw_subscript_needs_compaction(parameter, source))
-        .then(|| raw_source_slice(span, source))
-        .flatten(),
-        WordPart::ParameterExpansion { .. } => raw_source_slice(span, source),
+        WordPart::Parameter(parameter) => {
+            let raw = raw_source_slice(span, source)?;
+            (parameter_prefers_raw_source(parameter, span, source)
+                && !parameter_raw_subscript_needs_compaction(parameter, source)
+                && !raw_command_redirect_spacing_would_change(raw))
+            .then_some(raw)
+        }
+        WordPart::ParameterExpansion { .. } => {
+            let raw = raw_source_slice(span, source)?;
+            (!raw_command_redirect_spacing_would_change(raw)).then_some(raw)
+        }
         WordPart::Substring {
             offset_ast,
             length_ast,
@@ -1355,6 +1442,15 @@ fn push_raw_shell_text_with_normalized_redirect_spacing(target: &mut String, tex
         target.push('\n');
         push_raw_shell_line_with_normalized_redirect_spacing(target, line);
     }
+}
+
+fn raw_command_redirect_spacing_would_change(raw: &str) -> bool {
+    if !(raw.contains("$(") || raw.contains('`')) {
+        return false;
+    }
+    let mut normalized = String::with_capacity(raw.len());
+    push_raw_shell_text_with_normalized_redirect_spacing(&mut normalized, raw);
+    normalized != raw
 }
 
 fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, line: &str) {
@@ -2414,7 +2510,12 @@ fn push_parameter_word(
 }
 
 fn push_parameter_operand(rendered: &mut String, operand: &shuck_ast::SourceText, source: &str) {
-    rendered.push_str(&compact_parameter_operand_subscripts(operand.slice(source)));
+    let operand = compact_parameter_operand_subscripts(operand.slice(source));
+    if operand.contains("$(") || operand.contains('`') {
+        push_raw_shell_text_with_normalized_redirect_spacing(rendered, &operand);
+    } else {
+        rendered.push_str(&operand);
+    }
 }
 
 fn compact_raw_parameter_subscript(raw: &str) -> String {

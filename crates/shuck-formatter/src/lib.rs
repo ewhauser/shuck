@@ -1134,6 +1134,35 @@ $WHITE\$ $NO_COLOUR "
     }
 
     #[test]
+    fn normalizes_redirect_spacing_inside_raw_multiline_command_substitutions() {
+        let source = "host_sockets=\"$(find /run/host/run \\\n\t-xdev \\\n\t2> /dev/null || :)\"\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "host_sockets=\"$(find /run/host/run \\\n\t-xdev \\\n\t2>/dev/null || :)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn normalizes_redirect_spacing_inside_parameter_default_commands() {
+        let source = "[[ -t 1 && \"${CLICOLOR:=$(tput colors 2> /dev/null)}\" -ge 8 ]]\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "[[ -t 1 && \"${CLICOLOR:=$(tput colors 2>/dev/null)}\" -ge 8 ]]\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn normalizes_here_string_spacing_inside_command_substitutions() {
         let source = "[[ $versions = \"$(sort -V <<< \"$versions\")\" ]]\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
