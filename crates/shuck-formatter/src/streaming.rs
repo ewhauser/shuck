@@ -5648,7 +5648,34 @@ fn brace_group_last_stmt_allows_done_without_semicolon(commands: &StmtSeq) -> bo
     let Some(last) = commands.last() else {
         return false;
     };
-    matches!(last.command, Command::Compound(CompoundCommand::Case(_)))
+    command_allows_done_without_semicolon(&last.command)
+}
+
+fn command_allows_done_without_semicolon(command: &Command) -> bool {
+    match command {
+        Command::Compound(command) => compound_allows_done_without_semicolon(command),
+        Command::Binary(binary) => command_allows_done_without_semicolon(&binary.right.command),
+        _ => false,
+    }
+}
+
+fn compound_allows_done_without_semicolon(command: &CompoundCommand) -> bool {
+    match command {
+        CompoundCommand::Case(_) => true,
+        CompoundCommand::BraceGroup(commands)
+        | CompoundCommand::For(ForCommand { body: commands, .. })
+        | CompoundCommand::Repeat(RepeatCommand { body: commands, .. })
+        | CompoundCommand::Foreach(ForeachCommand { body: commands, .. })
+        | CompoundCommand::While(WhileCommand { body: commands, .. })
+        | CompoundCommand::Until(UntilCommand { body: commands, .. })
+        | CompoundCommand::Select(SelectCommand { body: commands, .. }) => {
+            brace_group_last_stmt_allows_done_without_semicolon(commands)
+        }
+        CompoundCommand::ArithmeticFor(command) => {
+            brace_group_last_stmt_allows_done_without_semicolon(&command.body)
+        }
+        _ => false,
+    }
 }
 
 fn matching_group_close_char(open: char) -> char {
