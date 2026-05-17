@@ -4678,12 +4678,6 @@ fn redirect_has_adjacent_numeric_fd_prefix(
     command: &SimpleCommand,
     source: &str,
 ) -> bool {
-    if !matches!(
-        redirect.kind,
-        RedirectKind::DupOutput | RedirectKind::DupInput
-    ) {
-        return false;
-    }
     let Some(SimpleCommandPart::Argument(word)) = previous_part else {
         return false;
     };
