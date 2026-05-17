@@ -2420,8 +2420,24 @@ fn push_raw_block_command_substitution_without_outer_indent(
     }
     let mut body_indent: Option<String> = None;
     let mut previous_pipeline_indent: Option<String> = None;
+    let mut quote = RawShellQuoteState::default();
     for line in lines {
         target.push('\n');
+        if quote.in_multiline_literal() {
+            target.push_str(line);
+            quote.scan_line(line);
+            let indent = line_leading_shell_indent(line);
+            let content = &line[indent.len()..];
+            previous_pipeline_indent = if content.trim().is_empty() {
+                None
+            } else if line_ends_with_pipeline_operator(line) {
+                Some(indent.to_string())
+            } else {
+                None
+            };
+            continue;
+        }
+
         let mut line = line
             .strip_prefix(outer_indent)
             .unwrap_or_else(|| strip_one_indent_unit(line, options))
@@ -2482,6 +2498,7 @@ fn push_raw_block_command_substitution_without_outer_indent(
         } else {
             line_ends_with_pipeline_operator(&line).then(|| indent.to_string())
         };
+        quote.scan_line(&line);
     }
 }
 
