@@ -3282,7 +3282,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return;
         };
         let current_code_column = self.column.saturating_sub(self.line_indent_column);
-        let padding = close_suffix_comment_padding(self.source(), &comment, current_code_column);
+        let padding = close_suffix_comment_padding(
+            self.source(),
+            &comment,
+            current_code_column,
+            self.line_indent_column,
+        );
         for _ in 0..padding {
             self.write_space();
         }
@@ -4781,8 +4786,114 @@ fn close_suffix_comment_padding(
     source: &str,
     comment: &SourceComment<'_>,
     current_code_column: usize,
+    current_indent_column: usize,
 ) -> usize {
+    if let Some(padding) = tabbed_close_suffix_comment_padding(
+        source,
+        comment,
+        current_code_column,
+        current_indent_column,
+    ) {
+        return padding;
+    }
     trailing_comment_padding(source, comment, current_code_column)
+}
+
+fn tabbed_close_suffix_comment_padding(
+    source: &str,
+    comment: &SourceComment<'_>,
+    current_code_column: usize,
+    current_indent_column: usize,
+) -> Option<usize> {
+    let entries = tabbed_inline_comment_alignment_entries(source, comment)?;
+    if entries.len() <= 1 {
+        return None;
+    }
+    let target_column = entries
+        .iter()
+        .map(|(indent, code_width)| indent + code_width)
+        .max()?
+        + 1;
+    Some(
+        target_column
+            .saturating_sub(current_indent_column + current_code_column)
+            .max(1),
+    )
+}
+
+fn tabbed_inline_comment_alignment_entries(
+    source: &str,
+    comment: &SourceComment<'_>,
+) -> Option<Vec<(usize, usize)>> {
+    let (line_start, line_end) = line_bounds_for_offset(source, comment.span().start.offset)?;
+    let mut entries = vec![inline_comment_tabbed_width(
+        source,
+        line_start,
+        line_end,
+        Some(comment.span().start.offset),
+    )?];
+
+    let mut previous_start = line_start;
+    while let Some((start, end)) = previous_line_bounds(source, previous_start) {
+        if let Some(width) = inline_comment_tabbed_width(source, start, end, None) {
+            entries.push(width);
+            previous_start = start;
+            continue;
+        }
+        if source
+            .get(start..end)
+            .is_some_and(line_is_skippable_alignment_opener)
+        {
+            previous_start = start;
+            continue;
+        }
+        break;
+    }
+
+    let mut next_start = line_end
+        .checked_add(1)
+        .filter(|offset| *offset < source.len());
+    while let Some(start) = next_start {
+        let end = source[start..]
+            .find('\n')
+            .map_or(source.len(), |offset| start + offset);
+        let Some(width) = inline_comment_tabbed_width(source, start, end, None) else {
+            break;
+        };
+        entries.push(width);
+        next_start = end.checked_add(1).filter(|offset| *offset < source.len());
+    }
+
+    Some(entries)
+}
+
+fn inline_comment_tabbed_width(
+    source: &str,
+    line_start: usize,
+    line_end: usize,
+    known_comment_offset: Option<usize>,
+) -> Option<(usize, usize)> {
+    let comment_offset = known_comment_offset
+        .or_else(|| find_inline_comment_start(source.get(line_start..line_end)?, line_start))?;
+    let prefix = source.get(line_start..comment_offset)?;
+    if line_is_skippable_alignment_opener(prefix) {
+        return None;
+    }
+    let (indent_width, code_start) = leading_tab_indent_and_code_start(prefix)?;
+    let code_width = trimmed_line_width(prefix.get(code_start..)?)?;
+    Some((indent_width, code_width))
+}
+
+fn leading_tab_indent_and_code_start(text: &str) -> Option<(usize, usize)> {
+    let mut indent_width = 0;
+    for (index, ch) in text.char_indices() {
+        match ch {
+            '\t' => indent_width += 1,
+            ' ' | '\r' => return None,
+            _ => return Some((indent_width, index)),
+        }
+    }
+    None
 }
 
 fn trailing_comment_alignment_column(source: &str, comment: &SourceComment<'_>) -> Option<usize> {

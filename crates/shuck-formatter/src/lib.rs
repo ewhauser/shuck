@@ -547,6 +547,20 @@ mod tests {
     }
 
     #[test]
+    fn aligns_nested_close_suffix_comments_by_column() {
+        let source = "if outer; then\n\tif inner; then\n\t\tcase $cmd in\n\t\t*) : ;;\n\t\tesac # case\n\tfi # inner\nfi # outer\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "if outer; then\n\tif inner; then\n\t\tcase $cmd in\n\t\t*) : ;;\n\t\tesac # case\n\tfi    # inner\nfi     # outer\n"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
     fn check_path_reports_already_formatted_sources() {
         assert!(
             source_is_formatted(
