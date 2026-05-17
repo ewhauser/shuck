@@ -2524,8 +2524,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     fn format_brace_group(&mut self, commands: &StmtSeq, upper_bound: Option<usize>) -> Result<()> {
         let sequence_facts = self.facts().sequence(commands, upper_bound);
         let should_inline = sequence_facts.group_open_suffix_span().is_none()
-            && self.facts().group_was_inline_in_source(commands)
-            && self.can_inline_group(commands);
+            && self.group_has_inline_source_shape(commands, '{')
+            && self.can_inline_group(commands, '{');
         if should_inline {
             self.write_text("{ ");
             self.format_inline_stmts(commands)?;
@@ -2538,8 +2538,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     fn format_subshell(&mut self, commands: &StmtSeq, upper_bound: Option<usize>) -> Result<()> {
         let sequence_facts = self.facts().sequence(commands, upper_bound);
         let should_inline = sequence_facts.group_open_suffix_span().is_none()
-            && ((self.facts().group_was_inline_in_source(commands)
-                && self.can_inline_group(commands))
+            && ((self.group_has_inline_source_shape(commands, '(')
+                && self.can_inline_group(commands, '('))
                 || self.can_inline_source_line_subshell(commands, upper_bound));
         if should_inline {
             self.write_text("(");
@@ -2737,8 +2737,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 }
 
                 let should_inline = !self.options().function_next_line()
-                    && self.facts().group_was_inline_in_source(commands)
-                    && self.can_inline_group(commands);
+                    && self.group_has_inline_source_shape(commands, '{')
+                    && self.can_inline_group(commands, '{');
                 if should_inline {
                     self.write_text("{ ");
                     self.format_inline_stmts(commands)?;
@@ -2756,8 +2756,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 ..
             } if redirects.is_empty() => {
                 let should_inline = !self.options().function_next_line()
-                    && self.facts().group_was_inline_in_source(commands)
-                    && self.can_inline_group(commands);
+                    && self.group_has_inline_source_shape(commands, '(')
+                    && self.can_inline_group(commands, '(');
                 if should_inline {
                     self.write_text("(");
                     self.format_inline_stmts(commands)?;
@@ -3364,14 +3364,37 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             || stmt_span(command).start.line == enclosing_span.start.line
     }
 
-    fn can_inline_group(&self, commands: &StmtSeq) -> bool {
+    fn can_inline_group(&self, commands: &StmtSeq, open_char: char) -> bool {
         let [command] = commands.as_slice() else {
             return false;
         };
 
         self.can_inline_stmt(command)
-            && stmt_span(command).start.line == stmt_span(command).end.line
             && self.can_inline_body(commands, stmt_span(command))
+            && (stmt_span(command).start.line == stmt_span(command).end.line
+                || self.group_delimiters_attach_to_wrapped_body(commands, open_char))
+    }
+
+    fn group_has_inline_source_shape(&self, commands: &StmtSeq, open_char: char) -> bool {
+        self.facts().group_was_inline_in_source(commands)
+            || self.group_delimiters_attach_to_wrapped_body(commands, open_char)
+    }
+
+    fn group_delimiters_attach_to_wrapped_body(&self, commands: &StmtSeq, open_char: char) -> bool {
+        let (Some(first), Some(last)) = (commands.first(), commands.last()) else {
+            return false;
+        };
+        let Some(group_span) = group_attachment_span(
+            commands.as_slice(),
+            self.source_map(),
+            open_char,
+            matching_group_close_char(open_char),
+        ) else {
+            return false;
+        };
+
+        group_span.start.line == stmt_format_span(first).start.line
+            && group_span.end.line == stmt_format_span(last).end.line
     }
 
     fn can_inline_source_line_subshell(
