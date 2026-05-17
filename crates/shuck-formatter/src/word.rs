@@ -637,13 +637,27 @@ fn render_heredoc_body_part(
     _facts: &FormatterFacts<'_>,
 ) -> Result<(), std::fmt::Error> {
     match part {
-        HeredocBodyPart::Literal(text) => rendered.push_str(text.as_str(source, span)),
+        HeredocBodyPart::Literal(text) => {
+            let raw = span.slice(source);
+            let cooked = text.as_str(source, span);
+            if heredoc_literal_needs_raw_source(raw, cooked) {
+                rendered.push_str(raw);
+            } else {
+                rendered.push_str(cooked);
+            }
+        }
         HeredocBodyPart::Variable(name) => {
-            std::write!(rendered, "${name}")?;
+            if let Some(raw) = escaped_heredoc_expansion_source(span, source) {
+                rendered.push_str(raw);
+            } else {
+                std::write!(rendered, "${name}")?;
+            }
         }
         HeredocBodyPart::CommandSubstitution { body, syntax } => {
             let raw = raw_source_slice(span, source);
-            if render_heredoc_body_command_substitution(
+            if let Some(raw) = escaped_heredoc_expansion_source(span, source) {
+                rendered.push_str(raw);
+            } else if render_heredoc_body_command_substitution(
                 rendered,
                 body,
                 span.end.offset,
@@ -688,7 +702,9 @@ fn render_heredoc_body_part(
             syntax,
             ..
         } => {
-            if matches!(syntax, ArithmeticExpansionSyntax::LegacyBracket) {
+            if let Some(raw) = escaped_heredoc_expansion_source(span, source) {
+                rendered.push_str(raw);
+            } else if matches!(syntax, ArithmeticExpansionSyntax::LegacyBracket) {
                 push_trimmed_arithmetic_expansion_source(
                     rendered,
                     expression.slice(source),
@@ -741,11 +757,38 @@ fn render_heredoc_body_part(
             }
         }
         HeredocBodyPart::Parameter(parameter) => {
-            push_parameter_word(rendered, parameter, source, options)?;
+            if let Some(raw) = escaped_heredoc_expansion_source(span, source) {
+                rendered.push_str(raw);
+            } else {
+                push_parameter_word(rendered, parameter, source, options)?;
+            }
         }
     }
 
     Ok(())
+}
+
+fn escaped_heredoc_expansion_source<'a>(span: shuck_ast::Span, source: &'a str) -> Option<&'a str> {
+    let raw = span.slice(source);
+    if raw.starts_with(['\\', '\x00']) {
+        return Some(raw);
+    }
+
+    let start = span.start.offset;
+    if start > 0
+        && source
+            .as_bytes()
+            .get(start - 1)
+            .is_some_and(|byte| *byte == b'\\')
+    {
+        return source.get(start - 1..span.end.offset);
+    }
+
+    None
+}
+
+fn heredoc_literal_needs_raw_source(raw: &str, cooked: &str) -> bool {
+    raw != cooked && (raw.contains("\\$") || raw.contains("\\`"))
 }
 
 fn push_raw_word_with_normalized_command_redirect_spacing(

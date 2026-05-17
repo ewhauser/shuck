@@ -1646,6 +1646,20 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn rendered_heredoc_bodies_preserve_escaped_variables() {
+        let source = "cat <<EOF > script\n#!/bin/bash\nexec $(which dart) \"\\$@\"\nEOF\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "cat <<EOF >script\n#!/bin/bash\nexec $(which dart) \"\\$@\"\nEOF\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn command_substitution_bounds_do_not_capture_following_comments() {
         let source = "value=$(pwd)\n# after\nnext\n";
         let options = ShellFormatOptions::default();
