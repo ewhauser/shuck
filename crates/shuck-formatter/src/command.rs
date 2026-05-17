@@ -1,12 +1,13 @@
 use shuck_ast::{
-    AlwaysCommand, AnonymousFunctionCommand, ArithmeticCommand, ArithmeticForCommand, ArrayElem,
-    Assignment, AssignmentValue, BackgroundOperator, BinaryCommand, BinaryOp, BuiltinCommand,
-    CaseCommand, CaseItem, CaseTerminator, Command, CompoundCommand, ConditionalBinaryExpr,
-    ConditionalCommand, ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, CoprocCommand,
-    DeclClause, DeclOperand, ForCommand, ForSyntax, ForeachCommand, ForeachSyntax, FunctionDef,
-    IfCommand, IfSyntax, Redirect, RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand,
-    SimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript, TimeCommand,
-    UntilCommand, VarRef, WhileCommand, Word,
+    AlwaysCommand, AnonymousFunctionCommand, ArithmeticCommand, ArithmeticExprNode,
+    ArithmeticForCommand, ArrayElem, Assignment, AssignmentValue, BackgroundOperator,
+    BinaryCommand, BinaryOp, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command,
+    CompoundCommand, ConditionalBinaryExpr, ConditionalCommand, ConditionalExpr,
+    ConditionalParenExpr, ConditionalUnaryExpr, CoprocCommand, DeclClause, DeclOperand, ForCommand,
+    ForSyntax, ForeachCommand, ForeachSyntax, FunctionDef, IfCommand, IfSyntax, Redirect,
+    RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand, SourceText, Span,
+    Stmt, StmtSeq, StmtTerminator, Subscript, TimeCommand, UntilCommand, VarRef, WhileCommand,
+    Word,
 };
 use shuck_format::{
     Document, Format, FormatElement, FormatResult, hard_line_break, indent, space, text, token,
@@ -19,8 +20,8 @@ use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::prelude::{AsFormat, ShellFormatter};
 use crate::word::{
-    render_pattern_syntax, render_word_syntax, render_word_syntax_to_buf,
-    render_word_syntax_with_facts_to_buf,
+    render_arithmetic_expr_to_buf, render_pattern_syntax, render_word_syntax,
+    render_word_syntax_to_buf, render_word_syntax_with_facts_to_buf,
 };
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -1305,6 +1306,21 @@ pub(crate) fn format_arithmetic_for_init_source(raw: &str) -> String {
     format!("{} {} {}", lhs.trim(), op, rhs.trim())
 }
 
+pub(crate) fn format_arithmetic_for_clause_source(
+    raw: &str,
+    ast: Option<&ArithmeticExprNode>,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+) -> String {
+    if let Some(ast) = ast {
+        let mut rendered = String::new();
+        render_arithmetic_expr_to_buf(&mut rendered, ast, source, options);
+        rendered
+    } else {
+        format_arithmetic_for_init_source(raw)
+    }
+}
+
 fn split_simple_arithmetic_assignment(raw: &str) -> Option<(&str, &str, &str)> {
     for op in [
         "<<=", ">>=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "=",
@@ -1404,14 +1420,24 @@ fn format_arithmetic_for(
         .step_span
         .map(|span| span.slice(source))
         .unwrap_or("");
-    let init = format_arithmetic_for_init_source(init);
+    let options = formatter.context().options();
+    let init =
+        format_arithmetic_for_clause_source(init, command.init_ast.as_ref(), source, options);
+    let condition = format_arithmetic_for_clause_source(
+        condition,
+        command.condition_ast.as_ref(),
+        source,
+        options,
+    );
+    let step =
+        format_arithmetic_for_clause_source(step, command.step_ast.as_ref(), source, options);
     let mut header = String::with_capacity(init.len() + condition.len() + step.len() + 14);
     header.push_str("for ((");
     header.push_str(&init);
-    header.push(';');
-    header.push_str(condition);
-    header.push(';');
-    header.push_str(step);
+    header.push_str("; ");
+    header.push_str(&condition);
+    header.push_str("; ");
+    header.push_str(&step);
     header.push_str(")); do");
     write!(formatter, [text(header)])?;
     format_body_with_upper_bound(&command.body, formatter, Some(command.span.end.offset))?;

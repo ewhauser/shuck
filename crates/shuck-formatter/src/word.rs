@@ -2044,7 +2044,7 @@ fn render_double_quoted_literal(rendered: &mut String, text: &str) {
     }
 }
 
-fn render_arithmetic_expr_to_buf(
+pub(crate) fn render_arithmetic_expr_to_buf(
     rendered: &mut String,
     expr: &ArithmeticExprNode,
     source: &str,

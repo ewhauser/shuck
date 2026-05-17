@@ -1750,7 +1750,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
 
     #[test]
     fn formats_arithmetic_for_init_assignment_spacing() {
-        let source = "for ((i=1; i < limit; ++i)); do\n  echo \"$i\"\ndone\n";
+        let source = "for ((i=1;i<limit;++i)); do\n  echo \"$i\"\ndone\n";
         let options = ShellFormatOptions::default();
 
         assert_eq!(

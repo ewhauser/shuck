@@ -16,7 +16,7 @@ use shuck_format::{IndentStyle, LineEnding};
 use crate::Result;
 use crate::command::{
     binary_operator, case_terminator, command_format_span, format_arithmetic_command_source,
-    format_arithmetic_for_init_source, group_attachment_span, line_gap_break_count,
+    format_arithmetic_for_clause_source, group_attachment_span, line_gap_break_count,
     multiline_compound_assignment_layout, multiline_compound_assignment_lines,
     render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
     render_var_ref_to_buf, slice_span, stmt_attachment_span, stmt_format_span,
@@ -2774,13 +2774,30 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             .step_span
             .map(|span| span.slice(source))
             .unwrap_or("");
-        let init = format_arithmetic_for_init_source(init);
+        let init = format_arithmetic_for_clause_source(
+            init,
+            command.init_ast.as_ref(),
+            source,
+            self.options(),
+        );
+        let condition = format_arithmetic_for_clause_source(
+            condition,
+            command.condition_ast.as_ref(),
+            source,
+            self.options(),
+        );
+        let step = format_arithmetic_for_clause_source(
+            step,
+            command.step_ast.as_ref(),
+            source,
+            self.options(),
+        );
         self.write_text("for ((");
         self.write_text(&init);
-        self.write_text(";");
-        self.write_text(condition);
-        self.write_text(";");
-        self.write_text(step);
+        self.write_text("; ");
+        self.write_text(&condition);
+        self.write_text("; ");
+        self.write_text(&step);
         self.write_text("))");
         let close_span = done_close_span(self.source(), command.span, None);
         self.format_do_done_body(&command.body, command.span, close_span, "done")
