@@ -3014,6 +3014,21 @@ function R() {
     }
 
     #[test]
+    fn aligns_inline_if_close_comments_after_reindent() {
+        let source = "scan() {\n       if IsRunning \"sentineld\"; then SENTINELONE_SCANNER_RUNNING=1; fi # macOS\n       if IsRunning \"s1-agent\"; then SENTINELONE_SCANNER_RUNNING=1; fi # Linux\n       if IsRunning \"SentinelAgent\"; then SENTINELONE_SCANNER_RUNNING=1; fi # Windows\n}\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "scan() {\n\tif IsRunning \"sentineld\"; then SENTINELONE_SCANNER_RUNNING=1; fi     # macOS\n\tif IsRunning \"s1-agent\"; then SENTINELONE_SCANNER_RUNNING=1; fi      # Linux\n\tif IsRunning \"SentinelAgent\"; then SENTINELONE_SCANNER_RUNNING=1; fi # Windows\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_blank_line_after_if_then() {
         let source = "if true; then\n\n  echo yes\nfi\n";
         let options = ShellFormatOptions::default();

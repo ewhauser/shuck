@@ -3147,8 +3147,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return;
         };
         let current_code_column = self.column.saturating_sub(self.line_indent_column);
-        let padding =
-            close_suffix_comment_padding(self.source(), &comment, self.column, current_code_column);
+        let padding = close_suffix_comment_padding(self.source(), &comment, current_code_column);
         for _ in 0..padding {
             self.write_space();
         }
@@ -4629,51 +4628,9 @@ fn trailing_comment_padding(
 fn close_suffix_comment_padding(
     source: &str,
     comment: &SourceComment<'_>,
-    current_column: usize,
     current_code_column: usize,
 ) -> usize {
-    if let Some(target_column) = raw_trailing_comment_alignment_column(source, comment) {
-        return target_column.saturating_sub(current_column).max(1);
-    }
     trailing_comment_padding(source, comment, current_code_column)
-}
-
-fn raw_trailing_comment_alignment_column(
-    source: &str,
-    comment: &SourceComment<'_>,
-) -> Option<usize> {
-    let (line_start, line_end) = line_bounds_for_offset(source, comment.span().start.offset)?;
-    let mut widths = vec![raw_inline_comment_code_width(
-        source,
-        line_start,
-        line_end,
-        Some(comment.span().start.offset),
-    )?];
-
-    let mut previous_start = line_start;
-    while let Some((start, end)) = previous_line_bounds(source, previous_start) {
-        let Some(width) = raw_inline_comment_code_width(source, start, end, None) else {
-            break;
-        };
-        widths.push(width);
-        previous_start = start;
-    }
-
-    let mut next_start = line_end
-        .checked_add(1)
-        .filter(|offset| *offset < source.len());
-    while let Some(start) = next_start {
-        let end = source[start..]
-            .find('\n')
-            .map_or(source.len(), |offset| start + offset);
-        let Some(width) = raw_inline_comment_code_width(source, start, end, None) else {
-            break;
-        };
-        widths.push(width);
-        next_start = end.checked_add(1).filter(|offset| *offset < source.len());
-    }
-
-    (widths.len() > 1).then(|| widths.into_iter().max().unwrap_or(0))
 }
 
 fn trailing_comment_alignment_column(source: &str, comment: &SourceComment<'_>) -> Option<usize> {
@@ -4803,21 +4760,6 @@ fn inline_comment_code_width(
         return None;
     }
     trimmed_line_width(prefix)
-}
-
-fn raw_inline_comment_code_width(
-    source: &str,
-    line_start: usize,
-    line_end: usize,
-    known_comment_offset: Option<usize>,
-) -> Option<usize> {
-    let comment_offset = known_comment_offset
-        .or_else(|| find_inline_comment_start(source.get(line_start..line_end)?, line_start))?;
-    let prefix = source.get(line_start..comment_offset)?;
-    if line_is_skippable_alignment_opener(prefix) {
-        return None;
-    }
-    (!prefix.trim().is_empty()).then(|| prefix.chars().count())
 }
 
 fn find_inline_comment_start(line: &str, line_start: usize) -> Option<usize> {
