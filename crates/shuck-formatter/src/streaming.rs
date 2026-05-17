@@ -6021,7 +6021,37 @@ fn normalized_comment_alignment_width(text: &str) -> usize {
     let redirect_normalized = trim_redirect_padding_for_alignment(&collapsed);
     let array_normalized = trim_compound_assignment_padding_for_alignment(&redirect_normalized);
     let normalized = trim_arithmetic_expansion_padding_for_alignment(&array_normalized);
-    normalized.chars().count() + moved_function_brace_alignment_width(&normalized)
+    normalized.chars().count()
+        + case_pattern_pipe_alignment_width(&normalized)
+        + moved_function_brace_alignment_width(&normalized)
+}
+
+fn case_pattern_pipe_alignment_width(text: &str) -> usize {
+    let Some(close_paren) = text.find(')') else {
+        return 0;
+    };
+    let pattern = &text[..close_paren];
+    let mut adjustment = 0;
+    for (index, ch) in pattern.char_indices() {
+        if ch != '|' {
+            continue;
+        }
+        let previous = pattern[..index].chars().next_back();
+        if previous == Some('\\') {
+            continue;
+        }
+        if previous.is_some_and(|ch| !ch.is_whitespace() && ch != '|') {
+            adjustment += 1;
+        }
+        if pattern[index + ch.len_utf8()..]
+            .chars()
+            .next()
+            .is_some_and(|ch| !ch.is_whitespace() && ch != '|')
+        {
+            adjustment += 1;
+        }
+    }
+    adjustment
 }
 
 fn trim_compound_assignment_padding_for_alignment(text: &str) -> String {

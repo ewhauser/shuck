@@ -3062,6 +3062,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn aligns_case_terminator_comments_after_pattern_pipe_spacing() {
+        let source = "case \"$mac\" in\n  19|'6470028b2260') PORT=7534 ;; # first\n  16|'6470028b1ba2') PORT= ;; # second\n  8|'f4ec38c9c32c') PORT=7783 ;; # third\nesac\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case \"$mac\" in\n19 | '6470028b2260') PORT=7534 ;; # first\n16 | '6470028b1ba2') PORT= ;;     # second\n8 | 'f4ec38c9c32c') PORT=7783 ;;  # third\nesac\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn case_terminator_suffix_scan_handles_utf8_prefixes() {
         let source = "# 不支持\ncase $x in\n*) echo ok ;;\nesac\n";
         let options = ShellFormatOptions::default();
