@@ -649,7 +649,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn write_indented_heredoc_text(&mut self, text: &str) {
-        let prefix = self.indent_prefix_for_level(self.indent_level.saturating_add(1));
+        let indent_level = self.indent_level.saturating_add(1);
+        let prefix = self.indent_prefix_for_level(indent_level);
         let mut rest = text;
         while !rest.is_empty() {
             let (line, next) = match rest.find('\n') {
@@ -657,8 +658,22 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 None => (rest, ""),
             };
             let content = line.trim_end_matches(['\r', '\n']);
-            if !content.is_empty() && !line.starts_with('\t') {
-                self.push_output_str(&prefix);
+            if !content.is_empty() {
+                match self.options.indent_style() {
+                    IndentStyle::Tab => {
+                        let leading_tabs = line.bytes().take_while(|byte| *byte == b'\t').count();
+                        if leading_tabs < indent_level {
+                            for _ in leading_tabs..indent_level {
+                                self.push_output_char('\t');
+                            }
+                        }
+                    }
+                    IndentStyle::Space => {
+                        if !line.starts_with('\t') {
+                            self.push_output_str(&prefix);
+                        }
+                    }
+                }
             }
             self.push_output_str(line);
             self.line_start = line.ends_with('\n');

@@ -656,6 +656,20 @@ mod tests {
     }
 
     #[test]
+    fn indents_tab_stripped_heredoc_body_to_context_depth() {
+        let source = "if true; then\n\tcat >&2 <<-EOF\n\t* package moved\n\tEOF\nfi\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if true; then\n\tcat >&2 <<-EOF\n\t\t* package moved\n\tEOF\nfi\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_multiline_if_body_comments() {
         let formatted = format_source(
             "if true; then\n# note\necho hi\nfi\n",
