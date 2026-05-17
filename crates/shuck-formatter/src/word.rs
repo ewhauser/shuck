@@ -1839,17 +1839,21 @@ fn indent_inline_pipeline_continuations(
     let mut rendered = String::with_capacity(body.len() + prefix.len());
     let mut changed = false;
     let mut previous_ends_pipeline = false;
+    let mut previous_ends_continuation = false;
 
     for (index, line) in body.split('\n').enumerate() {
         if index > 0 {
             rendered.push('\n');
         }
-        if previous_ends_pipeline && line_needs_inline_pipeline_indent(line) {
+        if (previous_ends_pipeline || previous_ends_continuation)
+            && line_needs_inline_pipeline_indent(line)
+        {
             rendered.push_str(&prefix);
             changed = true;
         }
         rendered.push_str(line);
         previous_ends_pipeline = line_ends_with_pipeline_operator(line);
+        previous_ends_continuation = line_without_continuation_backslash(line).is_some();
     }
 
     changed.then_some(rendered)
