@@ -1750,7 +1750,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         !body.is_empty()
             && source_has_blank_line_before_last_keyword_after(
                 self.source(),
-                branch_body_content_end(body, self.source()),
+                sequence_close_gap_start(body, self.source()),
                 command.span,
                 "fi",
             )
@@ -3911,14 +3911,17 @@ fn case_item_has_blank_line_before_terminator(item: &CaseItem, source: &str) -> 
     if item.body.is_empty() {
         return false;
     }
-    let content_end = item
-        .body
+    let content_end = sequence_close_gap_start(&item.body, source);
+    gap_has_empty_physical_line(source, content_end, terminator_start)
+}
+
+fn sequence_close_gap_start(commands: &StmtSeq, source: &str) -> usize {
+    commands
         .trailing_comments
         .iter()
         .map(|comment| usize::from(comment.range.end()))
         .max()
-        .unwrap_or_else(|| branch_body_content_end(&item.body, source));
-    gap_has_empty_physical_line(source, content_end, terminator_start)
+        .unwrap_or_else(|| branch_body_content_end(commands, source))
 }
 
 fn case_has_blank_line_before_esac(command: &CaseCommand, source: &str) -> bool {
