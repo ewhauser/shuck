@@ -2,9 +2,10 @@ use std::fmt::Write as _;
 
 use shuck_ast::{
     ArithmeticAssignOp, ArithmeticBinaryOp, ArithmeticExpansionSyntax, ArithmeticExpr,
-    ArithmeticExprNode, ArithmeticLvalue, ArithmeticPostfixOp, ArithmeticUnaryOp,
-    BourneParameterExpansion, Command, CommandSubstitutionSyntax, CompoundCommand, HeredocBody,
-    HeredocBodyPart, ParameterOp, Pattern, Stmt, StmtSeq, SubscriptSelector, VarRef, Word,
+    ArithmeticExprNode, ArithmeticLvalue, ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem,
+    Assignment, AssignmentValue, BourneParameterExpansion, BuiltinCommand, Command,
+    CommandSubstitutionSyntax, CompoundCommand, ConditionalExpr, HeredocBody, HeredocBodyPart,
+    ParameterOp, Pattern, PatternPart, Redirect, Stmt, StmtSeq, SubscriptSelector, VarRef, Word,
     WordPart,
 };
 use shuck_format::IndentStyle;
@@ -69,6 +70,290 @@ pub(crate) fn render_word_syntax_with_facts_to_buf(
     );
 }
 
+pub(crate) fn word_has_multiline_literal_source(word: &Word, source: &str) -> bool {
+    word.parts
+        .iter()
+        .any(|part| word_part_has_multiline_literal_source(&part.kind, part.span, source))
+}
+
+fn word_part_has_multiline_literal_source(
+    part: &WordPart,
+    span: shuck_ast::Span,
+    source: &str,
+) -> bool {
+    match part {
+        WordPart::Literal(text) => text.as_str(source, span).contains('\n'),
+        WordPart::SingleQuoted { value, .. } => value.slice(source).contains('\n'),
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| word_part_has_multiline_literal_source(&part.kind, part.span, source)),
+        WordPart::CommandSubstitution { body, .. } => {
+            stmt_seq_has_multiline_literal_source(body, source)
+                || (stmt_seq_contains_comments(body)
+                    && raw_source_slice(span, source).is_some_and(|raw| {
+                        raw.contains('\n') && !command_substitution_source_starts_with_body_line(raw)
+                    }))
+        }
+        WordPart::ProcessSubstitution { body, .. } => {
+            stmt_seq_has_multiline_literal_source(body, source)
+                || (stmt_seq_contains_comments(body)
+                    && raw_source_slice(span, source).is_some_and(|raw| raw.contains('\n')))
+        }
+        _ => false,
+    }
+}
+
+fn stmt_seq_has_multiline_literal_source(sequence: &StmtSeq, source: &str) -> bool {
+    sequence
+        .iter()
+        .any(|stmt| stmt_has_multiline_literal_source(stmt, source))
+}
+
+fn stmt_has_multiline_literal_source(stmt: &Stmt, source: &str) -> bool {
+    command_has_multiline_literal_source(&stmt.command, source)
+        || stmt
+            .redirects
+            .iter()
+            .any(|redirect| redirect_has_multiline_literal_source(redirect, source))
+}
+
+fn command_has_multiline_literal_source(command: &Command, source: &str) -> bool {
+    match command {
+        Command::Simple(command) => {
+            word_has_multiline_literal_source(&command.name, source)
+                || command
+                    .args
+                    .iter()
+                    .any(|word| word_has_multiline_literal_source(word, source))
+                || command
+                    .assignments
+                    .iter()
+                    .any(|assignment| assignment_has_multiline_literal_source(assignment, source))
+        }
+        Command::Builtin(command) => builtin_has_multiline_literal_source(command, source),
+        Command::Decl(command) => {
+            command
+                .assignments
+                .iter()
+                .any(|assignment| assignment_has_multiline_literal_source(assignment, source))
+                || command.operands.iter().any(|operand| match operand {
+                    shuck_ast::DeclOperand::Flag(word) | shuck_ast::DeclOperand::Dynamic(word) => {
+                        word_has_multiline_literal_source(word, source)
+                    }
+                    shuck_ast::DeclOperand::Assignment(assignment) => {
+                        assignment_has_multiline_literal_source(assignment, source)
+                    }
+                    shuck_ast::DeclOperand::Name(_) => false,
+                })
+        }
+        Command::Binary(command) => {
+            stmt_has_multiline_literal_source(&command.left, source)
+                || stmt_has_multiline_literal_source(&command.right, source)
+        }
+        Command::Compound(command) => compound_has_multiline_literal_source(command, source),
+        Command::Function(command) => stmt_has_multiline_literal_source(&command.body, source),
+        Command::AnonymousFunction(command) => {
+            command
+                .args
+                .iter()
+                .any(|word| word_has_multiline_literal_source(word, source))
+                || stmt_has_multiline_literal_source(&command.body, source)
+        }
+    }
+}
+
+fn builtin_has_multiline_literal_source(command: &BuiltinCommand, source: &str) -> bool {
+    match command {
+        BuiltinCommand::Break(command) => {
+            optional_word_has_multiline_literal_source(command.depth.as_ref(), source)
+                || command
+                    .extra_args
+                    .iter()
+                    .any(|word| word_has_multiline_literal_source(word, source))
+                || command
+                    .assignments
+                    .iter()
+                    .any(|assignment| assignment_has_multiline_literal_source(assignment, source))
+        }
+        BuiltinCommand::Continue(command) => {
+            optional_word_has_multiline_literal_source(command.depth.as_ref(), source)
+                || command
+                    .extra_args
+                    .iter()
+                    .any(|word| word_has_multiline_literal_source(word, source))
+                || command
+                    .assignments
+                    .iter()
+                    .any(|assignment| assignment_has_multiline_literal_source(assignment, source))
+        }
+        BuiltinCommand::Return(command) => {
+            optional_word_has_multiline_literal_source(command.code.as_ref(), source)
+                || command
+                    .extra_args
+                    .iter()
+                    .any(|word| word_has_multiline_literal_source(word, source))
+                || command
+                    .assignments
+                    .iter()
+                    .any(|assignment| assignment_has_multiline_literal_source(assignment, source))
+        }
+        BuiltinCommand::Exit(command) => {
+            optional_word_has_multiline_literal_source(command.code.as_ref(), source)
+                || command
+                    .extra_args
+                    .iter()
+                    .any(|word| word_has_multiline_literal_source(word, source))
+                || command
+                    .assignments
+                    .iter()
+                    .any(|assignment| assignment_has_multiline_literal_source(assignment, source))
+        }
+    }
+}
+
+fn optional_word_has_multiline_literal_source(word: Option<&Word>, source: &str) -> bool {
+    word.is_some_and(|word| word_has_multiline_literal_source(word, source))
+}
+
+fn compound_has_multiline_literal_source(command: &CompoundCommand, source: &str) -> bool {
+    match command {
+        CompoundCommand::If(command) => {
+            stmt_seq_has_multiline_literal_source(&command.condition, source)
+                || stmt_seq_has_multiline_literal_source(&command.then_branch, source)
+                || command.elif_branches.iter().any(|(condition, body)| {
+                    stmt_seq_has_multiline_literal_source(condition, source)
+                        || stmt_seq_has_multiline_literal_source(body, source)
+                })
+                || command
+                    .else_branch
+                    .as_ref()
+                    .is_some_and(|body| stmt_seq_has_multiline_literal_source(body, source))
+        }
+        CompoundCommand::For(command) => {
+            command
+                .targets
+                .iter()
+                .any(|target| word_has_multiline_literal_source(&target.word, source))
+                || command.words.as_ref().is_some_and(|words| {
+                    words
+                        .iter()
+                        .any(|word| word_has_multiline_literal_source(word, source))
+                })
+                || stmt_seq_has_multiline_literal_source(&command.body, source)
+        }
+        CompoundCommand::Repeat(command) => {
+            word_has_multiline_literal_source(&command.count, source)
+                || stmt_seq_has_multiline_literal_source(&command.body, source)
+        }
+        CompoundCommand::Foreach(command) => {
+            command
+                .words
+                .iter()
+                .any(|word| word_has_multiline_literal_source(word, source))
+                || stmt_seq_has_multiline_literal_source(&command.body, source)
+        }
+        CompoundCommand::ArithmeticFor(command) => {
+            stmt_seq_has_multiline_literal_source(&command.body, source)
+        }
+        CompoundCommand::While(command) => {
+            stmt_seq_has_multiline_literal_source(&command.condition, source)
+                || stmt_seq_has_multiline_literal_source(&command.body, source)
+        }
+        CompoundCommand::Until(command) => {
+            stmt_seq_has_multiline_literal_source(&command.condition, source)
+                || stmt_seq_has_multiline_literal_source(&command.body, source)
+        }
+        CompoundCommand::Case(command) => {
+            word_has_multiline_literal_source(&command.word, source)
+                || command
+                    .cases
+                    .iter()
+                    .any(|item| stmt_seq_has_multiline_literal_source(&item.body, source))
+        }
+        CompoundCommand::Select(command) => {
+            command
+                .words
+                .iter()
+                .any(|word| word_has_multiline_literal_source(word, source))
+                || stmt_seq_has_multiline_literal_source(&command.body, source)
+        }
+        CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
+            stmt_seq_has_multiline_literal_source(body, source)
+        }
+        CompoundCommand::Arithmetic(_) => false,
+        CompoundCommand::Time(command) => command
+            .command
+            .as_ref()
+            .is_some_and(|stmt| stmt_has_multiline_literal_source(stmt, source)),
+        CompoundCommand::Conditional(command) => {
+            conditional_expr_has_multiline_literal_source(&command.expression, source)
+        }
+        CompoundCommand::Coproc(command) => {
+            stmt_has_multiline_literal_source(&command.body, source)
+        }
+        CompoundCommand::Always(command) => {
+            stmt_seq_has_multiline_literal_source(&command.body, source)
+                || stmt_seq_has_multiline_literal_source(&command.always_body, source)
+        }
+    }
+}
+
+fn conditional_expr_has_multiline_literal_source(expr: &ConditionalExpr, source: &str) -> bool {
+    match expr {
+        ConditionalExpr::Binary(expr) => {
+            conditional_expr_has_multiline_literal_source(&expr.left, source)
+                || conditional_expr_has_multiline_literal_source(&expr.right, source)
+        }
+        ConditionalExpr::Unary(expr) => {
+            conditional_expr_has_multiline_literal_source(&expr.expr, source)
+        }
+        ConditionalExpr::Parenthesized(expr) => {
+            conditional_expr_has_multiline_literal_source(&expr.expr, source)
+        }
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            word_has_multiline_literal_source(word, source)
+        }
+        ConditionalExpr::Pattern(_) | ConditionalExpr::VarRef(_) => false,
+    }
+}
+
+fn redirect_has_multiline_literal_source(redirect: &Redirect, source: &str) -> bool {
+    redirect
+        .word_target()
+        .is_some_and(|word| word_has_multiline_literal_source(word, source))
+        || redirect.heredoc().is_some_and(|heredoc| {
+            word_has_multiline_literal_source(&heredoc.delimiter.raw, source)
+        })
+}
+
+fn assignment_has_multiline_literal_source(assignment: &Assignment, source: &str) -> bool {
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => {
+            assignment_has_raw_backslash_continuation_literal(assignment, source)
+                || word_has_multiline_literal_source(word, source)
+        }
+        AssignmentValue::Compound(array) => array.elements.iter().any(|element| match element {
+            ArrayElem::Sequential(word)
+            | ArrayElem::Keyed { value: word, .. }
+            | ArrayElem::KeyedAppend { value: word, .. } => {
+                word_has_multiline_literal_source(word, source)
+            }
+        }),
+    }
+}
+
+fn assignment_has_raw_backslash_continuation_literal(
+    assignment: &Assignment,
+    source: &str,
+) -> bool {
+    let raw = assignment.span.slice(source);
+    raw.contains("\\\n")
+        && !raw.contains("$(")
+        && !raw.contains('`')
+        && !raw.contains("<(")
+        && !raw.contains(">(")
+}
+
 pub(crate) fn render_heredoc_body_to_buf(
     body: &HeredocBody,
     source: &str,
@@ -100,7 +385,19 @@ fn render_word_syntax_internal(
         return;
     }
 
-    if word_needs_special_rendering(word) {
+    if !options.simplify()
+        && !options.minify()
+        && word_has_multiline_double_quoted_source(word, source)
+        && let Some(raw) = raw_word_source_slice(word, source)
+        && could_need_preserve_raw_syntax(raw)
+    {
+        rendered.push_str(raw);
+        return;
+    }
+
+    if word_needs_special_rendering(word)
+        || word_has_parameter_raw_subscript_needs_compaction(word, source)
+    {
         if render_word_parts(
             word.parts.as_slice(),
             source,
@@ -155,6 +452,28 @@ fn word_needs_special_rendering(word: &Word) -> bool {
         .any(|part| part_needs_special_rendering(&part.kind))
 }
 
+fn word_has_parameter_raw_subscript_needs_compaction(word: &Word, source: &str) -> bool {
+    word.parts.iter().any(|part| match &part.kind {
+        WordPart::Parameter(parameter) => {
+            parameter_raw_subscript_needs_compaction(parameter, source)
+        }
+        WordPart::DoubleQuoted { parts, .. } => parts.iter().any(|part| match &part.kind {
+            WordPart::Parameter(parameter) => {
+                parameter_raw_subscript_needs_compaction(parameter, source)
+            }
+            _ => false,
+        }),
+        _ => false,
+    })
+}
+
+fn word_has_multiline_double_quoted_source(word: &Word, source: &str) -> bool {
+    word.parts.iter().any(|part| {
+        matches!(part.kind, WordPart::DoubleQuoted { .. })
+            && raw_source_slice(part.span, source).is_some_and(|raw| raw.contains('\n'))
+    })
+}
+
 fn part_needs_special_rendering(part: &WordPart) -> bool {
     match part {
         WordPart::DoubleQuoted { parts, .. } => parts
@@ -163,7 +482,7 @@ fn part_needs_special_rendering(part: &WordPart) -> bool {
         WordPart::ArithmeticExpansion { expression_ast, .. } => expression_ast.is_some(),
         WordPart::Parameter(parameter) => parameter_needs_special_rendering(parameter),
         WordPart::Substring { .. } | WordPart::ArraySlice { .. } => true,
-        WordPart::CommandSubstitution { .. } => true,
+        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => true,
         _ => false,
     }
 }
@@ -178,10 +497,22 @@ fn render_word_parts(
 ) -> Result<(), std::fmt::Error> {
     for part in parts {
         render_word_part(
-            rendered, &part.kind, part.span, source, options, source_map, facts,
+            rendered,
+            &part.kind,
+            part.span,
+            source,
+            options,
+            source_map,
+            facts,
+            WordPartRenderContext::default(),
         )?;
     }
     Ok(())
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct WordPartRenderContext {
+    source_indented_inline_command_substitution: bool,
 }
 
 fn render_heredoc_body_part(
@@ -199,8 +530,13 @@ fn render_heredoc_body_part(
         }
         HeredocBodyPart::CommandSubstitution { body, syntax } => {
             let raw = raw_source_slice(span, source);
-            let multiline = raw.is_some_and(|raw| raw.contains('\n'))
-                || raw.is_none() && *syntax == CommandSubstitutionSyntax::DollarParen;
+            let layout = command_substitution_layout(
+                raw,
+                body,
+                source,
+                raw.is_none() && *syntax == CommandSubstitutionSyntax::DollarParen,
+                false,
+            );
 
             if render_command_substitution(
                 rendered,
@@ -208,7 +544,8 @@ fn render_heredoc_body_part(
                 span.end.offset,
                 source,
                 options,
-                multiline,
+                layout,
+                raw,
                 None,
                 None,
             )
@@ -250,6 +587,7 @@ fn render_heredoc_body_part(
                                 ArithmeticContext::TopLevel,
                                 source,
                                 options,
+                                false,
                             );
                             rendered.push_str("))");
                         }
@@ -261,6 +599,7 @@ fn render_heredoc_body_part(
                                 ArithmeticContext::TopLevel,
                                 source,
                                 options,
+                                false,
                             );
                             rendered.push(']');
                         }
@@ -293,6 +632,7 @@ fn render_word_part(
     options: &ResolvedShellFormatOptions,
     source_map: Option<&SourceMap<'_>>,
     facts: Option<&FormatterFacts<'_>>,
+    context: WordPartRenderContext,
 ) -> Result<(), std::fmt::Error> {
     if let Some(raw) = preferred_raw_word_part_source(part, span, source, options) {
         rendered.push_str(raw);
@@ -314,14 +654,39 @@ fn render_word_part(
                 rendered.push('$');
             }
             rendered.push('"');
+            let mut follows_line_indent_literal = false;
             for part in parts {
                 match &part.kind {
                     WordPart::Literal(text) => {
-                        render_double_quoted_literal(rendered, text.as_str(source, part.span))
+                        let literal = if text.is_source_backed() {
+                            text.syntax_str(source, part.span)
+                        } else {
+                            text.as_str(source, part.span)
+                        };
+                        if text.is_source_backed() {
+                            rendered.push_str(literal);
+                        } else {
+                            render_double_quoted_literal(rendered, literal);
+                        }
+                        follows_line_indent_literal =
+                            literal_ends_with_line_indent_for_word_part(literal);
                     }
-                    other => render_word_part(
-                        rendered, other, part.span, source, options, source_map, facts,
-                    )?,
+                    other => {
+                        render_word_part(
+                            rendered,
+                            other,
+                            part.span,
+                            source,
+                            options,
+                            source_map,
+                            facts,
+                            WordPartRenderContext {
+                                source_indented_inline_command_substitution:
+                                    follows_line_indent_literal,
+                            },
+                        )?;
+                        follows_line_indent_literal = false;
+                    }
                 }
             }
             rendered.push('"');
@@ -332,14 +697,33 @@ fn render_word_part(
         WordPart::CommandSubstitution { body, syntax } => {
             if let Some(raw) = raw_source_slice(span, source) {
                 if stmt_seq_contains_comments(body) {
-                    rendered.push_str(raw);
+                    if command_substitution_source_starts_with_body_line(raw)
+                        && !stmt_seq_has_heredoc(body)
+                    {
+                        push_raw_block_command_substitution_without_outer_indent(
+                            rendered,
+                            raw,
+                            source,
+                            span.start.offset,
+                            options,
+                        );
+                    } else {
+                        rendered.push_str(raw);
+                    }
                 } else if render_command_substitution(
                     rendered,
                     body,
                     span.end.offset,
                     source,
                     options,
-                    raw.contains('\n'),
+                    command_substitution_layout(
+                        Some(raw),
+                        body,
+                        source,
+                        false,
+                        context.source_indented_inline_command_substitution,
+                    ),
+                    Some(raw),
                     source_map,
                     facts,
                 )
@@ -354,7 +738,14 @@ fn render_word_part(
                 span.end.offset,
                 source,
                 options,
-                *syntax == CommandSubstitutionSyntax::DollarParen,
+                command_substitution_layout(
+                    None,
+                    body,
+                    source,
+                    *syntax == CommandSubstitutionSyntax::DollarParen,
+                    false,
+                ),
+                None,
                 source_map,
                 facts,
             )
@@ -362,6 +753,35 @@ fn render_word_part(
             {
             } else {
                 std::write!(rendered, "$({body:?})")?;
+            }
+        }
+        WordPart::ProcessSubstitution { body, is_input } => {
+            if let Some(raw) = raw_source_slice(span, source) {
+                if stmt_seq_contains_comments(body) {
+                    rendered.push_str(raw);
+                } else if render_process_substitution(
+                    rendered,
+                    body,
+                    *is_input,
+                    span,
+                    source,
+                    options,
+                    raw.contains('\n'),
+                    facts,
+                )
+                .is_some()
+                {
+                } else {
+                    rendered.push_str(raw);
+                }
+            } else if render_process_substitution(
+                rendered, body, *is_input, span, source, options, false, facts,
+            )
+            .is_some()
+            {
+            } else {
+                let prefix = if *is_input { "<" } else { ">" };
+                std::write!(rendered, "{}({body:?})", prefix)?;
             }
         }
         WordPart::ArithmeticExpansion {
@@ -393,6 +813,7 @@ fn render_word_part(
                                 ArithmeticContext::TopLevel,
                                 source,
                                 options,
+                                false,
                             );
                             rendered.push_str("))");
                         }
@@ -404,6 +825,7 @@ fn render_word_part(
                                 ArithmeticContext::TopLevel,
                                 source,
                                 options,
+                                false,
                             );
                             rendered.push(']');
                         }
@@ -505,7 +927,7 @@ fn render_word_part(
                 }
                 rendered.push_str(parameter_defaulting_operator(operator.as_ref()));
                 if let Some(operand) = operand {
-                    rendered.push_str(operand.slice(source));
+                    push_parameter_operand(rendered, operand, source);
                 }
             }
             rendered.push('}');
@@ -513,14 +935,19 @@ fn render_word_part(
         WordPart::PrefixMatch { prefix, kind } => {
             std::write!(rendered, "${{!{}{}}}", prefix, kind.as_char())?;
         }
-        WordPart::ProcessSubstitution { .. }
-        | WordPart::Transformation { .. }
-        | WordPart::ZshQualifiedGlob(_) => {
+        WordPart::Transformation { .. } | WordPart::ZshQualifiedGlob(_) => {
             rendered.push_str(span.slice(source));
         }
     }
 
     Ok(())
+}
+
+fn literal_ends_with_line_indent_for_word_part(literal: &str) -> bool {
+    let Some((_, suffix)) = literal.rsplit_once('\n') else {
+        return false;
+    };
+    suffix.chars().all(|ch| matches!(ch, ' ' | '\t'))
 }
 
 fn preferred_raw_word_part_source<'a>(
@@ -534,9 +961,10 @@ fn preferred_raw_word_part_source<'a>(
     }
 
     match part {
-        WordPart::Parameter(parameter) => parameter_prefers_raw_source(parameter, span, source)
-            .then(|| raw_source_slice(span, source))
-            .flatten(),
+        WordPart::Parameter(parameter) => (parameter_prefers_raw_source(parameter, span, source)
+            && !parameter_raw_subscript_needs_compaction(parameter, source))
+        .then(|| raw_source_slice(span, source))
+        .flatten(),
         WordPart::ParameterExpansion { .. } => raw_source_slice(span, source),
         WordPart::Substring {
             offset_ast,
@@ -552,6 +980,63 @@ fn preferred_raw_word_part_source<'a>(
             .flatten(),
         _ => None,
     }
+}
+
+fn parameter_raw_subscript_needs_compaction(
+    parameter: &shuck_ast::ParameterExpansion,
+    source: &str,
+) -> bool {
+    if parameter_bourne_operand_needs_subscript_compaction(parameter, source) {
+        return true;
+    }
+    if let Some(syntax) = parameter_bourne_subscript_syntax(parameter, source) {
+        return compact_dynamic_arithmetic_subscript(syntax) != syntax;
+    }
+    if parameter.bourne().is_some() {
+        return false;
+    }
+    let raw = parameter.raw_body.slice(source);
+    compact_raw_parameter_subscript(raw) != raw
+}
+
+fn parameter_bourne_subscript_syntax<'a>(
+    parameter: &'a shuck_ast::ParameterExpansion,
+    source: &'a str,
+) -> Option<&'a str> {
+    let reference = match parameter.bourne()? {
+        BourneParameterExpansion::Access { reference }
+        | BourneParameterExpansion::Length { reference }
+        | BourneParameterExpansion::Indices { reference }
+        | BourneParameterExpansion::Indirect { reference, .. }
+        | BourneParameterExpansion::Slice { reference, .. }
+        | BourneParameterExpansion::Operation { reference, .. }
+        | BourneParameterExpansion::Transformation { reference, .. } => reference,
+        BourneParameterExpansion::PrefixMatch { .. } => return None,
+    };
+    reference
+        .subscript
+        .as_deref()
+        .map(|subscript| subscript.syntax_text(source))
+}
+
+fn parameter_bourne_operand_needs_subscript_compaction(
+    parameter: &shuck_ast::ParameterExpansion,
+    source: &str,
+) -> bool {
+    let operand = match parameter.bourne() {
+        Some(
+            BourneParameterExpansion::Indirect {
+                operand: Some(operand),
+                ..
+            }
+            | BourneParameterExpansion::Operation {
+                operand: Some(operand),
+                ..
+            },
+        ) => operand.slice(source),
+        _ => return false,
+    };
+    compact_parameter_operand_subscripts(operand) != operand
 }
 
 fn parameter_needs_special_rendering(parameter: &shuck_ast::ParameterExpansion) -> bool {
@@ -667,14 +1152,11 @@ fn render_command_substitution(
     upper_bound: usize,
     source: &str,
     options: &ResolvedShellFormatOptions,
-    multiline: bool,
+    layout: CommandSubstitutionLayout,
+    raw: Option<&str>,
     _source_map: Option<&SourceMap<'_>>,
     facts: Option<&FormatterFacts<'_>>,
 ) -> Option<()> {
-    if stmt_seq_has_heredoc(body) {
-        return None;
-    }
-
     let mut nested = String::new();
     let owned_facts;
     let facts = match facts {
@@ -704,12 +1186,310 @@ fn render_command_substitution(
         return Some(());
     }
 
+    match layout {
+        CommandSubstitutionLayout::Inline => {
+            rendered.push_str("$(");
+            push_command_substitution_inline_body(rendered, trimmed, options);
+            rendered.push(')');
+        }
+        CommandSubstitutionLayout::InlineContinued => {
+            rendered.push_str("$(");
+            push_command_substitution_inline_body(rendered, trimmed, options);
+            rendered.push(')');
+        }
+        CommandSubstitutionLayout::InlineSourceIndented => {
+            rendered.push_str("$(");
+            push_source_indented_inline_command_substitution(rendered, trimmed, raw?);
+            rendered.push(')');
+        }
+        CommandSubstitutionLayout::Block => {
+            rendered.push_str("$(\n");
+            push_indented_rendered_block(rendered, trimmed, options, 1);
+            rendered.push_str("\n)");
+        }
+    }
+
+    Some(())
+}
+
+fn push_command_substitution_inline_body(
+    target: &mut String,
+    body: &str,
+    options: &ResolvedShellFormatOptions,
+) {
+    if options.space_redirects() {
+        target.push_str(body);
+    } else {
+        push_raw_shell_text_with_normalized_redirect_spacing(target, body);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CommandSubstitutionLayout {
+    Inline,
+    InlineContinued,
+    InlineSourceIndented,
+    Block,
+}
+
+fn command_substitution_layout(
+    raw: Option<&str>,
+    body: &shuck_ast::StmtSeq,
+    source: &str,
+    force_block: bool,
+    allow_source_indented_inline: bool,
+) -> CommandSubstitutionLayout {
+    if force_block {
+        return CommandSubstitutionLayout::Block;
+    }
+
+    if stmt_seq_has_heredoc(body) {
+        return CommandSubstitutionLayout::Block;
+    }
+
+    if let Some(raw) = raw {
+        if command_substitution_source_starts_with_body_line(raw) {
+            return CommandSubstitutionLayout::Block;
+        }
+        if command_substitution_source_prefers_continued_inline_body(raw) {
+            return CommandSubstitutionLayout::InlineContinued;
+        }
+        if allow_source_indented_inline && raw.contains('\n') {
+            return CommandSubstitutionLayout::InlineSourceIndented;
+        }
+    }
+
+    if body.len() > 1
+        || body
+            .span
+            .slice(source)
+            .trim_start_matches([' ', '\t', '\r'])
+            .starts_with('\n')
+    {
+        CommandSubstitutionLayout::Block
+    } else {
+        CommandSubstitutionLayout::Inline
+    }
+}
+
+fn command_substitution_source_starts_with_body_line(raw: &str) -> bool {
+    raw.strip_prefix("$(")
+        .is_some_and(|after_open| after_open.starts_with(['\n', '\r']))
+}
+
+fn command_substitution_source_prefers_continued_inline_body(raw: &str) -> bool {
+    let Some(after_open) = raw.strip_prefix("$(") else {
+        return false;
+    };
+    if after_open.starts_with(['\n', '\r']) {
+        return false;
+    }
+
+    raw.lines()
+        .any(|line| line.trim_end_matches([' ', '\t', '\r']).ends_with('\\'))
+}
+
+fn push_raw_block_command_substitution_without_outer_indent(
+    target: &mut String,
+    raw: &str,
+    source: &str,
+    start_offset: usize,
+    options: &ResolvedShellFormatOptions,
+) {
+    let outer_indent = line_indent_before_source_offset(source, start_offset).unwrap_or("");
+    let mut lines = raw.split('\n');
+    if let Some(first) = lines.next() {
+        target.push_str(first);
+    }
+    for line in lines {
+        target.push('\n');
+        let line = line
+            .strip_prefix(outer_indent)
+            .unwrap_or_else(|| strip_one_indent_unit(line, options));
+        push_raw_shell_line_with_normalized_redirect_spacing(target, line);
+    }
+}
+
+fn push_raw_shell_text_with_normalized_redirect_spacing(target: &mut String, text: &str) {
+    let mut lines = text.split('\n');
+    if let Some(first) = lines.next() {
+        push_raw_shell_line_with_normalized_redirect_spacing(target, first);
+    }
+    for line in lines {
+        target.push('\n');
+        push_raw_shell_line_with_normalized_redirect_spacing(target, line);
+    }
+}
+
+fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, line: &str) {
+    let mut last = 0;
+    let mut index = 0;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut escaped = false;
+    let bytes = line.as_bytes();
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if byte == b'\'' && !in_double_quotes && !escaped {
+            in_single_quotes = !in_single_quotes;
+            index += 1;
+            continue;
+        }
+        if byte == b'"' && !in_single_quotes && !escaped {
+            in_double_quotes = !in_double_quotes;
+            index += 1;
+            continue;
+        }
+
+        if !in_single_quotes && !in_double_quotes && byte.is_ascii_digit() {
+            let fd_start = index;
+            let mut operator_start = index + 1;
+            while operator_start < bytes.len() && bytes[operator_start].is_ascii_digit() {
+                operator_start += 1;
+            }
+            if let Some(operator_end) = raw_redirect_operator_end(bytes, operator_start) {
+                let mut target_start = operator_end;
+                while target_start < bytes.len()
+                    && matches!(bytes[target_start], b' ' | b'\t' | b'\r')
+                {
+                    target_start += 1;
+                }
+                if target_start > operator_end && target_start < bytes.len() {
+                    target.push_str(&line[last..operator_end]);
+                    last = target_start;
+                    index = target_start;
+                    escaped = false;
+                    continue;
+                }
+            }
+            index = fd_start;
+        }
+
+        if !in_single_quotes && !in_double_quotes && bytes.get(index..index + 3) == Some(b"<<<") {
+            let operator_end = index + 3;
+            let mut target_start = operator_end;
+            while target_start < bytes.len() && matches!(bytes[target_start], b' ' | b'\t' | b'\r')
+            {
+                target_start += 1;
+            }
+            if target_start > operator_end && target_start < bytes.len() {
+                target.push_str(&line[last..operator_end]);
+                last = target_start;
+                index = target_start;
+                escaped = false;
+                continue;
+            }
+        }
+
+        escaped = !in_single_quotes && byte == b'\\' && !escaped;
+        if byte != b'\\' {
+            escaped = false;
+        }
+        index += 1;
+    }
+
+    target.push_str(&line[last..]);
+}
+
+fn raw_redirect_operator_end(bytes: &[u8], start: usize) -> Option<usize> {
+    match bytes.get(start).copied()? {
+        b'>' => Some(match bytes.get(start + 1).copied() {
+            Some(b'>' | b'|' | b'&') => start + 2,
+            _ => start + 1,
+        }),
+        b'<' => Some(match bytes.get(start + 1).copied() {
+            Some(b'<' | b'>' | b'&') => {
+                if bytes.get(start + 2) == Some(&b'<') {
+                    start + 3
+                } else {
+                    start + 2
+                }
+            }
+            _ => start + 1,
+        }),
+        _ => None,
+    }
+}
+
+fn line_indent_before_source_offset(source: &str, offset: usize) -> Option<&str> {
+    let line_start = source
+        .get(..offset)?
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let line = source.get(line_start..offset)?;
+    let indent_end = line
+        .char_indices()
+        .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
+        .map_or(line.len(), |(index, _)| index);
+    line.get(..indent_end)
+}
+
+fn strip_one_indent_unit<'a>(line: &'a str, options: &ResolvedShellFormatOptions) -> &'a str {
+    match options.indent_style() {
+        IndentStyle::Tab => line.strip_prefix('\t').unwrap_or_else(|| {
+            line.strip_prefix(&" ".repeat(usize::from(options.indent_width())))
+                .unwrap_or(line)
+        }),
+        IndentStyle::Space => line
+            .strip_prefix(&" ".repeat(usize::from(options.indent_width())))
+            .unwrap_or(line),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_process_substitution(
+    rendered: &mut String,
+    body: &shuck_ast::StmtSeq,
+    is_input: bool,
+    span: shuck_ast::Span,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+    multiline: bool,
+    facts: Option<&FormatterFacts<'_>>,
+) -> Option<()> {
+    if stmt_seq_has_heredoc(body) {
+        return None;
+    }
+
+    let mut nested = String::new();
+    let owned_facts;
+    let facts = match facts {
+        Some(facts) => facts,
+        None => {
+            let file = shuck_ast::File {
+                body: body.clone(),
+                span: body.span,
+            };
+            owned_facts = FormatterFacts::build(source, &file, options);
+            &owned_facts
+        }
+    };
+    format_stmt_sequence_streaming_to_buf(
+        source,
+        body,
+        options,
+        facts,
+        span.end.offset.checked_sub(1),
+        &mut nested,
+    )
+    .ok()?;
+
+    let prefix = if is_input { '<' } else { '>' };
+    let trimmed = trim_trailing_line_endings(&nested);
+    if trimmed.is_empty() {
+        rendered.push(prefix);
+        rendered.push_str("()");
+        return Some(());
+    }
+
+    rendered.push(prefix);
     if multiline {
-        rendered.push_str("$(\n");
+        rendered.push_str("(\n");
         push_indented_rendered_block(rendered, trimmed, options, 1);
         rendered.push_str("\n)");
     } else {
-        rendered.push_str("$(");
+        rendered.push('(');
         rendered.push_str(trimmed);
         rendered.push(')');
     }
@@ -719,6 +1499,42 @@ fn render_command_substitution(
 
 fn trim_trailing_line_endings(rendered: &str) -> &str {
     rendered.trim_end_matches(&['\r', '\n'][..])
+}
+
+fn push_source_indented_inline_command_substitution(
+    target: &mut String,
+    rendered: &str,
+    raw: &str,
+) {
+    let raw_indents = raw
+        .lines()
+        .skip(1)
+        .map(line_leading_shell_indent)
+        .collect::<Vec<_>>();
+    let fallback_indent = raw_indents.first().copied().unwrap_or("");
+    for (index, line) in rendered.lines().enumerate() {
+        if index > 0 {
+            target.push('\n');
+            let indent = raw_indents
+                .get(index - 1)
+                .copied()
+                .unwrap_or(fallback_indent);
+            target.push_str(indent);
+        }
+        if index == 0 {
+            target.push_str(line);
+        } else {
+            target.push_str(line.trim_start_matches([' ', '\t']));
+        }
+    }
+}
+
+fn line_leading_shell_indent(line: &str) -> &str {
+    let indent_end = line
+        .char_indices()
+        .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
+        .map_or(line.len(), |(index, _)| index);
+    &line[..indent_end]
 }
 
 fn push_indented_rendered_block(
@@ -731,15 +1547,122 @@ fn push_indented_rendered_block(
         IndentStyle::Tab => "\t".repeat(levels),
         IndentStyle::Space => " ".repeat(levels * usize::from(options.indent_width())),
     };
+    let common_source_indent = common_rendered_block_indent(rendered, options);
 
+    let mut active_heredoc: Option<CommandSubstitutionHeredocIndent> = None;
     for (index, line) in rendered.lines().enumerate() {
         if index > 0 {
             target.push('\n');
         }
+
+        if let Some(heredoc) = active_heredoc.as_ref() {
+            let closes = heredoc_line_closes_command_substitution_heredoc(line, heredoc);
+            if heredoc.strip_tabs
+                && !closes
+                && line_needs_command_substitution_indent(line, options)
+            {
+                target.push_str(&prefix);
+            }
+            target.push_str(line);
+            if closes {
+                active_heredoc = None;
+            }
+            continue;
+        }
+
+        let line = strip_common_rendered_block_indent(line, &common_source_indent);
         if line_needs_command_substitution_indent(line, options) {
             target.push_str(&prefix);
         }
         target.push_str(line);
+        active_heredoc = command_substitution_heredoc_indent(line);
+    }
+}
+
+fn common_rendered_block_indent(rendered: &str, options: &ResolvedShellFormatOptions) -> String {
+    let mut active_heredoc: Option<CommandSubstitutionHeredocIndent> = None;
+    let mut common: Option<String> = None;
+
+    for line in rendered.lines() {
+        if let Some(heredoc) = active_heredoc.as_ref() {
+            if heredoc_line_closes_command_substitution_heredoc(line, heredoc) {
+                active_heredoc = None;
+            }
+            continue;
+        }
+
+        if line_needs_command_substitution_indent(line, options) {
+            let indent = line_leading_shell_indent(line);
+            if indent.is_empty() {
+                return String::new();
+            }
+            common = Some(match common.take() {
+                Some(previous) => common_indent_prefix(&previous, indent).to_string(),
+                None => indent.to_string(),
+            });
+            if common.as_deref() == Some("") {
+                return String::new();
+            }
+        }
+
+        active_heredoc = command_substitution_heredoc_indent(line);
+    }
+
+    common.unwrap_or_default()
+}
+
+fn strip_common_rendered_block_indent<'a>(line: &'a str, common_indent: &str) -> &'a str {
+    if common_indent.is_empty() {
+        line
+    } else {
+        line.strip_prefix(common_indent).unwrap_or(line)
+    }
+}
+
+fn common_indent_prefix<'a>(left: &'a str, right: &str) -> &'a str {
+    let len = left
+        .as_bytes()
+        .iter()
+        .zip(right.as_bytes())
+        .take_while(|(left, right)| left == right)
+        .count();
+    &left[..len]
+}
+
+#[derive(Debug, Clone)]
+struct CommandSubstitutionHeredocIndent {
+    delimiter: String,
+    strip_tabs: bool,
+}
+
+fn command_substitution_heredoc_indent(line: &str) -> Option<CommandSubstitutionHeredocIndent> {
+    let marker = line.find("<<")?;
+    let after_marker = &line[marker + 2..];
+    let (strip_tabs, after_marker) = if let Some(rest) = after_marker.strip_prefix('-') {
+        (true, rest)
+    } else {
+        (false, after_marker)
+    };
+    let delimiter = after_marker
+        .trim_start()
+        .split_whitespace()
+        .next()?
+        .trim_matches(['\'', '"'])
+        .to_string();
+    (!delimiter.is_empty()).then_some(CommandSubstitutionHeredocIndent {
+        delimiter,
+        strip_tabs,
+    })
+}
+
+fn heredoc_line_closes_command_substitution_heredoc(
+    line: &str,
+    heredoc: &CommandSubstitutionHeredocIndent,
+) -> bool {
+    if heredoc.strip_tabs {
+        line.trim_start_matches('\t') == heredoc.delimiter
+    } else {
+        line == heredoc.delimiter
     }
 }
 
@@ -777,7 +1700,30 @@ fn render_arithmetic_expr_to_buf(
     source: &str,
     options: &ResolvedShellFormatOptions,
 ) {
-    push_arithmetic_expr(rendered, expr, ArithmeticContext::TopLevel, source, options);
+    push_arithmetic_expr(
+        rendered,
+        expr,
+        ArithmeticContext::TopLevel,
+        source,
+        options,
+        false,
+    );
+}
+
+fn render_arithmetic_subscript_expr_to_buf(
+    rendered: &mut String,
+    expr: &ArithmeticExprNode,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+) {
+    push_arithmetic_expr(
+        rendered,
+        expr,
+        ArithmeticContext::Subscript,
+        source,
+        options,
+        true,
+    );
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -798,6 +1744,7 @@ fn push_arithmetic_expr(
     context: ArithmeticContext,
     source: &str,
     options: &ResolvedShellFormatOptions,
+    compact: bool,
 ) {
     let needs_parentheses = arithmetic_needs_parentheses(expr, context);
     if needs_parentheses {
@@ -816,11 +1763,19 @@ fn push_arithmetic_expr(
                 ArithmeticContext::Subscript,
                 source,
                 options,
+                true,
             );
             rendered.push(']');
         }
         ArithmeticExpr::ShellWord(word) => {
-            rendered.push_str(&render_arithmetic_shell_word(word, source, options));
+            let word = render_arithmetic_shell_word(word, source, options);
+            if compact {
+                rendered.push_str(&compact_dynamic_arithmetic_subscript(
+                    word.trim_matches([' ', '\t', '\r']),
+                ));
+            } else {
+                rendered.push_str(&word);
+            }
         }
         ArithmeticExpr::Parenthesized { expression } => {
             rendered.push('(');
@@ -830,15 +1785,30 @@ fn push_arithmetic_expr(
                 ArithmeticContext::TopLevel,
                 source,
                 options,
+                compact,
             );
             rendered.push(')');
         }
         ArithmeticExpr::Unary { op, expr } => {
             rendered.push_str(arithmetic_unary_operator(*op));
-            push_arithmetic_expr(rendered, expr, ArithmeticContext::Unary, source, options);
+            push_arithmetic_expr(
+                rendered,
+                expr,
+                ArithmeticContext::Unary,
+                source,
+                options,
+                compact,
+            );
         }
         ArithmeticExpr::Postfix { expr, op } => {
-            push_arithmetic_expr(rendered, expr, ArithmeticContext::Postfix, source, options);
+            push_arithmetic_expr(
+                rendered,
+                expr,
+                ArithmeticContext::Postfix,
+                source,
+                options,
+                compact,
+            );
             rendered.push_str(arithmetic_postfix_operator(*op));
         }
         ArithmeticExpr::Binary { left, op, right } => {
@@ -848,16 +1818,22 @@ fn push_arithmetic_expr(
                 ArithmeticContext::Binary(*op),
                 source,
                 options,
+                compact,
             );
-            rendered.push(' ');
+            if !compact {
+                rendered.push(' ');
+            }
             rendered.push_str(arithmetic_binary_operator(*op));
-            rendered.push(' ');
+            if !compact {
+                rendered.push(' ');
+            }
             push_arithmetic_expr(
                 rendered,
                 right,
                 ArithmeticContext::Binary(*op),
                 source,
                 options,
+                compact,
             );
         }
         ArithmeticExpr::Conditional {
@@ -871,35 +1847,43 @@ fn push_arithmetic_expr(
                 ArithmeticContext::ConditionalCondition,
                 source,
                 options,
+                compact,
             );
-            rendered.push_str(" ? ");
+            rendered.push_str(if compact { "?" } else { " ? " });
             push_arithmetic_expr(
                 rendered,
                 then_expr,
                 ArithmeticContext::ConditionalBranch,
                 source,
                 options,
+                compact,
             );
-            rendered.push_str(" : ");
+            rendered.push_str(if compact { ":" } else { " : " });
             push_arithmetic_expr(
                 rendered,
                 else_expr,
                 ArithmeticContext::ConditionalBranch,
                 source,
                 options,
+                compact,
             );
         }
         ArithmeticExpr::Assignment { target, op, value } => {
             push_arithmetic_lvalue(rendered, target, source, options);
-            rendered.push(' ');
+            if !compact {
+                rendered.push(' ');
+            }
             rendered.push_str(arithmetic_assign_operator(*op));
-            rendered.push(' ');
+            if !compact {
+                rendered.push(' ');
+            }
             push_arithmetic_expr(
                 rendered,
                 value,
                 ArithmeticContext::Assignment,
                 source,
                 options,
+                compact,
             );
         }
     }
@@ -1083,6 +2067,7 @@ fn push_arithmetic_lvalue(
                 ArithmeticContext::Subscript,
                 source,
                 options,
+                true,
             );
             rendered.push(']');
         }
@@ -1166,12 +2151,77 @@ fn push_var_ref(
                 SubscriptSelector::Star => '*',
             });
         } else if let Some(ast) = subscript.arithmetic_ast.as_ref() {
-            render_arithmetic_expr_to_buf(rendered, ast, source, options);
+            render_arithmetic_subscript_expr_to_buf(rendered, ast, source, options);
         } else {
-            rendered.push_str(subscript.syntax_text(source));
+            rendered.push_str(&compact_dynamic_arithmetic_subscript(
+                subscript.syntax_text(source),
+            ));
         }
         rendered.push(']');
     }
+}
+
+fn compact_dynamic_arithmetic_subscript(text: &str) -> String {
+    let mut rendered = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    let mut dollar_paren_depth = 0usize;
+    while let Some(ch) = chars.next() {
+        if ch == '$' && chars.peek().is_some_and(|next| *next == '(') {
+            rendered.push(ch);
+            rendered.push(chars.next().expect("peeked '('"));
+            dollar_paren_depth = dollar_paren_depth.saturating_add(1);
+            continue;
+        }
+        if dollar_paren_depth > 0 {
+            if ch == '(' {
+                dollar_paren_depth = dollar_paren_depth.saturating_add(1);
+            } else if ch == ')' {
+                dollar_paren_depth = dollar_paren_depth.saturating_sub(1);
+            }
+            rendered.push(ch);
+            continue;
+        }
+        if matches!(ch, ' ' | '\t' | '\r')
+            && next_is_additive_operator_before_number(chars.clone())
+            && rendered
+                .chars()
+                .last()
+                .is_some_and(|previous| !matches!(previous, ' ' | '\t' | '\r'))
+        {
+            continue;
+        }
+        if matches!(ch, '+' | '-')
+            && chars
+                .clone()
+                .find(|next| !matches!(next, ' ' | '\t' | '\r'))
+                .is_some_and(|next| next.is_ascii_digit())
+        {
+            rendered.push(ch);
+            while chars
+                .peek()
+                .is_some_and(|next| matches!(next, ' ' | '\t' | '\r'))
+            {
+                chars.next();
+            }
+            continue;
+        }
+        rendered.push(ch);
+    }
+    rendered
+}
+
+fn next_is_additive_operator_before_number(
+    mut chars: std::iter::Peekable<std::str::Chars<'_>>,
+) -> bool {
+    let Some(operator) = chars.next() else {
+        return false;
+    };
+    if !matches!(operator, '+' | '-') {
+        return false;
+    }
+    chars
+        .find(|next| !matches!(next, ' ' | '\t' | '\r'))
+        .is_some_and(|next| next.is_ascii_digit())
 }
 
 fn push_parameter_word(
@@ -1183,7 +2233,7 @@ fn push_parameter_word(
     let Some(syntax) = parameter.bourne() else {
         let raw = parameter.raw_body.slice(source);
         rendered.push_str("${");
-        rendered.push_str(raw);
+        rendered.push_str(&compact_raw_parameter_subscript(raw));
         rendered.push('}');
         return Ok(());
     };
@@ -1286,6 +2336,45 @@ fn push_parameter_word(
     Ok(())
 }
 
+fn push_parameter_operand(rendered: &mut String, operand: &shuck_ast::SourceText, source: &str) {
+    rendered.push_str(&compact_parameter_operand_subscripts(operand.slice(source)));
+}
+
+fn compact_raw_parameter_subscript(raw: &str) -> String {
+    let Some(open) = raw.find('[') else {
+        return raw.to_string();
+    };
+    let Some(close) = raw.rfind(']') else {
+        return raw.to_string();
+    };
+    if close <= open {
+        return raw.to_string();
+    }
+    let mut rendered = String::with_capacity(raw.len());
+    rendered.push_str(&raw[..=open]);
+    rendered.push_str(&compact_dynamic_arithmetic_subscript(&raw[open + 1..close]));
+    rendered.push_str(&raw[close..]);
+    rendered
+}
+
+fn compact_parameter_operand_subscripts(text: &str) -> String {
+    let Some(body) = text
+        .strip_prefix("${")
+        .and_then(|body| body.strip_suffix('}'))
+    else {
+        return text.to_string();
+    };
+    let compacted = compact_raw_parameter_subscript(body);
+    if compacted == body {
+        return text.to_string();
+    }
+    let mut rendered = String::with_capacity(text.len());
+    rendered.push_str("${");
+    rendered.push_str(&compacted);
+    rendered.push('}');
+    rendered
+}
+
 fn render_parameter_expansion(
     rendered: &mut String,
     reference: &VarRef,
@@ -1307,7 +2396,7 @@ fn render_parameter_expansion(
             }
             rendered.push_str(parameter_defaulting_operator(operator));
             if let Some(operand) = operand {
-                rendered.push_str(operand.slice(source));
+                push_parameter_operand(rendered, operand, source);
             }
         }
         ParameterOp::RemovePrefixShort { pattern } => {
@@ -1381,6 +2470,11 @@ pub(crate) fn render_pattern_syntax_to_buf(
     options: &ResolvedShellFormatOptions,
     rendered: &mut String,
 ) {
+    if pattern_needs_formatter_rendering(pattern) {
+        render_pattern_parts_syntax_to_buf(pattern, source, options, rendered);
+        return;
+    }
+
     if !options.simplify()
         && !options.minify()
         && let Some(slice) = raw_pattern_source_slice(pattern, source)
@@ -1396,6 +2490,48 @@ pub(crate) fn render_pattern_syntax_to_buf(
     }
 
     pattern.render_syntax_to_buf(source, rendered);
+}
+
+fn pattern_needs_formatter_rendering(pattern: &Pattern) -> bool {
+    pattern.parts.iter().any(|part| match &part.kind {
+        PatternPart::Word(word) => word_needs_special_rendering(word),
+        PatternPart::Group { patterns, .. } => {
+            patterns.iter().any(pattern_needs_formatter_rendering)
+        }
+        _ => false,
+    })
+}
+
+fn render_pattern_parts_syntax_to_buf(
+    pattern: &Pattern,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+    rendered: &mut String,
+) {
+    for part in &pattern.parts {
+        match &part.kind {
+            PatternPart::Word(word) => {
+                render_word_syntax_to_buf(word, source, options, rendered);
+            }
+            PatternPart::Group { kind, patterns } => {
+                let _ = std::write!(rendered, "{}(", kind.prefix());
+                for (index, pattern) in patterns.iter().enumerate() {
+                    if index > 0 {
+                        rendered.push('|');
+                    }
+                    render_pattern_syntax_to_buf(pattern, source, options, rendered);
+                }
+                rendered.push(')');
+            }
+            _ => {
+                let single = Pattern {
+                    parts: vec![part.clone()],
+                    span: part.span,
+                };
+                single.render_syntax_to_buf(source, rendered);
+            }
+        }
+    }
 }
 
 fn raw_word_source_slice<'a>(word: &Word, source: &'a str) -> Option<&'a str> {
@@ -1429,8 +2565,30 @@ fn could_need_preserve_raw_syntax(raw: &str) -> bool {
         || raw.starts_with("$'")
         || raw.contains("\\\"")
         || raw.contains("\\`")
-        || raw.contains("\\\\")
+        || raw_contains_double_backslash_outside_single_quotes(raw)
         || raw.contains("[^ ]")
+}
+
+fn raw_contains_double_backslash_outside_single_quotes(raw: &str) -> bool {
+    let mut in_single_quotes = false;
+    let mut previous_was_backslash = false;
+    let mut chars = raw.char_indices().peekable();
+    while let Some((index, ch)) = chars.next() {
+        if ch == '\'' && !previous_was_backslash {
+            in_single_quotes = !in_single_quotes;
+        }
+
+        if !in_single_quotes && ch == '\\' && chars.peek().is_some_and(|(_, next)| *next == '\\') {
+            return true;
+        }
+
+        previous_was_backslash = ch == '\\'
+            && raw
+                .get(index + ch.len_utf8()..)
+                .is_some_and(|rest| !rest.starts_with('\\'));
+    }
+
+    false
 }
 
 fn trim_unescaped_trailing_whitespace(text: &str) -> &str {

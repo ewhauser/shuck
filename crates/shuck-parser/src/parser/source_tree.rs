@@ -320,6 +320,7 @@ impl<'a> Parser<'a> {
                 command.span = command.span.rebased(base);
                 for target in &mut command.targets {
                     target.span = target.span.rebased(base);
+                    Self::rebase_word(&mut target.word, base);
                 }
                 if let Some(words) = &mut command.words {
                     Self::rebase_words(words, base);

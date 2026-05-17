@@ -89,6 +89,27 @@ fn test_comment_ranges_with_unicode() {
 }
 
 #[test]
+fn test_comment_ranges_with_parameter_syntax_inside_function() {
+    let source = "function f() {\n  # parse all defined shortcuts ${BASH_IT_DIRS_BKS}\n  if [[ -s x ]]; then\n    echo ok\n  fi\n}\n";
+    let output = Parser::new(source).parse().unwrap();
+    let comments = collect_file_comments(&output.file);
+    let texts: Vec<&str> = comments
+        .iter()
+        .map(|comment| {
+            let start = usize::from(comment.range.start());
+            let end = usize::from(comment.range.end());
+            &source[start..end]
+        })
+        .collect();
+
+    assert_eq!(
+        texts,
+        vec!["# parse all defined shortcuts ${BASH_IT_DIRS_BKS}"]
+    );
+    assert_comment_ranges_valid(source, &output);
+}
+
+#[test]
 fn test_if_condition_semicolon_probe_does_not_duplicate_comments() {
     let source = "\
 if foo; # keep this once

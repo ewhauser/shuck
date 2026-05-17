@@ -108,6 +108,22 @@ impl<'a> SourceMap<'a> {
     }
 
     #[must_use]
+    pub fn first_comment_between(&self, start: usize, end: usize) -> Option<usize> {
+        if start >= end {
+            return None;
+        }
+        let index = self
+            .data
+            .hash_offsets
+            .partition_point(|offset| *offset < start);
+        self.data
+            .hash_offsets
+            .get(index)
+            .copied()
+            .filter(|offset| *offset < end)
+    }
+
+    #[must_use]
     pub fn contains_newline_between(&self, start: usize, end: usize) -> bool {
         if start >= end {
             return false;
@@ -158,7 +174,7 @@ pub struct SourceComment<'a> {
 impl<'a> SourceComment<'a> {
     #[must_use]
     pub fn text(&self) -> &'a str {
-        self.text
+        self.text.trim_end_matches([' ', '\t', '\r'])
     }
 
     #[must_use]

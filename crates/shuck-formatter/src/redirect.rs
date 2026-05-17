@@ -58,7 +58,12 @@ impl FormatNodeRule<Redirect> for FormatRedirect {
         if needs_space_before_target(redirect.kind, &target, options.space_redirects()) {
             write!(formatter, [space()])?;
         }
-        write!(formatter, [text(target)])
+        write!(
+            formatter,
+            [text(
+                normalized_redirect_target(redirect.kind, &target).to_string()
+            )]
+        )
     }
 }
 
@@ -92,6 +97,25 @@ fn needs_space_before_target(kind: RedirectKind, target: &str, space_redirects: 
             .as_bytes()
             .first()
             .is_some_and(|byte| matches!(byte, b'<' | b'>' | b'&'))
+}
+
+fn normalized_redirect_target(kind: RedirectKind, target: &str) -> &str {
+    if matches!(
+        kind,
+        RedirectKind::Output
+            | RedirectKind::Clobber
+            | RedirectKind::Append
+            | RedirectKind::Input
+            | RedirectKind::ReadWrite
+            | RedirectKind::HereDoc
+            | RedirectKind::HereDocStrip
+            | RedirectKind::HereString
+            | RedirectKind::OutputBoth
+    ) {
+        target.trim_start_matches([' ', '\t', '\r'])
+    } else {
+        target
+    }
 }
 
 fn raw_redirect_source_slice<'a>(redirect: &Redirect, source: &'a str) -> Option<&'a str> {

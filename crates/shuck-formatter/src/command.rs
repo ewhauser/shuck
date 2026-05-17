@@ -507,16 +507,17 @@ fn format_pipeline(
     let mut operators = Vec::new();
     collect_pipeline(pipeline, &mut statements, &mut operators);
 
-    let multiline = formatter.context().options().binary_next_line()
-        && statements.len() > 1
-        && pipeline_has_explicit_line_break(pipeline, formatter.context().source());
+    let explicit_line_break =
+        pipeline_has_explicit_line_break(pipeline, formatter.context().source());
+    let multiline = statements.len() > 1 && explicit_line_break;
+    let operator_next_line = multiline && formatter.context().options().binary_next_line();
     for (index, stmt) in statements.iter().enumerate() {
         if index > 0 {
             let operator = operators
                 .get(index - 1)
                 .map(|(operator, _)| binary_operator(operator))
                 .unwrap_or("|");
-            if multiline {
+            if operator_next_line {
                 write!(formatter, [token(" \\"), hard_line_break()])?;
                 let command_document =
                     format_into_document(formatter, |nested| stmt.format().fmt(nested))?;
@@ -525,6 +526,20 @@ fn format_pipeline(
                 indented.push(space());
                 indented.extend(command_document);
                 write!(formatter, [indent(indented)])?;
+                continue;
+            }
+            if multiline {
+                let command_document =
+                    format_into_document(formatter, |nested| stmt.format().fmt(nested))?;
+                write!(
+                    formatter,
+                    [
+                        space(),
+                        token(operator),
+                        hard_line_break(),
+                        indent(command_document)
+                    ]
+                )?;
                 continue;
             }
             write!(formatter, [space(), token(operator), space()])?;
@@ -541,24 +556,28 @@ fn pipeline_has_explicit_line_break(pipeline: &BinaryCommand, source: &str) -> b
     let mut operators = Vec::new();
     collect_pipeline(pipeline, &mut statements, &mut operators);
 
-    let mut previous_end = match statements.first() {
-        Some(stmt) => stmt_span(stmt).end.offset,
-        None => return false,
-    };
-
-    for stmt in statements.iter().skip(1) {
-        let next_start = stmt_span(stmt).start.offset;
-        let Some(between) = source.get(previous_end..next_start) else {
-            previous_end = stmt_span(stmt).end.offset;
+    for index in 1..statements.len() {
+        let Some((_, operator_span)) = operators.get(index - 1) else {
             continue;
         };
-        if between.contains('\n') {
+        let previous_end = stmt_span(statements[index - 1]).end.offset;
+        let next_start = stmt_span(statements[index]).start.offset;
+        if has_newline_between_offsets(source, previous_end, operator_span.start.offset)
+            || has_newline_between_offsets(source, operator_span.end.offset, next_start)
+        {
             return true;
         }
-        previous_end = stmt_span(stmt).end.offset;
     }
 
     false
+}
+
+fn has_newline_between_offsets(source: &str, start: usize, end: usize) -> bool {
+    let lower = start.min(end).min(source.len());
+    let upper = start.max(end).min(source.len());
+    source
+        .get(lower..upper)
+        .is_some_and(|between| between.contains('\n'))
 }
 
 fn format_command_list(
@@ -626,9 +645,37 @@ fn list_item_has_explicit_line_break(
     let command_start = stmt_attachment_span(item.stmt, source, source_map, options)
         .start
         .offset;
-    source
-        .get(item.operator_span.end.offset..command_start)
-        .is_some_and(|between| between.contains('\n'))
+    binary_operator_starts_or_ends_line(source, item.operator_span)
+        || source
+            .get(item.operator_span.end.offset..command_start)
+            .is_some_and(|between| between.contains('\n'))
+}
+
+fn binary_operator_starts_or_ends_line(source: &str, operator_span: Span) -> bool {
+    let start = operator_span.start.offset;
+    let end = operator_span.end.offset;
+    if start >= end || end > source.len() {
+        return false;
+    }
+
+    let line_start = source[..start]
+        .rfind('\n')
+        .map_or(0, |offset| offset.saturating_add(1));
+    let line_end = source[end..]
+        .find('\n')
+        .map_or(source.len(), |offset| end.saturating_add(offset));
+    let has_previous_line = line_start > 0;
+    let has_next_line = line_end < source.len();
+    let before = &source[line_start..start];
+    let after = &source[end..line_end];
+
+    (has_previous_line && line_edge_is_blank_or_continuation(before))
+        || (has_next_line && line_edge_is_blank_or_continuation(after))
+}
+
+fn line_edge_is_blank_or_continuation(text: &str) -> bool {
+    let trimmed = text.trim_matches(|ch| matches!(ch, ' ' | '\t' | '\r'));
+    trimmed.is_empty() || trimmed == "\\"
 }
 
 fn collect_pipeline<'a>(
@@ -706,6 +753,17 @@ fn format_then_fi_if(
     {
         write!(formatter, [token("; then ")])?;
         format_inline_stmts(&command.then_branch, formatter)?;
+        return write!(formatter, [token("; fi")]);
+    }
+    if command.elif_branches.is_empty()
+        && let Some(else_branch) = &command.else_branch
+        && can_inline_body(&command.then_branch, command.span, formatter)
+        && can_inline_body(else_branch, command.span, formatter)
+    {
+        write!(formatter, [token("; then ")])?;
+        format_inline_stmts(&command.then_branch, formatter)?;
+        write!(formatter, [token("; else ")])?;
+        format_inline_stmts(else_branch, formatter)?;
         return write!(formatter, [token("; fi")]);
     }
     write!(formatter, [token("; then")])?;
@@ -1215,9 +1273,61 @@ fn format_arithmetic(
     let source = formatter.context().source();
     let rendered = source
         .get(command.span.start.offset..command.span.end.offset)
-        .unwrap_or_default()
-        .to_string();
+        .map(format_arithmetic_command_source)
+        .unwrap_or_default();
     write!(formatter, [text(rendered)])
+}
+
+pub(crate) fn format_arithmetic_command_source(raw: &str) -> String {
+    raw.strip_prefix("((")
+        .and_then(|body| body.strip_suffix("))"))
+        .map(|body| {
+            if body.contains('\n') {
+                format_multiline_arithmetic_command_body(body)
+            } else {
+                format!("(({}))", body.trim())
+            }
+        })
+        .unwrap_or_else(|| raw.to_string())
+}
+
+fn format_multiline_arithmetic_command_body(body: &str) -> String {
+    let mut lines = body
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+
+    if lines.is_empty() {
+        return "(( ))".to_string();
+    }
+
+    let mut index = 1;
+    while index < lines.len() {
+        if let Some(rest) = lines[index].strip_prefix('+') {
+            let rest = rest.trim_start().to_string();
+            if let Some(previous) = lines.get_mut(index - 1) {
+                previous.push_str(" +");
+            }
+            lines[index] = rest;
+        }
+        index += 1;
+    }
+
+    let mut rendered = String::from("((\\\n");
+    for (index, line) in lines.iter().enumerate() {
+        if index > 0 {
+            rendered.push('\n');
+        }
+        rendered.push_str(line);
+        if index + 1 < lines.len() {
+            rendered.push_str(" \\");
+        } else {
+            rendered.push_str("))\n");
+        }
+    }
+    rendered
 }
 
 fn format_arithmetic_for(
@@ -1301,13 +1411,20 @@ fn format_function(
     function: &FunctionDef,
     formatter: &mut ShellFormatter<'_, '_>,
 ) -> FormatResult<()> {
+    let header_comment = function_header_trailing_comment(function, formatter);
     format_named_function_header(function, formatter)?;
     if formatter.context().options().function_next_line() {
         write!(formatter, [hard_line_break()])?;
+        format_function_body(function.body.as_ref(), function.span.end.offset, formatter)
     } else {
         write!(formatter, [space()])?;
+        format_function_body_with_header_comment(
+            function.body.as_ref(),
+            function.span.end.offset,
+            header_comment,
+            formatter,
+        )
     }
-    format_function_body(function.body.as_ref(), function.span.end.offset, formatter)
 }
 
 fn format_anonymous_function(
@@ -1402,6 +1519,15 @@ fn format_function_body(
     upper_bound: usize,
     formatter: &mut ShellFormatter<'_, '_>,
 ) -> FormatResult<()> {
+    format_function_body_with_header_comment(body, upper_bound, None, formatter)
+}
+
+fn format_function_body_with_header_comment(
+    body: &Stmt,
+    upper_bound: usize,
+    header_comment: Option<(Span, String)>,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
     match body {
         Stmt {
             command: Command::Compound(CompoundCommand::BraceGroup(commands)),
@@ -1410,6 +1536,16 @@ fn format_function_body(
             terminator: None,
             ..
         } if redirects.is_empty() => {
+            if let Some((span, comment)) = header_comment {
+                formatter.context_mut().comments_mut().claim_in_span(span);
+                return format_function_brace_group_with_header_comment(
+                    commands,
+                    upper_bound,
+                    &comment,
+                    formatter,
+                );
+            }
+
             let should_inline = !formatter.context().options().function_next_line() && {
                 let source_map = formatter.context().comments().source_map();
                 group_was_inline_in_source(commands.as_slice(), source_map, '{', '}')
@@ -1445,6 +1581,80 @@ fn format_function_body(
         }
         _ => body.format().fmt(formatter),
     }
+}
+
+fn format_function_brace_group_with_header_comment(
+    commands: &StmtSeq,
+    upper_bound: usize,
+    header_comment: &str,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
+    write!(
+        formatter,
+        [token("{ "), text(header_comment.trim_start().to_string())]
+    )?;
+
+    let open_suffix = {
+        let source_map = formatter.context().comments().source_map();
+        group_open_suffix(commands.as_slice(), source_map, '{')
+            .map(|(span, suffix)| (span, suffix.trim_start().to_string()))
+    };
+    if let Some((span, _)) = open_suffix.as_ref() {
+        formatter.context_mut().comments_mut().claim_in_span(*span);
+    }
+
+    if formatter.context().options().compact_layout() {
+        if let Some((_, suffix)) = open_suffix {
+            write!(formatter, [space(), text(suffix), token("; ")])?;
+        } else {
+            write!(formatter, [space()])?;
+        }
+        format_stmt_sequence_with_upper_bound(commands.as_slice(), formatter, Some(upper_bound))?;
+        finish_block("}", formatter)
+    } else {
+        let body = format_into_document(formatter, |nested| {
+            if let Some((_, suffix)) = open_suffix {
+                write!(nested, [text(suffix), hard_line_break()])?;
+            }
+            format_stmt_sequence_with_upper_bound(commands.as_slice(), nested, Some(upper_bound))
+        })?;
+        write!(formatter, [hard_line_break(), indent(body)])?;
+        finish_block("}", formatter)
+    }
+}
+
+fn function_header_trailing_comment(
+    function: &FunctionDef,
+    formatter: &ShellFormatter<'_, '_>,
+) -> Option<(Span, String)> {
+    if formatter.context().options().function_next_line() {
+        return None;
+    }
+
+    let source_map = formatter.context().comments().source_map();
+    let source = source_map.source();
+    let header_end = function_header_span(function).end.offset;
+    let body_start = stmt_span(function.body.as_ref()).start.offset;
+    if header_end >= body_start || header_end >= source.len() {
+        return None;
+    }
+
+    let line_end = source[header_end..body_start]
+        .find('\n')
+        .map(|offset| header_end + offset)
+        .unwrap_or(body_start);
+    let between = source.get(header_end..line_end)?;
+    let comment_offset = between.find('#')?;
+    let comment = source
+        .get(header_end..line_end)?
+        .trim_end_matches([' ', '\t', '\r'])
+        .to_string();
+    (!comment.is_empty()).then(|| {
+        (
+            source_map.span_for_offsets(header_end + comment_offset, line_end),
+            comment,
+        )
+    })
 }
 
 fn format_inline_stmts(
@@ -2125,7 +2335,7 @@ fn format_group_with_upper_bound(
     };
     if let Some((span, suffix)) = open_suffix {
         formatter.context_mut().comments_mut().claim_in_span(span);
-        write!(formatter, [text(suffix)])?;
+        write!(formatter, [space(), text(suffix.trim_start().to_string())])?;
     }
     format_body_with_upper_bound(commands, formatter, upper_bound)?;
     finish_block(close, formatter)
@@ -2496,7 +2706,7 @@ fn emit_dangling_comments(
 }
 
 pub(crate) fn line_gap_break_count(current_line: usize, next_line: usize) -> usize {
-    next_line.saturating_sub(current_line).max(1)
+    next_line.saturating_sub(current_line).clamp(1, 2)
 }
 
 pub(crate) fn rendered_stmt_end_line(
@@ -2537,6 +2747,7 @@ pub(crate) fn rendered_stmt_end_line(
             }
             span_render_end_line(span, source, source_map)
         }
+        Command::Binary(command) => rendered_stmt_end_line(&command.right, source, source_map),
         _ => span_render_end_line(stmt_format_span(stmt), source, source_map),
     }
 }
@@ -2660,7 +2871,7 @@ pub(crate) fn stmt_attachment_span(
     source_map: &crate::comments::SourceMap<'_>,
     options: &crate::options::ResolvedShellFormatOptions,
 ) -> Span {
-    if should_render_verbatim(stmt, source_map, options) {
+    let span = if should_render_verbatim(stmt, source_map, options) {
         stmt_verbatim_span(stmt, source)
     } else if let Command::Function(command) = &stmt.command {
         function_attachment_span(command)
@@ -2679,7 +2890,63 @@ pub(crate) fn stmt_attachment_span(
             |span, redirect| span.merge(redirect.span),
         )
     } else {
-        stmt_format_span(stmt)
+        let mut span = command_attachment_span(&stmt.command, source, source_map, options);
+        for redirect in &stmt.redirects {
+            span = merge_non_empty_span(span, redirect.span);
+        }
+        if matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
+            && let Some(terminator_span) = stmt.terminator_span
+        {
+            span = merge_non_empty_span(span, terminator_span);
+        }
+        if span == Span::new() {
+            stmt_span(stmt)
+        } else {
+            span
+        }
+    };
+    if matches!(
+        stmt.command,
+        Command::Binary(_)
+            | Command::Compound(_)
+            | Command::Function(_)
+            | Command::AnonymousFunction(_)
+    ) {
+        span_after_stmt_leading_comments(stmt, span, source_map)
+    } else {
+        span
+    }
+}
+
+fn span_after_stmt_leading_comments(
+    stmt: &Stmt,
+    span: Span,
+    source_map: &crate::comments::SourceMap<'_>,
+) -> Span {
+    let Some(last_comment) = stmt.leading_comments.last() else {
+        return span;
+    };
+    let comment_end = usize::from(last_comment.range.end());
+    if span.start.offset < comment_end && comment_end < span.end.offset {
+        source_map.span_for_offsets(comment_end, span.end.offset)
+    } else {
+        span
+    }
+}
+
+fn command_attachment_span(
+    command: &Command,
+    source: &str,
+    source_map: &crate::comments::SourceMap<'_>,
+    options: &crate::options::ResolvedShellFormatOptions,
+) -> Span {
+    match command {
+        Command::Binary(command) => {
+            stmt_attachment_span(&command.left, source, source_map, options).merge(
+                stmt_attachment_span(&command.right, source, source_map, options),
+            )
+        }
+        _ => command_format_span(command),
     }
 }
 
@@ -2776,6 +3043,9 @@ pub(crate) fn case_item_was_inline_in_source(item: &CaseItem) -> bool {
     item.patterns
         .last()
         .is_some_and(|pattern| pattern.span.end.line == stmt_span(stmt).start.line)
+        && item
+            .terminator_span
+            .is_some_and(|span| span.start.line == stmt_format_span(stmt).end.line)
 }
 
 fn command_token_spans(command: &Command) -> Vec<Span> {

@@ -277,6 +277,16 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         upper_bound: Option<usize>,
         group_open_char: Option<char>,
     ) {
+        self.visit_sequence_with_suffix(sequence, upper_bound, group_open_char, None);
+    }
+
+    fn visit_sequence_with_suffix(
+        &mut self,
+        sequence: &StmtSeq,
+        upper_bound: Option<usize>,
+        group_open_char: Option<char>,
+        open_suffix_span: Option<Span>,
+    ) {
         for stmt in sequence.iter() {
             self.visit_stmt(stmt);
         }
@@ -287,22 +297,27 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         }
 
         let mut facts = SequenceFacts::new(sequence.len());
-        facts.group_open_suffix_span = group_open_char.and_then(|open| {
-            group_open_suffix(sequence.as_slice(), self.source_map(), open).map(|(span, _)| span)
-        });
-        let sequence_limit = group_open_char
-            .and_then(|open| {
-                let close = match open {
-                    '{' => '}',
-                    '(' => ')',
-                    other => other,
-                };
-                group_attachment_span(sequence.as_slice(), self.source_map(), open, close)
-                    .map(|span| span.end.offset)
+        facts.group_open_suffix_span = open_suffix_span.or_else(|| {
+            group_open_char.and_then(|open| {
+                group_open_suffix(sequence.as_slice(), self.source_map(), open)
+                    .map(|(span, _)| span)
             })
+        });
+        let group_attachment_span = group_open_char.and_then(|open| {
+            let close = match open {
+                '{' => '}',
+                '(' => ')',
+                other => other,
+            };
+            group_attachment_span(sequence.as_slice(), self.source_map(), open, close)
+        });
+        let sequence_limit = group_attachment_span
+            .map(|span| span.end.offset)
             .or(upper_bound);
 
-        let lower_bound = sequence_comment_lower_bound(sequence);
+        let lower_bound = group_attachment_span
+            .map(|span| span.start.offset)
+            .unwrap_or_else(|| sequence_comment_lower_bound(sequence));
         let comment_window = self.comment_window(lower_bound, sequence_limit);
 
         if sequence.is_empty() {
@@ -540,7 +555,9 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             collect_command_list_first(command, &mut rest);
             for item in rest {
                 let next_start = self.facts.stmt(item.stmt).attachment_span().start.offset;
-                if has_newline_between(self.source, item.operator_span.end.offset, next_start) {
+                if operator_starts_or_ends_line(self.source, item.operator_span)
+                    || has_newline_between(self.source, item.operator_span.end.offset, next_start)
+                {
                     self.facts
                         .list_item_breaks
                         .insert(FactSpan::from(item.operator_span));
@@ -649,10 +666,13 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 .inline_group_sequences
                 .insert(FactSpan::from(command.then_branch.span));
         }
-        self.visit_sequence(
+        self.visit_sequence_with_suffix(
             &command.then_branch,
             Some(if_branch_upper_bound(command, 0, self.source)),
             group_open_char,
+            (!brace_syntax)
+                .then(|| branch_open_suffix_span(&command.then_branch, self.source_map(), "then"))
+                .flatten(),
         );
         for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
             self.visit_sequence(condition, None, None);
@@ -663,10 +683,13 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     .inline_group_sequences
                     .insert(FactSpan::from(body.span));
             }
-            self.visit_sequence(
+            self.visit_sequence_with_suffix(
                 body,
                 Some(if_branch_upper_bound(command, index + 1, self.source)),
                 group_open_char,
+                (!brace_syntax)
+                    .then(|| branch_open_suffix_span(body, self.source_map(), "then"))
+                    .flatten(),
             );
         }
         if let Some(else_branch) = &command.else_branch {
@@ -682,7 +705,14 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     Some(command.span.end.offset)
                 }
             };
-            self.visit_sequence(else_branch, upper_bound, group_open_char);
+            self.visit_sequence_with_suffix(
+                else_branch,
+                upper_bound,
+                group_open_char,
+                (!brace_syntax)
+                    .then(|| branch_open_suffix_span(else_branch, self.source_map(), "else"))
+                    .flatten(),
+            );
         }
     }
 
@@ -753,7 +783,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     .inline_case_item_bodies
                     .insert(FactSpan::from(item.body.span));
             }
-            self.visit_sequence(&item.body, Some(command.span.end.offset), None);
+            self.visit_sequence(
+                &item.body,
+                case_item_body_upper_bound(item, command.span.end.offset),
+                None,
+            );
         }
     }
 
@@ -918,6 +952,9 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             {
                 self.visit_sequence(body, Some(span.end.offset), None);
             }
+            WordPart::ProcessSubstitution { body, .. } => {
+                self.visit_sequence(body, span.end.offset.checked_sub(1), None);
+            }
             WordPart::CommandSubstitution { .. }
             | WordPart::Literal(_)
             | WordPart::SingleQuoted { .. }
@@ -933,7 +970,6 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             | WordPart::ArraySlice { .. }
             | WordPart::IndirectExpansion { .. }
             | WordPart::PrefixMatch { .. }
-            | WordPart::ProcessSubstitution { .. }
             | WordPart::Transformation { .. }
             | WordPart::ZshQualifiedGlob(_) => {}
             WordPart::DoubleQuoted { parts, .. } => {
@@ -983,46 +1019,106 @@ fn collect_command_list_first<'a>(
 
 fn pipeline_has_explicit_line_break(pipeline: &BinaryCommand, source: &str) -> bool {
     let mut statements = Vec::new();
-    collect_pipeline(pipeline, &mut statements);
+    let mut operators = Vec::new();
+    collect_pipeline(pipeline, &mut statements, &mut operators);
 
-    let mut previous_end = match statements.first() {
-        Some(stmt) => stmt_span(stmt).end.offset,
-        None => return false,
-    };
-
-    for stmt in statements.iter().skip(1) {
-        let next_start = stmt_span(stmt).start.offset;
-        if has_newline_between(source, previous_end, next_start) {
+    for index in 1..statements.len() {
+        let Some(operator_span) = operators.get(index - 1) else {
+            continue;
+        };
+        let previous_end = stmt_span(statements[index - 1]).end.offset;
+        let next_start = stmt_span(statements[index]).start.offset;
+        if has_newline_between(source, previous_end, operator_span.start.offset)
+            || has_newline_between(source, operator_span.end.offset, next_start)
+        {
             return true;
         }
-        previous_end = stmt_span(stmt).end.offset;
     }
 
     false
 }
 
-fn collect_pipeline<'a>(command: &'a BinaryCommand, statements: &mut Vec<&'a Stmt>) {
-    collect_pipeline_stmt(command.left.as_ref(), statements);
-    collect_pipeline_stmt(command.right.as_ref(), statements);
+fn collect_pipeline<'a>(
+    command: &'a BinaryCommand,
+    statements: &mut Vec<&'a Stmt>,
+    operators: &mut Vec<Span>,
+) {
+    collect_pipeline_stmt(command.left.as_ref(), statements, operators);
+    operators.push(command.op_span);
+    collect_pipeline_stmt(command.right.as_ref(), statements, operators);
 }
 
-fn collect_pipeline_stmt<'a>(stmt: &'a Stmt, statements: &mut Vec<&'a Stmt>) {
+fn collect_pipeline_stmt<'a>(
+    stmt: &'a Stmt,
+    statements: &mut Vec<&'a Stmt>,
+    operators: &mut Vec<Span>,
+) {
     if let Command::Binary(binary) = &stmt.command
         && stmt.redirects.is_empty()
         && !stmt.negated
         && stmt.terminator.is_none()
         && matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll)
     {
-        collect_pipeline(binary, statements);
+        collect_pipeline(binary, statements, operators);
     } else {
         statements.push(stmt);
     }
 }
 
 fn has_newline_between(source: &str, start: usize, end: usize) -> bool {
+    let lower = start.min(end).min(source.len());
+    let upper = start.max(end).min(source.len());
     source
-        .get(start.min(end)..end.min(source.len()))
+        .get(lower..upper)
         .is_some_and(|between| between.contains('\n'))
+}
+
+fn operator_starts_or_ends_line(source: &str, operator_span: Span) -> bool {
+    let start = operator_span.start.offset;
+    let end = operator_span.end.offset;
+    if start >= end || end > source.len() {
+        return false;
+    }
+
+    let line_start = source[..start]
+        .rfind('\n')
+        .map_or(0, |offset| offset.saturating_add(1));
+    let line_end = source[end..]
+        .find('\n')
+        .map_or(source.len(), |offset| end.saturating_add(offset));
+    let has_previous_line = line_start > 0;
+    let has_next_line = line_end < source.len();
+    let before = &source[line_start..start];
+    let after = &source[end..line_end];
+
+    (has_previous_line && line_edge_is_blank_or_continuation(before))
+        || (has_next_line && line_edge_is_blank_or_continuation(after))
+}
+
+fn line_edge_is_blank_or_continuation(text: &str) -> bool {
+    let trimmed = text.trim_matches(|ch| matches!(ch, ' ' | '\t' | '\r'));
+    trimmed.is_empty() || trimmed == "\\"
+}
+
+fn branch_open_suffix_span(
+    sequence: &StmtSeq,
+    source_map: &SourceMap<'_>,
+    keyword: &str,
+) -> Option<Span> {
+    let source = source_map.source();
+    let first = sequence.first()?;
+    let first_start = stmt_span(first).start.offset;
+    let keyword_offset = source[..first_start].rfind(keyword)?;
+    let line_end = source[keyword_offset..]
+        .find('\n')
+        .map(|offset| keyword_offset + offset)
+        .unwrap_or(source.len());
+    let suffix_start = keyword_offset + keyword.len();
+    let suffix = source.get(suffix_start..line_end)?;
+    suffix
+        .trim_start_matches(char::is_whitespace)
+        .starts_with('#')
+        .then(|| source_map.span_for_offsets(suffix_start, line_end))
 }
 
 fn sequence_comment_lower_bound(sequence: &StmtSeq) -> usize {
@@ -1038,35 +1134,66 @@ fn sequence_comment_lower_bound(sequence: &StmtSeq) -> usize {
     lower_bound
 }
 
+fn case_item_body_upper_bound(item: &CaseItem, fallback: usize) -> Option<usize> {
+    Some(
+        item.terminator_span
+            .map(|span| span.start.offset)
+            .unwrap_or(fallback),
+    )
+}
+
 fn span_contains_comment(span: Span, comment: SourceComment<'_>) -> bool {
     span.start.offset <= comment.span().start.offset && comment.span().end.offset <= span.end.offset
 }
 
 fn if_branch_upper_bound(command: &IfCommand, branch_index: usize, source: &str) -> usize {
+    if let Some((start, end)) = if_next_branch_region(command, branch_index, source) {
+        branch_prefix_first_comment_offset(source, start, end).unwrap_or(end)
+    } else {
+        command.span.end.offset
+    }
+}
+
+fn if_next_branch_region(
+    command: &IfCommand,
+    branch_index: usize,
+    source: &str,
+) -> Option<(usize, usize)> {
     let current_branch_end = if branch_index == 0 {
-        command.then_branch.span.end.offset
+        branch_body_content_end(&command.then_branch)
     } else {
         command
             .elif_branches
             .get(branch_index - 1)
-            .map(|(_, body)| body.span.end.offset)
-            .unwrap_or(command.then_branch.span.end.offset)
+            .map(|(_, body)| branch_body_content_end(body))
+            .unwrap_or_else(|| branch_body_content_end(&command.then_branch))
     };
 
     if let Some((condition, _)) = command.elif_branches.get(branch_index) {
-        branch_keyword_offset(
+        let keyword = branch_keyword_offset(
             source,
             current_branch_end,
             condition.span.start.offset,
             "elif",
         )
-        .unwrap_or(condition.span.start.offset)
-    } else if let Some(body) = &command.else_branch {
-        branch_keyword_offset(source, current_branch_end, body.span.start.offset, "else")
-            .unwrap_or(body.span.start.offset)
+        .unwrap_or(condition.span.start.offset);
+        Some((current_branch_end, keyword))
+    } else if branch_index == command.elif_branches.len() {
+        command.else_branch.as_ref().map(|body| {
+            let keyword =
+                branch_keyword_offset(source, current_branch_end, body.span.start.offset, "else")
+                    .unwrap_or(body.span.start.offset);
+            (current_branch_end, keyword)
+        })
     } else {
-        command.span.end.offset
+        None
     }
+}
+
+fn branch_body_content_end(body: &StmtSeq) -> usize {
+    body.last()
+        .map(|stmt| stmt_span(stmt).end.offset)
+        .unwrap_or(body.span.end.offset)
 }
 
 fn branch_keyword_offset(source: &str, start: usize, end: usize, keyword: &str) -> Option<usize> {
@@ -1075,6 +1202,40 @@ fn branch_keyword_offset(source: &str, start: usize, end: usize, keyword: &str) 
     source[start..end]
         .rfind(keyword)
         .map(|offset| start + offset)
+}
+
+fn branch_prefix_first_comment_offset(source: &str, start: usize, end: usize) -> Option<usize> {
+    let start = start.min(end).min(source.len());
+    let end = end.min(source.len());
+    let slice = source.get(start..end)?;
+    let keyword_indent = line_indent_before_offset(source, end)?;
+
+    let mut offset = start;
+    for line in slice.split_inclusive('\n') {
+        let text = line.trim_end_matches(['\n', '\r']);
+        let trimmed = text.trim_start_matches([' ', '\t']);
+        let indent = text.len().saturating_sub(trimmed.len());
+        if trimmed.starts_with('#') && text.get(..indent) == Some(keyword_indent) {
+            return Some(offset + indent);
+        }
+        offset += line.len();
+    }
+    None
+}
+
+fn line_indent_before_offset(source: &str, offset: usize) -> Option<&str> {
+    let offset = offset.min(source.len());
+    let bytes = source.as_bytes();
+    let mut line_start = offset;
+    while line_start > 0 && bytes.get(line_start - 1) != Some(&b'\n') {
+        line_start -= 1;
+    }
+    let line = source.get(line_start..offset)?;
+    let indent_end = line
+        .char_indices()
+        .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
+        .map_or(line.len(), |(index, _)| index);
+    line.get(..indent_end)
 }
 
 #[cfg(test)]
@@ -1147,7 +1308,7 @@ mod tests {
     }
 
     #[test]
-    fn marks_inline_leading_comments_as_ambiguous() {
+    fn captures_then_branch_open_suffix_comments() {
         let source = "if foo; then # note\n  bar\nfi\n";
         let file = parse(source);
         let options = ShellFormatOptions::default();
@@ -1169,7 +1330,9 @@ mod tests {
                 source,
             )),
         );
-        assert!(sequence.is_ambiguous());
+        assert!(sequence.group_open_suffix_span().is_some());
+        assert!(!sequence.is_ambiguous());
+        assert!(sequence.leading_for(0).is_empty());
     }
 
     #[test]
