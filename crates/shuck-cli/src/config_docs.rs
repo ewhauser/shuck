@@ -27,7 +27,7 @@ fn emit_section(output: &mut String, section: &ConfigSectionMetadata, parents: &
     let path = parents.join(".");
     let heading = if parents.len() == 1 { "##" } else { "###" };
 
-    let _ = writeln!(output, "{heading} `[{path}]`\n");
+    let _ = writeln!(output, "{heading} `{}`\n", section_heading(&path));
     output.push_str(section.docs);
     output.push_str("\n\n");
 
@@ -50,10 +50,29 @@ fn emit_field(output: &mut String, field: &ConfigFieldMetadata, section_path: &s
     let _ = writeln!(output, "**Type**: `{}`\n", field.value_type);
     output.push_str("**Example usage**:\n\n");
     output.push_str("```toml\n");
-    let _ = writeln!(output, "[{section_path}]");
+    emit_example_headers(output, section_path);
     output.push_str(field.example);
     output.push_str("\n```\n\n");
     output.push_str("---\n\n");
+}
+
+fn section_heading(path: &str) -> String {
+    if path == "lint.contracts.custom" {
+        format!("[[{path}]]")
+    } else {
+        format!("[{path}]")
+    }
+}
+
+fn emit_example_headers(output: &mut String, section_path: &str) {
+    if section_path == "lint.contracts.custom" {
+        let _ = writeln!(output, "[[lint.contracts.custom]]");
+    } else if let Some(nested) = section_path.strip_prefix("lint.contracts.custom.") {
+        let _ = writeln!(output, "[[lint.contracts.custom]]");
+        let _ = writeln!(output, "[lint.contracts.custom.{nested}]");
+    } else {
+        let _ = writeln!(output, "[{section_path}]");
+    }
 }
 
 #[cfg(test)]
@@ -65,9 +84,16 @@ mod tests {
         let reference = generate_settings_reference();
 
         assert!(reference.contains("## `[check]`"));
+        assert!(reference.contains("## `[format]`"));
         assert!(reference.contains("## `[lint]`"));
         assert!(reference.contains("### `[lint.rule-options.c001]`"));
+        assert!(reference.contains("### `[[lint.contracts.custom]]`"));
+        assert!(reference.contains("[[lint.contracts.custom]]\nid ="));
+        assert!(
+            reference
+                .contains("[[lint.contracts.custom]]\n[lint.contracts.custom.consumes]\nnames =")
+        );
         assert!(reference.contains("#### `embedded`"));
-        assert!(!reference.contains("## `[format]`"));
+        assert!(reference.contains("#### `indent-style`"));
     }
 }

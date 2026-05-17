@@ -1,0 +1,120 @@
+# Formatting
+
+`shuck format` rewrites shell scripts using Shuck's parser and formatter. It is useful for project-wide formatting, CI checks, and one-off cleanup before reviewing script changes.
+
+## Basic usage
+
+```bash
+# Format the current project in place
+shuck format .
+
+# Format specific files
+shuck format scripts/deploy.sh scripts/build.sh
+
+# Check whether files are already formatted
+shuck format --check .
+
+# Print a unified diff without changing files
+shuck format --diff .
+```
+
+When no path is passed, `shuck format` formats the current directory. It only formats standalone shell files; embedded shell snippets inside YAML or other host files are skipped.
+
+## Standard input
+
+Pass `-` to read from stdin and write the formatted result to stdout:
+
+```bash
+printf 'if true; then echo ok; fi\n' | shuck format -
+```
+
+Use `--stdin-filename` when the file name matters for dialect inference or project config discovery:
+
+```bash
+printf 'print $ZSH_VERSION\n' | shuck format --stdin-filename .zshrc -
+```
+
+In `--check` mode, stdin exits successfully if the input is already formatted and exits non-zero if it would change. In `--diff` mode, stdin prints a unified diff.
+
+## Project settings
+
+Formatter settings live in the `[format]` section of `shuck.toml` or `.shuck.toml`:
+
+```toml
+[format]
+indent-style = "space"
+indent-width = 2
+binary-next-line = true
+switch-case-indent = true
+space-redirects = true
+keep-padding = true
+function-next-line = false
+never-split = false
+```
+
+The defaults are tab indentation with width `8`, compact inline function braces, unspaced redirection targets, and ordinary formatter-controlled splitting.
+
+CLI flags override config values for that run:
+
+```bash
+shuck format --indent-style space --indent-width 2 .
+shuck format --function-next-line --space-redirects script.sh
+```
+
+Boolean formatter flags also have hidden `--no-...` forms for overriding config values from the command line:
+
+```bash
+shuck format --no-function-next-line .
+```
+
+## Dialect selection
+
+By default, the formatter infers dialect from the source text, shebang, and file path. Use `--dialect` for a one-off override:
+
+```bash
+shuck format --dialect bash script
+shuck format --dialect zsh .zshrc
+```
+
+Accepted values are `bash`, `posix`, `mksh`, and `zsh`.
+
+`[format].dialect` is intentionally not supported in config files. Use file names, shebangs, or the per-run `--dialect` flag instead.
+
+## Simplify and minify
+
+`--simplify` applies safe syntax simplifications before formatting:
+
+```bash
+shuck format --simplify script.sh
+```
+
+`--minify` emits a compact form and drops ordinary comments while preserving meaningful shell structure:
+
+```bash
+shuck format --minify script.sh
+```
+
+Both options are CLI-only today.
+
+## Caching and file selection
+
+Formatting uses Shuck's project discovery and cache plumbing. Use `--no-cache` when debugging formatter behavior:
+
+```bash
+shuck format --no-cache .
+```
+
+The standard file-selection flags are available:
+
+```bash
+shuck format --exclude vendor --extend-exclude testdata .
+shuck format --force-exclude scripts vendor/script.sh
+```
+
+Formatting respects ignore files by default, matching `shuck check`.
+
+## Editor status
+
+The LSP server advertises whole-document and selected-range formatting. Once `shuck server` is attached, use your editor's normal LSP format command or format-on-save integration.
+
+Use `shuck format` directly for CI, pre-commit, project-wide rewrites, and one-off command-line formatting. See [LSP Server](/docs/lsp) for editor setup.

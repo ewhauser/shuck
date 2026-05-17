@@ -1,4 +1,4 @@
-# Editor Integration
+# LSP Server
 
 Shuck ships with a first-party Language Server Protocol server in the main CLI. Start it with `shuck server` and point your editor at that command over stdio.
 
@@ -13,8 +13,9 @@ The current server already covers the core editor feedback loop:
 - Dialect inference from the buffer `languageId`, shebang, and file path
 - Quick fixes, disable-this-line actions, and `source.fixAll.shuck` code actions
 - Hover help for suppression codes in `# shuck:` and `# shellcheck` directives
+- Whole-document and selected-range formatting through LSP
 
-Formatting is not advertised to editors yet, so it is still best to keep your existing shell formatter setup alongside Shuck for now.
+Editor formatting uses the same parser-backed formatter as [`shuck format`](/docs/formatting). Once `shuck server` is attached, use your editor's normal LSP format command or format-on-save integration.
 
 ## Before you start
 

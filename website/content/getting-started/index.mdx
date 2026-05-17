@@ -1,18 +1,17 @@
 # Getting Started
 
-An extremely fast shell script linter, written in Rust.
+Shuck is a Rust toolkit for working with shell scripts: linting, formatting, editor feedback, and managed shell execution from one CLI.
 
-- ⚡ 20x faster than ShellCheck, with built-in caching for incremental runs
-- 🐚 Multi-dialect support for bash, sh/POSIX, dash, ksh, mksh, and zsh
-- 🤝 ShellCheck suppression compatibility (`# shellcheck disable=SC2086` just works)
-- 🔄 ShellCheck CLI compatibility mode for existing editor, CI, and local workflows
-- 🧩 Embedded shell extraction for GitHub Actions workflows and composite actions
-- 🔧 Fix support, for automatic error correction (`--fix` and `--unsafe-fixes`)
-- 📏 Rules across correctness, style, performance, and portability categories
-- 💾 Per-file caching to avoid re-analyzing unchanged files
-- 📦 Single binary, zero dependencies
+- ⚡ Lint 20-100x faster than ShellCheck in benchmarked runs, with per-file caching for incremental checks.
+- 🐚 Work across bash, sh/POSIX, dash, ksh, mksh, and zsh from the same binary.
+- 🧩 Check shell scripts and embedded GitHub Actions `run:` blocks with parser-backed diagnostics.
+- 🪄 Format shell files from the command line, CI, or an editor through LSP formatting.
+- 🖥️ Use the LSP server for live diagnostics, quick fixes, hover help, navigation, and format-on-save.
+- 🧪 Run scripts with managed shell interpreters when you need reproducible local or CI behavior.
+- 🤝 Keep ShellCheck-compatible suppressions and CLI migration paths for existing workflows.
+- 📦 Install one dependency-free executable for local development, editors, and CI.
 
-Shuck aims to be orders of magnitude faster than ShellCheck while expanding coverage to dialects that ShellCheck does not support, like zsh.
+Shuck is built around one shared shell parser, so the CLI, formatter, linter, and language server agree on how each script is understood.
 
 ## Installation
 
@@ -35,7 +34,7 @@ cargo install shuck-cli
 
 Pre-built binaries are available for macOS (aarch64) and Linux (x86_64) from the [releases page](https://github.com/ewhauser/shuck/releases).
 
-## Usage
+## Linting
 
 ```bash
 # Check files and directories
@@ -53,6 +52,25 @@ echo 'echo $foo' | shuck check -
 # Apply safe fixes automatically
 shuck check --fix .
 ```
+
+See the dedicated [Linting guide](/docs/linting) for rule selection, fixes, output formats, watch mode, per-file shell overrides, and CI behavior.
+
+## Formatting
+
+Shuck includes a formatter for standalone shell files:
+
+```bash
+# Format the current project in place
+shuck format .
+
+# Check formatting in CI
+shuck format --check .
+
+# Print a diff without changing files
+shuck format --diff .
+```
+
+See the dedicated [Formatting guide](/docs/formatting) for formatter config, stdin usage, dialect overrides, and LSP formatting support.
 
 ## Pre-commit
 
@@ -83,7 +101,7 @@ repos:
 The `shuck-src` hook requires a working Rust toolchain because it runs
 `cargo run -p shuck-cli -- check ...` from the cloned hook repository.
 
-## Editor integration
+## LSP server
 
 Shuck also ships with a first-party LSP server over stdio:
 
@@ -91,7 +109,7 @@ Shuck also ships with a first-party LSP server over stdio:
 shuck server
 ```
 
-See the dedicated [Editor Integration guide](/docs/editors) for setup examples in Neovim, Vim, Emacs, and Zed.
+See the dedicated [LSP Server guide](/docs/lsp) for setup examples in Neovim, Vim, Emacs, and Zed.
 
 ## Managed runtime
 

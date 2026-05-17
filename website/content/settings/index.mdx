@@ -27,6 +27,146 @@ embedded = false
 
 ---
 
+## `[format]`
+
+Formatter style options for `shuck format`.
+
+#### `binary-next-line`
+
+Place binary list and pipeline operators at the start of continuation lines when a command is split.
+
+**Default value**: `false`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[format]
+binary-next-line = true
+```
+
+---
+
+#### `function-next-line`
+
+Place function opening braces on the line after the function name.
+
+**Default value**: `false`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[format]
+function-next-line = true
+```
+
+---
+
+#### `indent-style`
+
+Indent with tabs or spaces. Supported values are `tab` and `space`.
+
+**Default value**: `"tab"`
+
+**Type**: `string`
+
+**Example usage**:
+
+```toml
+[format]
+indent-style = "space"
+```
+
+---
+
+#### `indent-width`
+
+Number of spaces to use for each indentation level when `indent-style = "space"`.
+
+**Default value**: `8`
+
+**Type**: `integer`
+
+**Example usage**:
+
+```toml
+[format]
+indent-width = 2
+```
+
+---
+
+#### `keep-padding`
+
+Preserve existing horizontal padding in source regions where the formatter can do so safely.
+
+**Default value**: `false`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[format]
+keep-padding = true
+```
+
+---
+
+#### `never-split`
+
+Prefer compact layouts and avoid optional line splitting.
+
+**Default value**: `false`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[format]
+never-split = true
+```
+
+---
+
+#### `space-redirects`
+
+Insert spaces between redirection operators and their targets where the shell grammar allows it.
+
+**Default value**: `false`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[format]
+space-redirects = true
+```
+
+---
+
+#### `switch-case-indent`
+
+Indent `case` branch bodies one level deeper than the branch pattern.
+
+**Default value**: `false`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[format]
+switch-case-indent = true
+```
+
+---
+
 ## `[lint]`
 
 Rule selection, per-file ignores, fix eligibility, and rule-specific behavior for `shuck check`.
@@ -326,6 +466,7 @@ Exact names consumed by external runtime behavior.
 **Example usage**:
 
 ```toml
+[[lint.contracts.custom]]
 [lint.contracts.custom.consumes]
 names = ["HISTFILE", "SAVEHIST"]
 ```
@@ -343,6 +484,7 @@ Name prefixes consumed by external runtime behavior.
 **Example usage**:
 
 ```toml
+[[lint.contracts.custom]]
 [lint.contracts.custom.consumes]
 prefixes = ["ZSH_TMUX_"]
 ```
@@ -360,6 +502,7 @@ Treat every assignment in the file as externally consumed.
 **Example usage**:
 
 ```toml
+[[lint.contracts.custom]]
 [lint.contracts.custom.consumes]
 all = true
 ```
@@ -381,6 +524,7 @@ Variables provided by the contract.
 **Example usage**:
 
 ```toml
+[[lint.contracts.custom]]
 [lint.contracts.custom.provides]
 variables = ["reply", "REPLY"]
 ```
@@ -398,6 +542,7 @@ Callable function names provided by the contract.
 **Example usage**:
 
 ```toml
+[[lint.contracts.custom]]
 [lint.contracts.custom.provides]
 functions = ["helper"]
 ```
@@ -446,6 +591,445 @@ Report nested function definitions when no reachable direct call reaches the enc
 ```toml
 [lint.rule-options.c063]
 report-unreached-nested-definitions = true
+```
+
+---
+
+### `[lint.rule-options.s078]`
+
+Behavior overrides for `S078` shebang shell policy.
+
+#### `allowed-shells`
+
+Interpreter names accepted in shebangs for this project.
+
+**Default value**: `["bash"]`
+
+**Type**: `list[string]`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s078]
+allowed-shells = ["bash", "zsh"]
+```
+
+---
+
+### `[lint.rule-options.s079]`
+
+Behavior overrides for `S079` shebang invocation form policy.
+
+#### `allowed-forms`
+
+Shebang invocation forms accepted for this project. Supported values are `absolute-path` and `env-lookup`.
+
+**Default value**: `["env-lookup"]`
+
+**Type**: `list[string]`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s079]
+allowed-forms = ["env-lookup"]
+```
+
+---
+
+#### `allowed-paths`
+
+Exact shebang invocation strings accepted regardless of invocation form.
+
+**Default value**: `["/bin/bash", "/usr/bin/env bash"]`
+
+**Type**: `list[string]`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s079]
+allowed-paths = ["/usr/bin/env bash"]
+```
+
+---
+
+### `[lint.rule-options.s080]`
+
+Behavior overrides for `S080` script size policy.
+
+#### `max-lines`
+
+Maximum accepted line count for one script.
+
+**Default value**: `100`
+
+**Type**: `integer`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s080]
+max-lines = 100
+```
+
+---
+
+#### `count`
+
+Line-counting mode. Supported values are `physical` and `non-comment-non-blank`.
+
+**Default value**: `"physical"`
+
+**Type**: `string`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s080]
+count = "non-comment-non-blank"
+```
+
+---
+
+### `[lint.rule-options.s081]`
+
+Behavior overrides for `S081` file description comments.
+
+#### `ignore-shebang-only-files`
+
+Do not report scripts whose only content is a shebang line.
+
+**Default value**: `false`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s081]
+ignore-shebang-only-files = true
+```
+
+---
+
+### `[lint.rule-options.s082]`
+
+Behavior overrides for `S082` action comment formatting.
+
+#### `kinds`
+
+Comment markers checked at the start of a comment.
+
+**Default value**: `["TODO", "FIXME", "XXX"]`
+
+**Type**: `list[string]`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s082]
+kinds = ["TODO", "FIXME"]
+```
+
+---
+
+#### `require-owner`
+
+Require a checked marker to be followed immediately by a parenthesized owner.
+
+**Default value**: `true`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s082]
+require-owner = false
+```
+
+---
+
+#### `require-message`
+
+Require a checked marker to include non-empty explanatory text.
+
+**Default value**: `true`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s082]
+require-message = false
+```
+
+---
+
+### `[lint.rule-options.s083]`
+
+Behavior overrides for `S083` missing function documentation.
+
+#### `require-for`
+
+Choose which functions require a leading documentation comment: all, exported, long, or parameterized.
+
+**Default value**: `long`
+
+**Type**: `string`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s083]
+require-for = "exported"
+```
+
+---
+
+#### `long-function-line-threshold`
+
+Minimum body line count for `require-for = "long"`.
+
+**Default value**: `10`
+
+**Type**: `integer`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s083]
+long-function-line-threshold = 20
+```
+
+---
+
+### `[lint.rule-options.s084]`
+
+Behavior overrides for `S084` function documentation content.
+
+#### `require-globals`
+
+Require a Globals section when a documented function reads or writes non-local variables.
+
+**Default value**: `true`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s084]
+require-globals = false
+```
+
+---
+
+#### `require-arguments`
+
+Require an Arguments section when a documented function uses positional parameters.
+
+**Default value**: `true`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s084]
+require-arguments = false
+```
+
+---
+
+#### `require-outputs`
+
+Require an Outputs section when a documented function writes with echo or printf.
+
+**Default value**: `true`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s084]
+require-outputs = false
+```
+
+---
+
+#### `require-returns`
+
+Require a Returns section when a documented function has an explicit return code.
+
+**Default value**: `true`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s084]
+require-returns = false
+```
+
+---
+
+### `[lint.rule-options.s085]`
+
+Behavior overrides for `S085` missing main entrypoint analysis.
+
+#### `non-trivial-line-threshold`
+
+Minimum source line count before the script is checked.
+
+**Default value**: `30`
+
+**Type**: `int`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s085]
+non-trivial-line-threshold = 20
+```
+
+---
+
+#### `non-trivial-function-count`
+
+Minimum function definition count before the script is checked.
+
+**Default value**: `2`
+
+**Type**: `int`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s085]
+non-trivial-function-count = 3
+```
+
+---
+
+#### `main-name`
+
+Function name expected as the final top-level call in non-trivial scripts.
+
+**Default value**: `"main"`
+
+**Type**: `string`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.s085]
+main-name = "run"
+```
+
+---
+
+### `[lint.rule-options.c158]`
+
+Behavior overrides for `C158` implicit global assignment analysis.
+
+#### `treat-readonly-as-documented`
+
+Treat top-level readonly declarations as documented intentional globals.
+
+**Default value**: `true`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.c158]
+treat-readonly-as-documented = false
+```
+
+---
+
+#### `treat-export-as-intentional`
+
+Treat top-level exported bindings as intentional globals.
+
+**Default value**: `true`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.c158]
+treat-export-as-intentional = false
+```
+
+---
+
+### `[lint.rule-options.c159]`
+
+Behavior overrides for `C159` mutable global analysis.
+
+#### `allow-conditional-init`
+
+Allow self-referential default initializers such as `name=${name:-value}` without treating them as global mutations.
+
+**Default value**: `true`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.c159]
+allow-conditional-init = false
+```
+
+---
+
+### `[lint.rule-options.c160]`
+
+Behavior overrides for `C160` unanchored source path analysis.
+
+#### `allowed-anchors`
+
+Path prefix expressions accepted as script-directory anchors for source or dot commands.
+
+**Default value**: `["${BASH_SOURCE[0]%/*}", "$(dirname \"$0\")", "$(dirname \"${BASH_SOURCE[0]}\")"]`
+
+**Type**: `list[string]`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.c160]
+allowed-anchors = ["$SCRIPT_DIR"]
+```
+
+---
+
+### `[lint.rule-options.c161]`
+
+Behavior overrides for `C161` function call ordering analysis.
+
+#### `ignore-after-source`
+
+Ignore later calls after a source command because the sourced file may define functions.
+
+**Default value**: `true`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[lint.rule-options.c161]
+ignore-after-source = false
 ```
 
 ---

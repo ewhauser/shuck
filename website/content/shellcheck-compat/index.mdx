@@ -158,7 +158,7 @@ That keeps your existing `rules_lint` entry point, target names, and `.shellchec
 - Exit status follows the usual ShellCheck shape: `0` for no diagnostics, `1` when diagnostics are reported, and `2` for file or runtime errors.
 - Diagnostic codes, suppressions, and filters use `SCxxxx` identifiers, so existing `# shellcheck disable=...` comments continue to work.
 - `--list-optional` is available, but not every named optional check is implemented yet. Treat that catalog as a compatibility target rather than a guarantee that every check can already be enabled.
-- If you want Shuck-only features such as the native multi-dialect workflow or automatic fixes, use the regular [`shuck check` docs](/docs/getting-started) instead of the compatibility surface.
+- If you want Shuck-only features such as the native multi-dialect workflow or automatic fixes, use the regular [`shuck check` docs](/docs/linting) instead of the compatibility surface.
 
 ## Repository conformance
 

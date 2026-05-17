@@ -1,0 +1,146 @@
+# Linting
+
+`shuck check` lints shell scripts, supported embedded shell snippets, and whole project trees. It is the command to use in CI, pre-commit hooks, editor save hooks, and local review before a script lands.
+
+## Basic usage
+
+```bash
+# Check one script
+shuck check script.sh
+
+# Check the current project
+shuck check .
+
+# Check multiple roots in one run
+shuck check scripts/ .github/workflows/ci.yml
+
+# Read a script from stdin
+printf 'echo $name\n' | shuck check -
+```
+
+When no path is passed, `shuck check` checks the current directory.
+
+## What gets checked
+
+Shuck discovers shell files by extension, shebang, and supported host-file extraction.
+
+Standalone shell files include common Bash, POSIX shell, Dash, Korn shell, mksh, and zsh script paths. Embedded extraction is enabled by default for supported GitHub Actions workflow and composite-action `run:` blocks.
+
+```toml
+[check]
+embedded = true
+```
+
+Set `[check].embedded = false` when you only want standalone shell files. See [Embedded Scripts](/docs/embedded-scripts) for the extraction and remapping details.
+
+## Rule selection
+
+By default, Shuck enables implemented non-style rules:
+
+- Correctness rules (`C`)
+- Performance rules (`P`)
+- Portability rules (`X`)
+- Security rules (`K`)
+
+Style rules (`S`) are opt-in. Selectors can name a category prefix, a narrower prefix, an exact rule code, a named group such as `google`, or `ALL`.
+
+```bash
+# Add all style rules to the default set
+shuck check --extend-select S .
+
+# Run one rule
+shuck check --select C001 script.sh
+
+# Run everything except a noisy rule
+shuck check --select ALL --ignore S074 .
+```
+
+The same model is available in config:
+
+```toml
+[lint]
+extend-select = ["S"]
+ignore = ["S074"]
+per-file-ignores = { "vendor/**" = ["ALL"] }
+```
+
+Use [Rules](/docs/rules) to browse the rule catalog and [Configuration](/docs/configuration) for the full selection model.
+
+## Fixes and ignore comments
+
+Run safe fixes with `--fix`:
+
+```bash
+shuck check --fix .
+```
+
+Unsafe fixes require an explicit opt-in:
+
+```bash
+shuck check --fix --unsafe-fixes .
+```
+
+You can narrow which rules are eligible for fixes:
+
+```bash
+shuck check --fix --fixable C,S074 --unfixable C001 .
+```
+
+When a warning is intentional, `--add-ignore` writes native Shuck ignore comments on the affected lines:
+
+```bash
+shuck check --add-ignore="legacy input shape" .
+```
+
+See [Suppression](/docs/suppression) for native `# shuck:` directives and ShellCheck-compatible suppression comments.
+
+## Output and CI
+
+The default output format is human-readable. Use `--output-format` for tools that need structured or compact output:
+
+```bash
+shuck check --output-format concise .
+shuck check --output-format json-lines .
+shuck check --output-format github .
+shuck check --output-format sarif .
+```
+
+`shuck check` exits with:
+
+- `0` when there are no diagnostics;
+- `1` when diagnostics are reported;
+- `2` for parse errors, file errors, or runtime errors.
+
+Use `--exit-zero` for exploratory runs where diagnostics should not fail the command. Use `--exit-non-zero-on-fix` when CI should fail if a fix changed files.
+
+## Watch mode
+
+Use `--watch` during local editing:
+
+```bash
+shuck check --watch .
+```
+
+Watch mode reruns when requested files, relevant config files, or discovered source dependencies change.
+
+## Dialect overrides
+
+Shuck infers a script's dialect from the file path, shebang, and parser context. Override unusual layouts with per-file shell mappings:
+
+```bash
+shuck check --per-file-shell "scripts/**/*.bash:bash" --extend-per-file-shell "zsh/**:zsh" .
+```
+
+```toml
+[lint]
+per-file-shell = { "scripts/**/*.bash" = "bash" }
+extend-per-file-shell = { "zsh/**" = "zsh" }
+```
+
+For zsh projects, [Zsh Support](/docs/zsh-support) covers plugin resolution and dotfile-specific setup.
+
+## Related workflows
+
+- Use [Formatting](/docs/formatting) for `shuck format`.
+- Use [LSP Server](/docs/lsp) for live editor diagnostics and code actions.
+- Use [ShellCheck Compatibility](/docs/shellcheck-compat) when an existing tool expects a ShellCheck-shaped command line.
