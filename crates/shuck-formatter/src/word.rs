@@ -794,6 +794,12 @@ fn render_heredoc_body_part(
                     expression.slice(source),
                     *syntax,
                 );
+            } else if arithmetic_expression_prefers_raw_source(expression.slice(source)) {
+                push_trimmed_arithmetic_expansion_source(
+                    rendered,
+                    expression.slice(source),
+                    *syntax,
+                );
             } else if let Some(expression_ast) = expression_ast {
                 if !expression.is_source_backed() {
                     push_trimmed_arithmetic_expansion_source(
@@ -1201,6 +1207,12 @@ fn render_word_part(
             ..
         } => {
             if matches!(syntax, ArithmeticExpansionSyntax::LegacyBracket) {
+                push_trimmed_arithmetic_expansion_source(
+                    rendered,
+                    expression.slice(source),
+                    *syntax,
+                );
+            } else if arithmetic_expression_prefers_raw_source(expression.slice(source)) {
                 push_trimmed_arithmetic_expansion_source(
                     rendered,
                     expression.slice(source),
@@ -3385,6 +3397,10 @@ fn push_trimmed_arithmetic_expansion_source(
             rendered.push(']');
         }
     }
+}
+
+fn arithmetic_expression_prefers_raw_source(expression_source: &str) -> bool {
+    expression_source.contains("$(") || expression_source.contains('`')
 }
 
 fn push_var_ref(
