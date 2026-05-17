@@ -3014,6 +3014,26 @@ fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, lin
             break;
         }
 
+        if !in_single_quotes && !in_double_quotes && matches!(byte, b' ' | b'\t' | b'\r') {
+            let whitespace_start = index;
+            let mut semicolon_start = index + 1;
+            while semicolon_start < bytes.len()
+                && matches!(bytes[semicolon_start], b' ' | b'\t' | b'\r')
+            {
+                semicolon_start += 1;
+            }
+            if bytes.get(semicolon_start) == Some(&b';')
+                && raw_semicolon_can_attach_to_previous_word(bytes, whitespace_start)
+                && raw_semicolon_is_single_terminator(bytes, semicolon_start)
+            {
+                target.push_str(&line[last..whitespace_start]);
+                last = semicolon_start;
+                index = semicolon_start;
+                escaped = false;
+                continue;
+            }
+        }
+
         if !in_single_quotes && !in_double_quotes && byte.is_ascii_digit() {
             let fd_start = index;
             let mut operator_start = index + 1;
@@ -3062,6 +3082,26 @@ fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, lin
     }
 
     target.push_str(&line[last..]);
+}
+
+fn raw_semicolon_can_attach_to_previous_word(bytes: &[u8], whitespace_start: usize) -> bool {
+    bytes
+        .get(..whitespace_start)
+        .and_then(|prefix| {
+            prefix
+                .iter()
+                .rev()
+                .find(|byte| !matches!(byte, b' ' | b'\t' | b'\r'))
+                .copied()
+        })
+        .is_some_and(|byte| !matches!(byte, b';' | b'('))
+}
+
+fn raw_semicolon_is_single_terminator(bytes: &[u8], semicolon_start: usize) -> bool {
+    !matches!(
+        bytes.get(semicolon_start + 1).copied(),
+        Some(b';' | b'&' | b'|')
+    )
 }
 
 fn raw_redirect_operator_end(bytes: &[u8], start: usize) -> Option<usize> {

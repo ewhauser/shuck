@@ -3566,6 +3566,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn compacts_raw_process_substitution_semicolon_terminators() {
+        let source = "cat < <(\n    produce_items |\n    # keep this filter documented\n    { filter_items || : ; } |\n    sort_items\n)\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "cat < <(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\t{ filter_items || :; } |\n\t\tsort_items\n)\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_fd_duplication_redirect_targets() {
         let source = "cmd 2>&$fd\ncmd 1>&/dev/null\ncmd >&file\n";
         let options = ShellFormatOptions::default();
