@@ -3,9 +3,9 @@ use std::collections::{HashMap, HashSet};
 use shuck_ast::{
     AnonymousFunctionCommand, ArrayElem, Assignment, AssignmentValue, BinaryCommand, BinaryOp,
     BuiltinCommand, CaseCommand, CaseItem, Command, CommandSubstitutionSyntax, CompoundCommand,
-    ConditionalCommand, ConditionalExpr, DeclClause, DeclOperand, File, ForCommand, FunctionDef,
-    IfCommand, Pattern, PatternPart, Redirect, RepeatCommand, SelectCommand, Span, Stmt, StmtSeq,
-    StmtTerminator, TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
+    ConditionalCommand, ConditionalExpr, DeclClause, DeclOperand, File, ForCommand, ForeachCommand,
+    FunctionDef, IfCommand, Pattern, PatternPart, Redirect, RepeatCommand, SelectCommand, Span,
+    Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
 };
 
 use crate::ast_format::flatten_comments;
@@ -592,12 +592,16 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 }
                 self.visit_sequence(
                     &command.body,
-                    Some(command.span.end.offset),
+                    Some(foreach_body_upper_bound(command, self.source)),
                     group_open_char,
                 );
             }
             CompoundCommand::ArithmeticFor(command) => {
-                self.visit_sequence(&command.body, Some(command.span.end.offset), None);
+                self.visit_sequence(
+                    &command.body,
+                    Some(done_body_upper_bound(self.source, command.span)),
+                    None,
+                );
             }
             CompoundCommand::While(command) => self.visit_while(command),
             CompoundCommand::Until(command) => self.visit_until(command),
@@ -700,11 +704,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     .inline_group_sequences
                     .insert(FactSpan::from(else_branch.span));
             }
-            let upper_bound = match command.syntax {
-                shuck_ast::IfSyntax::ThenFi { .. } | shuck_ast::IfSyntax::Brace { .. } => {
-                    Some(command.span.end.offset)
-                }
-            };
+            let upper_bound = Some(if_close_start(command, self.source));
             self.visit_sequence_with_suffix(
                 else_branch,
                 upper_bound,
@@ -739,7 +739,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         }
         self.visit_sequence(
             &command.body,
-            Some(command.span.end.offset),
+            Some(for_body_upper_bound(command, self.source)),
             group_open_char,
         );
     }
@@ -757,19 +757,27 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         }
         self.visit_sequence(
             &command.body,
-            Some(command.span.end.offset),
+            Some(repeat_body_upper_bound(command, self.source)),
             group_open_char,
         );
     }
 
     fn visit_while(&mut self, command: &WhileCommand) {
         self.visit_sequence(&command.condition, None, None);
-        self.visit_sequence(&command.body, Some(command.span.end.offset), None);
+        self.visit_sequence(
+            &command.body,
+            Some(done_body_upper_bound(self.source, command.span)),
+            None,
+        );
     }
 
     fn visit_until(&mut self, command: &UntilCommand) {
         self.visit_sequence(&command.condition, None, None);
-        self.visit_sequence(&command.body, Some(command.span.end.offset), None);
+        self.visit_sequence(
+            &command.body,
+            Some(done_body_upper_bound(self.source, command.span)),
+            None,
+        );
     }
 
     fn visit_case(&mut self, command: &CaseCommand) {
@@ -785,7 +793,10 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             }
             self.visit_sequence(
                 &item.body,
-                case_item_body_upper_bound(item, command.span.end.offset),
+                case_item_body_upper_bound(
+                    item,
+                    case_body_fallback_upper_bound(command, self.source_map()),
+                ),
                 None,
             );
         }
@@ -795,7 +806,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         for word in &command.words {
             self.visit_word(word);
         }
-        self.visit_sequence(&command.body, Some(command.span.end.offset), None);
+        self.visit_sequence(
+            &command.body,
+            Some(done_body_upper_bound(self.source, command.span)),
+            None,
+        );
     }
 
     fn visit_time(&mut self, command: &TimeCommand) {
@@ -1142,6 +1157,262 @@ fn case_item_body_upper_bound(item: &CaseItem, fallback: usize) -> Option<usize>
     )
 }
 
+fn case_body_fallback_upper_bound(command: &CaseCommand, source_map: &SourceMap<'_>) -> usize {
+    last_shell_keyword_start(source_map, command.span, "esac").unwrap_or(command.span.end.offset)
+}
+
+fn done_body_upper_bound(source: &str, span: Span) -> usize {
+    done_close_span(source, span, None).map_or(span.end.offset, |close| close.start.offset)
+}
+
+fn done_close_span(source: &str, span: Span, fallback: Option<Span>) -> Option<Span> {
+    matching_done_close_start(source, span)
+        .map(|start| SourceMap::new(source).span_for_offsets(start, start + "done".len()))
+        .or_else(|| fallback.map(|span| normalized_close_keyword_span(source, span, "done")))
+}
+
+fn for_body_upper_bound(command: &ForCommand, source: &str) -> usize {
+    match command.syntax {
+        shuck_ast::ForSyntax::InDoDone { done_span, .. }
+        | shuck_ast::ForSyntax::ParenDoDone { done_span, .. } => {
+            done_close_span(source, command.span, Some(done_span))
+                .map_or(done_span.start.offset, |span| span.start.offset)
+        }
+        shuck_ast::ForSyntax::InBrace {
+            right_brace_span, ..
+        }
+        | shuck_ast::ForSyntax::ParenBrace {
+            right_brace_span, ..
+        } => right_brace_span.start.offset,
+        shuck_ast::ForSyntax::InDirect { .. } | shuck_ast::ForSyntax::ParenDirect { .. } => {
+            command.span.end.offset
+        }
+    }
+}
+
+fn foreach_body_upper_bound(command: &ForeachCommand, source: &str) -> usize {
+    match command.syntax {
+        shuck_ast::ForeachSyntax::InDoDone { done_span, .. } => {
+            done_close_span(source, command.span, Some(done_span))
+                .map_or(done_span.start.offset, |span| span.start.offset)
+        }
+        shuck_ast::ForeachSyntax::ParenBrace {
+            right_brace_span, ..
+        } => right_brace_span.start.offset,
+    }
+}
+
+fn repeat_body_upper_bound(command: &RepeatCommand, source: &str) -> usize {
+    match command.syntax {
+        shuck_ast::RepeatSyntax::DoDone { done_span, .. } => {
+            done_close_span(source, command.span, Some(done_span))
+                .map_or(done_span.start.offset, |span| span.start.offset)
+        }
+        shuck_ast::RepeatSyntax::Brace {
+            right_brace_span, ..
+        } => right_brace_span.start.offset,
+        shuck_ast::RepeatSyntax::Direct => command.span.end.offset,
+    }
+}
+
+fn if_close_span(command: &IfCommand, source: &str) -> Span {
+    let (syntax_close, keyword) = match command.syntax {
+        shuck_ast::IfSyntax::ThenFi { fi_span, .. } => (fi_span, "fi"),
+        shuck_ast::IfSyntax::Brace {
+            right_brace_span, ..
+        } => (right_brace_span, "}"),
+    };
+    let syntax_close = normalized_close_keyword_span(source, syntax_close, keyword);
+    matching_if_close_start(source, command.span)
+        .map(|start| SourceMap::new(source).span_for_offsets(start, start + keyword.len()))
+        .unwrap_or(syntax_close)
+}
+
+fn if_close_start(command: &IfCommand, source: &str) -> usize {
+    if_close_span(command, source).start.offset
+}
+
+fn normalized_close_keyword_span(source: &str, span: Span, keyword: &str) -> Span {
+    let start = span.start.offset.min(source.len());
+    let end = start.saturating_add(keyword.len()).min(source.len());
+    if source.get(start..end) == Some(keyword) {
+        SourceMap::new(source).span_for_offsets(start, end)
+    } else {
+        span
+    }
+}
+
+fn matching_if_close_start(source: &str, span: Span) -> Option<usize> {
+    let upper = span.end.offset.min(source.len());
+    let mut offset = span.start.offset.min(upper);
+    let mut depth = 0usize;
+    while offset < upper {
+        let ch = source[offset..].chars().next()?;
+        match ch {
+            '\'' => {
+                offset = skip_single_quoted(source, offset + ch.len_utf8(), upper);
+                continue;
+            }
+            '"' => {
+                offset = skip_double_quoted(source, offset + ch.len_utf8(), upper);
+                continue;
+            }
+            '#' if shell_comment_can_start(source, offset) => {
+                offset = source[offset..]
+                    .find('\n')
+                    .map_or(upper, |newline| offset + newline + 1);
+                continue;
+            }
+            _ => {}
+        }
+
+        if shell_keyword_at(source, offset, upper, "if") {
+            depth = depth.saturating_add(1);
+            offset += "if".len();
+            continue;
+        }
+        if shell_keyword_at(source, offset, upper, "fi") {
+            if depth > 0 {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(offset);
+                }
+            }
+            offset += "fi".len();
+            continue;
+        }
+        offset += ch.len_utf8();
+    }
+    None
+}
+
+fn matching_done_close_start(source: &str, span: Span) -> Option<usize> {
+    let upper = span.end.offset.min(source.len());
+    let mut offset = span.start.offset.min(upper);
+    let mut depth = 0usize;
+    while offset < upper {
+        let ch = source[offset..].chars().next()?;
+        match ch {
+            '\'' => {
+                offset = skip_single_quoted(source, offset + ch.len_utf8(), upper);
+                continue;
+            }
+            '"' => {
+                offset = skip_double_quoted(source, offset + ch.len_utf8(), upper);
+                continue;
+            }
+            '#' if shell_comment_can_start(source, offset) => {
+                offset = source[offset..]
+                    .find('\n')
+                    .map_or(upper, |newline| offset + newline + 1);
+                continue;
+            }
+            _ => {}
+        }
+
+        if loop_open_keyword_at(source, offset, upper) {
+            depth = depth.saturating_add(1);
+            offset += source[offset..]
+                .chars()
+                .take_while(|ch| ch.is_ascii_alphabetic())
+                .map(char::len_utf8)
+                .sum::<usize>();
+            continue;
+        }
+        if shell_keyword_at(source, offset, upper, "done") {
+            if depth > 0 {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(offset);
+                }
+            }
+            offset += "done".len();
+            continue;
+        }
+        offset += ch.len_utf8();
+    }
+    None
+}
+
+fn loop_open_keyword_at(source: &str, offset: usize, upper: usize) -> bool {
+    ["for", "select", "while", "until", "foreach", "repeat"]
+        .iter()
+        .any(|keyword| shell_keyword_at(source, offset, upper, keyword))
+}
+
+fn shell_keyword_at(source: &str, offset: usize, upper: usize, keyword: &str) -> bool {
+    let end = offset.saturating_add(keyword.len());
+    end <= upper
+        && source.get(offset..end) == Some(keyword)
+        && shell_keyword_boundaries_match(source, offset, end)
+}
+
+fn shell_comment_can_start(source: &str, offset: usize) -> bool {
+    source[..offset]
+        .chars()
+        .next_back()
+        .is_none_or(|ch| ch == '\n' || ch.is_whitespace() || matches!(ch, ';' | '&' | '|'))
+}
+
+fn skip_single_quoted(source: &str, mut offset: usize, upper: usize) -> usize {
+    while offset < upper {
+        let Some(ch) = source[offset..].chars().next() else {
+            break;
+        };
+        offset += ch.len_utf8();
+        if ch == '\'' {
+            break;
+        }
+    }
+    offset
+}
+
+fn skip_double_quoted(source: &str, mut offset: usize, upper: usize) -> usize {
+    while offset < upper {
+        let Some(ch) = source[offset..].chars().next() else {
+            break;
+        };
+        offset += ch.len_utf8();
+        if ch == '\\' {
+            if let Some(escaped) = source[offset..].chars().next() {
+                offset += escaped.len_utf8();
+            }
+        } else if ch == '"' {
+            break;
+        }
+    }
+    offset
+}
+
+fn last_shell_keyword_start(
+    source_map: &SourceMap<'_>,
+    span: Span,
+    keyword: &str,
+) -> Option<usize> {
+    let source = source_map.source();
+    let upper = span.end.offset.min(source.len());
+    let lower = span.start.offset.min(upper);
+    let slice = source.get(lower..upper)?;
+    slice
+        .match_indices(keyword)
+        .filter_map(|(start, _)| {
+            let end = start + keyword.len();
+            shell_keyword_boundaries_match(slice, start, end).then_some(lower + start)
+        })
+        .last()
+}
+
+fn shell_keyword_boundaries_match(text: &str, start: usize, end: usize) -> bool {
+    let before = text[..start].chars().next_back();
+    let after = text[end..].chars().next();
+    before.is_none_or(|ch| !is_shell_keyword_char(ch))
+        && after.is_none_or(|ch| !is_shell_keyword_char(ch))
+}
+
+fn is_shell_keyword_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
+}
+
 fn span_contains_comment(span: Span, comment: SourceComment<'_>) -> bool {
     span.start.offset <= comment.span().start.offset && comment.span().end.offset <= span.end.offset
 }
@@ -1150,7 +1421,7 @@ fn if_branch_upper_bound(command: &IfCommand, branch_index: usize, source: &str)
     if let Some((start, end)) = if_next_branch_region(command, branch_index, source) {
         branch_prefix_first_comment_offset(source, start, end).unwrap_or(end)
     } else {
-        command.span.end.offset
+        if_close_start(command, source)
     }
 }
 

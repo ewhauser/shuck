@@ -94,6 +94,15 @@ impl<'a> SourceMap<'a> {
     pub(crate) fn source_comment(&self, comment: Comment) -> Option<SourceComment<'a>> {
         let start = usize::from(comment.range.start());
         let end = usize::from(comment.range.end());
+        self.source_comment_for_offsets(start, end)
+    }
+
+    #[must_use]
+    pub(crate) fn source_comment_for_offsets(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Option<SourceComment<'a>> {
         (start < end && end <= self.source.len()).then(|| SourceComment {
             text: &self.source[start..end],
             span: self.span_for_offsets(start, end),

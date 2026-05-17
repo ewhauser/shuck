@@ -508,6 +508,45 @@ mod tests {
     }
 
     #[test]
+    fn keeps_if_close_suffix_comment_on_outer_close() {
+        let source = "if outer; then\n  if inner; then\n    :\n  fi\nfi # outer\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "if outer; then\n\tif inner; then\n\t\t:\n\tfi\nfi # outer\n".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn keeps_inline_if_close_suffix_comment_on_fi() {
+        let source = "if ok; then good; fi    # done\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted("if ok; then good; fi # done\n".to_string())
+        );
+    }
+
+    #[test]
+    fn keeps_loop_and_case_close_suffix_comments_on_close_keywords() {
+        let source =
+            "while ok; do\n  case $cmd in\n    run) : ;;\n  esac # command\n  :\ndone # loop\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "while ok; do\n\tcase $cmd in\n\trun) : ;;\n\tesac # command\n\t:\ndone # loop\n"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
     fn check_path_reports_already_formatted_sources() {
         assert!(
             source_is_formatted(

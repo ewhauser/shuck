@@ -3005,7 +3005,306 @@ pub(crate) fn stmt_attachment_span(
             span
         }
     };
-    span
+    extend_compound_close_suffix_attachment_span(span, stmt, source, source_map)
+}
+
+fn extend_compound_close_suffix_attachment_span(
+    span: Span,
+    stmt: &Stmt,
+    source: &str,
+    source_map: &crate::comments::SourceMap<'_>,
+) -> Span {
+    let Some(close_span) = stmt_compound_close_span(stmt, source, source_map) else {
+        return span;
+    };
+    close_suffix_comment_span(source, source_map, close_span).map_or(span, |comment_span| {
+        merge_non_empty_span(span, comment_span)
+    })
+}
+
+fn stmt_compound_close_span(
+    stmt: &Stmt,
+    source: &str,
+    source_map: &crate::comments::SourceMap<'_>,
+) -> Option<Span> {
+    let Command::Compound(command) = &stmt.command else {
+        return None;
+    };
+    match command {
+        CompoundCommand::If(command) => Some(if_close_span(command, source)),
+        CompoundCommand::For(command) => match command.syntax {
+            ForSyntax::InDoDone { done_span, .. } | ForSyntax::ParenDoDone { done_span, .. } => {
+                done_close_span(source, command.span, Some(done_span))
+            }
+            ForSyntax::InBrace {
+                right_brace_span, ..
+            }
+            | ForSyntax::ParenBrace {
+                right_brace_span, ..
+            } => Some(normalized_close_keyword_span(source, right_brace_span, "}")),
+            ForSyntax::InDirect { .. } | ForSyntax::ParenDirect { .. } => None,
+        },
+        CompoundCommand::Repeat(command) => match command.syntax {
+            RepeatSyntax::DoDone { done_span, .. } => {
+                done_close_span(source, command.span, Some(done_span))
+            }
+            RepeatSyntax::Brace {
+                right_brace_span, ..
+            } => Some(normalized_close_keyword_span(source, right_brace_span, "}")),
+            RepeatSyntax::Direct => None,
+        },
+        CompoundCommand::Foreach(command) => match command.syntax {
+            ForeachSyntax::InDoDone { done_span, .. } => {
+                done_close_span(source, command.span, Some(done_span))
+            }
+            ForeachSyntax::ParenBrace {
+                right_brace_span, ..
+            } => Some(normalized_close_keyword_span(source, right_brace_span, "}")),
+        },
+        CompoundCommand::ArithmeticFor(command) => done_close_span(source, command.span, None),
+        CompoundCommand::While(command) => done_close_span(source, command.span, None),
+        CompoundCommand::Until(command) => done_close_span(source, command.span, None),
+        CompoundCommand::Select(command) => done_close_span(source, command.span, None),
+        CompoundCommand::Case(command) => {
+            last_shell_keyword_start(source_map, command.span, "esac")
+                .map(|start| source_map.span_for_offsets(start, start + "esac".len()))
+        }
+        _ => None,
+    }
+}
+
+fn close_suffix_comment_span(
+    source: &str,
+    source_map: &crate::comments::SourceMap<'_>,
+    close_span: Span,
+) -> Option<Span> {
+    if close_span.start.line != close_span.end.line {
+        return None;
+    }
+    let start = close_span.end.offset.min(source.len());
+    let suffix_source = source.get(start..)?;
+    let line_end = suffix_source
+        .find('\n')
+        .map_or(source.len(), |offset| start + offset);
+    let suffix = source.get(start..line_end)?;
+    let mut comment_start = None;
+    for (offset, ch) in suffix.char_indices() {
+        match ch {
+            ' ' | '\t' => {}
+            '#' => {
+                comment_start = Some(start + offset);
+                break;
+            }
+            _ => return None,
+        }
+    }
+    let comment_start = comment_start?;
+    let comment_end = source
+        .get(comment_start..line_end)?
+        .trim_end_matches([' ', '\t', '\r'])
+        .len()
+        + comment_start;
+    Some(source_map.span_for_offsets(comment_start, comment_end))
+}
+
+fn if_close_span(command: &IfCommand, source: &str) -> Span {
+    let (syntax_close, keyword) = match command.syntax {
+        IfSyntax::ThenFi { fi_span, .. } => (fi_span, "fi"),
+        IfSyntax::Brace {
+            right_brace_span, ..
+        } => (right_brace_span, "}"),
+    };
+    let syntax_close = normalized_close_keyword_span(source, syntax_close, keyword);
+    matching_if_close_start(source, command.span)
+        .map(|start| span_for_offsets(source, start, start + keyword.len()))
+        .unwrap_or(syntax_close)
+}
+
+fn done_close_span(source: &str, span: Span, fallback: Option<Span>) -> Option<Span> {
+    matching_done_close_start(source, span)
+        .map(|start| span_for_offsets(source, start, start + "done".len()))
+        .or_else(|| fallback.map(|span| normalized_close_keyword_span(source, span, "done")))
+}
+
+fn normalized_close_keyword_span(source: &str, span: Span, keyword: &str) -> Span {
+    let start = span.start.offset.min(source.len());
+    let end = start.saturating_add(keyword.len()).min(source.len());
+    if source.get(start..end) == Some(keyword) {
+        span_for_offsets(source, start, end)
+    } else {
+        span
+    }
+}
+
+fn matching_if_close_start(source: &str, span: Span) -> Option<usize> {
+    let upper = span.end.offset.min(source.len());
+    let mut offset = span.start.offset.min(upper);
+    let mut depth = 0usize;
+    while offset < upper {
+        let ch = source[offset..].chars().next()?;
+        match ch {
+            '\'' => {
+                offset = skip_single_quoted(source, offset + ch.len_utf8(), upper);
+                continue;
+            }
+            '"' => {
+                offset = skip_double_quoted(source, offset + ch.len_utf8(), upper);
+                continue;
+            }
+            '#' if shell_comment_can_start(source, offset) => {
+                offset = source[offset..]
+                    .find('\n')
+                    .map_or(upper, |newline| offset + newline + 1);
+                continue;
+            }
+            _ => {}
+        }
+
+        if shell_keyword_at(source, offset, upper, "if") {
+            depth = depth.saturating_add(1);
+            offset += "if".len();
+            continue;
+        }
+        if shell_keyword_at(source, offset, upper, "fi") {
+            if depth > 0 {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(offset);
+                }
+            }
+            offset += "fi".len();
+            continue;
+        }
+        offset += ch.len_utf8();
+    }
+    None
+}
+
+fn matching_done_close_start(source: &str, span: Span) -> Option<usize> {
+    let upper = span.end.offset.min(source.len());
+    let mut offset = span.start.offset.min(upper);
+    let mut depth = 0usize;
+    while offset < upper {
+        let ch = source[offset..].chars().next()?;
+        match ch {
+            '\'' => {
+                offset = skip_single_quoted(source, offset + ch.len_utf8(), upper);
+                continue;
+            }
+            '"' => {
+                offset = skip_double_quoted(source, offset + ch.len_utf8(), upper);
+                continue;
+            }
+            '#' if shell_comment_can_start(source, offset) => {
+                offset = source[offset..]
+                    .find('\n')
+                    .map_or(upper, |newline| offset + newline + 1);
+                continue;
+            }
+            _ => {}
+        }
+
+        if loop_open_keyword_at(source, offset, upper) {
+            depth = depth.saturating_add(1);
+            offset += source[offset..]
+                .chars()
+                .take_while(|ch| ch.is_ascii_alphabetic())
+                .map(char::len_utf8)
+                .sum::<usize>();
+            continue;
+        }
+        if shell_keyword_at(source, offset, upper, "done") {
+            if depth > 0 {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(offset);
+                }
+            }
+            offset += "done".len();
+            continue;
+        }
+        offset += ch.len_utf8();
+    }
+    None
+}
+
+fn loop_open_keyword_at(source: &str, offset: usize, upper: usize) -> bool {
+    ["for", "select", "while", "until", "foreach", "repeat"]
+        .iter()
+        .any(|keyword| shell_keyword_at(source, offset, upper, keyword))
+}
+
+fn shell_keyword_at(source: &str, offset: usize, upper: usize, keyword: &str) -> bool {
+    let end = offset.saturating_add(keyword.len());
+    end <= upper
+        && source.get(offset..end) == Some(keyword)
+        && shell_keyword_boundaries_match(source, offset, end)
+}
+
+fn shell_keyword_boundaries_match(text: &str, start: usize, end: usize) -> bool {
+    let before = text[..start].chars().next_back();
+    let after = text[end..].chars().next();
+    before.is_none_or(|ch| !is_shell_keyword_char(ch))
+        && after.is_none_or(|ch| !is_shell_keyword_char(ch))
+}
+
+fn is_shell_keyword_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
+}
+
+fn shell_comment_can_start(source: &str, offset: usize) -> bool {
+    source[..offset]
+        .chars()
+        .next_back()
+        .is_none_or(|ch| ch == '\n' || ch.is_whitespace() || matches!(ch, ';' | '&' | '|'))
+}
+
+fn skip_single_quoted(source: &str, mut offset: usize, upper: usize) -> usize {
+    while offset < upper {
+        let Some(ch) = source[offset..].chars().next() else {
+            break;
+        };
+        offset += ch.len_utf8();
+        if ch == '\'' {
+            break;
+        }
+    }
+    offset
+}
+
+fn skip_double_quoted(source: &str, mut offset: usize, upper: usize) -> usize {
+    while offset < upper {
+        let Some(ch) = source[offset..].chars().next() else {
+            break;
+        };
+        offset += ch.len_utf8();
+        if ch == '\\' {
+            if let Some(escaped) = source[offset..].chars().next() {
+                offset += escaped.len_utf8();
+            }
+        } else if ch == '"' {
+            break;
+        }
+    }
+    offset
+}
+
+fn last_shell_keyword_start(
+    source_map: &crate::comments::SourceMap<'_>,
+    span: Span,
+    keyword: &str,
+) -> Option<usize> {
+    let source = source_map.source();
+    let upper = span.end.offset.min(source.len());
+    let lower = span.start.offset.min(upper);
+    let slice = source.get(lower..upper)?;
+    slice
+        .match_indices(keyword)
+        .filter_map(|(start, _)| {
+            let end = start + keyword.len();
+            shell_keyword_boundaries_match(slice, start, end).then_some(lower + start)
+        })
+        .last()
 }
 
 fn command_attachment_span(
