@@ -32,8 +32,6 @@ use crate::word::{
     word_is_quoted_formattable_command_substitution_only,
 };
 
-const SHFMT_TAB_VISUAL_WIDTH: usize = 8;
-
 enum StreamOutput<'source> {
     Buffer(String),
     Compare(CompareSink<'source>),
@@ -2945,19 +2943,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     fn write_case_terminator(&mut self, item: &CaseItem) {
         self.write_text(case_terminator(item.terminator));
         if let Some(comment) = self.case_item_terminator_suffix_comment(item) {
-            if let Some(target_column) =
-                self.next_inline_case_item_suffix_comment_visual_column(item)
-            {
-                let spaces = target_column
-                    .saturating_sub(self.current_output_visual_column())
-                    .max(1);
-                for _ in 0..spaces {
-                    self.write_space();
-                }
-            } else {
+            let current_code_column = self.column.saturating_sub(self.line_indent_column);
+            let padding = trailing_comment_padding(self.source(), &comment, current_code_column);
+            for _ in 0..padding {
                 self.write_space();
             }
-            self.write_text(&comment);
+            self.write_comment(&comment);
         }
     }
 
@@ -3020,7 +3011,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             .source_comment_for_offsets(absolute_start, absolute_end)
     }
 
-    fn case_item_terminator_suffix_comment(&self, item: &CaseItem) -> Option<String> {
+    fn case_item_terminator_suffix_comment(
+        &self,
+        item: &CaseItem,
+    ) -> Option<SourceComment<'source>> {
         let span = item.terminator_span?;
         if span.start.line != span.end.line {
             return None;
@@ -3032,34 +3026,15 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             .find('\n')
             .map_or(source.len(), |offset| start + offset);
         let suffix = source.get(start..line_end)?;
-        let comment = suffix
-            .trim_start_matches([' ', '\t'])
-            .trim_end_matches([' ', '\t', '\r']);
-        comment.starts_with('#').then(|| comment.to_string())
-    }
-
-    fn next_inline_case_item_suffix_comment_visual_column(&self, item: &CaseItem) -> Option<usize> {
-        let source = self.source();
-        let start = item.terminator_span?.end.offset.min(source.len());
-        let after_terminator = source.get(start..)?;
-        let (_, after_line) = after_terminator.split_once('\n')?;
-        for line in after_line.lines() {
-            let trimmed = line.trim_start_matches([' ', '\t']);
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                continue;
-            }
-            return inline_case_item_suffix_comment_visual_column(line);
+        let leading_padding = suffix.len() - suffix.trim_start_matches([' ', '\t']).len();
+        let comment = suffix[leading_padding..].trim_end_matches([' ', '\t', '\r']);
+        if !comment.starts_with('#') {
+            return None;
         }
-        None
-    }
-
-    fn current_output_visual_column(&self) -> usize {
-        if self.options.indent_style() == IndentStyle::Tab {
-            self.column
-                .saturating_add(self.line_indent_column * (SHFMT_TAB_VISUAL_WIDTH - 1))
-        } else {
-            self.column
-        }
+        let absolute_start = start + leading_padding;
+        let absolute_end = absolute_start + comment.len();
+        self.source_map()
+            .source_comment_for_offsets(absolute_start, absolute_end)
     }
 
     fn case_item_prefix_comments(
@@ -6641,38 +6616,6 @@ fn line_indent_before_offset(source: &str, offset: usize) -> Option<&str> {
         .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
         .map_or(line.len(), |(index, _)| index);
     line.get(..indent_end)
-}
-
-fn inline_case_item_suffix_comment_visual_column(line: &str) -> Option<usize> {
-    let trimmed = line.trim_start_matches([' ', '\t']);
-    let trim_start = line.len() - trimmed.len();
-    let pattern_end = trimmed.find(')')?;
-    let after_pattern = trimmed.get(pattern_end + 1..)?;
-    let terminator_start = after_pattern.find(";;")?;
-    let body = after_pattern.get(..terminator_start)?;
-    if body.contains(';') {
-        return None;
-    }
-    let after_terminator = after_pattern.get(terminator_start + ";;".len()..)?;
-    let comment_start = after_terminator.find('#')?;
-    let padding = after_terminator.get(..comment_start)?;
-    if !padding.chars().all(|ch| matches!(ch, ' ' | '\t')) {
-        return None;
-    }
-    let comment_column =
-        trim_start + pattern_end + 1 + terminator_start + ";;".len() + comment_start;
-    line.get(..comment_column).map(shfmt_visual_column)
-}
-
-fn shfmt_visual_column(text: &str) -> usize {
-    text.chars().fold(0, |column, ch| {
-        if ch == '\t' {
-            let tab_remainder = column % SHFMT_TAB_VISUAL_WIDTH;
-            column + (SHFMT_TAB_VISUAL_WIDTH - tab_remainder)
-        } else {
-            column + 1
-        }
-    })
 }
 
 fn unmodeled_branch_background_operator(

@@ -2985,6 +2985,26 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn aligns_case_terminator_comments_by_contiguous_runs() {
+        let source = "case \"$match\" in\n\tolsr1) \t\techo \"u32 match $udp match ip dport 698 0xffff\" ;;\t# UDP dport 698\n\tolsr2) \t\techo \"u32 match $udp match ip dport 269 0xffff\" ;;\t# UDP dport 269\n\ttcp_with_ack) \techo \"u32 match $tcp match u8 0x10 0xff at nexthdr+13\" ;;\n\ttcp_with_ack2)\techo \"u32 match $tcp match u8 0x05 0x0f at 0 match u16 0x0000 0xffc0 at 2 match u8 0x10 0xff at 33\" ;; # wondershaper\n\tvoip1)\t\t_netfilter tc_match_voip_codec '00' ;;\t# PCMU\n\tvoip2)\t\t_netfilter tc_match_voip_codec '04' ;;\t# G723\nesac\n";
+        let options = ShellFormatOptions::default();
+        let tcp_with_ack2 = "tcp_with_ack2) echo \"u32 match $tcp match u8 0x05 0x0f at 0 match u16 0x0000 0xffc0 at 2 match u8 0x10 0xff at 33\" ;;";
+        let voip1 = "voip1) _netfilter tc_match_voip_codec '00' ;;";
+        let voip2 = "voip2) _netfilter tc_match_voip_codec '04' ;;";
+        let target_column = tcp_with_ack2.len() + 1;
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(format!(
+                "case \"$match\" in\nolsr1) echo \"u32 match $udp match ip dport 698 0xffff\" ;; # UDP dport 698\nolsr2) echo \"u32 match $udp match ip dport 269 0xffff\" ;; # UDP dport 269\ntcp_with_ack) echo \"u32 match $tcp match u8 0x10 0xff at nexthdr+13\" ;;\ntcp_with_ack2) echo \"u32 match $tcp match u8 0x05 0x0f at 0 match u16 0x0000 0xffc0 at 2 match u8 0x10 0xff at 33\" ;; # wondershaper\n{voip1}{}# PCMU\n{voip2}{}# G723\nesac\n",
+                " ".repeat(target_column - voip1.len()),
+                " ".repeat(target_column - voip2.len())
+            ))
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn case_terminator_suffix_scan_handles_utf8_prefixes() {
         let source = "# 不支持\ncase $x in\n*) echo ok ;;\nesac\n";
         let options = ShellFormatOptions::default();
