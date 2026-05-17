@@ -1012,7 +1012,19 @@ fn render_word_part(
         WordPart::ProcessSubstitution { body, is_input } => {
             if let Some(raw) = raw_source_slice(span, source) {
                 if stmt_seq_contains_comments(body) {
-                    rendered.push_str(raw);
+                    if process_substitution_source_opens_to_body_line(raw)
+                        && !stmt_seq_has_heredoc(body)
+                    {
+                        push_raw_block_command_substitution_without_outer_indent(
+                            rendered,
+                            raw,
+                            source,
+                            span.start.offset,
+                            options,
+                        );
+                    } else {
+                        rendered.push_str(raw);
+                    }
                 } else if render_process_substitution(
                     rendered,
                     body,
@@ -1974,6 +1986,12 @@ fn render_process_substitution(
 fn process_substitution_source_starts_with_body_line(raw: &str) -> bool {
     raw.get(2..).is_some_and(|body| {
         (raw.starts_with("<(") || raw.starts_with(">(")) && !body.starts_with('\n')
+    })
+}
+
+fn process_substitution_source_opens_to_body_line(raw: &str) -> bool {
+    raw.get(2..).is_some_and(|body| {
+        (raw.starts_with("<(") || raw.starts_with(">(")) && body.starts_with(['\n', '\r'])
     })
 }
 

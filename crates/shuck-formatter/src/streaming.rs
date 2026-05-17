@@ -1642,7 +1642,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                         |formatter| {
                             formatter.write_text(operator);
                             formatter.write_space();
-                            formatter.format_stmt(stmt)
+                            formatter.format_pipeline_stmt_after_operator(stmt, operator_span)
                         },
                     )?;
                     continue;
@@ -1654,7 +1654,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     self.emit_pipeline_interstitial_comments(stmt, operator_span);
                     self.with_extra_prefix_indent(
                         self.pipeline_continuation_indent,
-                        |formatter| formatter.format_pipeline_stmt(stmt),
+                        |formatter| {
+                            formatter.format_pipeline_stmt_after_operator(stmt, operator_span)
+                        },
                     )?;
                     continue;
                 }
@@ -1669,7 +1671,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn emit_pipeline_interstitial_comments(&mut self, stmt: &Stmt, operator_span: Span) {
-        if !stmt.leading_comments.is_empty() {
+        if stmt.leading_comments.iter().any(|comment| {
+            self.source_map()
+                .source_comment(*comment)
+                .is_some_and(|comment| {
+                    !comment.inline() && comment.span().start.offset >= operator_span.end.offset
+                })
+        }) {
             return;
         }
         let command_start = command_format_span(&stmt.command).start.offset;
@@ -1687,13 +1695,33 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn format_pipeline_stmt(&mut self, stmt: &Stmt) -> Result<()> {
+        self.format_pipeline_stmt_with_leading_comment_start(stmt, None)
+    }
+
+    fn format_pipeline_stmt_after_operator(
+        &mut self,
+        stmt: &Stmt,
+        operator_span: Span,
+    ) -> Result<()> {
+        self.format_pipeline_stmt_with_leading_comment_start(stmt, Some(operator_span.end.offset))
+    }
+
+    fn format_pipeline_stmt_with_leading_comment_start(
+        &mut self,
+        stmt: &Stmt,
+        min_comment_start: Option<usize>,
+    ) -> Result<()> {
         let next_line =
             stmt_render_start_line(stmt, self.source(), self.source_map(), self.options());
         let leading = stmt
             .leading_comments
             .iter()
             .filter_map(|comment| self.source_map().source_comment(*comment))
-            .filter(|comment| !comment.inline())
+            .filter(|comment| {
+                !comment.inline()
+                    && min_comment_start
+                        .is_none_or(|min_start| comment.span().start.offset >= min_start)
+            })
             .collect::<Vec<_>>();
         self.emit_leading_comments(&leading, next_line);
         self.format_stmt(stmt)
