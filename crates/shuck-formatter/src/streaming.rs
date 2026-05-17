@@ -6227,7 +6227,9 @@ fn case_prefix_comment_uses_body_indent(
     let Some(pattern_indent) = line_indent_before_offset(source, pattern_start) else {
         return false;
     };
-    shell_indent_width(comment_indent) > shell_indent_width(pattern_indent)
+    let comment_width = shell_indent_width(comment_indent);
+    let pattern_width = shell_indent_width(pattern_indent);
+    comment_width > pattern_width || (comment_width == 0 && pattern_width > 0)
 }
 
 fn shell_indent_width(indent: &str) -> usize {

@@ -2772,6 +2772,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn indents_disabled_case_arm_comments_before_next_pattern() {
+        let source = "f() {\n  case \"$mode\" in\n  client)\n    echo client\n    ;;\n#\t\thybrid)\n#\t\t\techo hybrid\n#\t\t;;\n  *)\n    echo default\n    ;;\n  esac\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\tcase \"$mode\" in\n\tclient)\n\t\techo client\n\t\t;;\n\t\t#\t\thybrid)\n\t\t#\t\t\techo hybrid\n\t\t#\t\t;;\n\t*)\n\t\techo default\n\t\t;;\n\tesac\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_comments_in_empty_case_items() {
         let source = "case \"$x\" in\n1)\n# keep\n;;\nesac\n";
         let options = ShellFormatOptions::default();
