@@ -2704,9 +2704,15 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_text(" esac");
             self.write_close_suffix_after_span(esac_span);
         } else {
-            for (index, item) in command.cases.iter().enumerate() {
+            let header_item_count =
+                self.format_case_items_on_header_line(command, case_body_fallback)?;
+            for (offset, item) in command.cases[header_item_count..].iter().enumerate() {
+                let index = header_item_count + offset;
                 self.newline();
-                if index == 0 && case_has_blank_line_after_in(command, self.source()) {
+                if header_item_count == 0
+                    && index == 0
+                    && case_has_blank_line_after_in(command, self.source())
+                {
                     self.newline();
                 }
                 if index > 0
@@ -2733,6 +2739,27 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_close_suffix_after_span(esac_span);
         }
         Ok(())
+    }
+
+    fn format_case_items_on_header_line(
+        &mut self,
+        command: &CaseCommand,
+        case_body_fallback: usize,
+    ) -> Result<usize> {
+        let mut item_count = 0;
+        for item in &command.cases {
+            if !case_item_pattern_starts_on_case_header(command, item) {
+                break;
+            }
+            let upper_bound = case_item_body_upper_bound(item, case_body_fallback);
+            if !self.case_item_prefix_comments(item, upper_bound).is_empty() {
+                break;
+            }
+            self.write_space();
+            self.format_case_item(item, upper_bound)?;
+            item_count += 1;
+        }
+        Ok(item_count)
     }
 
     fn write_case_open_suffix(&mut self, command: &CaseCommand) {
@@ -2865,7 +2892,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                         && case_item_body_can_share_terminator(item)
                         && case_item_body_terminator_was_inline_in_source(item))
                     || (!body_has_later_comments
-                        && case_item_body_was_inline_without_terminator(item)))
+                        && case_item_body_was_inline_without_terminator(item))
+                    || (!body_has_later_comments
+                        && case_item_started_inline_without_terminator(item)))
             {
                 if pattern_suffix_comment.is_some() && !item_was_inline_in_source {
                     self.newline();
@@ -5452,6 +5481,25 @@ fn case_item_body_was_inline_without_terminator(item: &CaseItem) -> bool {
         return false;
     };
     pattern.span.end.line == stmt_span(stmt).start.line
+}
+
+fn case_item_started_inline_without_terminator(item: &CaseItem) -> bool {
+    if item.terminator_span.is_some() {
+        return false;
+    }
+    let Some(pattern) = item.patterns.last() else {
+        return false;
+    };
+    let [stmt] = item.body.as_slice() else {
+        return false;
+    };
+    pattern.span.end.line == stmt_span(stmt).start.line
+}
+
+fn case_item_pattern_starts_on_case_header(command: &CaseCommand, item: &CaseItem) -> bool {
+    item.patterns
+        .first()
+        .is_some_and(|pattern| pattern.span.start.line == command.span.start.line)
 }
 
 fn case_item_pattern_close_paren_on_own_line(item: &CaseItem, source: &str) -> bool {

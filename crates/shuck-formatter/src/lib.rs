@@ -4584,6 +4584,35 @@ function R() {
     }
 
     #[test]
+    fn keeps_case_header_items_inline_when_later_body_wraps() {
+        let source = "case \"$mode\" in a) ;; b) ;; c)\n  echo c\nesac\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case \"$mode\" in a) ;; b) ;; c)\n\techo c\n\t;;\nesac\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn keeps_missing_terminator_case_item_body_on_pattern_line() {
+        let source = "case \"$x\" in\n*) value= && for item in $items; do {\n  echo \"$item\"\n} done\nesac\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case \"$x\" in\n*) value= && for item in $items; do {\n\techo \"$item\"\n}; done ;;\nesac\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn switch_case_indent_indents_patterns_and_bodies() {
         let source = "case $x in\na) echo a;;\nesac\n";
         let options = ShellFormatOptions::default().with_switch_case_indent(true);
