@@ -2487,13 +2487,28 @@ fn render_arithmetic_slice_shell_word(
 
     match &part.kind {
         WordPart::ArithmeticExpansion {
-            expression, syntax, ..
+            expression,
+            expression_ast,
+            syntax,
+            ..
         } => match syntax {
             ArithmeticExpansionSyntax::DollarParenParen => {
-                format!("$(({}))", expression.slice(source).trim())
+                let mut body = String::new();
+                if let Some(ast) = expression_ast.as_deref() {
+                    render_arithmetic_expr_to_buf(&mut body, ast, source, options);
+                } else {
+                    body.push_str(expression.slice(source).trim());
+                }
+                format!("$(({body}))")
             }
             ArithmeticExpansionSyntax::LegacyBracket => {
-                format!("$[{}]", expression.slice(source).trim())
+                let mut body = String::new();
+                if let Some(ast) = expression_ast.as_deref() {
+                    render_arithmetic_expr_to_buf(&mut body, ast, source, options);
+                } else {
+                    body.push_str(expression.slice(source).trim());
+                }
+                format!("$[{body}]")
             }
         },
         _ => render_word_syntax(word, source, options),
