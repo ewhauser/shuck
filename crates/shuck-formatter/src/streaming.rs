@@ -653,6 +653,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     fn write_indented_heredoc_text(&mut self, text: &str) {
         let indent_level = self.indent_level.saturating_add(1);
         let prefix = self.indent_prefix_for_level(indent_level);
+        let base_tabs = if matches!(self.options.indent_style(), IndentStyle::Tab) {
+            minimum_leading_tabs_in_non_empty_lines(text)
+        } else {
+            0
+        };
         let mut rest = text;
         while !rest.is_empty() {
             let (line, next) = match rest.find('\n') {
@@ -664,20 +669,21 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 match self.options.indent_style() {
                     IndentStyle::Tab => {
                         let leading_tabs = line.bytes().take_while(|byte| *byte == b'\t').count();
-                        if leading_tabs < indent_level {
-                            for _ in leading_tabs..indent_level {
-                                self.push_output_char('\t');
-                            }
+                        for _ in 0..indent_level {
+                            self.push_output_char('\t');
                         }
+                        self.push_output_str(&line[leading_tabs.min(base_tabs)..]);
                     }
                     IndentStyle::Space => {
                         if !line.starts_with('\t') {
                             self.push_output_str(&prefix);
                         }
+                        self.push_output_str(line);
                     }
                 }
+            } else {
+                self.push_output_str(line);
             }
-            self.push_output_str(line);
             self.line_start = line.ends_with('\n');
             rest = next;
         }
@@ -4196,6 +4202,14 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
 fn heredoc_body_needs_separator(body: &str) -> bool {
     !body.is_empty() && !body.ends_with('\n') && !body.ends_with('\r')
+}
+
+fn minimum_leading_tabs_in_non_empty_lines(text: &str) -> usize {
+    text.lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| line.bytes().take_while(|byte| *byte == b'\t').count())
+        .min()
+        .unwrap_or(0)
 }
 
 fn assignment_contains_command_heredoc(assignment: &Assignment) -> bool {
