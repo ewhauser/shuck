@@ -4353,6 +4353,21 @@ function R() {
     }
 
     #[test]
+    fn keeps_multiline_literal_if_conditions_inline_like_shfmt() {
+        let source = "case \"$ext\" in\n.vimrc) if vim -c \"\n    if !filereadable('$basename') |\n        cquit 1\n    endif\n    \" -c \"q\"; then\n  echo ok\nfi\n;;\nesac\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case \"$ext\" in\n.vimrc)\n\tif vim -c \"\n    if !filereadable('$basename') |\n        cquit 1\n    endif\n    \" -c \"q\"; then\n\t\techo ok\n\tfi\n\t;;\nesac\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn splits_multistatement_elif_conditions_like_shfmt() {
         let source = "f() {\n  if type -p perl >/dev/null; then\n    perl -pe decode\n  elif type -p python3 >/dev/null &&\n    log \"using python\"\n    python3 -c 'import html' >/dev/null; then\n    python3 -c decode\n  elif type -p xmlstarlet >/dev/null; then\n    xmlstarlet unesc\n  fi\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

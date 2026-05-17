@@ -4957,13 +4957,29 @@ fn elif_condition_has_explicit_statement_break(
 
 fn has_unescaped_line_break(text: &str) -> bool {
     let mut cursor = 0usize;
-    while let Some(relative) = text[cursor..].find('\n') {
-        let newline = cursor + relative;
-        let before = text[..newline].trim_end_matches([' ', '\t', '\r']);
-        if !before.ends_with('\\') {
-            return true;
+    let upper = text.len();
+    while cursor < upper {
+        let Some(ch) = text[cursor..].chars().next() else {
+            break;
+        };
+        match ch {
+            '\'' => {
+                cursor = skip_single_quoted(text, cursor + ch.len_utf8(), upper);
+                continue;
+            }
+            '"' => {
+                cursor = skip_double_quoted(text, cursor + ch.len_utf8(), upper);
+                continue;
+            }
+            '\n' => {
+                let before = text[..cursor].trim_end_matches([' ', '\t', '\r']);
+                if !before.ends_with('\\') {
+                    return true;
+                }
+            }
+            _ => {}
         }
-        cursor = newline.saturating_add(1);
+        cursor += ch.len_utf8();
     }
     false
 }
