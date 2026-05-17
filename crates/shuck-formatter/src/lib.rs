@@ -2835,6 +2835,20 @@ function R() {
     }
 
     #[test]
+    fn preserves_comments_between_pipeline_commands() {
+        let source = "dat() {\n  find . -type f |\n    # keep this filter\n    grep -v patch |\n    sort\n}\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "dat() {\n\tfind . -type f |\n\t\t# keep this filter\n\t\tgrep -v patch |\n\t\tsort\n}\n"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
     fn preserves_explicit_multiline_pipeline_when_operator_starts_continued_line() {
         let source = "find $PKG -print0 | xargs -0 file | grep ELF \\\n  | cut -f 1 -d : | xargs strip --strip-unneeded 2> /dev/null || true\n";
         let options = ShellFormatOptions::default();

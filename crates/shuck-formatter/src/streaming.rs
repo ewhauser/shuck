@@ -1602,7 +1602,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     self.newline();
                     self.with_extra_prefix_indent(
                         self.pipeline_continuation_indent,
-                        |formatter| formatter.format_stmt(stmt),
+                        |formatter| formatter.format_pipeline_continuation_stmt(stmt),
                     )?;
                     continue;
                 }
@@ -1614,6 +1614,18 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
 
         Ok(())
+    }
+
+    fn format_pipeline_continuation_stmt(&mut self, stmt: &Stmt) -> Result<()> {
+        let next_line =
+            stmt_render_start_line(stmt, self.source(), self.source_map(), self.options());
+        let leading = stmt
+            .leading_comments
+            .iter()
+            .filter_map(|comment| self.source_map().source_comment(*comment))
+            .collect::<Vec<_>>();
+        self.emit_leading_comments(&leading, next_line);
+        self.format_stmt(stmt)
     }
 
     fn format_command_list(&mut self, list: &BinaryCommand) -> Result<()> {
