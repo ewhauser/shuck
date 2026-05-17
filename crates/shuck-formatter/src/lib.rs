@@ -2171,6 +2171,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn trims_arithmetic_expansion_padding_inside_double_quotes() {
+        let source = "echo \"$(( $(_system date unixtime) - DIFF ))\"\necho \"lasts $(( $t2 - $t1 )) seconds ($(( ($t2 - $t1) / 60 )) minutes)\"\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "echo \"$(($(_system date unixtime) - DIFF))\"\necho \"lasts $(($t2 - $t1)) seconds ($((($t2 - $t1) / 60)) minutes)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn keeps_array_subscript_arithmetic_compact_like_shfmt() {
         let source = "x=${arr[$REPLY-1]}\ny=${arr[$(shuf -i 0-${#arr[@]} -n1) - 1]}\necho $((arr[i+1]*2))\necho $((a-1))\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();

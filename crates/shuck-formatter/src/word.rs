@@ -441,6 +441,7 @@ fn render_word_syntax_internal(
         && let Some(normalized) = normalize_raw_command_substitution_padding(raw)
     {
         let normalized = normalize_raw_arithmetic_command_substitution_padding(&normalized)
+            .or_else(|| normalize_raw_arithmetic_expansion_padding(&normalized))
             .unwrap_or(normalized);
         push_raw_shell_text_with_normalized_redirect_spacing(rendered, &normalized);
         return;
@@ -480,6 +481,7 @@ fn render_word_syntax_internal(
     if word_needs_special_rendering(word)
         || word_has_parameter_raw_subscript_needs_compaction(word, source, options)
         || word_has_parameter_command_redirect_spacing_needs_normalization(word, source)
+        || word_has_arithmetic_expansion_source_needs_trim(word, source)
     {
         if render_word_parts(
             word.parts.as_slice(),
@@ -621,6 +623,25 @@ fn word_part_has_parameter_command_redirect_spacing_needs_normalization(
                 &part.kind, part.span, source,
             )
         }),
+        _ => false,
+    }
+}
+
+fn word_has_arithmetic_expansion_source_needs_trim(word: &Word, source: &str) -> bool {
+    word.parts
+        .iter()
+        .any(|part| word_part_has_arithmetic_expansion_source_needs_trim(&part.kind, source))
+}
+
+fn word_part_has_arithmetic_expansion_source_needs_trim(part: &WordPart, source: &str) -> bool {
+    match part {
+        WordPart::ArithmeticExpansion { expression, .. } => {
+            let raw = expression.slice(source);
+            raw.trim_matches([' ', '\t', '\r']).len() != raw.len()
+        }
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| word_part_has_arithmetic_expansion_source_needs_trim(&part.kind, source)),
         _ => false,
     }
 }
@@ -1051,6 +1072,7 @@ fn render_word_part(
                 rendered.push('$');
             }
             rendered.push('"');
+            let mut inner = String::new();
             let mut follows_line_indent_literal = false;
             for part in parts {
                 match &part.kind {
@@ -1061,16 +1083,16 @@ fn render_word_part(
                             text.as_str(source, part.span)
                         };
                         if text.is_source_backed() {
-                            rendered.push_str(literal);
+                            inner.push_str(literal);
                         } else {
-                            render_double_quoted_literal(rendered, literal);
+                            render_double_quoted_literal(&mut inner, literal);
                         }
                         follows_line_indent_literal =
                             literal_ends_with_line_indent_for_word_part(literal);
                     }
                     other => {
                         render_word_part(
-                            rendered,
+                            &mut inner,
                             other,
                             part.span,
                             source,
@@ -1085,6 +1107,11 @@ fn render_word_part(
                         follows_line_indent_literal = false;
                     }
                 }
+            }
+            if let Some(normalized) = normalize_raw_arithmetic_expansion_padding(&inner) {
+                rendered.push_str(&normalized);
+            } else {
+                rendered.push_str(&inner);
             }
             rendered.push('"');
         }
@@ -1387,6 +1414,7 @@ fn preferred_raw_word_part_source<'a>(
                     || word_part_has_parameter_command_redirect_spacing_needs_normalization(
                         &part.kind, part.span, source,
                     )
+                    || word_part_has_arithmetic_expansion_source_needs_trim(&part.kind, source)
             });
             (!has_formattable_parts).then_some(raw)
         }
@@ -2400,6 +2428,108 @@ fn normalize_raw_arithmetic_command_substitution_padding(raw: &str) -> Option<St
     rendered.push_str(trimmed);
     rendered.push_str(close);
     Some(rendered)
+}
+
+fn normalize_raw_arithmetic_expansion_padding(raw: &str) -> Option<String> {
+    let mut rendered = String::with_capacity(raw.len());
+    let mut cursor = 0usize;
+    let mut index = 0usize;
+    let mut changed = false;
+
+    while index + 2 < raw.len() {
+        let rest = &raw[index..];
+        if rest.starts_with("$((")
+            && index
+                .checked_sub(1)
+                .and_then(|previous| raw.as_bytes().get(previous))
+                .is_none_or(|byte| *byte != b'\\')
+            && let Some(close_start) = matching_raw_arithmetic_expansion_close(raw, index + 3)
+        {
+            let body = &raw[index + 3..close_start];
+            let trimmed = body.trim_matches([' ', '\t', '\r']);
+            if trimmed.len() != body.len() {
+                rendered.push_str(&raw[cursor..index]);
+                rendered.push_str("$((");
+                rendered.push_str(trimmed);
+                rendered.push_str("))");
+                cursor = close_start + 2;
+                changed = true;
+            }
+            index = close_start + 2;
+            continue;
+        }
+
+        let Some(ch) = rest.chars().next() else {
+            break;
+        };
+        index += ch.len_utf8();
+    }
+
+    if changed {
+        rendered.push_str(&raw[cursor..]);
+        Some(rendered)
+    } else {
+        None
+    }
+}
+
+fn matching_raw_arithmetic_expansion_close(raw: &str, body_start: usize) -> Option<usize> {
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    let mut paren_depth = 0usize;
+    let mut index = body_start;
+
+    while index < raw.len() {
+        let rest = &raw[index..];
+        let ch = rest.chars().next()?;
+        let next_index = index + ch.len_utf8();
+        if escaped {
+            escaped = false;
+            index = next_index;
+            continue;
+        }
+
+        match quote {
+            Some('\'') => {
+                if ch == '\'' {
+                    quote = None;
+                }
+            }
+            Some('"') => match ch {
+                '"' => quote = None,
+                '\\' => escaped = true,
+                _ => {}
+            },
+            Some('`') => match ch {
+                '`' => quote = None,
+                '\\' => escaped = true,
+                _ => {}
+            },
+            _ => {
+                if rest.starts_with("$(")
+                    && !rest.starts_with("$((")
+                    && let Some(close_offset) =
+                        matching_raw_command_substitution_close(raw, index + 2)
+                {
+                    index = close_offset + 1;
+                    continue;
+                }
+
+                match ch {
+                    '\\' => escaped = true,
+                    '\'' | '"' | '`' => quote = Some(ch),
+                    '(' => paren_depth += 1,
+                    ')' if rest.starts_with("))") && paren_depth == 0 => return Some(index),
+                    ')' if paren_depth > 0 => paren_depth -= 1,
+                    _ => {}
+                }
+            }
+        }
+
+        index = next_index;
+    }
+
+    None
 }
 
 fn matching_raw_command_substitution_close(raw: &str, body_start: usize) -> Option<usize> {
