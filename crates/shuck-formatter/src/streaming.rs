@@ -873,10 +873,26 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     self.newline();
                 }
             }
+            self.maybe_preserve_dangling_comment_outdent(comment);
             self.write_comment(comment);
             if let Some(next) = comments.get(index + 1) {
                 self.write_line_breaks(line_gap_break_count(comment.line(), next.line()));
             }
+        }
+    }
+
+    fn maybe_preserve_dangling_comment_outdent(&mut self, comment: &SourceComment<'_>) {
+        if !self.line_start {
+            return;
+        }
+        let Some(source_indent) =
+            line_indent_before_offset(self.source(), comment.span().start.offset)
+        else {
+            return;
+        };
+        let source_column = shell_indent_width(source_indent);
+        if source_column < self.indent_column_for_level(self.indent_level) {
+            self.write_indent_to_column(source_column);
         }
     }
 

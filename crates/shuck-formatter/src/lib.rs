@@ -2362,6 +2362,14 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_outdented_dangling_comments_before_fi() {
+        let source = "if outer; then\n\tif inner; then\n\t\tok\n\telse\n\t\tfallback\n\t# disabled\n\t# exit\n\tfi\nfi\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(formatted, FormattedSource::Unchanged);
+    }
+
+    #[test]
     fn formats_multiline_compound_assignments_structurally() {
         let source = "directories=(\n  bin\n  etc\n  Frameworks\n)\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
