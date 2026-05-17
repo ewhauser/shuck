@@ -2481,37 +2481,59 @@ fn find_group_open_offset_before_stmt(
     search_end: usize,
     open: char,
 ) -> Option<usize> {
-    let upper = search_end.min(source.len());
+    let search_end = search_end.min(source.len());
     let mut last_open = None;
-    let mut offset = 0;
+    let mut line_start = 0;
 
-    while offset < upper {
-        let Some(ch) = source[offset..].chars().next() else {
+    while line_start < search_end {
+        let line_end = source[line_start..search_end]
+            .find('\n')
+            .map(|offset| line_start + offset)
+            .unwrap_or(search_end);
+        if let Some(open_offset) =
+            find_group_open_offset_on_line(source, line_start, line_end, open)
+        {
+            last_open = Some(open_offset);
+        }
+
+        if line_end == search_end {
             break;
-        };
+        }
+        line_start = line_end + 1;
+    }
+
+    last_open
+}
+
+fn find_group_open_offset_on_line(
+    source: &str,
+    line_start: usize,
+    line_end: usize,
+    open: char,
+) -> Option<usize> {
+    let mut last_open = None;
+    let mut offset = line_start;
+
+    while offset < line_end {
+        let ch = source[offset..].chars().next()?;
 
         match ch {
             '\\' => {
                 offset += ch.len_utf8();
-                if let Some(escaped) = source[offset..upper].chars().next() {
+                if let Some(escaped) = source[offset..line_end].chars().next() {
                     offset += escaped.len_utf8();
                 }
                 continue;
             }
             '\'' => {
-                offset = skip_single_quoted(source, offset + ch.len_utf8(), upper);
+                offset = skip_single_quoted(source, offset + ch.len_utf8(), line_end);
                 continue;
             }
             '"' => {
-                offset = skip_double_quoted(source, offset + ch.len_utf8(), upper);
+                offset = skip_double_quoted(source, offset + ch.len_utf8(), line_end);
                 continue;
             }
-            '#' if shell_comment_can_start(source, offset) => {
-                offset = source[offset..]
-                    .find('\n')
-                    .map_or(upper, |newline| offset + newline + 1);
-                continue;
-            }
+            '#' if shell_comment_can_start(source, offset) => break,
             _ => {}
         }
 

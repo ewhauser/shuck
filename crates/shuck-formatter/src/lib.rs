@@ -2579,6 +2579,60 @@ function R() {
     }
 
     #[test]
+    fn formats_completion_function_subscripts_and_case_indent_like_shfmt() {
+        let source = r#"_saltkey() {
+	local cur prev opts prev pprev
+	COMPREPLY=()
+	cur="${COMP_WORDS[COMP_CWORD]}"
+	prev="${COMP_WORDS[COMP_CWORD - 1]}"
+	if [ "${COMP_CWORD}" -gt 2 ]; then
+		pprev="${COMP_WORDS[COMP_CWORD - 2]}"
+	fi
+
+	case "${prev}" in
+		-a | --accept)
+			COMPREPLY=($(compgen -W "$(
+				salt-key -l un --no-color
+				salt-key -l rej --no-color
+			)" -- "${cur}"))
+			return 0
+			;;
+	esac
+	return 0
+}
+"#;
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                r#"_saltkey() {
+	local cur prev opts prev pprev
+	COMPREPLY=()
+	cur="${COMP_WORDS[COMP_CWORD]}"
+	prev="${COMP_WORDS[COMP_CWORD-1]}"
+	if [ "${COMP_CWORD}" -gt 2 ]; then
+		pprev="${COMP_WORDS[COMP_CWORD-2]}"
+	fi
+
+	case "${prev}" in
+	-a | --accept)
+		COMPREPLY=($(compgen -W "$(
+			salt-key -l un --no-color
+			salt-key -l rej --no-color
+		)" -- "${cur}"))
+		return 0
+		;;
+	esac
+	return 0
+}
+"#
+                .to_string()
+            )
+        );
+    }
+
+    #[test]
     fn preserves_explicit_multiline_pipeline_by_default() {
         let source = "kubectl get secrets |\n  grep -v '^NAME[[:space:]]' |\n  awk '{print $1}'\n";
         let options = ShellFormatOptions::default();
