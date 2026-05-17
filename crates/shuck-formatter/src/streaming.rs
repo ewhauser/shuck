@@ -1851,6 +1851,17 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_close_suffix_after_span(Some(fi_span));
             return Ok(());
         }
+        if command.elif_branches.is_empty()
+            && command.else_branch.is_none()
+            && self.then_branch_starts_with_inline_if(command, then_span, fi_span)
+        {
+            self.write_text(then_separator);
+            self.write_space();
+            self.format_stmt(&command.then_branch[0])?;
+            self.write_text("; fi");
+            self.write_close_suffix_after_span(Some(fi_span));
+            return Ok(());
+        }
         if self.can_inline_if_chain(command, fi_span) {
             self.write_text(then_separator);
             self.write_space();
@@ -1989,6 +2000,35 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         command.else_branch.as_ref().is_none_or(|body| {
             self.can_inline_body_with_upper_bound(body, command.span, Some(fi_span.start.offset))
         })
+    }
+
+    fn then_branch_starts_with_inline_if(
+        &self,
+        command: &IfCommand,
+        then_span: Span,
+        fi_span: Span,
+    ) -> bool {
+        if command.span.start.line != fi_span.end.line {
+            return false;
+        }
+        let [stmt] = command.then_branch.as_slice() else {
+            return false;
+        };
+        if stmt.negated || !stmt.redirects.is_empty() || stmt.terminator.is_some() {
+            return false;
+        }
+        let Command::Compound(CompoundCommand::If(inner)) = &stmt.command else {
+            return false;
+        };
+        matches!(inner.syntax, IfSyntax::ThenFi { .. })
+            && then_span.end.line == inner.span.start.line
+            && !self
+                .facts()
+                .sequence(
+                    &command.then_branch,
+                    Some(if_branch_upper_bound(command, 0, self.source())),
+                )
+                .has_comments()
     }
 
     fn if_final_branch_has_blank_line_before_fi(
