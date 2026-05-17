@@ -474,9 +474,17 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 if heredoc.closes(line) {
                     active_heredoc = None;
                 }
+            } else if let Some(heredoc) = rendered_heredoc_tail_start(line) {
+                if self.options().space_redirects() {
+                    self.write_text(line);
+                } else if let Some(normalized) = normalize_rendered_heredoc_start_spacing(line) {
+                    self.write_text(&normalized);
+                } else {
+                    self.write_text(line);
+                }
+                active_heredoc = Some(heredoc);
             } else {
                 self.write_text(line);
-                active_heredoc = rendered_heredoc_tail_start(line);
             }
 
             if had_newline {
@@ -3383,6 +3391,27 @@ fn rendered_heredoc_tail_start(line: &str) -> Option<RenderedHeredocTail> {
         delimiter,
         strip_tabs,
     })
+}
+
+fn normalize_rendered_heredoc_start_spacing(line: &str) -> Option<String> {
+    let marker = line.find("<<")?;
+    let after_marker = &line[marker + 2..];
+    if after_marker.starts_with('<') {
+        return None;
+    }
+    let operator_end = marker + if after_marker.starts_with('-') { 3 } else { 2 };
+    let target_start = line[operator_end..]
+        .char_indices()
+        .find_map(|(index, ch)| (!matches!(ch, ' ' | '\t' | '\r')).then_some(operator_end + index))
+        .unwrap_or(line.len());
+    if target_start == operator_end || target_start == line.len() {
+        return None;
+    }
+
+    let mut normalized = String::with_capacity(line.len());
+    normalized.push_str(&line[..operator_end]);
+    normalized.push_str(&line[target_start..]);
+    Some(normalized)
 }
 
 fn heredoc_closing_marker_source(heredoc: &Heredoc, source: &str) -> Option<String> {

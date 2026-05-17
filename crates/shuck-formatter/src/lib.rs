@@ -1442,6 +1442,20 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn command_substitution_heredocs_normalize_top_level_operator_spacing() {
+        let source = "json=$(\n\tcat << EOF\n{\n\t\"ok\": true\n}\nEOF\n)\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "json=$(\n\tcat <<EOF\n{\n\t\"ok\": true\n}\nEOF\n)\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn command_substitution_bounds_do_not_capture_following_comments() {
         let source = "value=$(pwd)\n# after\nnext\n";
         let options = ShellFormatOptions::default();
