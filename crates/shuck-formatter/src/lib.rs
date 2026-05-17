@@ -2582,6 +2582,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn normalizes_inline_process_substitution_source_indent() {
+        let source = "unsetall() {\n    while read -r env_var; do\n        unset \"$env_var\"\n    done < <( env |\n        grep -i \"$match\" |\n        sed 's/=.*//' )\n}\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "unsetall() {\n\twhile read -r env_var; do\n\t\tunset \"$env_var\"\n\tdone < <(env |\n\t\tgrep -i \"$match\" |\n\t\tsed 's/=.*//')\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_block_process_substitution_source_indentation() {
         let source = "while read -r line; do\n\techo \"$line\"\ndone < <(\n\tprintf \"%s\\n\" \"${items[@]}\"\n)\n";
         let options = ShellFormatOptions::default();

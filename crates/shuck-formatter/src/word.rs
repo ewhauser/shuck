@@ -1365,7 +1365,7 @@ fn render_command_substitution(
         }
         CommandSubstitutionLayout::InlineSourceIndented => {
             rendered.push_str("$(");
-            push_source_indented_inline_command_substitution(rendered, trimmed, raw?);
+            push_source_indented_inline_command_substitution(rendered, trimmed, raw?, options);
             rendered.push(')');
         }
         CommandSubstitutionLayout::Block => {
@@ -1770,7 +1770,7 @@ fn render_process_substitution(
         {
             rendered.push(prefix);
             rendered.push('(');
-            push_source_indented_inline_command_substitution(rendered, trimmed, raw);
+            push_source_indented_inline_command_substitution(rendered, trimmed, raw, options);
             rendered.push(')');
         } else if let Some(raw) = raw {
             push_raw_shell_text_with_normalized_redirect_spacing(rendered, raw);
@@ -1804,19 +1804,21 @@ fn push_source_indented_inline_command_substitution(
     target: &mut String,
     rendered: &str,
     raw: &str,
+    options: &ResolvedShellFormatOptions,
 ) {
     let raw_indents = raw
         .lines()
         .skip(1)
         .map(line_leading_shell_indent)
+        .map(|indent| normalized_source_inline_indent(indent, options))
         .collect::<Vec<_>>();
-    let fallback_indent = raw_indents.first().copied().unwrap_or("");
+    let fallback_indent = raw_indents.first().map(String::as_str).unwrap_or("");
     for (index, line) in rendered.lines().enumerate() {
         if index > 0 {
             target.push('\n');
             let indent = raw_indents
                 .get(index - 1)
-                .copied()
+                .map(String::as_str)
                 .unwrap_or(fallback_indent);
             target.push_str(indent);
         }
@@ -1825,6 +1827,23 @@ fn push_source_indented_inline_command_substitution(
         } else {
             target.push_str(line.trim_start_matches([' ', '\t']));
         }
+    }
+}
+
+fn normalized_source_inline_indent(indent: &str, options: &ResolvedShellFormatOptions) -> String {
+    match options.indent_style() {
+        IndentStyle::Tab if indent.chars().all(|ch| ch == ' ') => {
+            let unit = usize::from(options.indent_width()).clamp(1, 4);
+            if unit != 0 && indent.len() % unit == 0 {
+                "\t".repeat(indent.len() / unit)
+            } else {
+                indent.to_string()
+            }
+        }
+        IndentStyle::Space if indent.chars().all(|ch| ch == '\t') => {
+            " ".repeat(indent.len() * usize::from(options.indent_width()))
+        }
+        _ => indent.to_string(),
     }
 }
 
