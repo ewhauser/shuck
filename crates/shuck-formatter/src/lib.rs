@@ -2662,6 +2662,21 @@ function R() {
     }
 
     #[test]
+    fn keeps_pipeline_continuation_at_list_rhs_indent() {
+        let source = "if true; then\n  ffmpeg \\\n    && convert GIF:- \\\n    | gifsicle > out || return 2\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if true; then\n\tffmpeg &&\n\t\tconvert GIF:- |\n\t\tgifsicle >out || return 2\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_continued_redirect_targets() {
         let source = "sed s/x/y/ in > \\\n  out\n";
         let options = ShellFormatOptions::default();

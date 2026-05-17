@@ -238,6 +238,7 @@ struct ShellStreamFormatter<'source, 'facts> {
     column: usize,
     line_indent_column: usize,
     line_start: bool,
+    pipeline_continuation_indent: usize,
     pending_heredocs: Vec<PendingHeredoc>,
 }
 
@@ -293,6 +294,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             column: 0,
             line_indent_column: 0,
             line_start: true,
+            pipeline_continuation_indent: 1,
             pending_heredocs: Vec::new(),
         }
     }
@@ -1524,18 +1526,24 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 let break_here = operator_breaks.get(index - 1).copied().unwrap_or(false);
                 if break_here && operator_next_line {
                     self.line_continuation();
-                    self.with_indent(|formatter| {
-                        formatter.write_text(operator);
-                        formatter.write_space();
-                        formatter.format_stmt(stmt)
-                    })?;
+                    self.with_extra_prefix_indent(
+                        self.pipeline_continuation_indent,
+                        |formatter| {
+                            formatter.write_text(operator);
+                            formatter.write_space();
+                            formatter.format_stmt(stmt)
+                        },
+                    )?;
                     continue;
                 }
                 if break_here {
                     self.write_space();
                     self.write_text(operator);
                     self.newline();
-                    self.with_indent(|formatter| formatter.format_stmt(stmt))?;
+                    self.with_extra_prefix_indent(
+                        self.pipeline_continuation_indent,
+                        |formatter| formatter.format_stmt(stmt),
+                    )?;
                     continue;
                 }
                 self.write_space();
@@ -1565,7 +1573,15 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         {
             self.write_text(list_item_multiline_separator(item.operator));
             self.newline();
-            self.with_indent(|formatter| formatter.format_stmt(item.stmt))?;
+            self.with_indent(|formatter| {
+                if stmt_is_pipeline(item.stmt) {
+                    formatter.with_pipeline_continuation_indent(0, |formatter| {
+                        formatter.format_stmt(item.stmt)
+                    })
+                } else {
+                    formatter.format_stmt(item.stmt)
+                }
+            })?;
             return Ok(());
         }
 
@@ -2490,6 +2506,18 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.indent_level += levels;
         let result = f(self);
         self.indent_level = self.indent_level.saturating_sub(levels);
+        result
+    }
+
+    fn with_pipeline_continuation_indent<T>(
+        &mut self,
+        levels: usize,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let previous = self.pipeline_continuation_indent;
+        self.pipeline_continuation_indent = levels;
+        let result = f(self);
+        self.pipeline_continuation_indent = previous;
         result
     }
 
@@ -4854,6 +4882,13 @@ fn collect_pipeline_stmt<'a>(
     } else {
         statements.push(stmt);
     }
+}
+
+fn stmt_is_pipeline(stmt: &Stmt) -> bool {
+    matches!(
+        &stmt.command,
+        Command::Binary(command) if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll)
+    )
 }
 
 fn pipeline_operator_breaks(
