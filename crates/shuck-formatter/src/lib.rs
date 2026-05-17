@@ -2602,6 +2602,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_case_terminator_suffix_comment_alignment() {
+        let source = "case ${PAGE} in\n    \"Folio\") W=612; H=936;;      # 8.5 x 13 in.\n    \"Quarto\") W=612, H=780;;     # 8.5 x 10.8 in.\nesac\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case ${PAGE} in\n\"Folio\")\n\tW=612\n\tH=936\n\t;;                       # 8.5 x 13 in.\n\"Quarto\") W=612, H=780 ;; # 8.5 x 10.8 in.\nesac\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn case_terminator_suffix_scan_handles_utf8_prefixes() {
         let source = "# 不支持\ncase $x in\n*) echo ok ;;\nesac\n";
         let options = ShellFormatOptions::default();
