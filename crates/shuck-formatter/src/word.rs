@@ -643,31 +643,42 @@ fn render_heredoc_body_part(
         }
         HeredocBodyPart::CommandSubstitution { body, syntax } => {
             let raw = raw_source_slice(span, source);
-            let layout = command_substitution_layout(
-                raw,
-                body,
-                source,
-                raw.is_none() && *syntax == CommandSubstitutionSyntax::DollarParen,
-                false,
-            );
-
-            if render_command_substitution(
+            if render_heredoc_body_command_substitution(
                 rendered,
                 body,
                 span.end.offset,
                 source,
                 options,
-                layout,
                 raw,
-                None,
-                None,
             )
             .is_none()
             {
-                if let Some(raw) = raw {
-                    rendered.push_str(raw);
-                } else {
-                    std::write!(rendered, "$({body:?})")?;
+                let layout = command_substitution_layout(
+                    raw,
+                    body,
+                    source,
+                    raw.is_none() && *syntax == CommandSubstitutionSyntax::DollarParen,
+                    false,
+                );
+
+                if render_command_substitution(
+                    rendered,
+                    body,
+                    span.end.offset,
+                    source,
+                    options,
+                    layout,
+                    raw,
+                    None,
+                    None,
+                )
+                .is_none()
+                {
+                    if let Some(raw) = raw {
+                        rendered.push_str(raw);
+                    } else {
+                        std::write!(rendered, "$({body:?})")?;
+                    }
                 }
             }
         }
@@ -1485,6 +1496,110 @@ fn render_command_substitution(
     }
 
     Some(())
+}
+
+fn render_heredoc_body_command_substitution(
+    rendered: &mut String,
+    body: &shuck_ast::StmtSeq,
+    upper_bound: usize,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+    raw: Option<&str>,
+) -> Option<()> {
+    let raw = raw?;
+    if !command_substitution_source_starts_with_body_line(raw) {
+        return None;
+    }
+
+    let mut nested = String::new();
+    let file = shuck_ast::File {
+        body: body.clone(),
+        span: body.span,
+    };
+    let facts = FormatterFacts::build(source, &file, options);
+    format_stmt_sequence_streaming_to_buf(
+        source,
+        body,
+        options,
+        &facts,
+        Some(upper_bound),
+        &mut nested,
+    )
+    .ok()?;
+    let trimmed = trim_trailing_line_endings(&nested);
+    if trimmed.is_empty() {
+        rendered.push_str("$()");
+        return Some(());
+    }
+
+    let body_prefix = heredoc_command_substitution_body_prefix(raw, options);
+    let close_prefix = heredoc_command_substitution_close_prefix(&body_prefix, options);
+
+    rendered.push_str("$(\n");
+    for (index, line) in trimmed.lines().enumerate() {
+        if index > 0 {
+            rendered.push('\n');
+        }
+        if !line.is_empty() {
+            rendered.push_str(&body_prefix);
+        }
+        rendered.push_str(line);
+    }
+    rendered.push('\n');
+    rendered.push_str(&close_prefix);
+    rendered.push(')');
+    Some(())
+}
+
+fn heredoc_command_substitution_body_prefix(
+    raw: &str,
+    options: &ResolvedShellFormatOptions,
+) -> String {
+    let indent = raw
+        .lines()
+        .skip(1)
+        .find_map(|line| {
+            let trimmed = line.trim();
+            (!trimmed.is_empty() && trimmed != ")").then(|| line_leading_shell_indent(line))
+        })
+        .unwrap_or("");
+
+    match options.indent_style() {
+        IndentStyle::Tab => indent.chars().map(|_| '\t').collect(),
+        IndentStyle::Space => {
+            let mut prefix = String::new();
+            for ch in indent.chars() {
+                if ch == '\t' {
+                    prefix.push_str(&" ".repeat(usize::from(options.indent_width())));
+                } else {
+                    prefix.push(' ');
+                }
+            }
+            prefix
+        }
+    }
+}
+
+fn heredoc_command_substitution_close_prefix(
+    body_prefix: &str,
+    options: &ResolvedShellFormatOptions,
+) -> String {
+    let mut prefix = body_prefix.to_string();
+    match options.indent_style() {
+        IndentStyle::Tab => {
+            prefix.pop();
+        }
+        IndentStyle::Space => {
+            let width = usize::from(options.indent_width());
+            for _ in 0..width {
+                if !prefix.ends_with(' ') {
+                    break;
+                }
+                prefix.pop();
+            }
+        }
+    }
+    prefix
 }
 
 fn push_command_substitution_inline_body(

@@ -1603,6 +1603,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn command_substitution_heredoc_arguments_keep_body_unindented() {
+        let source = "if ok; then\n    upload --policy \"$(cat <<EOF\n{\n  \"items\": [\n$(\n    for item in \"${items[@]}\"; do\n        printf '\"%s\",\\n' \"$item\"\n    done |\n    sed '$ s/,$//'\n)\n  ]\n}\nEOF\n)\"\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if ok; then\n\tupload --policy \"$(\n\t\tcat <<EOF\n{\n  \"items\": [\n$(\n\t\t\t\tfor item in \"${items[@]}\"; do\n\t\t\t\t\tprintf '\"%s\",\\n' \"$item\"\n\t\t\t\tdone |\n\t\t\t\t\tsed '$ s/,$//'\n\t\t\t)\n  ]\n}\nEOF\n\t)\"\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn command_substitution_heredocs_strip_wrapper_indent() {
         let source = "if true; then\n\tjson+=$(\n\t\tcat << EOF\n\t\t\t\t,\nEOF\n\t)\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

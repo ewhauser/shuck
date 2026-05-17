@@ -7,9 +7,9 @@ use shuck_ast::{
     Command, CompoundCommand, ConditionalBinaryExpr, ConditionalCommand, ConditionalExpr,
     ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, CoprocCommand, DeclClause,
     DeclOperand, File, ForCommand, ForSyntax, ForeachCommand, ForeachSyntax, FunctionDef, Heredoc,
-    IfCommand, IfSyntax, Pattern, PatternPart, Redirect, RedirectKind, RepeatCommand, RepeatSyntax,
-    SelectCommand, SimpleCommand, Span, Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand,
-    VarRef, WhileCommand, Word, WordPart,
+    HeredocBody, HeredocBodyPart, IfCommand, IfSyntax, Pattern, PatternPart, Redirect,
+    RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand, Span, Stmt, StmtSeq,
+    StmtTerminator, TimeCommand, UntilCommand, VarRef, WhileCommand, Word, WordPart,
 };
 use shuck_format::{IndentStyle, LineEnding};
 
@@ -707,7 +707,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 &mut scratch,
             );
         }
-        if scratch.contains('\n')
+        if word_contains_command_heredoc(word) && rendered_shell_text_has_heredoc_tail(&scratch) {
+            self.write_rendered_shell_text_preserving_heredoc_tails(&scratch);
+        } else if scratch.contains('\n')
             && word_is_quoted_formattable_command_substitution_only(word, self.source())
         {
             self.write_text_preserving_current_line_indent(&scratch);
@@ -3616,6 +3618,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             };
             let body = if !self.options.simplify()
                 && !self.options.minify()
+                && !heredoc_body_contains_command_substitution(&heredoc.body)
                 && heredoc.body.span.end.offset <= source.len()
                 && heredoc.body.span.start.offset <= heredoc.body.span.end.offset
             {
@@ -3964,6 +3967,12 @@ fn word_contains_command_heredoc(word: &Word) -> bool {
     word.parts
         .iter()
         .any(|part| word_part_contains_command_heredoc(&part.kind))
+}
+
+fn heredoc_body_contains_command_substitution(body: &HeredocBody) -> bool {
+    body.parts
+        .iter()
+        .any(|part| matches!(part.kind, HeredocBodyPart::CommandSubstitution { .. }))
 }
 
 fn word_part_contains_command_heredoc(part: &WordPart) -> bool {
