@@ -1512,13 +1512,42 @@ fn push_raw_block_command_substitution_without_outer_indent(
     if let Some(first) = lines.next() {
         target.push_str(first);
     }
+    let mut body_indent: Option<String> = None;
     for line in lines {
         target.push('\n');
         let line = line
             .strip_prefix(outer_indent)
             .unwrap_or_else(|| strip_one_indent_unit(line, options));
-        push_raw_shell_line_with_normalized_redirect_spacing(target, line);
+        let indent = line_leading_shell_indent(line);
+        let content = &line[indent.len()..];
+        if body_indent.is_none() && !content.trim().is_empty() && !content.starts_with('#') {
+            body_indent = Some(indent.to_string());
+        }
+        push_raw_shell_line_with_normalized_source_indent(
+            target,
+            line,
+            options,
+            body_indent.as_deref(),
+        );
     }
+}
+
+fn push_raw_shell_line_with_normalized_source_indent(
+    target: &mut String,
+    line: &str,
+    options: &ResolvedShellFormatOptions,
+    body_indent: Option<&str>,
+) {
+    let mut indent = line_leading_shell_indent(line);
+    let content = &line[indent.len()..];
+    if content.starts_with('#')
+        && let Some(body_indent) = body_indent
+        && indent.len() > body_indent.len()
+    {
+        indent = body_indent;
+    }
+    target.push_str(&normalized_source_inline_indent(indent, options));
+    push_raw_shell_line_with_normalized_redirect_spacing(target, content);
 }
 
 fn push_raw_shell_text_with_normalized_redirect_spacing(target: &mut String, text: &str) {
@@ -1834,7 +1863,7 @@ fn normalized_source_inline_indent(indent: &str, options: &ResolvedShellFormatOp
     match options.indent_style() {
         IndentStyle::Tab if indent.chars().all(|ch| ch == ' ') => {
             let unit = usize::from(options.indent_width()).clamp(1, 4);
-            if unit != 0 && indent.len() % unit == 0 {
+            if indent.len() % unit == 0 {
                 "\t".repeat(indent.len() / unit)
             } else {
                 indent.to_string()
