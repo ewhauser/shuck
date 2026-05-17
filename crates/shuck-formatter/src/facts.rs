@@ -1426,6 +1426,30 @@ mod tests {
     }
 
     #[test]
+    fn function_body_comments_with_parameter_syntax_attach_to_first_stmt() {
+        let source = "function f() {\n  # parse all defined shortcuts ${BASH_IT_DIRS_BKS}\n  if [[ -s x ]]; then\n    echo ok\n  fi\n}\n";
+        let file = parse(source);
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+        let resolved = options.resolve(source, Some(Path::new("test.bash")));
+        let facts = FormatterFacts::build(source, &file, &resolved);
+
+        let Command::Function(function) = &file.body[0].command else {
+            panic!("expected function");
+        };
+        let Command::Compound(CompoundCommand::BraceGroup(body)) = &function.body.command else {
+            panic!("expected brace group body");
+        };
+        let sequence = facts.sequence(body, Some(function.span.end.offset));
+        let leading = sequence.leading_for(0);
+
+        assert_eq!(leading.len(), 1);
+        assert_eq!(
+            leading[0].text(),
+            "# parse all defined shortcuts ${BASH_IT_DIRS_BKS}"
+        );
+    }
+
+    #[test]
     fn subshell_attachment_span_reaches_wrapper_close_after_command_substitution() {
         let source = "(\n  echo $(printf '%s' value)\n)\n# outside\nprintf '%s\\n' done\n";
         let file = parse(source);

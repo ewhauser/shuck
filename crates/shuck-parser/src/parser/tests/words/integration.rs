@@ -106,6 +106,19 @@ fn test_comment_ranges_with_parameter_syntax_inside_function() {
         texts,
         vec!["# parse all defined shortcuts ${BASH_IT_DIRS_BKS}"]
     );
+    let AstCommand::Function(function) = &output.file.body[0].command else {
+        panic!("expected function");
+    };
+    let AstCommand::Compound(CompoundCommand::BraceGroup(body)) = &function.body.command else {
+        panic!("expected brace group body");
+    };
+    assert_eq!(body[0].span.start.line, 3);
+    assert_eq!(body[0].span.start.column, 3);
+    let AstCommand::Compound(CompoundCommand::If(command)) = &body[0].command else {
+        panic!("expected if");
+    };
+    assert_eq!(command.span.start.line, 3);
+    assert_eq!(command.span.start.column, 3);
     assert_comment_ranges_valid(source, &output);
 }
 

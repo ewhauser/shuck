@@ -2349,7 +2349,7 @@ pub(crate) fn group_open_suffix<'a>(
     let source = source_map.source();
     let first = commands.first()?;
     let first_start = stmt_span(first).start.offset;
-    let open_offset = source[..first_start].rfind(open)?;
+    let open_offset = find_group_open_offset_before_stmt(source, first_start, open)?;
     let line_end = source[open_offset..]
         .find('\n')
         .map(|offset| open_offset + offset)
@@ -2370,8 +2370,11 @@ pub(crate) fn group_attachment_span(
 ) -> Option<Span> {
     let source = source_map.source();
     let first = commands.first()?;
-    let open_offset =
-        source[..stmt_group_attachment_start_offset(first, source_map)].rfind(open)?;
+    let open_offset = find_group_open_offset_before_stmt(
+        source,
+        stmt_group_attachment_start_offset(first, source_map),
+        open,
+    )?;
     let sequence_end = commands
         .iter()
         .map(|command| stmt_group_attachment_end_offset(command, source_map))
@@ -2381,6 +2384,36 @@ pub(crate) fn group_attachment_span(
         .map(|offset| offset + close.len_utf8())
         .unwrap_or(sequence_end);
     Some(source_map.span_for_offsets(open_offset, end))
+}
+
+fn find_group_open_offset_before_stmt(source: &str, search_end: usize, open: char) -> Option<usize> {
+    let search_end = search_end.min(source.len());
+    let mut last_open = None;
+    let mut line_start = 0;
+
+    while line_start < search_end {
+        let line_end = source[line_start..search_end]
+            .find('\n')
+            .map(|offset| line_start + offset)
+            .unwrap_or(search_end);
+        let line = &source[line_start..line_end];
+        let comment_start = line
+            .char_indices()
+            .find_map(|(offset, ch)| (ch == '#').then_some(offset))
+            .unwrap_or(line.len());
+        for (offset, ch) in line[..comment_start].char_indices() {
+            if ch == open {
+                last_open = Some(line_start + offset);
+            }
+        }
+
+        if line_end == search_end {
+            break;
+        }
+        line_start = line_end + 1;
+    }
+
+    last_open
 }
 
 fn stmt_group_attachment_start_offset(
