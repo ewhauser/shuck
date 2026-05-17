@@ -2417,6 +2417,40 @@ fn line_indent_before_source_offset(source: &str, offset: usize) -> Option<&str>
     line.get(..indent_end)
 }
 
+fn source_indent_units_before_offset(
+    source: &str,
+    offset: usize,
+    options: &ResolvedShellFormatOptions,
+) -> usize {
+    let Some(indent) = line_indent_before_source_offset(source, offset) else {
+        return 0;
+    };
+    let normalized = normalized_source_inline_indent(indent, options);
+    let width = usize::from(options.indent_width()).max(1);
+    match options.indent_style() {
+        IndentStyle::Tab => {
+            normalized.chars().filter(|ch| *ch == '\t').count()
+                + normalized.chars().filter(|ch| *ch == ' ').count() / width
+        }
+        IndentStyle::Space => normalized.len() / width,
+    }
+}
+
+fn push_indent_units(target: &mut String, options: &ResolvedShellFormatOptions, levels: usize) {
+    match options.indent_style() {
+        IndentStyle::Tab => {
+            for _ in 0..levels {
+                target.push('\t');
+            }
+        }
+        IndentStyle::Space => {
+            for _ in 0..(levels * usize::from(options.indent_width())) {
+                target.push(' ');
+            }
+        }
+    }
+}
+
 fn strip_one_indent_unit<'a>(line: &'a str, options: &ResolvedShellFormatOptions) -> &'a str {
     match options.indent_style() {
         IndentStyle::Tab => line.strip_prefix('\t').unwrap_or_else(|| {
@@ -2495,16 +2529,21 @@ fn render_process_substitution(
     if multiline {
         if let Some(raw) = raw
             && process_substitution_source_starts_with_body_line(raw)
+            && !process_substitution_source_closes_on_own_line(raw)
         {
             rendered.push(prefix);
             rendered.push('(');
             push_source_indented_inline_command_substitution(rendered, trimmed, raw, options);
             rendered.push(')');
         } else {
+            let outer_levels =
+                source_indent_units_before_offset(source, span.start.offset, options);
             rendered.push(prefix);
             rendered.push_str("(\n");
-            push_indented_rendered_block(rendered, trimmed, options, 1);
-            rendered.push_str("\n)");
+            push_indented_rendered_block(rendered, trimmed, options, outer_levels + 1);
+            rendered.push('\n');
+            push_indent_units(rendered, options, outer_levels);
+            rendered.push(')');
         }
     } else {
         rendered.push(prefix);
@@ -2526,6 +2565,16 @@ fn process_substitution_source_opens_to_body_line(raw: &str) -> bool {
     raw.get(2..).is_some_and(|body| {
         (raw.starts_with("<(") || raw.starts_with(">(")) && body.starts_with(['\n', '\r'])
     })
+}
+
+fn process_substitution_source_closes_on_own_line(raw: &str) -> bool {
+    let Some(close_offset) = raw.rfind(')') else {
+        return false;
+    };
+    let line_start = raw[..close_offset]
+        .rfind('\n')
+        .map_or(0, |newline| newline.saturating_add(1));
+    line_start > 0 && raw[line_start..close_offset].trim().is_empty()
 }
 
 fn trim_trailing_line_endings(rendered: &str) -> &str {
