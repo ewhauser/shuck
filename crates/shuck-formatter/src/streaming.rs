@@ -2019,7 +2019,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return Ok(());
         }
 
-        if if_condition_starts_after_keyword(command) {
+        if if_condition_starts_after_keyword(command)
+            || if_condition_has_explicit_statement_break(command, then_span, source)
+        {
             self.write_text("if");
             self.newline();
             self.with_indent(|formatter| {
@@ -4902,6 +4904,43 @@ fn if_condition_starts_after_keyword(command: &IfCommand) -> bool {
         .condition
         .first()
         .is_some_and(|stmt| stmt_span(stmt).start.line > command.span.start.line)
+}
+
+fn if_condition_has_explicit_statement_break(
+    command: &IfCommand,
+    then_span: Span,
+    source: &str,
+) -> bool {
+    if command.condition.len() == 1 {
+        let Some(stmt) = command.condition.first() else {
+            return false;
+        };
+        if !matches!(stmt.command, Command::Simple(_)) {
+            return false;
+        }
+        let start = stmt_span(stmt).start.offset;
+        let end = then_span.start.offset.min(source.len());
+        return source.get(start..end).is_some_and(has_unescaped_line_break);
+    }
+
+    command.condition.as_slice().windows(2).any(|pair| {
+        let previous_start = stmt_span(&pair[0]).start.offset;
+        let next_start = stmt_span(&pair[1]).start.offset;
+        has_newline_between_offsets(source, previous_start, next_start)
+    })
+}
+
+fn has_unescaped_line_break(text: &str) -> bool {
+    let mut cursor = 0usize;
+    while let Some(relative) = text[cursor..].find('\n') {
+        let newline = cursor + relative;
+        let before = text[..newline].trim_end_matches([' ', '\t', '\r']);
+        if !before.ends_with('\\') {
+            return true;
+        }
+        cursor = newline.saturating_add(1);
+    }
+    false
 }
 
 fn loop_condition_starts_after_keyword(condition: &StmtSeq, span: Span) -> bool {

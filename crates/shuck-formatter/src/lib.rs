@@ -4221,6 +4221,21 @@ function R() {
     }
 
     #[test]
+    fn splits_multistatement_if_conditions_like_shfmt() {
+        let source = "f() {\n  if curl -X PUT -k \"${@:2}\"\n    \"$url\" \\\n      -H x \\\n      -d y; then\n    echo ok\n  fi\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\tif\n\t\tcurl -X PUT -k \"${@:2}\"\n\t\t\"$url\" \\\n\t\t\t-H x \\\n\t\t\t-d y\n\tthen\n\t\techo ok\n\tfi\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_if_chain_condition_on_own_line() {
         let source = "f() {\n\tif\n\t\t[[ -z \"${remote:-}\" ]]\n\tthen\n\t\techo missing\n\telif\n\t\tfile_exists_at_url \"$remote\"\n\tthen\n\t\techo remote\n\telse\n\t\techo none\n\tfi\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
