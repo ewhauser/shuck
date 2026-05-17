@@ -1525,28 +1525,43 @@ fn push_raw_block_command_substitution_without_outer_indent(
     start_offset: usize,
     options: &ResolvedShellFormatOptions,
 ) {
+    let normalized_pipeline = normalize_raw_pipeline_continuations(raw);
+    let raw = normalized_pipeline.as_deref().unwrap_or(raw);
     let outer_indent = line_indent_before_source_offset(source, start_offset).unwrap_or("");
     let mut lines = raw.split('\n');
     if let Some(first) = lines.next() {
         target.push_str(first);
     }
     let mut body_indent: Option<String> = None;
+    let mut previous_pipeline_indent: Option<String> = None;
     for line in lines {
         target.push('\n');
-        let line = line
+        let mut line = line
             .strip_prefix(outer_indent)
-            .unwrap_or_else(|| strip_one_indent_unit(line, options));
-        let indent = line_leading_shell_indent(line);
+            .unwrap_or_else(|| strip_one_indent_unit(line, options))
+            .to_string();
+        let indent = line_leading_shell_indent(&line);
+        let content = &line[indent.len()..];
+        if let Some(previous_indent) = previous_pipeline_indent.as_deref()
+            && !content.trim().is_empty()
+            && !content.starts_with('#')
+            && indent.len() < previous_indent.len()
+        {
+            line = format!("{previous_indent}{content}");
+        }
+        let indent = line_leading_shell_indent(&line);
         let content = &line[indent.len()..];
         if body_indent.is_none() && !content.trim().is_empty() && !content.starts_with('#') {
             body_indent = Some(indent.to_string());
         }
         push_raw_shell_line_with_normalized_source_indent(
             target,
-            line,
+            &line,
             options,
             body_indent.as_deref(),
         );
+        previous_pipeline_indent =
+            line_ends_with_pipeline_operator(&line).then(|| indent.to_string());
     }
 }
 
@@ -1569,7 +1584,7 @@ fn push_raw_shell_line_with_normalized_source_indent(
 }
 
 fn push_raw_shell_text_with_normalized_redirect_spacing(target: &mut String, text: &str) {
-    let normalized_pipeline = normalize_raw_leading_pipe_continuations(text);
+    let normalized_pipeline = normalize_raw_pipeline_continuations(text);
     let text = normalized_pipeline.as_deref().unwrap_or(text);
     let mut lines = text.split('\n');
     if let Some(first) = lines.next() {
@@ -1579,6 +1594,30 @@ fn push_raw_shell_text_with_normalized_redirect_spacing(target: &mut String, tex
         target.push('\n');
         push_raw_shell_line_with_normalized_redirect_spacing(target, line);
     }
+}
+
+fn normalize_raw_pipeline_continuations(text: &str) -> Option<String> {
+    let trailing = normalize_raw_trailing_pipe_continuations(text);
+    let leading = normalize_raw_leading_pipe_continuations(trailing.as_deref().unwrap_or(text));
+    leading.or(trailing)
+}
+
+fn normalize_raw_trailing_pipe_continuations(text: &str) -> Option<String> {
+    let mut lines = text
+        .split('\n')
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    let mut changed = false;
+
+    for line in &mut lines {
+        let Some(prefix) = line_without_trailing_pipe_continuation(line) else {
+            continue;
+        };
+        *line = prefix.to_string();
+        changed = true;
+    }
+
+    changed.then(|| lines.join("\n"))
 }
 
 fn normalize_raw_leading_pipe_continuations(text: &str) -> Option<String> {
@@ -1611,6 +1650,11 @@ fn normalize_raw_leading_pipe_continuations(text: &str) -> Option<String> {
     }
 
     changed.then(|| lines.join("\n"))
+}
+
+fn line_without_trailing_pipe_continuation(line: &str) -> Option<&str> {
+    let prefix = line_without_continuation_backslash(line)?;
+    line_ends_with_pipeline_operator(prefix).then_some(prefix)
 }
 
 fn line_without_continuation_backslash(line: &str) -> Option<&str> {

@@ -1337,6 +1337,20 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn normalizes_trailing_pipe_continuations_inside_raw_command_substitutions() {
+        let source = "value=\"$(\n  # note\n  foo | \\\n  bar | \\\n  baz\n)\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "value=\"$(\n  # note\n  foo |\n  bar |\n  baz\n)\"\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn normalizes_leading_pipe_continuations_inside_process_substitutions() {
         let source = "while read -r line; do :; done < <(\n\tcat clean_files.txt \\\n\t\t| grep -v '^#'\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
