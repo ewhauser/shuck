@@ -27,7 +27,8 @@ use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::word::{
     render_heredoc_body_to_buf, render_pattern_syntax_to_buf, render_word_syntax_with_facts_to_buf,
-    word_has_multiline_literal_source, word_is_quoted_formattable_command_substitution_only,
+    word_has_multiline_literal_source, word_is_quoted_command_substitution_only,
+    word_is_quoted_formattable_command_substitution_only,
 };
 
 enum StreamOutput<'source> {
@@ -493,6 +494,44 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
     }
 
+    fn write_command_substitution_assignment_text(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+
+        let base_indent_column = if self.line_start {
+            self.indent_column_for_level(self.indent_level)
+        } else {
+            self.line_indent_column
+        };
+        let mut remaining = text;
+        while !remaining.is_empty() {
+            if self.line_start
+                && !remaining.starts_with('\n')
+                && command_substitution_assignment_line_needs_context_indent(
+                    remaining,
+                    self.options(),
+                )
+            {
+                self.write_indent_to_column(base_indent_column);
+            }
+
+            match remaining.find('\n') {
+                Some(index) => {
+                    let end = index + 1;
+                    self.push_output_str(&remaining[..end]);
+                    self.line_start = true;
+                    remaining = &remaining[end..];
+                }
+                None => {
+                    self.push_output_str(remaining);
+                    self.line_start = false;
+                    break;
+                }
+            }
+        }
+    }
+
     fn write_rendered_shell_text_preserving_heredoc_tails(&mut self, text: &str) {
         let mut active_heredoc: Option<RenderedHeredocTail> = None;
         let mut rest = text;
@@ -720,8 +759,6 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             )
         {
             self.write_text_preserving_current_line_indent(&scratch);
-        } else if assignment_has_multiline_literal_source(assignment, self.source()) {
-            self.write_rendered_shell_text(&scratch);
         } else if assignment_contains_command_heredoc(assignment)
             && rendered_shell_text_has_heredoc_tail(&scratch)
         {
@@ -729,7 +766,17 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         } else if scratch.contains('\n')
             && assignment_source_has_command_substitution(assignment, self.source())
         {
-            self.write_text_preserving_current_line_indent(&scratch);
+            if assignment_has_multiline_literal_source(assignment, self.source()) {
+                if assignment_value_is_quoted_command_substitution_only(assignment) {
+                    self.write_command_substitution_assignment_text(&scratch);
+                } else {
+                    self.write_rendered_shell_text(&scratch);
+                }
+            } else {
+                self.write_text_preserving_current_line_indent(&scratch);
+            }
+        } else if assignment_has_multiline_literal_source(assignment, self.source()) {
+            self.write_rendered_shell_text(&scratch);
         } else {
             self.write_text(&scratch);
         }
@@ -4128,6 +4175,13 @@ fn assignment_value_is_quoted_formattable_command_substitution_only(
     }
 }
 
+fn assignment_value_is_quoted_command_substitution_only(assignment: &Assignment) -> bool {
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => word_is_quoted_command_substitution_only(word),
+        AssignmentValue::Compound(_) => false,
+    }
+}
+
 fn stmt_semicolon_terminator_starts_on_continuation_line(stmt: &Stmt, source: &str) -> bool {
     let Some(terminator_span) = stmt.terminator_span else {
         return false;
@@ -5380,6 +5434,16 @@ fn pipeline_operator_starts_or_ends_line(source: &str, operator_span: Span) -> b
 fn line_edge_is_blank_or_continuation(text: &str) -> bool {
     let trimmed = text.trim_matches(|ch| matches!(ch, ' ' | '\t' | '\r'));
     trimmed.is_empty() || trimmed == "\\"
+}
+
+fn command_substitution_assignment_line_needs_context_indent(
+    remaining: &str,
+    options: &ResolvedShellFormatOptions,
+) -> bool {
+    match options.indent_style() {
+        IndentStyle::Tab => !remaining.starts_with(' '),
+        IndentStyle::Space => true,
+    }
 }
 
 fn has_newline_between_offsets(source: &str, start: usize, end: usize) -> bool {

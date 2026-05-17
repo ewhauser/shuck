@@ -553,6 +553,10 @@ pub(crate) fn word_is_quoted_formattable_command_substitution_only(
         .is_some_and(|body| !stmt_seq_has_multiline_literal_source(body, source))
 }
 
+pub(crate) fn word_is_quoted_command_substitution_only(word: &Word) -> bool {
+    quoted_command_substitution_only_body(word).is_some()
+}
+
 fn quoted_command_substitution_only_body(word: &Word) -> Option<&StmtSeq> {
     let [
         shuck_ast::WordPartNode {
@@ -1459,6 +1463,9 @@ fn command_substitution_layout(
         if command_substitution_source_starts_with_body_line(raw) {
             return CommandSubstitutionLayout::Block;
         }
+        if command_substitution_source_closes_on_own_line(raw) {
+            return CommandSubstitutionLayout::Block;
+        }
         if command_substitution_source_prefers_continued_inline_body(raw) {
             return CommandSubstitutionLayout::InlineContinued;
         }
@@ -1486,6 +1493,16 @@ fn command_substitution_source_starts_with_body_line(raw: &str) -> bool {
     }
     raw.strip_prefix("$(")
         .is_some_and(|after_open| after_open.starts_with(['\n', '\r']))
+}
+
+fn command_substitution_source_closes_on_own_line(raw: &str) -> bool {
+    let Some(close_offset) = raw.rfind(')') else {
+        return false;
+    };
+    let line_start = raw[..close_offset]
+        .rfind('\n')
+        .map_or(0, |newline| newline.saturating_add(1));
+    line_start > 0 && raw[line_start..close_offset].trim().is_empty()
 }
 
 fn command_substitution_source_prefers_continued_inline_body(raw: &str) -> bool {
