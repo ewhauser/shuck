@@ -534,6 +534,22 @@ fn word_has_parameter_raw_subscript_needs_compaction(
     })
 }
 
+fn word_part_has_parameter_raw_subscript_needs_compaction(
+    part: &WordPart,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+) -> bool {
+    match part {
+        WordPart::Parameter(parameter) => {
+            parameter_raw_subscript_needs_compaction(parameter, source, options)
+        }
+        WordPart::DoubleQuoted { parts, .. } => parts.iter().any(|part| {
+            word_part_has_parameter_raw_subscript_needs_compaction(&part.kind, source, options)
+        }),
+        _ => false,
+    }
+}
+
 fn word_has_parameter_command_redirect_spacing_needs_normalization(
     word: &Word,
     source: &str,
@@ -1310,6 +1326,19 @@ fn preferred_raw_word_part_source<'a>(
 
     match part {
         WordPart::SingleQuoted { .. } => raw_source_slice(span, source),
+        WordPart::DoubleQuoted { parts, .. } => {
+            let raw = raw_source_slice(span, source)?;
+            let has_formattable_parts = parts.iter().any(|part| {
+                part_needs_special_rendering(&part.kind)
+                    || word_part_has_parameter_raw_subscript_needs_compaction(
+                        &part.kind, source, options,
+                    )
+                    || word_part_has_parameter_command_redirect_spacing_needs_normalization(
+                        &part.kind, part.span, source,
+                    )
+            });
+            (!has_formattable_parts).then_some(raw)
+        }
         WordPart::Parameter(parameter) => {
             let raw = raw_source_slice(span, source)?;
             (parameter_prefers_raw_source(parameter, span, source)

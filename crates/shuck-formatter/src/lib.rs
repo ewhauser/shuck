@@ -2953,6 +2953,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_concatenated_ansi_c_and_escaped_double_quoted_arguments() {
+        let source = "echo $'\\n'\"TERMUX_APP_PACKAGE: \\\"$TERMUX_APP_PACKAGE\\\"\"\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_ansi_c_quoted_condition_patterns() {
         let source = "[[ \"$c\" == $'\\r' || \"$c\" == $'\\n' ]]\n";
         let options = ShellFormatOptions::default();
