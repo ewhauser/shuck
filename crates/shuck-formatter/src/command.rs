@@ -1285,7 +1285,7 @@ pub(crate) fn format_arithmetic_command_source(raw: &str) -> String {
             if body.contains('\n') {
                 format_multiline_arithmetic_command_body(body)
             } else {
-                format!("(({}))", body.trim())
+                format!("(({}))", format_arithmetic_for_init_source(body.trim()))
             }
         })
         .unwrap_or_else(|| raw.to_string())
@@ -1312,6 +1312,9 @@ fn split_simple_arithmetic_assignment(raw: &str) -> Option<(&str, &str, &str)> {
         let Some(index) = raw.find(op) else {
             continue;
         };
+        if byte_index_inside_braced_parameter(raw, index) {
+            continue;
+        }
         if op == "=" {
             let previous = raw[..index].chars().next_back();
             let next = raw[index + op.len()..].chars().next();
@@ -1322,6 +1325,30 @@ fn split_simple_arithmetic_assignment(raw: &str) -> Option<(&str, &str, &str)> {
         return Some((&raw[..index], op, &raw[index + op.len()..]));
     }
     None
+}
+
+fn byte_index_inside_braced_parameter(raw: &str, target: usize) -> bool {
+    let mut depth = 0usize;
+    let mut index = 0usize;
+    while index < raw.len() {
+        if index >= target {
+            return depth > 0;
+        }
+        let rest = &raw[index..];
+        if rest.starts_with("${") {
+            depth += 1;
+            index += 2;
+            continue;
+        }
+        let Some(ch) = rest.chars().next() else {
+            break;
+        };
+        if ch == '}' && depth > 0 {
+            depth -= 1;
+        }
+        index += ch.len_utf8();
+    }
+    false
 }
 
 fn format_multiline_arithmetic_command_body(body: &str) -> String {
