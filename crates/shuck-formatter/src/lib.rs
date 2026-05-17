@@ -1772,6 +1772,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn keeps_identifier_array_subscript_arithmetic_compact_like_shfmt() {
+        let source = "source \"${_files[_file - __array_offset]}\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted("source \"${_files[_file-__array_offset]}\"\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn formats_braced_shell_style_variables_inside_arithmetic_expansions_like_shfmt() {
         let source = "echo $(( ${ver[0]}*100 + ${ver[1]} ))\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();

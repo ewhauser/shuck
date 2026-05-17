@@ -2442,7 +2442,7 @@ fn compact_dynamic_arithmetic_subscript(text: &str) -> String {
             continue;
         }
         if matches!(ch, ' ' | '\t' | '\r')
-            && next_is_additive_operator_before_number(chars.clone())
+            && next_is_additive_operator_before_operand(chars.clone())
             && rendered
                 .chars()
                 .last()
@@ -2463,7 +2463,7 @@ fn compact_dynamic_arithmetic_subscript(text: &str) -> String {
             && chars
                 .clone()
                 .find(|next| !matches!(next, ' ' | '\t' | '\r'))
-                .is_some_and(|next| next.is_ascii_digit())
+                .is_some_and(is_arithmetic_subscript_operand_start)
         {
             rendered.push(ch);
             while chars
@@ -2489,7 +2489,7 @@ fn compact_dynamic_arithmetic_subscript(text: &str) -> String {
     rendered
 }
 
-fn next_is_additive_operator_before_number(
+fn next_is_additive_operator_before_operand(
     mut chars: std::iter::Peekable<std::str::Chars<'_>>,
 ) -> bool {
     let Some(operator) = chars.next() else {
@@ -2500,7 +2500,11 @@ fn next_is_additive_operator_before_number(
     }
     chars
         .find(|next| !matches!(next, ' ' | '\t' | '\r'))
-        .is_some_and(|next| next.is_ascii_digit())
+        .is_some_and(is_arithmetic_subscript_operand_start)
+}
+
+fn is_arithmetic_subscript_operand_start(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$' | '(' | '{')
 }
 
 fn push_parameter_word(
