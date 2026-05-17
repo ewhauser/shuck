@@ -83,7 +83,13 @@ fn word_part_has_multiline_literal_source(
 ) -> bool {
     match part {
         WordPart::Literal(text) => text.as_str(source, span).contains('\n'),
-        WordPart::SingleQuoted { value, .. } => value.slice(source).contains('\n'),
+        WordPart::SingleQuoted { value, dollar } => {
+            if *dollar {
+                raw_source_slice(span, source).is_some_and(|raw| raw.contains('\n'))
+            } else {
+                value.slice(source).contains('\n')
+            }
+        }
         WordPart::DoubleQuoted { parts, .. } => parts
             .iter()
             .any(|part| word_part_has_multiline_literal_source(&part.kind, part.span, source)),
@@ -476,6 +482,7 @@ fn word_has_multiline_double_quoted_source(word: &Word, source: &str) -> bool {
 
 fn part_needs_special_rendering(part: &WordPart) -> bool {
     match part {
+        WordPart::SingleQuoted { dollar: true, .. } => true,
         WordPart::DoubleQuoted { parts, .. } => parts
             .iter()
             .any(|part| part_needs_special_rendering(&part.kind)),
@@ -961,6 +968,7 @@ fn preferred_raw_word_part_source<'a>(
     }
 
     match part {
+        WordPart::SingleQuoted { .. } => raw_source_slice(span, source),
         WordPart::Parameter(parameter) => (parameter_prefers_raw_source(parameter, span, source)
             && !parameter_raw_subscript_needs_compaction(parameter, source))
         .then(|| raw_source_slice(span, source))
