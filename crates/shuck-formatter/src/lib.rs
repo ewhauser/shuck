@@ -2877,6 +2877,14 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_single_line_nested_function_bodies() {
+        let source = "setup() { shellspec_type_name() { eval echo type_name ${1+'\"$@\"'}; }; }\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(formatted, FormattedSource::Unchanged);
+    }
+
+    #[test]
     fn preserves_single_line_subshells() {
         let source = "(cd \"$fzf_base\"/bin && rm -f fzf && ln -sf \"$which_fzf\" fzf)\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();

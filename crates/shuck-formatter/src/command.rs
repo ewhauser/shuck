@@ -3173,6 +3173,7 @@ fn can_inline_stmt(stmt: &Stmt, formatter: &ShellFormatter<'_, '_>) -> bool {
         Command::Simple(_)
             | Command::Builtin(_)
             | Command::Decl(_)
+            | Command::Function(_)
             | Command::Binary(_)
             | Command::Compound(
                 CompoundCommand::Conditional(_)

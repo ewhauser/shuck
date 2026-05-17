@@ -4061,6 +4061,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             Command::Simple(_)
                 | Command::Builtin(_)
                 | Command::Decl(_)
+                | Command::Function(_)
                 | Command::Binary(_)
                 | Command::Compound(
                     CompoundCommand::Conditional(_)
