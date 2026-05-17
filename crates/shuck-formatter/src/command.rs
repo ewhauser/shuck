@@ -1322,6 +1322,9 @@ pub(crate) fn format_arithmetic_for_clause_source(
     source: &str,
     options: &ResolvedShellFormatOptions,
 ) -> String {
+    if raw.trim().is_empty() {
+        return String::new();
+    }
     if let Some(ast) = ast {
         let mut rendered = String::new();
         render_arithmetic_expr_to_buf(&mut rendered, ast, source, options);

@@ -1806,13 +1806,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
 
     #[test]
     fn formats_arithmetic_for_init_assignment_spacing() {
-        let source = "for ((i=1;i<limit;++i)); do\n  echo \"$i\"\ndone\n";
+        let source = "for ((i=1;i<limit;++i)); do\n  echo \"$i\"\ndone\nfor ((j = 1; ; j++)); do\n  echo \"$j\"\ndone\n";
         let options = ShellFormatOptions::default();
 
         assert_eq!(
             format_source(source, None, &options).unwrap(),
             FormattedSource::Formatted(
-                "for ((i = 1; i < limit; ++i)); do\n\techo \"$i\"\ndone\n".to_string()
+                "for ((i = 1; i < limit; ++i)); do\n\techo \"$i\"\ndone\nfor ((j = 1; ; j++)); do\n\techo \"$j\"\ndone\n".to_string()
             )
         );
         assert_source_and_ast_paths_match(source, None, &options);
