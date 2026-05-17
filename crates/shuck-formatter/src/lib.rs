@@ -1777,6 +1777,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn keeps_quoted_command_substitution_continuation_indent_stable() {
+        let source = "icons() {\n  icon_files=\"${icon_files}¤$(find \\\n    /usr/share/icons \\\n    /usr/share/pixmaps \\\n    /var/lib/flatpak/exports/share/icons -iname \"*${icon}*\" \\\n    -printf \"%p¤\" 2> /dev/null || :)\"\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "icons() {\n\ticon_files=\"${icon_files}¤$(find \\\n\t\t/usr/share/icons \\\n\t\t/usr/share/pixmaps \\\n\t\t/var/lib/flatpak/exports/share/icons -iname \"*${icon}*\" \\\n\t\t-printf \"%p¤\" 2>/dev/null || :)\"\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn indents_inline_continued_command_substitution_assignments() {
         let source = "_npm_completion() {\n  compadd -- $(COMP_CWORD=$((CURRENT-1)) \\\n               COMP_LINE=$BUFFER \\\n               COMP_POINT=0 \\\n               npm completion -- \"${words[@]}\" \\\n               2>/dev/null)\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

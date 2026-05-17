@@ -952,7 +952,6 @@ fn push_raw_command_substitution_with_normalized_spacing(
         push_raw_shell_text_with_normalized_redirect_spacing(target, raw);
         return;
     }
-
     let normalized_pipeline = normalize_raw_pipeline_continuations(raw);
     let raw = normalized_pipeline.as_deref().unwrap_or(raw);
     let outer_indent = line_indent_before_source_offset(source, start_offset).unwrap_or("");
@@ -963,7 +962,13 @@ fn push_raw_command_substitution_with_normalized_spacing(
         quote.scan_line(first);
     }
     let mut previous_pipeline_indent: Option<String> = None;
-    let mut continuation_indent: Option<String> = None;
+    let outer_shell_indent = normalized_raw_shell_indent(outer_indent, options);
+    let mut continuation_indent: Option<String> = raw.split('\n').next().and_then(|first| {
+        let continued = line_without_continuation_backslash(first)?;
+        let starts_command_substitution = first.trim_start_matches([' ', '\t']).starts_with("$(");
+        (starts_command_substitution && !continued.contains(')'))
+            .then(|| source_indent_plus_one_unit(&outer_shell_indent, options))
+    });
     for line in lines {
         target.push('\n');
         if quote.in_multiline_literal() {
@@ -1006,6 +1011,7 @@ fn push_raw_command_substitution_with_normalized_spacing(
             {
                 line = format!("{previous_indent}{content}");
             }
+            let used_continuation_indent = continuation_indent.is_some();
             push_raw_shell_line_with_normalized_source_indent(target, &line, options, None);
             previous_pipeline_indent = line_ends_with_pipeline_operator(&line)
                 .then(|| line_leading_shell_indent(&line).to_string());
@@ -1013,7 +1019,7 @@ fn push_raw_command_substitution_with_normalized_spacing(
             let line_indent = line_leading_shell_indent(&line).to_string();
             quote.scan_line(&line);
             continuation_indent = line_continues.then(|| {
-                if quote.in_multiline_literal() {
+                if quote.in_multiline_literal() || used_continuation_indent {
                     line_indent
                 } else {
                     source_indent_plus_one_unit(&line_indent, options)
