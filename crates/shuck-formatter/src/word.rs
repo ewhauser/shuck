@@ -385,7 +385,7 @@ fn render_word_syntax_internal(
     facts: Option<&FormatterFacts<'_>>,
     rendered: &mut String,
 ) {
-    if word_has_escaped_backtick_substitution(word, source)
+    if word_has_escaped_command_substitution(word, source)
         && let Some(raw) = raw_word_source_slice(word, source)
     {
         rendered.push_str(raw);
@@ -437,20 +437,46 @@ fn render_word_syntax_internal(
     word.render_syntax_to_buf(source, rendered);
 }
 
-/// Returns `true` when a word contains a backtick command-substitution node
-/// whose raw source starts with `\`, indicating the parser misinterpreted an
-/// escaped literal backtick (`\``) as a command-substitution delimiter.
+/// Returns `true` when a word contains a command-substitution node whose raw
+/// source was escaped in the original word, indicating the parser
+/// misinterpreted a literal prompt fragment as a command-substitution delimiter.
 /// In that case the word's raw source must be preserved verbatim.
-fn word_has_escaped_backtick_substitution(word: &Word, source: &str) -> bool {
-    word.parts.iter().any(|part| {
-        matches!(
-            part.kind,
-            WordPart::CommandSubstitution {
-                syntax: CommandSubstitutionSyntax::Backtick,
-                ..
+fn word_has_escaped_command_substitution(word: &Word, source: &str) -> bool {
+    if raw_word_source_slice(word, source).is_some_and(raw_word_has_escaped_command_substitution) {
+        return true;
+    }
+
+    word.parts
+        .iter()
+        .any(|part| word_part_has_escaped_command_substitution(&part.kind, part.span, source))
+}
+
+fn raw_word_has_escaped_command_substitution(raw: &str) -> bool {
+    raw.contains("\\$(") || raw.contains("\\`")
+}
+
+fn word_part_has_escaped_command_substitution(
+    part: &WordPart,
+    span: shuck_ast::Span,
+    source: &str,
+) -> bool {
+    match part {
+        WordPart::CommandSubstitution { syntax, .. } => match syntax {
+            CommandSubstitutionSyntax::Backtick => {
+                raw_source_slice(span, source).is_some_and(|raw| raw.starts_with('\\'))
             }
-        ) && raw_source_slice(part.span, source).is_some_and(|raw| raw.starts_with('\\'))
-    })
+            CommandSubstitutionSyntax::DollarParen => {
+                raw_source_slice(span, source).is_some_and(|raw| raw.starts_with("\\$("))
+                    || source
+                        .get(..span.start.offset)
+                        .is_some_and(|prefix| prefix.ends_with('\\'))
+            }
+        },
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| word_part_has_escaped_command_substitution(&part.kind, part.span, source)),
+        _ => false,
+    }
 }
 
 fn word_needs_special_rendering(word: &Word) -> bool {
@@ -2572,6 +2598,7 @@ fn could_need_preserve_raw_syntax(raw: &str) -> bool {
     raw.starts_with('\\')
         || raw.starts_with('&')
         || raw.starts_with("$'")
+        || raw.contains("\\\n")
         || raw.contains("\\\"")
         || raw.contains("\\`")
         || raw_contains_double_backslash_outside_single_quotes(raw)

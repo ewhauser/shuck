@@ -955,6 +955,35 @@ mod tests {
     }
 
     #[test]
+    fn preserves_escaped_dollar_command_substitutions_in_prompt_assignments() {
+        let source = r##"PS1="\$([[ -n \$(git branch 2> /dev/null) ]] && echo \" on ${icon_branch}  \")${white?}$(scm_prompt_info)${normal?}\n${icon_end}"
+"##;
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn preserves_multiline_prompt_assignments_with_backslash_continuations() {
+        let source = r##"PS1="$TITLEBAR\
+$YELLOW\u$LIGHT_BLUE@$YELLOW\h\
+$LIGHT_BLUE-$(__theme_clock)\
+$WHITE\$ $NO_COLOUR "
+"##;
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_background_terminator_at_if_branch_boundary() {
         let source = "if [ -z \"$SUBIT\" ]; then\n  eval $CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\nelse\n  $SUBIT \"$CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\"\nfi\n";
         let options = ShellFormatOptions::default();
