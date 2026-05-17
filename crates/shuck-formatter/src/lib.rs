@@ -1456,6 +1456,20 @@ $WHITE\$ $NO_COLOUR "
     }
 
     #[test]
+    fn keeps_array_subscript_modulo_compact_like_shfmt() {
+        let source = "color=${AVAILABLE_COLORS[$RANDOM % ${#AVAILABLE_COLORS[@]}]}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "color=${AVAILABLE_COLORS[$RANDOM%${#AVAILABLE_COLORS[@]}]}\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn keeps_nested_parameter_operand_subscripts_compact_like_shfmt() {
         let source = ": \"${BASH_IT_BASHRC:=${BASH_SOURCE[${#BASH_SOURCE[@]} - 1]}}\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

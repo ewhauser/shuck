@@ -2248,12 +2248,31 @@ fn compact_dynamic_arithmetic_subscript(text: &str) -> String {
         {
             continue;
         }
+        if matches!(ch, ' ' | '\t' | '\r')
+            && chars.clone().next().is_some_and(|next| next == '%')
+            && rendered
+                .chars()
+                .last()
+                .is_some_and(|previous| !matches!(previous, ' ' | '\t' | '\r'))
+        {
+            continue;
+        }
         if matches!(ch, '+' | '-')
             && chars
                 .clone()
                 .find(|next| !matches!(next, ' ' | '\t' | '\r'))
                 .is_some_and(|next| next.is_ascii_digit())
         {
+            rendered.push(ch);
+            while chars
+                .peek()
+                .is_some_and(|next| matches!(next, ' ' | '\t' | '\r'))
+            {
+                chars.next();
+            }
+            continue;
+        }
+        if ch == '%' {
             rendered.push(ch);
             while chars
                 .peek()
