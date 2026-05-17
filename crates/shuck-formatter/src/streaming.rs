@@ -3288,7 +3288,7 @@ fn raw_redirect_source_slice<'a>(redirect: &Redirect, source: &'a str) -> Option
 }
 
 fn should_preserve_raw_redirect(raw: &str) -> bool {
-    raw.contains(">&$") || raw.contains("<&$")
+    raw.contains(">&$") || raw.contains("<&$") || raw.contains(">&-") || raw.contains("<&-")
 }
 
 fn redirect_target_starts_on_continuation_line(redirect: &Redirect, source: &str) -> bool {

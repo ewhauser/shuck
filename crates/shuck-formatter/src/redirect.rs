@@ -125,5 +125,5 @@ fn raw_redirect_source_slice<'a>(redirect: &Redirect, source: &'a str) -> Option
 }
 
 fn should_preserve_raw_redirect(raw: &str) -> bool {
-    raw.contains(">&$") || raw.contains("<&$")
+    raw.contains(">&$") || raw.contains("<&$") || raw.contains(">&-") || raw.contains("<&-")
 }
