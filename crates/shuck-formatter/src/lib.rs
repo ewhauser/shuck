@@ -2935,7 +2935,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
 
     #[test]
     fn preserves_fd_duplication_redirect_targets() {
-        let source = "cmd 2>&$fd\n";
+        let source = "cmd 2>&$fd\ncmd 1>&/dev/null\ncmd >&file\n";
         let options = ShellFormatOptions::default();
 
         assert_eq!(
