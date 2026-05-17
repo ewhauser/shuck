@@ -459,6 +459,34 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
     }
 
+    fn write_rendered_shell_text_preserving_heredoc_tails(&mut self, text: &str) {
+        let mut active_heredoc: Option<RenderedHeredocTail> = None;
+        let mut rest = text;
+
+        while !rest.is_empty() {
+            let (line, next, had_newline) = match rest.find('\n') {
+                Some(index) => (&rest[..index], &rest[index + 1..], true),
+                None => (rest, "", false),
+            };
+
+            if let Some(heredoc) = active_heredoc.as_ref() {
+                self.write_verbatim(line);
+                if heredoc.closes(line) {
+                    active_heredoc = None;
+                }
+            } else {
+                self.write_text(line);
+                active_heredoc = rendered_heredoc_tail_start(line);
+            }
+
+            if had_newline {
+                self.push_output_str(self.line_ending());
+                self.line_start = true;
+            }
+            rest = next;
+        }
+    }
+
     fn write_verbatim(&mut self, text: &str) {
         if text.is_empty() {
             return;
@@ -617,6 +645,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
         if assignment_has_multiline_literal_source(assignment, self.source()) {
             self.write_rendered_shell_text(&scratch);
+        } else if rendered_shell_text_has_heredoc_tail(&scratch) {
+            self.write_rendered_shell_text_preserving_heredoc_tails(&scratch);
         } else {
             self.write_text(&scratch);
         }
@@ -3309,6 +3339,50 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
 fn heredoc_body_needs_separator(body: &str) -> bool {
     !body.is_empty() && !body.ends_with('\n') && !body.ends_with('\r')
+}
+
+#[derive(Debug, Clone)]
+struct RenderedHeredocTail {
+    delimiter: String,
+    strip_tabs: bool,
+}
+
+impl RenderedHeredocTail {
+    fn closes(&self, line: &str) -> bool {
+        if self.strip_tabs {
+            line.trim_start_matches('\t') == self.delimiter
+        } else {
+            line == self.delimiter
+        }
+    }
+}
+
+fn rendered_shell_text_has_heredoc_tail(text: &str) -> bool {
+    text.lines()
+        .any(|line| rendered_heredoc_tail_start(line).is_some())
+}
+
+fn rendered_heredoc_tail_start(line: &str) -> Option<RenderedHeredocTail> {
+    let marker = line.find("<<")?;
+    let after_marker = &line[marker + 2..];
+    if after_marker.starts_with('<') {
+        return None;
+    }
+    let (strip_tabs, after_marker) = if let Some(rest) = after_marker.strip_prefix('-') {
+        (true, rest)
+    } else {
+        (false, after_marker)
+    };
+    let delimiter = after_marker
+        .trim_start()
+        .split_whitespace()
+        .next()?
+        .trim_matches(['\'', '"'])
+        .to_string();
+    (!delimiter.is_empty()).then_some(RenderedHeredocTail {
+        delimiter,
+        strip_tabs,
+    })
 }
 
 fn heredoc_closing_marker_source(heredoc: &Heredoc, source: &str) -> Option<String> {
