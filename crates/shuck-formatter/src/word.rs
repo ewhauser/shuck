@@ -1005,7 +1005,8 @@ fn render_word_part(
         WordPart::CommandSubstitution { body, syntax } => {
             if let Some(raw) = raw_source_slice(span, source) {
                 if stmt_seq_contains_comments(body) {
-                    if command_substitution_source_starts_with_body_line(raw)
+                    if push_inline_raw_command_substitution_as_block(rendered, raw, options) {
+                    } else if command_substitution_source_starts_with_body_line(raw)
                         && !stmt_seq_has_heredoc(body)
                     {
                         push_raw_block_command_substitution_without_outer_indent(
@@ -1766,6 +1767,97 @@ fn command_substitution_source_closes_on_own_line(raw: &str) -> bool {
         .rfind('\n')
         .map_or(0, |newline| newline.saturating_add(1));
     line_start > 0 && raw[line_start..close_offset].trim().is_empty()
+}
+
+fn push_inline_raw_command_substitution_as_block(
+    target: &mut String,
+    raw: &str,
+    options: &ResolvedShellFormatOptions,
+) -> bool {
+    let Some(after_open) = raw.strip_prefix("$(") else {
+        return false;
+    };
+    if after_open.starts_with(['\n', '\r']) || !command_substitution_source_closes_on_own_line(raw)
+    {
+        return false;
+    }
+
+    let Some(close_offset) = raw.rfind(')') else {
+        return false;
+    };
+    let Some(close_line_start) = raw[..close_offset].rfind('\n').map(|index| index + 1) else {
+        return false;
+    };
+    let Some(body_source) = raw.get(2..close_line_start) else {
+        return false;
+    };
+    let body_source = body_source.trim_end_matches(['\n', '\r']);
+    if body_source.trim().is_empty() {
+        target.push_str("$()");
+        return true;
+    }
+
+    let nested = normalize_inline_raw_command_substitution_body(body_source);
+    target.push_str("$(\n");
+    push_indented_rendered_block(target, &nested, options, 1);
+    target.push_str("\n)");
+    true
+}
+
+fn normalize_inline_raw_command_substitution_body(body_source: &str) -> String {
+    let mut lines = body_source.lines().map(str::to_string).collect::<Vec<_>>();
+
+    for index in 0..lines.len().saturating_sub(1) {
+        let next_starts_comment = lines[index + 1]
+            .trim_start_matches([' ', '\t'])
+            .starts_with('#');
+        if next_starts_comment
+            && let Some(prefix) = line_without_continuation_backslash(&lines[index])
+        {
+            lines[index] = prefix.to_string();
+        }
+    }
+
+    let mut rendered = String::new();
+    let mut previous_ends_pipeline = false;
+    let mut continuation_indent_units: Option<usize> = None;
+    for (index, line) in lines.iter().enumerate() {
+        if index > 0 {
+            rendered.push('\n');
+        }
+        let content = line.trim_start_matches([' ', '\t']);
+        if content.trim().is_empty() {
+            previous_ends_pipeline = false;
+            continuation_indent_units = None;
+            continue;
+        }
+        let indent_units = if content.starts_with('#') {
+            0
+        } else if let Some(units) = continuation_indent_units {
+            units
+        } else if previous_ends_pipeline {
+            1
+        } else {
+            0
+        };
+        for _ in 0..indent_units {
+            rendered.push('\t');
+        }
+        push_raw_shell_line_with_normalized_redirect_spacing(&mut rendered, content);
+        if content.starts_with('#') {
+            previous_ends_pipeline = false;
+            continuation_indent_units = None;
+        } else {
+            previous_ends_pipeline = line_ends_with_pipeline_operator(content);
+            if line_without_continuation_backslash(content).is_some() {
+                continuation_indent_units.get_or_insert(indent_units + 1);
+            } else {
+                continuation_indent_units = None;
+            }
+        }
+    }
+
+    rendered
 }
 
 fn command_substitution_source_prefers_continued_inline_body(raw: &str) -> bool {

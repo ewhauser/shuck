@@ -1591,6 +1591,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn command_substitutions_with_comments_and_own_line_close_use_block_layout() {
+        let source = "result=\"$(grep -En pattern \"$script\" |\n                     grep -Ev -e skip \\\n                              # keep this filter documented\n                    )\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "result=\"$(\n\tgrep -En pattern \"$script\" |\n\t\tgrep -Ev -e skip\n\t# keep this filter documented\n)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn command_substitutions_with_heredocs_use_block_layout() {
         let source = "result=$(cat <<EOF\nhello\nEOF\n)\n";
         let options = ShellFormatOptions::default();
