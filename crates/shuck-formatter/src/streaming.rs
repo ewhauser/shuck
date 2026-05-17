@@ -1212,7 +1212,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
         let mut previous_part = None;
         let mut previous_end = None;
-        for part in parts {
+        let mut part_index = 0;
+        while part_index < parts.len() {
+            let part = parts[part_index];
             if matches!(
                 (previous_part, part),
                 (
@@ -1233,10 +1235,21 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 SimpleCommandPart::Assignment(assignment) => self.write_assignment(assignment),
                 SimpleCommandPart::Name => self.write_text(&rendered_name),
                 SimpleCommandPart::Argument(argument) => self.write_word(argument),
-                SimpleCommandPart::Redirect(redirect) => self.format_redirect(redirect),
+                SimpleCommandPart::Redirect(redirect) => {
+                    if let Some(SimpleCommandPart::Redirect(next)) =
+                        parts.get(part_index + 1).copied()
+                        && append_both_redirect_pair_matches_source(redirect, next, source)
+                    {
+                        self.format_append_both_redirect(redirect);
+                        part_index += 1;
+                    } else {
+                        self.format_redirect(redirect);
+                    }
+                }
             }
             previous_part = Some(part);
             previous_end = Some(end_offset);
+            part_index += 1;
         }
         self.restore_scratch_buffer(rendered_name);
     }
@@ -3526,11 +3539,23 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn format_redirect_list(&mut self, redirects: &[Redirect]) {
-        for (index, redirect) in redirects.iter().enumerate() {
-            if index > 0 {
+        let source = self.source();
+        let mut index = 0;
+        let mut wrote_redirect = false;
+        while index < redirects.len() {
+            if wrote_redirect {
                 self.write_space();
             }
+            if append_both_redirect_matches_source(redirects, index, source) {
+                self.format_append_both_redirect(&redirects[index]);
+                index += 2;
+                wrote_redirect = true;
+                continue;
+            }
+            let redirect = &redirects[index];
             self.format_redirect(redirect);
+            index += 1;
+            wrote_redirect = true;
         }
     }
 
@@ -3609,6 +3634,53 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_space();
         }
         self.write_rendered_shell_text(normalized_redirect_target(redirect.kind, &target));
+        self.restore_scratch_buffer(target);
+    }
+
+    fn format_append_both_redirect(&mut self, redirect: &Redirect) {
+        let source = self.source();
+        let options = self.options().clone();
+        self.write_text("&>>");
+
+        let mut target = self.take_scratch_buffer();
+        let source_map = self.source_map().clone();
+        {
+            let facts = self.facts();
+            match (redirect.word_target(), redirect.heredoc()) {
+                (Some(word), None) => render_word_syntax_with_facts_to_buf(
+                    word,
+                    source,
+                    &options,
+                    &source_map,
+                    facts,
+                    &mut target,
+                ),
+                (None, Some(heredoc)) => render_word_syntax_with_facts_to_buf(
+                    &heredoc.delimiter.raw,
+                    source,
+                    &options,
+                    &source_map,
+                    facts,
+                    &mut target,
+                ),
+                (None, None) => {}
+                (Some(_), Some(_)) => {
+                    unreachable!("redirect target cannot be both word and heredoc")
+                }
+            }
+        }
+        let normalized_target = normalized_redirect_target(redirect.kind, &target);
+        if redirect_target_starts_on_continuation_line(redirect, source) {
+            self.line_continuation();
+            self.write_indent_units(1);
+        } else if needs_space_before_target(
+            redirect.kind,
+            normalized_target,
+            options.space_redirects(),
+        ) {
+            self.write_space();
+        }
+        self.write_rendered_shell_text(normalized_target);
         self.restore_scratch_buffer(target);
     }
 
@@ -4090,6 +4162,55 @@ fn should_preserve_raw_redirect(raw: &str) -> bool {
         || raw.contains("<&-")
         || raw.contains(">&/")
         || raw.contains("<&/")
+}
+
+fn append_both_redirect_matches_source(redirects: &[Redirect], index: usize, source: &str) -> bool {
+    let Some(redirect) = redirects.get(index) else {
+        return false;
+    };
+    let Some(next) = redirects.get(index + 1) else {
+        return false;
+    };
+    append_both_redirect_pair_matches_source(redirect, next, source)
+}
+
+fn append_both_redirect_pair_matches_source(
+    redirect: &Redirect,
+    next: &Redirect,
+    source: &str,
+) -> bool {
+    if !matches!(redirect.kind, RedirectKind::Append)
+        || redirect.fd.is_some()
+        || redirect.fd_var.is_some()
+    {
+        return false;
+    }
+    if !matches!(next.kind, RedirectKind::DupOutput)
+        || next.fd != Some(2)
+        || !next
+            .word_target()
+            .and_then(|word| word.try_static_text(source))
+            .is_some_and(|target| target == "1")
+    {
+        return false;
+    }
+
+    let Some(raw) = raw_redirect_source_slice(redirect, source) else {
+        return false;
+    };
+    if raw.starts_with("&>>") {
+        return true;
+    }
+    if raw.starts_with(">>") {
+        let Some(operator_start) = redirect.span.start.offset.checked_sub(1) else {
+            return false;
+        };
+        return source
+            .as_bytes()
+            .get(operator_start)
+            .is_some_and(|byte| *byte == b'&');
+    }
+    false
 }
 
 fn redirect_target_starts_on_continuation_line(redirect: &Redirect, source: &str) -> bool {

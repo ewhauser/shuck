@@ -2958,6 +2958,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_append_both_redirect_spelling() {
+        let source = "cmd &>>/dev/null\ncmd &>>log <input\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_explicit_stdout_fd_on_dup_redirects() {
         let source = "cat 1>&2 <<EOF\nhi\nEOF\n";
         let options = ShellFormatOptions::default();
