@@ -12,6 +12,8 @@ use similar::TextDiff;
 const MAX_ORACLE_DIFF_LINES: usize = 200;
 const MAX_LARGE_CORPUS_FAILURES: usize = 25;
 const SHFMT_LARGE_CORPUS_TIMEOUT: Duration = Duration::from_secs(10);
+const LARGE_CORPUS_PROGRESS_INTERVAL: usize = 1_000;
+const LARGE_CORPUS_SLOW_FIXTURE: Duration = Duration::from_secs(3);
 const LARGE_CORPUS_ENV: &str = "SHUCK_TEST_LARGE_CORPUS";
 const LARGE_CORPUS_ROOT_ENV: &str = "SHUCK_LARGE_CORPUS_ROOT";
 const LARGE_CORPUS_SHARD_ENV: &str = "TEST_SHARD_INDEX";
@@ -139,7 +141,22 @@ fn large_corpus_matches_shfmt() {
     let mut shuck_errors = Vec::new();
     let mut mismatches = Vec::new();
 
-    for fixture in fixtures.iter() {
+    for (fixture_index, fixture) in fixtures.iter().enumerate() {
+        let fixture_started = Instant::now();
+        let filename = fixture.cache_rel_path.to_string_lossy();
+        let processed = fixture_index + 1;
+        if processed % LARGE_CORPUS_PROGRESS_INTERVAL == 0 {
+            eprintln!(
+                "large corpus shfmt oracle progress: processed={processed}/{} compared={compared} matched={matched} mismatches={} shuck_errors={} shfmt_skips={} unsupported_dialects={} non_utf8={}",
+                fixtures.len(),
+                mismatches.len(),
+                shuck_errors.len(),
+                shfmt_skips,
+                unsupported_dialects,
+                non_utf8,
+            );
+        }
+
         let source = match fs::read_to_string(&fixture.path) {
             Ok(source) => source,
             Err(_) => {
@@ -152,11 +169,11 @@ fn large_corpus_matches_shfmt() {
             continue;
         };
 
-        let filename = fixture.cache_rel_path.to_string_lossy();
         let shfmt = match try_run_shfmt(&source, &filename, format_config.shfmt_language) {
             Ok(output) => output,
             Err(_) => {
                 shfmt_skips += 1;
+                report_slow_large_corpus_fixture(&filename, fixture_started.elapsed());
                 continue;
             }
         };
@@ -170,6 +187,7 @@ fn large_corpus_matches_shfmt() {
                     "{}: {error}",
                     fixture.cache_rel_path.to_string_lossy()
                 ));
+                report_slow_large_corpus_fixture(&filename, fixture_started.elapsed());
                 continue;
             }
         };
@@ -179,6 +197,8 @@ fn large_corpus_matches_shfmt() {
         } else {
             matched += 1;
         }
+
+        report_slow_large_corpus_fixture(&filename, fixture_started.elapsed());
     }
 
     eprintln!(
@@ -370,6 +390,16 @@ fn collect_reader(
             .join()
             .map_err(|_| "failed to join shfmt pipe reader".to_string())?,
         None => Ok(Vec::new()),
+    }
+}
+
+fn report_slow_large_corpus_fixture(filename: &str, elapsed: Duration) {
+    if elapsed >= LARGE_CORPUS_SLOW_FIXTURE {
+        eprintln!(
+            "large corpus shfmt oracle slow fixture: {} took {:.1}s",
+            filename,
+            elapsed.as_secs_f64(),
+        );
     }
 }
 
