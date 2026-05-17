@@ -3134,11 +3134,15 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         base_indent: usize,
     ) {
         for (index, comment) in comments.iter().enumerate() {
+            let disabled_case_pattern_context = comments[..index]
+                .iter()
+                .all(comment_looks_like_disabled_case_pattern);
             let extra_indent = base_indent
                 + usize::from(case_prefix_comment_uses_body_indent(
                     self.source(),
                     comment,
                     first_pattern.span.start.offset,
+                    disabled_case_pattern_context,
                 ));
             self.with_extra_prefix_indent(extra_indent, |formatter| {
                 formatter.write_comment(comment);
@@ -6355,7 +6359,11 @@ fn case_prefix_comment_uses_body_indent(
     source: &str,
     comment: &SourceComment<'_>,
     pattern_start: usize,
+    disabled_case_pattern_context: bool,
 ) -> bool {
+    if disabled_case_pattern_context && comment_looks_like_disabled_case_pattern(comment) {
+        return true;
+    }
     let Some(comment_indent) = line_indent_before_offset(source, comment.span().start.offset)
     else {
         return false;
@@ -6366,6 +6374,19 @@ fn case_prefix_comment_uses_body_indent(
     let comment_width = shell_indent_width(comment_indent);
     let pattern_width = shell_indent_width(pattern_indent);
     comment_width > pattern_width || (comment_width == 0 && pattern_width > 0)
+}
+
+fn comment_looks_like_disabled_case_pattern(comment: &SourceComment<'_>) -> bool {
+    let text = comment.text().trim_start_matches([' ', '\t']);
+    let Some(rest) = text.strip_prefix('#') else {
+        return false;
+    };
+    let rest = rest.trim_start_matches([' ', '\t']);
+    let Some(close_index) = rest.find(')') else {
+        return false;
+    };
+    let pattern = rest[..close_index].trim();
+    !pattern.is_empty() && !pattern.chars().any(char::is_whitespace)
 }
 
 fn shell_indent_width(indent: &str) -> usize {
