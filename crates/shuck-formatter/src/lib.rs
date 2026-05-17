@@ -1238,6 +1238,37 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn normalizes_leading_pipe_continuations_inside_raw_command_substitutions() {
+        let source =
+            "value=\"$(declare -f list_all \\\n\t| sed 's/list_all/list_all_without_hub/')\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "value=\"$(declare -f list_all |\n\tsed 's/list_all/list_all_without_hub/')\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn normalizes_leading_pipe_continuations_inside_process_substitutions() {
+        let source = "while read -r line; do :; done < <(\n\tcat clean_files.txt \\\n\t\t| grep -v '^#'\n)\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "while read -r line; do :; done < <(\n\tcat clean_files.txt |\n\t\tgrep -v '^#'\n)\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn normalizes_redirect_spacing_inside_parameter_default_commands() {
         let source = "[[ -t 1 && \"${CLICOLOR:=$(tput colors 2> /dev/null)}\" -ge 8 ]]\n";
         let options = ShellFormatOptions::default();

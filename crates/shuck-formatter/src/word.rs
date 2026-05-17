@@ -1441,6 +1441,8 @@ fn push_raw_block_command_substitution_without_outer_indent(
 }
 
 fn push_raw_shell_text_with_normalized_redirect_spacing(target: &mut String, text: &str) {
+    let normalized_pipeline = normalize_raw_leading_pipe_continuations(text);
+    let text = normalized_pipeline.as_deref().unwrap_or(text);
     let mut lines = text.split('\n');
     if let Some(first) = lines.next() {
         push_raw_shell_line_with_normalized_redirect_spacing(target, first);
@@ -1448,6 +1450,61 @@ fn push_raw_shell_text_with_normalized_redirect_spacing(target: &mut String, tex
     for line in lines {
         target.push('\n');
         push_raw_shell_line_with_normalized_redirect_spacing(target, line);
+    }
+}
+
+fn normalize_raw_leading_pipe_continuations(text: &str) -> Option<String> {
+    let mut lines = text
+        .split('\n')
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    let mut changed = false;
+
+    for index in 0..lines.len().saturating_sub(1) {
+        let Some(prefix) = line_without_continuation_backslash(&lines[index]).map(str::to_string)
+        else {
+            continue;
+        };
+        let Some((indent, operator, rest)) =
+            leading_pipe_continuation(&lines[index + 1]).map(|(indent, operator, rest)| {
+                (
+                    indent.to_string(),
+                    operator,
+                    rest.trim_start_matches([' ', '\t', '\r']).to_string(),
+                )
+            })
+        else {
+            continue;
+        };
+
+        lines[index] = format!("{prefix} {operator}");
+        lines[index + 1] = format!("{indent}{rest}");
+        changed = true;
+    }
+
+    changed.then(|| lines.join("\n"))
+}
+
+fn line_without_continuation_backslash(line: &str) -> Option<&str> {
+    let trimmed = line.trim_end_matches([' ', '\t', '\r']);
+    let prefix = trimmed.strip_suffix('\\')?;
+    Some(prefix.trim_end_matches([' ', '\t', '\r']))
+}
+
+fn leading_pipe_continuation(line: &str) -> Option<(&str, &'static str, &str)> {
+    let content_start = line
+        .char_indices()
+        .find_map(|(index, ch)| (!matches!(ch, ' ' | '\t')).then_some(index))
+        .unwrap_or(line.len());
+    let indent = &line[..content_start];
+    let rest = &line[content_start..];
+    if let Some(remainder) = rest.strip_prefix("|&") {
+        Some((indent, "|&", remainder))
+    } else if rest.starts_with("||") {
+        None
+    } else {
+        rest.strip_prefix('|')
+            .map(|remainder| (indent, "|", remainder))
     }
 }
 
