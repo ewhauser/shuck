@@ -1338,7 +1338,14 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let body_upper_bound = close_span
             .map(|span| span.start.offset)
             .unwrap_or(enclosing_span.end.offset);
-        if self.can_inline_body_with_upper_bound(body, enclosing_span, Some(body_upper_bound)) {
+        let has_open_suffix = self
+            .facts()
+            .sequence(body, Some(body_upper_bound))
+            .group_open_suffix_span()
+            .is_some();
+        if !has_open_suffix
+            && self.can_inline_body_with_upper_bound(body, enclosing_span, Some(body_upper_bound))
+        {
             self.write_text("; do ");
             self.format_inline_stmts(body)?;
             self.write_text("; ");
@@ -1347,7 +1354,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return Ok(());
         }
 
-        if self.body_starts_with_inline_do_brace_group(body) {
+        if !has_open_suffix && self.body_starts_with_inline_do_brace_group(body) {
             self.write_text("; do ");
             self.format_stmt(&body[0])?;
             self.write_text(self.inline_do_brace_group_done_separator(body, enclosing_span));
@@ -1357,6 +1364,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
 
         self.write_text("; do");
+        self.write_sequence_open_suffix(body, Some(body_upper_bound));
         let preserve_open_blank = body_has_blank_line_after_keyword(
             self.source(),
             self.source_map(),

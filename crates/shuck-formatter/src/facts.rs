@@ -590,17 +590,28 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                         .inline_group_sequences
                         .insert(FactSpan::from(command.body.span));
                 }
-                self.visit_sequence(
+                self.visit_sequence_with_suffix(
                     &command.body,
                     Some(foreach_body_upper_bound(command, self.source)),
                     group_open_char,
+                    group_open_char
+                        .is_none()
+                        .then(|| {
+                            matches!(command.syntax, shuck_ast::ForeachSyntax::InDoDone { .. })
+                                .then(|| {
+                                    branch_open_suffix_span(&command.body, self.source_map(), "do")
+                                })
+                                .flatten()
+                        })
+                        .flatten(),
                 );
             }
             CompoundCommand::ArithmeticFor(command) => {
-                self.visit_sequence(
+                self.visit_sequence_with_suffix(
                     &command.body,
                     Some(done_body_upper_bound(self.source, command.span)),
                     None,
+                    branch_open_suffix_span(&command.body, self.source_map(), "do"),
                 );
             }
             CompoundCommand::While(command) => self.visit_while(command),
@@ -737,10 +748,22 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 .inline_group_sequences
                 .insert(FactSpan::from(command.body.span));
         }
-        self.visit_sequence(
+        self.visit_sequence_with_suffix(
             &command.body,
             Some(for_body_upper_bound(command, self.source)),
             group_open_char,
+            group_open_char
+                .is_none()
+                .then(|| {
+                    matches!(
+                        command.syntax,
+                        shuck_ast::ForSyntax::InDoDone { .. }
+                            | shuck_ast::ForSyntax::ParenDoDone { .. }
+                    )
+                    .then(|| branch_open_suffix_span(&command.body, self.source_map(), "do"))
+                    .flatten()
+                })
+                .flatten(),
         );
     }
 
@@ -755,28 +778,38 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 .inline_group_sequences
                 .insert(FactSpan::from(command.body.span));
         }
-        self.visit_sequence(
+        self.visit_sequence_with_suffix(
             &command.body,
             Some(repeat_body_upper_bound(command, self.source)),
             group_open_char,
+            group_open_char
+                .is_none()
+                .then(|| {
+                    matches!(command.syntax, shuck_ast::RepeatSyntax::DoDone { .. })
+                        .then(|| branch_open_suffix_span(&command.body, self.source_map(), "do"))
+                        .flatten()
+                })
+                .flatten(),
         );
     }
 
     fn visit_while(&mut self, command: &WhileCommand) {
         self.visit_sequence(&command.condition, None, None);
-        self.visit_sequence(
+        self.visit_sequence_with_suffix(
             &command.body,
             Some(done_body_upper_bound(self.source, command.span)),
             None,
+            branch_open_suffix_span(&command.body, self.source_map(), "do"),
         );
     }
 
     fn visit_until(&mut self, command: &UntilCommand) {
         self.visit_sequence(&command.condition, None, None);
-        self.visit_sequence(
+        self.visit_sequence_with_suffix(
             &command.body,
             Some(done_body_upper_bound(self.source, command.span)),
             None,
+            branch_open_suffix_span(&command.body, self.source_map(), "do"),
         );
     }
 
@@ -806,10 +839,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         for word in &command.words {
             self.visit_word(word);
         }
-        self.visit_sequence(
+        self.visit_sequence_with_suffix(
             &command.body,
             Some(done_body_upper_bound(self.source, command.span)),
             None,
+            branch_open_suffix_span(&command.body, self.source_map(), "do"),
         );
     }
 
