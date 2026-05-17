@@ -1363,6 +1363,15 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return Ok(());
         }
 
+        if !has_open_suffix && self.body_starts_with_inline_do_if(body) {
+            self.write_text("; do ");
+            self.format_stmt(&body[0])?;
+            self.write_text("; ");
+            self.write_text(close);
+            self.write_close_suffix_after_span(close_span);
+            return Ok(());
+        }
+
         self.write_text("; do");
         self.write_sequence_open_suffix(body, Some(body_upper_bound));
         let preserve_open_blank = body_has_blank_line_after_keyword(
@@ -1408,6 +1417,28 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             .rfind('\n')
             .map_or(0, |offset| offset.saturating_add(1));
         source[line_start..group_span.start.offset]
+            .trim_end_matches([' ', '\t', '\r'])
+            .ends_with("do")
+    }
+
+    fn body_starts_with_inline_do_if(&self, body: &StmtSeq) -> bool {
+        let [stmt] = body.as_slice() else {
+            return false;
+        };
+        if stmt.negated || !stmt.redirects.is_empty() || stmt.terminator.is_some() {
+            return false;
+        }
+        let Command::Compound(CompoundCommand::If(command)) = &stmt.command else {
+            return false;
+        };
+        if !matches!(command.syntax, IfSyntax::ThenFi { .. }) {
+            return false;
+        }
+        let source = self.source();
+        let line_start = source[..command.span.start.offset]
+            .rfind('\n')
+            .map_or(0, |offset| offset.saturating_add(1));
+        source[line_start..command.span.start.offset]
             .trim_end_matches([' ', '\t', '\r'])
             .ends_with("do")
     }
