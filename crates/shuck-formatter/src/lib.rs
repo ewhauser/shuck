@@ -2087,6 +2087,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_comments_after_final_case_terminator() {
+        let source = "case $key in\nfoo)\n  echo foo\n  ;;\n\n  #if TestValue --function equals --value \"$value\" --search \"1\"; then\n  #     echo \"Found $value\"\n  #else\n  #     echo \"Not found\"\n  #fi\nesac\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case $key in\nfoo)\n\techo foo\n\t;;\n\n\t#if TestValue --function equals --value \"$value\" --search \"1\"; then\n\t#     echo \"Found $value\"\n\t#else\n\t#     echo \"Not found\"\n\t#fi\nesac\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_blank_line_after_case_pattern() {
         let source = "case $x in\na)\n\n  echo a\n  ;;\nesac\n";
         let options = ShellFormatOptions::default();

@@ -2261,10 +2261,15 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 }
                 self.format_case_item(item, case_item_body_upper_bound(item, case_body_fallback))?;
             }
-            if case_has_blank_line_before_esac(command, self.source()) {
+            let suffix_comments = self.case_suffix_comments_before_esac(command, esac_span);
+            if suffix_comments.is_empty() {
+                if case_has_blank_line_before_esac(command, self.source()) {
+                    self.newline();
+                }
                 self.newline();
+            } else {
+                self.emit_case_suffix_comments_before_esac(command, &suffix_comments, esac_span);
             }
-            self.newline();
             self.write_text("esac");
             self.write_close_suffix_after_span(esac_span);
         }
@@ -2539,6 +2544,51 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             .copied()
             .filter(|comment| comment.span().start.offset < first_pattern_start)
             .collect()
+    }
+
+    fn case_suffix_comments_before_esac(
+        &self,
+        command: &CaseCommand,
+        esac_span: Option<Span>,
+    ) -> Vec<BranchPrefixComment> {
+        let Some(last_item) = command.cases.last() else {
+            return Vec::new();
+        };
+        let Some(start) = case_suffix_comment_region_start(last_item) else {
+            return Vec::new();
+        };
+        let end = esac_span
+            .map(|span| span.start.offset)
+            .unwrap_or(command.span.end.offset);
+        own_line_comments_in_region(self.source(), start, end)
+    }
+
+    fn emit_case_suffix_comments_before_esac(
+        &mut self,
+        command: &CaseCommand,
+        comments: &[BranchPrefixComment],
+        esac_span: Option<Span>,
+    ) {
+        let Some(mut previous_line) = command
+            .cases
+            .last()
+            .and_then(case_suffix_comment_start_line)
+        else {
+            return;
+        };
+        let comment_indent = usize::from(self.options().switch_case_indent()) + 1;
+        for comment in comments {
+            let comment_line = self.source_map().line_number_for_offset(comment.offset);
+            self.write_line_breaks(line_gap_break_count(previous_line, comment_line));
+            self.with_extra_prefix_indent(comment_indent, |formatter| {
+                formatter.write_text(&comment.text);
+            });
+            previous_line = comment_line;
+        }
+        let esac_line = esac_span
+            .map(|span| span.start.line)
+            .unwrap_or(command.span.end.line);
+        self.write_line_breaks(line_gap_break_count(previous_line, esac_line));
     }
 
     fn emit_case_item_prefix_comments(
@@ -4548,6 +4598,22 @@ fn case_item_has_blank_line_before_terminator(item: &CaseItem, source: &str) -> 
     gap_has_empty_physical_line(source, content_end, terminator_start)
 }
 
+fn case_suffix_comment_region_start(item: &CaseItem) -> Option<usize> {
+    let start = item
+        .terminator_span
+        .map(|span| span.end.offset)
+        .or_else(|| item.body.last().map(|stmt| stmt_span(stmt).end.offset))
+        .or_else(|| item.patterns.last().map(|pattern| pattern.span.end.offset))?;
+    Some(start)
+}
+
+fn case_suffix_comment_start_line(item: &CaseItem) -> Option<usize> {
+    item.terminator_span
+        .map(|span| span.end.line)
+        .or_else(|| item.body.last().map(|stmt| stmt_span(stmt).end.line))
+        .or_else(|| item.patterns.last().map(|pattern| pattern.span.end.line))
+}
+
 fn sequence_close_gap_start(commands: &StmtSeq, source: &str) -> usize {
     commands
         .trailing_comments
@@ -5341,6 +5407,36 @@ fn branch_prefix_comments(source: &str, start: usize, end: usize) -> Vec<BranchP
         let trimmed = text.trim_start_matches([' ', '\t']);
         let indent = text.len().saturating_sub(trimmed.len());
         if trimmed.starts_with('#') && text.get(..indent) == Some(keyword_indent) {
+            comments.push(BranchPrefixComment {
+                offset: offset + indent,
+                text: trimmed.trim_end_matches([' ', '\t', '\r']).to_string(),
+            });
+        }
+        offset += line.len();
+    }
+    comments
+}
+
+fn own_line_comments_in_region(source: &str, start: usize, end: usize) -> Vec<BranchPrefixComment> {
+    let start = start.min(end).min(source.len());
+    let end = end.min(source.len());
+    let Some(next_line_start) = source
+        .get(start..end)
+        .and_then(|slice| slice.find('\n').map(|offset| start + offset + 1))
+    else {
+        return Vec::new();
+    };
+    let Some(slice) = source.get(next_line_start..end) else {
+        return Vec::new();
+    };
+
+    let mut comments = Vec::new();
+    let mut offset = next_line_start;
+    for line in slice.split_inclusive('\n') {
+        let text = line.trim_end_matches(['\n', '\r']);
+        let trimmed = text.trim_start_matches([' ', '\t']);
+        let indent = text.len().saturating_sub(trimmed.len());
+        if trimmed.starts_with('#') {
             comments.push(BranchPrefixComment {
                 offset: offset + indent,
                 text: trimmed.trim_end_matches([' ', '\t', '\r']).to_string(),
