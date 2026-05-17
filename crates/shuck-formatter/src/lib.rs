@@ -1626,6 +1626,20 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_negative_parameter_slice_offset_spacing() {
+        let source = "if [ \"${filename: -5}\" != .orig ]; then\n  echo no\nfi\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if [ \"${filename: -5}\" != .orig ]; then\n\techo no\nfi\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn formats_major_minor_multiline_command_substitution_like_shfmt() {
         let source = "major_minor() {\n  echo \"${1%%.*}.$(\n    x=\"${1#*.}\"\n    echo \"${x%%.*}\"\n  )\"\n}\n";
         let options = ShellFormatOptions::default();

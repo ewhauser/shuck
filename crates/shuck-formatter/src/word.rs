@@ -1058,7 +1058,7 @@ fn render_word_part(
             rendered.push_str("${");
             push_var_ref(rendered, reference, source, options);
             rendered.push(':');
-            push_arithmetic_source_text(rendered, offset, offset_ast.as_deref(), source, options);
+            push_parameter_slice_offset(rendered, offset, offset_ast.as_deref(), source, options);
             if let Some(length) = length {
                 rendered.push(':');
                 push_arithmetic_source_text(
@@ -2414,6 +2414,21 @@ fn push_arithmetic_source_text(
     }
 }
 
+fn push_parameter_slice_offset(
+    rendered: &mut String,
+    text: &shuck_ast::SourceText,
+    ast: Option<&ArithmeticExprNode>,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+) {
+    let mut offset = String::new();
+    push_arithmetic_source_text(&mut offset, text, ast, source, options);
+    if offset.starts_with('-') {
+        rendered.push(' ');
+    }
+    rendered.push_str(&offset);
+}
+
 fn render_arithmetic_slice_shell_word(
     word: &Word,
     source: &str,
@@ -2635,7 +2650,7 @@ fn push_parameter_word(
             rendered.push_str("${");
             push_var_ref(rendered, reference, source, options);
             rendered.push(':');
-            push_arithmetic_source_text(rendered, offset, offset_ast.as_deref(), source, options);
+            push_parameter_slice_offset(rendered, offset, offset_ast.as_deref(), source, options);
             if let Some(length) = length {
                 rendered.push(':');
                 push_arithmetic_source_text(
