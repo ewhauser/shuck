@@ -16,10 +16,11 @@ use shuck_format::{IndentStyle, LineEnding};
 use crate::Result;
 use crate::command::{
     binary_operator, case_terminator, command_format_span, format_arithmetic_command_source,
-    group_attachment_span, line_gap_break_count, multiline_compound_assignment_layout,
-    multiline_compound_assignment_lines, render_assignment_head_to_buf,
-    render_assignment_with_facts_to_buf, render_background_operator, render_var_ref_to_buf,
-    slice_span, stmt_format_span, stmt_render_start_line, stmt_span, stmt_verbatim_span,
+    format_arithmetic_for_init_source, group_attachment_span, line_gap_break_count,
+    multiline_compound_assignment_layout, multiline_compound_assignment_lines,
+    render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
+    render_var_ref_to_buf, slice_span, stmt_format_span, stmt_render_start_line, stmt_span,
+    stmt_verbatim_span,
 };
 use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
@@ -2367,8 +2368,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             .step_span
             .map(|span| span.slice(source))
             .unwrap_or("");
+        let init = format_arithmetic_for_init_source(init);
         self.write_text("for ((");
-        self.write_text(init);
+        self.write_text(&init);
         self.write_text(";");
         self.write_text(condition);
         self.write_text(";");

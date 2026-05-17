@@ -1291,6 +1291,39 @@ pub(crate) fn format_arithmetic_command_source(raw: &str) -> String {
         .unwrap_or_else(|| raw.to_string())
 }
 
+pub(crate) fn format_arithmetic_for_init_source(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.contains(',') {
+        return raw.to_string();
+    }
+    let Some((lhs, op, rhs)) = split_simple_arithmetic_assignment(trimmed) else {
+        return raw.to_string();
+    };
+    if lhs.is_empty() || rhs.is_empty() {
+        return raw.to_string();
+    }
+    format!("{} {} {}", lhs.trim(), op, rhs.trim())
+}
+
+fn split_simple_arithmetic_assignment(raw: &str) -> Option<(&str, &str, &str)> {
+    for op in [
+        "<<=", ">>=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "=",
+    ] {
+        let Some(index) = raw.find(op) else {
+            continue;
+        };
+        if op == "=" {
+            let previous = raw[..index].chars().next_back();
+            let next = raw[index + op.len()..].chars().next();
+            if previous.is_some_and(|ch| matches!(ch, '!' | '<' | '>' | '=')) || next == Some('=') {
+                continue;
+            }
+        }
+        return Some((&raw[..index], op, &raw[index + op.len()..]));
+    }
+    None
+}
+
 fn format_multiline_arithmetic_command_body(body: &str) -> String {
     let mut lines = body
         .lines()
@@ -1344,9 +1377,10 @@ fn format_arithmetic_for(
         .step_span
         .map(|span| span.slice(source))
         .unwrap_or("");
+    let init = format_arithmetic_for_init_source(init);
     let mut header = String::with_capacity(init.len() + condition.len() + step.len() + 14);
     header.push_str("for ((");
-    header.push_str(init);
+    header.push_str(&init);
     header.push(';');
     header.push_str(condition);
     header.push(';');
