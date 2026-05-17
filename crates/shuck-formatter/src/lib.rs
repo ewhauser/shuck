@@ -1759,15 +1759,25 @@ $WHITE\$ $NO_COLOUR "
     }
 
     #[test]
-    fn drops_blank_line_before_case_item_comments() {
+    fn preserves_blank_line_after_case_in_comments() {
+        let source = "case $x in\n\n# next\na) echo a ;;\nesac\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn preserves_blank_line_before_case_item_comments() {
         let source = "case $x in\na) echo a ;;\n\n# next\nb) echo b ;;\nesac\n";
         let options = ShellFormatOptions::default();
 
         assert_eq!(
             format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case $x in\na) echo a ;;\n# next\nb) echo b ;;\nesac\n".to_string()
-            )
+            FormattedSource::Unchanged
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }

@@ -3682,6 +3682,29 @@ fn gap_has_blank_line(source: &str, start: usize, end: usize) -> bool {
         .is_some_and(|gap| gap.bytes().filter(|byte| *byte == b'\n').count() >= 2)
 }
 
+fn gap_has_empty_physical_line(source: &str, start: usize, end: usize) -> bool {
+    let lower = start.min(end).min(source.len());
+    let upper = start.max(end).min(source.len());
+    let Some(gap) = source.get(lower..upper) else {
+        return false;
+    };
+    let bytes = gap.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'\n' {
+            let mut next = index + 1;
+            while next < bytes.len() && matches!(bytes[next], b' ' | b'\t' | b'\r') {
+                next += 1;
+            }
+            if next < bytes.len() && bytes[next] == b'\n' {
+                return true;
+            }
+        }
+        index += 1;
+    }
+    false
+}
+
 fn case_item_body_upper_bound(item: &CaseItem, fallback: usize) -> Option<usize> {
     Some(
         item.terminator_span
@@ -3708,13 +3731,7 @@ fn case_has_blank_line_after_in(command: &CaseCommand, source: &str) -> bool {
         return false;
     };
     let gap_start = start + in_end;
-    let Some(gap) = source.get(gap_start..end) else {
-        return false;
-    };
-    gap_has_blank_line(source, gap_start, end)
-        && !gap
-            .lines()
-            .any(|line| line.trim_start_matches([' ', '\t']).starts_with('#'))
+    gap_has_empty_physical_line(source, gap_start, end)
 }
 
 fn case_item_has_blank_line_before(previous: &CaseItem, item: &CaseItem, source: &str) -> bool {
@@ -3738,15 +3755,7 @@ fn case_item_has_blank_line_before(previous: &CaseItem, item: &CaseItem, source:
     else {
         return false;
     };
-    let lower = start.min(end).min(source.len());
-    let upper = start.max(end).min(source.len());
-    let Some(gap) = source.get(lower..upper) else {
-        return false;
-    };
-    gap_has_blank_line(source, start, end)
-        && !gap
-            .lines()
-            .any(|line| line.trim_start_matches([' ', '\t']).starts_with('#'))
+    gap_has_empty_physical_line(source, start, end)
 }
 
 fn case_item_body_terminator_was_inline_in_source(item: &CaseItem) -> bool {
