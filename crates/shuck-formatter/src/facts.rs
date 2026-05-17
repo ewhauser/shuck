@@ -1172,7 +1172,17 @@ fn branch_open_suffix_span(
     let source = source_map.source();
     let first = sequence.first()?;
     let first_start = stmt_span(first).start.offset;
-    let keyword_offset = source[..first_start].rfind(keyword)?;
+    let mut search_end = first_start.min(source.len());
+    let keyword_offset = loop {
+        let offset = source[..search_end].rfind(keyword)?;
+        let end = offset + keyword.len();
+        if shell_keyword_boundaries_match(source, offset, end)
+            && !line_has_shell_comment_before(source, offset)
+        {
+            break offset;
+        }
+        search_end = offset;
+    };
     let line_end = source[keyword_offset..]
         .find('\n')
         .map(|offset| keyword_offset + offset)
@@ -1183,6 +1193,33 @@ fn branch_open_suffix_span(
         .trim_start_matches(char::is_whitespace)
         .starts_with('#')
         .then(|| source_map.span_for_offsets(suffix_start, line_end))
+}
+
+fn line_has_shell_comment_before(source: &str, offset: usize) -> bool {
+    let upper = offset.min(source.len());
+    let line_start = source[..upper]
+        .rfind('\n')
+        .map_or(0, |newline| newline.saturating_add(1));
+    let mut cursor = line_start;
+    while cursor < upper {
+        let Some(ch) = source[cursor..].chars().next() else {
+            break;
+        };
+        match ch {
+            '\'' => {
+                cursor = skip_single_quoted(source, cursor + ch.len_utf8(), upper);
+                continue;
+            }
+            '"' => {
+                cursor = skip_double_quoted(source, cursor + ch.len_utf8(), upper);
+                continue;
+            }
+            '#' if shell_comment_can_start(source, cursor) => return true,
+            _ => {}
+        }
+        cursor += ch.len_utf8();
+    }
+    false
 }
 
 fn sequence_comment_lower_bound(sequence: &StmtSeq, source_map: &SourceMap<'_>) -> usize {

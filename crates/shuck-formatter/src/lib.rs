@@ -1156,6 +1156,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn ignores_branch_keywords_inside_leading_comments() {
+        let source = "f() {\n  if [ -f .iterate ]; then\n    #ls ./*/.git &>/dev/null; then  # note\n    hr\n  fi\n}\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\tif [ -f .iterate ]; then\n\t\t#ls ./*/.git &>/dev/null; then  # note\n\t\thr\n\tfi\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn keeps_inline_case_conditions_before_then() {
         let source =
             "if case \"$@\" in *--usecwd*) true ;; *) false ;; esac then\n  USE_CWD=1\nfi\n";
