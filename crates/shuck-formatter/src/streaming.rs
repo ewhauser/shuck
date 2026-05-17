@@ -1630,10 +1630,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 continue;
             }
             if index > 0 {
-                let operator = operators
+                let (operator, operator_span) = operators
                     .get(index - 1)
-                    .map(|(operator, _)| binary_operator(operator))
-                    .unwrap_or("|");
+                    .map(|(operator, span)| (binary_operator(operator), *span))
+                    .unwrap_or(("|", stmt.span));
                 let break_here = operator_breaks.get(index - 1).copied().unwrap_or(false);
                 if break_here && operator_next_line {
                     self.line_continuation();
@@ -1651,6 +1651,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     self.write_space();
                     self.write_text(operator);
                     self.newline();
+                    self.emit_pipeline_interstitial_comments(stmt, operator_span);
                     self.with_extra_prefix_indent(
                         self.pipeline_continuation_indent,
                         |formatter| formatter.format_pipeline_stmt(stmt),
@@ -1667,6 +1668,24 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         Ok(())
     }
 
+    fn emit_pipeline_interstitial_comments(&mut self, stmt: &Stmt, operator_span: Span) {
+        if !stmt.leading_comments.is_empty() {
+            return;
+        }
+        let command_start = command_format_span(&stmt.command).start.offset;
+        if command_start <= operator_span.end.offset {
+            return;
+        }
+        let comments =
+            own_line_comments_in_region(self.source(), operator_span.end.offset, command_start);
+        for comment in comments {
+            self.with_extra_prefix_indent(self.pipeline_continuation_indent, |formatter| {
+                formatter.write_text(&comment.text);
+            });
+            self.newline();
+        }
+    }
+
     fn format_pipeline_stmt(&mut self, stmt: &Stmt) -> Result<()> {
         let next_line =
             stmt_render_start_line(stmt, self.source(), self.source_map(), self.options());
@@ -1674,11 +1693,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             .leading_comments
             .iter()
             .filter_map(|comment| self.source_map().source_comment(*comment))
-            .filter(|comment| {
-                !comment.inline()
-                    && comment.span().end.offset
-                        <= self.facts().stmt(stmt).attachment_span().start.offset
-            })
+            .filter(|comment| !comment.inline())
             .collect::<Vec<_>>();
         self.emit_leading_comments(&leading, next_line);
         self.format_stmt(stmt)
