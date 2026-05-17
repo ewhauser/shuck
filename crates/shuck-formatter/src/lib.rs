@@ -3060,6 +3060,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn keeps_inline_case_item_when_terminator_is_missing() {
+        let source = "case \"$x\" in\n*)  usage\nesac\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted("case \"$x\" in\n*) usage ;;\nesac\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn switch_case_indent_indents_patterns_and_bodies() {
         let source = "case $x in\na) echo a;;\nesac\n";
         let options = ShellFormatOptions::default().with_switch_case_indent(true);

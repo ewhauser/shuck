@@ -2161,7 +2161,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     || (pattern_suffix_comment.is_some()
                         && !body_has_later_comments
                         && case_item_body_can_share_terminator(item)
-                        && case_item_body_terminator_was_inline_in_source(item)))
+                        && case_item_body_terminator_was_inline_in_source(item))
+                    || (!body_has_later_comments
+                        && case_item_body_was_inline_without_terminator(item)))
             {
                 if pattern_suffix_comment.is_some()
                     && !self.facts().case_item_was_inline_in_source(item)
@@ -3864,6 +3866,19 @@ fn case_item_body_can_share_terminator(item: &CaseItem) -> bool {
         Command::Simple(_) | Command::Builtin(_) | Command::Decl(_)
     ) && stmt.redirects.is_empty()
         && stmt.terminator.is_none()
+}
+
+fn case_item_body_was_inline_without_terminator(item: &CaseItem) -> bool {
+    if item.terminator_span.is_some() || !case_item_body_can_share_terminator(item) {
+        return false;
+    }
+    let Some(pattern) = item.patterns.last() else {
+        return false;
+    };
+    let Some(stmt) = item.body.first() else {
+        return false;
+    };
+    pattern.span.end.line == stmt_span(stmt).start.line
 }
 
 fn case_item_has_blank_line_after_pattern(
