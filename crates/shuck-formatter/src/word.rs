@@ -422,7 +422,7 @@ fn render_word_syntax_internal(
     }
 
     if word_needs_special_rendering(word)
-        || word_has_parameter_raw_subscript_needs_compaction(word, source)
+        || word_has_parameter_raw_subscript_needs_compaction(word, source, options)
         || word_has_parameter_command_redirect_spacing_needs_normalization(word, source)
     {
         if render_word_parts(
@@ -505,14 +505,18 @@ fn word_needs_special_rendering(word: &Word) -> bool {
         .any(|part| part_needs_special_rendering(&part.kind))
 }
 
-fn word_has_parameter_raw_subscript_needs_compaction(word: &Word, source: &str) -> bool {
+fn word_has_parameter_raw_subscript_needs_compaction(
+    word: &Word,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+) -> bool {
     word.parts.iter().any(|part| match &part.kind {
         WordPart::Parameter(parameter) => {
-            parameter_raw_subscript_needs_compaction(parameter, source)
+            parameter_raw_subscript_needs_compaction(parameter, source, options)
         }
         WordPart::DoubleQuoted { parts, .. } => parts.iter().any(|part| match &part.kind {
             WordPart::Parameter(parameter) => {
-                parameter_raw_subscript_needs_compaction(parameter, source)
+                parameter_raw_subscript_needs_compaction(parameter, source, options)
             }
             _ => false,
         }),
@@ -1297,7 +1301,7 @@ fn preferred_raw_word_part_source<'a>(
         WordPart::Parameter(parameter) => {
             let raw = raw_source_slice(span, source)?;
             (parameter_prefers_raw_source(parameter, span, source)
-                && !parameter_raw_subscript_needs_compaction(parameter, source)
+                && !parameter_raw_subscript_needs_compaction(parameter, source, options)
                 && !raw_command_redirect_spacing_would_change(raw))
             .then_some(raw)
         }
@@ -1324,11 +1328,22 @@ fn preferred_raw_word_part_source<'a>(
 fn parameter_raw_subscript_needs_compaction(
     parameter: &shuck_ast::ParameterExpansion,
     source: &str,
+    options: &ResolvedShellFormatOptions,
 ) -> bool {
     if parameter_bourne_operand_needs_subscript_compaction(parameter, source) {
         return true;
     }
-    if let Some(syntax) = parameter_bourne_subscript_syntax(parameter, source) {
+    if let Some(subscript) = parameter_bourne_subscript(parameter) {
+        let syntax = subscript.syntax_text(source);
+        if let Some(ast) = subscript.arithmetic_ast.as_ref()
+            && syntax
+                .trim_start_matches([' ', '\t', '\r'])
+                .starts_with("$((")
+        {
+            let mut rendered = String::new();
+            render_arithmetic_subscript_expr_to_buf(&mut rendered, ast, source, options, false);
+            return rendered != syntax;
+        }
         return compact_dynamic_arithmetic_subscript(syntax) != syntax;
     }
     if parameter.bourne().is_some() {
@@ -1338,10 +1353,9 @@ fn parameter_raw_subscript_needs_compaction(
     compact_raw_parameter_subscript(raw) != raw
 }
 
-fn parameter_bourne_subscript_syntax<'a>(
-    parameter: &'a shuck_ast::ParameterExpansion,
-    source: &'a str,
-) -> Option<&'a str> {
+fn parameter_bourne_subscript(
+    parameter: &shuck_ast::ParameterExpansion,
+) -> Option<&shuck_ast::Subscript> {
     let reference = match parameter.bourne()? {
         BourneParameterExpansion::Access { reference }
         | BourneParameterExpansion::Length { reference }
@@ -1352,10 +1366,7 @@ fn parameter_bourne_subscript_syntax<'a>(
         | BourneParameterExpansion::Transformation { reference, .. } => reference,
         BourneParameterExpansion::PrefixMatch { .. } => return None,
     };
-    reference
-        .subscript
-        .as_deref()
-        .map(|subscript| subscript.syntax_text(source))
+    reference.subscript.as_deref()
 }
 
 fn parameter_bourne_operand_needs_subscript_compaction(
@@ -2649,6 +2660,7 @@ fn render_arithmetic_subscript_expr_to_buf(
     expr: &ArithmeticExprNode,
     source: &str,
     options: &ResolvedShellFormatOptions,
+    compact: bool,
 ) {
     push_arithmetic_expr(
         rendered,
@@ -2656,7 +2668,7 @@ fn render_arithmetic_subscript_expr_to_buf(
         ArithmeticContext::Subscript,
         source,
         options,
-        true,
+        compact,
     );
 }
 
@@ -3115,7 +3127,11 @@ fn push_var_ref(
                 SubscriptSelector::Star => '*',
             });
         } else if let Some(ast) = subscript.arithmetic_ast.as_ref() {
-            render_arithmetic_subscript_expr_to_buf(rendered, ast, source, options);
+            let compact = !subscript
+                .syntax_text(source)
+                .trim_start_matches([' ', '\t', '\r'])
+                .starts_with("$((");
+            render_arithmetic_subscript_expr_to_buf(rendered, ast, source, options, compact);
         } else {
             rendered.push_str(&compact_dynamic_arithmetic_subscript(
                 subscript.syntax_text(source),
