@@ -440,6 +440,8 @@ fn render_word_syntax_internal(
         && let Some(raw) = raw_word_source_slice(word, source)
         && let Some(normalized) = normalize_raw_command_substitution_padding(raw)
     {
+        let normalized = normalize_raw_arithmetic_command_substitution_padding(&normalized)
+            .unwrap_or(normalized);
         push_raw_shell_text_with_normalized_redirect_spacing(rendered, &normalized);
         return;
     }
@@ -811,13 +813,11 @@ fn render_heredoc_body_part(
                     match syntax {
                         ArithmeticExpansionSyntax::DollarParenParen => {
                             rendered.push_str("$((");
-                            push_arithmetic_expr(
+                            push_arithmetic_expansion_body(
                                 rendered,
                                 expression_ast,
-                                ArithmeticContext::TopLevel,
                                 source,
                                 options,
-                                false,
                             );
                             rendered.push_str("))");
                         }
@@ -836,14 +836,11 @@ fn render_heredoc_body_part(
                     }
                 }
             } else {
-                match syntax {
-                    ArithmeticExpansionSyntax::DollarParenParen => {
-                        std::write!(rendered, "$(({}))", expression.slice(source))?;
-                    }
-                    ArithmeticExpansionSyntax::LegacyBracket => {
-                        std::write!(rendered, "$[{}]", expression.slice(source))?;
-                    }
-                }
+                push_trimmed_arithmetic_expansion_source(
+                    rendered,
+                    expression.slice(source),
+                    *syntax,
+                );
             }
         }
         HeredocBodyPart::Parameter(parameter) => {
@@ -1229,13 +1226,11 @@ fn render_word_part(
                     match syntax {
                         ArithmeticExpansionSyntax::DollarParenParen => {
                             rendered.push_str("$((");
-                            push_arithmetic_expr(
+                            push_arithmetic_expansion_body(
                                 rendered,
                                 expression_ast,
-                                ArithmeticContext::TopLevel,
                                 source,
                                 options,
-                                false,
                             );
                             rendered.push_str("))");
                         }
@@ -1254,14 +1249,11 @@ fn render_word_part(
                     }
                 }
             } else {
-                match syntax {
-                    ArithmeticExpansionSyntax::DollarParenParen => {
-                        std::write!(rendered, "$(({}))", expression.slice(source))?;
-                    }
-                    ArithmeticExpansionSyntax::LegacyBracket => {
-                        std::write!(rendered, "$[{}]", expression.slice(source))?;
-                    }
-                }
+                push_trimmed_arithmetic_expansion_source(
+                    rendered,
+                    expression.slice(source),
+                    *syntax,
+                );
             }
         }
         WordPart::Parameter(parameter) => {
@@ -2384,6 +2376,32 @@ fn normalize_raw_command_substitution_padding(raw: &str) -> Option<String> {
     }
 }
 
+fn normalize_raw_arithmetic_command_substitution_padding(raw: &str) -> Option<String> {
+    let (open, close) = if raw.starts_with("$((") && raw.ends_with("))") {
+        ("$((", "))")
+    } else if raw.starts_with("$[") && raw.ends_with(']') {
+        ("$[", "]")
+    } else {
+        return None;
+    };
+    let body_start = open.len();
+    let body_end = raw.len().saturating_sub(close.len());
+    let body = raw.get(body_start..body_end)?;
+    if !(body.contains("$(") || body.contains('`')) {
+        return None;
+    }
+    let trimmed = body.trim_matches([' ', '\t', '\r']);
+    if trimmed.len() == body.len() {
+        return None;
+    }
+
+    let mut rendered = String::with_capacity(raw.len());
+    rendered.push_str(open);
+    rendered.push_str(trimmed);
+    rendered.push_str(close);
+    Some(rendered)
+}
+
 fn matching_raw_command_substitution_close(raw: &str, body_start: usize) -> Option<usize> {
     let mut quote: Option<char> = None;
     let mut escaped = false;
@@ -3123,6 +3141,78 @@ fn push_arithmetic_expr(
 
     if needs_parentheses {
         rendered.push(')');
+    }
+}
+
+fn push_arithmetic_expansion_body(
+    rendered: &mut String,
+    expr: &ArithmeticExprNode,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+) {
+    let mut body = String::new();
+    push_arithmetic_expr(
+        &mut body,
+        expr,
+        ArithmeticContext::TopLevel,
+        source,
+        options,
+        false,
+    );
+    if body.contains("$(")
+        || body.contains('`')
+        || arithmetic_expr_contains_command_substitution(expr)
+    {
+        rendered.push_str(body.trim_matches([' ', '\t', '\r']));
+    } else {
+        rendered.push_str(&body);
+    }
+}
+
+fn arithmetic_expr_contains_command_substitution(expr: &ArithmeticExprNode) -> bool {
+    match &expr.kind {
+        ArithmeticExpr::ShellWord(word) => word.parts.iter().any(|part| {
+            matches!(
+                part.kind,
+                WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. }
+            )
+        }),
+        ArithmeticExpr::Indexed { index, .. } => {
+            arithmetic_expr_contains_command_substitution(index)
+        }
+        ArithmeticExpr::Parenthesized { expression } => {
+            arithmetic_expr_contains_command_substitution(expression)
+        }
+        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+            arithmetic_expr_contains_command_substitution(expr)
+        }
+        ArithmeticExpr::Binary { left, right, .. } => {
+            arithmetic_expr_contains_command_substitution(left)
+                || arithmetic_expr_contains_command_substitution(right)
+        }
+        ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            arithmetic_expr_contains_command_substitution(condition)
+                || arithmetic_expr_contains_command_substitution(then_expr)
+                || arithmetic_expr_contains_command_substitution(else_expr)
+        }
+        ArithmeticExpr::Assignment { target, value, .. } => {
+            arithmetic_lvalue_contains_command_substitution(target)
+                || arithmetic_expr_contains_command_substitution(value)
+        }
+        ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => false,
+    }
+}
+
+fn arithmetic_lvalue_contains_command_substitution(target: &ArithmeticLvalue) -> bool {
+    match target {
+        ArithmeticLvalue::Variable(_) => false,
+        ArithmeticLvalue::Indexed { index, .. } => {
+            arithmetic_expr_contains_command_substitution(index)
+        }
     }
 }
 
