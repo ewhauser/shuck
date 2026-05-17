@@ -4618,10 +4618,24 @@ fn body_has_blank_line_after_open(
     {
         first_start = stmt_first_content_offset(stmt, source, source_map);
     }
+    if source_map.line_number_for_offset(first_start)
+        == source_map.line_number_for_offset(open_end_offset)
+        && let Some(stmt) = commands.first()
+    {
+        first_start = stmt_first_content_offset(stmt, source, source_map);
+    }
     let first_start = source_map
         .first_comment_between(open_end_offset, first_start)
+        .filter(|comment_start| {
+            source_map.line_number_for_offset(*comment_start)
+                != source_map.line_number_for_offset(open_end_offset)
+        })
         .unwrap_or(first_start);
     gap_has_blank_line(source, open_end_offset, first_start)
+        || (source
+            .get(..open_end_offset.min(source.len()))
+            .is_some_and(|prefix| prefix.ends_with('\n'))
+            && gap_starts_with_empty_physical_line(source, open_end_offset, first_start))
 }
 
 fn body_has_blank_line_after_keyword(
@@ -4969,6 +4983,22 @@ fn gap_has_empty_physical_line(source: &str, start: usize, end: usize) -> bool {
             }
         }
         index += 1;
+    }
+    false
+}
+
+fn gap_starts_with_empty_physical_line(source: &str, start: usize, end: usize) -> bool {
+    let lower = start.min(end).min(source.len());
+    let upper = start.max(end).min(source.len());
+    let Some(gap) = source.get(lower..upper) else {
+        return false;
+    };
+    for byte in gap.bytes() {
+        match byte {
+            b' ' | b'\t' | b'\r' => {}
+            b'\n' => return true,
+            _ => return false,
+        }
     }
     false
 }

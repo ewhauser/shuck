@@ -3733,6 +3733,20 @@ function R() {
     }
 
     #[test]
+    fn preserves_blank_line_after_if_then_suffix_comment() {
+        let source = "if [[ -s ./bin/rails ]]; then # binstub\n\n  ruby ./bin/rails\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if [[ -s ./bin/rails ]]; then # binstub\n\n\truby ./bin/rails\nfi\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_blank_line_before_if_fi() {
         let source =
             "if true; then\n  if other; then\n    echo yes\n  else\n    echo no\n  fi\n\nfi\n";
