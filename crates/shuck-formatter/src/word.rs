@@ -957,7 +957,7 @@ fn render_word_part(
     }
 
     match part {
-        WordPart::Literal(text) => rendered.push_str(text.as_str(source, span)),
+        WordPart::Literal(text) => rendered.push_str(text.syntax_str(source, span)),
         WordPart::SingleQuoted { value, dollar } => {
             if *dollar {
                 rendered.push('$');
@@ -1520,6 +1520,13 @@ fn render_command_substitution(
     .ok()?;
 
     let trimmed = trim_trailing_line_endings(&nested);
+    let normalized_backtick_body;
+    let trimmed = if raw.is_some_and(|raw| raw.starts_with('`')) && trimmed.contains("\\\\$") {
+        normalized_backtick_body = normalize_backtick_body_escaped_dollars(trimmed);
+        normalized_backtick_body.as_str()
+    } else {
+        trimmed
+    };
     if trimmed.is_empty() {
         rendered.push_str("$()");
         return Some(());
@@ -1557,6 +1564,27 @@ fn render_command_substitution(
     }
 
     Some(())
+}
+
+fn normalize_backtick_body_escaped_dollars(body: &str) -> String {
+    let mut normalized = String::with_capacity(body.len());
+    let mut chars = body.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' && chars.peek() == Some(&'\\') {
+            chars.next();
+            if chars.peek() == Some(&'$') {
+                normalized.push('\\');
+                normalized.push('$');
+                chars.next();
+                continue;
+            }
+            normalized.push('\\');
+            normalized.push('\\');
+            continue;
+        }
+        normalized.push(ch);
+    }
+    normalized
 }
 
 fn render_heredoc_body_command_substitution(
