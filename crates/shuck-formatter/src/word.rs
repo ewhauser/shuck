@@ -2420,6 +2420,7 @@ fn push_raw_block_command_substitution_without_outer_indent(
     }
     let mut body_indent: Option<String> = None;
     let mut previous_pipeline_indent: Option<String> = None;
+    let mut compound_indent_shifts = Vec::<RawCompoundIndentShift>::new();
     let mut quote = RawShellQuoteState::default();
     for line in lines {
         target.push('\n');
@@ -2442,6 +2443,12 @@ fn push_raw_block_command_substitution_without_outer_indent(
             .strip_prefix(outer_indent)
             .unwrap_or_else(|| strip_one_indent_unit(line, options))
             .to_string();
+        if let Some(shift) = compound_indent_shifts.last()
+            && raw_line_indent_matches_shift(&line, shift)
+        {
+            line = add_raw_indent_units(&line, shift.extra_units, options);
+        }
+        let indent_before_pipeline_adjustment = line_leading_shell_indent(&line).to_string();
         let carried_pipeline_indent = previous_pipeline_indent.clone();
         let indent = line_leading_shell_indent(&line);
         let content = &line[indent.len()..];
@@ -2499,7 +2506,51 @@ fn push_raw_block_command_substitution_without_outer_indent(
             line_ends_with_pipeline_operator(&line).then(|| indent.to_string())
         };
         quote.scan_line(&line);
+        if let Some(close_keyword) = raw_compound_close_keyword(content) {
+            let before_units = raw_indent_units(&indent_before_pipeline_adjustment, options);
+            let after_units = raw_indent_units(indent, options);
+            if after_units > before_units {
+                compound_indent_shifts.push(RawCompoundIndentShift {
+                    source_indent: indent_before_pipeline_adjustment,
+                    extra_units: after_units - before_units,
+                    close_keyword,
+                });
+            }
+        }
+        if compound_indent_shifts
+            .last()
+            .is_some_and(|shift| raw_line_closes_compound(content, shift.close_keyword))
+        {
+            compound_indent_shifts.pop();
+        }
     }
+}
+
+#[derive(Debug)]
+struct RawCompoundIndentShift {
+    source_indent: String,
+    extra_units: usize,
+    close_keyword: &'static str,
+}
+
+fn raw_line_indent_matches_shift(line: &str, shift: &RawCompoundIndentShift) -> bool {
+    let indent = line_leading_shell_indent(line);
+    let content = &line[indent.len()..];
+    !content.trim().is_empty()
+        && (indent == shift.source_indent || indent.starts_with(&shift.source_indent))
+}
+
+fn add_raw_indent_units(
+    line: &str,
+    extra_units: usize,
+    options: &ResolvedShellFormatOptions,
+) -> String {
+    let indent = line_leading_shell_indent(line);
+    let mut shifted = indent.to_string();
+    for _ in 0..extra_units {
+        shifted = source_indent_plus_one_unit(&shifted, options);
+    }
+    format!("{shifted}{}", &line[indent.len()..])
 }
 
 fn push_raw_shell_line_with_normalized_source_indent(
@@ -3128,6 +3179,50 @@ fn raw_semicolon_is_single_terminator(bytes: &[u8], semicolon_start: usize) -> b
     )
 }
 
+fn raw_compound_close_keyword(content: &str) -> Option<&'static str> {
+    let trimmed = content.trim_end_matches([' ', '\t', '\r']);
+    if raw_line_starts_with_keyword(trimmed, "for")
+        || raw_line_starts_with_keyword(trimmed, "select")
+        || raw_line_starts_with_keyword(trimmed, "while")
+        || raw_line_starts_with_keyword(trimmed, "until")
+    {
+        return raw_line_ends_with_keyword(trimmed, "do").then_some("done");
+    }
+    if raw_line_starts_with_keyword(trimmed, "if") {
+        return raw_line_ends_with_keyword(trimmed, "then").then_some("fi");
+    }
+    if raw_line_starts_with_keyword(trimmed, "case") {
+        return raw_line_ends_with_keyword(trimmed, "in").then_some("esac");
+    }
+    None
+}
+
+fn raw_line_closes_compound(content: &str, close_keyword: &str) -> bool {
+    raw_line_starts_with_keyword(content.trim_start_matches([' ', '\t', '\r']), close_keyword)
+}
+
+fn raw_line_starts_with_keyword(line: &str, keyword: &str) -> bool {
+    let Some(rest) = line.strip_prefix(keyword) else {
+        return false;
+    };
+    rest.is_empty()
+        || rest
+            .as_bytes()
+            .first()
+            .is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b';' | b'|' | b'&'))
+}
+
+fn raw_line_ends_with_keyword(line: &str, keyword: &str) -> bool {
+    let Some(prefix) = line.strip_suffix(keyword) else {
+        return false;
+    };
+    prefix.is_empty()
+        || prefix
+            .as_bytes()
+            .last()
+            .is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b';' | b'|'))
+}
+
 fn raw_redirect_operator_end(bytes: &[u8], start: usize) -> Option<usize> {
     match bytes.get(start).copied()? {
         b'>' => Some(match bytes.get(start + 1).copied() {
@@ -3170,6 +3265,18 @@ fn source_indent_units_before_offset(
         return 0;
     };
     let normalized = normalized_source_inline_indent(indent, options);
+    let width = usize::from(options.indent_width()).max(1);
+    match options.indent_style() {
+        IndentStyle::Tab => {
+            normalized.chars().filter(|ch| *ch == '\t').count()
+                + normalized.chars().filter(|ch| *ch == ' ').count() / width
+        }
+        IndentStyle::Space => normalized.len() / width,
+    }
+}
+
+fn raw_indent_units(indent: &str, options: &ResolvedShellFormatOptions) -> usize {
+    let normalized = normalized_raw_shell_indent(indent, options);
     let width = usize::from(options.indent_width()).max(1);
     match options.indent_style() {
         IndentStyle::Tab => {
