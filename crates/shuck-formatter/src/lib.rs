@@ -1961,6 +1961,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_body_indented_comments_before_case_patterns() {
+        let source = "f() {\n  case \"$prev\" in\n  -G)\n    echo grains\n    ;;\n    # FIXME\n  -R)\n    echo range\n    ;;\n  esac\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\tcase \"$prev\" in\n\t-G)\n\t\techo grains\n\t\t;;\n\t\t# FIXME\n\t-R)\n\t\techo range\n\t\t;;\n\tesac\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_comments_in_empty_case_items() {
         let source = "case \"$x\" in\n1)\n# keep\n;;\nesac\n";
         let options = ShellFormatOptions::default();

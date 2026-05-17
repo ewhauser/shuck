@@ -2172,14 +2172,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if let Some(first_pattern) = item.patterns.first()
             && !prefix_comments.is_empty()
         {
-            if base_indent > 0 {
-                self.with_extra_prefix_indent(base_indent, |formatter| {
-                    formatter
-                        .emit_leading_comments(&prefix_comments, first_pattern.span.start.line);
-                });
-            } else {
-                self.emit_leading_comments(&prefix_comments, first_pattern.span.start.line);
-            }
+            self.emit_case_item_prefix_comments(&prefix_comments, first_pattern, base_indent);
         }
 
         if base_indent > 0 {
@@ -2411,6 +2404,30 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             .copied()
             .filter(|comment| comment.span().start.offset < first_pattern_start)
             .collect()
+    }
+
+    fn emit_case_item_prefix_comments(
+        &mut self,
+        comments: &[SourceComment<'_>],
+        first_pattern: &Pattern,
+        base_indent: usize,
+    ) {
+        for (index, comment) in comments.iter().enumerate() {
+            let extra_indent = base_indent
+                + usize::from(case_prefix_comment_uses_body_indent(
+                    self.source(),
+                    comment,
+                    first_pattern.span.start.offset,
+                ));
+            self.with_extra_prefix_indent(extra_indent, |formatter| {
+                formatter.write_comment(comment);
+            });
+            let target_line = comments
+                .get(index + 1)
+                .map(SourceComment::line)
+                .unwrap_or(first_pattern.span.start.line);
+            self.write_line_breaks(line_gap_break_count(comment.line(), target_line));
+        }
     }
 
     fn with_extra_prefix_indent<T>(&mut self, levels: usize, f: impl FnOnce(&mut Self) -> T) -> T {
@@ -4735,6 +4752,25 @@ fn sequence_verbatim_span(statements: &StmtSeq, source: &str) -> Option<Span> {
 
 fn multiline_compound_assignment_line_extra_indent(line: &str) -> usize {
     usize::from(!line.starts_with(')'))
+}
+
+fn case_prefix_comment_uses_body_indent(
+    source: &str,
+    comment: &SourceComment<'_>,
+    pattern_start: usize,
+) -> bool {
+    let Some(comment_indent) = line_indent_before_offset(source, comment.span().start.offset)
+    else {
+        return false;
+    };
+    let Some(pattern_indent) = line_indent_before_offset(source, pattern_start) else {
+        return false;
+    };
+    shell_indent_width(comment_indent) > shell_indent_width(pattern_indent)
+}
+
+fn shell_indent_width(indent: &str) -> usize {
+    indent.chars().count()
 }
 
 fn collect_pipeline<'a>(
