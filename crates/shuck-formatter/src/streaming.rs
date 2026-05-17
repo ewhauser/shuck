@@ -894,12 +894,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return;
         };
         let source_column = shell_indent_width(source_indent);
-        if source_column < self.indent_column_for_level(self.indent_level) {
+        if source_column < self.indent_column_for_level(self.indent_level)
+            && comment_precedes_close_keyword_at_same_indent(self.source(), comment)
+        {
             if source_column == 0 {
-                if comment_precedes_close_keyword_at_same_indent(self.source(), comment) {
-                    self.line_indent_column = 0;
-                    self.line_start = false;
-                }
+                self.line_indent_column = 0;
+                self.line_start = false;
             } else {
                 self.write_indent_to_column(source_column);
             }
@@ -6266,8 +6266,16 @@ fn comment_precedes_close_keyword_at_same_indent(
             continue;
         }
         let indent_len = line.len() - trimmed.len();
-        return line.get(..indent_len) == Some(comment_indent)
-            && starts_with_close_keyword(trimmed);
+        if line.get(..indent_len) == Some(comment_indent) {
+            if starts_with_close_keyword(trimmed) {
+                return true;
+            }
+            if trimmed.starts_with('#') {
+                offset = line_end.saturating_add(1);
+                continue;
+            }
+        }
+        return false;
     }
     false
 }

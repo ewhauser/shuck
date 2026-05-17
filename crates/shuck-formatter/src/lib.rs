@@ -2557,6 +2557,20 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn normalizes_underindented_dangling_comments_inside_case_bodies() {
+        let source = "case $x in\na)\nif outer; then\n\tif inner; then\n\t\tok\n\telse\n\t\t:\n\t\t# disabled\n\tfi\nfi\n;;\nesac\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "case $x in\na)\n\tif outer; then\n\t\tif inner; then\n\t\t\tok\n\t\telse\n\t\t\t:\n\t\t\t# disabled\n\t\tfi\n\tfi\n\t;;\nesac\n"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
     fn formats_multiline_compound_assignments_structurally() {
         let source = "directories=(\n  bin\n  etc\n  Frameworks\n)\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
