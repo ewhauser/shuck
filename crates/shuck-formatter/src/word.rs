@@ -2433,10 +2433,17 @@ fn push_raw_block_command_substitution_without_outer_indent(
             && !content.trim().is_empty()
         {
             if content.starts_with('#') {
-                line = format!(
-                    "{}{content}",
+                let comment_indent = if !normalized_pipeline_continuation
+                    && body_indent.as_deref() == Some(previous_indent)
+                    && indent.len() <= previous_indent.len()
+                {
                     source_indent_plus_one_unit(previous_indent, options)
-                );
+                } else if indent.len() < previous_indent.len() {
+                    previous_indent.to_string()
+                } else {
+                    indent.to_string()
+                };
+                line = format!("{comment_indent}{content}");
             } else {
                 if !normalized_pipeline_continuation
                     && body_indent.as_deref() == Some(previous_indent)
