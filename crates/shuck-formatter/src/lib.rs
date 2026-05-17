@@ -1653,6 +1653,20 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_replacement_patterns_that_need_raw_delimiters() {
+        let source = "title=\"${title//\\\"}\"\nlocal profile=\"${1// }\"\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "title=\"${title//\\\"/}\"\nlocal profile=\"${1// /}\"\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_negative_parameter_slice_offset_spacing() {
         let source = "if [ \"${filename: -5}\" != .orig ]; then\n  echo no\nfi\n";
         let options = ShellFormatOptions::default();

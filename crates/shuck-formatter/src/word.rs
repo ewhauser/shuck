@@ -1020,6 +1020,7 @@ fn render_word_part(
             operator.as_ref(),
             operand.as_ref(),
             *colon_variant,
+            None,
             source,
             options,
         )?,
@@ -2722,6 +2723,7 @@ fn push_parameter_word(
                 operator.as_ref(),
                 operand.as_ref(),
                 *colon_variant,
+                Some(parameter.span),
                 source,
                 options,
             )?;
@@ -2791,6 +2793,7 @@ fn render_parameter_expansion(
     operator: &ParameterOp,
     operand: Option<&shuck_ast::SourceText>,
     colon_variant: bool,
+    raw_parameter_span: Option<shuck_ast::Span>,
     source: &str,
     options: &ResolvedShellFormatOptions,
 ) -> Result<(), std::fmt::Error> {
@@ -2831,9 +2834,21 @@ fn render_parameter_expansion(
             ..
         } => {
             rendered.push('/');
-            render_pattern_syntax_to_buf(pattern, source, options, rendered);
-            rendered.push('/');
-            rendered.push_str(replacement.slice(source));
+            if let Some((raw_pattern, raw_replacement)) = raw_parameter_replacement_parts(
+                raw_parameter_span,
+                reference,
+                false,
+                source,
+                options,
+            ) {
+                rendered.push_str(raw_pattern);
+                rendered.push('/');
+                rendered.push_str(raw_replacement);
+            } else {
+                render_parameter_replacement_pattern(rendered, pattern, source, options);
+                rendered.push('/');
+                push_parameter_replacement_text(rendered, replacement, source);
+            }
         }
         ParameterOp::ReplaceAll {
             pattern,
@@ -2841,9 +2856,21 @@ fn render_parameter_expansion(
             ..
         } => {
             rendered.push_str("//");
-            render_pattern_syntax_to_buf(pattern, source, options, rendered);
-            rendered.push('/');
-            rendered.push_str(replacement.slice(source));
+            if let Some((raw_pattern, raw_replacement)) = raw_parameter_replacement_parts(
+                raw_parameter_span,
+                reference,
+                true,
+                source,
+                options,
+            ) {
+                rendered.push_str(raw_pattern);
+                rendered.push('/');
+                rendered.push_str(raw_replacement);
+            } else {
+                render_parameter_replacement_pattern(rendered, pattern, source, options);
+                rendered.push('/');
+                push_parameter_replacement_text(rendered, replacement, source);
+            }
         }
         ParameterOp::UpperFirst => rendered.push('^'),
         ParameterOp::UpperAll => rendered.push_str("^^"),
@@ -2852,6 +2879,84 @@ fn render_parameter_expansion(
     }
     rendered.push('}');
     Ok(())
+}
+
+fn raw_parameter_replacement_parts<'a>(
+    raw_parameter_span: Option<shuck_ast::Span>,
+    reference: &VarRef,
+    replace_all: bool,
+    source: &'a str,
+    options: &ResolvedShellFormatOptions,
+) -> Option<(&'a str, &'a str)> {
+    if options.simplify() || options.minify() {
+        return None;
+    }
+
+    let span = raw_parameter_span?;
+    let raw_parameter = source.get(span.start.offset..span.end.offset)?;
+    let raw = raw_parameter.strip_prefix("${")?.strip_suffix('}')?;
+    let raw_body_start = span.start.offset.checked_add("${".len())?;
+    let reference_end = reference.name_span.end.offset.checked_sub(raw_body_start)?;
+    let operator = if replace_all { "//" } else { "/" };
+    let after_operator = raw.get(reference_end..)?.strip_prefix(operator)?;
+    Some(split_raw_parameter_replacement(after_operator))
+}
+
+fn split_raw_parameter_replacement(raw: &str) -> (&str, &str) {
+    let mut escaped = false;
+    let mut parameter_depth = 0usize;
+    let mut chars = raw.char_indices().peekable();
+
+    while let Some((index, ch)) = chars.next() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' => escaped = true,
+            '$' if chars.peek().is_some_and(|(_, next)| *next == '{') => {
+                chars.next();
+                parameter_depth += 1;
+            }
+            '}' if parameter_depth > 0 => parameter_depth -= 1,
+            '/' if parameter_depth == 0 => {
+                return (&raw[..index], &raw[index + '/'.len_utf8()..]);
+            }
+            _ => {}
+        }
+    }
+
+    (raw, "")
+}
+
+fn render_parameter_replacement_pattern(
+    rendered: &mut String,
+    pattern: &Pattern,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+) {
+    if !options.simplify()
+        && !options.minify()
+        && let Some(raw) = raw_pattern_source_slice(pattern, source)
+    {
+        rendered.push_str(raw);
+        return;
+    }
+
+    render_pattern_syntax_to_buf(pattern, source, options, rendered);
+}
+
+fn push_parameter_replacement_text(
+    rendered: &mut String,
+    replacement: &shuck_ast::SourceText,
+    source: &str,
+) {
+    if let Some(raw) = raw_source_slice(replacement.span(), source) {
+        rendered.push_str(raw);
+    } else {
+        rendered.push_str(replacement.slice(source));
+    }
 }
 
 fn parameter_defaulting_operator(operator: &ParameterOp) -> &'static str {
