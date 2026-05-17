@@ -4076,6 +4076,21 @@ function R() {
     }
 
     #[test]
+    fn keeps_inline_case_arms_inside_command_substitutions() {
+        let source = "value=\"$(\n  while read -r key; do\n    case \"$key\" in\n    A) echo A ;;\n    B) echo B ;;\n    esac\n  done\n)\"\n\n# later comment\nnext() { :; }\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "value=\"$(\n\twhile read -r key; do\n\t\tcase \"$key\" in\n\t\tA) echo A ;;\n\t\tB) echo B ;;\n\t\tesac\n\tdone\n)\"\n\n# later comment\nnext() { :; }\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn keeps_case_items_multiline_when_terminator_was_multiline() {
         let source = "case \"$x\" in\n-h|--help)  usage\n            ;;\nesac\n";
         let options = ShellFormatOptions::default();

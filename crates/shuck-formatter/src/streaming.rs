@@ -2614,9 +2614,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     .any(|comment| comment.line() > pattern_line)
             });
             let first_body_line = body_sequence.first_rendered_line_for(0);
+            let item_was_inline_in_source = self.facts().case_item_was_inline_in_source(item)
+                || case_item_pattern_body_terminator_was_inline_in_source(item, self.source());
             if base_indent == 0
                 && item.body.len() == 1
-                && (self.facts().case_item_was_inline_in_source(item)
+                && (item_was_inline_in_source
                     || (pattern_suffix_comment.is_some()
                         && !body_has_later_comments
                         && case_item_body_can_share_terminator(item)
@@ -2624,9 +2626,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     || (!body_has_later_comments
                         && case_item_body_was_inline_without_terminator(item)))
             {
-                if pattern_suffix_comment.is_some()
-                    && !self.facts().case_item_was_inline_in_source(item)
-                {
+                if pattern_suffix_comment.is_some() && !item_was_inline_in_source {
                     self.newline();
                     self.with_extra_prefix_indent(base_indent + 1, |formatter| {
                         formatter.format_stmt(&item.body[0])
@@ -2774,7 +2774,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let Some(last_item) = command.cases.last() else {
             return Vec::new();
         };
-        let Some(start) = case_suffix_comment_region_start(last_item) else {
+        let Some(start) = case_suffix_comment_region_start(last_item, self.source()) else {
             return Vec::new();
         };
         let end = esac_span
@@ -3347,6 +3347,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             item.body.is_empty()
                 || item.body.len() == 1
                     && (self.facts().case_item_was_inline_in_source(item)
+                        || case_item_pattern_body_terminator_was_inline_in_source(
+                            item,
+                            self.source(),
+                        )
                         || case_item_body_was_inline_without_terminator(item))
                     && !self
                         .facts()
@@ -4898,17 +4902,7 @@ fn case_command_was_inline_in_source(command: &CaseCommand, source: &str) -> boo
 }
 
 fn case_item_has_blank_line_before(previous: &CaseItem, item: &CaseItem, source: &str) -> bool {
-    let Some(start) = previous
-        .terminator_span
-        .map(|span| span.end.offset)
-        .or_else(|| previous.body.last().map(|stmt| stmt_span(stmt).end.offset))
-        .or_else(|| {
-            previous
-                .patterns
-                .last()
-                .map(|pattern| pattern.span.end.offset)
-        })
-    else {
+    let Some(start) = case_item_source_end_offset(previous, source) else {
         return false;
     };
     let Some(end) = item
@@ -4921,12 +4915,76 @@ fn case_item_has_blank_line_before(previous: &CaseItem, item: &CaseItem, source:
     gap_has_empty_physical_line(source, start, end)
 }
 
+fn case_item_source_end_offset(item: &CaseItem, source: &str) -> Option<usize> {
+    let content_end = item
+        .body
+        .last()
+        .map(|stmt| stmt_format_span(stmt).end.offset)
+        .or_else(|| item.patterns.last().map(|pattern| pattern.span.end.offset))?;
+    if let Some(terminator_span) = item.terminator_span
+        && terminator_span.end.offset >= content_end
+        && terminator_span.end.offset <= source.len()
+    {
+        return Some(terminator_span.end.offset);
+    }
+    let stmt_end = content_end.min(source.len());
+    let line_end = source[stmt_end..]
+        .find(['\n', '\r'])
+        .map_or(source.len(), |offset| stmt_end + offset);
+    let terminator = case_terminator(item.terminator);
+    source.get(stmt_end..line_end).and_then(|tail| {
+        tail.find(terminator)
+            .map(|offset| stmt_end + offset + terminator.len())
+    })
+}
+
 fn case_item_body_terminator_was_inline_in_source(item: &CaseItem) -> bool {
     let [stmt] = item.body.as_slice() else {
         return false;
     };
     item.terminator_span
         .is_some_and(|span| span.start.line == stmt_format_span(stmt).end.line)
+}
+
+fn case_item_pattern_body_terminator_was_inline_in_source(item: &CaseItem, source: &str) -> bool {
+    let Some(pattern) = item.patterns.last() else {
+        return false;
+    };
+    let [stmt] = item.body.as_slice() else {
+        return false;
+    };
+    let Some(terminator_span) = item.terminator_span else {
+        return false;
+    };
+    let pattern_end = pattern.span.end.offset.min(source.len());
+    let stmt_start = stmt_span(stmt).start.offset.min(source.len());
+    let stmt_end = stmt_format_span(stmt).end.offset.min(source.len());
+    let terminator_start = terminator_span.start.offset.min(source.len());
+    let pattern_and_body_share_line = pattern.span.end.line == stmt_span(stmt).start.line
+        || source
+            .get(pattern_end..stmt_start)
+            .is_some_and(|gap| !gap.contains('\n') && !gap.contains('\r'));
+    let body_and_terminator_share_line = terminator_span.start.line
+        == stmt_format_span(stmt).end.line
+        || source
+            .get(stmt_end..terminator_start)
+            .is_some_and(|gap| !gap.contains('\n') && !gap.contains('\r'))
+        || case_item_source_line_has_terminator_after_body(item, stmt, source);
+    pattern_and_body_share_line && body_and_terminator_share_line
+}
+
+fn case_item_source_line_has_terminator_after_body(
+    item: &CaseItem,
+    stmt: &Stmt,
+    source: &str,
+) -> bool {
+    let stmt_end = stmt_format_span(stmt).end.offset.min(source.len());
+    let line_end = source[stmt_end..]
+        .find(['\n', '\r'])
+        .map_or(source.len(), |offset| stmt_end + offset);
+    source
+        .get(stmt_end..line_end)
+        .is_some_and(|tail| tail.contains(case_terminator(item.terminator)))
 }
 
 fn case_item_body_can_share_terminator(item: &CaseItem) -> bool {
@@ -5007,13 +5065,8 @@ fn case_item_has_blank_line_before_terminator(item: &CaseItem, source: &str) -> 
     gap_has_empty_physical_line(source, content_end, terminator_start)
 }
 
-fn case_suffix_comment_region_start(item: &CaseItem) -> Option<usize> {
-    let start = item
-        .terminator_span
-        .map(|span| span.end.offset)
-        .or_else(|| item.body.last().map(|stmt| stmt_span(stmt).end.offset))
-        .or_else(|| item.patterns.last().map(|pattern| pattern.span.end.offset))?;
-    Some(start)
+fn case_suffix_comment_region_start(item: &CaseItem, source: &str) -> Option<usize> {
+    case_item_source_end_offset(item, source)
 }
 
 fn case_suffix_comment_start_line(item: &CaseItem) -> Option<usize> {
@@ -5036,11 +5089,7 @@ fn case_has_blank_line_before_esac(command: &CaseCommand, source: &str) -> bool 
     let Some(last_item) = command.cases.last() else {
         return false;
     };
-    let Some(start) = last_item
-        .terminator_span
-        .map(|span| span.end.offset)
-        .or_else(|| last_item.body.last().map(|stmt| stmt_span(stmt).end.offset))
-    else {
+    let Some(start) = case_item_source_end_offset(last_item, source) else {
         return false;
     };
     let end = command.span.end.offset.min(source.len());
