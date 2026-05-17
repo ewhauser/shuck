@@ -2072,6 +2072,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn compacts_parameter_slice_arithmetic_operands() {
+        let source = "region=\"${zone::${#zone}-1}\"\nindex=\"${items:1+2:count-1}\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn formats_major_minor_multiline_command_substitution_like_shfmt() {
         let source = "major_minor() {\n  echo \"${1%%.*}.$(\n    x=\"${1#*.}\"\n    echo \"${x%%.*}\"\n  )\"\n}\n";
         let options = ShellFormatOptions::default();

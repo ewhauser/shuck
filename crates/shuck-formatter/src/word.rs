@@ -3974,7 +3974,7 @@ fn push_arithmetic_source_text(
             ArithmeticExpr::ShellWord(word) if !options.simplify() && !options.minify() => {
                 rendered.push_str(&render_arithmetic_slice_shell_word(word, source, options));
             }
-            _ => render_arithmetic_expr_to_buf(rendered, ast, source, options),
+            _ => render_arithmetic_subscript_expr_to_buf(rendered, ast, source, options, true),
         }
     } else {
         rendered.push_str(text.slice(source));
