@@ -672,7 +672,13 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_if(&mut self, command: &IfCommand) {
-        self.visit_sequence(&command.condition, None, None);
+        let condition_upper_bound = match command.syntax {
+            shuck_ast::IfSyntax::ThenFi { then_span, .. } => Some(then_span.start.offset),
+            shuck_ast::IfSyntax::Brace {
+                left_brace_span, ..
+            } => Some(left_brace_span.start.offset),
+        };
+        self.visit_sequence(&command.condition, condition_upper_bound, None);
         let brace_syntax = matches!(command.syntax, shuck_ast::IfSyntax::Brace { .. });
         let group_open_char = brace_syntax.then_some('{');
         if brace_syntax
@@ -696,7 +702,13 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 .flatten(),
         );
         for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
-            self.visit_sequence(condition, None, None);
+            let condition_upper_bound = if brace_syntax {
+                group_attachment_span(body.as_slice(), self.source_map(), '{', '}')
+                    .map(|span| span.start.offset)
+            } else {
+                branch_open_keyword_start(body, self.source_map(), "then")
+            };
+            self.visit_sequence(condition, condition_upper_bound, None);
             if brace_syntax
                 && group_was_inline_in_source(body.as_slice(), self.source_map(), '{', '}')
             {
@@ -800,7 +812,9 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_while(&mut self, command: &WhileCommand) {
-        self.visit_sequence(&command.condition, None, None);
+        let condition_upper_bound =
+            branch_open_keyword_start(&command.body, self.source_map(), "do");
+        self.visit_sequence(&command.condition, condition_upper_bound, None);
         self.visit_sequence_with_suffix(
             &command.body,
             Some(done_body_upper_bound(self.source, command.span)),
@@ -810,7 +824,9 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_until(&mut self, command: &UntilCommand) {
-        self.visit_sequence(&command.condition, None, None);
+        let condition_upper_bound =
+            branch_open_keyword_start(&command.body, self.source_map(), "do");
+        self.visit_sequence(&command.condition, condition_upper_bound, None);
         self.visit_sequence_with_suffix(
             &command.body,
             Some(done_body_upper_bound(self.source, command.span)),
@@ -1170,19 +1186,7 @@ fn branch_open_suffix_span(
     keyword: &str,
 ) -> Option<Span> {
     let source = source_map.source();
-    let first = sequence.first()?;
-    let first_start = stmt_span(first).start.offset;
-    let mut search_end = first_start.min(source.len());
-    let keyword_offset = loop {
-        let offset = source[..search_end].rfind(keyword)?;
-        let end = offset + keyword.len();
-        if shell_keyword_boundaries_match(source, offset, end)
-            && !line_has_shell_comment_before(source, offset)
-        {
-            break offset;
-        }
-        search_end = offset;
-    };
+    let keyword_offset = branch_open_keyword_start(sequence, source_map, keyword)?;
     let line_end = source[keyword_offset..]
         .find('\n')
         .map(|offset| keyword_offset + offset)
@@ -1193,6 +1197,27 @@ fn branch_open_suffix_span(
         .trim_start_matches(char::is_whitespace)
         .starts_with('#')
         .then(|| source_map.span_for_offsets(suffix_start, line_end))
+}
+
+fn branch_open_keyword_start(
+    sequence: &StmtSeq,
+    source_map: &SourceMap<'_>,
+    keyword: &str,
+) -> Option<usize> {
+    let source = source_map.source();
+    let first = sequence.first()?;
+    let first_start = stmt_span(first).start.offset;
+    let mut search_end = first_start.min(source.len());
+    loop {
+        let offset = source[..search_end].rfind(keyword)?;
+        let end = offset + keyword.len();
+        if shell_keyword_boundaries_match(source, offset, end)
+            && !line_has_shell_comment_before(source, offset)
+        {
+            return Some(offset);
+        }
+        search_end = offset;
+    }
 }
 
 fn line_has_shell_comment_before(source: &str, offset: usize) -> bool {
