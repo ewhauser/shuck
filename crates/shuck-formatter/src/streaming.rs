@@ -27,7 +27,7 @@ use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::word::{
     render_heredoc_body_to_buf, render_pattern_syntax_to_buf, render_word_syntax_with_facts_to_buf,
-    word_has_multiline_literal_source, word_is_quoted_command_substitution_only,
+    word_has_multiline_literal_source, word_is_quoted_formattable_command_substitution_only,
 };
 
 enum StreamOutput<'source> {
@@ -668,7 +668,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 &mut scratch,
             );
         }
-        if scratch.contains('\n') && word_is_quoted_command_substitution_only(word) {
+        if scratch.contains('\n')
+            && word_is_quoted_formattable_command_substitution_only(word, self.source())
+        {
             self.write_text_preserving_current_line_indent(&scratch);
         } else if word_has_multiline_literal_source(word, self.source()) {
             self.write_rendered_shell_text(&scratch);
@@ -712,7 +714,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             );
         }
         if scratch.contains('\n')
-            && assignment_value_is_quoted_command_substitution_only(assignment)
+            && assignment_value_is_quoted_formattable_command_substitution_only(
+                assignment,
+                self.source(),
+            )
         {
             self.write_text_preserving_current_line_indent(&scratch);
         } else if assignment_has_multiline_literal_source(assignment, self.source()) {
@@ -3886,9 +3891,14 @@ fn assignment_source_has_command_substitution(assignment: &Assignment, source: &
     raw.contains("$(") || raw.contains('`') || raw.contains("<(") || raw.contains(">(")
 }
 
-fn assignment_value_is_quoted_command_substitution_only(assignment: &Assignment) -> bool {
+fn assignment_value_is_quoted_formattable_command_substitution_only(
+    assignment: &Assignment,
+    source: &str,
+) -> bool {
     match &assignment.value {
-        AssignmentValue::Scalar(word) => word_is_quoted_command_substitution_only(word),
+        AssignmentValue::Scalar(word) => {
+            word_is_quoted_formattable_command_substitution_only(word, source)
+        }
         AssignmentValue::Compound(_) => false,
     }
 }

@@ -403,7 +403,7 @@ fn render_word_syntax_internal(
         && let Some(raw) = raw_word_source_slice(word, source)
         && (word_has_multiline_double_quoted_source(word, source)
             || (raw.starts_with('"') && raw.contains("\\\n")))
-        && !word_is_quoted_command_substitution_only(word)
+        && !word_is_quoted_formattable_command_substitution_only(word, source)
         && could_need_preserve_raw_syntax(raw)
     {
         push_raw_word_with_normalized_command_redirect_spacing(rendered, word, raw, source);
@@ -545,11 +545,15 @@ fn word_has_multiline_double_quoted_source(word: &Word, source: &str) -> bool {
     })
 }
 
-pub(crate) fn word_is_quoted_command_substitution_only(word: &Word) -> bool {
-    quoted_command_substitution_only_span(word).is_some()
+pub(crate) fn word_is_quoted_formattable_command_substitution_only(
+    word: &Word,
+    source: &str,
+) -> bool {
+    quoted_command_substitution_only_body(word)
+        .is_some_and(|body| !stmt_seq_has_multiline_literal_source(body, source))
 }
 
-fn quoted_command_substitution_only_span(word: &Word) -> Option<shuck_ast::Span> {
+fn quoted_command_substitution_only_body(word: &Word) -> Option<&StmtSeq> {
     let [
         shuck_ast::WordPartNode {
             kind:
@@ -565,15 +569,15 @@ fn quoted_command_substitution_only_span(word: &Word) -> Option<shuck_ast::Span>
     };
     let [
         shuck_ast::WordPartNode {
-            kind: WordPart::CommandSubstitution { .. },
-            span,
+            kind: WordPart::CommandSubstitution { body, .. },
+            ..
         },
     ] = parts.as_slice()
     else {
         return None;
     };
 
-    Some(*span)
+    Some(body)
 }
 
 fn part_needs_special_rendering(part: &WordPart) -> bool {
