@@ -1908,6 +1908,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn aligns_compound_assignment_command_substitution_close_suffixes() {
+        let source = "f() {\n  case \"$prev\" in\n  -a)\n    COMPREPLY=($(compgen -W \"$(\n      salt-key -l un --no-color\n      salt-key -l rej --no-color\n    )\" -- \"${cur}\"))\n    ;;\n  esac\n}\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\tcase \"$prev\" in\n\t-a)\n\t\tCOMPREPLY=($(compgen -W \"$(\n\t\t\tsalt-key -l un --no-color\n\t\t\tsalt-key -l rej --no-color\n\t\t)\" -- \"${cur}\"))\n\t\t;;\n\tesac\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_case_pattern_escapes() {
         let source = "case \"$archi\" in\nDarwin\\ arm64*) download foo ;;\nesac\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();

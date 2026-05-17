@@ -1394,7 +1394,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
         for line in &layout.lines[body_start..] {
             self.newline();
-            self.write_indent_units(1);
+            self.write_indent_units(multiline_compound_assignment_line_extra_indent(line));
             self.write_text(line);
         }
         if layout.close_inline {
@@ -1420,14 +1420,15 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
         if body_start < layout.lines.len() {
             self.newline();
-            self.with_indent(|formatter| {
-                for (index, line) in layout.lines[body_start..].iter().enumerate() {
-                    if index > 0 {
-                        formatter.newline();
-                    }
-                    formatter.write_text(line);
+            for (index, line) in layout.lines[body_start..].iter().enumerate() {
+                if index > 0 {
+                    self.newline();
                 }
-            });
+                self.with_extra_prefix_indent(
+                    multiline_compound_assignment_line_extra_indent(line),
+                    |formatter| formatter.write_text(line),
+                );
+            }
         }
 
         if layout.close_inline {
@@ -4730,6 +4731,10 @@ fn sequence_verbatim_span(statements: &StmtSeq, source: &str) -> Option<Span> {
         .iter()
         .map(|stmt| stmt_verbatim_span(stmt, source))
         .reduce(|left, right| left.merge(right))
+}
+
+fn multiline_compound_assignment_line_extra_indent(line: &str) -> usize {
+    usize::from(!line.starts_with(')'))
 }
 
 fn collect_pipeline<'a>(
