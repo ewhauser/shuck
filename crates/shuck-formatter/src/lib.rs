@@ -1778,6 +1778,21 @@ mod tests {
     }
 
     #[test]
+    fn does_not_duplicate_leading_comments_inside_brace_groups() {
+        let source = "f() {\n  # before group\n  {\n    # inside group\n    echo ok\n  }\n}\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\t# before group\n\t{\n\t\t# inside group\n\t\techo ok\n\t}\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn standalone_brace_groups_do_not_consume_later_file_comments() {
         let source = "[ -n \"$x\" ] && {\nset -x\n}\n# later\nnext\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();

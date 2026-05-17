@@ -2938,33 +2938,7 @@ pub(crate) fn stmt_attachment_span(
             span
         }
     };
-    if matches!(
-        stmt.command,
-        Command::Binary(_)
-            | Command::Compound(_)
-            | Command::Function(_)
-            | Command::AnonymousFunction(_)
-    ) {
-        span_after_stmt_leading_comments(stmt, span, source_map)
-    } else {
-        span
-    }
-}
-
-fn span_after_stmt_leading_comments(
-    stmt: &Stmt,
-    span: Span,
-    source_map: &crate::comments::SourceMap<'_>,
-) -> Span {
-    let Some(last_comment) = stmt.leading_comments.last() else {
-        return span;
-    };
-    let comment_end = usize::from(last_comment.range.end());
-    if span.start.offset < comment_end && comment_end < span.end.offset {
-        source_map.span_for_offsets(comment_end, span.end.offset)
-    } else {
-        span
-    }
+    span
 }
 
 fn command_attachment_span(
