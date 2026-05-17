@@ -4358,6 +4358,24 @@ function R() {
     }
 
     #[test]
+    fn aligns_brace_group_open_suffix_comments_with_body_comments() {
+        let source = "if true; then\n\t[ $LASTSEEN -gt 350000 ] && {\t\t# 97 hours\n\t\tLASTSEEN=\"$(( $LOCALUNIXTIME - $( stat -c \"%Y\" \"$FILE\" ) ))\"\t\t# Y = last modification time\n\t}\nfi\n";
+        let options = ShellFormatOptions::default();
+        let open_line = "[ $LASTSEEN -gt 350000 ] && {";
+        let assignment_line = "LASTSEEN=\"$(($LOCALUNIXTIME - $(stat -c \"%Y\" \"$FILE\")))\"";
+        let target_column = assignment_line.len() + 2;
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(format!(
+                "if true; then\n\t{open_line}{}# 97 hours\n\t\t{assignment_line} # Y = last modification time\n\t}}\nfi\n",
+                " ".repeat(target_column - open_line.len())
+            ))
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn does_not_insert_blank_before_body_leading_brace_pipeline() {
         let source =
             "if ok; then\n  {\n    echo yes\n  } | cat\nelse\n  {\n    echo no\n  } | cat\nfi\n";

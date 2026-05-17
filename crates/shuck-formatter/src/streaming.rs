@@ -2440,8 +2440,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         else {
             return;
         };
-        self.write_space();
-        self.write_text(span.slice(self.source()).trim_start());
+        self.write_suffix_comment_after_span(span, false);
     }
 
     fn write_unmodeled_branch_background_terminator(&mut self, body: &StmtSeq, upper_bound: usize) {
@@ -3775,6 +3774,37 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.write_comment(&comment);
     }
 
+    fn write_suffix_comment_after_span(&mut self, span: Span, nudge_aligned: bool) {
+        let Some(comment) = self.suffix_comment_from_span(span) else {
+            self.write_space();
+            self.write_text(span.slice(self.source()).trim_start());
+            return;
+        };
+        let current_code_column = self.column.saturating_sub(self.line_indent_column);
+        let mut padding = trailing_comment_padding(self.source(), &comment, current_code_column);
+        if nudge_aligned && trailing_comment_alignment_column(self.source(), &comment).is_some() {
+            padding += 1;
+        }
+        for _ in 0..padding {
+            self.write_space();
+        }
+        self.write_comment(&comment);
+    }
+
+    fn suffix_comment_from_span(&self, span: Span) -> Option<SourceComment<'source>> {
+        let source = self.source();
+        let raw = span.slice(source);
+        let leading_padding = raw.len() - raw.trim_start_matches([' ', '\t']).len();
+        let comment = raw[leading_padding..].trim_end_matches([' ', '\t', '\r']);
+        if !comment.starts_with('#') {
+            return None;
+        }
+        let absolute_start = span.start.offset + leading_padding;
+        let absolute_end = absolute_start + comment.len();
+        self.source_map()
+            .source_comment_for_offsets(absolute_start, absolute_end)
+    }
+
     fn close_suffix_comment_after_span(&self, close_span: Span) -> Option<SourceComment<'source>> {
         if close_span.start.line != close_span.end.line {
             return None;
@@ -3825,8 +3855,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             .sequence(commands, upper_bound)
             .group_open_suffix_span();
         if let Some(span) = open_suffix_span {
-            self.write_space();
-            self.write_text(span.slice(self.source()).trim_start());
+            self.write_suffix_comment_after_span(span, true);
         }
         let source = self.source();
         let group_span = group_attachment_span(
