@@ -558,16 +558,22 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
 
         if matches!(command.op, BinaryOp::And | BinaryOp::Or) {
             let mut rest = Vec::new();
-            collect_command_list_first(command, &mut rest);
+            let mut previous = collect_command_list_first(command, &mut rest);
             for item in rest {
                 let next_start = self.facts.stmt(item.stmt).attachment_span().start.offset;
+                let next_start_line = self.source_map().line_number_for_offset(next_start);
+                let previous_span = stmt_span(previous);
                 if operator_starts_or_ends_line(self.source, item.operator_span)
                     || has_newline_between(self.source, item.operator_span.end.offset, next_start)
+                    || (stmt_is_multiline_conditional(previous)
+                        && previous_span.start.line < item.operator_span.start.line
+                        && item.operator_span.end.line == next_start_line)
                 {
                     self.facts
                         .list_item_breaks
                         .insert(FactSpan::from(item.operator_span));
                 }
+                previous = item.stmt;
             }
         }
     }
@@ -1086,6 +1092,13 @@ fn collect_command_list_first<'a>(
         stmt: command.right.as_ref(),
     });
     first
+}
+
+fn stmt_is_multiline_conditional(stmt: &Stmt) -> bool {
+    matches!(
+        stmt.command,
+        Command::Compound(CompoundCommand::Conditional(_))
+    )
 }
 
 fn pipeline_has_explicit_line_break(
