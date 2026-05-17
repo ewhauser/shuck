@@ -26,9 +26,9 @@ use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::word::{
-    render_heredoc_body_to_buf, render_pattern_syntax_to_buf, render_word_syntax_with_facts_to_buf,
-    word_has_multiline_literal_source, word_is_quoted_command_substitution_only,
-    word_is_quoted_formattable_command_substitution_only,
+    render_arithmetic_expr_to_buf, render_heredoc_body_to_buf, render_pattern_syntax_to_buf,
+    render_word_syntax_with_facts_to_buf, word_has_multiline_literal_source,
+    word_is_quoted_command_substitution_only, word_is_quoted_formattable_command_substitution_only,
 };
 
 enum StreamOutput<'source> {
@@ -2823,6 +2823,20 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn format_arithmetic(&mut self, command: &ArithmeticCommand) -> Result<()> {
+        let expression_source = command
+            .expr_span
+            .and_then(|span| self.source().get(span.start.offset..span.end.offset));
+        if let Some(expr) = command.expr_ast.as_ref()
+            && !expression_source.is_some_and(|source| source.contains('\n'))
+        {
+            let mut body = self.take_scratch_buffer();
+            render_arithmetic_expr_to_buf(&mut body, expr, self.source(), self.options());
+            self.write_text("((");
+            self.write_text(&body);
+            self.write_text("))");
+            self.restore_scratch_buffer(body);
+            return Ok(());
+        }
         let rendered = self
             .source()
             .get(command.span.start.offset..command.span.end.offset)

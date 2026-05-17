@@ -1272,6 +1272,16 @@ fn format_arithmetic(
     formatter: &mut ShellFormatter<'_, '_>,
 ) -> FormatResult<()> {
     let source = formatter.context().source();
+    let expression_source = command
+        .expr_span
+        .and_then(|span| source.get(span.start.offset..span.end.offset));
+    if let Some(expr) = command.expr_ast.as_ref()
+        && !expression_source.is_some_and(|source| source.contains('\n'))
+    {
+        let mut body = String::new();
+        render_arithmetic_expr_to_buf(&mut body, expr, source, formatter.context().options());
+        return write!(formatter, [text(format!("(({body}))"))]);
+    }
     let rendered = source
         .get(command.span.start.offset..command.span.end.offset)
         .map(format_arithmetic_command_source)

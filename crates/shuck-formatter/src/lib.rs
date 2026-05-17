@@ -1806,14 +1806,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
 
     #[test]
     fn formats_arithmetic_command_assignment_spacing() {
-        let source =
-            "((count+=1))\n((total = count + 1))\nif ((${value:=0} == 1)); then\n  return 0\nfi\n";
+        let source = "((count+=1))\n((total = count + 1))\n((y=x+1))\nif ((${value:=0} == 1)); then\n  return 0\nfi\n";
         let options = ShellFormatOptions::default();
 
         assert_eq!(
             format_source(source, None, &options).unwrap(),
             FormattedSource::Formatted(
-                "((count += 1))\n((total = count + 1))\nif ((${value:=0} == 1)); then\n\treturn 0\nfi\n"
+                "((count += 1))\n((total = count + 1))\n((y = x + 1))\nif ((${value:=0} == 1)); then\n\treturn 0\nfi\n"
                     .to_string()
             )
         );
