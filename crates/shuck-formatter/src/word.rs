@@ -1158,7 +1158,51 @@ fn render_word_part(
         WordPart::CommandSubstitution { body, syntax } => {
             if let Some(raw) = raw_source_slice(span, source) {
                 if stmt_seq_contains_comments(body) {
-                    if push_inline_raw_command_substitution_as_block(rendered, raw, options) {
+                    if commented_command_substitution_can_use_structural_formatter(body) {
+                        let rendered_start = rendered.len();
+                        if render_command_substitution(
+                            rendered,
+                            body,
+                            span.end.offset,
+                            source,
+                            options,
+                            command_substitution_layout(
+                                Some(raw),
+                                body,
+                                source,
+                                options.dialect(),
+                                false,
+                                context.source_indented_inline_command_substitution,
+                            ),
+                            Some(raw),
+                            source_map,
+                            facts,
+                        )
+                        .is_some()
+                        {
+                            restore_raw_case_terminator_suffix_comments(
+                                rendered,
+                                rendered_start,
+                                raw,
+                            );
+                        } else if push_inline_raw_command_substitution_as_block(
+                            rendered, raw, options,
+                        ) {
+                        } else if command_substitution_source_starts_with_body_line(raw)
+                            && !stmt_seq_has_heredoc(body)
+                        {
+                            push_raw_block_command_substitution_without_outer_indent(
+                                rendered,
+                                raw,
+                                source,
+                                span.start.offset,
+                                options,
+                            );
+                        } else {
+                            push_raw_shell_text_with_normalized_redirect_spacing(rendered, raw);
+                        }
+                    } else if push_inline_raw_command_substitution_as_block(rendered, raw, options)
+                    {
                     } else if command_substitution_source_starts_with_body_line(raw)
                         && !stmt_seq_has_heredoc(body)
                     {
@@ -1826,6 +1870,89 @@ fn render_command_substitution(
     Some(())
 }
 
+fn commented_command_substitution_can_use_structural_formatter(body: &StmtSeq) -> bool {
+    let [stmt] = body.as_slice() else {
+        return false;
+    };
+    !stmt.negated
+        && stmt.redirects.is_empty()
+        && stmt.terminator.is_none()
+        && matches!(&stmt.command, Command::Compound(CompoundCommand::Case(_)))
+}
+
+fn restore_raw_case_terminator_suffix_comments(
+    rendered: &mut String,
+    rendered_start: usize,
+    raw: &str,
+) {
+    let comments = raw_case_terminator_suffix_comments_by_line(raw);
+    if comments.iter().all(Option::is_none) || rendered_start >= rendered.len() {
+        return;
+    }
+
+    let mut body = rendered[rendered_start..].to_string();
+    let mut search_start = 0usize;
+    for comment in comments {
+        let Some((line_start, line_end)) =
+            next_uncommented_case_terminator_line(&body, search_start)
+        else {
+            break;
+        };
+        if let Some(comment) = comment {
+            let insert_at = line_end;
+            body.insert_str(insert_at, &format!(" {comment}"));
+            search_start = line_start + (line_end - line_start) + comment.len() + 1;
+        } else {
+            search_start = line_end.saturating_add(1);
+        }
+    }
+
+    rendered.truncate(rendered_start);
+    rendered.push_str(&body);
+}
+
+fn raw_case_terminator_suffix_comments_by_line(raw: &str) -> Vec<Option<String>> {
+    raw.lines()
+        .filter_map(|line| {
+            if !case_terminator_text_appears(line) {
+                return None;
+            }
+            let comment = line.find('#').and_then(|comment_start| {
+                let before_comment = line.get(..comment_start)?;
+                if !case_terminator_text_appears(before_comment) {
+                    return None;
+                }
+                Some(
+                    line.get(comment_start..)?
+                        .trim_end_matches([' ', '\t', '\r'])
+                        .to_string(),
+                )
+            });
+            Some(comment)
+        })
+        .collect()
+}
+
+fn next_uncommented_case_terminator_line(body: &str, start: usize) -> Option<(usize, usize)> {
+    let mut offset = start.min(body.len());
+    while offset < body.len() {
+        let relative_end = body[offset..]
+            .find('\n')
+            .unwrap_or(body.len().saturating_sub(offset));
+        let line_end = offset + relative_end;
+        let line = body.get(offset..line_end)?;
+        if case_terminator_text_appears(line) && !line.contains('#') {
+            return Some((offset, line_end));
+        }
+        offset = line_end.saturating_add(1);
+    }
+    None
+}
+
+fn case_terminator_text_appears(text: &str) -> bool {
+    text.contains(";;") || text.contains(";&") || text.contains(";;&")
+}
+
 fn normalize_backtick_body_escaped_dollars(body: &str) -> String {
     let mut normalized = String::with_capacity(body.len());
     let mut chars = body.chars().peekable();
@@ -1956,13 +2083,41 @@ fn push_command_substitution_inline_body(
     body: &str,
     options: &ResolvedShellFormatOptions,
 ) {
-    let adjusted_body = indent_inline_pipeline_continuations(body, options);
+    let adjusted_body = indent_inline_case_command_body(body, options)
+        .or_else(|| indent_inline_pipeline_continuations(body, options));
     let body = adjusted_body.as_deref().unwrap_or(body);
     if options.space_redirects() {
         target.push_str(body);
     } else {
         push_raw_shell_text_with_normalized_redirect_spacing(target, body);
     }
+}
+
+fn indent_inline_case_command_body(
+    body: &str,
+    options: &ResolvedShellFormatOptions,
+) -> Option<String> {
+    if !body.contains('\n') || !body.trim_start_matches([' ', '\t']).starts_with("case ") {
+        return None;
+    }
+
+    let prefix = match options.indent_style() {
+        IndentStyle::Tab => "\t".to_string(),
+        IndentStyle::Space => " ".repeat(usize::from(options.indent_width())),
+    };
+    let mut rendered = String::with_capacity(body.len() + prefix.len());
+    let mut changed = false;
+    for (index, line) in body.split('\n').enumerate() {
+        if index > 0 {
+            rendered.push('\n');
+        }
+        if index > 0 && !line.trim().is_empty() {
+            rendered.push_str(&prefix);
+            changed = true;
+        }
+        rendered.push_str(line);
+    }
+    changed.then_some(rendered)
 }
 
 fn trim_inline_command_substitution_padding(body: &str) -> &str {

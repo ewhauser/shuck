@@ -3581,6 +3581,39 @@ function R() {
     }
 
     #[test]
+    fn formats_case_command_substitution_array_assignment_like_shfmt() {
+        let source = r#"_genkernel() {
+	declare args rhs
+	args=( $(case $args in
+	('<0-5>') compgen -W "$(echo {1..5})" -- "$rhs" ;;
+	('<outfile>'|'<file>') compgen -A file -o plusdirs -- "$rhs" ;;
+
+	(*) compgen -o bashdefault -- "$rhs" ;; # punt
+    esac) )
+}
+"#;
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                r#"_genkernel() {
+	declare args rhs
+	args=($(case $args in
+		'<0-5>') compgen -W "$(echo {1..5})" -- "$rhs" ;;
+		'<outfile>' | '<file>') compgen -A file -o plusdirs -- "$rhs" ;;
+
+		*) compgen -o bashdefault -- "$rhs" ;; # punt
+		esac))
+}
+"#
+                .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_explicit_multiline_pipeline_by_default() {
         let source = "kubectl get secrets |\n  grep -v '^NAME[[:space:]]' |\n  awk '{print $1}'\n";
         let options = ShellFormatOptions::default();
@@ -3841,6 +3874,21 @@ function R() {
         assert_eq!(
             format_source(source, None, &options).unwrap(),
             FormattedSource::Formatted("x=()   # first\nyyy=() # second\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn aligns_trailing_comments_after_normalized_array_assignments() {
+        let source = "args=( \"${args[@]/%/ }\" )\t\t\t# add space to all\nargs=( \"${args[@]/%$slash /$slash}\" )\t# remove space from dirs\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "args=(\"${args[@]/%/ }\")             # add space to all\nargs=(\"${args[@]/%$slash /$slash}\") # remove space from dirs\n"
+                    .to_string()
+            )
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }

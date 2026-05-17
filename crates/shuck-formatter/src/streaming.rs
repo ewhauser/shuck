@@ -792,7 +792,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         } else if scratch.contains('\n')
             && assignment_source_has_command_substitution(assignment, self.source())
         {
-            if assignment_has_multiline_literal_source(assignment, self.source()) {
+            if compound_assignment_is_single_case_command_substitution(assignment) {
+                self.write_text_preserving_current_line_indent(&scratch);
+            } else if assignment_has_multiline_literal_source(assignment, self.source()) {
                 if assignment_value_is_quoted_command_substitution_only(assignment) {
                     self.write_command_substitution_assignment_text(&scratch);
                 } else if assignment_source_has_leading_pipe_continuation(assignment, self.source())
@@ -3009,9 +3011,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn case_item_terminator_suffix_comment(&self, item: &CaseItem) -> Option<String> {
-        let span = item.terminator_span?;
+        let Some(span) = item.terminator_span else {
+            return self.case_item_terminator_suffix_comment_without_span(item);
+        };
         if span.start.line != span.end.line {
-            return None;
+            return self.case_item_terminator_suffix_comment_without_span(item);
         }
         let source = self.source();
         let start = span.end.offset.min(source.len());
@@ -3023,7 +3027,58 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let comment = suffix
             .trim_start_matches([' ', '\t'])
             .trim_end_matches([' ', '\t', '\r']);
-        comment.starts_with('#').then(|| comment.to_string())
+        if comment.starts_with('#') {
+            Some(comment.to_string())
+        } else {
+            self.case_item_terminator_suffix_comment_without_span(item)
+        }
+    }
+
+    fn case_item_terminator_suffix_comment_without_span(&self, item: &CaseItem) -> Option<String> {
+        let terminator = case_terminator(item.terminator);
+        let search_start = item
+            .patterns
+            .first()
+            .map(|pattern| pattern.span.start.offset)
+            .unwrap_or(item.body.span.start.offset)
+            .min(self.source().len());
+        let search_start = self.source()[..search_start]
+            .rfind('\n')
+            .map_or(0, |offset| offset.saturating_add(1));
+        let content_end = item
+            .terminator_span
+            .map(|span| span.end.offset)
+            .or_else(|| {
+                item.body
+                    .last()
+                    .map(stmt_format_span)
+                    .map(|span| span.end.offset)
+            })
+            .or_else(|| item.patterns.last().map(|pattern| pattern.span.end.offset))?
+            .min(self.source().len());
+        let search_end = self.source()[content_end..]
+            .find('\n')
+            .map_or(self.source().len(), |offset| content_end + offset);
+        let region = self.source().get(search_start..search_end)?;
+
+        for line in region.lines().rev() {
+            let Some(comment_start) = line.find('#') else {
+                continue;
+            };
+            let Some(before_comment) = line.get(..comment_start) else {
+                continue;
+            };
+            if !before_comment.contains(terminator) {
+                continue;
+            }
+            let comment = line
+                .get(comment_start..)?
+                .trim_end_matches([' ', '\t', '\r']);
+            if comment.starts_with('#') {
+                return Some(comment.to_string());
+            }
+        }
+        None
     }
 
     fn next_inline_case_item_suffix_comment_visual_column(&self, item: &CaseItem) -> Option<usize> {
@@ -4044,6 +4099,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         assignment: &shuck_ast::Assignment,
     ) -> Result<()> {
         let source = self.source();
+        if compound_assignment_is_single_case_command_substitution(assignment) {
+            self.write_assignment(assignment);
+            return Ok(());
+        }
+
         if assignment_has_multiline_literal_source(assignment, source) {
             self.write_multiline_compound_literal_assignment(assignment);
             return Ok(());
@@ -4377,6 +4437,31 @@ fn assignment_contains_command_heredoc(assignment: &Assignment) -> bool {
             | ArrayElem::KeyedAppend { value: word, .. } => word_contains_command_heredoc(word),
         }),
     }
+}
+
+fn compound_assignment_is_single_case_command_substitution(assignment: &Assignment) -> bool {
+    let AssignmentValue::Compound(array) = &assignment.value else {
+        return false;
+    };
+    let [ArrayElem::Sequential(word)] = array.elements.as_slice() else {
+        return false;
+    };
+    let [part] = word.parts.as_slice() else {
+        return false;
+    };
+    let WordPart::CommandSubstitution { body, .. } = &part.kind else {
+        return false;
+    };
+    stmt_seq_is_single_case_command(body)
+}
+
+fn stmt_seq_is_single_case_command(body: &StmtSeq) -> bool {
+    let [stmt] = body.as_slice() else {
+        return false;
+    };
+    !stmt.negated
+        && stmt.redirects.is_empty()
+        && matches!(&stmt.command, Command::Compound(CompoundCommand::Case(_)))
 }
 
 fn word_contains_command_heredoc(word: &Word) -> bool {
@@ -5913,8 +5998,40 @@ fn trimmed_line_width(text: &str) -> Option<usize> {
 fn normalized_comment_alignment_width(text: &str) -> usize {
     let collapsed = collapse_horizontal_whitespace_runs(text);
     let redirect_normalized = trim_redirect_padding_for_alignment(&collapsed);
-    let normalized = trim_arithmetic_expansion_padding_for_alignment(&redirect_normalized);
+    let array_normalized = trim_compound_assignment_padding_for_alignment(&redirect_normalized);
+    let normalized = trim_arithmetic_expansion_padding_for_alignment(&array_normalized);
     normalized.chars().count() + moved_function_brace_alignment_width(&normalized)
+}
+
+fn trim_compound_assignment_padding_for_alignment(text: &str) -> String {
+    let mut normalized = text.to_string();
+    let Some(open) = normalized.find("=(") else {
+        return normalized;
+    };
+
+    let body_start = open + 2;
+    while normalized
+        .as_bytes()
+        .get(body_start)
+        .is_some_and(u8::is_ascii_whitespace)
+    {
+        normalized.remove(body_start);
+    }
+
+    let Some(close) = normalized.rfind(')') else {
+        return normalized;
+    };
+    let mut index = close;
+    while index > body_start
+        && normalized
+            .as_bytes()
+            .get(index.saturating_sub(1))
+            .is_some_and(u8::is_ascii_whitespace)
+    {
+        normalized.remove(index - 1);
+        index -= 1;
+    }
+    normalized
 }
 
 fn moved_function_brace_alignment_width(text: &str) -> usize {
