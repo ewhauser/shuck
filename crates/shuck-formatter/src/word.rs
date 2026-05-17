@@ -2111,7 +2111,7 @@ fn push_raw_shell_line_with_normalized_source_indent(
     {
         indent = body_indent;
     }
-    target.push_str(&normalized_source_inline_indent(indent, options));
+    target.push_str(&normalized_raw_shell_indent(indent, options));
     push_raw_shell_line_with_normalized_redirect_spacing(target, content);
 }
 
@@ -2625,6 +2625,16 @@ fn normalized_source_inline_indent(indent: &str, options: &ResolvedShellFormatOp
             " ".repeat(indent.len() * usize::from(options.indent_width()))
         }
         _ => indent.to_string(),
+    }
+}
+
+fn normalized_raw_shell_indent(indent: &str, options: &ResolvedShellFormatOptions) -> String {
+    match options.indent_style() {
+        IndentStyle::Tab if !indent.is_empty() && indent.chars().all(|ch| ch == ' ') => {
+            let unit = usize::from(options.indent_width()).clamp(1, 4);
+            "\t".repeat(indent.len().div_ceil(unit))
+        }
+        _ => normalized_source_inline_indent(indent, options),
     }
 }
 

@@ -1463,7 +1463,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         assert_eq!(
             format_source(source, None, &options).unwrap(),
             FormattedSource::Formatted(
-                "value=\"$(\n  # note\n  foo |\n  bar |\n  baz\n)\"\n".to_string()
+                "value=\"$(\n\t# note\n\tfoo |\n\tbar |\n\tbaz\n)\"\n".to_string()
             )
         );
         assert_source_and_ast_paths_match(source, None, &options);
@@ -1697,6 +1697,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             format_source(source, None, &options).unwrap(),
             FormattedSource::Formatted(
                 "result=\"$(\n\tgrep -En pattern \"$script\" |\n\t\tgrep -Ev -e skip\n\t# keep this filter documented\n)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn normalizes_raw_block_command_substitution_short_space_indent() {
+        let source = "version=$(\n  # keep the sourced version local\n  source ./version.sh\n  echo \"$VERSION\"\n)\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "version=$(\n\t# keep the sourced version local\n\tsource ./version.sh\n\techo \"$VERSION\"\n)\n"
                     .to_string()
             )
         );
