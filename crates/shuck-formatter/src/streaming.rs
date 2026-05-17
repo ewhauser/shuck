@@ -19,8 +19,8 @@ use crate::command::{
     format_arithmetic_for_clause_source, group_attachment_span, line_gap_break_count,
     multiline_compound_assignment_layout, multiline_compound_assignment_lines,
     render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
-    render_var_ref_to_buf, slice_span, stmt_attachment_span, stmt_format_span,
-    stmt_render_start_line, stmt_seq_has_heredoc, stmt_span, stmt_verbatim_span,
+    render_subscript_to_buf, render_var_ref_to_buf, slice_span, stmt_attachment_span,
+    stmt_format_span, stmt_render_start_line, stmt_seq_has_heredoc, stmt_span, stmt_verbatim_span,
 };
 use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
@@ -1581,6 +1581,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn format_inline_multiline_compound_assignment(&mut self, assignment: &Assignment) {
+        if self.multiline_compound_assignment_needs_structural_elements(assignment) {
+            self.format_structural_multiline_compound_assignment(assignment);
+            return;
+        }
+
         let Some(layout) = multiline_compound_assignment_layout(assignment, self.source()) else {
             self.write_assignment(assignment);
             return;
@@ -1608,6 +1613,69 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.newline();
             self.write_text(")");
         }
+    }
+
+    fn multiline_compound_assignment_needs_structural_elements(
+        &self,
+        assignment: &Assignment,
+    ) -> bool {
+        let AssignmentValue::Compound(array) = &assignment.value else {
+            return false;
+        };
+        let raw = assignment.span.slice(self.source());
+        if !raw.contains("$(")
+            || !raw.contains(';')
+            || raw.contains('#')
+            || raw.contains("\n\n")
+            || assignment_has_multiline_literal_source(assignment, self.source())
+        {
+            return false;
+        }
+
+        array.elements.iter().any(|element| match element {
+            ArrayElem::Sequential(word)
+            | ArrayElem::Keyed { value: word, .. }
+            | ArrayElem::KeyedAppend { value: word, .. } => {
+                word_contains_command_substitution(word)
+            }
+        })
+    }
+
+    fn format_structural_multiline_compound_assignment(&mut self, assignment: &Assignment) {
+        let AssignmentValue::Compound(array) = &assignment.value else {
+            self.write_assignment(assignment);
+            return;
+        };
+
+        self.write_assignment_head(assignment);
+        self.write_text("(");
+        for element in &array.elements {
+            self.newline();
+            self.write_indent_units(1);
+            self.write_array_element(element);
+        }
+        self.newline();
+        self.write_text(")");
+    }
+
+    fn write_array_element(&mut self, element: &ArrayElem) {
+        match element {
+            ArrayElem::Sequential(word) => self.write_word(word),
+            ArrayElem::Keyed { key, value } => self.write_keyed_array_element(key, value, "="),
+            ArrayElem::KeyedAppend { key, value } => {
+                self.write_keyed_array_element(key, value, "+=");
+            }
+        }
+    }
+
+    fn write_keyed_array_element(&mut self, key: &shuck_ast::Subscript, value: &Word, op: &str) {
+        self.write_text("[");
+        self.write_rendered(|scratch, source, _| {
+            render_subscript_to_buf(key, source, scratch);
+        });
+        self.write_text("]");
+        self.write_text(op);
+        self.write_word(value);
     }
 
     fn write_standalone_multiline_compound_assignment_layout(

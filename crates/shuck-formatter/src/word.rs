@@ -710,6 +710,7 @@ fn render_heredoc_body_part(
                     raw,
                     body,
                     source,
+                    options.dialect(),
                     raw.is_none() && *syntax == CommandSubstitutionSyntax::DollarParen,
                     false,
                 );
@@ -1070,6 +1071,7 @@ fn render_word_part(
                         Some(raw),
                         body,
                         source,
+                        options.dialect(),
                         false,
                         context.source_indented_inline_command_substitution,
                     ),
@@ -1092,6 +1094,7 @@ fn render_word_part(
                     None,
                     body,
                     source,
+                    options.dialect(),
                     *syntax == CommandSubstitutionSyntax::DollarParen,
                     false,
                 ),
@@ -1909,6 +1912,7 @@ fn command_substitution_layout(
     raw: Option<&str>,
     body: &shuck_ast::StmtSeq,
     source: &str,
+    dialect: shuck_parser::ShellDialect,
     force_block: bool,
     allow_source_indented_inline: bool,
 ) -> CommandSubstitutionLayout {
@@ -1925,6 +1929,9 @@ fn command_substitution_layout(
             return CommandSubstitutionLayout::Block;
         }
         if command_substitution_source_closes_on_own_line(raw) {
+            return CommandSubstitutionLayout::Block;
+        }
+        if command_substitution_source_parses_as_multiple_statements(raw, dialect) {
             return CommandSubstitutionLayout::Block;
         }
         if command_substitution_source_prefers_continued_inline_body(raw) {
@@ -1946,6 +1953,32 @@ fn command_substitution_layout(
     } else {
         CommandSubstitutionLayout::Inline
     }
+}
+
+fn command_substitution_source_parses_as_multiple_statements(
+    raw: &str,
+    dialect: shuck_parser::ShellDialect,
+) -> bool {
+    if raw.contains('\n') || !raw.contains(';') {
+        return false;
+    }
+
+    let Some(body) = raw_dollar_command_substitution_body(raw) else {
+        return false;
+    };
+    let body = body.trim();
+    if body.is_empty() {
+        return false;
+    }
+
+    let parsed = shuck_parser::parser::Parser::with_dialect(body, dialect).parse();
+    !parsed.is_err() && parsed.file.body.len() > 1
+}
+
+fn raw_dollar_command_substitution_body(raw: &str) -> Option<&str> {
+    raw.strip_prefix("$(")?;
+    let close_offset = matching_raw_command_substitution_close(raw, 2)?;
+    raw.get(2..close_offset)
 }
 
 fn command_substitution_source_starts_with_body_line(raw: &str) -> bool {
