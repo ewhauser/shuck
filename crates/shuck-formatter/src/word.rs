@@ -1347,11 +1347,53 @@ fn push_command_substitution_inline_body(
     body: &str,
     options: &ResolvedShellFormatOptions,
 ) {
+    let adjusted_body = indent_inline_pipeline_continuations(body, options);
+    let body = adjusted_body.as_deref().unwrap_or(body);
     if options.space_redirects() {
         target.push_str(body);
     } else {
         push_raw_shell_text_with_normalized_redirect_spacing(target, body);
     }
+}
+
+fn indent_inline_pipeline_continuations(
+    body: &str,
+    options: &ResolvedShellFormatOptions,
+) -> Option<String> {
+    if !body.contains('\n') {
+        return None;
+    }
+
+    let prefix = match options.indent_style() {
+        IndentStyle::Tab => "\t".to_string(),
+        IndentStyle::Space => " ".repeat(usize::from(options.indent_width())),
+    };
+    let mut rendered = String::with_capacity(body.len() + prefix.len());
+    let mut changed = false;
+    let mut previous_ends_pipeline = false;
+
+    for (index, line) in body.split('\n').enumerate() {
+        if index > 0 {
+            rendered.push('\n');
+        }
+        if previous_ends_pipeline && line_needs_inline_pipeline_indent(line) {
+            rendered.push_str(&prefix);
+            changed = true;
+        }
+        rendered.push_str(line);
+        previous_ends_pipeline = line_ends_with_pipeline_operator(line);
+    }
+
+    changed.then_some(rendered)
+}
+
+fn line_needs_inline_pipeline_indent(line: &str) -> bool {
+    !line.is_empty() && !line.starts_with([' ', '\t'])
+}
+
+fn line_ends_with_pipeline_operator(line: &str) -> bool {
+    let trimmed = line.trim_end_matches([' ', '\t', '\r']);
+    trimmed.ends_with("|&") || (trimmed.ends_with('|') && !trimmed.ends_with("||"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

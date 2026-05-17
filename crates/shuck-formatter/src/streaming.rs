@@ -459,6 +459,38 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
     }
 
+    fn write_text_preserving_current_line_indent(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+
+        let base_indent_column = if self.line_start {
+            self.indent_column_for_level(self.indent_level)
+        } else {
+            self.line_indent_column
+        };
+        let mut remaining = text;
+        while !remaining.is_empty() {
+            if self.line_start && !remaining.starts_with('\n') {
+                self.write_indent_to_column(base_indent_column);
+            }
+
+            match remaining.find('\n') {
+                Some(index) => {
+                    let end = index + 1;
+                    self.push_output_str(&remaining[..end]);
+                    self.line_start = true;
+                    remaining = &remaining[end..];
+                }
+                None => {
+                    self.push_output_str(remaining);
+                    self.line_start = false;
+                    break;
+                }
+            }
+        }
+    }
+
     fn write_rendered_shell_text_preserving_heredoc_tails(&mut self, text: &str) {
         let mut active_heredoc: Option<RenderedHeredocTail> = None;
         let mut rest = text;
@@ -516,6 +548,28 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             }
             IndentStyle::Space => {
                 for _ in 0..(self.indent_level * usize::from(self.options.indent_width())) {
+                    self.push_output_char(' ');
+                }
+            }
+        }
+
+        self.line_indent_column = self.column;
+        self.line_start = false;
+    }
+
+    fn write_indent_to_column(&mut self, column: usize) {
+        if !self.line_start || column == 0 || self.options.minify() {
+            return;
+        }
+
+        match self.options.indent_style() {
+            IndentStyle::Tab => {
+                for _ in 0..column {
+                    self.push_output_char('\t');
+                }
+            }
+            IndentStyle::Space => {
+                for _ in 0..column {
                     self.push_output_char(' ');
                 }
             }
@@ -614,6 +668,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
         if word_has_multiline_literal_source(word, self.source()) {
             self.write_rendered_shell_text(&scratch);
+        } else if scratch.contains('\n') && word_contains_command_substitution(word) {
+            self.write_text_preserving_current_line_indent(&scratch);
         } else {
             self.write_text(&scratch);
         }
