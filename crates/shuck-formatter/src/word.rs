@@ -742,7 +742,7 @@ fn render_word_part(
                             options,
                         );
                     } else {
-                        rendered.push_str(raw);
+                        push_raw_shell_text_with_normalized_redirect_spacing(rendered, raw);
                     }
                 } else if render_command_substitution(
                     rendered,
@@ -1376,6 +1376,9 @@ fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, lin
             in_double_quotes = !in_double_quotes;
             index += 1;
             continue;
+        }
+        if !in_single_quotes && !in_double_quotes && byte == b'#' {
+            break;
         }
 
         if !in_single_quotes && !in_double_quotes && byte.is_ascii_digit() {
