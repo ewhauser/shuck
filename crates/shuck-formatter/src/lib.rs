@@ -1687,6 +1687,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_inline_if_elif_command_substitutions() {
+        let source = "color=\"$(if [ \"$status\" = ok ]; then echo GREEN; elif [ \"$status\" = bad ]; then echo RED; else echo WHITE; fi)\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn formats_arithmetic_expansions_from_ruby_build() {
         let source = "echo $(( ver[0]*100 + ver[1] ))\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();

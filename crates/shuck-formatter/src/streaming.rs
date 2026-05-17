@@ -1812,6 +1812,25 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_close_suffix_after_span(Some(fi_span));
             return Ok(());
         }
+        if self.can_inline_if_chain(command, fi_span) {
+            self.write_text(then_separator);
+            self.write_space();
+            self.format_inline_stmts(&command.then_branch)?;
+            for (condition, body) in &command.elif_branches {
+                self.write_text("; elif ");
+                self.format_inline_stmts(condition)?;
+                self.write_text(self.then_separator_for_condition(condition));
+                self.write_space();
+                self.format_inline_stmts(body)?;
+            }
+            if let Some(else_branch) = &command.else_branch {
+                self.write_text("; else ");
+                self.format_inline_stmts(else_branch)?;
+            }
+            self.write_text("; fi");
+            self.write_close_suffix_after_span(Some(fi_span));
+            return Ok(());
+        }
 
         self.write_text(then_separator);
         let then_upper_bound = if_branch_upper_bound(command, 0, source);
@@ -1902,6 +1921,35 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_close_suffix_after_span(Some(fi_span));
         }
         Ok(())
+    }
+
+    fn can_inline_if_chain(&self, command: &IfCommand, fi_span: Span) -> bool {
+        if command.elif_branches.is_empty() || command.span.start.line != fi_span.end.line {
+            return false;
+        }
+
+        let source = self.source();
+        if !self.can_inline_body_with_upper_bound(
+            &command.then_branch,
+            command.span,
+            Some(if_branch_upper_bound(command, 0, source)),
+        ) {
+            return false;
+        }
+
+        for (index, (_, body)) in command.elif_branches.iter().enumerate() {
+            if !self.can_inline_body_with_upper_bound(
+                body,
+                command.span,
+                Some(if_branch_upper_bound(command, index + 1, source)),
+            ) {
+                return false;
+            }
+        }
+
+        command.else_branch.as_ref().is_none_or(|body| {
+            self.can_inline_body_with_upper_bound(body, command.span, Some(fi_span.start.offset))
+        })
     }
 
     fn if_final_branch_has_blank_line_before_fi(
