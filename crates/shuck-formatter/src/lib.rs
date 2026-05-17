@@ -1642,6 +1642,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn formats_quoted_block_command_substitution_conditions_like_shfmt() {
+        let source = "f() {\n  declare -i -r test_jobs_effective=\"$(\n    if [[ \"${TEST_JOBS:-detect}\" = \"detect\" ]] \\\n      && command -v nproc &> /dev/null; then\n      nproc\n    fi\n  )\"\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\tdeclare -i -r test_jobs_effective=\"$(\n\t\tif [[ \"${TEST_JOBS:-detect}\" = \"detect\" ]] &&\n\t\t\tcommand -v nproc &>/dev/null; then\n\t\t\tnproc\n\t\tfi\n\t)\"\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn formats_arithmetic_expansions_from_ruby_build() {
         let source = "echo $(( ver[0]*100 + ver[1] ))\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();

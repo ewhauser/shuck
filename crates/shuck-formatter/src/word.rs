@@ -403,6 +403,7 @@ fn render_word_syntax_internal(
         && let Some(raw) = raw_word_source_slice(word, source)
         && (word_has_multiline_double_quoted_source(word, source)
             || (raw.starts_with('"') && raw.contains("\\\n")))
+        && !word_is_quoted_block_command_substitution_only(word, source)
         && could_need_preserve_raw_syntax(raw)
     {
         push_raw_word_with_normalized_command_redirect_spacing(rendered, word, raw, source);
@@ -542,6 +543,33 @@ fn word_has_multiline_double_quoted_source(word: &Word, source: &str) -> bool {
         matches!(part.kind, WordPart::DoubleQuoted { .. })
             && raw_source_slice(part.span, source).is_some_and(|raw| raw.contains('\n'))
     })
+}
+
+pub(crate) fn word_is_quoted_block_command_substitution_only(word: &Word, source: &str) -> bool {
+    let [
+        shuck_ast::WordPartNode {
+            kind:
+                WordPart::DoubleQuoted {
+                    parts,
+                    dollar: false,
+                },
+            ..
+        },
+    ] = word.parts.as_slice()
+    else {
+        return false;
+    };
+    let [
+        shuck_ast::WordPartNode {
+            kind: WordPart::CommandSubstitution { .. },
+            span,
+        },
+    ] = parts.as_slice()
+    else {
+        return false;
+    };
+
+    raw_source_slice(*span, source).is_some_and(command_substitution_source_starts_with_body_line)
 }
 
 fn part_needs_special_rendering(part: &WordPart) -> bool {
@@ -1445,6 +1473,9 @@ fn command_substitution_layout(
 }
 
 fn command_substitution_source_starts_with_body_line(raw: &str) -> bool {
+    if raw.starts_with(['\n', '\r']) {
+        return true;
+    }
     raw.strip_prefix("$(")
         .is_some_and(|after_open| after_open.starts_with(['\n', '\r']))
 }
