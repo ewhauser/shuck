@@ -2542,6 +2542,43 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn keeps_inline_list_operator_before_multiline_brace_group() {
+        let source = r#"function S() {
+	about 'save a bookmark'
+	param '1: bookmark name'
+	example '$ S mybkmrk'
+	group 'dirs'
+
+	[[ $# -eq 1 ]] || {
+		echo "${FUNCNAME[0]} function requires 1 argument"
+		return 1
+	}
+
+	echo "$1"=\""${PWD}"\" >>"${BASH_IT_DIRS_BKS?}"
+}
+
+function R() {
+	about 'remove a bookmark'
+	param '1: bookmark name'
+	example '$ R mybkmrk'
+	group 'dirs'
+
+	[[ $# -eq 1 ]] || {
+		echo "${FUNCNAME[0]} function requires 1 argument"
+		return 1
+	}
+}
+"#;
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_explicit_multiline_pipeline_by_default() {
         let source = "kubectl get secrets |\n  grep -v '^NAME[[:space:]]' |\n  awk '{print $1}'\n";
         let options = ShellFormatOptions::default();

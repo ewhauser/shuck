@@ -2481,30 +2481,44 @@ fn find_group_open_offset_before_stmt(
     search_end: usize,
     open: char,
 ) -> Option<usize> {
-    let search_end = search_end.min(source.len());
+    let upper = search_end.min(source.len());
     let mut last_open = None;
-    let mut line_start = 0;
+    let mut offset = 0;
 
-    while line_start < search_end {
-        let line_end = source[line_start..search_end]
-            .find('\n')
-            .map(|offset| line_start + offset)
-            .unwrap_or(search_end);
-        let line = &source[line_start..line_end];
-        let comment_start = line
-            .char_indices()
-            .find_map(|(offset, ch)| (ch == '#').then_some(offset))
-            .unwrap_or(line.len());
-        for (offset, ch) in line[..comment_start].char_indices() {
-            if ch == open {
-                last_open = Some(line_start + offset);
-            }
-        }
-
-        if line_end == search_end {
+    while offset < upper {
+        let Some(ch) = source[offset..].chars().next() else {
             break;
+        };
+
+        match ch {
+            '\\' => {
+                offset += ch.len_utf8();
+                if let Some(escaped) = source[offset..upper].chars().next() {
+                    offset += escaped.len_utf8();
+                }
+                continue;
+            }
+            '\'' => {
+                offset = skip_single_quoted(source, offset + ch.len_utf8(), upper);
+                continue;
+            }
+            '"' => {
+                offset = skip_double_quoted(source, offset + ch.len_utf8(), upper);
+                continue;
+            }
+            '#' if shell_comment_can_start(source, offset) => {
+                offset = source[offset..]
+                    .find('\n')
+                    .map_or(upper, |newline| offset + newline + 1);
+                continue;
+            }
+            _ => {}
         }
-        line_start = line_end + 1;
+
+        if ch == open {
+            last_open = Some(offset);
+        }
+        offset += ch.len_utf8();
     }
 
     last_open
