@@ -594,6 +594,22 @@ mod tests {
     }
 
     #[test]
+    fn keeps_inline_then_arm_before_multiline_else() {
+        let source =
+            "if [ -n \"$REPORTFILE\" ]; then PREQS_MET=\"YES\"; else\n  PREQS_MET=\"NO\"\nfi\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if [ -n \"$REPORTFILE\" ]; then PREQS_MET=\"YES\"; else\n\tPREQS_MET=\"NO\"\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_comments_inside_elif_bodies() {
         let source = "foo() {\nif a; then\none\nelif b; then\n# note\n two\nfi\n}\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
@@ -2675,7 +2691,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         assert_eq!(
             format_source(source, None, &options).unwrap(),
             FormattedSource::Formatted(
-                "# setup\n\nif true; then\n\tyes\nelse\n\tno\nfi\n".to_string()
+                "# setup\n\nif true; then yes; else\n\tno\nfi\n".to_string()
             )
         );
         assert_source_and_ast_paths_match(source, None, &options);

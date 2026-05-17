@@ -1613,6 +1613,39 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_text("; fi");
             return Ok(());
         }
+        if command.elif_branches.is_empty()
+            && let Some(else_branch) = &command.else_branch
+            && self.can_inline_body(&command.then_branch, command.span)
+            && !self.can_inline_body(else_branch, command.span)
+            && !self.options().compact_layout()
+        {
+            self.write_text(then_separator);
+            self.write_space();
+            self.format_inline_stmts(&command.then_branch)?;
+            self.write_text("; else");
+            let body_upper_bound = command.span.end.offset;
+            self.write_sequence_open_suffix(else_branch, Some(body_upper_bound));
+            let preserve_else_open_blank = body_has_blank_line_after_keyword(
+                source,
+                self.source_map(),
+                command.span.start.offset,
+                "else",
+                else_branch,
+            );
+            self.format_body_with_upper_bound_and_open_blank(
+                else_branch,
+                Some(body_upper_bound),
+                preserve_else_open_blank,
+            )?;
+            self.write_unmodeled_branch_background_terminator(else_branch, body_upper_bound);
+            let then_upper_bound = if_branch_upper_bound(command, 0, source);
+            if self.if_final_branch_has_blank_line_before_fi(command, then_upper_bound) {
+                self.newline();
+            }
+            self.newline();
+            self.write_text("fi");
+            return Ok(());
+        }
 
         self.write_text(then_separator);
         let then_upper_bound = if_branch_upper_bound(command, 0, source);
