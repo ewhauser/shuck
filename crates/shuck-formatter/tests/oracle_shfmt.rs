@@ -1,7 +1,9 @@
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use shuck_formatter::{FormattedSource, ShellDialect, ShellFormatOptions, format_file_ast};
 use shuck_parser::parser::Parser;
@@ -9,6 +11,7 @@ use similar::TextDiff;
 
 const MAX_ORACLE_DIFF_LINES: usize = 200;
 const MAX_LARGE_CORPUS_FAILURES: usize = 25;
+const SHFMT_LARGE_CORPUS_TIMEOUT: Duration = Duration::from_secs(10);
 const LARGE_CORPUS_ENV: &str = "SHUCK_TEST_LARGE_CORPUS";
 const LARGE_CORPUS_ROOT_ENV: &str = "SHUCK_LARGE_CORPUS_ROOT";
 const LARGE_CORPUS_SHARD_ENV: &str = "TEST_SHARD_INDEX";
@@ -304,12 +307,70 @@ fn try_run_shfmt(source: &str, filename: &str, language: &str) -> Result<String,
         .write_all(source.as_bytes())
         .map_err(|error| error.to_string())?;
     let output = child
-        .wait_with_output()
+        .wait_with_output_timeout(SHFMT_LARGE_CORPUS_TIMEOUT)
         .map_err(|error| error.to_string())?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).into_owned());
     }
     String::from_utf8(output.stdout).map_err(|error| error.to_string())
+}
+
+trait ChildTimeoutExt {
+    fn wait_with_output_timeout(self, timeout: Duration) -> Result<Output, String>;
+}
+
+impl ChildTimeoutExt for Child {
+    fn wait_with_output_timeout(mut self, timeout: Duration) -> Result<Output, String> {
+        drop(self.stdin.take());
+
+        let stdout_reader = self.stdout.take().map(spawn_reader);
+        let stderr_reader = self.stderr.take().map(spawn_reader);
+        let started = Instant::now();
+
+        let status = loop {
+            if let Some(status) = self.try_wait().map_err(|error| error.to_string())? {
+                break status;
+            }
+            if started.elapsed() >= timeout {
+                let _ = self.kill();
+                let _ = self.wait();
+                let _ = collect_reader(stdout_reader);
+                let _ = collect_reader(stderr_reader);
+                return Err(format!("shfmt timed out after {}s", timeout.as_secs()));
+            }
+            thread::sleep(Duration::from_millis(10));
+        };
+
+        Ok(Output {
+            status,
+            stdout: collect_reader(stdout_reader)?,
+            stderr: collect_reader(stderr_reader)?,
+        })
+    }
+}
+
+fn spawn_reader<R>(mut reader: R) -> thread::JoinHandle<Result<Vec<u8>, String>>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut output = Vec::new();
+        reader
+            .read_to_end(&mut output)
+            .map_err(|error| error.to_string())?;
+        Ok(output)
+    })
+}
+
+fn collect_reader(
+    reader: Option<thread::JoinHandle<Result<Vec<u8>, String>>>,
+) -> Result<Vec<u8>, String> {
+    match reader {
+        Some(reader) => reader
+            .join()
+            .map_err(|_| "failed to join shfmt pipe reader".to_string())?,
+        None => Ok(Vec::new()),
+    }
 }
 
 fn render_oracle_mismatch(
