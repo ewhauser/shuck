@@ -315,7 +315,7 @@ fn ensure_single_trailing_newline(output: &mut String, line_ending: LineEnding) 
         truncate_trailing_line_ending(output);
     }
     if trailing_line_ending_start(output).is_none() {
-        if trailing_backslash_count(output) % 2 == 1 {
+        if trailing_backslash_count(output) % 2 == 1 && !trailing_backslash_is_in_comment(output) {
             output.push('\\');
         }
         output.push_str(line_ending_str(line_ending));
@@ -374,6 +374,43 @@ fn trailing_backslash_count(text: &str) -> usize {
         .rev()
         .take_while(|byte| **byte == b'\\')
         .count()
+}
+
+fn trailing_backslash_is_in_comment(text: &str) -> bool {
+    let line = text.rsplit_once('\n').map_or(text, |(_, line)| line);
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut escaped = false;
+    let mut previous = None;
+
+    for ch in line.chars() {
+        if escaped {
+            escaped = false;
+            previous = Some(ch);
+            continue;
+        }
+        match ch {
+            '\\' if !in_single_quotes => {
+                escaped = true;
+            }
+            '\'' if !in_double_quotes => {
+                in_single_quotes = !in_single_quotes;
+            }
+            '"' if !in_single_quotes => {
+                in_double_quotes = !in_double_quotes;
+            }
+            '#' if !in_single_quotes
+                && !in_double_quotes
+                && previous.is_none_or(char::is_whitespace) =>
+            {
+                return true;
+            }
+            _ => {}
+        }
+        previous = Some(ch);
+    }
+
+    false
 }
 
 fn map_parse_error(error: ParseError) -> FormatError {
@@ -1006,6 +1043,20 @@ mod tests {
             formatted,
             FormattedSource::Formatted("# note\nfoo # bar\n".to_string())
         );
+    }
+
+    #[test]
+    fn preserves_final_comment_backslash_when_adding_trailing_newline() {
+        let source = "aws logs filter-log-events \\\n                           \"$@\"\n                           #--max-items 1 \\\n                           #--end-time \"$(date '+%s')000\" \\\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "aws logs filter-log-events \\\n\t\"$@\"\n#--max-items 1 \\\n#--end-time \"$(date '+%s')000\" \\\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
