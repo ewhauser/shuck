@@ -1937,6 +1937,9 @@ struct CommandSubstitutionHeredocIndent {
 fn command_substitution_heredoc_indent(line: &str) -> Option<CommandSubstitutionHeredocIndent> {
     let marker = line.find("<<")?;
     let after_marker = &line[marker + 2..];
+    if after_marker.starts_with('<') {
+        return None;
+    }
     let (strip_tabs, after_marker) = if let Some(rest) = after_marker.strip_prefix('-') {
         (true, rest)
     } else {
