@@ -543,7 +543,12 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         self.visit_stmt(command.right.as_ref());
 
         if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll)
-            && pipeline_has_explicit_line_break(command, self.source)
+            && pipeline_has_explicit_line_break(
+                command,
+                self.source,
+                self.source_map(),
+                self.options,
+            )
         {
             self.facts
                 .pipeline_breaks
@@ -1066,7 +1071,12 @@ fn collect_command_list_first<'a>(
     first
 }
 
-fn pipeline_has_explicit_line_break(pipeline: &BinaryCommand, source: &str) -> bool {
+fn pipeline_has_explicit_line_break(
+    pipeline: &BinaryCommand,
+    source: &str,
+    source_map: &SourceMap<'_>,
+    options: &ResolvedShellFormatOptions,
+) -> bool {
     let mut statements = Vec::new();
     let mut operators = Vec::new();
     collect_pipeline(pipeline, &mut statements, &mut operators);
@@ -1075,8 +1085,12 @@ fn pipeline_has_explicit_line_break(pipeline: &BinaryCommand, source: &str) -> b
         let Some(operator_span) = operators.get(index - 1) else {
             continue;
         };
-        let previous_end = stmt_span(statements[index - 1]).end.offset;
-        let next_start = stmt_span(statements[index]).start.offset;
+        let previous_end = stmt_attachment_span(statements[index - 1], source, source_map, options)
+            .end
+            .offset;
+        let next_start = stmt_attachment_span(statements[index], source, source_map, options)
+            .start
+            .offset;
         if has_newline_between(source, previous_end, operator_span.start.offset)
             || has_newline_between(source, operator_span.end.offset, next_start)
         {

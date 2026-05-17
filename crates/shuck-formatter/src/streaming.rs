@@ -19,8 +19,8 @@ use crate::command::{
     format_arithmetic_for_init_source, group_attachment_span, line_gap_break_count,
     multiline_compound_assignment_layout, multiline_compound_assignment_lines,
     render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
-    render_var_ref_to_buf, slice_span, stmt_format_span, stmt_render_start_line,
-    stmt_seq_has_heredoc, stmt_span, stmt_verbatim_span,
+    render_var_ref_to_buf, slice_span, stmt_attachment_span, stmt_format_span,
+    stmt_render_start_line, stmt_seq_has_heredoc, stmt_span, stmt_verbatim_span,
 };
 use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
@@ -1563,7 +1563,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let mut operators = Vec::new();
         collect_pipeline(pipeline, &mut statements, &mut operators);
 
-        let mut operator_breaks = pipeline_operator_breaks(&statements, &operators, self.source());
+        let mut operator_breaks = pipeline_operator_breaks(
+            &statements,
+            &operators,
+            self.source(),
+            self.source_map(),
+            self.options(),
+        );
         if self.facts().pipeline_has_explicit_line_break(pipeline)
             && !operator_breaks.iter().any(|broken| *broken)
         {
@@ -5175,14 +5181,20 @@ fn pipeline_operator_breaks(
     statements: &[&Stmt],
     operators: &[(BinaryOp, Span)],
     source: &str,
+    source_map: &SourceMap<'_>,
+    options: &ResolvedShellFormatOptions,
 ) -> Vec<bool> {
     let mut breaks = Vec::with_capacity(operators.len());
     for index in 1..statements.len() {
         let Some((_, operator_span)) = operators.get(index - 1) else {
             continue;
         };
-        let previous_end = stmt_span(statements[index - 1]).end.offset;
-        let next_start = stmt_span(statements[index]).start.offset;
+        let previous_end = stmt_attachment_span(statements[index - 1], source, source_map, options)
+            .end
+            .offset;
+        let next_start = stmt_attachment_span(statements[index], source, source_map, options)
+            .start
+            .offset;
         breaks.push(
             pipeline_operator_starts_or_ends_line(source, *operator_span)
                 || has_newline_between_offsets(source, previous_end, operator_span.start.offset)
