@@ -2883,6 +2883,22 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn aligns_case_pattern_suffix_comments_with_body_comments() {
+        let source = "case \"$NODENUMBER\" in\n\t100)\t# j4\n\t\t$IPT -I FORWARD -i $LANDEV -o $WIFIDEV\t# 2nd rule = up\n\t\t$IPT -I FORWARD -i $WIFIDEV -o $LANDEV\t# 1st rule = down\n\t;;\nesac\n";
+        let options = ShellFormatOptions::default();
+        let expected = format!(
+            "case \"$NODENUMBER\" in\n100){}# j4\n\t$IPT -I FORWARD -i $LANDEV -o $WIFIDEV # 2nd rule = up\n\t$IPT -I FORWARD -i $WIFIDEV -o $LANDEV # 1st rule = down\n\t;;\nesac\n",
+            " ".repeat(36)
+        );
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(expected)
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_case_terminator_suffix_comments() {
         let source = "case $x in\n*) return 0 ;; # not needed\nesac\n";
         let options = ShellFormatOptions::default();

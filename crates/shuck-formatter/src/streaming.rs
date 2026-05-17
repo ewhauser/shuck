@@ -2826,8 +2826,15 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.write_text(")");
         let pattern_suffix_comment = self.case_item_pattern_suffix_comment(item, upper_bound);
         if let Some(comment) = &pattern_suffix_comment {
-            self.write_space();
-            self.write_text(comment);
+            let current_code_column = self.column.saturating_sub(self.line_indent_column);
+            let mut padding = trailing_comment_padding(self.source(), comment, current_code_column);
+            if trailing_comment_alignment_column(self.source(), comment).is_some() {
+                padding += 1;
+            }
+            for _ in 0..padding {
+                self.write_space();
+            }
+            self.write_comment(comment);
         }
 
         if item.body.is_empty() {
@@ -2985,7 +2992,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         &self,
         item: &CaseItem,
         upper_bound: Option<usize>,
-    ) -> Option<String> {
+    ) -> Option<SourceComment<'source>> {
         let source = self.source();
         let start = item.patterns.last()?.span.end.offset.min(source.len());
         let end = item
@@ -3003,11 +3010,14 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let line = between.split_once('\n').map_or(between, |(line, _)| line);
         let comment_start = line.find('#')?;
         let before = &line[..comment_start];
-        before.contains(')').then(|| {
-            line[comment_start..]
-                .trim_end_matches([' ', '\t', '\r'])
-                .to_string()
-        })
+        if !before.contains(')') {
+            return None;
+        }
+        let comment = line[comment_start..].trim_end_matches([' ', '\t', '\r']);
+        let absolute_start = start + comment_start;
+        let absolute_end = absolute_start + comment.len();
+        self.source_map()
+            .source_comment_for_offsets(absolute_start, absolute_end)
     }
 
     fn case_item_terminator_suffix_comment(&self, item: &CaseItem) -> Option<String> {
