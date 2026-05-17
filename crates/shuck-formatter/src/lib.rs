@@ -2772,6 +2772,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_case_in_comment_containing_in_words() {
+        let source = "case $NETWORK in\t\t# new nodes start at $I, with registering until old nodes are in database\nffweimar) I=500 ;;\nesac\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case $NETWORK in # new nodes start at $I, with registering until old nodes are in database\nffweimar) I=500 ;;\nesac\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_brace_group_wrapper_comments() {
         let source = "# c\n{ # note\na=1\n}\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();

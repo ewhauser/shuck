@@ -2618,10 +2618,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         };
         let line_end = between.find('\n').unwrap_or(between.len());
         let header = &between[..line_end];
-        let Some(in_offset) = header.rfind("in") else {
+        let header = header.trim_start_matches([' ', '\t']);
+        let Some(suffix) = header.strip_prefix("in") else {
             return;
         };
-        let suffix = &header[in_offset + "in".len()..];
         if suffix.trim_start().starts_with('#') {
             self.write_space();
             self.write_text(suffix.trim_start().trim_end_matches([' ', '\t', '\r']));
