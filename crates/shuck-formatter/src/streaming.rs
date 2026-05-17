@@ -1519,6 +1519,42 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         Ok(())
     }
 
+    fn format_split_do_done_body(
+        &mut self,
+        body: &StmtSeq,
+        enclosing_span: Span,
+        close_span: Option<Span>,
+        close: &'static str,
+    ) -> Result<()> {
+        let body_upper_bound = close_span
+            .map(|span| span.start.offset)
+            .unwrap_or(enclosing_span.end.offset);
+
+        self.write_text("do");
+        self.write_sequence_open_suffix(body, Some(body_upper_bound));
+        let preserve_open_blank = body_has_blank_line_after_keyword(
+            self.source(),
+            self.source_map(),
+            enclosing_span.start.offset,
+            "do",
+            body,
+        );
+        self.format_body_with_upper_bound_and_open_blank(
+            body,
+            Some(body_upper_bound),
+            preserve_open_blank,
+        )?;
+        if close_span.is_some_and(|span| {
+            source_has_blank_line_immediately_before_offset(self.source(), span.start.offset)
+        }) || (close_span.is_none()
+            && source_has_blank_line_before_last_keyword(self.source(), enclosing_span, close))
+        {
+            self.newline();
+        }
+        self.finish_block_with_close_suffix(close, close_span);
+        Ok(())
+    }
+
     fn body_starts_with_inline_do_brace_group(&self, body: &StmtSeq) -> bool {
         let [stmt] = body.as_slice() else {
             return false;
@@ -1973,7 +2009,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return Ok(());
         }
 
-        if command.elif_branches.is_empty() && if_condition_starts_after_keyword(command) {
+        if if_condition_starts_after_keyword(command) {
             self.write_text("if");
             self.newline();
             self.with_indent(|formatter| {
@@ -1998,10 +2034,50 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 &command.then_branch,
                 then_upper_bound,
             );
-            if let Some(body) = &command.else_branch {
-                if if_next_branch_has_blank_line_before_keyword(command, 0, source) {
+            for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
+                if if_next_branch_has_blank_line_before_keyword(command, index, source) {
                     self.newline();
                 }
+                self.emit_branch_prefix_comments(command, index);
+                self.newline();
+                if condition_keyword_on_previous_non_empty_line(condition, source, "elif") {
+                    self.write_text("elif");
+                    self.newline();
+                    self.with_indent(|formatter| {
+                        formatter.format_stmt_sequence(condition, Some(body.span.start.offset))
+                    })?;
+                    self.newline();
+                    self.write_text("then");
+                } else {
+                    self.write_text("elif ");
+                    self.format_inline_stmts(condition)?;
+                    self.write_text(self.then_separator_for_condition(condition));
+                }
+                let body_upper_bound = if_branch_upper_bound(command, index + 1, source);
+                self.write_sequence_open_suffix(body, Some(body_upper_bound));
+                let preserve_elif_open_blank = body_has_blank_line_after_keyword(
+                    source,
+                    self.source_map(),
+                    condition.span.start.offset,
+                    "then",
+                    body,
+                );
+                self.format_body_with_upper_bound_and_open_blank(
+                    body,
+                    Some(body_upper_bound),
+                    preserve_elif_open_blank,
+                )?;
+                self.write_unmodeled_branch_background_terminator(body, body_upper_bound);
+            }
+            if let Some(body) = &command.else_branch {
+                if if_next_branch_has_blank_line_before_keyword(
+                    command,
+                    command.elif_branches.len(),
+                    source,
+                ) {
+                    self.newline();
+                }
+                self.emit_branch_prefix_comments(command, command.elif_branches.len());
                 self.newline();
                 self.write_text("else");
                 let body_upper_bound = fi_upper_bound;
@@ -2564,16 +2640,40 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn format_while(&mut self, command: &WhileCommand) -> Result<()> {
+        let close_span = done_close_span(self.source(), command.span, None);
+        if loop_condition_starts_after_keyword(&command.condition, command.span) {
+            self.write_text("while");
+            self.newline();
+            let condition_upper_bound =
+                branch_open_keyword_start(&command.body, self.source(), "do");
+            self.with_indent(|formatter| {
+                formatter.format_stmt_sequence(&command.condition, condition_upper_bound)
+            })?;
+            self.newline();
+            return self.format_split_do_done_body(&command.body, command.span, close_span, "done");
+        }
+
         self.write_text("while ");
         self.format_inline_stmts(&command.condition)?;
-        let close_span = done_close_span(self.source(), command.span, None);
         self.format_do_done_body(&command.body, command.span, close_span, "done")
     }
 
     fn format_until(&mut self, command: &UntilCommand) -> Result<()> {
+        let close_span = done_close_span(self.source(), command.span, None);
+        if loop_condition_starts_after_keyword(&command.condition, command.span) {
+            self.write_text("until");
+            self.newline();
+            let condition_upper_bound =
+                branch_open_keyword_start(&command.body, self.source(), "do");
+            self.with_indent(|formatter| {
+                formatter.format_stmt_sequence(&command.condition, condition_upper_bound)
+            })?;
+            self.newline();
+            return self.format_split_do_done_body(&command.body, command.span, close_span, "done");
+        }
+
         self.write_text("until ");
         self.format_inline_stmts(&command.condition)?;
-        let close_span = done_close_span(self.source(), command.span, None);
         self.format_do_done_body(&command.body, command.span, close_span, "done")
     }
 
@@ -4684,6 +4784,12 @@ fn if_condition_starts_after_keyword(command: &IfCommand) -> bool {
         .is_some_and(|stmt| stmt_span(stmt).start.line > command.span.start.line)
 }
 
+fn loop_condition_starts_after_keyword(condition: &StmtSeq, span: Span) -> bool {
+    condition
+        .first()
+        .is_some_and(|stmt| stmt_span(stmt).start.line > span.start.line)
+}
+
 fn condition_keyword_on_previous_non_empty_line(
     condition: &StmtSeq,
     source: &str,
@@ -4708,6 +4814,46 @@ fn condition_keyword_on_previous_non_empty_line(
         line_start = start;
     }
 
+    false
+}
+
+fn branch_open_keyword_start(sequence: &StmtSeq, source: &str, keyword: &str) -> Option<usize> {
+    let first = sequence.first()?;
+    let first_start = stmt_span(first).start.offset;
+    let mut search_end = first_start.min(source.len());
+    loop {
+        let offset = source[..search_end].rfind(keyword)?;
+        let end = offset + keyword.len();
+        if shell_keyword_boundaries_match(source, offset, end)
+            && !line_has_shell_comment_before(source, offset)
+        {
+            return Some(offset);
+        }
+        search_end = offset;
+    }
+}
+
+fn line_has_shell_comment_before(source: &str, offset: usize) -> bool {
+    let upper = offset.min(source.len());
+    let line_start = source[..upper]
+        .rfind('\n')
+        .map_or(0, |newline| newline.saturating_add(1));
+    let mut cursor = line_start;
+    while cursor < upper {
+        let Some(ch) = source[cursor..].chars().next() else {
+            break;
+        };
+        match ch {
+            '\'' => {
+                cursor = skip_single_quoted(source, cursor + ch.len_utf8(), upper);
+            }
+            '"' => {
+                cursor = skip_double_quoted(source, cursor + ch.len_utf8(), upper);
+            }
+            '#' if shell_comment_can_start(source, cursor) => return true,
+            _ => cursor += ch.len_utf8(),
+        }
+    }
     false
 }
 
