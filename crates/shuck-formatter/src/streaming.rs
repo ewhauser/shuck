@@ -895,7 +895,14 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         };
         let source_column = shell_indent_width(source_indent);
         if source_column < self.indent_column_for_level(self.indent_level) {
-            self.write_indent_to_column(source_column);
+            if source_column == 0 {
+                if comment_precedes_close_keyword_at_same_indent(self.source(), comment) {
+                    self.line_indent_column = 0;
+                    self.line_start = false;
+                }
+            } else {
+                self.write_indent_to_column(source_column);
+            }
         }
     }
 
@@ -6196,6 +6203,52 @@ fn case_prefix_comment_uses_body_indent(
 
 fn shell_indent_width(indent: &str) -> usize {
     indent.chars().count()
+}
+
+fn comment_precedes_close_keyword_at_same_indent(
+    source: &str,
+    comment: &SourceComment<'_>,
+) -> bool {
+    let Some(comment_indent) = line_indent_before_offset(source, comment.span().start.offset)
+    else {
+        return false;
+    };
+    let mut offset = source
+        .get(comment.span().end.offset..)
+        .and_then(|suffix| {
+            suffix
+                .find('\n')
+                .map(|line_end| comment.span().end.offset + line_end + 1)
+        })
+        .unwrap_or(source.len());
+
+    while offset < source.len() {
+        let line_end = source[offset..]
+            .find('\n')
+            .map_or(source.len(), |line_end| offset + line_end);
+        let Some(line) = source.get(offset..line_end) else {
+            return false;
+        };
+        let trimmed = line.trim_start_matches([' ', '\t']);
+        if trimmed.trim().is_empty() {
+            offset = line_end.saturating_add(1);
+            continue;
+        }
+        let indent_len = line.len() - trimmed.len();
+        return line.get(..indent_len) == Some(comment_indent)
+            && starts_with_close_keyword(trimmed);
+    }
+    false
+}
+
+fn starts_with_close_keyword(text: &str) -> bool {
+    ["fi", "done", "esac"].iter().any(|keyword| {
+        text.strip_prefix(keyword).is_some_and(|rest| {
+            rest.chars()
+                .next()
+                .is_none_or(|ch| !ch.is_ascii_alphanumeric() && ch != '_')
+        })
+    })
 }
 
 fn collect_pipeline<'a>(

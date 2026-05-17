@@ -2536,6 +2536,19 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_outdented_else_branch_leading_comments() {
+        let source = "if foo; then\n  bar\nelse\n  baz=\n# disabled\nfi\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "if foo; then\n\tbar\nelse\n\tbaz=\n# disabled\nfi\n".to_string()
+            )
+        );
+    }
+
+    #[test]
     fn preserves_outdented_dangling_comments_before_fi() {
         let source = "if outer; then\n\tif inner; then\n\t\tok\n\telse\n\t\tfallback\n\t# disabled\n\t# exit\n\tfi\nfi\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
