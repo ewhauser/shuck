@@ -1708,7 +1708,9 @@ mod tests {
 
         assert_eq!(
             format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("case $x in\na) echo a ;;\n# next\nb) echo b ;;\nesac\n".to_string())
+            FormattedSource::Formatted(
+                "case $x in\na) echo a ;;\n# next\nb) echo b ;;\nesac\n".to_string()
+            )
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -1834,6 +1836,47 @@ mod tests {
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
         assert_eq!(formatted, FormattedSource::Unchanged);
+    }
+
+    #[test]
+    fn preserves_multiline_subshell_open_and_close_placement() {
+        let source = "if ok; then\n  (mkdir -p -- \"$cachedir\" &&\n    echo \"$cache_id_line\"$'\\n'\"$output\" >\"$cachefile\") 2>/dev/null\nfi\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if ok; then\n\t(mkdir -p -- \"$cachedir\" &&\n\t\techo \"$cache_id_line\"$'\\n'\"$output\" >\"$cachefile\") 2>/dev/null\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn preserves_multiline_subshell_around_loop() {
+        let source = "f() {\n  (while sudo -v; do\n    sleep 50\n  done) &\n}\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\t(while sudo -v; do\n\t\tsleep 50\n\tdone) &\n}\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn preserves_single_line_subshell_with_background_body() {
+        let source = "if ready; then\n  ($REGEN_CMD &)\nfi\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted("if ready; then\n\t($REGEN_CMD &)\nfi\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2136,8 +2179,7 @@ mod tests {
 
     #[test]
     fn preserves_for_targets_inside_inline_command_substitutions() {
-        let source =
-            "pass=\"$(for i in $(eval \"echo {1..$length}\"); do pickfrom /usr/share/dict/words; done)\"\n";
+        let source = "pass=\"$(for i in $(eval \"echo {1..$length}\"); do pickfrom /usr/share/dict/words; done)\"\n";
         let options = ShellFormatOptions::default();
 
         assert_eq!(
@@ -2376,7 +2418,8 @@ mod tests {
 
     #[test]
     fn preserves_blank_line_before_if_branches() {
-        let source = "if true; then\n  echo yes\n\nelif false; then\n  echo no\n\nelse\n  echo maybe\nfi\n";
+        let source =
+            "if true; then\n  echo yes\n\nelif false; then\n  echo no\n\nelse\n  echo maybe\nfi\n";
         let options = ShellFormatOptions::default();
 
         assert_eq!(

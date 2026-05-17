@@ -2415,7 +2415,11 @@ pub(crate) fn group_attachment_span(
     Some(source_map.span_for_offsets(open_offset, end))
 }
 
-fn find_group_open_offset_before_stmt(source: &str, search_end: usize, open: char) -> Option<usize> {
+fn find_group_open_offset_before_stmt(
+    source: &str,
+    search_end: usize,
+    open: char,
+) -> Option<usize> {
     let search_end = search_end.min(source.len());
     let mut last_open = None;
     let mut line_start = 0;

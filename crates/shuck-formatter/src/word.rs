@@ -97,7 +97,8 @@ fn word_part_has_multiline_literal_source(
             stmt_seq_has_multiline_literal_source(body, source)
                 || (stmt_seq_contains_comments(body)
                     && raw_source_slice(span, source).is_some_and(|raw| {
-                        raw.contains('\n') && !command_substitution_source_starts_with_body_line(raw)
+                        raw.contains('\n')
+                            && !command_substitution_source_starts_with_body_line(raw)
                     }))
         }
         WordPart::ProcessSubstitution { body, .. } => {

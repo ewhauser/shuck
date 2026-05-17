@@ -2285,11 +2285,18 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     fn format_subshell(&mut self, commands: &StmtSeq, upper_bound: Option<usize>) -> Result<()> {
         let sequence_facts = self.facts().sequence(commands, upper_bound);
         let should_inline = sequence_facts.group_open_suffix_span().is_none()
-            && self.facts().group_was_inline_in_source(commands)
-            && self.can_inline_group(commands);
+            && ((self.facts().group_was_inline_in_source(commands)
+                && self.can_inline_group(commands))
+                || self.can_inline_source_line_subshell(commands, upper_bound));
         if should_inline {
             self.write_text("(");
             self.format_inline_stmts(commands)?;
+            self.write_text(")");
+            return Ok(());
+        }
+        if self.can_format_multiline_subshell_inline(commands, upper_bound) {
+            self.write_text("(");
+            self.format_stmt_sequence(commands, upper_bound)?;
             self.write_text(")");
             return Ok(());
         }
@@ -3049,6 +3056,74 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             && self.can_inline_body(commands, stmt_span(command))
     }
 
+    fn can_inline_source_line_subshell(
+        &self,
+        commands: &StmtSeq,
+        upper_bound: Option<usize>,
+    ) -> bool {
+        let [stmt] = commands.as_slice() else {
+            return false;
+        };
+        if self.facts().sequence(commands, upper_bound).has_comments()
+            || self.facts().stmt(stmt).preserve_verbatim()
+            || self.facts().stmt(stmt).has_trailing_comment()
+        {
+            return false;
+        }
+        if commands.span.start.line != commands.span.end.line {
+            return false;
+        }
+
+        true
+    }
+
+    fn can_format_multiline_subshell_inline(
+        &self,
+        commands: &StmtSeq,
+        upper_bound: Option<usize>,
+    ) -> bool {
+        let [stmt] = commands.as_slice() else {
+            return false;
+        };
+        if self
+            .facts()
+            .sequence(commands, upper_bound)
+            .group_open_suffix_span()
+            .is_some()
+            || self.facts().sequence(commands, upper_bound).has_comments()
+        {
+            return false;
+        }
+        let Some(group_span) =
+            group_attachment_span(commands.as_slice(), self.source_map(), '(', ')')
+        else {
+            return false;
+        };
+        if !group_span.slice(self.source()).contains('\n') {
+            return false;
+        }
+
+        let source = self.source();
+        let first_start = stmt_span(stmt).start.offset.min(source.len());
+        let open_end = group_span.start.offset.saturating_add('('.len_utf8());
+        if source
+            .get(open_end..first_start)
+            .is_none_or(|between| between.contains('\n'))
+        {
+            return false;
+        }
+
+        let close_offset = group_close_offset(source, group_span, upper_bound, ')', ')'.len_utf8());
+        let stmt_end = stmt_span(stmt)
+            .end
+            .offset
+            .min(close_offset)
+            .min(source.len());
+        source
+            .get(stmt_end..close_offset)
+            .is_some_and(|between| !between.contains('\n'))
+    }
+
     fn can_inline_stmt(&self, stmt: &Stmt) -> bool {
         let stmt_facts = self.facts().stmt(stmt);
         if stmt_facts.preserve_verbatim() || stmt_facts.has_trailing_comment() {
@@ -3647,7 +3722,12 @@ fn case_item_has_blank_line_before(previous: &CaseItem, item: &CaseItem, source:
         .terminator_span
         .map(|span| span.end.offset)
         .or_else(|| previous.body.last().map(|stmt| stmt_span(stmt).end.offset))
-        .or_else(|| previous.patterns.last().map(|pattern| pattern.span.end.offset))
+        .or_else(|| {
+            previous
+                .patterns
+                .last()
+                .map(|pattern| pattern.span.end.offset)
+        })
     else {
         return false;
     };
