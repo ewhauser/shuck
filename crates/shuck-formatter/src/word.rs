@@ -396,7 +396,7 @@ fn render_word_syntax_internal(
         && let Some(raw) = raw_word_source_slice(word, source)
         && let Some(normalized) = normalize_raw_command_substitution_padding(raw)
     {
-        rendered.push_str(&normalized);
+        push_raw_shell_text_with_normalized_redirect_spacing(rendered, &normalized);
         return;
     }
 

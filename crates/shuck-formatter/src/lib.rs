@@ -1499,13 +1499,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
 
     #[test]
     fn trims_inline_command_substitution_padding() {
-        let source = "echo \"MD5SUM=\\\"$( md5sum file | cut -d' ' -f1 )\\\"\"\nlocal minute=\"${MINUTE:-$( date +%H )}\"\n";
+        let source = "echo \"MD5SUM=\\\"$( md5sum file | cut -d' ' -f1 )\\\"\"\nlocal minute=\"${MINUTE:-$( date +%H )}\"\noutput=$( ls packages 2> /dev/null | grep pattern )\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
         assert_eq!(
             format_source(source, None, &options).unwrap(),
             FormattedSource::Formatted(
-                "echo \"MD5SUM=\\\"$(md5sum file | cut -d' ' -f1)\\\"\"\nlocal minute=\"${MINUTE:-$(date +%H)}\"\n"
+                "echo \"MD5SUM=\\\"$(md5sum file | cut -d' ' -f1)\\\"\"\nlocal minute=\"${MINUTE:-$(date +%H)}\"\noutput=$(ls packages 2>/dev/null | grep pattern)\n"
                     .to_string()
             )
         );
