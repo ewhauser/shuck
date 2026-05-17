@@ -2285,6 +2285,20 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_word_continuation_without_space_before_backslash() {
+        let source = "printf '%s\\n' \\\n  'ime' 'desc'\\\n  'help' ''\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "printf '%s\\n' \\\n\t'ime' 'desc' \\\n\t'help' ''\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &ShellFormatOptions::default());
+    }
+
+    #[test]
     fn preserves_backslash_continued_simple_commands_from_homebrew_install() {
         let source = "\"$1\" --enable-frozen-string-literal --disable=gems,did_you_mean,rubyopt -rrubygems -e \\\n    \"abort if Gem::Version.new(RUBY_VERSION) < \\\n              Gem::Version.new('${REQUIRED_RUBY_VERSION}')\" 2>/dev/null\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();

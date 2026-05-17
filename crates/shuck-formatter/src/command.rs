@@ -22,6 +22,7 @@ use crate::prelude::{AsFormat, ShellFormatter};
 use crate::word::{
     render_arithmetic_expr_to_buf, render_pattern_syntax, render_word_syntax,
     render_word_syntax_to_buf, render_word_syntax_with_facts_to_buf,
+    word_gap_end_before_trailing_continuation,
 };
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -297,6 +298,7 @@ fn format_simple_command(
     for assignment in &command.assignments {
         pieces.push(CommandPiece {
             span: assignment.span,
+            gap_end: assignment.span.end.offset,
             rendered: render_assignment(assignment, source, formatter.context().options()),
         });
     }
@@ -304,6 +306,7 @@ fn format_simple_command(
     if has_name {
         pieces.push(CommandPiece {
             span: command.name.span,
+            gap_end: word_gap_end_before_trailing_continuation(&command.name, source),
             rendered: render_word_syntax(&command.name, source, formatter.context().options()),
         });
     }
@@ -311,6 +314,7 @@ fn format_simple_command(
     for argument in &command.args {
         pieces.push(CommandPiece {
             span: argument.span,
+            gap_end: word_gap_end_before_trailing_continuation(argument, source),
             rendered: render_word_syntax(argument, source, formatter.context().options()),
         });
     }
@@ -372,22 +376,26 @@ fn format_builtin_like(
     for assignment in assignments {
         pieces.push(CommandPiece {
             span: assignment.span,
+            gap_end: assignment.span.end.offset,
             rendered: render_assignment(assignment, source, options),
         });
     }
     pieces.push(CommandPiece {
         span: Span::from_positions(start, start.advanced_by(name)),
+        gap_end: start.advanced_by(name).offset,
         rendered: name.to_string(),
     });
     if let Some(primary) = primary {
         pieces.push(CommandPiece {
             span: primary.span,
+            gap_end: word_gap_end_before_trailing_continuation(primary, source),
             rendered: render_word_syntax(primary, source, options),
         });
     }
     for argument in extra_args {
         pieces.push(CommandPiece {
             span: argument.span,
+            gap_end: word_gap_end_before_trailing_continuation(argument, source),
             rendered: render_word_syntax(argument, source, options),
         });
     }
@@ -406,18 +414,22 @@ fn format_decl_clause(
     for assignment in &command.assignments {
         pieces.push(CommandPiece {
             span: assignment.span,
+            gap_end: assignment.span.end.offset,
             rendered: render_assignment(assignment, source, &options),
         });
     }
 
     pieces.push(CommandPiece {
         span: command.variant_span,
+        gap_end: command.variant_span.end.offset,
         rendered: command.variant.to_string(),
     });
 
     for operand in &command.operands {
+        let span = decl_operand_span(operand);
         pieces.push(CommandPiece {
-            span: decl_operand_span(operand),
+            span,
+            gap_end: decl_operand_gap_end(operand, source),
             rendered: render_decl_operand(operand, source, &options),
         });
     }
@@ -447,9 +459,20 @@ fn decl_operand_span(operand: &DeclOperand) -> Span {
     }
 }
 
+fn decl_operand_gap_end(operand: &DeclOperand, source: &str) -> usize {
+    match operand {
+        DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+            word_gap_end_before_trailing_continuation(word, source)
+        }
+        DeclOperand::Name(name) => name.span.end.offset,
+        DeclOperand::Assignment(assignment) => assignment.span.end.offset,
+    }
+}
+
 #[derive(Debug, Clone)]
 struct CommandPiece {
     span: Span,
+    gap_end: usize,
     rendered: String,
 }
 
@@ -464,7 +487,7 @@ fn write_command_pieces(
         if index > 0 {
             let previous = &pieces[index - 1];
             if source
-                .get(previous.span.end.offset..piece.span.start.offset)
+                .get(previous.gap_end..piece.span.start.offset)
                 .is_some_and(|between| between.contains('\n'))
             {
                 write!(

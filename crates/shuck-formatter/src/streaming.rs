@@ -27,8 +27,9 @@ use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::word::{
     render_arithmetic_expr_to_buf, render_heredoc_body_to_buf, render_pattern_syntax_to_buf,
-    render_word_syntax_with_facts_to_buf, word_has_multiline_literal_source,
-    word_is_quoted_command_substitution_only, word_is_quoted_formattable_command_substitution_only,
+    render_word_syntax_with_facts_to_buf, word_gap_end_before_trailing_continuation,
+    word_has_multiline_literal_source, word_is_quoted_command_substitution_only,
+    word_is_quoted_formattable_command_substitution_only,
 };
 
 const SHFMT_TAB_VISUAL_WIDTH: usize = 8;
@@ -1189,7 +1190,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         for argument in &command.args {
             self.write_command_gap(previous_end, argument.span.start.offset);
             self.write_word(argument);
-            previous_end = Some(argument.span.end.offset);
+            previous_end = Some(word_gap_end_before_trailing_continuation(
+                argument,
+                self.source(),
+            ));
         }
         Ok(())
     }
@@ -1423,7 +1427,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.write_space();
             }
             self.write_word(word);
-            previous_end = Some(word.span.end.offset);
+            previous_end = Some(word_gap_end_before_trailing_continuation(
+                word,
+                self.source(),
+            ));
         }
     }
 

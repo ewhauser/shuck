@@ -33,6 +33,50 @@ impl FormatNodeRule<Word> for FormatWord {
     }
 }
 
+pub(crate) fn word_gap_end_before_trailing_continuation(word: &Word, source: &str) -> usize {
+    let span_end = word.span.end.offset;
+    let part_end = word
+        .parts
+        .iter()
+        .map(|part| part.span.end.offset)
+        .max()
+        .unwrap_or(span_end);
+    if part_end >= span_end {
+        return span_end;
+    }
+    let Some(last_part) = word.parts.iter().max_by_key(|part| part.span.end.offset) else {
+        return span_end;
+    };
+    if !matches!(
+        last_part.kind,
+        WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. }
+    ) {
+        return span_end;
+    }
+    let Some(trailing) = source.get(part_end..span_end) else {
+        return span_end;
+    };
+    if source_fragment_is_line_continuation_padding(trailing) {
+        part_end
+    } else {
+        span_end
+    }
+}
+
+fn source_fragment_is_line_continuation_padding(fragment: &str) -> bool {
+    let fragment = fragment.trim_start_matches([' ', '\t']);
+    let Some(after_backslash) = fragment.strip_prefix('\\') else {
+        return false;
+    };
+    let Some(after_newline) = after_backslash
+        .strip_prefix("\r\n")
+        .or_else(|| after_backslash.strip_prefix('\n'))
+    else {
+        return false;
+    };
+    after_newline.chars().all(|ch| matches!(ch, ' ' | '\t'))
+}
+
 pub(crate) fn render_word_syntax(
     word: &Word,
     source: &str,
