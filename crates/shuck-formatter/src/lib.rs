@@ -3286,6 +3286,22 @@ function R() {
     }
 
     #[test]
+    fn does_not_insert_blank_before_body_leading_brace_pipeline() {
+        let source =
+            "if ok; then\n  {\n    echo yes\n  } | cat\nelse\n  {\n    echo no\n  } | cat\nfi\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if ok; then\n\t{\n\t\techo yes\n\t} | cat\nelse\n\t{\n\t\techo no\n\t} | cat\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_blank_line_before_inline_do_brace_close() {
         let source = "while read -r line; do {\n  echo \"$line\"\n\n} done <file\n";
         let options = ShellFormatOptions::default();

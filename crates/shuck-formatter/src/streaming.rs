@@ -4317,6 +4317,7 @@ fn sequence_first_content_offset(
 
 fn stmt_first_content_offset(stmt: &Stmt, source: &str, source_map: &SourceMap<'_>) -> usize {
     match &stmt.command {
+        Command::Binary(command) => stmt_first_content_offset(&command.left, source, source_map),
         Command::Compound(CompoundCommand::BraceGroup(commands)) => {
             group_attachment_span(commands.as_slice(), source_map, '{', '}')
                 .map(|span| span.start.offset)
