@@ -2046,11 +2046,29 @@ pub(crate) fn multiline_compound_assignment_layout(
     let body = &slice[open + 1..close];
     let open_line = body.split_once('\n').map_or(body, |(line, _)| line);
     let close_line = body.rsplit_once('\n').map_or(body, |(_, line)| line);
-    let lines = body
+    let raw_lines = body
         .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(ToOwned::to_owned)
+        .map(|line| line.trim_end_matches([' ', '\t', '\r']))
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>();
+    let common_indent =
+        multiline_compound_assignment_common_body_indent(&raw_lines, !open_line.trim().is_empty());
+    let residual_space_indent_width = multiline_compound_assignment_residual_space_indent_width(
+        &raw_lines,
+        &common_indent,
+        !open_line.trim().is_empty(),
+    );
+    let lines = raw_lines
+        .iter()
+        .enumerate()
+        .map(|(index, line)| {
+            normalize_multiline_compound_assignment_line(
+                line,
+                &common_indent,
+                residual_space_indent_width,
+                index == 0 && !open_line.trim().is_empty(),
+            )
+        })
         .collect::<Vec<_>>();
 
     (!lines.is_empty()).then_some(MultilineCompoundAssignmentLayout {
@@ -2058,6 +2076,122 @@ pub(crate) fn multiline_compound_assignment_layout(
         open_inline: !open_line.trim().is_empty(),
         close_inline: !close_line.trim().is_empty(),
     })
+}
+
+fn normalize_multiline_compound_assignment_line(
+    line: &str,
+    common_indent: &str,
+    residual_space_indent_width: usize,
+    open_inline_line: bool,
+) -> String {
+    let trimmed = line.trim_start_matches([' ', '\t']);
+    if open_inline_line || trimmed.starts_with(')') {
+        return trimmed.to_string();
+    }
+    let stripped = line.strip_prefix(common_indent).unwrap_or(trimmed);
+    canonicalize_multiline_compound_assignment_residual_indent(
+        stripped,
+        residual_space_indent_width,
+    )
+}
+
+fn multiline_compound_assignment_common_body_indent(lines: &[&str], open_inline: bool) -> String {
+    let mut common: Option<String> = None;
+    for (index, line) in lines.iter().enumerate() {
+        if index == 0 && open_inline {
+            continue;
+        }
+        let trimmed = line.trim_start_matches([' ', '\t']);
+        if trimmed.starts_with(')') {
+            continue;
+        }
+        let indent = leading_shell_indent(line);
+        if indent.is_empty() {
+            return String::new();
+        }
+        common = Some(match common.take() {
+            Some(previous) => common_indent_prefix(&previous, indent).to_string(),
+            None => indent.to_string(),
+        });
+        if common.as_deref() == Some("") {
+            return String::new();
+        }
+    }
+    common.unwrap_or_default()
+}
+
+fn multiline_compound_assignment_residual_space_indent_width(
+    lines: &[&str],
+    common_indent: &str,
+    open_inline: bool,
+) -> usize {
+    let mut width = None::<usize>;
+    for (index, line) in lines.iter().enumerate() {
+        if index == 0 && open_inline {
+            continue;
+        }
+        let trimmed = line.trim_start_matches([' ', '\t']);
+        if trimmed.starts_with(')') {
+            continue;
+        }
+        let stripped = line.strip_prefix(common_indent).unwrap_or(trimmed);
+        let indent = leading_shell_indent(stripped);
+        if indent.is_empty() || indent.contains('\t') {
+            continue;
+        }
+        width = Some(width.map_or(indent.len(), |current| current.min(indent.len())));
+    }
+    width.unwrap_or(1).max(1)
+}
+
+fn canonicalize_multiline_compound_assignment_residual_indent(
+    line: &str,
+    residual_space_indent_width: usize,
+) -> String {
+    let indent = leading_shell_indent(line);
+    if indent.is_empty() {
+        return line.to_string();
+    }
+    let body = &line[indent.len()..];
+    let mut indent_units = 0usize;
+    let mut pending_spaces = 0usize;
+    for ch in indent.chars() {
+        if ch == '\t' {
+            indent_units += 1;
+            pending_spaces = 0;
+        } else {
+            pending_spaces += 1;
+            if pending_spaces == residual_space_indent_width {
+                indent_units += 1;
+                pending_spaces = 0;
+            }
+        }
+    }
+    if pending_spaces > 0 {
+        indent_units += 1;
+    }
+
+    let mut rendered = "\t".repeat(indent_units);
+    rendered.push_str(body);
+    rendered
+}
+
+fn leading_shell_indent(line: &str) -> &str {
+    let indent_end = line
+        .char_indices()
+        .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
+        .map_or(line.len(), |(index, _)| index);
+    &line[..indent_end]
+}
+
+fn common_indent_prefix<'a>(left: &'a str, right: &str) -> &'a str {
+    let len = left
+        .as_bytes()
+        .iter()
+        .zip(right.as_bytes())
+        .take_while(|(left, right)| left == right)
+        .count();
+    &left[..len]
 }
 
 pub(crate) fn multiline_compound_assignment_lines(
