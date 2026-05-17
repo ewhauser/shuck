@@ -3515,6 +3515,15 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         {
             return 1;
         }
+        if self
+            .facts()
+            .sequence(commands, upper_bound)
+            .leading_for(0)
+            .iter()
+            .any(|comment| !comment.inline())
+        {
+            return 1;
+        }
         let Some(target_code_column) = self.first_body_inline_comment_target_column(commands)
         else {
             return 1;

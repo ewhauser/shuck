@@ -927,6 +927,21 @@ mod tests {
     }
 
     #[test]
+    fn body_comment_stops_moved_function_header_comment_alignment() {
+        let source = "foo()\t\t# header\n{\n#\tlocal mac=\"$1\"\n\tlocal minute=\"${MINUTE:-$( date +%H )}\"\t\t# built during taskplanner: 00...23\n\tlocal hour=\"${HOUR:-$( date +%M )}\"\t\t# built during taskplanner: 00...59\n}\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "foo() { # header\n\t#\tlocal mac=\"$1\"\n\tlocal minute=\"${MINUTE:-$(date +%H)}\" # built during taskplanner: 00...23\n\tlocal hour=\"${HOUR:-$(date +%M)}\"     # built during taskplanner: 00...59\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn aligns_old_style_function_header_comments_like_shfmt() {
         let source = "foo () # header\n{\n  a=1 # body\n}\n";
         let options = ShellFormatOptions::default();
