@@ -2185,6 +2185,20 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn normalizes_indented_word_continuations_like_shfmt() {
+        let source = "cp -a \\\n  docs README LICENSE\\\n  $PKG/usr/doc\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "cp -a \\\n\tdocs README LICENSE $PKG/usr/doc\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &ShellFormatOptions::default());
+    }
+
+    #[test]
     fn preserves_backslash_continued_simple_commands_from_homebrew_install() {
         let source = "\"$1\" --enable-frozen-string-literal --disable=gems,did_you_mean,rubyopt -rrubygems -e \\\n    \"abort if Gem::Version.new(RUBY_VERSION) < \\\n              Gem::Version.new('${REQUIRED_RUBY_VERSION}')\" 2>/dev/null\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();

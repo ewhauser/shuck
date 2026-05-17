@@ -409,6 +409,16 @@ fn render_word_syntax_internal(
 
     if !options.simplify()
         && !options.minify()
+        && !word_needs_special_rendering(word)
+        && let Some(raw) = raw_word_source_slice(word, source)
+        && let Some(normalized) = normalize_raw_unquoted_word_continuations(raw)
+    {
+        rendered.push_str(&normalized);
+        return;
+    }
+
+    if !options.simplify()
+        && !options.minify()
         && let Some(raw) = raw_word_source_slice(word, source)
         && (word_has_multiline_double_quoted_source(word, source)
             || (raw.starts_with('"') && raw.contains("\\\n")))
@@ -961,7 +971,9 @@ fn render_word_part(
     }
 
     match part {
-        WordPart::Literal(text) => rendered.push_str(text.syntax_str(source, span)),
+        WordPart::Literal(text) => {
+            push_unquoted_literal(rendered, text.syntax_str(source, span));
+        }
         WordPart::SingleQuoted { value, dollar } => {
             if *dollar {
                 rendered.push('$');
@@ -1367,6 +1379,98 @@ fn parameter_bourne_subscript(
         BourneParameterExpansion::PrefixMatch { .. } => return None,
     };
     reference.subscript.as_deref()
+}
+
+fn push_unquoted_literal(rendered: &mut String, literal: &str) {
+    if !literal.contains("\\\n") && !literal.contains("\\\r\n") {
+        rendered.push_str(literal);
+        return;
+    }
+
+    let mut chars = literal.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            let mut probe = chars.clone();
+            let newline_len = match probe.next() {
+                Some('\n') => Some(1),
+                Some('\r') if probe.next().is_some_and(|next| next == '\n') => Some(2),
+                _ => None,
+            };
+
+            if let Some(newline_len) = newline_len {
+                for _ in 0..newline_len {
+                    chars.next();
+                }
+                let mut skipped_indent = false;
+                while chars.peek().is_some_and(|next| matches!(next, ' ' | '\t')) {
+                    skipped_indent = true;
+                    chars.next();
+                }
+                if skipped_indent {
+                    rendered.push(' ');
+                }
+                continue;
+            }
+        }
+        rendered.push(ch);
+    }
+}
+
+fn normalize_raw_unquoted_word_continuations(raw: &str) -> Option<String> {
+    if !raw.contains("\\\n") && !raw.contains("\\\r\n") {
+        return None;
+    }
+
+    let mut normalized = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut changed = false;
+    while let Some(ch) = chars.next() {
+        if ch == '\'' && !in_double_quotes {
+            in_single_quotes = !in_single_quotes;
+            normalized.push(ch);
+            continue;
+        }
+        if ch == '"' && !in_single_quotes {
+            in_double_quotes = !in_double_quotes;
+            normalized.push(ch);
+            continue;
+        }
+        if ch == '\\' && !in_single_quotes && !in_double_quotes {
+            let mut probe = chars.clone();
+            let newline_len = match probe.next() {
+                Some('\n') => Some(1),
+                Some('\r') if probe.next().is_some_and(|next| next == '\n') => Some(2),
+                _ => None,
+            };
+
+            if let Some(newline_len) = newline_len {
+                changed = true;
+                for _ in 0..newline_len {
+                    chars.next();
+                }
+                let mut skipped_indent = false;
+                while chars.peek().is_some_and(|next| matches!(next, ' ' | '\t')) {
+                    skipped_indent = true;
+                    chars.next();
+                }
+                if chars
+                    .peek()
+                    .is_some_and(|next| matches!(next, '|' | '&' | ';' | '<' | '>' | '(' | ')'))
+                {
+                    return None;
+                }
+                if skipped_indent {
+                    normalized.push(' ');
+                }
+                continue;
+            }
+        }
+        normalized.push(ch);
+    }
+
+    changed.then_some(normalized)
 }
 
 fn parameter_bourne_operand_needs_subscript_compaction(
