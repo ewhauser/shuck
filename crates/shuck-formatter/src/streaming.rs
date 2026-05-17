@@ -1578,6 +1578,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let operator_next_line = self.options().binary_next_line();
 
         for (index, stmt) in statements.iter().enumerate() {
+            if index == 0 {
+                self.format_pipeline_stmt(stmt)?;
+                continue;
+            }
             if index > 0 {
                 let operator = operators
                     .get(index - 1)
@@ -1602,7 +1606,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     self.newline();
                     self.with_extra_prefix_indent(
                         self.pipeline_continuation_indent,
-                        |formatter| formatter.format_pipeline_continuation_stmt(stmt),
+                        |formatter| formatter.format_pipeline_stmt(stmt),
                     )?;
                     continue;
                 }
@@ -1616,13 +1620,18 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         Ok(())
     }
 
-    fn format_pipeline_continuation_stmt(&mut self, stmt: &Stmt) -> Result<()> {
+    fn format_pipeline_stmt(&mut self, stmt: &Stmt) -> Result<()> {
         let next_line =
             stmt_render_start_line(stmt, self.source(), self.source_map(), self.options());
         let leading = stmt
             .leading_comments
             .iter()
             .filter_map(|comment| self.source_map().source_comment(*comment))
+            .filter(|comment| {
+                !comment.inline()
+                    && comment.span().end.offset
+                        <= self.facts().stmt(stmt).attachment_span().start.offset
+            })
             .collect::<Vec<_>>();
         self.emit_leading_comments(&leading, next_line);
         self.format_stmt(stmt)

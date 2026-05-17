@@ -2366,6 +2366,20 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_leading_comments_before_brace_group_pipelines() {
+        let source = "f() {\n  # before group\n  {\n    echo \"$@\"\n  } |\n  cat\n}\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\t# before group\n\t{\n\t\techo \"$@\"\n\t} |\n\t\tcat\n}\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn standalone_brace_groups_do_not_consume_later_file_comments() {
         let source = "[ -n \"$x\" ] && {\nset -x\n}\n# later\nnext\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();

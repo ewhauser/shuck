@@ -315,9 +315,10 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             .map(|span| span.end.offset)
             .or(upper_bound);
 
+        let comment_lower_bound = sequence_comment_lower_bound(sequence, self.source_map());
         let lower_bound = group_attachment_span
-            .map(|span| span.start.offset)
-            .unwrap_or_else(|| sequence_comment_lower_bound(sequence));
+            .map(|span| span.start.offset.min(comment_lower_bound))
+            .unwrap_or(comment_lower_bound);
         let comment_window = self.comment_window(lower_bound, sequence_limit);
 
         if sequence.is_empty() {
@@ -1184,14 +1185,24 @@ fn branch_open_suffix_span(
         .then(|| source_map.span_for_offsets(suffix_start, line_end))
 }
 
-fn sequence_comment_lower_bound(sequence: &StmtSeq) -> usize {
+fn sequence_comment_lower_bound(sequence: &StmtSeq, source_map: &SourceMap<'_>) -> usize {
     let mut lower_bound = sequence.span.start.offset;
     for comment in &sequence.leading_comments {
-        lower_bound = lower_bound.min(usize::from(comment.range.start()));
+        if source_map
+            .source_comment(*comment)
+            .is_some_and(|comment| !comment.inline())
+        {
+            lower_bound = lower_bound.min(usize::from(comment.range.start()));
+        }
     }
     for stmt in sequence.iter() {
         for comment in &stmt.leading_comments {
-            lower_bound = lower_bound.min(usize::from(comment.range.start()));
+            if source_map
+                .source_comment(*comment)
+                .is_some_and(|comment| !comment.inline())
+            {
+                lower_bound = lower_bound.min(usize::from(comment.range.start()));
+            }
         }
     }
     lower_bound
