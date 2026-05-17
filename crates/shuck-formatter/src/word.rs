@@ -1984,27 +1984,47 @@ fn indent_inline_pipeline_continuations(
     let mut rendered = String::with_capacity(body.len() + prefix.len());
     let mut changed = false;
     let mut previous_ends_pipeline = false;
-    let mut previous_ends_continuation = false;
+    let mut continuation_indent: Option<String> = None;
+    let mut quote = RawShellQuoteState::default();
 
     for (index, line) in body.split('\n').enumerate() {
         if index > 0 {
             rendered.push('\n');
         }
-        if previous_ends_continuation && !line.trim().is_empty() {
-            rendered.push_str(&prefix);
-            rendered.push_str(line.trim_start_matches([' ', '\t']));
+        let mut rendered_line = String::new();
+        let used_continuation_indent = if let Some(indent) = continuation_indent.take()
+            && !line.trim().is_empty()
+        {
+            rendered_line.push_str(&indent);
+            rendered_line.push_str(line.trim_start_matches([' ', '\t']));
             changed = true;
-            previous_ends_pipeline = line_ends_with_pipeline_operator(line);
-            previous_ends_continuation = line_without_continuation_backslash(line).is_some();
-            continue;
-        }
-        if previous_ends_pipeline && line_needs_inline_pipeline_indent(line) {
-            rendered.push_str(&prefix);
+            true
+        } else {
+            false
+        };
+        if !used_continuation_indent
+            && previous_ends_pipeline
+            && line_needs_inline_pipeline_indent(line)
+        {
+            rendered_line.push_str(&prefix);
+            rendered_line.push_str(line);
             changed = true;
+        } else if !used_continuation_indent {
+            rendered_line.push_str(line);
         }
-        rendered.push_str(line);
-        previous_ends_pipeline = line_ends_with_pipeline_operator(line);
-        previous_ends_continuation = line_without_continuation_backslash(line).is_some();
+
+        rendered.push_str(&rendered_line);
+        let line_continues = line_without_continuation_backslash(&rendered_line).is_some();
+        quote.scan_line(&rendered_line);
+        previous_ends_pipeline = line_ends_with_pipeline_operator(&rendered_line);
+        continuation_indent = line_continues.then(|| {
+            let indent = line_leading_shell_indent(&rendered_line);
+            if quote.in_multiline_literal() || used_continuation_indent {
+                indent.to_string()
+            } else {
+                source_indent_plus_one_unit(indent, options)
+            }
+        });
     }
 
     changed.then_some(rendered)
