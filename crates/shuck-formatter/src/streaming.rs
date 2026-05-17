@@ -2440,6 +2440,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn format_case(&mut self, command: &CaseCommand) -> Result<()> {
+        if !self.options().compact_layout()
+            && case_command_was_inline_in_source(command, self.source())
+            && self.can_format_case_inline(command)
+        {
+            return self.format_inline_case(command);
+        }
+
         let esac_span = last_shell_keyword_span(self.source(), command.span, "esac");
         let case_body_fallback = esac_span
             .map(|span| span.start.offset)
@@ -3339,7 +3346,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         command.cases.iter().all(|item| {
             item.body.is_empty()
                 || item.body.len() == 1
-                    && self.facts().case_item_was_inline_in_source(item)
+                    && (self.facts().case_item_was_inline_in_source(item)
+                        || case_item_body_was_inline_without_terminator(item))
                     && !self
                         .facts()
                         .sequence(&item.body, Some(command.span.end.offset))
@@ -4883,6 +4891,10 @@ fn case_has_blank_line_after_in(command: &CaseCommand, source: &str) -> bool {
     };
     let gap_start = start + in_end;
     gap_has_empty_physical_line(source, gap_start, end)
+}
+
+fn case_command_was_inline_in_source(command: &CaseCommand, source: &str) -> bool {
+    command.span.slice(source).lines().nth(1).is_none()
 }
 
 fn case_item_has_blank_line_before(previous: &CaseItem, item: &CaseItem, source: &str) -> bool {

@@ -4034,6 +4034,48 @@ function R() {
     }
 
     #[test]
+    fn keeps_standalone_inline_case_commands() {
+        let source = "for src in $source; do\n  case \"$src\" in */*) continue ;; esac\n  echo \"$src\"\ndone\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "for src in $source; do\n\tcase \"$src\" in */*) continue ;; esac\n\techo \"$src\"\ndone\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn keeps_inline_case_commands_with_multiple_patterns() {
+        let source = "case ${1:-} in '' | *[!0-9]*) return 1 ;; esac\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn keeps_inline_case_commands_with_missing_terminators() {
+        let source = "shellspec_is_number() {\n  case ${1:-} in ( '' | *[!0-9]* ) return 1; esac\n  return 0\n}\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "shellspec_is_number() {\n\tcase ${1:-} in '' | *[!0-9]*) return 1 ;; esac\n\treturn 0\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn keeps_case_items_multiline_when_terminator_was_multiline() {
         let source = "case \"$x\" in\n-h|--help)  usage\n            ;;\nesac\n";
         let options = ShellFormatOptions::default();
