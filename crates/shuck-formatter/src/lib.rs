@@ -999,6 +999,64 @@ $WHITE\$ $NO_COLOUR "
     }
 
     #[test]
+    fn preserves_multiline_prompt_assignments_with_leading_continuation_lines() {
+        let source = r##"PS1="$TITLEBAR$YELLOW-$LIGHT_BLUE-(\
+$YELLOW\u$LIGHT_BLUE@$YELLOW\h\
+$LIGHT_BLUE)-(\
+$YELLOW\$PWD\
+$LIGHT_BLUE)-$YELLOW-\
+\n\
+$YELLOW-$LIGHT_BLUE-(\
+$(__tonka_clock)\
+$WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
+"##;
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn preserves_indented_multiline_prompt_assignments_with_leading_continuation_lines() {
+        let source = r##"prompt() {
+  PS1="$TITLEBAR$YELLOW-$LIGHT_BLUE-(\
+$YELLOW\u$LIGHT_BLUE@$YELLOW\h\
+$LIGHT_BLUE)-(\
+$YELLOW\$PWD\
+$LIGHT_BLUE)-$YELLOW-\
+\n\
+$YELLOW-$LIGHT_BLUE-(\
+$(__tonka_clock)\
+$WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
+}
+"##;
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                r##"prompt() {
+	PS1="$TITLEBAR$YELLOW-$LIGHT_BLUE-(\
+$YELLOW\u$LIGHT_BLUE@$YELLOW\h\
+$LIGHT_BLUE)-(\
+$YELLOW\$PWD\
+$LIGHT_BLUE)-$YELLOW-\
+\n\
+$YELLOW-$LIGHT_BLUE-(\
+$(__tonka_clock)\
+$WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
+}
+"##
+                .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_background_terminator_at_if_branch_boundary() {
         let source = "if [ -z \"$SUBIT\" ]; then\n  eval $CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\nelse\n  $SUBIT \"$CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\"\nfi\n";
         let options = ShellFormatOptions::default();

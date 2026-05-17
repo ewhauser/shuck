@@ -71,6 +71,12 @@ pub(crate) fn render_word_syntax_with_facts_to_buf(
 }
 
 pub(crate) fn word_has_multiline_literal_source(word: &Word, source: &str) -> bool {
+    if raw_word_source_slice(word, source)
+        .is_some_and(|raw| raw.starts_with('"') && raw.contains("\\\n"))
+    {
+        return true;
+    }
+
     word.parts
         .iter()
         .any(|part| word_part_has_multiline_literal_source(&part.kind, part.span, source))
@@ -394,8 +400,9 @@ fn render_word_syntax_internal(
 
     if !options.simplify()
         && !options.minify()
-        && word_has_multiline_double_quoted_source(word, source)
         && let Some(raw) = raw_word_source_slice(word, source)
+        && (word_has_multiline_double_quoted_source(word, source)
+            || (raw.starts_with('"') && raw.contains("\\\n")))
         && could_need_preserve_raw_syntax(raw)
     {
         push_raw_word_with_normalized_command_redirect_spacing(rendered, word, raw, source);
