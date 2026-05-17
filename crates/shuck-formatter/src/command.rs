@@ -2141,7 +2141,7 @@ fn multiline_compound_assignment_common_body_indent(lines: &[&str], open_inline:
             continue;
         }
         let trimmed = line.trim_start_matches([' ', '\t']);
-        if trimmed.starts_with(')') {
+        if trimmed.starts_with(')') || trimmed.starts_with('#') {
             continue;
         }
         let indent = leading_shell_indent(line);
@@ -2170,7 +2170,7 @@ fn multiline_compound_assignment_residual_space_indent_width(
             continue;
         }
         let trimmed = line.trim_start_matches([' ', '\t']);
-        if trimmed.starts_with(')') {
+        if trimmed.starts_with(')') || trimmed.starts_with('#') {
             continue;
         }
         let stripped = line.strip_prefix(common_indent).unwrap_or(trimmed);

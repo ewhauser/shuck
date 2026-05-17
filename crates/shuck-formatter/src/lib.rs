@@ -2332,6 +2332,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn ignores_comments_for_multiline_compound_assignment_body_indent() {
+        let source =
+            "versions=(1.16.0\n# Match the server package.\n                    21.1.16)\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "versions=(1.16.0\n\t# Match the server package.\n\t21.1.16)\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_inline_multiline_compound_assignment_delimiters() {
         let source = "options=(path frozen without\n  ssl_verify_mode system_bindir user_agent)\n";
         let options = ShellFormatOptions::default();
