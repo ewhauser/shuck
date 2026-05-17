@@ -2840,6 +2840,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_blank_line_after_case_pattern_with_prefix_comments() {
+        let source = "case $x in\na)\n  echo a\n  ;;\n# disabled *)\n# note\n*)\n\n  echo default\n  ;;\nesac\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case $x in\na)\n\techo a\n\t;;\n# disabled *)\n# note\n*)\n\n\techo default\n\t;;\nesac\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn adds_blank_line_after_multiline_case_patterns() {
         let source = "case \"$1\" in\n  --disable \\\n  | --disable-http \\\n  | --disable-https \\\n  )\n    apache_args+=(\"$1\")\n    ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

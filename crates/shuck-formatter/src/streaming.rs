@@ -2924,8 +2924,20 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             }
 
             self.newline();
+            let first_body_stmt_line = item
+                .body
+                .first()
+                .map(|stmt| {
+                    stmt_render_start_line(stmt, self.source(), self.source_map(), self.options())
+                })
+                .unwrap_or(first_body_line);
             if case_item_pattern_close_paren_on_own_line(item, self.source())
-                || case_item_has_blank_line_after_pattern(item, self.source(), first_body_line)
+                || case_item_has_blank_line_after_pattern(
+                    item,
+                    self.source(),
+                    first_body_line,
+                    first_body_stmt_line,
+                )
             {
                 self.newline();
             }
@@ -5588,11 +5600,16 @@ fn case_item_has_blank_line_after_pattern(
     item: &CaseItem,
     source: &str,
     first_body_line: usize,
+    first_body_stmt_line: usize,
 ) -> bool {
     let Some(pattern_line) = item.patterns.last().map(|pattern| pattern.span.end.line) else {
         return false;
     };
-    let stmt_line = first_body_line;
+    let stmt_line = if first_body_line <= pattern_line {
+        first_body_stmt_line
+    } else {
+        first_body_line
+    };
     if stmt_line == 0 {
         return false;
     }
