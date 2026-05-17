@@ -3504,6 +3504,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn format_inline_case(&mut self, command: &CaseCommand) -> Result<()> {
+        let esac_span = last_shell_keyword_span(self.source(), command.span, "esac");
         self.write_text("case ");
         self.write_word(&command.word);
         self.write_text(" in");
@@ -3527,6 +3528,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             }
         }
         self.write_text(" esac");
+        self.write_close_suffix_after_span(esac_span);
         Ok(())
     }
 

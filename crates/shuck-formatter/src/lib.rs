@@ -584,6 +584,20 @@ mod tests {
     }
 
     #[test]
+    fn keeps_inline_case_close_suffix_comment_on_esac() {
+        let source = "case \"$IP\" in fe80::*) exit 0 ;; esac\t# ignore IPv6 linklocal, ip2dev() does not work here reliable anyway\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "case \"$IP\" in fe80::*) exit 0 ;; esac # ignore IPv6 linklocal, ip2dev() does not work here reliable anyway\n"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
     fn aligns_nested_close_suffix_comments_by_column() {
         let source = "if outer; then\n\tif inner; then\n\t\tcase $cmd in\n\t\t*) : ;;\n\t\tesac # case\n\tfi # inner\nfi # outer\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
