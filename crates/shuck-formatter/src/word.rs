@@ -801,6 +801,7 @@ fn render_word_part(
                     source,
                     options,
                     raw.contains('\n'),
+                    Some(raw),
                     facts,
                 )
                 .is_some()
@@ -809,7 +810,7 @@ fn render_word_part(
                     rendered.push_str(raw);
                 }
             } else if render_process_substitution(
-                rendered, body, *is_input, span, source, options, false, facts,
+                rendered, body, *is_input, span, source, options, false, None, facts,
             )
             .is_some()
             {
@@ -1481,6 +1482,7 @@ fn render_process_substitution(
     source: &str,
     options: &ResolvedShellFormatOptions,
     multiline: bool,
+    raw: Option<&str>,
     facts: Option<&FormatterFacts<'_>>,
 ) -> Option<()> {
     if stmt_seq_has_heredoc(body) {
@@ -1518,18 +1520,36 @@ fn render_process_substitution(
         return Some(());
     }
 
-    rendered.push(prefix);
     if multiline {
-        rendered.push_str("(\n");
-        push_indented_rendered_block(rendered, trimmed, options, 1);
-        rendered.push_str("\n)");
+        if let Some(raw) = raw
+            && process_substitution_source_starts_with_body_line(raw)
+        {
+            rendered.push(prefix);
+            rendered.push('(');
+            push_source_indented_inline_command_substitution(rendered, trimmed, raw);
+            rendered.push(')');
+        } else if let Some(raw) = raw {
+            push_raw_shell_text_with_normalized_redirect_spacing(rendered, raw);
+        } else {
+            rendered.push(prefix);
+            rendered.push_str("(\n");
+            push_indented_rendered_block(rendered, trimmed, options, 1);
+            rendered.push_str("\n)");
+        }
     } else {
+        rendered.push(prefix);
         rendered.push('(');
         rendered.push_str(trimmed);
         rendered.push(')');
     }
 
     Some(())
+}
+
+fn process_substitution_source_starts_with_body_line(raw: &str) -> bool {
+    raw.get(2..).is_some_and(|body| {
+        (raw.starts_with("<(") || raw.starts_with(">(")) && !body.starts_with('\n')
+    })
 }
 
 fn trim_trailing_line_endings(rendered: &str) -> &str {
