@@ -71,9 +71,9 @@ pub(crate) fn render_word_syntax_with_facts_to_buf(
 }
 
 pub(crate) fn word_has_multiline_literal_source(word: &Word, source: &str) -> bool {
-    if raw_word_source_slice(word, source)
-        .is_some_and(|raw| raw.starts_with('"') && raw.contains("\\\n"))
-    {
+    if raw_word_source_slice(word, source).is_some_and(|raw| {
+        raw.contains("\\\n") && word_has_multiline_double_quoted_source(word, source)
+    }) {
         return true;
     }
 
