@@ -4337,6 +4337,18 @@ function R() {
     }
 
     #[test]
+    fn preserves_command_substitution_padding_inside_single_quotes() {
+        let source = "echo >>$TOOLS 'x=$( uptime_in_seconds )'\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_multiline_assignment_payload_indentation() {
         let source = "if true; then\n  section+=\"\n$line\"\nfi\n";
         let options = ShellFormatOptions::default();

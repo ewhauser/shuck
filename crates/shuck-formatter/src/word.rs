@@ -437,6 +437,7 @@ fn render_word_syntax_internal(
 ) {
     if !options.simplify()
         && !options.minify()
+        && !word_is_single_quoted_only(word)
         && let Some(raw) = raw_word_source_slice(word, source)
         && let Some(normalized) = normalize_raw_command_substitution_padding(raw)
     {
@@ -4546,6 +4547,16 @@ fn render_pattern_parts_syntax_to_buf(
 
 fn raw_word_source_slice<'a>(word: &Word, source: &'a str) -> Option<&'a str> {
     raw_source_slice(word.span, source)
+}
+
+fn word_is_single_quoted_only(word: &Word) -> bool {
+    matches!(
+        word.parts.as_slice(),
+        [shuck_ast::WordPartNode {
+            kind: WordPart::SingleQuoted { .. },
+            ..
+        }]
+    )
 }
 
 fn raw_pattern_source_slice<'a>(pattern: &Pattern, source: &'a str) -> Option<&'a str> {
