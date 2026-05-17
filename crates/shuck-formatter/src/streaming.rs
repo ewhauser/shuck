@@ -2621,7 +2621,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             }
 
             self.newline();
-            if case_item_has_blank_line_after_pattern(item, self.source(), first_body_line) {
+            if case_item_pattern_close_paren_on_own_line(item, self.source())
+                || case_item_has_blank_line_after_pattern(item, self.source(), first_body_line)
+            {
                 self.newline();
             }
             self.with_extra_prefix_indent(base_indent + 1, |formatter| {
@@ -4811,6 +4813,26 @@ fn case_item_body_was_inline_without_terminator(item: &CaseItem) -> bool {
         return false;
     };
     pattern.span.end.line == stmt_span(stmt).start.line
+}
+
+fn case_item_pattern_close_paren_on_own_line(item: &CaseItem, source: &str) -> bool {
+    let Some(last_pattern) = item.patterns.last() else {
+        return false;
+    };
+    let end = item
+        .body
+        .first()
+        .map(stmt_span)
+        .map(|span| span.start.offset)
+        .or_else(|| item.terminator_span.map(|span| span.start.offset))
+        .unwrap_or(item.body.span.start.offset);
+    let Some(slice) = source.get(last_pattern.span.end.offset..end) else {
+        return false;
+    };
+    let Some(close_offset) = slice.find(')') else {
+        return false;
+    };
+    slice[..close_offset].contains('\n')
 }
 
 fn case_item_has_blank_line_after_pattern(

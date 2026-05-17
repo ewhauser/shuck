@@ -2378,6 +2378,36 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn adds_blank_line_after_multiline_case_patterns() {
+        let source = "case \"$1\" in\n  --disable \\\n  | --disable-http \\\n  | --disable-https \\\n  )\n    apache_args+=(\"$1\")\n    ;;\nesac\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case \"$1\" in\n--disable | \\\n\t--disable-http | \\\n\t--disable-https)\n\n\tapache_args+=(\"$1\")\n\t;;\nesac\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn keeps_attached_multiline_case_patterns_compact() {
+        let source = "case \"$1\" in\n  --nginx-additional-configuration \\\n  | --nginx-external-configuration)\n    nginx_args+=(\"$1\")\n    ;;\nesac\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case \"$1\" in\n--nginx-additional-configuration | \\\n\t--nginx-external-configuration)\n\tnginx_args+=(\"$1\")\n\t;;\nesac\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn does_not_treat_comment_internal_blank_as_case_pattern_gap() {
         let source = "case $x in\n*)\n  # first\n\n  # second\n  echo a\n  ;;\nesac\n";
         let options = ShellFormatOptions::default();
