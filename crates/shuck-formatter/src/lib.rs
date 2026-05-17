@@ -2176,6 +2176,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn indents_raw_block_command_substitution_pipeline_after_compound_close() {
+        let source = "regions=\"$(\n    # choose enabled regions by default\n    if [ -n \"${ALL_REGIONS:-}\" ]; then\n        list_regions --all\n    else\n        list_regions\n    fi |\n    jq -r '.Regions[] | .Name'\n)\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "regions=\"$(\n\t# choose enabled regions by default\n\tif [ -n \"${ALL_REGIONS:-}\" ]; then\n\t\tlist_regions --all\n\telse\n\t\tlist_regions\n\tfi |\n\t\tjq -r '.Regions[] | .Name'\n)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_case_pattern_escapes() {
         let source = "case \"$archi\" in\nDarwin\\ arm64*) download foo ;;\nesac\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();

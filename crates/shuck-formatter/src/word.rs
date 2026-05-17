@@ -1630,6 +1630,7 @@ fn push_raw_block_command_substitution_without_outer_indent(
     options: &ResolvedShellFormatOptions,
 ) {
     let normalized_pipeline = normalize_raw_pipeline_continuations(raw);
+    let normalized_pipeline_continuation = normalized_pipeline.is_some();
     let raw = normalized_pipeline.as_deref().unwrap_or(raw);
     let outer_indent = line_indent_before_source_offset(source, start_offset).unwrap_or("");
     let mut lines = raw.split('\n');
@@ -1649,9 +1650,18 @@ fn push_raw_block_command_substitution_without_outer_indent(
         if let Some(previous_indent) = previous_pipeline_indent.as_deref()
             && !content.trim().is_empty()
             && !content.starts_with('#')
-            && indent.len() < previous_indent.len()
         {
-            line = format!("{previous_indent}{content}");
+            if !normalized_pipeline_continuation
+                && body_indent.as_deref() == Some(previous_indent)
+                && indent.len() <= previous_indent.len()
+            {
+                line = format!(
+                    "{}{content}",
+                    source_indent_plus_one_unit(previous_indent, options)
+                );
+            } else if indent.len() < previous_indent.len() {
+                line = format!("{previous_indent}{content}");
+            }
         }
         let indent = line_leading_shell_indent(&line);
         let content = &line[indent.len()..];
@@ -1909,6 +1919,22 @@ fn strip_one_indent_unit<'a>(line: &'a str, options: &ResolvedShellFormatOptions
         IndentStyle::Space => line
             .strip_prefix(&" ".repeat(usize::from(options.indent_width())))
             .unwrap_or(line),
+    }
+}
+
+fn source_indent_plus_one_unit(indent: &str, options: &ResolvedShellFormatOptions) -> String {
+    if indent.chars().all(|ch| ch == '\t') {
+        let mut extended = indent.to_string();
+        extended.push('\t');
+        extended
+    } else {
+        let width = match options.indent_style() {
+            IndentStyle::Tab => usize::from(options.indent_width()).clamp(1, 4),
+            IndentStyle::Space => usize::from(options.indent_width()),
+        };
+        let mut extended = indent.to_string();
+        extended.push_str(&" ".repeat(width));
+        extended
     }
 }
 
