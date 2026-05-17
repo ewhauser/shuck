@@ -2241,10 +2241,12 @@ fn normalize_raw_command_substitution_padding(raw: &str) -> Option<String> {
             let body = &raw[index + 2..close_offset];
             if !body.contains('\n') {
                 let trimmed = body.trim_matches([' ', '\t']);
-                if trimmed.len() != body.len() {
+                let normalized_body = normalize_raw_command_substitution_padding(trimmed)
+                    .unwrap_or_else(|| trimmed.to_string());
+                if trimmed.len() != body.len() || normalized_body != trimmed {
                     rendered.push_str(&raw[cursor..index]);
                     rendered.push_str("$(");
-                    rendered.push_str(trimmed);
+                    rendered.push_str(&normalized_body);
                     rendered.push(')');
                     cursor = close_offset + 1;
                     changed = true;
