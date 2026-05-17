@@ -3011,11 +3011,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn case_item_terminator_suffix_comment(&self, item: &CaseItem) -> Option<String> {
-        let Some(span) = item.terminator_span else {
-            return self.case_item_terminator_suffix_comment_without_span(item);
-        };
+        let span = item.terminator_span?;
         if span.start.line != span.end.line {
-            return self.case_item_terminator_suffix_comment_without_span(item);
+            return None;
         }
         let source = self.source();
         let start = span.end.offset.min(source.len());
@@ -3027,58 +3025,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let comment = suffix
             .trim_start_matches([' ', '\t'])
             .trim_end_matches([' ', '\t', '\r']);
-        if comment.starts_with('#') {
-            Some(comment.to_string())
-        } else {
-            self.case_item_terminator_suffix_comment_without_span(item)
-        }
-    }
-
-    fn case_item_terminator_suffix_comment_without_span(&self, item: &CaseItem) -> Option<String> {
-        let terminator = case_terminator(item.terminator);
-        let search_start = item
-            .patterns
-            .first()
-            .map(|pattern| pattern.span.start.offset)
-            .unwrap_or(item.body.span.start.offset)
-            .min(self.source().len());
-        let search_start = self.source()[..search_start]
-            .rfind('\n')
-            .map_or(0, |offset| offset.saturating_add(1));
-        let content_end = item
-            .terminator_span
-            .map(|span| span.end.offset)
-            .or_else(|| {
-                item.body
-                    .last()
-                    .map(stmt_format_span)
-                    .map(|span| span.end.offset)
-            })
-            .or_else(|| item.patterns.last().map(|pattern| pattern.span.end.offset))?
-            .min(self.source().len());
-        let search_end = self.source()[content_end..]
-            .find('\n')
-            .map_or(self.source().len(), |offset| content_end + offset);
-        let region = self.source().get(search_start..search_end)?;
-
-        for line in region.lines().rev() {
-            let Some(comment_start) = line.find('#') else {
-                continue;
-            };
-            let Some(before_comment) = line.get(..comment_start) else {
-                continue;
-            };
-            if !before_comment.contains(terminator) {
-                continue;
-            }
-            let comment = line
-                .get(comment_start..)?
-                .trim_end_matches([' ', '\t', '\r']);
-            if comment.starts_with('#') {
-                return Some(comment.to_string());
-            }
-        }
-        None
+        comment.starts_with('#').then(|| comment.to_string())
     }
 
     fn next_inline_case_item_suffix_comment_visual_column(&self, item: &CaseItem) -> Option<usize> {
