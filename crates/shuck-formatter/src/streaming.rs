@@ -4,12 +4,12 @@ use std::mem;
 use shuck_ast::{
     AlwaysCommand, AnonymousFunctionCommand, ArithmeticCommand, ArithmeticForCommand, ArrayElem,
     Assignment, AssignmentValue, BinaryCommand, BinaryOp, BuiltinCommand, CaseCommand, CaseItem,
-    Command, CompoundCommand, ConditionalBinaryExpr, ConditionalCommand, ConditionalExpr,
-    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, CoprocCommand, DeclClause,
-    DeclOperand, File, ForCommand, ForSyntax, ForeachCommand, ForeachSyntax, FunctionDef, Heredoc,
-    HeredocBody, HeredocBodyPart, IfCommand, IfSyntax, Pattern, PatternPart, Redirect,
-    RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand, Span, Stmt, StmtSeq,
-    StmtTerminator, TimeCommand, UntilCommand, VarRef, WhileCommand, Word, WordPart,
+    Command, CompoundCommand, ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand,
+    ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, CoprocCommand,
+    DeclClause, DeclOperand, File, ForCommand, ForSyntax, ForeachCommand, ForeachSyntax,
+    FunctionDef, Heredoc, HeredocBody, HeredocBodyPart, IfCommand, IfSyntax, Pattern, PatternPart,
+    Redirect, RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand, Span, Stmt,
+    StmtSeq, StmtTerminator, TimeCommand, UntilCommand, VarRef, WhileCommand, Word, WordPart,
 };
 use shuck_format::{IndentStyle, LineEnding};
 
@@ -4003,7 +4003,21 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return Ok(());
         }
         self.write_space();
-        self.format_conditional_expr(&expression.right)
+        if matches!(expression.op, ConditionalBinaryOp::RegexMatch) {
+            self.write_conditional_regex_rhs(&expression.right)
+        } else {
+            self.format_conditional_expr(&expression.right)
+        }
+    }
+
+    fn write_conditional_regex_rhs(&mut self, expression: &ConditionalExpr) -> Result<()> {
+        let raw = expression.span().slice(self.source()).trim();
+        if raw.contains('\n') {
+            self.format_conditional_expr(expression)
+        } else {
+            self.write_text(raw);
+            Ok(())
+        }
     }
 
     fn format_conditional_unary(&mut self, expression: &ConditionalUnaryExpr) -> Result<()> {
