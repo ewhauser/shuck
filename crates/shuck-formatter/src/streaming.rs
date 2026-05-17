@@ -4659,7 +4659,7 @@ fn moved_function_brace_alignment_width(text: &str) -> usize {
     {
         return 1;
     }
-    usize::from(trimmed.ends_with("()") && !trimmed.ends_with(" ()"))
+    usize::from(trimmed.ends_with("()") && !trimmed.ends_with(" ()") && !trimmed.contains('='))
 }
 
 fn line_is_skippable_alignment_opener(line: &str) -> bool {

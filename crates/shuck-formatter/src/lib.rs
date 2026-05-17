@@ -2631,6 +2631,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn aligns_trailing_comments_after_empty_array_assignments() {
+        let source = "x=() # first\nyyy=() # second\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted("x=()   # first\nyyy=() # second\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn aligns_trailing_comments_after_normalized_arithmetic_assignments() {
         let source = "border=$(( $(_system uptime days) * 3 )) # normally\nborder=$(( border + basecount ))         # later\n";
         let options = ShellFormatOptions::default();
