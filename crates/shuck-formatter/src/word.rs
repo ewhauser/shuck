@@ -391,6 +391,15 @@ fn render_word_syntax_internal(
     facts: Option<&FormatterFacts<'_>>,
     rendered: &mut String,
 ) {
+    if !options.simplify()
+        && !options.minify()
+        && let Some(raw) = raw_word_source_slice(word, source)
+        && let Some(normalized) = normalize_raw_command_substitution_padding(raw)
+    {
+        rendered.push_str(&normalized);
+        return;
+    }
+
     if word_has_escaped_command_substitution(word, source)
         && let Some(raw) = raw_word_source_slice(word, source)
     {
@@ -1519,12 +1528,20 @@ fn render_command_substitution(
     match layout {
         CommandSubstitutionLayout::Inline => {
             rendered.push_str("$(");
-            push_command_substitution_inline_body(rendered, trimmed, options);
+            push_command_substitution_inline_body(
+                rendered,
+                trim_inline_command_substitution_padding(trimmed),
+                options,
+            );
             rendered.push(')');
         }
         CommandSubstitutionLayout::InlineContinued => {
             rendered.push_str("$(");
-            push_command_substitution_inline_body(rendered, trimmed, options);
+            push_command_substitution_inline_body(
+                rendered,
+                trim_inline_command_substitution_padding(trimmed),
+                options,
+            );
             rendered.push(')');
         }
         CommandSubstitutionLayout::InlineSourceIndented => {
@@ -1658,6 +1675,10 @@ fn push_command_substitution_inline_body(
     } else {
         push_raw_shell_text_with_normalized_redirect_spacing(target, body);
     }
+}
+
+fn trim_inline_command_substitution_padding(body: &str) -> &str {
+    body.trim_matches([' ', '\t'])
 }
 
 fn indent_inline_pipeline_continuations(
@@ -2051,6 +2072,95 @@ fn raw_command_redirect_spacing_would_change(raw: &str) -> bool {
     let mut normalized = String::with_capacity(raw.len());
     push_raw_shell_text_with_normalized_redirect_spacing(&mut normalized, raw);
     normalized != raw
+}
+
+fn normalize_raw_command_substitution_padding(raw: &str) -> Option<String> {
+    let bytes = raw.as_bytes();
+    let mut rendered = String::with_capacity(raw.len());
+    let mut cursor = 0usize;
+    let mut index = 0usize;
+    let mut changed = false;
+
+    while index + 1 < bytes.len() {
+        if bytes[index] == b'$'
+            && bytes[index + 1] == b'('
+            && index
+                .checked_sub(1)
+                .and_then(|previous| bytes.get(previous))
+                .is_none_or(|byte| *byte != b'\\')
+            && bytes.get(index + 2).is_none_or(|byte| *byte != b'(')
+            && let Some(close_offset) = matching_raw_command_substitution_close(raw, index + 2)
+        {
+            let body = &raw[index + 2..close_offset];
+            if !body.contains('\n') {
+                let trimmed = body.trim_matches([' ', '\t']);
+                if trimmed.len() != body.len() {
+                    rendered.push_str(&raw[cursor..index]);
+                    rendered.push_str("$(");
+                    rendered.push_str(trimmed);
+                    rendered.push(')');
+                    cursor = close_offset + 1;
+                    changed = true;
+                }
+            }
+            index = close_offset + 1;
+            continue;
+        }
+        index += 1;
+    }
+
+    if changed {
+        rendered.push_str(&raw[cursor..]);
+        Some(rendered)
+    } else {
+        None
+    }
+}
+
+fn matching_raw_command_substitution_close(raw: &str, body_start: usize) -> Option<usize> {
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    let mut paren_depth = 0usize;
+    let mut index = body_start;
+
+    while index < raw.len() {
+        let ch = raw[index..].chars().next()?;
+        let next_index = index + ch.len_utf8();
+        if escaped {
+            escaped = false;
+            index = next_index;
+            continue;
+        }
+
+        match quote {
+            Some('\'') => {
+                if ch == '\'' {
+                    quote = None;
+                }
+            }
+            Some('"') => match ch {
+                '"' => quote = None,
+                '\\' => escaped = true,
+                _ => {}
+            },
+            _ => match ch {
+                '\\' => escaped = true,
+                '\'' | '"' => quote = Some(ch),
+                '(' => paren_depth += 1,
+                ')' => {
+                    if paren_depth == 0 {
+                        return Some(index);
+                    }
+                    paren_depth -= 1;
+                }
+                _ => {}
+            },
+        }
+
+        index = next_index;
+    }
+
+    None
 }
 
 fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, line: &str) {
