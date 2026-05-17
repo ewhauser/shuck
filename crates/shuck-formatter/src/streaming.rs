@@ -1243,7 +1243,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             }) {
                 self.line_continuation();
             } else if let SimpleCommandPart::Redirect(redirect) = &part {
-                self.write_redirect_gap(previous_end, redirect);
+                self.write_redirect_gap(previous_part, previous_end, redirect, command);
             } else {
                 self.write_command_gap(previous_end, part.start_offset(command));
             }
@@ -1271,11 +1271,25 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.restore_scratch_buffer(rendered_name);
     }
 
-    fn write_redirect_gap(&mut self, previous_end: Option<usize>, redirect: &Redirect) {
+    fn write_redirect_gap(
+        &mut self,
+        previous_part: Option<SimpleCommandPart<'_>>,
+        previous_end: Option<usize>,
+        redirect: &Redirect,
+        command: &SimpleCommand,
+    ) {
         let Some(previous_end) = previous_end else {
             return;
         };
         if previous_end == redirect.span.start.offset {
+            if redirect_has_adjacent_numeric_fd_prefix(
+                previous_part,
+                redirect,
+                command,
+                self.source(),
+            ) {
+                return;
+            }
             if !redirect_is_attached_process_substitution(Span::new(), redirect, self.source()) {
                 self.write_space();
             }
@@ -4330,6 +4344,31 @@ fn redirect_source_has_explicit_fd(redirect: &Redirect, source: &str, fd: i32) -
     };
     let rendered_fd = fd.to_string();
     raw.trim_start().starts_with(&rendered_fd)
+}
+
+fn redirect_has_adjacent_numeric_fd_prefix(
+    previous_part: Option<SimpleCommandPart<'_>>,
+    redirect: &Redirect,
+    command: &SimpleCommand,
+    source: &str,
+) -> bool {
+    if !matches!(
+        redirect.kind,
+        RedirectKind::DupOutput | RedirectKind::DupInput
+    ) {
+        return false;
+    }
+    let Some(SimpleCommandPart::Argument(word)) = previous_part else {
+        return false;
+    };
+    if word.span.end.offset != redirect.span.start.offset {
+        return false;
+    }
+    let Some(raw) = source.get(word.span.start.offset..word.span.end.offset) else {
+        return false;
+    };
+    raw.chars().all(|ch| ch.is_ascii_digit())
+        && word.span.start.offset > command.name.span.end.offset
 }
 
 fn needs_space_before_target(kind: RedirectKind, target: &str, space_redirects: bool) -> bool {
