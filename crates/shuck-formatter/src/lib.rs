@@ -2721,6 +2721,22 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn normalizes_block_process_substitution_source_indent() {
+        let source =
+            "while read -r line; do\n    echo \"$line\"\ndone < <(\n    produce_items\n)\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "while read -r line; do\n\techo \"$line\"\ndone < <(\n\tproduce_items\n)\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_fd_duplication_redirect_targets() {
         let source = "cmd 2>&$fd\n";
         let options = ShellFormatOptions::default();

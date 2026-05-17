@@ -1863,8 +1863,6 @@ fn render_process_substitution(
             rendered.push('(');
             push_source_indented_inline_command_substitution(rendered, trimmed, raw, options);
             rendered.push(')');
-        } else if let Some(raw) = raw {
-            push_raw_shell_text_with_normalized_redirect_spacing(rendered, raw);
         } else {
             rendered.push(prefix);
             rendered.push_str("(\n");
