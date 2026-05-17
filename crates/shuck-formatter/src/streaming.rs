@@ -2139,9 +2139,19 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 }
                 self.emit_branch_prefix_comments(command, index);
                 self.newline();
-                self.write_text("elif ");
-                self.format_inline_stmts(condition)?;
-                self.write_text(self.then_separator_for_condition(condition));
+                if condition_keyword_on_previous_non_empty_line(condition, source, "elif") {
+                    self.write_text("elif");
+                    self.newline();
+                    self.with_indent(|formatter| {
+                        formatter.format_stmt_sequence(condition, Some(body.span.start.offset))
+                    })?;
+                    self.newline();
+                    self.write_text("then");
+                } else {
+                    self.write_text("elif ");
+                    self.format_inline_stmts(condition)?;
+                    self.write_text(self.then_separator_for_condition(condition));
+                }
             }
             let body_upper_bound = if_branch_upper_bound(command, index + 1, source);
             self.write_sequence_open_suffix(body, Some(body_upper_bound));
@@ -4632,6 +4642,33 @@ fn if_condition_starts_after_keyword(command: &IfCommand) -> bool {
         .condition
         .first()
         .is_some_and(|stmt| stmt_span(stmt).start.line > command.span.start.line)
+}
+
+fn condition_keyword_on_previous_non_empty_line(
+    condition: &StmtSeq,
+    source: &str,
+    keyword: &str,
+) -> bool {
+    let Some(first) = condition.first() else {
+        return false;
+    };
+    let Some((mut line_start, _)) = line_bounds_for_offset(source, stmt_span(first).start.offset)
+    else {
+        return false;
+    };
+
+    while let Some((start, end)) = previous_line_bounds(source, line_start) {
+        let Some(line) = source.get(start..end) else {
+            return false;
+        };
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            return trimmed == keyword;
+        }
+        line_start = start;
+    }
+
+    false
 }
 
 fn raw_grouped_if_condition<'a>(

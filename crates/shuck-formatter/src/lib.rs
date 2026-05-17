@@ -3763,6 +3763,21 @@ function R() {
     }
 
     #[test]
+    fn preserves_simple_elif_condition_on_own_line_after_heredoc_branch() {
+        let source = "#!/bin/sh\n\nif [ \"$1\" = --query ]; then\n\n  cat <<EOF\nquery\nEOF\n\nelif\n  [ \"$1\" = --listmonitors ]\nthen\n\n  cat <<EOF\nmonitors\nEOF\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Posix);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "#!/bin/sh\n\nif [ \"$1\" = --query ]; then\n\n\tcat <<EOF\nquery\nEOF\n\nelif\n\t[ \"$1\" = --listmonitors ]\nthen\n\n\tcat <<EOF\nmonitors\nEOF\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_blank_line_after_if_then() {
         let source = "if true; then\n\n  echo yes\nfi\n";
         let options = ShellFormatOptions::default();
