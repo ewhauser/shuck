@@ -7,7 +7,7 @@ use shuck_ast::{
     Command, CompoundCommand, ConditionalBinaryExpr, ConditionalCommand, ConditionalExpr,
     ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, CoprocCommand, DeclClause,
     DeclOperand, File, ForCommand, ForSyntax, ForeachCommand, ForeachSyntax, FunctionDef, Heredoc,
-    IfCommand, IfSyntax, Pattern, Redirect, RedirectKind, RepeatCommand, RepeatSyntax,
+    IfCommand, IfSyntax, Pattern, PatternPart, Redirect, RedirectKind, RepeatCommand, RepeatSyntax,
     SelectCommand, SimpleCommand, Span, Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand,
     VarRef, WhileCommand, Word, WordPart,
 };
@@ -3386,7 +3386,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.write_text(expression.op.as_str());
         if conditional_binary_has_explicit_rhs_break(expression, self.source()) {
             self.newline();
-            self.write_indent_units(1);
+            if !conditional_expr_contains_command_substitution(&expression.left) {
+                self.write_indent_units(1);
+            }
             self.format_conditional_expr(&expression.right)?;
             return Ok(());
         }
@@ -4829,6 +4831,83 @@ fn conditional_binary_has_explicit_rhs_break(
             expression.op_span.end.offset,
             expression.right.span().start.offset,
         )
+}
+
+fn conditional_expr_contains_command_substitution(expression: &ConditionalExpr) -> bool {
+    match expression {
+        ConditionalExpr::Binary(expr) => {
+            conditional_expr_contains_command_substitution(&expr.left)
+                || conditional_expr_contains_command_substitution(&expr.right)
+        }
+        ConditionalExpr::Unary(expr) => conditional_expr_contains_command_substitution(&expr.expr),
+        ConditionalExpr::Parenthesized(expr) => {
+            conditional_expr_contains_command_substitution(&expr.expr)
+        }
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            word_contains_command_substitution(word)
+        }
+        ConditionalExpr::Pattern(pattern) => pattern_contains_command_substitution(pattern),
+        ConditionalExpr::VarRef(_) => false,
+    }
+}
+
+fn pattern_contains_command_substitution(pattern: &Pattern) -> bool {
+    pattern.parts.iter().any(|part| match &part.kind {
+        PatternPart::Group { patterns, .. } => {
+            patterns.iter().any(pattern_contains_command_substitution)
+        }
+        PatternPart::Word(word) => word_contains_command_substitution(word),
+        PatternPart::Literal(_)
+        | PatternPart::AnyString
+        | PatternPart::AnyChar
+        | PatternPart::CharClass(_) => false,
+    })
+}
+
+fn word_contains_command_substitution(word: &Word) -> bool {
+    word.parts
+        .iter()
+        .any(|part| word_part_contains_command_substitution(&part.kind))
+}
+
+fn word_part_contains_command_substitution(part: &WordPart) -> bool {
+    match part {
+        WordPart::CommandSubstitution { .. } => true,
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| word_part_contains_command_substitution(&part.kind)),
+        WordPart::ArithmeticExpansion {
+            expression_word_ast,
+            ..
+        } => word_contains_command_substitution(expression_word_ast),
+        WordPart::Parameter(_) => false,
+        WordPart::ParameterExpansion {
+            operand_word_ast, ..
+        } => operand_word_ast
+            .as_deref()
+            .is_some_and(word_contains_command_substitution),
+        WordPart::IndirectExpansion {
+            operand_word_ast, ..
+        } => operand_word_ast
+            .as_deref()
+            .is_some_and(word_contains_command_substitution),
+        WordPart::Substring {
+            offset_word_ast,
+            length_word_ast,
+            ..
+        }
+        | WordPart::ArraySlice {
+            offset_word_ast,
+            length_word_ast,
+            ..
+        } => {
+            word_contains_command_substitution(offset_word_ast)
+                || length_word_ast
+                    .as_deref()
+                    .is_some_and(word_contains_command_substitution)
+        }
+        _ => false,
+    }
 }
 
 fn collect_command_list_first<'a>(

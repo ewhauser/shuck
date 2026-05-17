@@ -1308,6 +1308,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn keeps_command_substitution_condition_continuation_at_block_indent() {
+        let source = "if true; then\n  if [[ $a != \"$(cat x)\" ||\n  $b == c ]]; then\n    echo yes\n  fi\nfi\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if true; then\n\tif [[ $a != \"$(cat x)\" ||\n\t$b == c ]]; then\n\t\techo yes\n\tfi\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn normalizes_redirect_spacing_inside_parameter_default_commands() {
         let source = "[[ -t 1 && \"${CLICOLOR:=$(tput colors 2> /dev/null)}\" -ge 8 ]]\n";
         let options = ShellFormatOptions::default();
