@@ -4193,6 +4193,23 @@ function R() {
     }
 
     #[test]
+    fn aligns_trailing_comments_with_following_outdented_branch() {
+        let source = "cell_ram() {\n\tcase \"$ram_size\" in\n\t\t12*|13*)\n\t\t\tif [ ${#ram_size} -eq 5 ]; then\t\t\t# size\n\t\t\t\tif   [ -z \"$zram_memusage\" ]; then\n\t\t\t\t\tbgcolor=\"$color_alarm\"\t\t# disabled\n\t\t\t\telif [ \"$zram_memusage\" -lt 320000 ]; then\t# pppoe\n\t\t\t\t\tbgcolor=\"$color_lightgreen\"\n\t\t\t\tfi\n\t\t\tfi\n\t\t;;\n\tesac\n}\n";
+        let options = ShellFormatOptions::default();
+        let alarm_prefix = "\t\t\t\tbgcolor=\"$color_alarm\"";
+        let elif_prefix = "\t\t\telif [ \"$zram_memusage\" -lt 320000 ]; then ";
+        let alarm_padding = " ".repeat(elif_prefix.len() - alarm_prefix.len());
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(format!(
+                "cell_ram() {{\n\tcase \"$ram_size\" in\n\t12* | 13*)\n\t\tif [ ${{#ram_size}} -eq 5 ]; then # size\n\t\t\tif [ -z \"$zram_memusage\" ]; then\n{alarm_prefix}{alarm_padding}# disabled\n\t\t\telif [ \"$zram_memusage\" -lt 320000 ]; then # pppoe\n\t\t\t\tbgcolor=\"$color_lightgreen\"\n\t\t\tfi\n\t\tfi\n\t\t;;\n\tesac\n}}\n"
+            ))
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn aligns_inline_if_close_comments_after_reindent() {
         let source = "scan() {\n       if IsRunning \"sentineld\"; then SENTINELONE_SCANNER_RUNNING=1; fi # macOS\n       if IsRunning \"s1-agent\"; then SENTINELONE_SCANNER_RUNNING=1; fi # Linux\n       if IsRunning \"SentinelAgent\"; then SENTINELONE_SCANNER_RUNNING=1; fi # Windows\n}\n";
         let options = ShellFormatOptions::default();

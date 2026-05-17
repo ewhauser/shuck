@@ -5900,7 +5900,8 @@ fn trailing_comment_alignment_column(source: &str, comment: &SourceComment<'_>) 
 }
 
 fn trailing_comment_tab_indent_adjust(source: &str, comment: &SourceComment<'_>) -> usize {
-    let Some((line_start, _)) = line_bounds_for_offset(source, comment.span().start.offset) else {
+    let Some((line_start, line_end)) = line_bounds_for_offset(source, comment.span().start.offset)
+    else {
         return 0;
     };
     let Some(current_line) = source.get(line_start..comment.span().start.offset) else {
@@ -5930,6 +5931,35 @@ fn trailing_comment_tab_indent_adjust(source: &str, comment: &SourceComment<'_>)
             .is_some_and(line_is_skippable_alignment_opener)
         {
             previous_start = start;
+            continue;
+        }
+        break;
+    }
+
+    let mut next_start = line_end
+        .checked_add(1)
+        .filter(|offset| *offset < source.len());
+    while let Some(start) = next_start {
+        let end = source[start..]
+            .find('\n')
+            .map_or(source.len(), |offset| start + offset);
+        if inline_comment_code_width(source, start, end, None).is_some() {
+            return source
+                .get(start..end)
+                .map(leading_tabs_only_indent_width)
+                .map_or(0, |next_tabs| {
+                    if next_tabs == 0 {
+                        0
+                    } else {
+                        current_tabs.saturating_sub(next_tabs)
+                    }
+                });
+        }
+        if source
+            .get(start..end)
+            .is_some_and(line_is_skippable_alignment_opener)
+        {
+            next_start = end.checked_add(1).filter(|offset| *offset < source.len());
             continue;
         }
         break;
