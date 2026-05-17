@@ -2149,6 +2149,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn normalizes_raw_block_command_substitution_shell_indent() {
+        let source = "f() {\n    value=\"$(\n        aws service call \\\n            --query 'Items[]{\n                        \"Name\": Name\n                    }' \\\n            --output json |\n        jq -r \"\n            .[]\n        \"\n    )\"\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\tvalue=\"$(\n\t\taws service call \\\n\t\t\t--query 'Items[]{\n                        \"Name\": Name\n                    }' \\\n\t\t\t--output json |\n\t\t\tjq -r \"\n            .[]\n        \"\n\t)\"\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_case_pattern_escapes() {
         let source = "case \"$archi\" in\nDarwin\\ arm64*) download foo ;;\nesac\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();

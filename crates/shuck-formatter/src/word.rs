@@ -406,7 +406,9 @@ fn render_word_syntax_internal(
         && !word_is_quoted_formattable_command_substitution_only(word, source)
         && could_need_preserve_raw_syntax(raw)
     {
-        push_raw_word_with_normalized_command_redirect_spacing(rendered, word, raw, source);
+        push_raw_word_with_normalized_command_redirect_spacing(
+            rendered, word, raw, source, options,
+        );
         return;
     }
 
@@ -740,6 +742,7 @@ fn push_raw_word_with_normalized_command_redirect_spacing(
     word: &Word,
     raw: &str,
     source: &str,
+    options: &ResolvedShellFormatOptions,
 ) {
     let mut spans = Vec::new();
     collect_raw_command_substitution_spans(word.parts.as_slice(), &mut spans);
@@ -757,7 +760,9 @@ fn push_raw_word_with_normalized_command_redirect_spacing(
             rendered.push_str(prefix);
         }
         if let Some(command) = source.get(start..end) {
-            push_raw_shell_text_with_normalized_redirect_spacing(rendered, command);
+            push_raw_command_substitution_with_normalized_spacing(
+                rendered, command, source, start, options,
+            );
             wrote_span = true;
         }
         cursor = end;
@@ -768,6 +773,54 @@ fn push_raw_word_with_normalized_command_redirect_spacing(
         }
     } else {
         rendered.push_str(raw);
+    }
+}
+
+fn push_raw_command_substitution_with_normalized_spacing(
+    target: &mut String,
+    raw: &str,
+    source: &str,
+    start_offset: usize,
+    options: &ResolvedShellFormatOptions,
+) {
+    if !raw.contains('\n') {
+        push_raw_shell_text_with_normalized_redirect_spacing(target, raw);
+        return;
+    }
+
+    let normalized_pipeline = normalize_raw_pipeline_continuations(raw);
+    let raw = normalized_pipeline.as_deref().unwrap_or(raw);
+    let outer_indent = line_indent_before_source_offset(source, start_offset).unwrap_or("");
+    let mut quote = RawShellQuoteState::default();
+    let mut lines = raw.split('\n');
+    if let Some(first) = lines.next() {
+        target.push_str(first);
+        quote.scan_line(first);
+    }
+    let mut previous_pipeline_indent: Option<String> = None;
+    for line in lines {
+        target.push('\n');
+        if quote.in_multiline_literal() {
+            target.push_str(line);
+        } else {
+            let mut line = line
+                .strip_prefix(outer_indent)
+                .unwrap_or_else(|| strip_one_indent_unit(line, options))
+                .to_string();
+            let indent = line_leading_shell_indent(&line);
+            let content = &line[indent.len()..];
+            if let Some(previous_indent) = previous_pipeline_indent.as_deref()
+                && !content.trim().is_empty()
+                && !content.starts_with('#')
+                && indent.len() < previous_indent.len()
+            {
+                line = format!("{previous_indent}{content}");
+            }
+            push_raw_shell_line_with_normalized_source_indent(target, &line, options, None);
+            previous_pipeline_indent = line_ends_with_pipeline_operator(&line)
+                .then(|| line_leading_shell_indent(&line).to_string());
+        }
+        quote.scan_line(line);
     }
 }
 
@@ -782,6 +835,45 @@ fn collect_raw_command_substitution_spans(
                 collect_raw_command_substitution_spans(parts.as_slice(), spans);
             }
             _ => {}
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct RawShellQuoteState {
+    quote: Option<char>,
+}
+
+impl RawShellQuoteState {
+    fn in_multiline_literal(&self) -> bool {
+        self.quote.is_some()
+    }
+
+    fn scan_line(&mut self, line: &str) {
+        let mut escaped = false;
+        for ch in line.chars() {
+            match self.quote {
+                Some('\'') => {
+                    if ch == '\'' {
+                        self.quote = None;
+                    }
+                }
+                Some('"') => {
+                    if ch == '"' && !escaped {
+                        self.quote = None;
+                    }
+                }
+                _ => {
+                    if ch == '\'' || (ch == '"' && !escaped) {
+                        self.quote = Some(ch);
+                    }
+                }
+            }
+
+            escaped = ch == '\\' && !escaped;
+            if ch != '\\' {
+                escaped = false;
+            }
         }
     }
 }
