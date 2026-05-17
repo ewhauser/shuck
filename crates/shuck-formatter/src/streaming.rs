@@ -2617,6 +2617,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             .unwrap_or(body_start);
         let between = source.get(header_end..line_end)?;
         let comment_offset = between.find('#')?;
+        if between[..comment_offset].contains('{') {
+            return None;
+        }
         let suffix_start = header_end;
         let comment = source
             .get(suffix_start..line_end)?
