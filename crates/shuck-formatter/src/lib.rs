@@ -3668,6 +3668,22 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn keeps_inline_list_rhs_after_wrapped_conditional() {
+        let source =
+            "f() {\n  [[ \"${show:-}\" != true ||\n    -z \"$(which todo.sh)\" ]] && return\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\t[[ \"${show:-}\" != true ||\n\t\t-z \"$(which todo.sh)\" ]] && return\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_explicit_line_break_when_list_operator_starts_continued_line() {
         let source =
             "_command_exists goenv \\\n  || [[ -x \"$GOENV_ROOT/bin/goenv\" ]] \\\n  || return 0\n";

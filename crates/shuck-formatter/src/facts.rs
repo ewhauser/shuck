@@ -567,7 +567,8 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     || has_newline_between(self.source, item.operator_span.end.offset, next_start)
                     || (stmt_is_multiline_conditional(previous)
                         && previous_span.start.line < item.operator_span.start.line
-                        && item.operator_span.end.line == next_start_line)
+                        && item.operator_span.end.line == next_start_line
+                        && !stmt_can_follow_multiline_conditional_inline(item.stmt))
                 {
                     self.facts
                         .list_item_breaks
@@ -1099,6 +1100,10 @@ fn stmt_is_multiline_conditional(stmt: &Stmt) -> bool {
         stmt.command,
         Command::Compound(CompoundCommand::Conditional(_))
     )
+}
+
+fn stmt_can_follow_multiline_conditional_inline(stmt: &Stmt) -> bool {
+    matches!(stmt.command, Command::Simple(_) | Command::Builtin(_))
 }
 
 fn pipeline_has_explicit_line_break(
