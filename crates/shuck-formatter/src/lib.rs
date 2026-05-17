@@ -3469,6 +3469,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn aligns_multiline_single_quoted_process_substitution_words() {
+        let source = "_sqlmap() {\n\tif [[ \"$cur\" == * ]]; then\n\t\twhile IFS='' read -r line; do COMPREPLY+=(\"$line\"); done < <(\n\t\t\tcompgen -W '-h --help \\\n\t\t\t--data --cookie \\\n\t\t\t--wizard' -- \"$cur\"\n\t\t)\n\tfi\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn formats_process_substitution_with_own_line_close_as_block() {
         let source = "while read x; do\n  :\ndone < <(cmd | \\\n        awk 'BEGIN {x=0} /Sink/ {\n                 x=$1\n             }'\n        )\n";
         let options = ShellFormatOptions::default();

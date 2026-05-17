@@ -3318,6 +3318,11 @@ fn push_indented_rendered_block(
         IndentStyle::Tab => "\t".repeat(levels),
         IndentStyle::Space => " ".repeat(levels * usize::from(options.indent_width())),
     };
+    let normalized_literal_continuations =
+        normalize_literal_continuation_indent_for_block(rendered);
+    let rendered = normalized_literal_continuations
+        .as_deref()
+        .unwrap_or(rendered);
     let common_source_indent = common_rendered_block_indent(rendered, options);
 
     let mut active_heredoc: Option<CommandSubstitutionHeredocIndent> = None;
@@ -3348,6 +3353,42 @@ fn push_indented_rendered_block(
         target.push_str(line);
         active_heredoc = command_substitution_heredoc_indent(line);
     }
+}
+
+fn normalize_literal_continuation_indent_for_block(rendered: &str) -> Option<String> {
+    if !rendered.contains('\n') {
+        return None;
+    }
+
+    let mut quote = RawShellQuoteState::default();
+    let mut continuation_indent: Option<String> = None;
+    let mut normalized = String::with_capacity(rendered.len());
+    let mut changed = false;
+
+    for (index, line) in rendered.split('\n').enumerate() {
+        if index > 0 {
+            normalized.push('\n');
+        }
+
+        let mut line = line.to_string();
+        if let Some(indent) = continuation_indent.take()
+            && !line.trim().is_empty()
+        {
+            let content = line.trim_start_matches([' ', '\t']);
+            if line_leading_shell_indent(&line) != indent {
+                line = format!("{indent}{content}");
+                changed = true;
+            }
+        }
+
+        let line_continues = line_without_continuation_backslash(&line).is_some();
+        quote.scan_line(&line);
+        continuation_indent = (line_continues && quote.in_multiline_literal())
+            .then(|| line_leading_shell_indent(&line).to_string());
+        normalized.push_str(&line);
+    }
+
+    changed.then_some(normalized)
 }
 
 fn common_rendered_block_indent(rendered: &str, options: &ResolvedShellFormatOptions) -> String {
