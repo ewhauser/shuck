@@ -5007,6 +5007,21 @@ function R() {
     }
 
     #[test]
+    fn expands_inline_case_arms_with_if_bodies() {
+        let source = "case \"$name\" in\nFastfile) if [[ \"$path\" =~ /fastlane/Fastfile ]]; then\n  ruby -c \"$name\"\nfi ;;\nesac\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case \"$name\" in\nFastfile)\n\tif [[ \"$path\" =~ /fastlane/Fastfile ]]; then\n\t\truby -c \"$name\"\n\tfi\n\t;;\nesac\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn keeps_inline_case_arms_inside_command_substitutions() {
         let source = "value=\"$(\n  while read -r key; do\n    case \"$key\" in\n    A) echo A ;;\n    B) echo B ;;\n    esac\n  done\n)\"\n\n# later comment\nnext() { :; }\n";
         let options = ShellFormatOptions::default();

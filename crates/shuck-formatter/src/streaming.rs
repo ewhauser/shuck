@@ -2905,6 +2905,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 || case_item_pattern_body_terminator_was_inline_in_source(item, self.source());
             if base_indent == 0
                 && item.body.len() == 1
+                && case_item_single_body_stmt_can_inline(&item.body[0])
                 && (item_was_inline_in_source
                     || (pattern_suffix_comment.is_some()
                         && !body_has_later_comments
@@ -5605,6 +5606,10 @@ fn case_item_body_can_share_terminator(item: &CaseItem) -> bool {
         Command::Simple(_) | Command::Builtin(_) | Command::Decl(_)
     ) && stmt.redirects.is_empty()
         && stmt.terminator.is_none()
+}
+
+fn case_item_single_body_stmt_can_inline(stmt: &Stmt) -> bool {
+    !matches!(stmt.command, Command::Compound(CompoundCommand::If(_)))
 }
 
 fn case_item_body_was_inline_without_terminator(item: &CaseItem) -> bool {
