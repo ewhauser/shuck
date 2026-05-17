@@ -2052,7 +2052,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 }
                 self.emit_branch_prefix_comments(command, index);
                 self.newline();
-                if condition_keyword_on_previous_non_empty_line(condition, source, "elif") {
+                if condition_keyword_on_previous_non_empty_line(condition, source, "elif")
+                    || elif_condition_has_explicit_statement_break(condition, body, source)
+                {
                     self.write_text("elif");
                     self.newline();
                     self.with_indent(|formatter| {
@@ -2256,7 +2258,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 }
                 self.emit_branch_prefix_comments(command, index);
                 self.newline();
-                if condition_keyword_on_previous_non_empty_line(condition, source, "elif") {
+                if condition_keyword_on_previous_non_empty_line(condition, source, "elif")
+                    || elif_condition_has_explicit_statement_break(condition, body, source)
+                {
                     self.write_text("elif");
                     self.newline();
                     self.with_indent(|formatter| {
@@ -4905,23 +4909,45 @@ fn if_condition_has_explicit_statement_break(
     then_span: Span,
     source: &str,
 ) -> bool {
-    if command.condition.len() == 1 {
-        let Some(stmt) = command.condition.first() else {
+    condition_sequence_has_explicit_statement_break(
+        &command.condition,
+        then_span.start.offset,
+        source,
+    )
+}
+
+fn condition_sequence_has_explicit_statement_break(
+    condition: &StmtSeq,
+    upper_bound: usize,
+    source: &str,
+) -> bool {
+    if condition.len() == 1 {
+        let Some(stmt) = condition.first() else {
             return false;
         };
         if !matches!(stmt.command, Command::Simple(_)) {
             return false;
         }
         let start = stmt_span(stmt).start.offset;
-        let end = then_span.start.offset.min(source.len());
+        let end = upper_bound.min(source.len());
         return source.get(start..end).is_some_and(has_unescaped_line_break);
     }
 
-    command.condition.as_slice().windows(2).any(|pair| {
+    condition.as_slice().windows(2).any(|pair| {
         let previous_start = stmt_span(&pair[0]).start.offset;
         let next_start = stmt_span(&pair[1]).start.offset;
         has_newline_between_offsets(source, previous_start, next_start)
     })
+}
+
+fn elif_condition_has_explicit_statement_break(
+    condition: &StmtSeq,
+    body: &StmtSeq,
+    source: &str,
+) -> bool {
+    let upper_bound =
+        branch_open_keyword_start(body, source, "then").unwrap_or(body.span.start.offset);
+    condition_sequence_has_explicit_statement_break(condition, upper_bound, source)
 }
 
 fn has_unescaped_line_break(text: &str) -> bool {

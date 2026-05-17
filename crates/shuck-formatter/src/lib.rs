@@ -4323,6 +4323,21 @@ function R() {
     }
 
     #[test]
+    fn splits_multistatement_elif_conditions_like_shfmt() {
+        let source = "f() {\n  if type -p perl >/dev/null; then\n    perl -pe decode\n  elif type -p python3 >/dev/null &&\n    log \"using python\"\n    python3 -c 'import html' >/dev/null; then\n    python3 -c decode\n  elif type -p xmlstarlet >/dev/null; then\n    xmlstarlet unesc\n  fi\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\tif type -p perl >/dev/null; then\n\t\tperl -pe decode\n\telif\n\t\ttype -p python3 >/dev/null &&\n\t\t\tlog \"using python\"\n\t\tpython3 -c 'import html' >/dev/null\n\tthen\n\t\tpython3 -c decode\n\telif type -p xmlstarlet >/dev/null; then\n\t\txmlstarlet unesc\n\tfi\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_if_chain_condition_on_own_line() {
         let source = "f() {\n\tif\n\t\t[[ -z \"${remote:-}\" ]]\n\tthen\n\t\techo missing\n\telif\n\t\tfile_exists_at_url \"$remote\"\n\tthen\n\t\techo remote\n\telse\n\t\techo none\n\tfi\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
