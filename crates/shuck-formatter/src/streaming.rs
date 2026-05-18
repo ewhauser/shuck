@@ -861,6 +861,16 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         });
     }
 
+    fn write_case_pattern(&mut self, item: &CaseItem, pattern: &Pattern) {
+        let mut scratch = self.take_scratch_buffer();
+        render_pattern_syntax_to_buf(pattern, self.source(), self.options(), &mut scratch);
+        if case_item_pattern_close_paren_on_own_line(item, self.source()) {
+            trim_trailing_pattern_line_continuation(&mut scratch);
+        }
+        self.write_text(&scratch);
+        self.restore_scratch_buffer(scratch);
+    }
+
     fn write_var_ref(&mut self, reference: &VarRef) {
         self.write_rendered(|scratch, source, _| {
             render_var_ref_to_buf(reference, source, scratch);
@@ -3056,7 +3066,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     self.write_text(" | ");
                 }
             }
-            self.write_pattern(word);
+            self.write_case_pattern(item, word);
         }
         self.write_text(")");
         let pattern_suffix_comment = self.case_item_pattern_suffix_comment(item, upper_bound);
@@ -3163,7 +3173,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     stmt_render_start_line(stmt, self.source(), self.source_map(), self.options())
                 })
                 .unwrap_or(first_body_line);
-            if case_item_pattern_close_paren_on_own_line(item, self.source())
+            if (case_item_pattern_close_paren_on_own_line(item, self.source())
+                && !case_item_close_paren_shares_line_with_body(item, self.source()))
                 || case_item_has_blank_line_after_pattern(
                     item,
                     self.source(),
@@ -6004,7 +6015,7 @@ fn case_item_pattern_starts_on_case_header(command: &CaseCommand, item: &CaseIte
 }
 
 fn case_item_pattern_close_paren_on_own_line(item: &CaseItem, source: &str) -> bool {
-    let Some(last_pattern) = item.patterns.last() else {
+    let Some(first_pattern) = item.patterns.first() else {
         return false;
     };
     let end = item
@@ -6014,13 +6025,45 @@ fn case_item_pattern_close_paren_on_own_line(item: &CaseItem, source: &str) -> b
         .map(|span| span.start.offset)
         .or_else(|| item.terminator_span.map(|span| span.start.offset))
         .unwrap_or(item.body.span.start.offset);
-    let Some(slice) = source.get(last_pattern.span.end.offset..end) else {
+    let Some(slice) = source.get(first_pattern.span.start.offset..end) else {
         return false;
     };
-    let Some(close_offset) = slice.find(')') else {
+    let Some(close_offset) = slice.rfind(')') else {
         return false;
     };
-    slice[..close_offset].contains('\n')
+    let line_start = slice[..close_offset]
+        .rfind('\n')
+        .map_or(0, |offset| offset + 1);
+    slice[line_start..close_offset].trim_matches([' ', '\t', '\r']).is_empty()
+}
+
+fn case_item_close_paren_shares_line_with_body(item: &CaseItem, source: &str) -> bool {
+    let Some(first_pattern) = item.patterns.first() else {
+        return false;
+    };
+    let Some(first_stmt) = item.body.first() else {
+        return false;
+    };
+    let stmt_start = stmt_span(first_stmt).start.offset.min(source.len());
+    let Some(slice) = source.get(first_pattern.span.start.offset..stmt_start) else {
+        return false;
+    };
+    let Some(close_offset) = slice.rfind(')') else {
+        return false;
+    };
+    !slice[close_offset + 1..].contains(['\n', '\r'])
+}
+
+fn trim_trailing_pattern_line_continuation(rendered: &mut String) {
+    let trimmed = rendered.trim_end_matches([' ', '\t', '\r']);
+    if let Some(stripped) = trimmed.strip_suffix("\\\n") {
+        rendered.truncate(stripped.len());
+        return;
+    }
+    let Some(stripped) = trimmed.strip_suffix('\\') else {
+        return;
+    };
+    rendered.truncate(stripped.len());
 }
 
 fn case_item_has_blank_line_after_pattern(
