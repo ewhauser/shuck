@@ -2518,7 +2518,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
         self.write_text(then_separator);
         let then_upper_bound = if_branch_upper_bound(command, 0, source, self.source_map());
-        self.write_sequence_open_suffix(&command.then_branch, Some(then_upper_bound));
+        if !self.write_condition_separator_suffix_comment(&command.condition, then_span) {
+            self.write_sequence_open_suffix(&command.then_branch, Some(then_upper_bound));
+        }
         let preserve_then_open_blank = body_has_blank_line_after_open(
             source,
             self.source_map(),
@@ -2828,6 +2830,55 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return;
         };
         self.write_suffix_comment_after_span(span, false);
+    }
+
+    fn write_condition_separator_suffix_comment(
+        &mut self,
+        condition: &StmtSeq,
+        then_span: Span,
+    ) -> bool {
+        let Some(comment) = self.condition_separator_suffix_comment(condition, then_span) else {
+            return false;
+        };
+        let current_code_column = self.column.saturating_sub(self.line_indent_column);
+        let padding = trailing_comment_padding(self.source(), &comment, current_code_column);
+        for _ in 0..padding {
+            self.write_space();
+        }
+        self.write_comment(&comment);
+        true
+    }
+
+    fn condition_separator_suffix_comment(
+        &self,
+        condition: &StmtSeq,
+        then_span: Span,
+    ) -> Option<SourceComment<'source>> {
+        let source = self.source();
+        let start = condition.last().map(condition_stmt_command_end)?;
+        let end = then_span.start.offset.min(source.len());
+        if start >= end {
+            return None;
+        }
+        let region = source.get(start..end)?;
+        let comment_rel = region.find('#')?;
+        let before_comment = region.get(..comment_rel)?;
+        if !before_comment
+            .chars()
+            .all(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n' | ';'))
+        {
+            return None;
+        }
+        let comment_start = start + comment_rel;
+        let line_end = source
+            .get(comment_start..end)?
+            .find('\n')
+            .map_or(end, |offset| comment_start + offset);
+        let comment = source
+            .get(comment_start..line_end)?
+            .trim_end_matches([' ', '\t', '\r']);
+        self.source_map()
+            .source_comment_for_offsets(comment_start, comment_start + comment.len())
     }
 
     fn write_unmodeled_branch_background_terminator(&mut self, body: &StmtSeq, upper_bound: usize) {
@@ -5487,13 +5538,9 @@ fn condition_sequence_has_explicit_statement_break(
         }
         let start = stmt_span(stmt).start.offset;
         let command_end = condition_stmt_command_end(stmt).min(upper_bound);
-        let end = upper_bound.min(source.len());
         return source
             .get(start..command_end)
-            .is_some_and(has_unescaped_line_break)
-            || source
-                .get(command_end..end)
-                .is_some_and(|separator| separator.contains('#'));
+            .is_some_and(has_unescaped_line_break);
     }
 
     condition.as_slice().windows(2).any(|pair| {
