@@ -691,17 +691,19 @@ fn quoted_command_substitution_only_body(word: &Word) -> Option<&StmtSeq> {
     else {
         return None;
     };
-    let [
-        shuck_ast::WordPartNode {
-            kind: WordPart::CommandSubstitution { body, .. },
-            ..
-        },
-    ] = parts.as_slice()
-    else {
-        return None;
-    };
 
-    Some(body)
+    let mut substitution_body = None;
+    for part in parts {
+        match &part.kind {
+            WordPart::CommandSubstitution { body, .. } if substitution_body.is_none() => {
+                substitution_body = Some(body);
+            }
+            WordPart::Literal(text) if text.is_empty() => {}
+            _ => return None,
+        }
+    }
+
+    substitution_body
 }
 
 fn part_needs_special_rendering(part: &WordPart) -> bool {
@@ -1016,10 +1018,7 @@ fn push_raw_command_substitution_with_normalized_spacing(
             };
             continue;
         } else {
-            let mut line = line
-                .strip_prefix(outer_indent)
-                .unwrap_or_else(|| strip_one_indent_unit(line, options))
-                .to_string();
+            let mut line = strip_outer_indent_or_one_unit(line, outer_indent, options).to_string();
             let source_indent_for_compound_shift = line_leading_shell_indent(&line).to_string();
             if let Some(shift) = compound_indent_shifts.last()
                 && raw_line_indent_matches_shift(&line, shift)
@@ -2656,10 +2655,7 @@ fn push_raw_block_command_substitution_without_outer_indent(
             continue;
         }
 
-        let mut line = line
-            .strip_prefix(outer_indent)
-            .unwrap_or_else(|| strip_one_indent_unit(line, options))
-            .to_string();
+        let mut line = strip_outer_indent_or_one_unit(line, outer_indent, options).to_string();
         let source_indent_for_compound_shift = line_leading_shell_indent(&line).to_string();
         if let Some(shift) = compound_indent_shifts.last()
             && raw_line_indent_matches_shift(&line, shift)
@@ -2699,6 +2695,14 @@ fn push_raw_block_command_substitution_without_outer_indent(
         }
         let indent = line_leading_shell_indent(&line);
         let content = &line[indent.len()..];
+        if compound_comment_indents.len() > 1
+            && compound_comment_indents
+                .last()
+                .is_some_and(|compound| raw_line_closes_compound(content, compound.close_keyword))
+        {
+            force_preserve_line_indent = true;
+        }
+        let leading_block_comment = body_indent.is_none() && content.starts_with('#');
         if body_indent.is_none() && !content.trim().is_empty() && !content.starts_with('#') {
             body_indent = Some(indent.to_string());
         }
@@ -2707,6 +2711,8 @@ fn push_raw_block_command_substitution_without_outer_indent(
         let body_indent_for_line =
             if force_preserve_line_indent || is_pipeline_continuation || in_compound_body {
                 None
+            } else if leading_block_comment {
+                Some("")
             } else {
                 body_indent.as_deref()
             };
@@ -3886,6 +3892,18 @@ fn strip_one_indent_unit<'a>(line: &'a str, options: &ResolvedShellFormatOptions
             .strip_prefix(&" ".repeat(usize::from(options.indent_width())))
             .unwrap_or(line),
     }
+}
+
+fn strip_outer_indent_or_one_unit<'a>(
+    line: &'a str,
+    outer_indent: &str,
+    options: &ResolvedShellFormatOptions,
+) -> &'a str {
+    if outer_indent.is_empty() {
+        return strip_one_indent_unit(line, options);
+    }
+    line.strip_prefix(outer_indent)
+        .unwrap_or_else(|| strip_one_indent_unit(line, options))
 }
 
 fn source_indent_minus_one_unit(indent: &str, options: &ResolvedShellFormatOptions) -> String {

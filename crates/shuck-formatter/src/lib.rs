@@ -2081,6 +2081,36 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn quoted_command_substitution_with_escaped_replacements_formats_structurally() {
+        let source = "sed_script=\"$(\n        for prefix in $prefixes; do\n            echo \"s|${prefix}\\\\>|$prefix|g;\"\n        done\n)\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "sed_script=\"$(\n\tfor prefix in $prefixes; do\n\t\techo \"s|${prefix}\\\\>|$prefix|g;\"\n\tdone\n)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn raw_block_command_substitution_strips_wrapper_indent_with_comments() {
+        let source = "sed_script=\"$(\n        while read -r directory prefix; do\n            if [ -z \"$directory\" ]; then\n                continue\n            fi\n            # catch whole scripts\n            echo \"s|${prefix}\\\\>|$directory/${prefix}|g;\"\n        done <<< \"$mappings\"\n)\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "sed_script=\"$(\n\twhile read -r directory prefix; do\n\t\tif [ -z \"$directory\" ]; then\n\t\t\tcontinue\n\t\tfi\n\t\t# catch whole scripts\n\t\techo \"s|${prefix}\\\\>|$directory/${prefix}|g;\"\n\tdone <<<\"$mappings\"\n)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn rendered_heredoc_bodies_preserve_escaped_variables() {
         let source = "cat <<EOF > script\n#!/bin/bash\nexec $(which dart) \"\\$@\"\nEOF\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
