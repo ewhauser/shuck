@@ -2334,8 +2334,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return Ok(());
         }
 
-        if if_condition_starts_after_keyword(command, source, self.source_map(), self.options())
-            || if_condition_has_explicit_statement_break(command, then_span, source)
+        if if_condition_starts_after_keyword(
+            command,
+            then_span,
+            source,
+            self.source_map(),
+            self.options(),
+        ) || if_condition_has_explicit_statement_break(command, then_span, source)
         {
             self.write_text("if");
             self.newline();
@@ -5769,10 +5774,14 @@ fn stmt_rendered_end_line_after_format(
 
 fn if_condition_starts_after_keyword(
     command: &IfCommand,
+    then_span: Span,
     source: &str,
     source_map: &SourceMap<'_>,
     options: &ResolvedShellFormatOptions,
 ) -> bool {
+    if raw_if_condition_starts_with_negation_continuation(command, then_span, source) {
+        return false;
+    }
     command.condition.first().is_some_and(|stmt| {
         stmt_render_start_line(stmt, source, source_map, options) > command.span.start.line
     })
@@ -5783,11 +5792,35 @@ fn if_condition_has_explicit_statement_break(
     then_span: Span,
     source: &str,
 ) -> bool {
+    if raw_if_condition_starts_with_negation_continuation(command, then_span, source) {
+        return false;
+    }
     condition_sequence_has_explicit_statement_break(
         &command.condition,
         then_span.start.offset,
         source,
     )
+}
+
+fn raw_if_condition_starts_with_negation_continuation(
+    command: &IfCommand,
+    then_span: Span,
+    source: &str,
+) -> bool {
+    let condition_start = command.span.start.offset.saturating_add("if".len());
+    let condition_end = then_span.start.offset.min(source.len());
+    source
+        .get(condition_start..condition_end)
+        .is_some_and(raw_condition_starts_with_negation_continuation)
+}
+
+fn raw_condition_starts_with_negation_continuation(raw: &str) -> bool {
+    let raw = raw.trim_start_matches([' ', '\t', '\r']);
+    let Some(after_negation) = raw.strip_prefix('!') else {
+        return false;
+    };
+    let after_negation = after_negation.trim_start_matches([' ', '\t', '\r']);
+    after_negation.starts_with("\\\n") || after_negation.starts_with("\\\r\n")
 }
 
 fn condition_sequence_has_explicit_statement_break(
@@ -5946,7 +5979,7 @@ fn raw_grouped_if_condition<'a>(
     source_map: &SourceMap<'_>,
     options: &ResolvedShellFormatOptions,
 ) -> Option<String> {
-    if !if_condition_starts_after_keyword(command, source, source_map, options) {
+    if !if_condition_starts_after_keyword(command, then_span, source, source_map, options) {
         return None;
     }
     let start = command.span.start.offset.checked_add("if".len())?;

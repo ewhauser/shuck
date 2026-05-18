@@ -1521,6 +1521,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn collapses_negated_condition_continuation_before_pipeline() {
+        let source = "while read -r module; do\n    if ! \\\n        git grep \"needle\" |\n        grep -v requirements.txt |\n        grep -q .; then\n        echo \"$module\"\n    fi\ndone\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "while read -r module; do\n\tif ! git grep \"needle\" |\n\t\tgrep -v requirements.txt |\n\t\tgrep -q .; then\n\t\techo \"$module\"\n\tfi\ndone\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_comment_between_list_operator_and_rhs() {
         let source = "if [ -z \"$jar\" ] ||\n  # incomplete download, resume it\n  ! jar tf \"$jar\" &>/dev/null; then\n  echo fetch\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
