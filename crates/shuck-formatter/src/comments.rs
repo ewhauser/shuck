@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
-use memchr::{memchr, memchr_iter};
+use memchr::memchr2_iter;
 use shuck_ast::{Comment, Position, Span};
 
 #[derive(Debug, Clone)]
@@ -12,7 +12,7 @@ pub struct SourceMap<'a> {
 #[derive(Debug)]
 struct SourceMapData {
     line_starts: Vec<usize>,
-    first_non_whitespace: Vec<Option<usize>>,
+    first_non_whitespace: Vec<OnceLock<Option<usize>>>,
     hash_offsets: Vec<usize>,
     tab_offsets: Vec<usize>,
     double_space_offsets: Vec<usize>,
@@ -33,28 +33,33 @@ impl<'a> SourceMap<'a> {
         let bytes = source.as_bytes();
 
         let mut line_starts = Vec::with_capacity(source.len() / 32 + 1);
+        let mut hash_offsets = Vec::new();
         line_starts.push(0);
-        for newline in memchr_iter(b'\n', bytes) {
-            if newline + 1 < bytes.len() {
-                line_starts.push(newline + 1);
+
+        for offset in memchr2_iter(b'\n', b'#', bytes) {
+            let byte = bytes[offset];
+            if byte == b'#' {
+                hash_offsets.push(offset);
+            } else {
+                if offset + 1 < bytes.len() {
+                    line_starts.push(offset + 1);
+                }
             }
         }
 
-        let first_non_whitespace = line_starts
-            .iter()
-            .enumerate()
-            .map(|(index, start)| {
-                let end = line_starts.get(index + 1).copied().unwrap_or(source.len());
-                first_non_whitespace_in_line(source, *start, end)
-            })
-            .collect();
+        let first_non_whitespace = line_starts.iter().map(|_| OnceLock::new()).collect();
 
-        let hash_offsets = memchr_iter(b'#', bytes).collect();
         let (tab_offsets, double_space_offsets) = if track_alignment {
-            (
-                memchr_iter(b'\t', bytes).collect(),
-                double_space_offsets(bytes),
-            )
+            let mut tab_offsets = Vec::new();
+            let mut double_space_offsets = Vec::new();
+            for offset in memchr2_iter(b'\t', b' ', bytes) {
+                if bytes[offset] == b'\t' {
+                    tab_offsets.push(offset);
+                } else if bytes.get(offset + 1) == Some(&b' ') {
+                    double_space_offsets.push(offset);
+                }
+            }
+            (tab_offsets, double_space_offsets)
         } else {
             (Vec::new(), Vec::new())
         };
@@ -97,7 +102,7 @@ impl<'a> SourceMap<'a> {
 
     #[must_use]
     pub fn is_inline_comment(&self, offset: usize) -> bool {
-        self.data.first_non_whitespace[self.line_index_for_offset(offset)]
+        self.first_non_whitespace_for_line(self.line_index_for_offset(offset))
             .is_some_and(|first| first < offset)
     }
 
@@ -181,6 +186,19 @@ impl<'a> SourceMap<'a> {
             Err(index) => index.saturating_sub(1),
         }
     }
+
+    fn first_non_whitespace_for_line(&self, line_index: usize) -> Option<usize> {
+        *self.data.first_non_whitespace[line_index].get_or_init(|| {
+            let start = self.data.line_starts[line_index];
+            let end = self
+                .data
+                .line_starts
+                .get(line_index + 1)
+                .copied()
+                .unwrap_or(self.source.len());
+            first_non_whitespace_in_line(self.source, start, end)
+        })
+    }
 }
 
 fn first_non_whitespace_in_line(source: &str, start: usize, end: usize) -> Option<usize> {
@@ -203,22 +221,6 @@ fn first_non_whitespace_in_line(source: &str, start: usize, end: usize) -> Optio
         offset += ch.len_utf8();
     }
     None
-}
-
-fn double_space_offsets(bytes: &[u8]) -> Vec<usize> {
-    let mut offsets = Vec::new();
-    let mut search_start = 0;
-    while search_start + 1 < bytes.len() {
-        let Some(space) = memchr(b' ', &bytes[search_start..bytes.len() - 1]) else {
-            break;
-        };
-        let offset = search_start + space;
-        if bytes[offset + 1] == b' ' {
-            offsets.push(offset);
-        }
-        search_start = offset + 1;
-    }
-    offsets
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -709,8 +711,11 @@ mod tests {
         let source_map = SourceMap::new(source);
 
         assert_eq!(source_map.data.line_starts, vec![0, 12, 26, 27, 46]);
+        let first_non_whitespace = (0..source_map.data.line_starts.len())
+            .map(|line_index| source_map.first_non_whitespace_for_line(line_index))
+            .collect::<Vec<_>>();
         assert_eq!(
-            source_map.data.first_non_whitespace,
+            first_non_whitespace,
             vec![Some(2), Some(12), None, Some(30), Some(46)]
         );
 
@@ -734,7 +739,7 @@ mod tests {
         let source_map = SourceMap::without_alignment_indexes(source);
 
         assert_eq!(source_map.data.line_starts, vec![0]);
-        assert_eq!(source_map.data.first_non_whitespace, vec![Some(0)]);
+        assert_eq!(source_map.first_non_whitespace_for_line(0), Some(0));
         assert!(!source_map.has_alignment_padding_between(3, 6));
     }
 }
