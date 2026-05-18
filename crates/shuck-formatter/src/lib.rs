@@ -4368,6 +4368,21 @@ function R() {
     }
 
     #[test]
+    fn collapses_then_on_next_line_after_simple_if_conditions_like_shfmt() {
+        let source = "f() {\n  if [ -z \"${EDITOR:-}\" ]\n  then\n    EDITOR=vi\n  elif grep -q \"$cur\" <<<'-g'\n  then\n    COMPREPLY+=(\"-g\")\n  fi\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\tif [ -z \"${EDITOR:-}\" ]; then\n\t\tEDITOR=vi\n\telif grep -q \"$cur\" <<<'-g'; then\n\t\tCOMPREPLY+=(\"-g\")\n\tfi\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn keeps_multiline_literal_if_conditions_inline_like_shfmt() {
         let source = "case \"$ext\" in\n.vimrc) if vim -c \"\n    if !filereadable('$basename') |\n        cquit 1\n    endif\n    \" -c \"q\"; then\n  echo ok\nfi\n;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

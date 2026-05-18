@@ -4976,8 +4976,14 @@ fn condition_sequence_has_explicit_statement_break(
             return false;
         }
         let start = stmt_span(stmt).start.offset;
+        let command_end = stmt_format_span(stmt).end.offset.min(upper_bound);
         let end = upper_bound.min(source.len());
-        return source.get(start..end).is_some_and(has_unescaped_line_break);
+        return source
+            .get(start..command_end)
+            .is_some_and(has_unescaped_line_break)
+            || source
+                .get(command_end..end)
+                .is_some_and(|separator| separator.contains('#'));
     }
 
     condition.as_slice().windows(2).any(|pair| {
