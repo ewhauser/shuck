@@ -1986,6 +1986,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn normalizes_redirect_spacing_in_raw_command_substitution_fallbacks() {
+        let source = "find_dig=$(which dig 2> /dev/null | grep -v \"no [^ ]* in\")\ncontext_id=\"$(jq_debug_pipe_dump <<< \"$output\" | jq -r \".items[] | select(.name == \\\"$context_name\\\") | .id\")\"\nurl=\"$(jq -r \"limit(1; .[] | select(.title == \\\"$selected\\\" or .animal == \\\"$selected\\\") ) | .cover_src\" < \"$json\")\"\nCOMPREPLY=($(compgen -W \"$(awk -F ':' 'BEGIN {print_line = 0}; /^[^ ]/ {print_line = 0}' < ${MASTER_CONFIG})\" -- \"${cur}\"))\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "find_dig=$(which dig 2>/dev/null | grep -v \"no [^ ]* in\")\ncontext_id=\"$(jq_debug_pipe_dump <<<\"$output\" | jq -r \".items[] | select(.name == \\\"$context_name\\\") | .id\")\"\nurl=\"$(jq -r \"limit(1; .[] | select(.title == \\\"$selected\\\" or .animal == \\\"$selected\\\") ) | .cover_src\" <\"$json\")\"\nCOMPREPLY=($(compgen -W \"$(awk -F ':' 'BEGIN {print_line = 0}; /^[^ ]/ {print_line = 0}' <${MASTER_CONFIG})\" -- \"${cur}\"))\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn trims_inline_command_substitution_padding() {
         let source = "echo \"MD5SUM=\\\"$( md5sum file | cut -d' ' -f1 )\\\"\"\nlocal minute=\"${MINUTE:-$( date +%H )}\"\noutput=$( ls packages 2> /dev/null | grep pattern )\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

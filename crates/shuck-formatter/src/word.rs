@@ -558,7 +558,7 @@ fn render_word_syntax_internal(
             && should_preserve_special_rendered_raw_syntax(slice, &rendered[start..])
         {
             rendered.truncate(start);
-            rendered.push_str(slice);
+            push_preserved_raw_word_source(rendered, word, slice, source, options);
         }
         return;
     }
@@ -572,7 +572,7 @@ fn render_word_syntax_internal(
         word.render_syntax_to_buf(source, rendered);
         if should_preserve_raw_syntax(slice, &rendered[start..]) {
             rendered.truncate(start);
-            rendered.push_str(slice);
+            push_preserved_raw_word_source(rendered, word, slice, source, options);
         }
         return;
     }
@@ -1486,7 +1486,7 @@ fn render_word_part(
                 .is_some()
                 {
                 } else {
-                    rendered.push_str(raw);
+                    push_raw_shell_text_with_normalized_redirect_spacing(rendered, raw);
                 }
             } else if render_command_substitution(
                 rendered,
@@ -3709,12 +3709,28 @@ fn raw_brace_group_has_multiple_commands(body_after_open: &str) -> bool {
 }
 
 fn raw_command_redirect_spacing_would_change(raw: &str) -> bool {
-    if !(raw.contains("$(") || raw.contains('`')) {
+    if !(raw.contains('<') || raw.contains('>')) {
         return false;
     }
     let mut normalized = String::with_capacity(raw.len());
     push_raw_shell_text_with_normalized_redirect_spacing(&mut normalized, raw);
     normalized != raw
+}
+
+fn push_preserved_raw_word_source(
+    rendered: &mut String,
+    word: &Word,
+    raw: &str,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+) {
+    if raw.contains('<') || raw.contains('>') {
+        push_raw_word_with_normalized_command_redirect_spacing(
+            rendered, word, raw, source, options,
+        );
+    } else {
+        rendered.push_str(raw);
+    }
 }
 
 fn raw_parameter_command_spacing_would_change(raw: &str) -> bool {
@@ -4270,6 +4286,26 @@ fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, lin
             break;
         }
 
+        if !in_single_quotes
+            && !escaped
+            && byte == b'$'
+            && bytes.get(index + 1) == Some(&b'(')
+            && bytes.get(index + 2) != Some(&b'(')
+            && let Some(close_offset) = matching_raw_command_substitution_close(line, index + 2)
+        {
+            target.push_str(&line[last..index]);
+            target.push_str("$(");
+            push_raw_shell_text_with_normalized_redirect_spacing(
+                target,
+                &line[index + 2..close_offset],
+            );
+            target.push(')');
+            last = close_offset + 1;
+            index = close_offset + 1;
+            escaped = false;
+            continue;
+        }
+
         if !in_single_quotes && !in_double_quotes && matches!(byte, b' ' | b'\t' | b'\r') {
             let whitespace_start = index;
             let mut semicolon_start = index + 1;
@@ -4312,6 +4348,25 @@ fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, lin
                 }
             }
             index = fd_start;
+        }
+
+        if !in_single_quotes
+            && !in_double_quotes
+            && byte == b'<'
+            && let Some(operator_end) = raw_redirect_operator_end(bytes, index)
+        {
+            let mut target_start = operator_end;
+            while target_start < bytes.len() && matches!(bytes[target_start], b' ' | b'\t' | b'\r')
+            {
+                target_start += 1;
+            }
+            if target_start > operator_end && target_start < bytes.len() {
+                target.push_str(&line[last..operator_end]);
+                last = target_start;
+                index = target_start;
+                escaped = false;
+                continue;
+            }
         }
 
         if !in_single_quotes && !in_double_quotes && bytes.get(index..index + 3) == Some(b"<<<") {
