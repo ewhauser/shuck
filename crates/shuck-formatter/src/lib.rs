@@ -4270,6 +4270,21 @@ function R() {
     }
 
     #[test]
+    fn expands_nested_inline_command_substitutions_inside_raw_blocks() {
+        let source = "value=\"$(\n    {\n    sort |\n    uniq -d\n    } |\n    grep -vi $(IFS=$'\\n'; for line in $ignored_lines_regex; do [[ \"$line\" =~ ^[[:space:]]*$ ]] && continue; printf \"%s\" \" -e '$line'\"; done)\n)\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "value=\"$(\n\t{\n\t\tsort |\n\t\t\tuniq -d\n\t} |\n\t\tgrep -vi $(\n\t\t\tIFS=$'\\n'\n\t\t\tfor line in $ignored_lines_regex; do\n\t\t\t\t[[ \"$line\" =~ ^[[:space:]]*$ ]] && continue\n\t\t\t\tprintf \"%s\" \" -e '$line'\"\n\t\t\tdone\n\t\t)\n)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_loop_body_brace_group_background_before_done() {
         let source = "for workflow_name in $workflows; do\n  {\n    output=\"$(printf '%s\\n' \"$workflow_name\")\"\n    echo \"$output\"\n  } &\ndone |\nsort\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

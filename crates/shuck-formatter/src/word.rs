@@ -2635,11 +2635,13 @@ fn push_raw_shell_line_with_normalized_source_indent(
         indent = body_indent;
     }
     let trimmed_content = content.trim_matches([' ', '\t', '\r']);
+    let mut rendered_indent = String::new();
     if body_indent == Some("") && !trimmed_content.is_empty() && trimmed_content != ")" {
-        push_indent_units(target, options, 1);
+        push_indent_units(&mut rendered_indent, options, 1);
     } else {
-        target.push_str(&normalized_raw_shell_indent(indent, options));
+        rendered_indent.push_str(&normalized_raw_shell_indent(indent, options));
     }
+    target.push_str(&rendered_indent);
     let normalized_content;
     let content = {
         normalized_content = body_indent
@@ -2649,7 +2651,7 @@ fn push_raw_shell_line_with_normalized_source_indent(
             .or_else(|| normalize_padding_before_trailing_comment(content));
         normalized_content.as_deref().unwrap_or(content)
     };
-    push_raw_shell_line_with_normalized_redirect_spacing(target, content);
+    push_raw_shell_line_content_with_normalized_spacing(target, content, options, &rendered_indent);
 }
 
 fn rendered_raw_shell_indent_for_line(
@@ -2732,6 +2734,28 @@ fn push_raw_shell_text_with_normalized_redirect_spacing(target: &mut String, tex
     }
     for line in lines {
         target.push('\n');
+        push_raw_shell_line_with_normalized_redirect_spacing(target, line);
+    }
+}
+
+fn push_raw_shell_line_content_with_normalized_spacing(
+    target: &mut String,
+    line: &str,
+    options: &ResolvedShellFormatOptions,
+    line_indent: &str,
+) {
+    let mut rendered = String::new();
+    if expand_inline_raw_command_substitutions_in_line(&mut rendered, line, options) {
+        let mut lines = rendered.split('\n');
+        if let Some(first) = lines.next() {
+            target.push_str(first);
+        }
+        for line in lines {
+            target.push('\n');
+            target.push_str(line_indent);
+            target.push_str(line);
+        }
+    } else {
         push_raw_shell_line_with_normalized_redirect_spacing(target, line);
     }
 }
@@ -2820,6 +2844,112 @@ fn leading_pipe_continuation(line: &str) -> Option<(&str, &'static str, &str)> {
         rest.strip_prefix('|')
             .map(|remainder| (indent, "|", remainder))
     }
+}
+
+fn expand_inline_raw_command_substitutions_in_line(
+    target: &mut String,
+    line: &str,
+    options: &ResolvedShellFormatOptions,
+) -> bool {
+    if !line.contains("$(") {
+        return false;
+    }
+
+    let bytes = line.as_bytes();
+    let mut changed = false;
+    let mut last = 0usize;
+    let mut index = 0usize;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut escaped = false;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if escaped {
+            escaped = false;
+            index += 1;
+            continue;
+        }
+        if byte == b'\'' && !in_double_quotes {
+            in_single_quotes = !in_single_quotes;
+            index += 1;
+            continue;
+        }
+        if byte == b'"' && !in_single_quotes {
+            in_double_quotes = !in_double_quotes;
+            index += 1;
+            continue;
+        }
+        if !in_single_quotes && !in_double_quotes && byte == b'#' {
+            break;
+        }
+        if !in_single_quotes
+            && !in_double_quotes
+            && byte == b'$'
+            && bytes.get(index + 1) == Some(&b'(')
+            && bytes.get(index + 2) != Some(&b'(')
+            && let Some(close_offset) = matching_raw_command_substitution_close(line, index + 2)
+        {
+            let raw = &line[index..=close_offset];
+            if let Some(block) = render_inline_raw_command_substitution_as_block(raw, options) {
+                push_raw_shell_line_with_normalized_redirect_spacing(target, &line[last..index]);
+                target.push_str(&block);
+                last = close_offset + 1;
+                changed = true;
+            }
+            index = close_offset + 1;
+            continue;
+        }
+
+        escaped = byte == b'\\';
+        index += 1;
+    }
+
+    if changed {
+        push_raw_shell_line_with_normalized_redirect_spacing(target, &line[last..]);
+    }
+    changed
+}
+
+fn render_inline_raw_command_substitution_as_block(
+    raw: &str,
+    options: &ResolvedShellFormatOptions,
+) -> Option<String> {
+    if raw.contains('\n') {
+        return None;
+    }
+
+    let body = raw_dollar_command_substitution_body(raw)?.trim_matches([' ', '\t', '\r']);
+    if body.is_empty() {
+        return None;
+    }
+
+    let parsed = shuck_parser::parser::Parser::with_dialect(body, options.dialect()).parse();
+    if parsed.is_err() || parsed.file.body.len() <= 1 {
+        return None;
+    }
+
+    let facts = FormatterFacts::build(body, &parsed.file, options);
+    let mut nested = String::new();
+    format_stmt_sequence_streaming_to_buf(
+        body,
+        &parsed.file.body,
+        options,
+        &facts,
+        None,
+        &mut nested,
+    )
+    .ok()?;
+    let trimmed = trim_trailing_line_endings(&nested);
+    if trimmed.is_empty() {
+        return Some("$()".to_string());
+    }
+
+    let mut rendered = String::new();
+    rendered.push_str("$(\n");
+    push_indented_rendered_block(&mut rendered, trimmed, options, 1);
+    rendered.push_str("\n)");
+    Some(rendered)
 }
 
 fn raw_command_redirect_spacing_would_change(raw: &str) -> bool {
