@@ -6402,7 +6402,7 @@ fn close_suffix_comment_padding(
     current_code_column: usize,
     current_indent_column: usize,
 ) -> usize {
-    if let Some(padding) = tabbed_close_suffix_comment_padding(
+    if let Some(padding) = aligned_close_suffix_comment_padding(
         source,
         comment,
         current_code_column,
@@ -6413,19 +6413,37 @@ fn close_suffix_comment_padding(
     trailing_comment_padding(source, comment, current_code_column)
 }
 
-fn tabbed_close_suffix_comment_padding(
+fn aligned_close_suffix_comment_padding(
     source: &str,
     comment: &SourceComment<'_>,
     current_code_column: usize,
     current_indent_column: usize,
 ) -> Option<usize> {
-    let entries = tabbed_inline_comment_alignment_entries(source, comment)?;
+    let entries = close_suffix_comment_alignment_entries(source, comment)?;
     if entries.len() <= 1 {
         return None;
     }
+    let current = entries.first()?;
+    let source_indent_unit = if current.source_indent > 0 && current_indent_column > 0 {
+        current.source_indent / current_indent_column
+    } else {
+        entries
+            .iter()
+            .filter_map(|entry| (entry.source_indent > 0).then_some(entry.source_indent))
+            .min()
+            .unwrap_or(1)
+    }
+    .max(1);
     let target_column = entries
         .iter()
-        .map(|(indent, code_width)| indent + code_width)
+        .map(|entry| {
+            rendered_close_suffix_source_indent(
+                entry.source_indent,
+                current.source_indent,
+                current_indent_column,
+                source_indent_unit,
+            ) + entry.code_width
+        })
         .max()?
         + 1;
     Some(
@@ -6435,12 +6453,18 @@ fn tabbed_close_suffix_comment_padding(
     )
 }
 
-fn tabbed_inline_comment_alignment_entries(
+#[derive(Clone, Copy)]
+struct CloseSuffixAlignmentEntry {
+    source_indent: usize,
+    code_width: usize,
+}
+
+fn close_suffix_comment_alignment_entries(
     source: &str,
     comment: &SourceComment<'_>,
-) -> Option<Vec<(usize, usize)>> {
+) -> Option<Vec<CloseSuffixAlignmentEntry>> {
     let (line_start, line_end) = line_bounds_for_offset(source, comment.span().start.offset)?;
-    let mut entries = vec![inline_comment_tabbed_width(
+    let mut entries = vec![close_suffix_alignment_entry(
         source,
         line_start,
         line_end,
@@ -6449,19 +6473,11 @@ fn tabbed_inline_comment_alignment_entries(
 
     let mut previous_start = line_start;
     while let Some((start, end)) = previous_line_bounds(source, previous_start) {
-        if let Some(width) = inline_comment_tabbed_width(source, start, end, None) {
-            entries.push(width);
-            previous_start = start;
-            continue;
-        }
-        if source
-            .get(start..end)
-            .is_some_and(line_is_skippable_alignment_opener)
-        {
-            previous_start = start;
-            continue;
-        }
-        break;
+        let Some(entry) = close_suffix_alignment_entry(source, start, end, None) else {
+            break;
+        };
+        entries.push(entry);
+        previous_start = start;
     }
 
     let mut next_start = line_end
@@ -6471,39 +6487,57 @@ fn tabbed_inline_comment_alignment_entries(
         let end = source[start..]
             .find('\n')
             .map_or(source.len(), |offset| start + offset);
-        let Some(width) = inline_comment_tabbed_width(source, start, end, None) else {
+        let Some(entry) = close_suffix_alignment_entry(source, start, end, None) else {
             break;
         };
-        entries.push(width);
+        entries.push(entry);
         next_start = end.checked_add(1).filter(|offset| *offset < source.len());
     }
 
     Some(entries)
 }
 
-fn inline_comment_tabbed_width(
+fn close_suffix_alignment_entry(
     source: &str,
     line_start: usize,
     line_end: usize,
     known_comment_offset: Option<usize>,
-) -> Option<(usize, usize)> {
+) -> Option<CloseSuffixAlignmentEntry> {
     let comment_offset = known_comment_offset
         .or_else(|| find_inline_comment_start(source.get(line_start..line_end)?, line_start))?;
     let prefix = source.get(line_start..comment_offset)?;
-    if line_is_skippable_alignment_opener(prefix) {
+    let code = prefix.trim_matches([' ', '\t', '\r']);
+    if !matches!(code, "fi" | "done" | "esac" | "}") {
         return None;
     }
-    let (indent_width, code_start) = leading_tab_indent_and_code_start(prefix)?;
-    let code_width = trimmed_line_width(prefix.get(code_start..)?)?;
-    Some((indent_width, code_width))
+    let (source_indent, _) = leading_indent_and_code_start(prefix)?;
+    Some(CloseSuffixAlignmentEntry {
+        source_indent,
+        code_width: normalized_comment_alignment_width(code),
+    })
 }
 
-fn leading_tab_indent_and_code_start(text: &str) -> Option<(usize, usize)> {
+fn rendered_close_suffix_source_indent(
+    source_indent: usize,
+    current_source_indent: usize,
+    current_rendered_indent: usize,
+    source_indent_unit: usize,
+) -> usize {
+    if source_indent == current_source_indent {
+        return current_rendered_indent;
+    }
+    if current_source_indent == 0 || current_rendered_indent == 0 {
+        return source_indent / source_indent_unit;
+    }
+    source_indent.saturating_mul(current_rendered_indent) / current_source_indent
+}
+
+fn leading_indent_and_code_start(text: &str) -> Option<(usize, usize)> {
     let mut indent_width = 0;
     for (index, ch) in text.char_indices() {
         match ch {
-            '\t' => indent_width += 1,
-            ' ' | '\r' => return None,
+            ' ' | '\t' => indent_width += 1,
+            '\r' => {}
             _ => return Some((indent_width, index)),
         }
     }
