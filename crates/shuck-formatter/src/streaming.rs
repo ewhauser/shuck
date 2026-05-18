@@ -1057,7 +1057,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     fn emit_trailing_comments_for_stmt(&mut self, comments: &[SourceComment<'_>]) {
         for comment in comments {
             let current_code_column = self.column.saturating_sub(self.line_indent_column);
-            let padding = trailing_comment_padding(self.source(), comment, current_code_column);
+            let padding = trailing_comment_padding(
+                self.source(),
+                comment,
+                current_code_column,
+                self.line_indent_column,
+            );
             for _ in 0..padding {
                 self.write_space();
             }
@@ -2881,7 +2886,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return false;
         };
         let current_code_column = self.column.saturating_sub(self.line_indent_column);
-        let padding = trailing_comment_padding(self.source(), &comment, current_code_column);
+        let padding = trailing_comment_padding(
+            self.source(),
+            &comment,
+            current_code_column,
+            self.line_indent_column,
+        );
         for _ in 0..padding {
             self.write_space();
         }
@@ -3331,8 +3341,15 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let pattern_suffix_comment = self.case_item_pattern_suffix_comment(item, upper_bound);
         if let Some(comment) = &pattern_suffix_comment {
             let current_code_column = self.column.saturating_sub(self.line_indent_column);
-            let mut padding = trailing_comment_padding(self.source(), comment, current_code_column);
-            if trailing_comment_alignment_column(self.source(), comment).is_some() {
+            let mut padding = trailing_comment_padding(
+                self.source(),
+                comment,
+                current_code_column,
+                self.line_indent_column,
+            );
+            if trailing_comment_alignment_column(self.source(), comment, self.line_indent_column)
+                .is_some()
+            {
                 padding += 1;
             }
             for _ in 0..padding {
@@ -3464,7 +3481,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.write_text(case_terminator(item.terminator));
         if let Some(comment) = self.case_item_terminator_suffix_comment(item) {
             let current_code_column = self.column.saturating_sub(self.line_indent_column);
-            let padding = trailing_comment_padding(self.source(), &comment, current_code_column);
+            let padding = trailing_comment_padding(
+                self.source(),
+                &comment,
+                current_code_column,
+                self.line_indent_column,
+            );
             for _ in 0..padding {
                 self.write_space();
             }
@@ -4357,8 +4379,16 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return;
         };
         let current_code_column = self.column.saturating_sub(self.line_indent_column);
-        let mut padding = trailing_comment_padding(self.source(), &comment, current_code_column);
-        if nudge_aligned && trailing_comment_alignment_column(self.source(), &comment).is_some() {
+        let mut padding = trailing_comment_padding(
+            self.source(),
+            &comment,
+            current_code_column,
+            self.line_indent_column,
+        );
+        if nudge_aligned
+            && trailing_comment_alignment_column(self.source(), &comment, self.line_indent_column)
+                .is_some()
+        {
             padding += 1;
         }
         for _ in 0..padding {
@@ -6561,8 +6591,11 @@ fn trailing_comment_padding(
     source: &str,
     comment: &SourceComment<'_>,
     current_code_column: usize,
+    current_indent_column: usize,
 ) -> usize {
-    let Some(target_column) = trailing_comment_alignment_column(source, comment) else {
+    let Some(target_column) =
+        trailing_comment_alignment_column(source, comment, current_indent_column)
+    else {
         return 1;
     };
     let indent_adjust = trailing_comment_tab_indent_adjust(source, comment);
@@ -6585,7 +6618,7 @@ fn close_suffix_comment_padding(
     ) {
         return padding;
     }
-    trailing_comment_padding(source, comment, current_code_column)
+    trailing_comment_padding(source, comment, current_code_column, current_indent_column)
 }
 
 fn aligned_close_suffix_comment_padding(
@@ -6719,7 +6752,11 @@ fn leading_indent_and_code_start(text: &str) -> Option<(usize, usize)> {
     None
 }
 
-fn trailing_comment_alignment_column(source: &str, comment: &SourceComment<'_>) -> Option<usize> {
+fn trailing_comment_alignment_column(
+    source: &str,
+    comment: &SourceComment<'_>,
+    current_indent_column: usize,
+) -> Option<usize> {
     let (line_start, line_end) = line_bounds_for_offset(source, comment.span().start.offset)?;
     let mut widths = vec![trimmed_line_width(
         source.get(line_start..comment.span().start.offset)?,
@@ -6749,9 +6786,13 @@ fn trailing_comment_alignment_column(source: &str, comment: &SourceComment<'_>) 
             .find('\n')
             .map_or(source.len(), |offset| start + offset);
         let Some(width) = inline_comment_code_width(source, start, end, None) else {
-            if let Some((width, suffix_end)) =
-                multiline_header_suffix_comment_width(source, line_start, start, end)
-            {
+            if let Some((width, suffix_end)) = multiline_header_suffix_comment_width(
+                source,
+                line_start,
+                start,
+                end,
+                current_indent_column,
+            ) {
                 widths.push(width);
                 next_start = suffix_end
                     .checked_add(1)
@@ -6892,6 +6933,7 @@ fn multiline_header_suffix_comment_width(
     current_line_start: usize,
     header_start: usize,
     header_end: usize,
+    current_indent_column: usize,
 ) -> Option<(usize, usize)> {
     let header_line = source.get(header_start..header_end)?;
     if find_inline_comment_start(header_line, header_start).is_some() {
@@ -6916,10 +6958,14 @@ fn multiline_header_suffix_comment_width(
 
     let header = header.trim_end_matches(';').trim_end();
     let rendered = format!("{header}; {suffix}");
-    let indent_delta =
-        rendered_indent_delta_between_lines(source, current_line_start, header_start);
     Some((
-        normalized_comment_alignment_width(&rendered) + indent_delta,
+        alignment_width_relative_to_current_indent(
+            source,
+            current_line_start,
+            header_start,
+            normalized_comment_alignment_width(&rendered),
+            current_indent_column,
+        ),
         suffix_end,
     ))
 }
@@ -6932,37 +6978,117 @@ fn multiline_header_suffix_keyword(header: &str) -> Option<&'static str> {
     }
 }
 
+fn alignment_width_relative_to_current_indent(
+    source: &str,
+    current_line_start: usize,
+    target_line_start: usize,
+    width: usize,
+    current_indent_column: usize,
+) -> usize {
+    let Some((_, current_line_end)) = line_bounds_for_offset(source, current_line_start) else {
+        return width;
+    };
+    let Some((_, target_line_end)) = line_bounds_for_offset(source, target_line_start) else {
+        return width;
+    };
+    let current_indent = line_indent_info(source, current_line_start, current_line_end);
+    let target_indent = line_indent_info(source, target_line_start, target_line_end);
+    if current_indent.has_tabs || target_indent.has_tabs {
+        return width;
+    }
+    let delta = rendered_indent_delta_between_lines(
+        source,
+        current_line_start,
+        target_line_start,
+        current_indent_column,
+    );
+    if delta >= 0 {
+        width.saturating_add(delta as usize)
+    } else {
+        width.saturating_sub(delta.unsigned_abs())
+    }
+}
+
 fn rendered_indent_delta_between_lines(
     source: &str,
     current_line_start: usize,
     target_line_start: usize,
-) -> usize {
+    current_rendered_indent: usize,
+) -> isize {
     let Some((_, current_line_end)) = line_bounds_for_offset(source, current_line_start) else {
         return 0;
     };
     let Some((_, target_line_end)) = line_bounds_for_offset(source, target_line_start) else {
         return 0;
     };
-    let current_indent = line_indent_width(source, current_line_start, current_line_end);
-    let target_indent = line_indent_width(source, target_line_start, target_line_end);
-    if target_indent <= current_indent {
+    let current_indent = line_indent_info(source, current_line_start, current_line_end);
+    let target_indent = line_indent_info(source, target_line_start, target_line_end);
+    if target_indent == current_indent {
         return 0;
     }
-    let delta = target_indent - current_indent;
-    let unit = if current_indent == 0 {
-        delta
-    } else {
-        current_indent.min(delta)
-    }
-    .max(1);
-    delta.div_ceil(unit)
+    let target_rendered_indent = rendered_source_indent_relative_to_current(
+        target_indent.width,
+        current_indent.width,
+        current_rendered_indent,
+    );
+    target_rendered_indent as isize - current_rendered_indent as isize
 }
 
-fn line_indent_width(source: &str, line_start: usize, line_end: usize) -> usize {
+fn rendered_source_indent_relative_to_current(
+    target_source_indent: usize,
+    current_source_indent: usize,
+    current_rendered_indent: usize,
+) -> usize {
+    if target_source_indent == current_source_indent {
+        return current_rendered_indent;
+    }
+    if current_source_indent == 0 || current_rendered_indent == 0 {
+        let delta = target_source_indent.abs_diff(current_source_indent);
+        let unit = if current_source_indent == 0 {
+            delta
+        } else {
+            current_source_indent.min(delta)
+        }
+        .max(1);
+        return target_source_indent / unit;
+    }
+
+    let scaled = target_source_indent.saturating_mul(current_rendered_indent);
+    if target_source_indent < current_source_indent {
+        scaled / current_source_indent
+    } else {
+        scaled.div_ceil(current_source_indent)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct LineIndentInfo {
+    width: usize,
+    has_tabs: bool,
+}
+
+fn line_indent_info(source: &str, line_start: usize, line_end: usize) -> LineIndentInfo {
     source
         .get(line_start..line_end)
-        .and_then(leading_indent_and_code_start)
-        .map_or(0, |(indent, _)| indent)
+        .map(|line| {
+            let indent = line_leading_indent(line);
+            LineIndentInfo {
+                width: indent.chars().count(),
+                has_tabs: indent.contains('\t'),
+            }
+        })
+        .unwrap_or(LineIndentInfo {
+            width: 0,
+            has_tabs: false,
+        })
+}
+
+fn line_leading_indent(line: &str) -> &str {
+    let end = line
+        .char_indices()
+        .find(|(_, ch)| !matches!(ch, ' ' | '\t' | '\r'))
+        .map_or(line.len(), |(index, _)| index);
+    &line[..end]
 }
 
 fn find_inline_comment_start(line: &str, line_start: usize) -> Option<usize> {
