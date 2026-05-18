@@ -1476,6 +1476,20 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn splits_following_statement_after_background() {
+        let source = "if ok; then\n  run --flag 2>&1 & echo $! >\"$PIDFILE\"\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if ok; then\n\trun --flag 2>&1 &\n\techo $! >\"$PIDFILE\"\nfi\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_eval_conditional_syntax_as_arguments() {
         let source = "if eval ! [[ \"$env_var\" =~ ^[[:digit:]]+$ ]]; then\n  echo ok\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

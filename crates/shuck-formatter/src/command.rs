@@ -230,7 +230,17 @@ fn format_stmt_sequence_with_upper_bound(
         }
         if index + 1 < statements.len() {
             if matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
-                if background_has_explicit_line_break(
+                let current_end = rendered_stmt_end_line(
+                    stmt,
+                    source,
+                    formatter.context().comments().source_map(),
+                );
+                let next_start = attachments
+                    .as_ref()
+                    .and_then(|attachment| attachment.leading_for(index + 1).first())
+                    .map(|comment| comment.line())
+                    .unwrap_or(stmt_span(&statements[index + 1]).start.line);
+                let breaks = if background_has_explicit_line_break(
                     stmt,
                     &statements[index + 1],
                     formatter,
@@ -239,20 +249,11 @@ fn format_stmt_sequence_with_upper_bound(
                         .and_then(|spans| spans.get(index + 1))
                         .copied(),
                 ) {
-                    let current_end = rendered_stmt_end_line(
-                        stmt,
-                        source,
-                        formatter.context().comments().source_map(),
-                    );
-                    let next_start = attachments
-                        .as_ref()
-                        .and_then(|attachment| attachment.leading_for(index + 1).first())
-                        .map(|comment| comment.line())
-                        .unwrap_or(stmt_span(&statements[index + 1]).start.line);
-                    write_line_breaks(line_gap_break_count(current_end, next_start), formatter)?;
+                    line_gap_break_count(current_end, next_start)
                 } else {
-                    write!(formatter, [space()])?;
-                }
+                    1
+                };
+                write_line_breaks(breaks, formatter)?;
             } else if compact {
                 write!(formatter, [token("; ")])?;
             } else {

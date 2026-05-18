@@ -1208,28 +1208,29 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
             if index + 1 < statements.len() {
                 if matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
-                    if stmt_is_redirect_only(&statements[index + 1], source) {
-                        self.write_line_breaks(1);
-                    } else if self.facts().background_has_explicit_line_break(stmt) {
-                        let current_end = stmt_rendered_end_line_after_format(
-                            stmt,
-                            source,
+                    let current_end = stmt_rendered_end_line_after_format(
+                        stmt,
+                        source,
+                        self.source_map(),
+                        self.facts().stmt(stmt).rendered_end_line(),
+                    );
+                    let next_start = attachments
+                        .as_ref()
+                        .map(|attachment| attachment.first_rendered_line_for(index + 1))
+                        .unwrap_or(stmt_render_start_line(
+                            &statements[index + 1],
+                            self.source(),
                             self.source_map(),
-                            self.facts().stmt(stmt).rendered_end_line(),
-                        );
-                        let next_start = attachments
-                            .as_ref()
-                            .map(|attachment| attachment.first_rendered_line_for(index + 1))
-                            .unwrap_or(stmt_render_start_line(
-                                &statements[index + 1],
-                                self.source(),
-                                self.source_map(),
-                                self.options(),
-                            ));
-                        self.write_line_breaks(line_gap_break_count(current_end, next_start));
+                            self.options(),
+                        ));
+                    let breaks = if stmt_is_redirect_only(&statements[index + 1], source)
+                        || !self.facts().background_has_explicit_line_break(stmt)
+                    {
+                        1
                     } else {
-                        self.write_space();
-                    }
+                        line_gap_break_count(current_end, next_start)
+                    };
+                    self.write_line_breaks(breaks);
                 } else if compact {
                     self.write_text("; ");
                 } else {
