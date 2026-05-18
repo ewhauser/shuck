@@ -995,26 +995,52 @@ fn push_raw_command_substitution_with_normalized_spacing(
                 .to_string();
             let indent = line_leading_shell_indent(&line);
             let content = &line[indent.len()..];
-            if let Some(previous_indent) = previous_pipeline_indent.as_deref()
+            let carried_pipeline_indent = previous_pipeline_indent.clone();
+            let mut adjusted_line = None;
+            if let Some(previous_indent) = carried_pipeline_indent.as_deref()
                 && !content.trim().is_empty()
                 && !content.starts_with('#')
-                && indent.len() < previous_indent.len()
             {
-                line = format!("{previous_indent}{content}");
+                if raw_indent_units(indent, options) < raw_indent_units(previous_indent, options) {
+                    adjusted_line = Some(format!("{previous_indent}{content}"));
+                }
+            }
+            if let Some(adjusted) = adjusted_line {
+                line = adjusted;
             }
             let indent = line_leading_shell_indent(&line);
             let content = &line[indent.len()..];
+            let mut continuation_adjusted_line = None;
             if let Some(previous_indent) = continuation_indent.as_deref()
                 && !content.trim().is_empty()
                 && !content.starts_with('#')
                 && normalized_raw_shell_indent(indent, options) != previous_indent
             {
-                line = format!("{previous_indent}{content}");
+                continuation_adjusted_line = Some(format!("{previous_indent}{content}"));
             }
+            if let Some(adjusted) = continuation_adjusted_line {
+                line = adjusted;
+            }
+            let indent = line_leading_shell_indent(&line);
+            let content = &line[indent.len()..];
             let used_continuation_indent = continuation_indent.is_some();
             push_raw_shell_line_with_normalized_source_indent(target, &line, options, None);
-            previous_pipeline_indent = line_ends_with_raw_continuation_operator(&line)
-                .then(|| line_leading_shell_indent(&line).to_string());
+            previous_pipeline_indent = if content.trim().is_empty() {
+                None
+            } else if content.starts_with('#') {
+                carried_pipeline_indent
+            } else if line_ends_with_raw_continuation_operator(&line) {
+                carried_pipeline_indent.or_else(|| {
+                    let indent = line_leading_shell_indent(&line);
+                    Some(if content.starts_with('-') {
+                        indent.to_string()
+                    } else {
+                        source_indent_plus_one_unit(indent, options)
+                    })
+                })
+            } else {
+                None
+            };
             let line_continues = line_without_continuation_backslash(&line).is_some();
             let line_indent = line_leading_shell_indent(&line).to_string();
             quote.scan_line(&line);

@@ -4255,6 +4255,21 @@ function R() {
     }
 
     #[test]
+    fn indents_raw_command_substitution_pipeline_before_multiline_literal_command() {
+        let source = "if ok; then\n    url=\"$(\n        git remote -v |\n        awk '{print $2}' |\n        perl -pe \"\n            s/foo/bar/\n        \"\n    )\"\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if ok; then\n\turl=\"$(\n\t\tgit remote -v |\n\t\t\tawk '{print $2}' |\n\t\t\tperl -pe \"\n            s/foo/bar/\n        \"\n\t)\"\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_loop_body_brace_group_background_before_done() {
         let source = "for workflow_name in $workflows; do\n  {\n    output=\"$(printf '%s\\n' \"$workflow_name\")\"\n    echo \"$output\"\n  } &\ndone |\nsort\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
