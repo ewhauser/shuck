@@ -1,6 +1,6 @@
 use std::sync::{Arc, OnceLock};
 
-use memchr::memchr2_iter;
+use memchr::{memchr_iter, memchr2_iter};
 use shuck_ast::{Comment, Position, Span};
 
 #[derive(Debug, Clone)]
@@ -14,8 +14,7 @@ struct SourceMapData {
     line_starts: Vec<usize>,
     first_non_whitespace: Vec<OnceLock<Option<usize>>>,
     hash_offsets: Vec<usize>,
-    tab_offsets: Vec<usize>,
-    double_space_offsets: Vec<usize>,
+    track_alignment: bool,
 }
 
 impl<'a> SourceMap<'a> {
@@ -27,6 +26,23 @@ impl<'a> SourceMap<'a> {
     #[must_use]
     pub fn without_alignment_indexes(source: &'a str) -> Self {
         Self::new_with_alignment(source, false)
+    }
+
+    #[must_use]
+    pub(crate) fn with_comment_offsets(
+        source: &'a str,
+        comment_offsets: impl IntoIterator<Item = usize>,
+        track_alignment: bool,
+    ) -> Self {
+        let mut hash_offsets = comment_offsets.into_iter().collect::<Vec<_>>();
+        hash_offsets.sort_unstable();
+        hash_offsets.dedup();
+        Self::from_parts(
+            source,
+            line_starts_for_source(source),
+            hash_offsets,
+            track_alignment,
+        )
     }
 
     fn new_with_alignment(source: &'a str, track_alignment: bool) -> Self {
@@ -47,22 +63,16 @@ impl<'a> SourceMap<'a> {
             }
         }
 
-        let first_non_whitespace = line_starts.iter().map(|_| OnceLock::new()).collect();
+        Self::from_parts(source, line_starts, hash_offsets, track_alignment)
+    }
 
-        let (tab_offsets, double_space_offsets) = if track_alignment {
-            let mut tab_offsets = Vec::new();
-            let mut double_space_offsets = Vec::new();
-            for offset in memchr2_iter(b'\t', b' ', bytes) {
-                if bytes[offset] == b'\t' {
-                    tab_offsets.push(offset);
-                } else if bytes.get(offset + 1) == Some(&b' ') {
-                    double_space_offsets.push(offset);
-                }
-            }
-            (tab_offsets, double_space_offsets)
-        } else {
-            (Vec::new(), Vec::new())
-        };
+    fn from_parts(
+        source: &'a str,
+        line_starts: Vec<usize>,
+        hash_offsets: Vec<usize>,
+        track_alignment: bool,
+    ) -> Self {
+        let first_non_whitespace = line_starts.iter().map(|_| OnceLock::new()).collect();
 
         Self {
             source,
@@ -70,8 +80,7 @@ impl<'a> SourceMap<'a> {
                 line_starts,
                 first_non_whitespace,
                 hash_offsets,
-                tab_offsets,
-                double_space_offsets,
+                track_alignment,
             }),
         }
     }
@@ -166,17 +175,13 @@ impl<'a> SourceMap<'a> {
 
     #[must_use]
     pub fn has_alignment_padding_between(&self, start: usize, end: usize) -> bool {
-        if start >= end || self.contains_newline_between(start, end) {
+        if start >= end || !self.data.track_alignment || self.contains_newline_between(start, end) {
             return false;
         }
 
-        contains_offset_in_range(&self.data.tab_offsets, start, end)
-            || end.saturating_sub(start) >= 2
-                && contains_offset_in_range(
-                    &self.data.double_space_offsets,
-                    start,
-                    end.saturating_sub(1),
-                )
+        self.source
+            .get(start..end)
+            .is_some_and(slice_has_alignment_padding)
     }
 
     fn line_index_for_offset(&self, offset: usize) -> usize {
@@ -199,6 +204,31 @@ impl<'a> SourceMap<'a> {
             first_non_whitespace_in_line(self.source, start, end)
         })
     }
+}
+
+fn line_starts_for_source(source: &str) -> Vec<usize> {
+    let bytes = source.as_bytes();
+    let mut line_starts = Vec::with_capacity(source.len() / 32 + 1);
+    line_starts.push(0);
+    for offset in memchr_iter(b'\n', bytes) {
+        if offset + 1 < bytes.len() {
+            line_starts.push(offset + 1);
+        }
+    }
+    line_starts
+}
+
+fn slice_has_alignment_padding(slice: &str) -> bool {
+    let mut previous_was_space = false;
+    for byte in slice.bytes() {
+        match byte {
+            b'\t' => return true,
+            b' ' if previous_was_space => return true,
+            b' ' => previous_was_space = true,
+            _ => previous_was_space = false,
+        }
+    }
+    false
 }
 
 fn first_non_whitespace_in_line(source: &str, start: usize, end: usize) -> Option<usize> {

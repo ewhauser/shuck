@@ -2,10 +2,11 @@ use std::collections::{HashMap, HashSet};
 
 use shuck_ast::{
     AnonymousFunctionCommand, ArrayElem, Assignment, AssignmentValue, BinaryCommand, BinaryOp,
-    BuiltinCommand, CaseCommand, CaseItem, Command, CommandSubstitutionSyntax, CompoundCommand,
-    ConditionalCommand, ConditionalExpr, DeclClause, DeclOperand, File, ForCommand, ForeachCommand,
-    FunctionDef, IfCommand, Pattern, PatternPart, Redirect, RepeatCommand, SelectCommand, Span,
-    Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
+    BuiltinCommand, CaseCommand, CaseItem, Command, CommandSubstitutionSyntax, Comment,
+    CompoundCommand, ConditionalCommand, ConditionalExpr, DeclClause, DeclOperand, File,
+    ForCommand, ForeachCommand, FunctionDef, IfCommand, Pattern, PatternPart, Redirect,
+    RepeatCommand, SelectCommand, Span, Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand,
+    WhileCommand, Word, WordPart,
 };
 
 use crate::ast_format::{flatten_comments, heredoc_body_spans};
@@ -161,7 +162,8 @@ impl<'source> FormatterFacts<'source> {
         file: &File,
         options: &ResolvedShellFormatOptions,
     ) -> Self {
-        FormatterFactsBuilder::new(source, options).build(file)
+        let comments = flatten_comments(file);
+        FormatterFactsBuilder::new(source, options, &comments).build(file, comments)
     }
 
     pub(crate) fn source_map(&self) -> &SourceMap<'source> {
@@ -251,11 +253,27 @@ struct FormatterFactsBuilder<'source, 'options> {
 }
 
 impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
-    fn new(source: &'source str, options: &'options ResolvedShellFormatOptions) -> Self {
+    fn new(
+        source: &'source str,
+        options: &'options ResolvedShellFormatOptions,
+        comments: &[Comment],
+    ) -> Self {
         let source_map = if options.keep_padding() {
-            SourceMap::new(source)
+            SourceMap::with_comment_offsets(
+                source,
+                comments
+                    .iter()
+                    .map(|comment| usize::from(comment.range.start())),
+                true,
+            )
         } else {
-            SourceMap::without_alignment_indexes(source)
+            SourceMap::with_comment_offsets(
+                source,
+                comments
+                    .iter()
+                    .map(|comment| usize::from(comment.range.start())),
+                false,
+            )
         };
 
         Self {
@@ -276,14 +294,14 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         }
     }
 
-    fn build(mut self, file: &File) -> FormatterFacts<'source> {
+    fn build(mut self, file: &File, comments: Vec<Comment>) -> FormatterFacts<'source> {
         let mut heredoc_body_spans = heredoc_body_spans(file)
             .into_iter()
             .map(FactSpan::from)
             .collect::<Vec<_>>();
         heredoc_body_spans.sort_by_key(|span| span.start);
         self.facts.heredoc_body_spans = heredoc_body_spans.into_boxed_slice();
-        let mut source_comments = flatten_comments(file)
+        let mut source_comments = comments
             .into_iter()
             .filter_map(|comment| self.source_map().source_comment(comment))
             .collect::<Vec<_>>();
