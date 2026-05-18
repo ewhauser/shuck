@@ -1519,6 +1519,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             Some(body_upper_bound),
             preserve_open_blank,
         )?;
+        self.write_unmodeled_branch_background_terminator(body, body_upper_bound);
         if close_span.is_some_and(|span| {
             source_has_blank_line_immediately_before_offset(self.source(), span.start.offset)
         }) || (close_span.is_none()
@@ -1560,6 +1561,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             Some(body_upper_bound),
             preserve_open_blank,
         )?;
+        self.write_unmodeled_branch_background_terminator(body, body_upper_bound);
         if close_span.is_some_and(|span| {
             source_has_blank_line_immediately_before_offset(self.source(), span.start.offset)
         }) || (close_span.is_none()

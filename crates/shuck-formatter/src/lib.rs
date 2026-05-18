@@ -4151,6 +4151,21 @@ function R() {
     }
 
     #[test]
+    fn preserves_loop_body_brace_group_background_before_done() {
+        let source = "for workflow_name in $workflows; do\n  {\n    output=\"$(printf '%s\\n' \"$workflow_name\")\"\n    echo \"$output\"\n  } &\ndone |\nsort\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "for workflow_name in $workflows; do\n\t{\n\t\toutput=\"$(printf '%s\\n' \"$workflow_name\")\"\n\t\techo \"$output\"\n\t} &\ndone |\n\tsort\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_comment_indentation_inside_inline_command_substitutions() {
         let source = "if ok; then\n\tfor item in $(printenv |\n\t\t# keep env names\n\t\tgrep '^APP_'); do\n\t\techo \"$item\"\n\tdone\nfi\n";
         let options = ShellFormatOptions::default();
