@@ -855,6 +855,14 @@ fn render_heredoc_body_part(
                     expression.slice(source),
                     *syntax,
                 );
+            } else if let Some(formatted) = format_multiline_arithmetic_expansion_source(
+                expression.slice(source),
+                *syntax,
+                expression_ast.as_ref(),
+                source,
+                options,
+            ) {
+                rendered.push_str(&formatted);
             } else if arithmetic_expression_prefers_raw_source(expression.slice(source)) {
                 push_trimmed_arithmetic_expansion_source(
                     rendered,
@@ -1511,6 +1519,14 @@ fn render_word_part(
                     expression.slice(source),
                     *syntax,
                 );
+            } else if let Some(formatted) = format_multiline_arithmetic_expansion_source(
+                expression.slice(source),
+                *syntax,
+                expression_ast.as_ref().map(|ast| ast.as_ref()),
+                source,
+                options,
+            ) {
+                rendered.push_str(&formatted);
             } else if arithmetic_expression_prefers_raw_source(expression.slice(source)) {
                 push_trimmed_arithmetic_expansion_source(
                     rendered,
@@ -5417,6 +5433,84 @@ fn push_trimmed_arithmetic_expansion_source(
             rendered.push(']');
         }
     }
+}
+
+fn format_multiline_arithmetic_expansion_source(
+    expression_source: &str,
+    syntax: ArithmeticExpansionSyntax,
+    expression_ast: Option<&ArithmeticExprNode>,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+) -> Option<String> {
+    if !matches!(syntax, ArithmeticExpansionSyntax::DollarParenParen)
+        || !expression_source.contains('\n')
+        || expression_source.contains('`')
+    {
+        return None;
+    }
+
+    let operators = multiline_arithmetic_source_trailing_operators(expression_source)?;
+    let mut rendered_body = String::new();
+    if let Some(expression_ast) = expression_ast {
+        render_arithmetic_expr_to_buf(&mut rendered_body, expression_ast, source, options);
+    } else {
+        rendered_body.push_str(expression_source.trim());
+    }
+    let lines = split_rendered_arithmetic_body_at_source_operators(&rendered_body, &operators)?;
+    let mut continuation_indent = String::new();
+    push_indent_units(&mut continuation_indent, options, 1);
+    let lines = lines
+        .into_iter()
+        .map(|line| format!("{continuation_indent}{line}"))
+        .collect::<Vec<_>>();
+    Some(format!("$((\\\n{}))", lines.join(" \\\n")))
+}
+
+fn multiline_arithmetic_source_trailing_operators(expression_source: &str) -> Option<Vec<&str>> {
+    let lines = expression_source
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    if lines.len() < 2 {
+        return None;
+    }
+
+    let mut operators = Vec::with_capacity(lines.len().saturating_sub(1));
+    for line in &lines[..lines.len() - 1] {
+        operators.push(arithmetic_source_line_trailing_operator(line)?);
+    }
+    Some(operators)
+}
+
+fn arithmetic_source_line_trailing_operator(line: &str) -> Option<&'static str> {
+    let trimmed = line.trim_end_matches([' ', '\t', '\r']);
+    [
+        "<<", ">>", "<=", ">=", "==", "!=", "&&", "||", "**", "+", "-", "*", "/", "%", "<", ">",
+        "&", "^", "|",
+    ]
+    .into_iter()
+    .find(|operator| trimmed.ends_with(operator))
+}
+
+fn split_rendered_arithmetic_body_at_source_operators(
+    rendered_body: &str,
+    operators: &[&str],
+) -> Option<Vec<String>> {
+    let mut lines = Vec::with_capacity(operators.len() + 1);
+    let mut rest = rendered_body.trim();
+    for operator in operators {
+        let needle = format!(" {operator} ");
+        let index = rest.find(&needle)?;
+        let end = index + 1 + operator.len();
+        lines.push(rest[..end].trim().to_string());
+        rest = rest[index + needle.len()..].trim_start();
+    }
+    if rest.is_empty() {
+        return None;
+    }
+    lines.push(rest.trim().to_string());
+    Some(lines)
 }
 
 fn arithmetic_expression_prefers_raw_source(expression_source: &str) -> bool {

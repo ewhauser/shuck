@@ -5931,6 +5931,25 @@ function R() {
     }
 
     #[test]
+    fn formats_multiline_arithmetic_expansions_with_continuations() {
+        let source = "_auto_limit_amount=\"$((
+  ${_available_lines:-1}                -
+    ${_header_and_footer_line_count:-0} +
+    ${_auto_limit_adjustment:-0}
+))\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "_auto_limit_amount=\"$((\\\n\t${_available_lines:-1} - \\\n\t${_header_and_footer_line_count:-0} + \\\n\t${_auto_limit_adjustment:-0}))\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_continued_semicolon_terminators() {
         let source = "ln -s foo bar \\\n  ;\nrm bar\n";
         let options = ShellFormatOptions::default();
