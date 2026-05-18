@@ -4513,7 +4513,7 @@ fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, lin
 
         if !in_single_quotes
             && !in_double_quotes
-            && byte == b'<'
+            && matches!(byte, b'<' | b'>')
             && let Some(operator_end) = raw_redirect_operator_end(bytes, index)
         {
             let mut target_start = operator_end;
@@ -4521,7 +4521,10 @@ fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, lin
             {
                 target_start += 1;
             }
-            if target_start > operator_end && target_start < bytes.len() {
+            if target_start > operator_end
+                && target_start < bytes.len()
+                && raw_redirect_target_spacing_can_be_stripped(bytes, index, target_start)
+            {
                 target.push_str(&line[last..operator_end]);
                 last = target_start;
                 index = target_start;
@@ -4663,6 +4666,19 @@ fn raw_redirect_operator_end(bytes: &[u8], start: usize) -> Option<usize> {
         }),
         _ => None,
     }
+}
+
+fn raw_redirect_target_spacing_can_be_stripped(
+    bytes: &[u8],
+    operator_start: usize,
+    target_start: usize,
+) -> bool {
+    if !matches!(bytes.get(operator_start), Some(b'<' | b'>')) {
+        return true;
+    }
+    !bytes
+        .get(target_start)
+        .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
 
 fn line_indent_before_source_offset(source: &str, offset: usize) -> Option<&str> {
