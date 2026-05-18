@@ -3081,6 +3081,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_array_command_substitution_argument_continuations() {
+        let source = "x=( $(find . -not \\( -path ./x -prune \\) -not -name lib \\\n  -not -name other | sort) )\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "x=($(find . -not \\( -path ./x -prune \\) -not -name lib \\\n\t-not -name other | sort))\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn removes_decl_array_assignment_line_continuations() {
         let source = "local cmd=(dialog --title \"Select\" --default-item \"$default\" \\\n    --menu \"Choose\" 18 50 9)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

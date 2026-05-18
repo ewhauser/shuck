@@ -2320,11 +2320,50 @@ fn trim_multiline_compound_assignment_line_continuation(line: &str) -> &str {
         .rev()
         .take_while(|byte| **byte == b'\\')
         .count();
-    if trailing_backslashes % 2 == 1 {
+    if trailing_backslashes % 2 == 1 && !line_continuation_is_inside_unclosed_substitution(trimmed)
+    {
         trimmed[..trimmed.len().saturating_sub(1)].trim_end_matches([' ', '\t'])
     } else {
         trimmed
     }
+}
+
+fn line_continuation_is_inside_unclosed_substitution(line: &str) -> bool {
+    let Some(before_continuation) = line.strip_suffix('\\') else {
+        return false;
+    };
+
+    let mut depth = 0usize;
+    let mut chars = before_continuation.chars().peekable();
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            chars.next();
+            continue;
+        }
+        if ch == '\'' && !in_double_quotes {
+            in_single_quotes = !in_single_quotes;
+            continue;
+        }
+        if ch == '"' && !in_single_quotes {
+            in_double_quotes = !in_double_quotes;
+            continue;
+        }
+        if in_single_quotes {
+            continue;
+        }
+        match ch {
+            '$' | '<' | '>' if chars.peek().is_some_and(|next| *next == '(') => {
+                chars.next();
+                depth += 1;
+            }
+            ')' if depth > 0 => depth -= 1,
+            _ => {}
+        }
+    }
+
+    depth > 0
 }
 
 fn multiline_compound_assignment_common_body_indent(lines: &[&str], open_inline: bool) -> String {
