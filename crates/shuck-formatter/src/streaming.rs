@@ -1183,7 +1183,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
             if index + 1 < statements.len() {
                 if matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
-                    if self.facts().background_has_explicit_line_break(stmt) {
+                    if stmt_is_redirect_only(&statements[index + 1], source) {
+                        self.write_line_breaks(1);
+                    } else if self.facts().background_has_explicit_line_break(stmt) {
                         let current_end = stmt_rendered_end_line_after_format(
                             stmt,
                             source,
@@ -6991,6 +6993,28 @@ fn stmt_is_pipeline(stmt: &Stmt) -> bool {
         &stmt.command,
         Command::Binary(command) if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll)
     )
+}
+
+fn stmt_is_redirect_only(stmt: &Stmt, source: &str) -> bool {
+    matches!(
+        &stmt.command,
+        Command::Simple(command)
+            if command.assignments.is_empty()
+                && command.args.is_empty()
+                && stmt_source_starts_with_redirect(stmt, source)
+    )
+}
+
+fn stmt_source_starts_with_redirect(stmt: &Stmt, source: &str) -> bool {
+    let text = stmt_span(stmt)
+        .slice(source)
+        .trim_start_matches([' ', '\t']);
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+        index += 1;
+    }
+    matches!(bytes.get(index), Some(b'<' | b'>'))
 }
 
 fn line_has_trailing_continuation_backslash(line: &str) -> bool {
