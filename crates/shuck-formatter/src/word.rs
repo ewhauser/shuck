@@ -2438,6 +2438,7 @@ fn push_raw_block_command_substitution_without_outer_indent(
     let mut body_indent: Option<String> = None;
     let mut previous_pipeline_indent: Option<String> = None;
     let mut compound_indent_shifts = Vec::<RawCompoundIndentShift>::new();
+    let mut compound_comment_indents = Vec::<RawCompoundCommentIndent>::new();
     let mut quote = RawShellQuoteState::default();
     for line in lines {
         target.push('\n');
@@ -2505,11 +2506,16 @@ fn push_raw_block_command_substitution_without_outer_indent(
         }
         let is_pipeline_continuation_comment =
             content.starts_with('#') && carried_pipeline_indent.is_some();
+        let is_compound_body_comment = content.starts_with('#')
+            && compound_comment_indents.last().is_some_and(|compound| {
+                indent.len() >= compound.child_indent.len()
+                    && raw_indent_starts_with(indent, &compound.child_indent)
+            });
         push_raw_shell_line_with_normalized_source_indent(
             target,
             &line,
             options,
-            if is_pipeline_continuation_comment {
+            if is_pipeline_continuation_comment || is_compound_body_comment {
                 None
             } else {
                 body_indent.as_deref()
@@ -2524,6 +2530,10 @@ fn push_raw_block_command_substitution_without_outer_indent(
         };
         quote.scan_line(&line);
         if let Some(close_keyword) = raw_compound_close_keyword(content) {
+            compound_comment_indents.push(RawCompoundCommentIndent {
+                child_indent: source_indent_plus_one_unit(indent, options),
+                close_keyword,
+            });
             let before_units = raw_indent_units(&indent_before_pipeline_adjustment, options);
             let after_units = raw_indent_units(indent, options);
             if after_units > before_units {
@@ -2540,6 +2550,12 @@ fn push_raw_block_command_substitution_without_outer_indent(
         {
             compound_indent_shifts.pop();
         }
+        if compound_comment_indents
+            .last()
+            .is_some_and(|compound| raw_line_closes_compound(content, compound.close_keyword))
+        {
+            compound_comment_indents.pop();
+        }
     }
 }
 
@@ -2550,11 +2566,19 @@ struct RawCompoundIndentShift {
     close_keyword: &'static str,
 }
 
+struct RawCompoundCommentIndent {
+    child_indent: String,
+    close_keyword: &'static str,
+}
+
 fn raw_line_indent_matches_shift(line: &str, shift: &RawCompoundIndentShift) -> bool {
     let indent = line_leading_shell_indent(line);
     let content = &line[indent.len()..];
-    !content.trim().is_empty()
-        && (indent == shift.source_indent || indent.starts_with(&shift.source_indent))
+    !content.trim().is_empty() && raw_indent_starts_with(indent, &shift.source_indent)
+}
+
+fn raw_indent_starts_with(indent: &str, prefix: &str) -> bool {
+    indent == prefix || indent.starts_with(prefix)
 }
 
 fn add_raw_indent_units(

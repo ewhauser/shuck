@@ -4205,6 +4205,21 @@ function R() {
     }
 
     #[test]
+    fn indents_block_command_substitution_loop_body_comments() {
+        let source = "tests=\"$(\n    for filename in $filelist; do\n        # expensive filter\n        echo \"check $filename\"\n    done\n)\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "tests=\"$(\n\tfor filename in $filelist; do\n\t\t# expensive filter\n\t\techo \"check $filename\"\n\tdone\n)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn indents_block_command_substitution_pipeline_comments_inside_assignments() {
         let source = "snapshots=\"$(\n    tmutil listlocalsnapshots \"$path\" |\n    tail -n +2 |\n    # update snapshots can't be deleted so just take the date timestamped ones:\n    #\n    #                  2026-02-14-041148\n    command ggrep -oP '\\d{4}-\\d\\d-\\d\\d-\\d+'\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
