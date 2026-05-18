@@ -5790,6 +5790,21 @@ function R() {
     }
 
     #[test]
+    fn aligns_list_rhs_comments_with_following_branch_header_comments() {
+        let source = "search() {\n  for __target_path in \"${_target_paths[@]:-}\"\n  do\n    {\n      if _search_with \"ag\" \"${_search_utility:-}\"\n      then\n        ag                      \\\n          --filename            \\\n          --hidden              \\\n          --ignore \".git\"       \\\n          --ignore-case         \\\n          --noheading           \\\n          \"${_search_args[@]}\"  \\\n          \"${_query}\"           \\\n          \"${_search_paths[@]}\" \\\n            || return 0 # Don't fail out within a single scope.\n      elif _search_with \"ack\" \"${_search_utility:-}\"\n      then # ack is available.\n        :\n      fi\n    }\n  done\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "search() {\n\tfor __target_path in \"${_target_paths[@]:-}\"; do\n\t\t{\n\t\t\tif _search_with \"ag\" \"${_search_utility:-}\"; then\n\t\t\t\tag \\\n\t\t\t\t\t--filename \\\n\t\t\t\t\t--hidden \\\n\t\t\t\t\t--ignore \".git\" \\\n\t\t\t\t\t--ignore-case \\\n\t\t\t\t\t--noheading \\\n\t\t\t\t\t\"${_search_args[@]}\" \\\n\t\t\t\t\t\"${_query}\" \\\n\t\t\t\t\t\"${_search_paths[@]}\" ||\n\t\t\t\t\treturn 0                                           # Don't fail out within a single scope.\n\t\t\telif _search_with \"ack\" \"${_search_utility:-}\"; then # ack is available.\n\t\t\t\t:\n\t\t\tfi\n\t\t}\n\tdone\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn aligns_else_comments_with_space_indented_nested_then_comments() {
         let source = "show() {\n  if outer\n  then\n      if ok\n      then\n        rm -f \"${_rendered_temp_file_path:?}\"\n    else # default\n      if ((_print_output))\n      then # `show --print [--no-color]`\n        if ((_COLOR_ENABLED))\n        then # `show --print`\n          _highlight_syntax_if_available \"${_target_path}\"\n        else # `show --print --no-color`\n          cat \"${_target_path}\"\n        fi\n      fi\n    fi\n  fi\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

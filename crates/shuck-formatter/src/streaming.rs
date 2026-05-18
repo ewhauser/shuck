@@ -6996,6 +6996,16 @@ fn alignment_width_relative_to_current_indent(
     if current_indent.has_tabs || target_indent.has_tabs {
         return width;
     }
+    if let Some(adjusted) = list_rhs_to_branch_header_alignment_width(
+        source,
+        current_line_start,
+        current_line_end,
+        target_line_start,
+        target_line_end,
+        width,
+    ) {
+        return adjusted;
+    }
     let delta = rendered_indent_delta_between_lines(
         source,
         current_line_start,
@@ -7059,6 +7069,29 @@ fn rendered_source_indent_relative_to_current(
     } else {
         scaled.div_ceil(current_source_indent)
     }
+}
+
+fn list_rhs_to_branch_header_alignment_width(
+    source: &str,
+    current_line_start: usize,
+    current_line_end: usize,
+    target_line_start: usize,
+    target_line_end: usize,
+    width: usize,
+) -> Option<usize> {
+    let current_code = source
+        .get(current_line_start..current_line_end)?
+        .trim_start_matches([' ', '\t', '\r']);
+    if !current_code.starts_with("||") && !current_code.starts_with("&&") {
+        return None;
+    }
+
+    let target_code = source
+        .get(target_line_start..target_line_end)?
+        .trim_start_matches([' ', '\t', '\r']);
+    target_code
+        .starts_with("elif ")
+        .then(|| width.saturating_sub(2))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
