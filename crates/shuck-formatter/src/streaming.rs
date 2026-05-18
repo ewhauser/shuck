@@ -27,10 +27,10 @@ use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::word::{
-    render_arithmetic_expr_to_buf, render_heredoc_body_to_buf, render_pattern_syntax_to_buf,
-    render_word_syntax_with_facts_to_buf, word_gap_end_before_trailing_continuation,
-    word_has_multiline_literal_source, word_is_quoted_command_substitution_only,
-    word_is_quoted_formattable_command_substitution_only,
+    normalize_raw_unquoted_word_continuations, render_arithmetic_expr_to_buf,
+    render_heredoc_body_to_buf, render_pattern_syntax_to_buf, render_word_syntax_with_facts_to_buf,
+    word_gap_end_before_trailing_continuation, word_has_multiline_literal_source,
+    word_is_quoted_command_substitution_only, word_is_quoted_formattable_command_substitution_only,
 };
 
 enum StreamOutput<'source> {
@@ -911,8 +911,14 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn write_assignment(&mut self, assignment: &Assignment) {
-        if assignment_has_raw_backslash_continuation_literal(assignment, self.source()) {
+        if assignment_has_quoted_backslash_continuation_literal(assignment, self.source()) {
             self.write_rendered_shell_text(assignment.span.slice(self.source()));
+            return;
+        }
+        if let Some(normalized) =
+            normalize_scalar_assignment_unquoted_continuations(assignment, self.source())
+        {
+            self.write_text(&normalized);
             return;
         }
 
@@ -5186,10 +5192,7 @@ fn decl_operand_span(operand: &DeclOperand) -> Span {
 
 fn assignment_has_multiline_literal_source(assignment: &Assignment, source: &str) -> bool {
     match &assignment.value {
-        AssignmentValue::Scalar(word) => {
-            assignment_has_raw_backslash_continuation_literal(assignment, source)
-                || word_has_multiline_literal_source(word, source)
-        }
+        AssignmentValue::Scalar(word) => word_has_multiline_literal_source(word, source),
         AssignmentValue::Compound(array) => array.elements.iter().any(|element| match element {
             ArrayElem::Sequential(word)
             | ArrayElem::Keyed { value: word, .. }
@@ -5200,16 +5203,75 @@ fn assignment_has_multiline_literal_source(assignment: &Assignment, source: &str
     }
 }
 
-fn assignment_has_raw_backslash_continuation_literal(
+fn normalize_scalar_assignment_unquoted_continuations(
+    assignment: &Assignment,
+    source: &str,
+) -> Option<String> {
+    if assignment_source_has_command_substitution(assignment, source) {
+        return None;
+    }
+    let AssignmentValue::Scalar(_) = &assignment.value else {
+        return None;
+    };
+    let raw = assignment.span.slice(source);
+    if !raw.contains("\\\n") && !raw.contains("\\\r\n") {
+        return None;
+    }
+
+    let mut head = String::new();
+    render_assignment_head_to_buf(assignment, source, &mut head);
+    let raw_value = raw.strip_prefix(&head)?;
+    let normalized_value = normalize_raw_unquoted_word_continuations(raw_value)?;
+    let mut normalized = head;
+    normalized.push_str(&normalized_value);
+    Some(normalized)
+}
+
+fn assignment_has_quoted_backslash_continuation_literal(
     assignment: &Assignment,
     source: &str,
 ) -> bool {
+    let AssignmentValue::Scalar(_) = &assignment.value else {
+        return false;
+    };
     let raw = assignment.span.slice(source);
     raw.contains("\\\n")
+        && raw_backslash_continuation_is_quoted(raw)
         && !raw.contains("$(")
         && !raw.contains('`')
         && !raw.contains("<(")
         && !raw.contains(">(")
+}
+
+fn raw_backslash_continuation_is_quoted(raw: &str) -> bool {
+    let mut chars = raw.chars().peekable();
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    while let Some(ch) = chars.next() {
+        if ch == '\'' && !in_double_quotes {
+            in_single_quotes = !in_single_quotes;
+            continue;
+        }
+        if ch == '"' && !in_single_quotes {
+            in_double_quotes = !in_double_quotes;
+            continue;
+        }
+        if ch == '\\' {
+            let mut probe = chars.clone();
+            let escaped_newline = match probe.next() {
+                Some('\n') => true,
+                Some('\r') => probe.next().is_some_and(|next| next == '\n'),
+                _ => false,
+            };
+            if escaped_newline {
+                return in_single_quotes || in_double_quotes;
+            }
+            if !in_single_quotes {
+                chars.next();
+            }
+        }
+    }
+    false
 }
 
 fn assignment_source_has_command_substitution(assignment: &Assignment, source: &str) -> bool {

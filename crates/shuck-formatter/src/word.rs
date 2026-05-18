@@ -1789,7 +1789,7 @@ fn push_unquoted_literal(rendered: &mut String, literal: &str) {
     }
 }
 
-fn normalize_raw_unquoted_word_continuations(raw: &str) -> Option<String> {
+pub(crate) fn normalize_raw_unquoted_word_continuations(raw: &str) -> Option<String> {
     if !raw.contains("\\\n") && !raw.contains("\\\r\n") {
         return None;
     }

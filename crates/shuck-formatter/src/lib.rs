@@ -5698,6 +5698,18 @@ function R() {
     }
 
     #[test]
+    fn removes_unquoted_assignment_continuation_backslashes() {
+        let source = "packages=$one\\\n$two\\\n$three\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted("packages=$one$two$three\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_multiline_assignment_continuation_payload_indentation() {
         let source = "if true; then\n  INCLUDE_TESTS=\"boot_services kernel \\\n                           filesystems usb \\\n                           hardening\"\nfi\n";
         let options = ShellFormatOptions::default();
