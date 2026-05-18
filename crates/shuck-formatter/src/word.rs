@@ -1036,6 +1036,10 @@ fn push_raw_command_substitution_with_normalized_spacing(
     start_offset: usize,
     options: &ResolvedShellFormatOptions,
 ) {
+    if let Some(normalized) = normalize_raw_backtick_command_substitution(raw) {
+        target.push_str(&normalized);
+        return;
+    }
     if !raw.contains('\n') {
         push_raw_shell_text_with_normalized_redirect_spacing(target, raw);
         return;
@@ -3201,6 +3205,12 @@ fn push_raw_block_command_substitution_without_outer_indent(
     }
 }
 
+fn normalize_raw_backtick_command_substitution(raw: &str) -> Option<String> {
+    let body = raw.strip_prefix('`')?.strip_suffix('`')?;
+    let body = normalize_backtick_body_escaped_dollars(body);
+    Some(format!("$({body})"))
+}
+
 fn raw_block_line_is_outer_substitution_close(lines: &[&str], index: usize) -> bool {
     lines
         .get(index.saturating_add(1)..)
@@ -3801,7 +3811,7 @@ fn push_preserved_raw_word_source(
     source: &str,
     options: &ResolvedShellFormatOptions,
 ) {
-    if raw.contains('<') || raw.contains('>') {
+    if raw.contains('<') || raw.contains('>') || raw.contains('`') {
         push_raw_word_with_normalized_command_redirect_spacing(
             rendered, word, raw, source, options,
         );

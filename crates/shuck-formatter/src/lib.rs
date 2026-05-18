@@ -3142,6 +3142,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn normalizes_backticks_inside_preserved_escaped_quote_words() {
+        let source = "eval printf \"\\\"$name -> $`echo \"${env_var}_DEFAULT\"` => \\\"\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "eval printf \"\\\"$name -> $$(echo \"${env_var}_DEFAULT\") => \\\"\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn backtick_in_redirect_is_idempotent() {
         let source = "declare -x foo=1<\\`OF\nhi\nEF\n";
         assert_idempotent(source, None, &ShellFormatOptions::default());
