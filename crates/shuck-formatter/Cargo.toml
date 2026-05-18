@@ -15,6 +15,7 @@ readme = "README.md"
 benchmarking = []
 
 [dependencies]
+memchr = { workspace = true }
 shuck-ast = { workspace = true }
 shuck-format = { workspace = true }
 shuck-parser = { workspace = true }

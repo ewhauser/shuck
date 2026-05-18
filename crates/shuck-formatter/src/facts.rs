@@ -252,11 +252,17 @@ struct FormatterFactsBuilder<'source, 'options> {
 
 impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     fn new(source: &'source str, options: &'options ResolvedShellFormatOptions) -> Self {
+        let source_map = if options.keep_padding() {
+            SourceMap::new(source)
+        } else {
+            SourceMap::without_alignment_indexes(source)
+        };
+
         Self {
             source,
             options,
             facts: FormatterFacts {
-                source_map: SourceMap::new(source),
+                source_map,
                 stmt_facts: HashMap::new(),
                 sequence_facts: HashMap::new(),
                 pipeline_breaks: HashSet::new(),
