@@ -1373,24 +1373,22 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return self.format_standalone_multiline_compound_assignment(&command.assignments[0]);
         }
 
-        let mut previous_assignment = None;
         let mut previous_end = None;
+        let keep_assignment_continuations_flush_left =
+            command.assignments.first().is_some_and(|assignment| {
+                assignment_source_has_command_substitution(assignment, source)
+            });
         for assignment in &command.assignments {
-            if previous_assignment.is_some_and(|assignment| {
-                assignment_source_has_command_substitution(assignment, self.source())
-            }) && previous_end.is_some_and(|previous_end| {
-                has_newline_between_offsets(
-                    self.source(),
-                    previous_end,
-                    assignment.span.start.offset,
-                )
-            }) {
+            if keep_assignment_continuations_flush_left
+                && previous_end.is_some_and(|previous_end| {
+                    has_newline_between_offsets(source, previous_end, assignment.span.start.offset)
+                })
+            {
                 self.line_continuation();
             } else {
                 self.write_command_gap(previous_end, assignment.span.start.offset);
             }
             self.write_assignment(assignment);
-            previous_assignment = Some(assignment);
             previous_end = Some(assignment.span.end.offset);
         }
         previous_end =
@@ -1447,6 +1445,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         parts.sort_by_key(|part| part.start_offset(command));
         move_interspersed_redirects_after_arguments(&mut parts);
 
+        let keep_assignment_continuations_flush_left =
+            command.assignments.first().is_some_and(|assignment| {
+                assignment_source_has_command_substitution(assignment, source)
+            });
         let mut previous_part = None;
         let mut previous_end = None;
         let mut part_index = 0;
@@ -1455,11 +1457,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             if matches!(
                 (previous_part, part),
                 (
-                    Some(SimpleCommandPart::Assignment(previous_assignment)),
+                    Some(SimpleCommandPart::Assignment(_)),
                     SimpleCommandPart::Assignment(_)
-                ) if assignment_source_has_command_substitution(previous_assignment, self.source())
+                ) if keep_assignment_continuations_flush_left
             ) && previous_end.is_some_and(|previous_end| {
-                has_newline_between_offsets(self.source(), previous_end, part.start_offset(command))
+                has_newline_between_offsets(source, previous_end, part.start_offset(command))
             }) {
                 self.line_continuation();
             } else if let SimpleCommandPart::Redirect(redirect) = &part {

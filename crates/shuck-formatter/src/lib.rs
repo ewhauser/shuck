@@ -5013,6 +5013,30 @@ function R() {
     }
 
     #[test]
+    fn keeps_leading_command_substitution_assignment_continuations_flush_left() {
+        let source = "A=$(pwd) \\\nB=1 \\\nC=2 \\\ncmd\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted("A=$(pwd) \\\nB=1 \\\nC=2 \\\n\tcmd\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn indents_assignment_continuations_after_nonleading_command_substitution() {
+        let source = "A=1 \\\nB=$(pwd) \\\nC=2 \\\ncmd\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted("A=1 \\\n\tB=$(pwd) \\\n\tC=2 \\\n\tcmd\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_multiline_decl_compound_assignment_lines() {
         let source = "case $prev in\n--warnings)\n  local cats=(cross gnu obsolete override portability syntax\n    unsupported)\n  return\n  ;;\nesac\n";
         let options = ShellFormatOptions::default();
