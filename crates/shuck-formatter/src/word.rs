@@ -93,7 +93,7 @@ pub(crate) fn render_word_syntax_to_buf(
     options: &ResolvedShellFormatOptions,
     rendered: &mut String,
 ) {
-    render_word_syntax_internal(word, source, options, None, None, rendered);
+    render_word_syntax_internal(word, source, options, None, None, true, rendered);
 }
 
 pub(crate) fn render_word_syntax_with_facts_to_buf(
@@ -110,6 +110,26 @@ pub(crate) fn render_word_syntax_with_facts_to_buf(
         options,
         Some(source_map),
         Some(facts),
+        true,
+        rendered,
+    );
+}
+
+pub(crate) fn render_escaped_multiline_word_syntax_with_facts_to_buf(
+    word: &Word,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+    source_map: &SourceMap<'_>,
+    facts: &FormatterFacts<'_>,
+    rendered: &mut String,
+) {
+    render_word_syntax_internal(
+        word,
+        source,
+        options,
+        Some(source_map),
+        Some(facts),
+        false,
         rendered,
     );
 }
@@ -444,6 +464,7 @@ fn render_word_syntax_internal(
     options: &ResolvedShellFormatOptions,
     source_map: Option<&SourceMap<'_>>,
     facts: Option<&FormatterFacts<'_>>,
+    preserve_escaped_multiline_words: bool,
     rendered: &mut String,
 ) {
     if !options.simplify()
@@ -461,7 +482,8 @@ fn render_word_syntax_internal(
         }
     }
 
-    if word_has_escaped_command_substitution(word, source)
+    if preserve_escaped_multiline_words
+        && word_has_escaped_command_substitution(word, source)
         && let Some(raw) = raw_word_source_slice(word, source)
     {
         rendered.push_str(raw);
@@ -502,6 +524,7 @@ fn render_word_syntax_internal(
         && (word_has_multiline_double_quoted_source(word, source)
             || (raw.starts_with('"') && raw.contains("\\\n")))
         && !word_is_quoted_formattable_command_substitution_only(word, source)
+        && (preserve_escaped_multiline_words || !raw_escaped_multiline_double_quoted_word(raw))
         && could_need_preserve_raw_syntax(raw)
     {
         push_raw_word_with_normalized_command_redirect_spacing(
@@ -522,6 +545,7 @@ fn render_word_syntax_internal(
             options,
             source_map,
             facts,
+            preserve_escaped_multiline_words,
             rendered,
         )
         .is_err()
@@ -596,6 +620,11 @@ fn word_part_has_escaped_command_substitution(
             .any(|part| word_part_has_escaped_command_substitution(&part.kind, part.span, source)),
         _ => false,
     }
+}
+
+fn raw_escaped_multiline_double_quoted_word(raw: &str) -> bool {
+    raw.strip_prefix('$').unwrap_or(raw).starts_with("\"\\\n")
+        || raw.strip_prefix('$').unwrap_or(raw).starts_with("\"\\\r\n")
 }
 
 fn word_needs_special_rendering(word: &Word) -> bool {
@@ -759,6 +788,7 @@ fn render_word_parts(
     options: &ResolvedShellFormatOptions,
     source_map: Option<&SourceMap<'_>>,
     facts: Option<&FormatterFacts<'_>>,
+    allow_source_indented_inline_command_substitution: bool,
     rendered: &mut String,
 ) -> Result<(), std::fmt::Error> {
     for part in parts {
@@ -770,7 +800,10 @@ fn render_word_parts(
             options,
             source_map,
             facts,
-            WordPartRenderContext::default(),
+            WordPartRenderContext {
+                allow_source_indented_inline_command_substitution,
+                ..WordPartRenderContext::default()
+            },
         )?;
     }
     Ok(())
@@ -778,6 +811,7 @@ fn render_word_parts(
 
 #[derive(Debug, Default, Clone, Copy)]
 struct WordPartRenderContext {
+    allow_source_indented_inline_command_substitution: bool,
     source_indented_inline_command_substitution: bool,
 }
 
@@ -1337,8 +1371,11 @@ fn render_word_part(
                             source_map,
                             facts,
                             WordPartRenderContext {
-                                source_indented_inline_command_substitution:
-                                    follows_line_indent_literal,
+                                allow_source_indented_inline_command_substitution: context
+                                    .allow_source_indented_inline_command_substitution,
+                                source_indented_inline_command_substitution: context
+                                    .allow_source_indented_inline_command_substitution
+                                    && follows_line_indent_literal,
                             },
                         )?;
                         follows_line_indent_literal = false;

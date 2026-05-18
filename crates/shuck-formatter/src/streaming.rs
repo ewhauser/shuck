@@ -31,7 +31,8 @@ use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::word::{
     normalize_raw_unquoted_word_continuations, render_arithmetic_expr_to_buf,
-    render_heredoc_body_to_buf, render_pattern_syntax_to_buf, render_word_syntax_with_facts_to_buf,
+    render_escaped_multiline_word_syntax_with_facts_to_buf, render_heredoc_body_to_buf,
+    render_pattern_syntax_to_buf, render_word_syntax_with_facts_to_buf,
     word_gap_end_before_trailing_continuation, word_has_multiline_literal_source,
     word_is_quoted_command_substitution_only, word_is_quoted_formattable_command_substitution_only,
 };
@@ -1882,11 +1883,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.format_structural_multiline_compound_assignment(assignment);
             return;
         }
-        if assignment_has_multiline_literal_source(assignment, self.source())
-            && !Self::compound_assignment_source_has_line_continuations(
-                assignment.span.slice(self.source()),
-            )
-        {
+        if self.format_escaped_multiline_double_quoted_compound_assignment(assignment) {
+            return;
+        }
+        if self.compound_assignment_should_preserve_multiline_literal_layout(assignment) {
             self.write_multiline_compound_literal_assignment(assignment);
             return;
         }
@@ -4699,11 +4699,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return Ok(());
         }
 
-        if assignment_has_multiline_literal_source(assignment, source)
-            && !Self::compound_assignment_source_has_line_continuations(
-                assignment.span.slice(source),
-            )
-        {
+        if self.format_escaped_multiline_double_quoted_compound_assignment(assignment) {
+            return Ok(());
+        }
+
+        if self.compound_assignment_should_preserve_multiline_literal_layout(assignment) {
             self.write_multiline_compound_literal_assignment(assignment);
             return Ok(());
         }
@@ -4723,6 +4723,127 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         raw.contains("\\\n") || raw.contains("\\\r\n")
     }
 
+    fn compound_assignment_source_has_escaped_multiline_double_quoted_item(raw: &str) -> bool {
+        if !Self::compound_assignment_source_has_line_continuations(raw) {
+            return false;
+        }
+
+        let Some(open) = raw.find('(') else {
+            return false;
+        };
+        let Some(close) = raw.rfind(')') else {
+            return false;
+        };
+        if close <= open {
+            return false;
+        }
+
+        raw.get(open + 1..close)
+            .is_some_and(|body| body.contains("\"\\\n") || body.contains("\"\\\r\n"))
+    }
+
+    fn compound_assignment_should_preserve_multiline_literal_layout(
+        &self,
+        assignment: &Assignment,
+    ) -> bool {
+        let source = self.source();
+        if !assignment_has_multiline_literal_source(assignment, source) {
+            return false;
+        }
+
+        let raw = assignment.span.slice(source);
+        !Self::compound_assignment_source_has_line_continuations(raw)
+    }
+
+    fn format_escaped_multiline_double_quoted_compound_assignment(
+        &mut self,
+        assignment: &Assignment,
+    ) -> bool {
+        if !Self::compound_assignment_source_has_escaped_multiline_double_quoted_item(
+            assignment.span.slice(self.source()),
+        ) {
+            return false;
+        }
+
+        let AssignmentValue::Compound(array) = &assignment.value else {
+            return false;
+        };
+
+        self.write_assignment_head(assignment);
+        self.write_text("(");
+        for (index, element) in array.elements.iter().enumerate() {
+            if index > 0 {
+                self.newline();
+                self.write_indent_units(1);
+            }
+            self.write_array_element_with_escaped_multiline_substitution_indent(element);
+        }
+        self.write_text(")");
+        true
+    }
+
+    fn write_array_element_with_escaped_multiline_substitution_indent(
+        &mut self,
+        element: &ArrayElem,
+    ) {
+        match element {
+            ArrayElem::Sequential(word) => {
+                self.write_word_with_escaped_multiline_substitution_indent(word);
+            }
+            ArrayElem::Keyed { key, value } => {
+                self.write_keyed_array_element_with_escaped_multiline_substitution_indent(
+                    key, value, "=",
+                );
+            }
+            ArrayElem::KeyedAppend { key, value } => {
+                self.write_keyed_array_element_with_escaped_multiline_substitution_indent(
+                    key, value, "+=",
+                );
+            }
+        }
+    }
+
+    fn write_keyed_array_element_with_escaped_multiline_substitution_indent(
+        &mut self,
+        key: &shuck_ast::Subscript,
+        value: &Word,
+        op: &str,
+    ) {
+        self.write_text("[");
+        self.write_rendered(|scratch, source, _| {
+            render_subscript_to_buf(key, source, scratch);
+        });
+        self.write_text("]");
+        self.write_text(op);
+        self.write_word_with_escaped_multiline_substitution_indent(value);
+    }
+
+    fn write_word_with_escaped_multiline_substitution_indent(&mut self, word: &Word) {
+        let source_map = self.source_map().clone();
+        let mut scratch = self.take_scratch_buffer();
+        {
+            let facts = self.facts();
+            render_escaped_multiline_word_syntax_with_facts_to_buf(
+                word,
+                self.source(),
+                self.options(),
+                &source_map,
+                facts,
+                &mut scratch,
+            );
+        }
+
+        let normalized =
+            normalize_escaped_multiline_word_command_substitution_indent(&scratch, self.options());
+        let rendered = normalized.as_deref().unwrap_or(&scratch);
+        if rendered.contains('\n') {
+            self.write_rendered_shell_text(rendered);
+        } else {
+            self.write_text(rendered);
+        }
+        self.restore_scratch_buffer(scratch);
+    }
+
     fn write_multiline_compound_literal_assignment(&mut self, assignment: &Assignment) {
         let raw = assignment.span.slice(self.source());
         let Some((head, tail)) = raw.split_once('\n') else {
@@ -4731,7 +4852,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         };
 
         self.write_text(head);
-        let mut quote = None;
+        let mut quote = multiline_literal_quote_state_after_line(head, None);
         for line in tail.lines() {
             self.newline();
             if quote.is_some() {
@@ -5404,6 +5525,53 @@ fn assignment_has_multiline_literal_source(assignment: &Assignment, source: &str
             }
         }),
     }
+}
+
+fn normalize_escaped_multiline_word_command_substitution_indent(
+    rendered: &str,
+    options: &ResolvedShellFormatOptions,
+) -> Option<String> {
+    let normalized = rendered.strip_prefix('$').unwrap_or(rendered);
+    if !normalized.starts_with("\"\\\n") && !normalized.starts_with("\"\\\r\n") {
+        return None;
+    }
+
+    let indent = match options.indent_style() {
+        IndentStyle::Tab => "\t".to_string(),
+        IndentStyle::Space => " ".repeat(usize::from(options.indent_width())),
+    };
+    let mut output = String::with_capacity(rendered.len() + indent.len() * 4);
+    let mut changed = false;
+    let mut command_substitution_depth = 0usize;
+
+    for (index, line) in rendered.split('\n').enumerate() {
+        if index > 0 {
+            output.push('\n');
+        }
+
+        let trimmed = line.trim_start_matches([' ', '\t']);
+        if command_substitution_depth > 0 {
+            if !line.is_empty() {
+                output.push_str(&indent);
+                changed = true;
+            }
+            output.push_str(line);
+            if trimmed.starts_with(')') {
+                command_substitution_depth = command_substitution_depth.saturating_sub(1);
+            }
+            if trimmed.ends_with("$(") {
+                command_substitution_depth += 1;
+            }
+            continue;
+        }
+
+        output.push_str(line);
+        if trimmed.ends_with("$(") {
+            command_substitution_depth = 1;
+        }
+    }
+
+    changed.then_some(output)
 }
 
 fn normalize_scalar_assignment_unquoted_continuations(
