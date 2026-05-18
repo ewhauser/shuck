@@ -4203,7 +4203,7 @@ fn source_indent_units_before_offset(
     let Some(indent) = line_indent_before_source_offset(source, offset) else {
         return 0;
     };
-    let normalized = normalized_source_inline_indent(indent, options);
+    let normalized = normalized_raw_shell_indent(indent, options);
     let width = usize::from(options.indent_width()).max(1);
     match options.indent_style() {
         IndentStyle::Tab => {

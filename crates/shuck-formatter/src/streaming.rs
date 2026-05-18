@@ -2965,7 +2965,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
     fn format_while(&mut self, command: &WhileCommand) -> Result<()> {
         let close_span = done_close_span(self.source(), self.source_map(), command.span, None);
-        if loop_condition_starts_after_keyword(&command.condition, command.span) {
+        if loop_condition_starts_after_keyword(&command.condition, command.span)
+            || loop_condition_has_multiple_commands(&command.condition)
+        {
             self.write_text("while");
             self.newline();
             let condition_upper_bound =
@@ -2984,7 +2986,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
     fn format_until(&mut self, command: &UntilCommand) -> Result<()> {
         let close_span = done_close_span(self.source(), self.source_map(), command.span, None);
-        if loop_condition_starts_after_keyword(&command.condition, command.span) {
+        if loop_condition_starts_after_keyword(&command.condition, command.span)
+            || loop_condition_has_multiple_commands(&command.condition)
+        {
             self.write_text("until");
             self.newline();
             let condition_upper_bound =
@@ -6923,7 +6927,7 @@ fn comment_precedes_close_keyword_at_same_indent(
         }
         let indent_len = line.len() - trimmed.len();
         if line.get(..indent_len) == Some(comment_indent) {
-            if starts_with_close_keyword(trimmed) {
+            if starts_with_outdent_preserving_close_keyword(trimmed) {
                 return true;
             }
             if trimmed.starts_with('#') {
@@ -6936,8 +6940,8 @@ fn comment_precedes_close_keyword_at_same_indent(
     false
 }
 
-fn starts_with_close_keyword(text: &str) -> bool {
-    ["fi", "done", "esac"].iter().any(|keyword| {
+fn starts_with_outdent_preserving_close_keyword(text: &str) -> bool {
+    ["fi"].iter().any(|keyword| {
         text.strip_prefix(keyword).is_some_and(|rest| {
             rest.chars()
                 .next()
@@ -7063,6 +7067,10 @@ fn pipeline_interstitial_comment_end(stmt: &Stmt, source_map: &SourceMap<'_>) ->
     group_span
         .map(|span| span.start.offset)
         .unwrap_or_else(|| command_format_span(&stmt.command).start.offset)
+}
+
+fn loop_condition_has_multiple_commands(condition: &StmtSeq) -> bool {
+    condition.len() > 1
 }
 
 fn emitted_line_indent_column(

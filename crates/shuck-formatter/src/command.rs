@@ -1119,6 +1119,16 @@ fn format_while(
     command: &WhileCommand,
     formatter: &mut ShellFormatter<'_, '_>,
 ) -> FormatResult<()> {
+    if loop_condition_has_multiple_commands(&command.condition)
+        && !formatter.context().options().compact_layout()
+    {
+        write!(formatter, [token("while")])?;
+        format_loop_condition_block(&command.condition, formatter)?;
+        write!(formatter, [hard_line_break(), token("do")])?;
+        format_body_with_upper_bound(&command.body, formatter, Some(command.span.end.offset))?;
+        return finish_block("done", formatter);
+    }
+
     write!(formatter, [token("while ")])?;
     format_inline_stmts(&command.condition, formatter)?;
     if can_inline_body(&command.body, command.span, formatter) {
@@ -1135,6 +1145,16 @@ fn format_until(
     command: &UntilCommand,
     formatter: &mut ShellFormatter<'_, '_>,
 ) -> FormatResult<()> {
+    if loop_condition_has_multiple_commands(&command.condition)
+        && !formatter.context().options().compact_layout()
+    {
+        write!(formatter, [token("until")])?;
+        format_loop_condition_block(&command.condition, formatter)?;
+        write!(formatter, [hard_line_break(), token("do")])?;
+        format_body_with_upper_bound(&command.body, formatter, Some(command.span.end.offset))?;
+        return finish_block("done", formatter);
+    }
+
     write!(formatter, [token("until ")])?;
     format_inline_stmts(&command.condition, formatter)?;
     if can_inline_body(&command.body, command.span, formatter) {
@@ -1145,6 +1165,20 @@ fn format_until(
     write!(formatter, [token("; do")])?;
     format_body_with_upper_bound(&command.body, formatter, Some(command.span.end.offset))?;
     finish_block("done", formatter)
+}
+
+fn loop_condition_has_multiple_commands(condition: &StmtSeq) -> bool {
+    condition.len() > 1
+}
+
+fn format_loop_condition_block(
+    condition: &StmtSeq,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
+    let condition_doc = format_into_document(formatter, |nested| {
+        format_stmt_sequence_with_upper_bound(condition.as_slice(), nested, None)
+    })?;
+    write!(formatter, [hard_line_break(), indent(condition_doc)])
 }
 
 fn format_case(command: &CaseCommand, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {

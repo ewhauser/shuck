@@ -4042,6 +4042,20 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn normalizes_process_substitution_block_indent_from_partial_source_indent() {
+        let source = "if ok; then\n   cat < <(produce; consume)\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if ok; then\n\tcat < <(\n\t\tproduce\n\t\tconsume\n\t)\nfi\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn does_not_duplicate_process_substitution_comments_before_pipeline_rhs() {
         let source = "while read -r item; do\n    echo \"$item\"\ndone < <(\n    # note\n    produce_items\n) |\nconsume_items\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
@@ -5130,6 +5144,21 @@ function R() {
     }
 
     #[test]
+    fn splits_multistatement_loop_conditions_like_shfmt() {
+        let source = "while read mac; read name; do\n  printf '%s\\n' \"$mac:$name\"\ndone\nuntil poll; sleep 1; do\n  :\ndone\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "while\n\tread mac\n\tread name\ndo\n\tprintf '%s\\n' \"$mac:$name\"\ndone\nuntil\n\tpoll\n\tsleep 1\ndo\n\t:\ndone\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_if_chain_condition_on_own_line() {
         let source = "f() {\n\tif\n\t\t[[ -z \"${remote:-}\" ]]\n\tthen\n\t\techo missing\n\telif\n\t\tfile_exists_at_url \"$remote\"\n\tthen\n\t\techo remote\n\telse\n\t\techo none\n\tfi\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
@@ -5365,6 +5394,20 @@ function R() {
         assert_eq!(
             format_source(source, None, &options).unwrap(),
             FormattedSource::Formatted("while true; do\n\techo yes\n\ndone\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn indents_dangling_comments_before_done_like_shfmt() {
+        let source = "while true; do\n  echo ok\n# buffered input\ndone\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "while true; do\n\techo ok\n\t# buffered input\ndone\n".to_string()
+            )
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
