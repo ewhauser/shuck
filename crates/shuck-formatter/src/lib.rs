@@ -5290,6 +5290,21 @@ function R() {
     }
 
     #[test]
+    fn aligns_trailing_comments_after_bare_redirect_spacing() {
+        let source = "cp -ar SlackBuild $PKG/opt/$PRGNAM/          # Copy the SlackBuild script\ncat $PRGNAM.sh > $PKG/opt/$PRGNAM/$PRGNAM.sh # Copy the launcher script\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "cp -ar SlackBuild $PKG/opt/$PRGNAM/         # Copy the SlackBuild script\ncat $PRGNAM.sh >$PKG/opt/$PRGNAM/$PRGNAM.sh # Copy the launcher script\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn aligns_trailing_comments_after_normalized_redirect_spacing() {
         let source = "netint=$(${ipcommand} -o addr | grep \"${ip}\" | awk '{print $2}')                      # e.g eth0\nnetlink=$(${ethtoolcommand} \"${netint}\" 2> /dev/null | grep Speed | awk '{print $2}') # e.g 1000Mb/s\n";
         let options = ShellFormatOptions::default();

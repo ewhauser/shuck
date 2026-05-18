@@ -6903,6 +6903,20 @@ fn trim_redirect_padding_for_alignment(text: &str) -> String {
 
         if !in_single_quotes
             && !in_double_quotes
+            && matches!(byte, b'<' | b'>')
+            && !alignment_operator_is_inside_test_expression(text, index)
+            && let Some(operator_end) = alignment_redirect_operator_end(bytes, index)
+            && let Some(target_start) = redirect_target_start_after_padding(bytes, operator_end)
+        {
+            rendered.push_str(&text[last..operator_end]);
+            last = target_start;
+            index = target_start;
+            escaped = false;
+            continue;
+        }
+
+        if !in_single_quotes
+            && !in_double_quotes
             && bytes.get(index..index + 3) == Some(b"<<<")
             && let Some(target_start) = redirect_target_start_after_padding(bytes, index + 3)
         {
@@ -6922,6 +6936,22 @@ fn trim_redirect_padding_for_alignment(text: &str) -> String {
 
     rendered.push_str(&text[last..]);
     rendered
+}
+
+fn alignment_operator_is_inside_test_expression(text: &str, index: usize) -> bool {
+    let Some(prefix) = text.get(..index) else {
+        return false;
+    };
+    let Some(suffix) = text.get(index..) else {
+        return false;
+    };
+    let inside_conditional = prefix
+        .rfind("[[")
+        .is_some_and(|open| !prefix[open + 2..].contains("]]") && suffix.contains("]]"));
+    let inside_arithmetic = prefix
+        .rfind("((")
+        .is_some_and(|open| !prefix[open + 2..].contains("))") && suffix.contains("))"));
+    inside_conditional || inside_arithmetic
 }
 
 fn redirect_target_start_after_padding(bytes: &[u8], operator_end: usize) -> Option<usize> {
