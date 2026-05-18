@@ -6444,9 +6444,6 @@ fn case_prefix_comment_uses_body_indent(
     pattern_start: usize,
     disabled_case_pattern_context: bool,
 ) -> bool {
-    if disabled_case_pattern_context && comment_looks_like_disabled_case_pattern(comment) {
-        return true;
-    }
     let Some(comment_indent) = line_indent_before_offset(source, comment.span().start.offset)
     else {
         return false;
@@ -6456,6 +6453,9 @@ fn case_prefix_comment_uses_body_indent(
     };
     let comment_width = shell_indent_width(comment_indent);
     let pattern_width = shell_indent_width(pattern_indent);
+    if disabled_case_pattern_context && comment_looks_like_disabled_case_pattern(comment) {
+        return comment_width < pattern_width;
+    }
     comment_width > pattern_width || (comment_width == 0 && pattern_width > 0)
 }
 
