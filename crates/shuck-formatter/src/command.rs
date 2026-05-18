@@ -7,7 +7,7 @@ use shuck_ast::{
     ForSyntax, ForeachCommand, ForeachSyntax, FunctionDef, IfCommand, IfSyntax, Redirect,
     RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand, SourceText, Span,
     Stmt, StmtSeq, StmtTerminator, Subscript, TimeCommand, UntilCommand, VarRef, WhileCommand,
-    Word,
+    Word, WordPart,
 };
 use shuck_format::{
     Document, Format, FormatResult, hard_line_break, indent, space, text, token, verbatim, write,
@@ -2776,11 +2776,14 @@ pub(crate) fn stmt_verbatim_span_with_source_map(stmt: &Stmt, source_map: &Sourc
 }
 
 fn stmt_verbatim_span_impl(stmt: &Stmt, source: &str, source_map: Option<&SourceMap<'_>>) -> Span {
-    let mut span = merge_redirect_heredoc_spans(
-        command_verbatim_span(&stmt.command, source, source_map),
-        &stmt.redirects,
-        source,
-    );
+    let command_span = if let Command::Simple(command) = &stmt.command
+        && simple_command_uses_synthetic_words(command, source)
+    {
+        synthetic_simple_command_verbatim_span(command, source, source_map)
+    } else {
+        command_verbatim_span(&stmt.command, source, source_map)
+    };
+    let mut span = merge_redirect_heredoc_spans(command_span, &stmt.redirects, source);
     if stmt.negated {
         span = merge_non_empty_span(stmt.span, span);
     }
@@ -3763,10 +3766,91 @@ pub(crate) fn should_render_verbatim(
     source_map: &crate::comments::SourceMap<'_>,
     options: &crate::options::ResolvedShellFormatOptions,
 ) -> bool {
-    (options.keep_padding() && stmt_has_alignment_sensitive_padding(stmt, source_map))
+    (!options.simplify()
+        && matches!(&stmt.command, Command::Simple(command) if simple_command_uses_synthetic_words(command, source_map.source())))
+        || (options.keep_padding() && stmt_has_alignment_sensitive_padding(stmt, source_map))
         || (has_heredoc(stmt)
             && !matches!(stmt.command, Command::Binary(_))
             && stmt_has_trailing_comment(stmt, source_map))
+}
+
+pub(crate) fn simple_command_uses_synthetic_words(command: &SimpleCommand, source: &str) -> bool {
+    word_uses_synthetic_source(&command.name, source)
+}
+
+fn synthetic_simple_command_verbatim_span(
+    command: &SimpleCommand,
+    source: &str,
+    source_map: Option<&SourceMap<'_>>,
+) -> Span {
+    let start = command.span.start.offset.min(source.len());
+    let end = command.span.end.offset.min(source.len());
+    let Some(raw) = source.get(start..end) else {
+        return command.span;
+    };
+    let leading_padding = raw.len() - raw.trim_start_matches([' ', '\t']).len();
+    let candidate = &raw[leading_padding..];
+    let command_start = if let Some(operator_len) = candidate
+        .starts_with("&&")
+        .then_some(2)
+        .or_else(|| candidate.starts_with("||").then_some(2))
+    {
+        let after_operator = leading_padding + operator_len;
+        let rest = &raw[after_operator..];
+        let operator_padding = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+        start + after_operator + operator_padding
+    } else {
+        start
+    };
+    let command_end =
+        trim_synthetic_simple_command_trailing_case_terminator(source, command_start, end);
+    span_for_offsets(source, source_map, command_start, command_end)
+}
+
+fn trim_synthetic_simple_command_trailing_case_terminator(
+    source: &str,
+    start: usize,
+    end: usize,
+) -> usize {
+    let Some(raw) = source.get(start..end) else {
+        return end;
+    };
+    let trimmed_end = raw.trim_end_matches([' ', '\t', '\r', '\n']).len();
+    let trimmed = &raw[..trimmed_end];
+    let terminator_len = [";;&", ";;", ";&", ";|"]
+        .into_iter()
+        .find_map(|terminator| trimmed.ends_with(terminator).then_some(terminator.len()));
+    let Some(terminator_len) = terminator_len else {
+        return start + trimmed_end;
+    };
+    let before_terminator = trimmed[..trimmed.len() - terminator_len]
+        .trim_end_matches([' ', '\t'])
+        .len();
+    start + before_terminator
+}
+
+fn word_uses_synthetic_source(word: &Word, source: &str) -> bool {
+    if !word
+        .parts_with_spans()
+        .any(|(part, _)| word_part_uses_synthetic_source(part))
+    {
+        return false;
+    }
+    let rendered = word.render_syntax(source);
+    let raw = source
+        .get(word.span.start.offset.min(source.len())..word.span.end.offset.min(source.len()));
+    !raw.is_some_and(|raw| raw == rendered)
+}
+
+fn word_part_uses_synthetic_source(part: &WordPart) -> bool {
+    match part {
+        WordPart::Literal(text) => !text.is_source_backed(),
+        WordPart::SingleQuoted { value, .. } => !value.is_source_backed(),
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| word_part_uses_synthetic_source(&part.kind)),
+        _ => false,
+    }
 }
 
 pub(crate) fn stmt_attachment_span(

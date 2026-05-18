@@ -2571,6 +2571,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn command_substitution_bounds_do_not_capture_following_list_operators() {
+        let source = "value=$(cmd \\\n  arg) || echo no\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted("value=$(cmd \\\n\targ) || echo no\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn dirname_command_substitution_bounds_do_not_capture_following_comments() {
         let source = "cd \"$(dirname \"${BASH_SOURCE[0]}\")\"\n# after\nnext\n";
         let options = ShellFormatOptions::default();
@@ -4552,6 +4564,30 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     fn preserves_escaped_command_names() {
         let source = "\\grep -q foo file\n";
         let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn preserves_alias_expanded_simple_commands_verbatim() {
+        let source = "shopt -s expand_aliases\nalias die='EXIT=$? LINE=$LINENO error_exit'\ndie \"A problem occured.\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn preserves_alias_expanded_commands_before_case_terminators() {
+        let source = "shopt -s expand_aliases\nalias die='EXIT=$? LINE=$LINENO error_exit'\ncase $CLASS in\n*) false || die \"Invalid storage class.\" ;;\nesac\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
         assert_eq!(
             format_source(source, None, &options).unwrap(),

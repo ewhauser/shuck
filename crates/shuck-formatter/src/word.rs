@@ -1407,6 +1407,7 @@ fn render_word_part(
         }
         WordPart::CommandSubstitution { body, syntax } => {
             if let Some(raw) = raw_source_slice(span, source) {
+                let raw = raw_dollar_command_substitution_slice(raw).unwrap_or(raw);
                 if raw_dollar_command_substitution_body(raw)
                     .is_some_and(raw_body_contains_pipeline_multistatement_brace_group)
                     && let Some(block) =
@@ -2830,6 +2831,12 @@ fn raw_dollar_command_substitution_body(raw: &str) -> Option<&str> {
     raw.strip_prefix("$(")?;
     let close_offset = matching_raw_command_substitution_close(raw, 2)?;
     raw.get(2..close_offset)
+}
+
+fn raw_dollar_command_substitution_slice(raw: &str) -> Option<&str> {
+    raw.strip_prefix("$(")?;
+    let close_offset = matching_raw_command_substitution_close(raw, 2)?;
+    raw.get(..close_offset + 1)
 }
 
 fn command_substitution_source_starts_with_body_line(raw: &str) -> bool {

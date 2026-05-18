@@ -21,9 +21,9 @@ use crate::command::{
     multiline_compound_assignment_command_substitution_body_prefix,
     multiline_compound_assignment_layout, multiline_compound_assignment_lines,
     render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
-    render_subscript_to_buf, render_var_ref_to_buf, slice_span, stmt_attachment_span,
-    stmt_format_span, stmt_render_start_line, stmt_seq_has_heredoc, stmt_span,
-    stmt_start_after_operator, stmt_verbatim_span_with_source_map,
+    render_subscript_to_buf, render_var_ref_to_buf, simple_command_uses_synthetic_words,
+    slice_span, stmt_attachment_span, stmt_format_span, stmt_render_start_line,
+    stmt_seq_has_heredoc, stmt_span, stmt_start_after_operator, stmt_verbatim_span_with_source_map,
     trim_unescaped_trailing_whitespace,
 };
 use crate::comments::{SourceComment, SourceMap};
@@ -1275,7 +1275,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let source = self.source();
         let stmt_facts = self.facts().stmt(stmt);
         if stmt_facts.preserve_verbatim() {
-            self.write_verbatim(stmt_facts.render_span().slice(source));
+            let rendered = stmt_facts.render_span().slice(source);
+            if matches!(&stmt.command, Command::Simple(command) if simple_command_uses_synthetic_words(command, source))
+            {
+                self.write_rendered_shell_text(rendered);
+            } else {
+                self.write_verbatim(rendered);
+            }
             return Ok(());
         }
 
