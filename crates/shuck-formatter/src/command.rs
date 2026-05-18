@@ -2570,7 +2570,7 @@ pub(crate) fn render_subscript_to_buf(subscript: &Subscript, source: &str, rende
     render_source_text_to_buf(subscript.syntax_source_text(), source, rendered);
 }
 
-fn trim_unescaped_trailing_whitespace(text: &str) -> &str {
+pub(crate) fn trim_unescaped_trailing_whitespace(text: &str) -> &str {
     let mut end = text.len();
     while end > 0 {
         let Some((whitespace_start, ch)) = text[..end].char_indices().next_back() else {

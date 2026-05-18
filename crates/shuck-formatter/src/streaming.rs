@@ -21,7 +21,7 @@ use crate::command::{
     render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
     render_subscript_to_buf, render_var_ref_to_buf, slice_span, stmt_attachment_span,
     stmt_format_span, stmt_render_start_line, stmt_seq_has_heredoc, stmt_span,
-    stmt_verbatim_span_with_source_map,
+    stmt_verbatim_span_with_source_map, trim_unescaped_trailing_whitespace,
 };
 use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
@@ -4822,10 +4822,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn write_conditional_regex_rhs(&mut self, expression: &ConditionalExpr) -> Result<()> {
-        let raw = expression.span().slice(self.source()).trim();
+        let raw = expression.span().slice(self.source());
         if raw.contains('\n') {
             self.format_conditional_expr(expression)
         } else {
+            let raw = trim_unescaped_trailing_whitespace(raw.trim_start_matches([' ', '\t', '\r']));
             self.write_text(raw);
             Ok(())
         }
