@@ -934,7 +934,7 @@ fn escaped_heredoc_expansion_source<'a>(span: shuck_ast::Span, source: &'a str) 
 }
 
 fn heredoc_literal_needs_raw_source(raw: &str, cooked: &str) -> bool {
-    raw != cooked && (raw.contains("\\$") || raw.contains("\\`"))
+    raw != cooked && (raw.contains("\\$") || raw.contains("\\`") || raw.contains("\\\\"))
 }
 
 fn push_raw_word_with_normalized_command_redirect_spacing(

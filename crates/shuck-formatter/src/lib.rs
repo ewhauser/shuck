@@ -2312,6 +2312,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn rendered_heredoc_bodies_preserve_escaped_backslashes() {
+        let source = "cat <<EOF\nline \\\\\nEOF\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn heredoc_command_substitution_continuations_follow_shell_indent() {
         let source = "if ok; then\n  cat <<EOF\nx $(date +%F |\n      # comment\n      sed 's/-/--/g') y\nEOF\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
