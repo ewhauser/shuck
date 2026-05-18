@@ -2775,6 +2775,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn formats_binary_spacing_around_command_substitution_arithmetic_operands() {
+        let source = "printf \"%s\\n\" \"$(($(foo)-bar))\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted("printf \"%s\\n\" \"$(($(foo) - bar))\"\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn trims_command_substitution_padding_inside_arithmetic_expansions() {
         let source = "echo $(( $( echo \"$speed\" | cut -d'k' -f1 ) * 1024 ))\nborder=$(( $( _system uptime days ) * 3 )) # daily\n";
         let options = ShellFormatOptions::default();

@@ -5420,7 +5420,7 @@ fn push_trimmed_arithmetic_expansion_source(
 }
 
 fn arithmetic_expression_prefers_raw_source(expression_source: &str) -> bool {
-    expression_source.contains("$(") || expression_source.contains('`')
+    expression_source.contains('`')
 }
 
 fn push_var_ref(
