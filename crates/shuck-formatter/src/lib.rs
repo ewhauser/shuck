@@ -1963,6 +1963,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn trims_command_substitution_close_line_continuations() {
+        let source = "tag=\"$(\n  grep '\"tag_name.*\"'\".*$version\" \"$json\" \\\n  | head -1 \\\n  | sed 's,.*\"\\(gm'\"$version\"'[^\\\"]*\\)\".*,\\1,'\\\n  )\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "tag=\"$(\n\tgrep '\"tag_name.*\"'\".*$version\" \"$json\" |\n\t\thead -1 |\n\t\tsed 's,.*\"\\(gm'\"$version\"'[^\\\"]*\\)\".*,\\1,'\n)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn formats_multiline_command_substitutions_with_compound_commands() {
         let source = "result=$(\nif foo; then\necho hi\nelse\necho bye\nfi\n)\n";
         let options = ShellFormatOptions::default();

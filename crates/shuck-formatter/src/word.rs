@@ -989,6 +989,9 @@ fn push_raw_command_substitution_with_normalized_spacing(
     }
     let normalized_pipeline = normalize_raw_pipeline_continuations(raw);
     let raw = normalized_pipeline.as_deref().unwrap_or(raw);
+    let normalized_close_continuations =
+        normalize_continuations_before_substitution_close_lines(raw);
+    let raw = normalized_close_continuations.as_deref().unwrap_or(raw);
     let outer_indent = line_indent_before_source_offset(source, start_offset).unwrap_or("");
     let mut quote = RawShellQuoteState::default();
     let mut lines = raw.split('\n');
@@ -1067,6 +1070,7 @@ fn push_raw_command_substitution_with_normalized_spacing(
             if let Some(previous_indent) = continuation_indent.as_deref()
                 && !content.trim().is_empty()
                 && !content.starts_with('#')
+                && !raw_line_closes_substitution_wrapper(content)
                 && normalized_raw_shell_indent(indent, options) != previous_indent
             {
                 continuation_adjusted_line = Some(format!("{previous_indent}{content}"));
@@ -1095,9 +1099,13 @@ fn push_raw_command_substitution_with_normalized_spacing(
             let indent = line_leading_shell_indent(&line);
             let content = &line[indent.len()..];
             let used_continuation_indent = continuation_indent.is_some();
-            push_raw_shell_line_with_normalized_source_indent(target, &line, options, None);
-            let rendered_indent =
-                rendered_raw_shell_indent_for_line(indent, content, None, options);
+            let rendered_indent = if raw_line_closes_substitution_wrapper(content) {
+                push_raw_shell_line_with_rendered_indent(target, &line, options, "");
+                String::new()
+            } else {
+                push_raw_shell_line_with_normalized_source_indent(target, &line, options, None);
+                rendered_raw_shell_indent_for_line(indent, content, None, options)
+            };
             let line_closes_pipeline_stage_compound =
                 compound_comment_indents.last().is_some_and(|compound| {
                     compound.pipeline_continuation
@@ -2113,6 +2121,8 @@ fn render_command_substitution(
         rendered.push_str("$()");
         return Some(());
     }
+    let normalized_close_continuation = trim_rendered_close_line_continuation(trimmed);
+    let trimmed = normalized_close_continuation.as_deref().unwrap_or(trimmed);
 
     match layout {
         CommandSubstitutionLayout::Inline => {
@@ -2148,6 +2158,35 @@ fn render_command_substitution(
     }
 
     Some(())
+}
+
+fn trim_rendered_close_line_continuation(rendered: &str) -> Option<String> {
+    let trimmed = rendered.trim_end_matches([' ', '\t']);
+    if let Some((before_close, close_line)) = trimmed.rsplit_once('\n')
+        && close_line.trim_matches([' ', '\t', '\r']) == ")"
+    {
+        let before_close = before_close.trim_end_matches([' ', '\t']);
+        return has_odd_trailing_backslashes(before_close).then(|| {
+            before_close[..before_close.len().saturating_sub(1)]
+                .trim_end_matches([' ', '\t'])
+                .to_string()
+        });
+    }
+    has_odd_trailing_backslashes(trimmed).then(|| {
+        trimmed[..trimmed.len().saturating_sub(1)]
+            .trim_end_matches([' ', '\t'])
+            .to_string()
+    })
+}
+
+fn has_odd_trailing_backslashes(text: &str) -> bool {
+    text.as_bytes()
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'\\')
+        .count()
+        % 2
+        == 1
 }
 
 fn commented_command_substitution_can_use_structural_formatter(body: &StmtSeq) -> bool {
@@ -2678,6 +2717,11 @@ fn normalize_inline_raw_command_substitution_body(
     let body_source = normalized_comment_continuations
         .as_deref()
         .unwrap_or(body_source);
+    let normalized_close_continuations =
+        normalize_continuations_before_substitution_close_lines(body_source);
+    let body_source = normalized_close_continuations
+        .as_deref()
+        .unwrap_or(body_source);
     let lines = body_source.lines().map(str::to_string).collect::<Vec<_>>();
     let source_base_indent = inline_raw_body_source_base_indent(&lines);
 
@@ -2827,6 +2871,9 @@ fn push_raw_block_command_substitution_without_outer_indent(
     let raw = normalized_pipeline.as_deref().unwrap_or(raw);
     let normalized_comment_continuations = normalize_continuations_before_comment_lines(raw);
     let raw = normalized_comment_continuations.as_deref().unwrap_or(raw);
+    let normalized_close_continuations =
+        normalize_continuations_before_substitution_close_lines(raw);
+    let raw = normalized_close_continuations.as_deref().unwrap_or(raw);
     let outer_indent = line_indent_before_source_offset(source, start_offset).unwrap_or("");
     let mut lines = raw.split('\n');
     if let Some(first) = lines.next() {
@@ -2901,6 +2948,7 @@ fn push_raw_block_command_substitution_without_outer_indent(
         if let Some(previous_indent) = continuation_indent.take()
             && !content.trim().is_empty()
             && !content.starts_with('#')
+            && !raw_line_closes_substitution_wrapper(content)
         {
             forced_rendered_indent = Some(previous_indent);
             force_preserve_line_indent = true;
@@ -2913,8 +2961,13 @@ fn push_raw_block_command_substitution_without_outer_indent(
         {
             force_preserve_line_indent = true;
         }
+        let closes_substitution_wrapper = raw_line_closes_substitution_wrapper(content);
         let leading_block_comment = body_indent.is_none() && content.starts_with('#');
-        if body_indent.is_none() && !content.trim().is_empty() && !content.starts_with('#') {
+        if body_indent.is_none()
+            && !content.trim().is_empty()
+            && !content.starts_with('#')
+            && !closes_substitution_wrapper
+        {
             body_indent = Some(indent.to_string());
         }
         let is_pipeline_continuation =
@@ -2927,8 +2980,12 @@ fn push_raw_block_command_substitution_without_outer_indent(
             } else {
                 body_indent.as_deref()
             };
-        if let Some(rendered_indent) = forced_rendered_indent.as_deref() {
+        let rendered_indent = if closes_substitution_wrapper {
+            push_raw_shell_line_with_rendered_indent(target, &line, options, "");
+            String::new()
+        } else if let Some(rendered_indent) = forced_rendered_indent.as_deref() {
             push_raw_shell_line_with_rendered_indent(target, &line, options, rendered_indent);
+            rendered_indent.to_string()
         } else {
             push_raw_shell_line_with_normalized_source_indent(
                 target,
@@ -2936,10 +2993,8 @@ fn push_raw_block_command_substitution_without_outer_indent(
                 options,
                 body_indent_for_line,
             );
-        }
-        let rendered_indent = forced_rendered_indent.unwrap_or_else(|| {
             rendered_raw_shell_indent_for_line(indent, content, body_indent_for_line, options)
-        });
+        };
         let line_is_pipeline_continuation_stage = carried_pipeline_indent.is_some();
         previous_pipeline_indent = if content.trim().is_empty() {
             None
@@ -3004,6 +3059,23 @@ fn normalize_continuations_before_comment_lines(text: &str) -> Option<String> {
             && let Some(prefix) = line_without_continuation_backslash(&lines[index])
         {
             lines[index] = prefix.to_string();
+            changed = true;
+        }
+    }
+
+    changed.then(|| lines.join("\n"))
+}
+
+fn normalize_continuations_before_substitution_close_lines(text: &str) -> Option<String> {
+    let mut lines = text.lines().map(str::to_string).collect::<Vec<_>>();
+    let mut changed = false;
+
+    for index in 0..lines.len().saturating_sub(1) {
+        let next_content = lines[index + 1].trim_start_matches([' ', '\t']);
+        if raw_line_closes_substitution_wrapper(next_content)
+            && let Some(prefix) = line_without_continuation_backslash(&lines[index])
+        {
+            lines[index] = prefix.trim_end_matches([' ', '\t']).to_string();
             changed = true;
         }
     }

@@ -549,15 +549,23 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         while !remaining.is_empty() {
             let line_started_as_command_continuation = command_continuation_active;
             let pipeline_indent_column = next_pipeline_indent_column;
+            let closes_block_command_substitution = starts_with_block_command_substitution
+                && command_substitution_assignment_line_closes_block(remaining);
+            let close_line_has_context_indent = closes_block_command_substitution
+                && remaining.lines().next().is_some_and(|line| {
+                    rendered_line_indent_column(line, self.options()) >= base_indent_column
+                });
             let pipeline_stage_indent = self.line_start
                 && !remaining.starts_with('\n')
                 && pipeline_indent_column.is_some()
+                && !closes_block_command_substitution
                 && !remaining
                     .trim_start_matches([' ', '\t', '\r'])
                     .starts_with('\n');
             let add_context_indent = self.line_start
                 && !remaining.starts_with('\n')
                 && !pipeline_stage_indent
+                && !close_line_has_context_indent
                 && command_substitution_assignment_line_needs_context_indent(
                     remaining,
                     self.options(),
@@ -7361,6 +7369,13 @@ fn command_substitution_assignment_line_needs_context_indent(
         IndentStyle::Tab => !remaining.starts_with(' '),
         IndentStyle::Space => true,
     }
+}
+
+fn command_substitution_assignment_line_closes_block(remaining: &str) -> bool {
+    remaining
+        .lines()
+        .next()
+        .is_some_and(|line| line.trim_start_matches([' ', '\t']).starts_with(')'))
 }
 
 fn pipeline_interstitial_comment_end(stmt: &Stmt, source_map: &SourceMap<'_>) -> usize {
