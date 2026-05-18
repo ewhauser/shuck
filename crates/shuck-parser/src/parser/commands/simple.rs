@@ -151,6 +151,17 @@ impl<'a> Parser<'a> {
                     };
                     words.push(word);
                 }
+                Some(TokenKind::DoubleLeftBracket | TokenKind::DoubleRightBracket)
+                    if words
+                        .first()
+                        .and_then(|word| self.single_literal_word_text(word))
+                        .is_some() =>
+                {
+                    let span = self.current_span;
+                    let word = self.word_from_raw_text(span.slice(self.input), span);
+                    self.advance();
+                    words.push(word);
+                }
                 Some(TokenKind::DoubleRightBracket)
                     if words.first().is_some_and(|word| {
                         matches!(

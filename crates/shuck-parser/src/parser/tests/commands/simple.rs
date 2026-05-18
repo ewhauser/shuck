@@ -81,6 +81,36 @@ fn test_parse_multiple_args() {
 }
 
 #[test]
+fn test_simple_command_treats_conditional_brackets_as_arguments_after_name() {
+    let input = "eval ! [[ \"$env_var\" =~ ^[[:digit:]]+$ ]]";
+    let parsed = Parser::new(input).parse().unwrap();
+
+    assert_eq!(parsed.status, ParseStatus::Clean);
+    assert_eq!(parsed.file.body.len(), 1);
+    let AstCommand::Simple(command) = &parsed.file.body[0].command else {
+        panic!("expected simple command");
+    };
+
+    assert_eq!(command.name.render(input), "eval");
+    assert_eq!(
+        command
+            .args
+            .iter()
+            .map(|arg| arg.render(input))
+            .collect::<Vec<_>>(),
+        vec!["!", "[[", "$env_var", "=~", "^[[:digit:]]+$", "]]"]
+    );
+}
+
+#[test]
+fn test_dynamic_command_name_does_not_consume_conditional_close() {
+    let input = "dbracket=[[\n$dbracket foo == foo ]]";
+    let parsed = Parser::new(input).parse();
+
+    assert!(parsed.is_err());
+}
+
+#[test]
 fn test_simple_command_allows_nft_brace_literals_inside_and_block() {
     let input = "\
 start_nftables() {
