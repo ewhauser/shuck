@@ -4118,11 +4118,17 @@ fn push_indented_rendered_block(
 
         if let Some(heredoc) = active_heredoc.as_ref() {
             let closes = heredoc_line_closes_command_substitution_heredoc(line, heredoc);
-            if heredoc.strip_tabs
-                && !closes
-                && line_needs_command_substitution_indent(line, options)
-            {
-                target.push_str(&prefix);
+            if heredoc.strip_tabs {
+                if closes {
+                    target.push_str(&prefix);
+                    target.push_str(&heredoc.command_indent);
+                    target.push_str(line.trim_start_matches('\t'));
+                    active_heredoc = None;
+                    continue;
+                }
+                if line_needs_command_substitution_indent(line, options) {
+                    target.push_str(&prefix);
+                }
             }
             target.push_str(line);
             if closes {
@@ -4230,6 +4236,7 @@ fn common_indent_prefix<'a>(left: &'a str, right: &str) -> &'a str {
 struct CommandSubstitutionHeredocIndent {
     delimiter: String,
     strip_tabs: bool,
+    command_indent: String,
 }
 
 fn command_substitution_heredoc_indent(line: &str) -> Option<CommandSubstitutionHeredocIndent> {
@@ -4252,6 +4259,7 @@ fn command_substitution_heredoc_indent(line: &str) -> Option<CommandSubstitution
     (!delimiter.is_empty()).then_some(CommandSubstitutionHeredocIndent {
         delimiter,
         strip_tabs,
+        command_indent: line_leading_shell_indent(line).to_string(),
     })
 }
 

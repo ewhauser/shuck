@@ -2066,6 +2066,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn command_substitution_stripped_heredoc_closer_follows_command_indent() {
+        let source = "x=\"$(\n    if ok; then\n        cat <<-EOF\nbody\nEOF\n    fi\n)\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "x=\"$(\n\tif ok; then\n\t\tcat <<-EOF\n\t\t\tbody\n\t\tEOF\n\tfi\n)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn rendered_heredoc_bodies_preserve_escaped_variables() {
         let source = "cat <<EOF > script\n#!/bin/bash\nexec $(which dart) \"\\$@\"\nEOF\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
