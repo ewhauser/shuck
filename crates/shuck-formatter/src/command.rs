@@ -2377,10 +2377,14 @@ fn normalize_multiline_compound_assignment_line(
             }
         })
         .unwrap_or(trimmed);
-    let normalized = canonicalize_multiline_compound_assignment_residual_indent(
-        stripped,
-        residual_space_indent_width,
-    );
+    let normalized = if preserve_line_continuation {
+        canonicalize_multiline_compound_assignment_residual_indent(
+            stripped,
+            residual_space_indent_width,
+        )
+    } else {
+        stripped.trim_start_matches([' ', '\t']).to_string()
+    };
     normalize_multiline_compound_assignment_spacing(&normalized)
 }
 

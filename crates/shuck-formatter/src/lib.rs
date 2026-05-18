@@ -3239,6 +3239,20 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn strips_residual_indent_from_continued_array_rows() {
+        let source = "cmd=(\n  grep -s                         \\\n    -e \"^<${url}>\"                 \\\n    -e \"^##\"\n)\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "cmd=(\n\tgrep -s\n\t-e \"^<${url}>\"\n\t-e \"^##\"\n)\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_array_command_substitution_argument_continuations() {
         let source = "x=( $(find . -not \\( -path ./x -prune \\) -not -name lib \\\n  -not -name other | sort) )\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
