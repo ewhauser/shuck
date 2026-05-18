@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use shuck_ast::{
     ArithmeticAssignOp, ArithmeticBinaryOp, ArithmeticExpansionSyntax, ArithmeticExpr,
     ArithmeticExprNode, ArithmeticLvalue, ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem,
-    Assignment, AssignmentValue, BourneParameterExpansion, BuiltinCommand, Command,
+    Assignment, AssignmentValue, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command,
     CommandSubstitutionSyntax, CompoundCommand, ConditionalExpr, HeredocBody, HeredocBodyPart,
     ParameterOp, Pattern, PatternPart, Redirect, Stmt, StmtSeq, SubscriptSelector, VarRef, Word,
     WordPart,
@@ -1298,7 +1298,13 @@ fn render_word_part(
         }
         WordPart::CommandSubstitution { body, syntax } => {
             if let Some(raw) = raw_source_slice(span, source) {
-                if stmt_seq_contains_comments(body) {
+                if raw_dollar_command_substitution_body(raw)
+                    .is_some_and(raw_body_contains_pipeline_multistatement_brace_group)
+                    && let Some(block) =
+                        render_inline_raw_command_substitution_as_block(raw, options)
+                {
+                    rendered.push_str(&block);
+                } else if stmt_seq_contains_comments(body) {
                     if commented_command_substitution_can_use_structural_formatter(body) {
                         let rendered_start = rendered.len();
                         if render_command_substitution(
@@ -1357,6 +1363,10 @@ fn render_word_part(
                     } else {
                         push_raw_shell_text_with_normalized_redirect_spacing(rendered, raw);
                     }
+                } else if let Some(block) =
+                    render_inline_raw_command_substitution_as_block(raw, options)
+                {
+                    rendered.push_str(&block);
                 } else if render_command_substitution(
                     rendered,
                     body,
@@ -2224,6 +2234,8 @@ fn push_command_substitution_inline_body(
     body: &str,
     options: &ResolvedShellFormatOptions,
 ) {
+    let expanded_pipeline_brace_group = expand_inline_pipeline_brace_group_body(body, options);
+    let body = expanded_pipeline_brace_group.as_deref().unwrap_or(body);
     let adjusted_body = indent_inline_case_command_body(body, options)
         .or_else(|| indent_inline_pipeline_continuations(body, options));
     let body = adjusted_body.as_deref().unwrap_or(body);
@@ -2232,6 +2244,34 @@ fn push_command_substitution_inline_body(
     } else {
         push_raw_shell_text_with_normalized_redirect_spacing(target, body);
     }
+}
+
+fn expand_inline_pipeline_brace_group_body(
+    body: &str,
+    options: &ResolvedShellFormatOptions,
+) -> Option<String> {
+    if body.contains('\n') || !raw_body_contains_pipeline_multistatement_brace_group(body) {
+        return None;
+    }
+
+    let parsed = shuck_parser::parser::Parser::with_dialect(body, options.dialect()).parse();
+    if parsed.is_err() {
+        return None;
+    }
+
+    let facts = FormatterFacts::build(body, &parsed.file, options);
+    let mut nested = String::new();
+    format_stmt_sequence_streaming_to_buf(
+        body,
+        &parsed.file.body,
+        options,
+        &facts,
+        None,
+        &mut nested,
+    )
+    .ok()?;
+    let trimmed = trim_trailing_line_endings(&nested);
+    trimmed.contains('\n').then(|| trimmed.to_string())
 }
 
 fn indent_inline_case_command_body(
@@ -3026,7 +3066,12 @@ fn render_inline_raw_command_substitution_as_block(
     }
 
     let parsed = shuck_parser::parser::Parser::with_dialect(body, options.dialect()).parse();
-    if parsed.is_err() || parsed.file.body.len() <= 1 {
+    if parsed.is_err() {
+        return None;
+    }
+    let inline_multiline = stmt_seq_contains_multistatement_pipeline_brace_group(&parsed.file.body)
+        || raw_body_contains_pipeline_multistatement_brace_group(body);
+    if parsed.file.body.len() <= 1 && !inline_multiline {
         return None;
     }
 
@@ -3047,10 +3092,139 @@ fn render_inline_raw_command_substitution_as_block(
     }
 
     let mut rendered = String::new();
-    rendered.push_str("$(\n");
-    push_indented_rendered_block(&mut rendered, trimmed, options, 1);
-    rendered.push_str("\n)");
+    if inline_multiline && parsed.file.body.len() == 1 {
+        rendered.push_str("$(");
+        push_command_substitution_inline_body(
+            &mut rendered,
+            trim_inline_command_substitution_padding(trimmed),
+            options,
+        );
+        rendered.push(')');
+    } else {
+        rendered.push_str("$(\n");
+        push_indented_rendered_block(&mut rendered, trimmed, options, 1);
+        rendered.push_str("\n)");
+    }
     Some(rendered)
+}
+
+fn stmt_seq_contains_multistatement_pipeline_brace_group(statements: &StmtSeq) -> bool {
+    statements
+        .iter()
+        .any(stmt_contains_multistatement_pipeline_brace_group)
+}
+
+fn stmt_contains_multistatement_pipeline_brace_group(stmt: &Stmt) -> bool {
+    match &stmt.command {
+        Command::Binary(binary) if matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
+            stmt_contains_multistatement_pipeline_brace_group(&binary.left)
+                || stmt_contains_multistatement_pipeline_brace_group(&binary.right)
+        }
+        Command::Compound(CompoundCommand::BraceGroup(body)) => body.len() > 1,
+        _ => false,
+    }
+}
+
+fn raw_body_contains_pipeline_multistatement_brace_group(body: &str) -> bool {
+    let bytes = body.as_bytes();
+    let mut index = 0usize;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut escaped = false;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if escaped {
+            escaped = false;
+            index += 1;
+            continue;
+        }
+        match byte {
+            b'\\' if !in_single_quotes => {
+                escaped = true;
+                index += 1;
+                continue;
+            }
+            b'\'' if !in_double_quotes => {
+                in_single_quotes = !in_single_quotes;
+                index += 1;
+                continue;
+            }
+            b'"' if !in_single_quotes => {
+                in_double_quotes = !in_double_quotes;
+                index += 1;
+                continue;
+            }
+            b'|' if !in_single_quotes
+                && !in_double_quotes
+                && bytes.get(index + 1) != Some(&b'|') =>
+            {
+                let mut group_start = index + 1;
+                if bytes.get(group_start) == Some(&b'&') {
+                    group_start += 1;
+                }
+                while bytes
+                    .get(group_start)
+                    .is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\r'))
+                {
+                    group_start += 1;
+                }
+                if bytes.get(group_start) == Some(&b'{')
+                    && raw_brace_group_has_multiple_commands(&body[group_start + 1..])
+                {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+
+    false
+}
+
+fn raw_brace_group_has_multiple_commands(body_after_open: &str) -> bool {
+    let bytes = body_after_open.as_bytes();
+    let mut index = 0usize;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut escaped = false;
+    let mut saw_separator = false;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if escaped {
+            escaped = false;
+            index += 1;
+            continue;
+        }
+        match byte {
+            b'\\' if !in_single_quotes => {
+                escaped = true;
+            }
+            b'\'' if !in_double_quotes => {
+                in_single_quotes = !in_single_quotes;
+            }
+            b'"' if !in_single_quotes => {
+                in_double_quotes = !in_double_quotes;
+            }
+            b'}' if !in_single_quotes && !in_double_quotes => return false,
+            b';' | b'\n' if !in_single_quotes && !in_double_quotes => {
+                saw_separator = true;
+            }
+            _ if saw_separator
+                && !in_single_quotes
+                && !in_double_quotes
+                && !matches!(byte, b' ' | b'\t' | b'\r') =>
+            {
+                return true;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+
+    false
 }
 
 fn raw_command_redirect_spacing_would_change(raw: &str) -> bool {
@@ -3090,6 +3264,9 @@ fn raw_command_substitution_needs_structural_spacing(raw: &str) -> bool {
 
 fn raw_shell_body_needs_structural_spacing(body: &str) -> bool {
     let body = body.trim_matches([' ', '\t']);
+    if raw_body_contains_pipeline_multistatement_brace_group(body) {
+        return true;
+    }
     let mut quote: Option<char> = None;
     let mut escaped = false;
     let mut horizontal_run = 0usize;

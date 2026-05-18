@@ -4196,6 +4196,21 @@ function R() {
     }
 
     #[test]
+    fn expands_inline_command_substitution_pipeline_brace_groups() {
+        let source = "f() {\n  title=\"$(curl -sS --fail \"$url\" | { head -n1 | sed 's/^#*//'; cat >/dev/null; } )\"\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\ttitle=\"$(curl -sS --fail \"$url\" | {\n\t\thead -n1 | sed 's/^#*//'\n\t\tcat >/dev/null\n\t})\"\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_comment_after_loop_do_without_raw_body_fallback() {
         let source = "for J in \"${I}\"/*; do  # iterate over folders in a safe way\n  FIND=$(echo \"${J}\")\n  if [ -f \"${J}\" ]; then\n    echo \"${FIND}\"\n  fi\ndone\n";
         let options = ShellFormatOptions::default();
