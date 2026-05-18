@@ -972,6 +972,7 @@ fn push_raw_command_substitution_with_normalized_spacing(
         (starts_command_substitution && !continued.contains(')'))
             .then(|| source_indent_plus_one_unit(&outer_shell_indent, options))
     });
+    let mut literal_exit_continuation_indent: Option<String> = None;
     for line in lines {
         target.push('\n');
         if quote.in_multiline_literal() {
@@ -987,9 +988,21 @@ fn push_raw_command_substitution_with_normalized_spacing(
                 target.push_str(line);
             }
             quote.scan_line(&line);
-            continuation_indent = line_continues
-                .then(|| continuation_indent.clone())
-                .flatten();
+            continuation_indent = if line_continues {
+                if quote.in_multiline_literal() {
+                    continuation_indent.clone()
+                } else {
+                    continuation_indent
+                        .clone()
+                        .or_else(|| literal_exit_continuation_indent.take())
+                        .or_else(|| Some(source_indent_plus_one_unit("", options)))
+                }
+            } else {
+                if !quote.in_multiline_literal() {
+                    literal_exit_continuation_indent = None;
+                }
+                None
+            };
             continue;
         } else {
             let mut line = line
@@ -1122,13 +1135,20 @@ fn push_raw_command_substitution_with_normalized_spacing(
             } else if used_continuation_indent {
                 continuation_pipeline_stage_indent = None;
             }
-            continuation_indent = line_continues.then(|| {
-                if quote.in_multiline_literal() || used_continuation_indent {
-                    line_indent
-                } else {
-                    source_indent_plus_one_unit(&line_indent, options)
-                }
-            });
+            if quote.in_multiline_literal() && used_continuation_indent {
+                literal_exit_continuation_indent = Some(line_indent.clone());
+            }
+            continuation_indent = if line_continues {
+                Some(
+                    if quote.in_multiline_literal() || used_continuation_indent {
+                        line_indent
+                    } else {
+                        source_indent_plus_one_unit(&line_indent, options)
+                    },
+                )
+            } else {
+                None
+            };
             continue;
         }
     }
