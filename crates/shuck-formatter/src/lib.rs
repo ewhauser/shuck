@@ -3219,6 +3219,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn expands_multistatement_assignment_command_substitutions() {
+        let source = "x=$(cd /tmp ; ls | wc -l )\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted("x=$(\n\tcd /tmp\n\tls | wc -l\n)\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn indents_quoted_block_command_substitution_loop_close() {
         let source = "f() {\n  eval \"$(\n    for key in a b; do\n      awk -F= \"/$key/\" <<< \"$profile_data\"\n    done\n  )\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

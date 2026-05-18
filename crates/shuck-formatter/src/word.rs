@@ -3669,6 +3669,7 @@ fn raw_shell_body_needs_structural_spacing(body: &str) -> bool {
                         }
                         horizontal_run = 0;
                     }
+                    ';' if !rest.starts_with(";;") => return true,
                     _ => horizontal_run = 0,
                 }
             }
