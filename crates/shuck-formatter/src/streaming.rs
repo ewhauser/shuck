@@ -8089,6 +8089,12 @@ fn conditional_binary_has_explicit_rhs_break(
     expression: &ConditionalBinaryExpr,
     source: &str,
 ) -> bool {
+    if !matches!(
+        expression.op,
+        ConditionalBinaryOp::And | ConditionalBinaryOp::Or
+    ) {
+        return false;
+    }
     pipeline_operator_starts_or_ends_line(source, expression.op_span)
         || has_newline_between_offsets(
             source,

@@ -1752,6 +1752,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn collapses_backslash_breaks_inside_conditional_comparisons() {
+        let source = "rename() {\n  if [[ -n  \"${_remote_head_branch:-}\"                            ]] &&\n     [[     \"${_remote_branch_name:-\"${_current_branch}\"}\" ==     \\\n              \"${_remote_head_branch:-}\"                          ]]\n  then\n    _exit_1 printf \"Only orphan branches can be renamed.\\\\n\"\n  fi\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "rename() {\n\tif [[ -n \"${_remote_head_branch:-}\" ]] &&\n\t\t[[ \"${_remote_branch_name:-\"${_current_branch}\"}\" == \"${_remote_head_branch:-}\" ]]; then\n\t\t_exit_1 printf \"Only orphan branches can be renamed.\\\\n\"\n\tfi\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_nested_parameter_expansions_inside_quoted_strings() {
         let source = "nvm_err \"N/A: version \\\"${PREFIXED_VERSION:-$PROVIDED_VERSION}\\\" is not yet installed.\"\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
