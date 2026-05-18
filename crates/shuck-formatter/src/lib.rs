@@ -2475,6 +2475,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn block_command_substitution_pipeline_after_command_continuations_keeps_stage_indent() {
+        let source = "artist_id=\"$(\n    SEARCH_TYPE=artist \\\n    SEARCH_LIMIT=50 \\\n    \"$srcdir/search.sh\" \"$artist\" |\n    jq -r \"\n        .items[] |\n        .id\n    \" |\n    head -n1\n)\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "artist_id=\"$(\n\tSEARCH_TYPE=artist \\\n\t\tSEARCH_LIMIT=50 \\\n\t\t\"$srcdir/search.sh\" \"$artist\" |\n\t\tjq -r \"\n        .items[] |\n        .id\n    \" |\n\t\thead -n1\n)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn inline_assignment_command_substitution_pipeline_after_multiline_literal_keeps_body_indent() {
         let source = "f() {\n  packages=\"$(sed 's/#.*//;\n         s/[<>=].*//;\n         /^[[:space:]]*$/d;' $package_files |\n        sort |\n        uniq -d\n    )\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

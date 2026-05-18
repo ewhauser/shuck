@@ -539,12 +539,15 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         };
         let inline_pipeline_indent_column = base_indent_column + indent_unit;
         let mut next_pipeline_indent_column = None;
-        let mut active_shell_pipeline_indent_column = None;
+        let mut active_shell_pipeline_indent_column: Option<usize> = None;
         let mut active_shell_line_was_pipeline_stage = false;
         let mut next_block_line_is_pipeline_stage = false;
+        let mut next_block_line_aligns_with_command_continuation = false;
+        let mut command_continuation_active = false;
         let mut pipeline_quote_state = RenderedLineQuoteState::default();
         let mut remaining = text;
         while !remaining.is_empty() {
+            let line_started_as_command_continuation = command_continuation_active;
             let pipeline_indent_column = next_pipeline_indent_column;
             let pipeline_stage_indent = self.line_start
                 && !remaining.starts_with('\n')
@@ -577,6 +580,28 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     } else {
                         line
                     };
+                    let adjusted_block_pipeline_stage;
+                    let line = if starts_with_block_command_substitution
+                        && next_block_line_is_pipeline_stage
+                        && next_block_line_aligns_with_command_continuation
+                        && !pipeline_stage_indent
+                        && let Some(shell_indent_column) = active_shell_pipeline_indent_column
+                    {
+                        let target_column = shell_indent_column.saturating_sub(base_indent_column);
+                        let line_indent_column = rendered_line_indent_column(line, self.options());
+                        if line_indent_column > target_column {
+                            adjusted_block_pipeline_stage = Some(rendered_line_with_indent_column(
+                                line,
+                                target_column,
+                                self.options(),
+                            ));
+                            adjusted_block_pipeline_stage.as_deref().unwrap_or(line)
+                        } else {
+                            line
+                        }
+                    } else {
+                        line
+                    };
                     let emitted_indent_column = emitted_line_indent_column(
                         line,
                         pipeline_indent_column,
@@ -595,8 +620,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                         active_shell_line_was_pipeline_stage =
                             pipeline_stage_indent || next_block_line_is_pipeline_stage;
                         next_block_line_is_pipeline_stage = false;
+                        next_block_line_aligns_with_command_continuation = false;
                     }
                     self.push_output_str(line);
+                    let line_continues_command = !pipeline_quote_state.in_quote()
+                        && line_has_trailing_continuation_backslash(line);
                     let continuation = command_substitution_pipeline_stage_continuation(
                         line,
                         pipeline_stage_indent,
@@ -619,7 +647,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     ) && starts_with_block_command_substitution
                     {
                         next_block_line_is_pipeline_stage = true;
+                        next_block_line_aligns_with_command_continuation =
+                            line_started_as_command_continuation;
                     }
+                    command_continuation_active = line_continues_command;
                     self.line_start = true;
                     remaining = &remaining[end..];
                 }
@@ -6910,6 +6941,11 @@ fn stmt_is_pipeline(stmt: &Stmt) -> bool {
     )
 }
 
+fn line_has_trailing_continuation_backslash(line: &str) -> bool {
+    line.trim_end_matches([' ', '\t', '\r', '\n'])
+        .ends_with('\\')
+}
+
 fn pipeline_operator_breaks(
     statements: &[&Stmt],
     operators: &[(BinaryOp, Span)],
@@ -7017,6 +7053,29 @@ fn rendered_line_indent_column(line: &str, options: &ResolvedShellFormatOptions)
         }
     }
     column
+}
+
+fn rendered_line_with_indent_column(
+    line: &str,
+    column: usize,
+    options: &ResolvedShellFormatOptions,
+) -> String {
+    let content = line.trim_start_matches([' ', '\t']);
+    let mut rendered = String::with_capacity(line.len());
+    match options.indent_style() {
+        IndentStyle::Tab => {
+            for _ in 0..column {
+                rendered.push('\t');
+            }
+        }
+        IndentStyle::Space => {
+            for _ in 0..column {
+                rendered.push(' ');
+            }
+        }
+    }
+    rendered.push_str(content);
+    rendered
 }
 
 fn command_substitution_shell_text_indent_column(
