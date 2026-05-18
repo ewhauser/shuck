@@ -1959,7 +1959,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }) {
             return;
         }
-        let command_start = command_format_span(&stmt.command).start.offset;
+        let command_start = pipeline_interstitial_comment_end(stmt, self.source_map());
         if command_start <= operator_span.end.offset {
             return;
         }
@@ -6834,6 +6834,21 @@ fn command_substitution_assignment_line_needs_context_indent(
         IndentStyle::Tab => !remaining.starts_with(' '),
         IndentStyle::Space => true,
     }
+}
+
+fn pipeline_interstitial_comment_end(stmt: &Stmt, source_map: &SourceMap<'_>) -> usize {
+    let group_span = match &stmt.command {
+        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
+            group_attachment_span(commands.as_slice(), source_map, '{', '}')
+        }
+        Command::Compound(CompoundCommand::Subshell(commands)) => {
+            group_attachment_span(commands.as_slice(), source_map, '(', ')')
+        }
+        _ => None,
+    };
+    group_span
+        .map(|span| span.start.offset)
+        .unwrap_or_else(|| command_format_span(&stmt.command).start.offset)
 }
 
 #[derive(Default)]

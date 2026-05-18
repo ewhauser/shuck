@@ -3451,6 +3451,22 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn keeps_pipeline_rhs_brace_group_body_comments_inside_group() {
+        let source =
+            "f() {\n  {\n    echo left\n  } |\n  {\n  # inside group\n  echo right\n  }\n}\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\t{\n\t\techo left\n\t} |\n\t\t{\n\t\t\t# inside group\n\t\t\techo right\n\t\t}\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn standalone_brace_groups_do_not_consume_later_file_comments() {
         let source = "[ -n \"$x\" ] && {\nset -x\n}\n# later\nnext\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
