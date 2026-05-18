@@ -2013,14 +2013,20 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if command_start <= operator_span.end.offset {
             return;
         }
-        let comments =
-            own_line_comments_in_region(self.source(), operator_span.end.offset, command_start);
+        let comments = self.own_line_comments_in_region(operator_span.end.offset, command_start);
         for comment in comments {
             self.with_extra_prefix_indent(self.pipeline_continuation_indent, |formatter| {
                 formatter.write_text(&comment.text);
             });
             self.newline();
         }
+    }
+
+    fn own_line_comments_in_region(&self, start: usize, end: usize) -> Vec<BranchPrefixComment> {
+        own_line_comments_in_region(self.source(), start, end)
+            .into_iter()
+            .filter(|comment| !self.facts().offset_is_in_heredoc_body(comment.offset))
+            .collect()
     }
 
     fn format_pipeline_stmt(&mut self, stmt: &Stmt) -> Result<()> {
@@ -2106,8 +2112,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if command_start <= operator_span.end.offset {
             return false;
         }
-        let comments =
-            own_line_comments_in_region(self.source(), operator_span.end.offset, command_start);
+        let comments = self.own_line_comments_in_region(operator_span.end.offset, command_start);
         let emitted = !comments.is_empty();
         for comment in comments {
             self.write_text(&comment.text);
@@ -3333,7 +3338,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let end = esac_span
             .map(|span| span.start.offset)
             .unwrap_or(command.span.end.offset);
-        own_line_comments_in_region(self.source(), start, end)
+        self.own_line_comments_in_region(start, end)
     }
 
     fn emit_case_suffix_comments_before_esac(
@@ -6034,7 +6039,9 @@ fn case_item_pattern_close_paren_on_own_line(item: &CaseItem, source: &str) -> b
     let line_start = slice[..close_offset]
         .rfind('\n')
         .map_or(0, |offset| offset + 1);
-    slice[line_start..close_offset].trim_matches([' ', '\t', '\r']).is_empty()
+    slice[line_start..close_offset]
+        .trim_matches([' ', '\t', '\r'])
+        .is_empty()
 }
 
 fn case_item_close_paren_shares_line_with_body(item: &CaseItem, source: &str) -> bool {

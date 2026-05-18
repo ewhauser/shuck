@@ -8,7 +8,7 @@ use shuck_ast::{
     Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
 };
 
-use crate::ast_format::flatten_comments;
+use crate::ast_format::{flatten_comments, heredoc_body_spans};
 use crate::command::{
     case_item_was_inline_in_source, group_attachment_span, group_open_suffix,
     group_was_inline_in_source, rendered_stmt_end_line, should_render_verbatim,
@@ -152,6 +152,7 @@ pub(crate) struct FormatterFacts<'source> {
     background_breaks: HashSet<FactSpan>,
     inline_group_sequences: HashSet<FactSpan>,
     inline_case_item_bodies: HashSet<FactSpan>,
+    heredoc_body_spans: Box<[FactSpan]>,
 }
 
 impl<'source> FormatterFacts<'source> {
@@ -222,6 +223,13 @@ impl<'source> FormatterFacts<'source> {
             .contains(&FactSpan::from(item.body.span))
     }
 
+    pub(crate) fn offset_is_in_heredoc_body(&self, offset: usize) -> bool {
+        self.heredoc_body_spans
+            .iter()
+            .take_while(|span| span.start <= offset)
+            .any(|span| offset < span.end)
+    }
+
     #[cfg(feature = "benchmarking")]
     pub(crate) fn len(&self) -> usize {
         self.stmt_facts.len()
@@ -231,6 +239,7 @@ impl<'source> FormatterFacts<'source> {
             + self.background_breaks.len()
             + self.inline_group_sequences.len()
             + self.inline_case_item_bodies.len()
+            + self.heredoc_body_spans.len()
     }
 }
 
@@ -255,12 +264,19 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 background_breaks: HashSet::new(),
                 inline_group_sequences: HashSet::new(),
                 inline_case_item_bodies: HashSet::new(),
+                heredoc_body_spans: Box::from([]),
             },
             source_comments: Box::from([]),
         }
     }
 
     fn build(mut self, file: &File) -> FormatterFacts<'source> {
+        let mut heredoc_body_spans = heredoc_body_spans(file)
+            .into_iter()
+            .map(FactSpan::from)
+            .collect::<Vec<_>>();
+        heredoc_body_spans.sort_by_key(|span| span.start);
+        self.facts.heredoc_body_spans = heredoc_body_spans.into_boxed_slice();
         let mut source_comments = flatten_comments(file)
             .into_iter()
             .filter_map(|comment| self.source_map().source_comment(comment))

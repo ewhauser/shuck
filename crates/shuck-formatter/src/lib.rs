@@ -1067,6 +1067,22 @@ mod tests {
     }
 
     #[test]
+    fn formats_heredoc_pipeline_with_trailing_comment_structurally() {
+        let source =
+            "f(){\n    cat <<EOF |\nbody\n# heredoc comment\nEOF\n    python #|\n    #sed x\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\tcat <<EOF |\nbody\n# heredoc comment\nEOF\n\t\tpython #|\n\t#sed x\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_quoted_heredoc_delimiters_idempotently() {
         assert_idempotent(
             "cat <<'EOF_264'\ndelta\nEOF_264\n",
@@ -3211,8 +3227,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
 
     #[test]
     fn trims_final_case_pattern_continuation_before_close_paren() {
-        let source =
-            "case \"$1\" in\n  *.xsl|\\\n  *.[ch]\\\n      ) pygmentize -f 256 \"$1\"\n      ;;\nesac\n";
+        let source = "case \"$1\" in\n  *.xsl|\\\n  *.[ch]\\\n      ) pygmentize -f 256 \"$1\"\n      ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
         assert_eq!(

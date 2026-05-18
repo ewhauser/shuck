@@ -3308,7 +3308,9 @@ pub(crate) fn should_render_verbatim(
     options: &crate::options::ResolvedShellFormatOptions,
 ) -> bool {
     (options.keep_padding() && stmt_has_alignment_sensitive_padding(stmt, source_map))
-        || (has_heredoc(stmt) && stmt_has_trailing_comment(stmt, source_map))
+        || (has_heredoc(stmt)
+            && !matches!(stmt.command, Command::Binary(_))
+            && stmt_has_trailing_comment(stmt, source_map))
 }
 
 pub(crate) fn stmt_attachment_span(
