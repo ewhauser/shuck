@@ -1,12 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
 use shuck_ast::{
-    AnonymousFunctionCommand, ArrayElem, Assignment, AssignmentValue, BinaryCommand, BinaryOp,
-    BuiltinCommand, CaseCommand, CaseItem, Command, CommandSubstitutionSyntax, Comment,
-    CompoundCommand, ConditionalCommand, ConditionalExpr, DeclClause, DeclOperand, File,
-    ForCommand, ForeachCommand, FunctionDef, IfCommand, Pattern, PatternPart, Redirect,
-    RepeatCommand, SelectCommand, Span, Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand,
-    WhileCommand, Word, WordPart,
+    AnonymousFunctionCommand, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem,
+    Assignment, AssignmentValue, BinaryCommand, BinaryOp, BuiltinCommand, CaseCommand, CaseItem,
+    Command, CommandSubstitutionSyntax, Comment, CompoundCommand, ConditionalCommand,
+    ConditionalExpr, DeclClause, DeclOperand, File, ForCommand, ForeachCommand, FunctionDef,
+    HeredocBody, HeredocBodyPart, IfCommand, Pattern, PatternPart, Redirect, RepeatCommand,
+    SelectCommand, Span, Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand, WhileCommand,
+    Word, WordPart,
 };
 
 use crate::ast_format::{flatten_comments, heredoc_body_spans};
@@ -660,6 +661,15 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 );
             }
             CompoundCommand::ArithmeticFor(command) => {
+                if let Some(expr) = &command.init_ast {
+                    self.visit_arithmetic_expr(expr);
+                }
+                if let Some(expr) = &command.condition_ast {
+                    self.visit_arithmetic_expr(expr);
+                }
+                if let Some(expr) = &command.step_ast {
+                    self.visit_arithmetic_expr(expr);
+                }
                 self.visit_sequence_with_suffix(
                     &command.body,
                     Some(done_body_upper_bound(self.source_map(), command.span)),
@@ -687,7 +697,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 }
                 self.visit_sequence(body, None, Some('{'));
             }
-            CompoundCommand::Arithmetic(_) => {}
+            CompoundCommand::Arithmetic(command) => {
+                if let Some(expr) = &command.expr_ast {
+                    self.visit_arithmetic_expr(expr);
+                }
+            }
             CompoundCommand::Time(command) => self.visit_time(command),
             CompoundCommand::Conditional(command) => self.visit_conditional(command),
             CompoundCommand::Coproc(command) => self.visit_stmt(command.body.as_ref()),
@@ -1016,6 +1030,9 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         if let Some(word) = redirect.word_target() {
             self.visit_word(word);
         }
+        if let Some(heredoc) = redirect.heredoc() {
+            self.visit_heredoc_body(&heredoc.body);
+        }
     }
 
     fn visit_assignment(&mut self, assignment: &Assignment) {
@@ -1083,6 +1100,10 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             WordPart::ProcessSubstitution { body, .. } => {
                 self.visit_sequence(body, span.end.offset.checked_sub(1), None);
             }
+            WordPart::ArithmeticExpansion {
+                expression_ast: Some(expr),
+                ..
+            } => self.visit_arithmetic_expr(expr),
             WordPart::CommandSubstitution { .. }
             | WordPart::Literal(_)
             | WordPart::SingleQuoted { .. }
@@ -1105,6 +1126,74 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     self.visit_word_part(&part.kind, part.span);
                 }
             }
+        }
+    }
+
+    fn visit_heredoc_body(&mut self, body: &HeredocBody) {
+        for part in &body.parts {
+            self.visit_heredoc_body_part(&part.kind, part.span);
+        }
+    }
+
+    fn visit_heredoc_body_part(&mut self, part: &HeredocBodyPart, span: Span) {
+        match part {
+            HeredocBodyPart::CommandSubstitution { body, syntax }
+                if matches!(
+                    *syntax,
+                    CommandSubstitutionSyntax::DollarParen | CommandSubstitutionSyntax::Backtick
+                ) =>
+            {
+                self.visit_sequence(body, Some(span.end.offset), None);
+            }
+            HeredocBodyPart::ArithmeticExpansion {
+                expression_ast: Some(expr),
+                ..
+            } => self.visit_arithmetic_expr(expr),
+            HeredocBodyPart::ArithmeticExpansion {
+                expression_ast: None,
+                expression_word_ast,
+                ..
+            } => self.visit_word(expression_word_ast),
+            HeredocBodyPart::Literal(_)
+            | HeredocBodyPart::Variable(_)
+            | HeredocBodyPart::CommandSubstitution { .. }
+            | HeredocBodyPart::Parameter(_) => {}
+        }
+    }
+
+    fn visit_arithmetic_expr(&mut self, expr: &ArithmeticExprNode) {
+        match &expr.kind {
+            ArithmeticExpr::ShellWord(word) => self.visit_word(word),
+            ArithmeticExpr::Indexed { index, .. } => self.visit_arithmetic_expr(index),
+            ArithmeticExpr::Parenthesized { expression } => self.visit_arithmetic_expr(expression),
+            ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+                self.visit_arithmetic_expr(expr);
+            }
+            ArithmeticExpr::Binary { left, right, .. } => {
+                self.visit_arithmetic_expr(left);
+                self.visit_arithmetic_expr(right);
+            }
+            ArithmeticExpr::Conditional {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
+                self.visit_arithmetic_expr(condition);
+                self.visit_arithmetic_expr(then_expr);
+                self.visit_arithmetic_expr(else_expr);
+            }
+            ArithmeticExpr::Assignment { target, value, .. } => {
+                self.visit_arithmetic_lvalue(target);
+                self.visit_arithmetic_expr(value);
+            }
+            ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
+        }
+    }
+
+    fn visit_arithmetic_lvalue(&mut self, target: &ArithmeticLvalue) {
+        match target {
+            ArithmeticLvalue::Indexed { index, .. } => self.visit_arithmetic_expr(index),
+            ArithmeticLvalue::Variable(_) => {}
         }
     }
 

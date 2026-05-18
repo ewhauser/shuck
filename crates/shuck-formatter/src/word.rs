@@ -437,7 +437,7 @@ pub(crate) fn render_heredoc_body_to_buf(
     body: &HeredocBody,
     source: &str,
     options: &ResolvedShellFormatOptions,
-    _facts: &FormatterFacts<'_>,
+    facts: &FormatterFacts<'_>,
     embedded_command_indent_levels: usize,
     rendered: &mut String,
 ) {
@@ -448,7 +448,7 @@ pub(crate) fn render_heredoc_body_to_buf(
             part.span,
             source,
             options,
-            _facts,
+            facts,
             embedded_command_indent_levels,
         )
         .is_err()
@@ -821,7 +821,7 @@ fn render_heredoc_body_part(
     span: shuck_ast::Span,
     source: &str,
     options: &ResolvedShellFormatOptions,
-    _facts: &FormatterFacts<'_>,
+    facts: &FormatterFacts<'_>,
     embedded_command_indent_levels: usize,
 ) -> Result<(), std::fmt::Error> {
     match part {
@@ -873,8 +873,8 @@ fn render_heredoc_body_part(
                     layout,
                     embedded_command_indent_levels,
                     raw,
-                    None,
-                    None,
+                    Some(facts.source_map()),
+                    Some(facts),
                 )
                 .is_none()
                 {
@@ -930,6 +930,8 @@ fn render_heredoc_body_part(
                                 expression_ast,
                                 source,
                                 options,
+                                Some(facts.source_map()),
+                                Some(facts),
                             );
                             rendered.push_str("))");
                         }
@@ -942,6 +944,8 @@ fn render_heredoc_body_part(
                                 source,
                                 options,
                                 false,
+                                Some(facts.source_map()),
+                                Some(facts),
                             );
                             rendered.push(']');
                         }
@@ -1609,6 +1613,8 @@ fn render_word_part(
                                 expression_ast,
                                 source,
                                 options,
+                                source_map,
+                                facts,
                             );
                             rendered.push_str("))");
                         }
@@ -1621,6 +1627,8 @@ fn render_word_part(
                                 source,
                                 options,
                                 false,
+                                source_map,
+                                facts,
                             );
                             rendered.push(']');
                         }
@@ -5206,6 +5214,8 @@ pub(crate) fn render_arithmetic_expr_to_buf(
         source,
         options,
         false,
+        None,
+        None,
     );
 }
 
@@ -5223,6 +5233,8 @@ fn render_arithmetic_subscript_expr_to_buf(
         source,
         options,
         compact,
+        None,
+        None,
     );
 }
 
@@ -5245,6 +5257,8 @@ fn push_arithmetic_expr(
     source: &str,
     options: &ResolvedShellFormatOptions,
     compact: bool,
+    source_map: Option<&SourceMap<'_>>,
+    facts: Option<&FormatterFacts<'_>>,
 ) {
     let needs_parentheses = arithmetic_needs_parentheses(expr, context);
     if needs_parentheses {
@@ -5264,11 +5278,13 @@ fn push_arithmetic_expr(
                 source,
                 options,
                 true,
+                source_map,
+                facts,
             );
             rendered.push(']');
         }
         ArithmeticExpr::ShellWord(word) => {
-            let word = render_arithmetic_shell_word(word, source, options);
+            let word = render_arithmetic_shell_word(word, source, options, source_map, facts);
             if compact {
                 rendered.push_str(&compact_dynamic_arithmetic_subscript(
                     word.trim_matches([' ', '\t', '\r']),
@@ -5286,6 +5302,8 @@ fn push_arithmetic_expr(
                 source,
                 options,
                 compact,
+                source_map,
+                facts,
             );
             rendered.push(')');
         }
@@ -5298,6 +5316,8 @@ fn push_arithmetic_expr(
                 source,
                 options,
                 compact,
+                source_map,
+                facts,
             );
         }
         ArithmeticExpr::Postfix { expr, op } => {
@@ -5308,6 +5328,8 @@ fn push_arithmetic_expr(
                 source,
                 options,
                 compact,
+                source_map,
+                facts,
             );
             rendered.push_str(arithmetic_postfix_operator(*op));
         }
@@ -5319,6 +5341,8 @@ fn push_arithmetic_expr(
                 source,
                 options,
                 compact,
+                source_map,
+                facts,
             );
             if !compact {
                 rendered.push(' ');
@@ -5334,6 +5358,8 @@ fn push_arithmetic_expr(
                 source,
                 options,
                 compact,
+                source_map,
+                facts,
             );
         }
         ArithmeticExpr::Conditional {
@@ -5348,6 +5374,8 @@ fn push_arithmetic_expr(
                 source,
                 options,
                 compact,
+                source_map,
+                facts,
             );
             rendered.push_str(if compact { "?" } else { " ? " });
             push_arithmetic_expr(
@@ -5357,6 +5385,8 @@ fn push_arithmetic_expr(
                 source,
                 options,
                 compact,
+                source_map,
+                facts,
             );
             rendered.push_str(if compact { ":" } else { " : " });
             push_arithmetic_expr(
@@ -5366,10 +5396,12 @@ fn push_arithmetic_expr(
                 source,
                 options,
                 compact,
+                source_map,
+                facts,
             );
         }
         ArithmeticExpr::Assignment { target, op, value } => {
-            push_arithmetic_lvalue(rendered, target, source, options);
+            push_arithmetic_lvalue(rendered, target, source, options, source_map, facts);
             if !compact {
                 rendered.push(' ');
             }
@@ -5384,6 +5416,8 @@ fn push_arithmetic_expr(
                 source,
                 options,
                 compact,
+                source_map,
+                facts,
             );
         }
     }
@@ -5398,6 +5432,8 @@ fn push_arithmetic_expansion_body(
     expr: &ArithmeticExprNode,
     source: &str,
     options: &ResolvedShellFormatOptions,
+    source_map: Option<&SourceMap<'_>>,
+    facts: Option<&FormatterFacts<'_>>,
 ) {
     let mut body = String::new();
     push_arithmetic_expr(
@@ -5407,6 +5443,8 @@ fn push_arithmetic_expansion_body(
         source,
         options,
         false,
+        source_map,
+        facts,
     );
     if body.contains("$(")
         || body.contains('`')
@@ -5469,10 +5507,26 @@ fn render_arithmetic_shell_word(
     word: &Word,
     source: &str,
     options: &ResolvedShellFormatOptions,
+    source_map: Option<&SourceMap<'_>>,
+    facts: Option<&FormatterFacts<'_>>,
 ) -> String {
+    let render_with_context = || {
+        let mut rendered = String::new();
+        render_word_syntax_internal(
+            word,
+            source,
+            options,
+            source_map,
+            facts,
+            true,
+            &mut rendered,
+        );
+        rendered
+    };
+
     if options.simplify() || options.minify() {
         let [part] = word.parts.as_slice() else {
-            return render_word_syntax(word, source, options);
+            return render_with_context();
         };
 
         return match &part.kind {
@@ -5485,11 +5539,11 @@ fn render_arithmetic_shell_word(
             {
                 parameter.raw_body.slice(source).to_string()
             }
-            _ => render_word_syntax(word, source, options),
+            _ => render_with_context(),
         };
     }
 
-    render_word_syntax(word, source, options)
+    render_with_context()
 }
 
 fn is_plain_arithmetic_identifier(text: &str) -> bool {
@@ -5627,6 +5681,8 @@ fn push_arithmetic_lvalue(
     target: &ArithmeticLvalue,
     source: &str,
     options: &ResolvedShellFormatOptions,
+    source_map: Option<&SourceMap<'_>>,
+    facts: Option<&FormatterFacts<'_>>,
 ) {
     match target {
         ArithmeticLvalue::Variable(name) => rendered.push_str(name),
@@ -5640,6 +5696,8 @@ fn push_arithmetic_lvalue(
                 source,
                 options,
                 true,
+                source_map,
+                facts,
             );
             rendered.push(']');
         }
