@@ -4349,7 +4349,15 @@ fn render_process_substitution(
 
     let rendered_multiline = trimmed.contains('\n');
     if multiline || has_heredoc || rendered_multiline {
-        if let Some(raw) = raw
+        if rendered_multiline
+            && !has_heredoc
+            && raw.is_some_and(process_substitution_source_starts_with_inline_brace_group)
+        {
+            rendered.push(prefix);
+            rendered.push('(');
+            rendered.push_str(trimmed);
+            rendered.push(')');
+        } else if let Some(raw) = raw
             && process_substitution_source_starts_with_body_line(raw)
             && raw.contains('\n')
             && !process_substitution_source_closes_on_own_line(raw)
@@ -4376,6 +4384,14 @@ fn render_process_substitution(
     }
 
     Some(())
+}
+
+fn process_substitution_source_starts_with_inline_brace_group(raw: &str) -> bool {
+    raw.get(2..).is_some_and(|body| {
+        (raw.starts_with("<(") || raw.starts_with(">("))
+            && !body.starts_with(['\n', '\r'])
+            && body.trim_start_matches([' ', '\t']).starts_with('{')
+    })
 }
 
 fn process_substitution_source_starts_with_body_line(raw: &str) -> bool {
