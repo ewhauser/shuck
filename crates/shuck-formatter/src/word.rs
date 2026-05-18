@@ -1702,9 +1702,7 @@ fn parameter_raw_subscript_needs_compaction(
     if let Some(subscript) = parameter_bourne_subscript(parameter) {
         let syntax = subscript.syntax_text(source);
         if let Some(ast) = subscript.arithmetic_ast.as_ref()
-            && syntax
-                .trim_start_matches([' ', '\t', '\r'])
-                .starts_with("$((")
+            && arithmetic_subscript_prefers_spaced_expression(syntax)
         {
             let mut rendered = String::new();
             render_arithmetic_subscript_expr_to_buf(&mut rendered, ast, source, options, false);
@@ -4860,10 +4858,8 @@ fn push_var_ref(
                 SubscriptSelector::Star => '*',
             });
         } else if let Some(ast) = subscript.arithmetic_ast.as_ref() {
-            let compact = !subscript
-                .syntax_text(source)
-                .trim_start_matches([' ', '\t', '\r'])
-                .starts_with("$((");
+            let compact =
+                !arithmetic_subscript_prefers_spaced_expression(subscript.syntax_text(source));
             render_arithmetic_subscript_expr_to_buf(rendered, ast, source, options, compact);
         } else {
             rendered.push_str(&compact_dynamic_arithmetic_subscript(
@@ -4872,6 +4868,11 @@ fn push_var_ref(
         }
         rendered.push(']');
     }
+}
+
+fn arithmetic_subscript_prefers_spaced_expression(text: &str) -> bool {
+    let text = text.trim_start_matches([' ', '\t', '\r']);
+    text.starts_with("$((") || text.starts_with('(')
 }
 
 fn compact_dynamic_arithmetic_subscript(text: &str) -> String {
