@@ -4313,6 +4313,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_nested_brace_group_after_case_body_open_comment() {
+        let source = "case \"$x\" in\na)\n  grep x f && { # note\n    {\n      echo\n    } >>\"$file\"\n  } # note\n  ;;\nesac\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case \"$x\" in\na)\n\tgrep x f && { # note\n\t\t{\n\t\t\techo\n\t\t} >>\"$file\"\n\t}\n\t;;\nesac\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn does_not_duplicate_leading_comments_inside_brace_groups() {
         let source = "f() {\n  # before group\n  {\n    # inside group\n    echo ok\n  }\n}\n";
         let options = ShellFormatOptions::default();

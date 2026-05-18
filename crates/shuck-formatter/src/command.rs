@@ -3046,7 +3046,7 @@ pub(crate) fn group_open_suffix<'a>(
 ) -> Option<(Span, &'a str)> {
     let source = source_map.source();
     let first = commands.first()?;
-    let first_start = stmt_span(first).start.offset;
+    let first_start = stmt_group_attachment_start_offset(first, source_map);
     let open_offset = find_group_open_offset_before_stmt(source, first_start, open)?;
     let line_end = source[open_offset..]
         .find('\n')
