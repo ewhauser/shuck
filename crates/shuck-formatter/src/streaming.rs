@@ -783,10 +783,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.push_output_str(self.line_ending());
                 self.line_start = true;
             }
-            if heredoc.strip_tabs && !heredoc.delimiter.starts_with('\t') {
+            if heredoc.strip_tabs {
                 self.write_indent();
+                self.write_verbatim(heredoc.delimiter.trim_start_matches('\t'));
+            } else {
+                self.write_verbatim(&heredoc.delimiter);
             }
-            self.write_verbatim(&heredoc.delimiter);
         }
     }
 
