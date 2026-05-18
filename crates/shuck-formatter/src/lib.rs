@@ -2264,6 +2264,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn indents_block_command_substitution_pipelines_before_escaped_multiline_literals() {
+        let source = "f() {\n  url=\"$(\n    git remote -v |\n    awk '{print $2}' |\n    perl -pe \"\n        s/^(\\\\w+)/\\$1.example/;\n    \"\n  )\"\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\turl=\"$(\n\t\tgit remote -v |\n\t\t\tawk '{print $2}' |\n\t\t\tperl -pe \"\n        s/^(\\\\w+)/\\$1.example/;\n    \"\n\t)\"\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_inline_if_elif_command_substitutions() {
         let source = "color=\"$(if [ \"$status\" = ok ]; then echo GREEN; elif [ \"$status\" = bad ]; then echo RED; else echo WHITE; fi)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
