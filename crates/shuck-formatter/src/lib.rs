@@ -3001,6 +3001,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn removes_decl_array_assignment_line_continuations() {
+        let source = "local cmd=(dialog --title \"Select\" --default-item \"$default\" \\\n    --menu \"Choose\" 18 50 9)\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "local cmd=(dialog --title \"Select\" --default-item \"$default\"\n\t--menu \"Choose\" 18 50 9)\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn normalizes_multiline_compound_assignment_row_spacing() {
         let source = "options=(\n  1 \"1080p\"  \"Set 1080p\"\n  2 \"720p\"   \"Set 720p\"\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

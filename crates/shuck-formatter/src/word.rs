@@ -468,6 +468,15 @@ fn render_word_syntax_internal(
 
     if !options.simplify()
         && !options.minify()
+        && let Some(raw) = raw_word_source_slice(word, source)
+        && let Some(normalized) = normalize_raw_compound_assignment_word_continuations(raw)
+    {
+        rendered.push_str(&normalized);
+        return;
+    }
+
+    if !options.simplify()
+        && !options.minify()
         && !word_needs_special_rendering(word)
         && let Some(raw) = raw_word_source_slice(word, source)
         && let Some(normalized) = normalize_raw_unquoted_word_continuations(raw)
@@ -1835,6 +1844,93 @@ fn normalize_raw_unquoted_word_continuations(raw: &str) -> Option<String> {
     }
 
     changed.then_some(normalized)
+}
+
+fn normalize_raw_compound_assignment_word_continuations(raw: &str) -> Option<String> {
+    if (!raw.contains("\\\n") && !raw.contains("\\\r\n"))
+        || raw.contains("$(")
+        || raw.contains('`')
+        || raw.contains("<(")
+        || raw.contains(">(")
+    {
+        return None;
+    }
+
+    let open = raw.find("=(").or_else(|| raw.find("+=("))?;
+    let open_paren = open + raw[open..].find('(')?;
+    let head = raw.get(..=open_paren)?;
+    if !raw_compound_assignment_head_is_simple(head) {
+        return None;
+    }
+    let close = raw.rfind(')')?;
+    if close <= open_paren {
+        return None;
+    }
+
+    let body = raw.get(open_paren + 1..close)?;
+    let tail = raw.get(close..)?;
+    let body_lines = body
+        .lines()
+        .map(|line| {
+            line_without_continuation_backslash(line)
+                .unwrap_or_else(|| line.trim_end_matches([' ', '\t', '\r']))
+        })
+        .collect::<Vec<_>>();
+    if body_lines.len() < 2 {
+        return None;
+    }
+
+    let common_indent =
+        common_raw_compound_assignment_body_indent(body_lines.get(1..).unwrap_or_default());
+    let mut normalized = String::with_capacity(raw.len());
+    normalized.push_str(head);
+    normalized.push_str(body_lines[0].trim_start_matches([' ', '\t']));
+    for line in &body_lines[1..] {
+        normalized.push('\n');
+        if line.trim().is_empty() {
+            continue;
+        }
+        normalized.push('\t');
+        normalized.push_str(
+            line.strip_prefix(&common_indent)
+                .unwrap_or_else(|| line.trim_start_matches([' ', '\t'])),
+        );
+    }
+    normalized.push_str(tail);
+    Some(normalized)
+}
+
+fn raw_compound_assignment_head_is_simple(head: &str) -> bool {
+    let Some(name) = head.strip_suffix("+=(").or_else(|| head.strip_suffix("=(")) else {
+        return false;
+    };
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    matches!(first, '_' | 'a'..='z' | 'A'..='Z')
+        && chars.all(|ch| matches!(ch, '_' | 'a'..='z' | 'A'..='Z' | '0'..='9'))
+}
+
+fn common_raw_compound_assignment_body_indent(lines: &[&str]) -> String {
+    let mut common: Option<String> = None;
+    for line in lines {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let indent = line_leading_shell_indent(line);
+        if indent.is_empty() {
+            return String::new();
+        }
+        common = Some(match common.take() {
+            Some(previous) => common_indent_prefix(&previous, indent).to_string(),
+            None => indent.to_string(),
+        });
+        if common.as_deref() == Some("") {
+            return String::new();
+        }
+    }
+    common.unwrap_or_default()
 }
 
 fn parameter_bourne_operand_needs_subscript_compaction(
