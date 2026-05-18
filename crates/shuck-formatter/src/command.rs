@@ -2193,6 +2193,9 @@ fn normalize_multiline_compound_assignment_line(
     if open_inline_line || trimmed.starts_with(')') {
         return trimmed.to_string();
     }
+    if trimmed.starts_with('[') {
+        return trimmed.to_string();
+    }
     let stripped = line.strip_prefix(common_indent).unwrap_or(trimmed);
     canonicalize_multiline_compound_assignment_residual_indent(
         stripped,
