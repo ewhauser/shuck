@@ -2471,11 +2471,14 @@ fn push_raw_block_command_substitution_without_outer_indent(
         let mut force_preserve_line_indent = false;
         let indent = line_leading_shell_indent(&line);
         let content = &line[indent.len()..];
-        if !normalized_pipeline_continuation
-            && let Some(previous_indent) = previous_pipeline_indent.as_deref()
+        if let Some(previous_indent) = previous_pipeline_indent.as_deref()
             && !content.trim().is_empty()
         {
-            let desired_indent = source_indent_plus_one_unit(previous_indent, options);
+            let desired_indent = if normalized_pipeline_continuation {
+                previous_indent.to_string()
+            } else {
+                source_indent_plus_one_unit(previous_indent, options)
+            };
             if raw_indent_units(indent, options) < raw_indent_units(&desired_indent, options) {
                 line = format!("{desired_indent}{content}");
                 force_preserve_line_indent = true;
@@ -2500,9 +2503,8 @@ fn push_raw_block_command_substitution_without_outer_indent(
         if body_indent.is_none() && !content.trim().is_empty() && !content.starts_with('#') {
             body_indent = Some(indent.to_string());
         }
-        let is_pipeline_continuation = !normalized_pipeline_continuation
-            && carried_pipeline_indent.is_some()
-            && !content.trim().is_empty();
+        let is_pipeline_continuation =
+            carried_pipeline_indent.is_some() && !content.trim().is_empty();
         let body_indent_for_line =
             if force_preserve_line_indent || is_pipeline_continuation || in_compound_body {
                 None

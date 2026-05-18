@@ -1614,6 +1614,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn carries_normalized_pipeline_indent_inside_raw_command_substitutions() {
+        let source = "f() {\n    value=\"$(\n        # note\n        docker-compose \\\n            logs service | \\\n        grep token | \\\n        awk '{print $1}' || :\n    )\"\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\tvalue=\"$(\n\t\t# note\n\t\tdocker-compose \\\n\t\t\tlogs service |\n\t\t\tgrep token |\n\t\t\tawk '{print $1}' || :\n\t)\"\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn normalizes_leading_pipe_continuations_inside_process_substitutions() {
         let source = "while read -r line; do :; done < <(\n\tcat clean_files.txt \\\n\t\t| grep -v '^#'\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
