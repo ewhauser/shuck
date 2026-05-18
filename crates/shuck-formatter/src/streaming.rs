@@ -841,7 +841,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 {
                     self.write_text_preserving_current_line_indent(&scratch);
                 } else {
-                    self.write_rendered_shell_text(&scratch);
+                    let continuation_indent =
+                        self.indent_prefix_for_level(self.indent_level.saturating_add(1));
+                    let normalized = normalize_literal_assignment_command_substitution_pipelines(
+                        &scratch,
+                        &continuation_indent,
+                    );
+                    self.write_rendered_shell_text(&normalized);
                 }
             } else {
                 self.write_text_preserving_current_line_indent(&scratch);
@@ -6835,6 +6841,123 @@ fn strip_assignment_context_indent<'a>(
             }
         }
     }
+}
+
+fn normalize_literal_assignment_command_substitution_pipelines(
+    text: &str,
+    continuation_indent: &str,
+) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut indent_next = false;
+    let mut changed = false;
+    let mut rest = text;
+
+    while !rest.is_empty() {
+        let (line, next, had_newline) = match rest.find('\n') {
+            Some(index) => (&rest[..index], &rest[index + 1..], true),
+            None => (rest, "", false),
+        };
+
+        let trimmed_start = line.trim_start_matches([' ', '\t']);
+        let is_continuation_comment = indent_next && trimmed_start.starts_with('#');
+        let indent_line = indent_next && !line.trim_matches([' ', '\t', '\r']).is_empty();
+
+        if indent_line {
+            output.push_str(continuation_indent);
+            output.push_str(trimmed_start);
+            changed |= !line.starts_with(continuation_indent)
+                || line[continuation_indent.len()..].starts_with([' ', '\t']);
+        } else {
+            output.push_str(line);
+        }
+
+        if had_newline {
+            output.push('\n');
+        }
+
+        let line_to_check = if indent_line { trimmed_start } else { line };
+        indent_next = if is_continuation_comment {
+            true
+        } else if indent_next {
+            rendered_line_ends_with_structural_pipe_continuation(line_to_check)
+        } else {
+            rendered_line_opens_command_substitution_pipeline(line_to_check)
+        };
+
+        rest = next;
+    }
+
+    if changed { output } else { text.to_string() }
+}
+
+fn rendered_line_opens_command_substitution_pipeline(line: &str) -> bool {
+    if !rendered_line_ends_with_structural_pipe_continuation(line) {
+        return false;
+    }
+
+    command_substitution_context_start(line).is_some()
+        && line
+            .bytes()
+            .take_while(|byte| matches!(*byte, b' ' | b'\t'))
+            .any(|byte| byte == b' ')
+}
+
+fn rendered_line_ends_with_structural_pipe_continuation(line: &str) -> bool {
+    let trimmed = line.trim_end_matches([' ', '\t', '\r']);
+    let Some((pipe_offset, scan_end)) = final_pipe_operator_bounds(trimmed) else {
+        return false;
+    };
+    let scan_start = command_substitution_context_start(&trimmed[..pipe_offset]).unwrap_or(0);
+
+    final_pipe_operator_is_unquoted(&trimmed[scan_start..scan_end])
+}
+
+fn final_pipe_operator_bounds(line: &str) -> Option<(usize, usize)> {
+    if line.ends_with("|&") {
+        Some((line.len().saturating_sub(2), line.len()))
+    } else if line.ends_with('|') && !line.ends_with("||") {
+        Some((line.len().saturating_sub(1), line.len()))
+    } else {
+        None
+    }
+}
+
+fn command_substitution_context_start(line: &str) -> Option<usize> {
+    line.rfind("$(")
+        .or_else(|| line.rfind("<("))
+        .or_else(|| line.rfind(">("))
+        .map(|offset| offset.saturating_add(2))
+}
+
+fn final_pipe_operator_is_unquoted(text: &str) -> bool {
+    let Some((pipe_offset, _)) =
+        final_pipe_operator_bounds(text.trim_end_matches([' ', '\t', '\r']))
+    else {
+        return false;
+    };
+    let mut single_quoted = false;
+    let mut double_quoted = false;
+    let mut escaped = false;
+
+    for (offset, ch) in text.char_indices() {
+        if offset == pipe_offset {
+            return !single_quoted && !double_quoted && !escaped;
+        }
+
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if !single_quoted => escaped = true,
+            '\'' if !double_quoted => single_quoted = !single_quoted,
+            '"' if !single_quoted => double_quoted = !double_quoted,
+            _ => {}
+        }
+    }
+
+    false
 }
 
 fn has_newline_between_offsets(source: &str, start: usize, end: usize) -> bool {

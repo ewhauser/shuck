@@ -2264,6 +2264,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn indents_literal_assignment_command_substitution_pipeline_continuations() {
+        let source = "f() {\n  while ok; do\n    protected_branches=\"$protected_branches\n                            $(jq_debug_pipe_dump <<< \"$output\" |\n                              jq -r '.[] | select(.protected == true)')\"\n  done\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\twhile ok; do\n\t\tprotected_branches=\"$protected_branches\n                            $(jq_debug_pipe_dump <<<\"$output\" |\n\t\t\tjq -r '.[] | select(.protected == true)')\"\n\tdone\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn indents_command_substitution_continuations_after_multiline_literals() {
         let source = "f() {\n  allowed=\"$(sed 's/#.*//;\n                        s/^[[:space:]]*//;\n                        /^[[:space:]]*$/d;' \\\n                        \"$file\")\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
