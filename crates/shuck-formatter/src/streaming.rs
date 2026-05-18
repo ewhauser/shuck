@@ -66,6 +66,26 @@ impl SimpleCommandPart<'_> {
     }
 }
 
+fn move_interspersed_redirects_after_arguments<'a>(parts: &mut Vec<SimpleCommandPart<'a>>) {
+    let mut saw_argument = false;
+    let mut deferred_redirects = Vec::new();
+    let mut reordered = Vec::with_capacity(parts.len());
+
+    for part in parts.drain(..) {
+        match part {
+            SimpleCommandPart::Argument(_) => {
+                saw_argument = true;
+                reordered.push(part);
+            }
+            SimpleCommandPart::Redirect(_) if saw_argument => deferred_redirects.push(part),
+            _ => reordered.push(part),
+        }
+    }
+
+    reordered.extend(deferred_redirects);
+    *parts = reordered;
+}
+
 impl<'source> StreamOutput<'source> {
     fn push_char(&mut self, ch: char) {
         match self {
@@ -1263,6 +1283,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         parts.extend(command.args.iter().map(SimpleCommandPart::Argument));
         parts.extend(redirects.iter().map(SimpleCommandPart::Redirect));
         parts.sort_by_key(|part| part.start_offset(command));
+        move_interspersed_redirects_after_arguments(&mut parts);
 
         let mut previous_part = None;
         let mut previous_end = None;

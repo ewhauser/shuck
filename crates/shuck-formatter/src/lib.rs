@@ -3767,6 +3767,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn moves_interspersed_simple_command_redirects_after_arguments() {
+        let source = "curl -sSf >\"$jar\" \"$url\"\ncmd a >out b 2>err c\ncmd >out a 2>err b\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "curl -sSf \"$url\" >\"$jar\"\ncmd a b c >out 2>err\ncmd >out a b 2>err\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_regex_operands_in_conditionals() {
         let source = "[[ \"$x\" =~ \"git version \"([^ ]*).* ]]\n";
         let options = ShellFormatOptions::default();
