@@ -5845,6 +5845,21 @@ function R() {
     }
 
     #[test]
+    fn aligns_trailing_comments_after_empty_parameter_replacements() {
+        let source = "MAINVER=\"${VERSION//_*}\"  # e.g. 1.8.0_9 => 1.8.0\nDEBVER=\"${VERSION//*_}\"   # e.g. 1.8.0_9 => 9\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "MAINVER=\"${VERSION//_*/}\" # e.g. 1.8.0_9 => 1.8.0\nDEBVER=\"${VERSION//*_/}\"  # e.g. 1.8.0_9 => 9\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn aligns_trailing_comments_after_parameter_replacements_inside_functions() {
         let source = "read_conf() {\n  while read line; do\n    line=${line%%#*}   # Remove comments\n    line=${line//:/ }  # Change colon delimiter to space\n    line=${line//,/ }  # Change comma delimiter to space\n  done\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

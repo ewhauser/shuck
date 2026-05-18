@@ -7495,7 +7495,9 @@ fn normalized_comment_alignment_width(text: &str) -> usize {
     let semicolon_normalized = trim_trailing_semicolon_for_alignment(&collapsed);
     let redirect_normalized = trim_redirect_padding_for_alignment(&semicolon_normalized);
     let array_normalized = trim_compound_assignment_padding_for_alignment(&redirect_normalized);
-    let normalized = trim_arithmetic_expansion_padding_for_alignment(&array_normalized);
+    let parameter_normalized =
+        normalize_empty_parameter_replacements_for_alignment(&array_normalized);
+    let normalized = trim_arithmetic_expansion_padding_for_alignment(&parameter_normalized);
     normalized.chars().count()
         + case_pattern_pipe_alignment_width(&normalized)
         + moved_function_brace_alignment_width(&normalized)
@@ -7767,6 +7769,80 @@ fn trim_arithmetic_expansion_padding_for_alignment(text: &str) -> String {
         index += ch.len_utf8();
     }
     rendered
+}
+
+fn normalize_empty_parameter_replacements_for_alignment(text: &str) -> String {
+    let mut rendered = String::with_capacity(text.len());
+    let mut index = 0;
+    while index < text.len() {
+        let rest = &text[index..];
+        if rest.starts_with("${")
+            && let Some(close_offset) = matching_parameter_expansion_close(rest)
+        {
+            let body = &rest[2..close_offset];
+            rendered.push_str("${");
+            rendered.push_str(body);
+            if parameter_replacement_body_needs_empty_replacement_slash(body) {
+                rendered.push('/');
+            }
+            rendered.push('}');
+            index += close_offset + 1;
+            continue;
+        }
+        let Some(ch) = rest.chars().next() else {
+            break;
+        };
+        rendered.push(ch);
+        index += ch.len_utf8();
+    }
+    rendered
+}
+
+fn matching_parameter_expansion_close(text: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut escaped = false;
+    for (index, ch) in text.char_indices().skip(2) {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '{' {
+            depth += 1;
+            continue;
+        }
+        if ch == '}' {
+            if depth == 0 {
+                return Some(index);
+            }
+            depth -= 1;
+        }
+    }
+    None
+}
+
+fn parameter_replacement_body_needs_empty_replacement_slash(body: &str) -> bool {
+    let Some(operator_start) = body.find('/') else {
+        return false;
+    };
+    if operator_start == 0
+        || body[..operator_start]
+            .chars()
+            .any(|ch| matches!(ch, '#' | '%' | ':' | '-' | '=' | '+' | '?'))
+    {
+        return false;
+    }
+    let pattern_start = operator_start
+        + if body[operator_start..].starts_with("//") {
+            2
+        } else {
+            1
+        };
+    body.get(pattern_start..)
+        .is_some_and(|pattern| !pattern.is_empty() && !pattern.contains('/'))
 }
 
 fn sequence_verbatim_span(statements: &StmtSeq, source_map: &SourceMap<'_>) -> Option<Span> {
