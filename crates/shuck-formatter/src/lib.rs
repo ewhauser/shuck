@@ -1946,6 +1946,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_multiline_here_string_literal_payload_indent() {
+        let source = "case $kind in\n  service)\n    cat >$unit <<<\"\n[Unit]\nDescription=$name\n\n[Service]\nExecStart=$bin\n\"\n    ;;\nesac\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case $kind in\nservice)\n\tcat >$unit <<<\"\n[Unit]\nDescription=$name\n\n[Service]\nExecStart=$bin\n\"\n\t;;\nesac\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn indents_multiline_here_string_command_substitution_targets() {
         let source =
             "f() {\n  IFS=' ' read -ra tags <<<\"$(\n    get_tags \"$1\" \"$2\"\n  )\"\n}\n";

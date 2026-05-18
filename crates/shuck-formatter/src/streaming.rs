@@ -4597,7 +4597,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         ) {
             self.write_space();
         }
-        if matches!(redirect.kind, RedirectKind::HereString) && normalized_target.contains('\n') {
+        if matches!(redirect.kind, RedirectKind::HereString)
+            && here_string_target_is_multiline_literal(normalized_target)
+        {
+            self.write_rendered_shell_text(normalized_target);
+        } else if matches!(redirect.kind, RedirectKind::HereString)
+            && normalized_target.contains('\n')
+        {
             self.write_text_preserving_current_line_indent(normalized_target);
         } else {
             self.write_rendered_shell_text(normalized_target);
@@ -5475,6 +5481,18 @@ fn normalized_redirect_target(kind: RedirectKind, target: &str) -> &str {
     } else {
         target
     }
+}
+
+fn here_string_target_is_multiline_literal(target: &str) -> bool {
+    let target = target.strip_prefix('$').unwrap_or(target);
+    target.starts_with("\"\n")
+        || target.starts_with("\"\\\n")
+        || target.starts_with("'\n")
+        || target.starts_with("$'\n")
+        || target.starts_with("\"\r\n")
+        || target.starts_with("\"\\\r\n")
+        || target.starts_with("'\r\n")
+        || target.starts_with("$'\r\n")
 }
 
 fn redirect_list_needs_leading_space(
