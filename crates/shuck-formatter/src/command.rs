@@ -19,8 +19,8 @@ use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::prelude::{AsFormat, ShellFormatter};
 use crate::word::{
-    render_arithmetic_expr_to_buf, render_pattern_syntax, render_word_syntax,
-    render_word_syntax_to_buf, render_word_syntax_with_facts_to_buf,
+    normalize_raw_pipeline_continuations, render_arithmetic_expr_to_buf, render_pattern_syntax,
+    render_word_syntax, render_word_syntax_to_buf, render_word_syntax_with_facts_to_buf,
     word_gap_end_before_trailing_continuation,
 };
 
@@ -2160,6 +2160,8 @@ pub(crate) fn multiline_compound_assignment_layout(
         &common_indent,
         !open_line.trim().is_empty(),
     );
+    let command_substitution_body_lines =
+        multiline_compound_assignment_command_substitution_body_lines(&raw_lines);
     let mut lines = raw_lines
         .iter()
         .enumerate()
@@ -2169,6 +2171,7 @@ pub(crate) fn multiline_compound_assignment_layout(
                 &common_indent,
                 residual_space_indent_width,
                 index == 0 && !open_line.trim().is_empty(),
+                command_substitution_body_lines[index],
             )
         })
         .collect::<Vec<_>>();
@@ -2215,6 +2218,12 @@ fn normalize_multiline_compound_assignment_command_substitutions(
             continue;
         };
 
+        normalize_multiline_compound_assignment_command_substitution_pipeline_continuations(
+            &mut lines,
+            index + 1,
+            close_index,
+        );
+
         let body_prefix =
             multiline_compound_assignment_command_substitution_body_prefix(&lines[index]);
         if body_prefix.is_empty() {
@@ -2238,6 +2247,58 @@ fn normalize_multiline_compound_assignment_command_substitutions(
         index = close_index + 1;
     }
     lines
+}
+
+fn multiline_compound_assignment_command_substitution_body_lines(raw_lines: &[&str]) -> Vec<bool> {
+    let mut body_lines = vec![false; raw_lines.len()];
+    let mut index = 0;
+    while index < raw_lines.len() {
+        if !line_has_unclosed_command_substitution_open(raw_lines[index]) {
+            index += 1;
+            continue;
+        }
+
+        let Some(close_index) = raw_lines[index + 1..]
+            .iter()
+            .position(|line| line.trim_start_matches([' ', '\t']).starts_with(')'))
+            .map(|relative| index + 1 + relative)
+        else {
+            index += 1;
+            continue;
+        };
+
+        for body_line in &mut body_lines[index + 1..close_index] {
+            *body_line = true;
+        }
+        index = close_index + 1;
+    }
+    body_lines
+}
+
+fn normalize_multiline_compound_assignment_command_substitution_pipeline_continuations(
+    lines: &mut [String],
+    body_start: usize,
+    body_end: usize,
+) {
+    if body_start >= body_end {
+        return;
+    }
+
+    let body = lines[body_start..body_end].join("\n");
+    let Some(normalized) = normalize_raw_pipeline_continuations(&body) else {
+        return;
+    };
+    let normalized_lines = normalized
+        .lines()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    if normalized_lines.len() != body_end - body_start {
+        return;
+    }
+
+    for (line, normalized) in lines[body_start..body_end].iter_mut().zip(normalized_lines) {
+        *line = normalized;
+    }
 }
 
 fn multiline_compound_assignment_command_substitution_body_prefix(open_line: &str) -> &'static str {
@@ -2286,9 +2347,14 @@ fn normalize_multiline_compound_assignment_line(
     common_indent: &str,
     residual_space_indent_width: usize,
     open_inline_line: bool,
+    preserve_line_continuation: bool,
 ) -> String {
-    let trimmed =
-        trim_multiline_compound_assignment_line_continuation(line.trim_start_matches([' ', '\t']));
+    let trimmed_start = line.trim_start_matches([' ', '\t']);
+    let trimmed = if preserve_line_continuation {
+        trimmed_start.trim_end_matches([' ', '\t'])
+    } else {
+        trim_multiline_compound_assignment_line_continuation(trimmed_start)
+    };
     if trimmed.is_empty() {
         return String::new();
     }
@@ -2303,7 +2369,13 @@ fn normalize_multiline_compound_assignment_line(
     }
     let stripped = line
         .strip_prefix(common_indent)
-        .map(trim_multiline_compound_assignment_line_continuation)
+        .map(|line| {
+            if preserve_line_continuation {
+                line.trim_end_matches([' ', '\t'])
+            } else {
+                trim_multiline_compound_assignment_line_continuation(line)
+            }
+        })
         .unwrap_or(trimmed);
     let normalized = canonicalize_multiline_compound_assignment_residual_indent(
         stripped,

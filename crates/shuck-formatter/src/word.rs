@@ -3294,7 +3294,7 @@ fn push_raw_shell_line_content_with_normalized_spacing(
     }
 }
 
-fn normalize_raw_pipeline_continuations(text: &str) -> Option<String> {
+pub(crate) fn normalize_raw_pipeline_continuations(text: &str) -> Option<String> {
     let trailing = normalize_raw_trailing_pipe_continuations(text);
     let leading = normalize_raw_leading_pipe_continuations(trailing.as_deref().unwrap_or(text));
     leading.or(trailing)

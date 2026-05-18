@@ -3346,6 +3346,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_compound_assignment_command_substitution_command_continuations() {
+        let source = "f() {\n  _remote_branches=($(\n    git -C \"$path\" ls-remote --heads \"$url\" 2>/dev/null \\\n      | LC_ALL=C sed \"s/.*\\///g\"\n  ))\n  _diff=($(\n    printf \"%s\\n\" \\\n      \"${_index_list[@]:-}\" \\\n      \"${_file_list[@]:-}\" \\\n      | sort \\\n      | uniq -u\n  ))\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\t_remote_branches=($(\n\t\tgit -C \"$path\" ls-remote --heads \"$url\" 2>/dev/null |\n\t\t\tLC_ALL=C sed \"s/.*\\///g\"\n\t))\n\t_diff=($(\n\t\tprintf \"%s\\n\" \\\n\t\t\t\"${_index_list[@]:-}\" \\\n\t\t\t\"${_file_list[@]:-}\" |\n\t\t\tsort |\n\t\t\tuniq -u\n\t))\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn expands_multistatement_command_substitutions_in_array_values() {
         let source = "f() {\n  local -A ver=(\n    [libx11]=\"$(. \"${TERMUX_SCRIPTDIR}/packages/libx11/build.sh\"; echo \"${TERMUX_PKG_VERSION}\")\"\n  )\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
