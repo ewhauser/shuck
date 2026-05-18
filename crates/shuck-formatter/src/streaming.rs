@@ -1713,9 +1713,14 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             0
         };
 
-        for line in &layout.lines[body_start..] {
+        for (index, line) in layout.lines[body_start..].iter().enumerate() {
             self.newline();
-            self.write_indent_units(multiline_compound_assignment_line_extra_indent(line));
+            let closes_inline_assignment =
+                layout.close_inline && body_start + index + 1 == layout.lines.len();
+            self.write_indent_units(multiline_compound_assignment_line_extra_indent(
+                line,
+                closes_inline_assignment,
+            ));
             self.write_text(line);
         }
         if layout.close_inline {
@@ -1808,8 +1813,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 if index > 0 {
                     self.newline();
                 }
+                let closes_inline_assignment =
+                    layout.close_inline && body_start + index + 1 == layout.lines.len();
                 self.with_extra_prefix_indent(
-                    multiline_compound_assignment_line_extra_indent(line),
+                    multiline_compound_assignment_line_extra_indent(line, closes_inline_assignment),
                     |formatter| formatter.write_text(line),
                 );
             }
@@ -6571,8 +6578,23 @@ fn sequence_verbatim_span(statements: &StmtSeq, source_map: &SourceMap<'_>) -> O
         .reduce(|left, right| left.merge(right))
 }
 
-fn multiline_compound_assignment_line_extra_indent(line: &str) -> usize {
-    usize::from(!line.is_empty() && !line.starts_with(')'))
+fn multiline_compound_assignment_line_extra_indent(
+    line: &str,
+    closes_inline_assignment: bool,
+) -> usize {
+    if line.is_empty() {
+        return 0;
+    }
+    if closes_inline_assignment && line == ")" {
+        return 0;
+    }
+    if let Some(rest) = line.strip_prefix(')')
+        && !rest.is_empty()
+        && !rest.starts_with([' ', '\t'])
+    {
+        return 0;
+    }
+    1
 }
 
 fn case_prefix_comment_uses_body_indent(

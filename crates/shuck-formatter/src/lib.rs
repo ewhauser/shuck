@@ -2699,6 +2699,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn normalizes_multiline_command_substitution_array_elements() {
+        let source = "items=(\nfirst\n    $(\n        for item in $items; do\n            echo \"$item\"\n        done\n    )\n\n)\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "items=(\n\tfirst\n\t$(\n\t\tfor item in $items; do\n\t\t\techo \"$item\"\n\t\tdone\n\t)\n\n)\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_inline_multiline_compound_assignment_delimiters() {
         let source = "options=(path frozen without\n  ssl_verify_mode system_bindir user_agent)\n";
         let options = ShellFormatOptions::default();

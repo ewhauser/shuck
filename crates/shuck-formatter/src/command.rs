@@ -2113,7 +2113,10 @@ pub(crate) fn multiline_compound_assignment_layout(
     if open_line.trim().is_empty() && raw_lines.first().is_some_and(|line| line.is_empty()) {
         raw_lines.remove(0);
     }
-    if close_line.trim().is_empty() && raw_lines.last().is_some_and(|line| line.is_empty()) {
+    if close_line.trim().is_empty()
+        && raw_lines.last().is_some_and(|line| line.is_empty())
+        && !body.ends_with('\n')
+    {
         raw_lines.pop();
     }
     let common_indent =
@@ -2178,7 +2181,7 @@ fn multiline_compound_assignment_common_body_indent(lines: &[&str], open_inline:
         }
         let indent = leading_shell_indent(line);
         if indent.is_empty() {
-            return String::new();
+            continue;
         }
         common = Some(match common.take() {
             Some(previous) => common_indent_prefix(&previous, indent).to_string(),
