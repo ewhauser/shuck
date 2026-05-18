@@ -2612,10 +2612,12 @@ fn normalize_inline_raw_command_substitution_body(
             let extra_units = usize::from(!normalized_pipeline_continuation);
             indent_units = indent_units.max(previous_units + extra_units);
         }
+        let mut used_continuation_indent = false;
         if let Some(units) = continuation_indent_units.take()
             && !content.starts_with('#')
         {
             indent_units = units;
+            used_continuation_indent = true;
         }
 
         for _ in 0..indent_units {
@@ -2629,7 +2631,11 @@ fn normalize_inline_raw_command_substitution_body(
             previous_pipeline_indent_units =
                 line_ends_with_raw_continuation_operator(content).then_some(indent_units);
             if line_without_continuation_backslash(content).is_some() {
-                continuation_indent_units.get_or_insert(indent_units + 1);
+                continuation_indent_units = Some(if used_continuation_indent {
+                    indent_units
+                } else {
+                    indent_units + 1
+                });
             } else {
                 continuation_indent_units = None;
             }
