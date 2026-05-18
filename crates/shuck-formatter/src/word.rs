@@ -2468,70 +2468,68 @@ fn push_raw_block_command_substitution_without_outer_indent(
         }
         let indent_before_pipeline_adjustment = line_leading_shell_indent(&line).to_string();
         let carried_pipeline_indent = previous_pipeline_indent.clone();
+        let mut force_preserve_line_indent = false;
         let indent = line_leading_shell_indent(&line);
         let content = &line[indent.len()..];
-        if let Some(previous_indent) = previous_pipeline_indent.as_deref()
+        if !normalized_pipeline_continuation
+            && let Some(previous_indent) = previous_pipeline_indent.as_deref()
             && !content.trim().is_empty()
         {
-            if content.starts_with('#') {
-                let comment_indent = if !normalized_pipeline_continuation
-                    && body_indent.as_deref() == Some(previous_indent)
-                    && indent.len() <= previous_indent.len()
-                {
-                    source_indent_plus_one_unit(previous_indent, options)
-                } else if indent.len() < previous_indent.len() {
-                    previous_indent.to_string()
-                } else {
-                    indent.to_string()
-                };
-                line = format!("{comment_indent}{content}");
-            } else {
-                if !normalized_pipeline_continuation
-                    && body_indent.as_deref() == Some(previous_indent)
-                    && indent.len() <= previous_indent.len()
-                {
-                    line = format!(
-                        "{}{content}",
-                        source_indent_plus_one_unit(previous_indent, options)
-                    );
-                } else if indent.len() < previous_indent.len() {
-                    line = format!("{previous_indent}{content}");
-                }
+            let desired_indent = source_indent_plus_one_unit(previous_indent, options);
+            if raw_indent_units(indent, options) < raw_indent_units(&desired_indent, options) {
+                line = format!("{desired_indent}{content}");
+                force_preserve_line_indent = true;
             }
+        }
+        let indent = line_leading_shell_indent(&line);
+        let content = &line[indent.len()..];
+        let in_compound_body = compound_comment_indents.last().is_some_and(|compound| {
+            !content.trim().is_empty()
+                && !raw_line_closes_compound(content, compound.close_keyword)
+                && !raw_line_is_compound_mid_keyword(content)
+        });
+        if in_compound_body
+            && let Some(compound) = compound_comment_indents.last()
+            && raw_indent_units(indent, options) < raw_indent_units(&compound.child_indent, options)
+        {
+            line = format!("{}{content}", compound.child_indent);
+            force_preserve_line_indent = true;
         }
         let indent = line_leading_shell_indent(&line);
         let content = &line[indent.len()..];
         if body_indent.is_none() && !content.trim().is_empty() && !content.starts_with('#') {
             body_indent = Some(indent.to_string());
         }
-        let is_pipeline_continuation_comment =
-            content.starts_with('#') && carried_pipeline_indent.is_some();
-        let is_compound_body_comment = content.starts_with('#')
-            && compound_comment_indents.last().is_some_and(|compound| {
-                indent.len() >= compound.child_indent.len()
-                    && raw_indent_starts_with(indent, &compound.child_indent)
-            });
+        let is_pipeline_continuation = !normalized_pipeline_continuation
+            && carried_pipeline_indent.is_some()
+            && !content.trim().is_empty();
+        let body_indent_for_line =
+            if force_preserve_line_indent || is_pipeline_continuation || in_compound_body {
+                None
+            } else {
+                body_indent.as_deref()
+            };
         push_raw_shell_line_with_normalized_source_indent(
             target,
             &line,
             options,
-            if is_pipeline_continuation_comment || is_compound_body_comment {
-                None
-            } else {
-                body_indent.as_deref()
-            },
+            body_indent_for_line,
         );
+        let rendered_indent =
+            rendered_raw_shell_indent_for_line(indent, content, body_indent_for_line, options);
         previous_pipeline_indent = if content.trim().is_empty() {
             None
         } else if content.starts_with('#') {
             carried_pipeline_indent
+        } else if line_ends_with_raw_continuation_operator(&line) {
+            carried_pipeline_indent.or_else(|| Some(rendered_indent.clone()))
         } else {
-            line_ends_with_raw_continuation_operator(&line).then(|| indent.to_string())
+            None
         };
         quote.scan_line(&line);
         if let Some(close_keyword) = raw_compound_close_keyword(content) {
             compound_comment_indents.push(RawCompoundCommentIndent {
-                child_indent: source_indent_plus_one_unit(indent, options),
+                child_indent: source_indent_plus_one_unit(&rendered_indent, options),
                 close_keyword,
             });
             let before_units = raw_indent_units(&indent_before_pipeline_adjustment, options);
@@ -2622,6 +2620,22 @@ fn push_raw_shell_line_with_normalized_source_indent(
         content
     };
     push_raw_shell_line_with_normalized_redirect_spacing(target, content);
+}
+
+fn rendered_raw_shell_indent_for_line(
+    indent: &str,
+    content: &str,
+    body_indent: Option<&str>,
+    options: &ResolvedShellFormatOptions,
+) -> String {
+    let trimmed_content = content.trim_matches([' ', '\t', '\r']);
+    if body_indent == Some("") && !trimmed_content.is_empty() && trimmed_content != ")" {
+        let mut rendered = String::new();
+        push_indent_units(&mut rendered, options, 1);
+        rendered
+    } else {
+        normalized_raw_shell_indent(indent, options)
+    }
 }
 
 fn strip_semicolon_before_trailing_comment(line: &str) -> Option<String> {
@@ -3224,6 +3238,9 @@ fn raw_semicolon_is_single_terminator(bytes: &[u8], semicolon_start: usize) -> b
 
 fn raw_compound_close_keyword(content: &str) -> Option<&'static str> {
     let trimmed = content.trim_end_matches([' ', '\t', '\r']);
+    if trimmed == "{" || trimmed.ends_with(" {") || trimmed.ends_with("; {") {
+        return Some("}");
+    }
     if raw_line_starts_with_keyword(trimmed, "for")
         || raw_line_starts_with_keyword(trimmed, "select")
         || raw_line_starts_with_keyword(trimmed, "while")
@@ -3242,6 +3259,14 @@ fn raw_compound_close_keyword(content: &str) -> Option<&'static str> {
 
 fn raw_line_closes_compound(content: &str, close_keyword: &str) -> bool {
     raw_line_starts_with_keyword(content.trim_start_matches([' ', '\t', '\r']), close_keyword)
+}
+
+fn raw_line_is_compound_mid_keyword(content: &str) -> bool {
+    let content = content.trim_start_matches([' ', '\t', '\r']);
+    raw_line_starts_with_keyword(content, "else")
+        || raw_line_starts_with_keyword(content, "elif")
+        || raw_line_starts_with_keyword(content, "then")
+        || raw_line_starts_with_keyword(content, "do")
 }
 
 fn raw_line_starts_with_keyword(line: &str, keyword: &str) -> bool {
