@@ -262,6 +262,7 @@ struct ShellStreamFormatter<'source, 'facts> {
     line_indent_column: usize,
     line_start: bool,
     pipeline_continuation_indent: usize,
+    filter_next_group_body_leading_before_open: bool,
     pending_heredocs: Vec<PendingHeredoc>,
 }
 
@@ -318,6 +319,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             line_indent_column: 0,
             line_start: true,
             pipeline_continuation_indent: 1,
+            filter_next_group_body_leading_before_open: false,
             pending_heredocs: Vec::new(),
         }
     }
@@ -1968,12 +1970,20 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_text(list_item_multiline_separator(item.operator));
             self.newline();
             self.with_indent(|formatter| {
+                let emitted_interstitial_comments = formatter
+                    .emit_command_list_interstitial_comments(item.stmt, item.operator_span);
                 if stmt_is_pipeline(item.stmt) {
                     formatter.with_pipeline_continuation_indent(0, |formatter| {
-                        formatter.format_stmt(item.stmt)
+                        formatter.with_group_body_leading_filter(
+                            emitted_interstitial_comments,
+                            |formatter| formatter.format_stmt(item.stmt),
+                        )
                     })
                 } else {
-                    formatter.format_stmt(item.stmt)
+                    formatter.with_group_body_leading_filter(
+                        emitted_interstitial_comments,
+                        |formatter| formatter.format_stmt(item.stmt),
+                    )
                 }
             })?;
             return Ok(());
@@ -1981,6 +1991,25 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
         self.write_text(list_item_inline_separator(item.operator));
         self.format_stmt(item.stmt)
+    }
+
+    fn emit_command_list_interstitial_comments(
+        &mut self,
+        stmt: &Stmt,
+        operator_span: Span,
+    ) -> bool {
+        let command_start = command_format_span(&stmt.command).start.offset;
+        if command_start <= operator_span.end.offset {
+            return false;
+        }
+        let comments =
+            own_line_comments_in_region(self.source(), operator_span.end.offset, command_start);
+        let emitted = !comments.is_empty();
+        for comment in comments {
+            self.write_text(&comment.text);
+            self.newline();
+        }
+        emitted
     }
 
     fn format_if(&mut self, command: &IfCommand) -> Result<()> {
@@ -3239,6 +3268,21 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         result
     }
 
+    fn with_group_body_leading_filter<T>(
+        &mut self,
+        enabled: bool,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        if !enabled {
+            return f(self);
+        }
+        let previous = self.filter_next_group_body_leading_before_open;
+        self.filter_next_group_body_leading_before_open = true;
+        let result = f(self);
+        self.filter_next_group_body_leading_before_open = previous;
+        result
+    }
+
     fn format_brace_group(&mut self, commands: &StmtSeq, upper_bound: Option<usize>) -> Result<()> {
         let sequence_facts = self.facts().sequence(commands, upper_bound);
         let should_inline = sequence_facts.group_open_suffix_span().is_none()
@@ -3726,8 +3770,14 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             {
                 self.write_text(list_item_multiline_separator(item.operator));
                 self.newline();
-                self.write_indent_units(1);
-                self.format_inline_stmt(item.stmt)?;
+                self.with_indent(|formatter| {
+                    let emitted_interstitial_comments = formatter
+                        .emit_command_list_interstitial_comments(item.stmt, item.operator_span);
+                    formatter.with_group_body_leading_filter(
+                        emitted_interstitial_comments,
+                        |formatter| formatter.format_inline_stmt(item.stmt),
+                    )
+                })?;
                 continue;
             }
             self.write_text(list_item_inline_separator(item.operator));
@@ -3813,19 +3863,44 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         upper_bound: Option<usize>,
         preserve_open_blank: bool,
     ) -> Result<()> {
+        self.format_body_with_upper_bound_open_blank_and_leading_filter(
+            commands,
+            upper_bound,
+            preserve_open_blank,
+            None,
+        )
+    }
+
+    fn format_body_with_upper_bound_open_blank_and_leading_filter(
+        &mut self,
+        commands: &StmtSeq,
+        upper_bound: Option<usize>,
+        preserve_open_blank: bool,
+        first_leading_min_offset: Option<usize>,
+    ) -> Result<()> {
         if commands.is_empty() {
             return Ok(());
         }
 
         if self.options().compact_layout() {
             self.write_space();
-            self.format_stmt_sequence(commands, upper_bound)
+            self.format_stmt_sequence_with_leading_filter(
+                commands,
+                upper_bound,
+                first_leading_min_offset,
+            )
         } else {
             self.newline();
             if preserve_open_blank {
                 self.newline();
             }
-            self.with_indent(|formatter| formatter.format_stmt_sequence(commands, upper_bound))
+            self.with_indent(|formatter| {
+                formatter.format_stmt_sequence_with_leading_filter(
+                    commands,
+                    upper_bound,
+                    first_leading_min_offset,
+                )
+            })
         }
     }
 
@@ -3934,6 +4009,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         leading_space: bool,
         upper_bound: Option<usize>,
     ) -> Result<()> {
+        let filter_leading_before_open = self.filter_next_group_body_leading_before_open;
+        self.filter_next_group_body_leading_before_open = false;
         if leading_space {
             self.write_space();
         }
@@ -3965,10 +4042,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             source_has_blank_line_immediately_before_offset(source, close_offset)
         });
 
-        self.format_body_with_upper_bound_and_open_blank(
+        self.format_body_with_upper_bound_open_blank_and_leading_filter(
             commands,
             upper_bound,
             preserve_open_blank,
+            filter_leading_before_open
+                .then_some(open_end_offset)
+                .flatten(),
         )?;
         if preserve_close_blank {
             self.newline();
