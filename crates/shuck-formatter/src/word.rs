@@ -6366,6 +6366,7 @@ fn should_preserve_raw_syntax(raw: &str, rendered: &str) -> bool {
 fn should_preserve_special_rendered_raw_syntax(raw: &str, rendered: &str) -> bool {
     raw != rendered
         && !raw.contains('\n')
+        && !raw_command_substitution_needs_structural_spacing(raw)
         && could_need_preserve_raw_syntax_beyond_line_continuations(raw)
 }
 
