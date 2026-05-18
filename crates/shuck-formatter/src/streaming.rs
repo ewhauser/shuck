@@ -2242,7 +2242,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let fi_upper_bound = fi_span.start.offset;
 
         if command.elif_branches.is_empty()
-            && let Some(raw_condition) = raw_grouped_if_condition(command, then_span, source)
+            && let Some(raw_condition) = raw_grouped_if_condition(
+                command,
+                then_span,
+                source,
+                self.source_map(),
+                self.options(),
+            )
         {
             self.write_text("if");
             self.write_text(&raw_condition);
@@ -2295,7 +2301,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return Ok(());
         }
 
-        if if_condition_starts_after_keyword(command)
+        if if_condition_starts_after_keyword(command, source, self.source_map(), self.options())
             || if_condition_has_explicit_statement_break(command, then_span, source)
         {
             self.write_text("if");
@@ -5511,11 +5517,15 @@ fn stmt_rendered_end_line_after_format(
     fallback
 }
 
-fn if_condition_starts_after_keyword(command: &IfCommand) -> bool {
-    command
-        .condition
-        .first()
-        .is_some_and(|stmt| stmt_span(stmt).start.line > command.span.start.line)
+fn if_condition_starts_after_keyword(
+    command: &IfCommand,
+    source: &str,
+    source_map: &SourceMap<'_>,
+    options: &ResolvedShellFormatOptions,
+) -> bool {
+    command.condition.first().is_some_and(|stmt| {
+        stmt_render_start_line(stmt, source, source_map, options) > command.span.start.line
+    })
 }
 
 fn if_condition_has_explicit_statement_break(
@@ -5683,8 +5693,10 @@ fn raw_grouped_if_condition<'a>(
     command: &IfCommand,
     then_span: Span,
     source: &'a str,
+    source_map: &SourceMap<'_>,
+    options: &ResolvedShellFormatOptions,
 ) -> Option<String> {
-    if !if_condition_starts_after_keyword(command) {
+    if !if_condition_starts_after_keyword(command, source, source_map, options) {
         return None;
     }
     let start = command.span.start.offset.checked_add("if".len())?;
