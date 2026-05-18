@@ -1866,6 +1866,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn command_substitution_assignment_continuations_do_not_double_context_indent() {
+        let source = "get_pr_url(){\n    local existing_pr\n    existing_pr=\"$(gh pr list -R \"$owner/$repo\" \\\n        --json baseRefName,changedFiles \\\n        -q \".[] |\n            select(.baseRefName == \\\"$base\\\")\n    \")\"\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "get_pr_url() {\n\tlocal existing_pr\n\texisting_pr=\"$(gh pr list -R \"$owner/$repo\" \\\n\t\t--json baseRefName,changedFiles \\\n\t\t-q \".[] |\n            select(.baseRefName == \\\"$base\\\")\n    \")\"\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn keeps_single_statement_command_substitutions_with_multiline_literals_inline() {
         let source = "_comp_compgen_split -- \"$(\"$1\" -soundhw help | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}') all\"\n";
         let options = ShellFormatOptions::default();

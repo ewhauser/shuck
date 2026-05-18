@@ -528,27 +528,46 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         } else {
             self.line_indent_column
         };
+        let strip_context_indent = !text
+            .lines()
+            .next()
+            .is_some_and(|line| line.trim_end_matches([' ', '\t', '\r']).ends_with("$("));
         let mut remaining = text;
         while !remaining.is_empty() {
-            if self.line_start
+            let add_context_indent = self.line_start
                 && !remaining.starts_with('\n')
                 && command_substitution_assignment_line_needs_context_indent(
                     remaining,
                     self.options(),
-                )
-            {
+                );
+            if add_context_indent {
                 self.write_indent_to_column(base_indent_column);
             }
 
             match remaining.find('\n') {
                 Some(index) => {
                     let end = index + 1;
-                    self.push_output_str(&remaining[..end]);
+                    let line = &remaining[..end];
+                    let line = if add_context_indent && strip_context_indent {
+                        strip_assignment_context_indent(line, base_indent_column, self.options())
+                    } else {
+                        line
+                    };
+                    self.push_output_str(line);
                     self.line_start = true;
                     remaining = &remaining[end..];
                 }
                 None => {
-                    self.push_output_str(remaining);
+                    let line = if add_context_indent && strip_context_indent {
+                        strip_assignment_context_indent(
+                            remaining,
+                            base_indent_column,
+                            self.options(),
+                        )
+                    } else {
+                        remaining
+                    };
+                    self.push_output_str(line);
                     self.line_start = false;
                     break;
                 }
@@ -6786,6 +6805,35 @@ fn command_substitution_assignment_line_needs_context_indent(
     match options.indent_style() {
         IndentStyle::Tab => !remaining.starts_with(' '),
         IndentStyle::Space => true,
+    }
+}
+
+fn strip_assignment_context_indent<'a>(
+    line: &'a str,
+    base_indent_column: usize,
+    options: &ResolvedShellFormatOptions,
+) -> &'a str {
+    if base_indent_column == 0 {
+        return line;
+    }
+
+    match options.indent_style() {
+        IndentStyle::Tab => {
+            let leading_tabs = line.bytes().take_while(|byte| *byte == b'\t').count();
+            if leading_tabs <= base_indent_column {
+                line
+            } else {
+                &line[base_indent_column..]
+            }
+        }
+        IndentStyle::Space => {
+            let leading_spaces = line.bytes().take_while(|byte| *byte == b' ').count();
+            if leading_spaces <= base_indent_column {
+                line
+            } else {
+                &line[base_indent_column..]
+            }
+        }
     }
 }
 
