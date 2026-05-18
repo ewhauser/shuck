@@ -3808,6 +3808,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn keeps_space_disabled_case_pattern_comments_at_pattern_indent() {
+        let source = "if [ -z \"$ARCH\" ]; then\n  case \"$( uname -m )\" in\n#    i?86) ARCH=i586 ;;\n    arm*) ARCH=arm ;;\n  esac\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\t#    i?86) ARCH=i586 ;;\n\tarm*) ARCH=arm ;;\n\tesac\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn indents_aligned_disabled_case_arm_comments_before_next_pattern() {
         let source = "case \"$ext\" in\n          #.envrc)  cd \"$dirname\" && direnv allow .\n           .envrc)  shellcheck \"$basename\"\n                    ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
@@ -3815,7 +3830,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         assert_eq!(
             format_source(source, None, &options).unwrap(),
             FormattedSource::Formatted(
-                "case \"$ext\" in\n\t#.envrc)  cd \"$dirname\" && direnv allow .\n.envrc)\n\tshellcheck \"$basename\"\n\t;;\nesac\n"
+                "case \"$ext\" in\n#.envrc)  cd \"$dirname\" && direnv allow .\n.envrc)\n\tshellcheck \"$basename\"\n\t;;\nesac\n"
                     .to_string()
             )
         );
@@ -3831,6 +3846,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             format_source(source, None, &options).unwrap(),
             FormattedSource::Formatted(
                 "f() {\n\tcase \"$ext\" in\n\t# this command does not fail when missing\n\t#.vimrc)  if ! vim -c \"source $basename\" -c \"q\"; then\n\t.vimrc)\n\t\techo ok\n\t\t;;\n\tesac\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn keeps_disabled_case_arm_body_comments_at_pattern_indent_without_hash_tabs() {
+        let source = "case \"$GUI\" in\n    # disabled for now\n    #QT) UI=Qt4\n         #sed -i x\n         #;;\n    QT5) UI=Qt5 ;;\nesac\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case \"$GUI\" in\n# disabled for now\n#QT) UI=Qt4\n#sed -i x\n#;;\nQT5) UI=Qt5 ;;\nesac\n"
                     .to_string()
             )
         );
