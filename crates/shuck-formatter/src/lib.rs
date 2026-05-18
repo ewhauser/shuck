@@ -1156,6 +1156,21 @@ mod tests {
     }
 
     #[test]
+    fn defers_heredoc_body_until_continued_pipeline_head_finishes() {
+        let source = "if true; then\ncat << EOF | openssl req -new -key \"$key\" \\\n -x509 \\\n -out \"$cert\"\nbody\nEOF\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if true; then\n\tcat <<EOF | openssl req -new -key \"$key\" \\\n\t\t-x509 \\\n\t\t-out \"$cert\"\nbody\nEOF\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_quoted_heredoc_delimiters_idempotently() {
         assert_idempotent(
             "cat <<'EOF_264'\ndelta\nEOF_264\n",

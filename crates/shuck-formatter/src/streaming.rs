@@ -857,9 +857,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn line_continuation(&mut self) {
-        self.flush_pending_heredocs();
         // A backslash only escapes the following LF, so CRLF here would change
-        // the command structure by leaving the carriage return behind.
+        // the command structure by leaving the carriage return behind. It also
+        // does not terminate a command header, so pending heredocs must remain
+        // queued until the next real line break.
         self.push_output_str(" \\\n");
         self.line_start = true;
     }
