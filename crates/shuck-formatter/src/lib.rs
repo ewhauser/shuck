@@ -784,6 +784,21 @@ mod tests {
     }
 
     #[test]
+    fn ignores_commented_branch_keywords_when_finding_else() {
+        let source = "if a; then\n  one\nelse\n# disabled pre\n#if b; then\n#else\n  two\nfi\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if a; then\n\tone\nelse\n\t# disabled pre\n\t#if b; then\n\t#else\n\ttwo\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn keeps_body_indented_comments_before_elif_inside_previous_branch() {
         let source = "if a; then\none\n  # still body context\nelif b; then\ntwo\nfi\n";
         let options = ShellFormatOptions::default();

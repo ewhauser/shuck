@@ -1627,9 +1627,39 @@ fn branch_body_content_end(body: &StmtSeq) -> usize {
 fn branch_keyword_offset(source: &str, start: usize, end: usize, keyword: &str) -> Option<usize> {
     let start = start.min(end).min(source.len());
     let end = end.min(source.len());
-    source[start..end]
-        .rfind(keyword)
-        .map(|offset| start + offset)
+    let mut line_start = start;
+    while line_start < end {
+        let line_end = source[line_start..end]
+            .find('\n')
+            .map_or(end, |offset| line_start + offset);
+        let line = source.get(line_start..line_end)?;
+        let mut search_start = 0;
+        while let Some(relative) = line[search_start..].find(keyword) {
+            let keyword_start = search_start + relative;
+            let keyword_end = keyword_start + keyword.len();
+            if branch_keyword_candidate_matches(line, keyword_start, keyword_end) {
+                return Some(line_start + keyword_start);
+            }
+            search_start = keyword_end;
+        }
+        line_start = line_end.saturating_add(1);
+    }
+    None
+}
+
+fn branch_keyword_candidate_matches(line: &str, start: usize, end: usize) -> bool {
+    if !shell_keyword_boundaries_match(line, start, end) {
+        return false;
+    }
+
+    let prefix = &line[..start];
+    let trimmed = prefix.trim_start_matches([' ', '\t']);
+    if trimmed.starts_with('#') {
+        return false;
+    }
+
+    let before = prefix.trim_end_matches([' ', '\t']);
+    before.is_empty() || before.ends_with(';') || before.ends_with('&')
 }
 
 fn branch_prefix_first_comment_offset(source: &str, start: usize, end: usize) -> Option<usize> {
