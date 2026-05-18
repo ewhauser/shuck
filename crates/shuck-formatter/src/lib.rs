@@ -4285,6 +4285,21 @@ function R() {
     }
 
     #[test]
+    fn indents_raw_command_substitution_compound_pipeline_bodies() {
+        let source = "urls=\"$(\n    find files |\n    if [ -n \"$filter\" ]; then\n        grep \"$filter\" || :\n    else\n        cat\n    fi |\n    while read -r file; do\n        [ -f \"$file\" ] || continue\n        grep \"$file\" |\n        if [ -n \"$ignored\" ]; then\n            grep -v \"$ignored\"\n        else\n            cat\n        fi\n    done |\n    sort -u\n)\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "urls=\"$(\n\tfind files |\n\t\tif [ -n \"$filter\" ]; then\n\t\t\tgrep \"$filter\" || :\n\t\telse\n\t\t\tcat\n\t\tfi |\n\t\twhile read -r file; do\n\t\t\t[ -f \"$file\" ] || continue\n\t\t\tgrep \"$file\" |\n\t\t\t\tif [ -n \"$ignored\" ]; then\n\t\t\t\t\tgrep -v \"$ignored\"\n\t\t\t\telse\n\t\t\t\t\tcat\n\t\t\t\tfi\n\t\tdone |\n\t\tsort -u\n)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_loop_body_brace_group_background_before_done() {
         let source = "for workflow_name in $workflows; do\n  {\n    output=\"$(printf '%s\\n' \"$workflow_name\")\"\n    echo \"$output\"\n  } &\ndone |\nsort\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

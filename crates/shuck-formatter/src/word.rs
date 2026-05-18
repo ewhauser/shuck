@@ -962,6 +962,9 @@ fn push_raw_command_substitution_with_normalized_spacing(
         quote.scan_line(first);
     }
     let mut previous_pipeline_indent: Option<String> = None;
+    let mut continuation_pipeline_stage_indent: Option<String> = None;
+    let mut compound_indent_shifts = Vec::<RawCompoundIndentShift>::new();
+    let mut compound_comment_indents = Vec::<RawCompoundCommentIndent>::new();
     let outer_shell_indent = normalized_raw_shell_indent(outer_indent, options);
     let mut continuation_indent: Option<String> = raw.split('\n').next().and_then(|first| {
         let continued = line_without_continuation_backslash(first)?;
@@ -993,13 +996,18 @@ fn push_raw_command_substitution_with_normalized_spacing(
                 .strip_prefix(outer_indent)
                 .unwrap_or_else(|| strip_one_indent_unit(line, options))
                 .to_string();
+            let source_indent_for_compound_shift = line_leading_shell_indent(&line).to_string();
+            if let Some(shift) = compound_indent_shifts.last()
+                && raw_line_indent_matches_shift(&line, shift)
+            {
+                line = add_raw_indent_units(&line, shift.extra_units, options);
+            }
             let indent = line_leading_shell_indent(&line);
             let content = &line[indent.len()..];
             let carried_pipeline_indent = previous_pipeline_indent.clone();
             let mut adjusted_line = None;
             if let Some(previous_indent) = carried_pipeline_indent.as_deref()
                 && !content.trim().is_empty()
-                && !content.starts_with('#')
             {
                 if raw_indent_units(indent, options) < raw_indent_units(previous_indent, options) {
                     adjusted_line = Some(format!("{previous_indent}{content}"));
@@ -1023,8 +1031,35 @@ fn push_raw_command_substitution_with_normalized_spacing(
             }
             let indent = line_leading_shell_indent(&line);
             let content = &line[indent.len()..];
+            let in_compound_body = compound_comment_indents.last().is_some_and(|compound| {
+                !content.trim().is_empty()
+                    && !raw_line_closes_compound(content, compound.close_keyword)
+                    && !raw_line_is_compound_mid_keyword(content)
+            });
+            let mut compound_adjusted_line = None;
+            if in_compound_body
+                && let Some(compound) = compound_comment_indents.last()
+                && raw_indent_units(indent, options)
+                    < raw_indent_units(&compound.child_indent, options)
+            {
+                compound_adjusted_line = Some(format!("{}{content}", compound.child_indent));
+            }
+            if let Some(adjusted) = compound_adjusted_line {
+                line = adjusted;
+            }
+            let indent = line_leading_shell_indent(&line);
+            let content = &line[indent.len()..];
             let used_continuation_indent = continuation_indent.is_some();
             push_raw_shell_line_with_normalized_source_indent(target, &line, options, None);
+            let rendered_indent =
+                rendered_raw_shell_indent_for_line(indent, content, None, options);
+            let line_closes_pipeline_stage_compound =
+                compound_comment_indents.last().is_some_and(|compound| {
+                    compound.pipeline_continuation
+                        && raw_line_closes_compound(content, compound.close_keyword)
+                });
+            let line_is_pipeline_continuation_stage = carried_pipeline_indent.is_some();
+            let continued_pipeline_stage_indent = continuation_pipeline_stage_indent.clone();
             previous_pipeline_indent = if content.trim().is_empty() {
                 None
             } else if content.starts_with('#') {
@@ -1032,11 +1067,19 @@ fn push_raw_command_substitution_with_normalized_spacing(
             } else if line_ends_with_raw_continuation_operator(&line) {
                 carried_pipeline_indent.or_else(|| {
                     let indent = line_leading_shell_indent(&line);
-                    Some(if content.starts_with('-') {
-                        indent.to_string()
-                    } else {
-                        source_indent_plus_one_unit(indent, options)
-                    })
+                    Some(
+                        if content.starts_with('-') || line_closes_pipeline_stage_compound {
+                            if raw_line_closes_inline_brace_group_before_pipeline(content) {
+                                continued_pipeline_stage_indent.unwrap_or_else(|| {
+                                    source_indent_minus_one_unit(indent, options)
+                                })
+                            } else {
+                                indent.to_string()
+                            }
+                        } else {
+                            source_indent_plus_one_unit(indent, options)
+                        },
+                    )
                 })
             } else {
                 None
@@ -1044,6 +1087,41 @@ fn push_raw_command_substitution_with_normalized_spacing(
             let line_continues = line_without_continuation_backslash(&line).is_some();
             let line_indent = line_leading_shell_indent(&line).to_string();
             quote.scan_line(&line);
+            if let Some(close_keyword) = raw_compound_close_keyword(content) {
+                compound_comment_indents.push(RawCompoundCommentIndent {
+                    child_indent: source_indent_plus_one_unit(&rendered_indent, options),
+                    close_keyword,
+                    pipeline_continuation: line_is_pipeline_continuation_stage,
+                });
+                let before_units = raw_indent_units(&source_indent_for_compound_shift, options);
+                let after_units = raw_indent_units(indent, options);
+                if after_units > before_units {
+                    compound_indent_shifts.push(RawCompoundIndentShift {
+                        source_indent: source_indent_for_compound_shift,
+                        extra_units: after_units - before_units,
+                        close_keyword,
+                    });
+                }
+            }
+            if compound_indent_shifts
+                .last()
+                .is_some_and(|shift| raw_line_closes_compound(content, shift.close_keyword))
+            {
+                compound_indent_shifts.pop();
+            }
+            if compound_comment_indents
+                .last()
+                .is_some_and(|compound| raw_line_closes_compound(content, compound.close_keyword))
+            {
+                compound_comment_indents.pop();
+            }
+            if line_continues {
+                if line_is_pipeline_continuation_stage && !used_continuation_indent {
+                    continuation_pipeline_stage_indent = Some(line_indent.clone());
+                }
+            } else if used_continuation_indent {
+                continuation_pipeline_stage_indent = None;
+            }
             continuation_indent = line_continues.then(|| {
                 if quote.in_multiline_literal() || used_continuation_indent {
                     line_indent
@@ -2487,12 +2565,12 @@ fn push_raw_block_command_substitution_without_outer_indent(
             .strip_prefix(outer_indent)
             .unwrap_or_else(|| strip_one_indent_unit(line, options))
             .to_string();
+        let source_indent_for_compound_shift = line_leading_shell_indent(&line).to_string();
         if let Some(shift) = compound_indent_shifts.last()
             && raw_line_indent_matches_shift(&line, shift)
         {
             line = add_raw_indent_units(&line, shift.extra_units, options);
         }
-        let indent_before_pipeline_adjustment = line_leading_shell_indent(&line).to_string();
         let carried_pipeline_indent = previous_pipeline_indent.clone();
         let mut force_preserve_line_indent = false;
         let indent = line_leading_shell_indent(&line);
@@ -2545,6 +2623,7 @@ fn push_raw_block_command_substitution_without_outer_indent(
         );
         let rendered_indent =
             rendered_raw_shell_indent_for_line(indent, content, body_indent_for_line, options);
+        let line_is_pipeline_continuation_stage = carried_pipeline_indent.is_some();
         previous_pipeline_indent = if content.trim().is_empty() {
             None
         } else if content.starts_with('#') {
@@ -2559,12 +2638,13 @@ fn push_raw_block_command_substitution_without_outer_indent(
             compound_comment_indents.push(RawCompoundCommentIndent {
                 child_indent: source_indent_plus_one_unit(&rendered_indent, options),
                 close_keyword,
+                pipeline_continuation: line_is_pipeline_continuation_stage,
             });
-            let before_units = raw_indent_units(&indent_before_pipeline_adjustment, options);
+            let before_units = raw_indent_units(&source_indent_for_compound_shift, options);
             let after_units = raw_indent_units(indent, options);
             if after_units > before_units {
                 compound_indent_shifts.push(RawCompoundIndentShift {
-                    source_indent: indent_before_pipeline_adjustment,
+                    source_indent: source_indent_for_compound_shift,
                     extra_units: after_units - before_units,
                     close_keyword,
                 });
@@ -2595,6 +2675,7 @@ struct RawCompoundIndentShift {
 struct RawCompoundCommentIndent {
     child_indent: String,
     close_keyword: &'static str,
+    pipeline_continuation: bool,
 }
 
 fn raw_line_indent_matches_shift(line: &str, shift: &RawCompoundIndentShift) -> bool {
@@ -3469,6 +3550,20 @@ fn raw_line_ends_with_keyword(line: &str, keyword: &str) -> bool {
             .is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b';' | b'|'))
 }
 
+fn raw_line_closes_inline_brace_group_before_pipeline(content: &str) -> bool {
+    let trimmed = content.trim_end_matches([' ', '\t', '\r']);
+    let before_operator = if let Some(prefix) = trimmed.strip_suffix("|&") {
+        prefix
+    } else if let Some(prefix) = trimmed.strip_suffix('|') {
+        prefix
+    } else {
+        return false;
+    };
+    before_operator
+        .trim_end_matches([' ', '\t', '\r'])
+        .ends_with('}')
+}
+
 fn raw_redirect_operator_end(bytes: &[u8], start: usize) -> Option<usize> {
     match bytes.get(start).copied()? {
         b'>' => Some(match bytes.get(start + 1).copied() {
@@ -3557,6 +3652,28 @@ fn strip_one_indent_unit<'a>(line: &'a str, options: &ResolvedShellFormatOptions
         IndentStyle::Space => line
             .strip_prefix(&" ".repeat(usize::from(options.indent_width())))
             .unwrap_or(line),
+    }
+}
+
+fn source_indent_minus_one_unit(indent: &str, options: &ResolvedShellFormatOptions) -> String {
+    match options.indent_style() {
+        IndentStyle::Tab if indent.ends_with('\t') => {
+            let mut shortened = indent.to_string();
+            shortened.pop();
+            shortened
+        }
+        _ => {
+            let width = usize::from(options.indent_width()).max(1);
+            if indent.ends_with(&" ".repeat(width)) {
+                indent[..indent.len().saturating_sub(width)].to_string()
+            } else if indent.ends_with('\t') {
+                let mut shortened = indent.to_string();
+                shortened.pop();
+                shortened
+            } else {
+                indent.to_string()
+            }
+        }
     }
 }
 
