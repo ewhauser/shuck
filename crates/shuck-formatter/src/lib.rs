@@ -6858,6 +6858,21 @@ function R() {
     }
 
     #[test]
+    fn splits_nested_case_body_when_outer_terminator_was_on_next_line() {
+        let source = "case $x in\na) case $y in\nb) echo b ;; esac # note\n;;\nesac\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case $x in\na)\n\tcase $y in\n\tb) echo b ;; esac # note\n\t;;\nesac\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn keeps_case_items_multiline_when_terminator_was_multiline() {
         let source = "case \"$x\" in\n-h|--help)  usage\n            ;;\nesac\n";
         let options = ShellFormatOptions::default();

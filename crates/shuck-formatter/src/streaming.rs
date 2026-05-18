@@ -3254,10 +3254,14 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             }
             let suffix_comments = self.case_suffix_comments_before_esac(command, esac_span);
             if suffix_comments.is_empty() {
-                if case_has_blank_line_before_esac(command, self.source()) {
+                if case_close_shares_line_with_last_item(command, esac_span, self.source()) {
+                    self.write_space();
+                } else {
+                    if case_has_blank_line_before_esac(command, self.source()) {
+                        self.newline();
+                    }
                     self.newline();
                 }
-                self.newline();
             } else {
                 self.emit_case_suffix_comments_before_esac(command, &suffix_comments, esac_span);
             }
@@ -6689,6 +6693,10 @@ fn case_item_single_body_stmt_can_inline(
             && case_item_close_paren_shares_line_with_body(item, source)
             && case_item_if_close_shares_terminator(command, item, source, source_map);
     }
+    if let Command::Compound(CompoundCommand::Case(command)) = &stmt.command {
+        return pattern_body_terminator_was_inline
+            && case_item_case_close_shares_terminator(command, item, source, source_map);
+    }
     true
 }
 
@@ -6711,6 +6719,25 @@ fn case_item_if_close_shares_terminator(
         .is_some_and(|gap| !gap.contains('\n') && !gap.contains('\r'))
 }
 
+fn case_item_case_close_shares_terminator(
+    command: &CaseCommand,
+    item: &CaseItem,
+    source: &str,
+    source_map: &SourceMap<'_>,
+) -> bool {
+    let Some(terminator_span) = item.terminator_span else {
+        return false;
+    };
+    let Some(esac_span) = last_shell_keyword_span(source, source_map, command.span, "esac") else {
+        return false;
+    };
+    let esac_end = esac_span.end.offset.min(source.len());
+    let terminator_start = terminator_span.start.offset.min(source.len());
+    source
+        .get(esac_end..terminator_start)
+        .is_some_and(|gap| !gap.contains('\n') && !gap.contains('\r'))
+}
+
 fn case_item_body_was_inline_without_terminator(item: &CaseItem) -> bool {
     if item.terminator_span.is_some() || !case_item_body_can_share_terminator(item) {
         return false;
@@ -6722,6 +6749,27 @@ fn case_item_body_was_inline_without_terminator(item: &CaseItem) -> bool {
         return false;
     };
     pattern.span.end.line == stmt_span(stmt).start.line
+}
+
+fn case_close_shares_line_with_last_item(
+    command: &CaseCommand,
+    esac_span: Option<Span>,
+    source: &str,
+) -> bool {
+    let Some(esac_span) = esac_span else {
+        return false;
+    };
+    let Some(last_item) = command.cases.last() else {
+        return false;
+    };
+    let Some(terminator_span) = last_item.terminator_span else {
+        return false;
+    };
+    let terminator_end = terminator_span.end.offset.min(source.len());
+    let esac_start = esac_span.start.offset.min(source.len());
+    source
+        .get(terminator_end..esac_start)
+        .is_some_and(|gap| !gap.contains('\n') && !gap.contains('\r'))
 }
 
 fn case_item_started_inline_without_terminator(item: &CaseItem) -> bool {
