@@ -4026,6 +4026,22 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn expands_multistatement_process_substitutions_as_blocks() {
+        let source =
+            "while read game; do\n    echo \"$game\"\ndone < <(_get_opts; echo -e \"a\\nb\")\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "while read game; do\n\techo \"$game\"\ndone < <(\n\t_get_opts\n\techo -e \"a\\nb\"\n)\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn does_not_duplicate_process_substitution_comments_before_pipeline_rhs() {
         let source = "while read -r item; do\n    echo \"$item\"\ndone < <(\n    # note\n    produce_items\n) |\nconsume_items\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

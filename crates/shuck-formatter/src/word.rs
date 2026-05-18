@@ -4347,9 +4347,11 @@ fn render_process_substitution(
         return Some(());
     }
 
-    if multiline || has_heredoc {
+    let rendered_multiline = trimmed.contains('\n');
+    if multiline || has_heredoc || rendered_multiline {
         if let Some(raw) = raw
             && process_substitution_source_starts_with_body_line(raw)
+            && raw.contains('\n')
             && !process_substitution_source_closes_on_own_line(raw)
         {
             rendered.push(prefix);
