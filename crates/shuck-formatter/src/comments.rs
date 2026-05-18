@@ -20,24 +20,16 @@ struct SourceMapData {
 impl<'a> SourceMap<'a> {
     #[must_use]
     pub fn new(source: &'a str) -> Self {
-        let line_starts = line_starts(source);
-        let first_non_whitespace = line_starts
-            .iter()
-            .enumerate()
-            .map(|(index, start)| {
-                let end = line_starts.get(index + 1).copied().unwrap_or(source.len());
-                source[*start..end]
-                    .char_indices()
-                    .find(|(_, ch)| *ch != '\n' && !ch.is_whitespace())
-                    .map(|(offset, _)| start + offset)
-            })
-            .collect();
-
+        let mut line_starts = vec![0];
+        let mut first_non_whitespace = Vec::new();
         let mut hash_offsets = Vec::new();
         let mut tab_offsets = Vec::new();
         let mut double_space_offsets = Vec::new();
         let bytes = source.as_bytes();
-        for offset in 0..bytes.len() {
+        let mut line_first_non_whitespace = None;
+        let mut offset = 0;
+
+        while offset < bytes.len() {
             match bytes[offset] {
                 b'#' => hash_offsets.push(offset),
                 b'\t' => tab_offsets.push(offset),
@@ -46,6 +38,36 @@ impl<'a> SourceMap<'a> {
                 }
                 _ => {}
             }
+
+            if bytes[offset] == b'\n' {
+                first_non_whitespace.push(line_first_non_whitespace);
+                line_first_non_whitespace = None;
+                if offset + 1 < bytes.len() {
+                    line_starts.push(offset + 1);
+                }
+                offset += 1;
+                continue;
+            }
+
+            if line_first_non_whitespace.is_none() {
+                if bytes[offset].is_ascii() {
+                    if !bytes[offset].is_ascii_whitespace() {
+                        line_first_non_whitespace = Some(offset);
+                    }
+                } else if let Some(ch) = source[offset..].chars().next() {
+                    if !ch.is_whitespace() {
+                        line_first_non_whitespace = Some(offset);
+                    }
+                    offset += ch.len_utf8();
+                    continue;
+                }
+            }
+
+            offset += 1;
+        }
+
+        if source.is_empty() || !source.ends_with('\n') {
+            first_non_whitespace.push(line_first_non_whitespace);
         }
 
         Self {
@@ -641,16 +663,6 @@ fn span_contains_comment(span: Span, comment: SourceComment<'_>) -> bool {
     span.start.offset <= comment.span.start.offset && comment.span.end.offset <= span.end.offset
 }
 
-fn line_starts(source: &str) -> Vec<usize> {
-    let mut starts = vec![0];
-    for (offset, byte) in source.bytes().enumerate() {
-        if byte == b'\n' && offset + 1 < source.len() {
-            starts.push(offset + 1);
-        }
-    }
-    starts
-}
-
 fn contains_offset_in_range(offsets: &[usize], start: usize, end: usize) -> bool {
     if start >= end {
         return false;
@@ -658,4 +670,34 @@ fn contains_offset_in_range(offsets: &[usize], start: usize, end: usize) -> bool
 
     let index = offsets.partition_point(|offset| *offset < start);
     offsets.get(index).is_some_and(|offset| *offset < end)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_map_indexes_lines_and_comment_contexts_in_one_pass() {
+        let source = "  # leading\ncmd  # inline\n\n\u{2003}# unicode-space\nécho\t  ok\n";
+        let source_map = SourceMap::new(source);
+
+        assert_eq!(source_map.data.line_starts, vec![0, 12, 26, 27, 46]);
+        assert_eq!(
+            source_map.data.first_non_whitespace,
+            vec![Some(2), Some(12), None, Some(30), Some(46)]
+        );
+
+        let leading_hash = source.find('#').unwrap();
+        let inline_hash = source.find("# inline").unwrap();
+        let unicode_hash = source.find("# unicode-space").unwrap();
+        assert!(!source_map.is_inline_comment(leading_hash));
+        assert!(source_map.is_inline_comment(inline_hash));
+        assert!(!source_map.is_inline_comment(unicode_hash));
+
+        let tab = source.find('\t').unwrap();
+        let double_space = source.find("  ok").unwrap();
+        assert!(source_map.has_alignment_padding_between(tab, tab + 1));
+        assert!(source_map.has_alignment_padding_between(double_space, double_space + 2));
+        assert!(source_map.contains_newline_between(leading_hash, inline_hash));
+    }
 }
