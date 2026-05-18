@@ -2098,7 +2098,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }) {
             return;
         }
-        let command_start = pipeline_interstitial_comment_end(stmt, self.source_map());
+        let command_start = interstitial_comment_end(stmt, self.source_map());
         if command_start <= operator_span.end.offset {
             return;
         }
@@ -2206,7 +2206,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         stmt: &Stmt,
         operator_span: Span,
     ) -> bool {
-        let command_start = command_format_span(&stmt.command).start.offset;
+        let command_start = interstitial_comment_end(stmt, self.source_map());
         if command_start <= operator_span.end.offset {
             return false;
         }
@@ -7465,7 +7465,7 @@ fn command_substitution_assignment_line_closes_block(remaining: &str) -> bool {
         .is_some_and(|line| line.trim_start_matches([' ', '\t']).starts_with(')'))
 }
 
-fn pipeline_interstitial_comment_end(stmt: &Stmt, source_map: &SourceMap<'_>) -> usize {
+fn interstitial_comment_end(stmt: &Stmt, source_map: &SourceMap<'_>) -> usize {
     let group_span = match &stmt.command {
         Command::Compound(CompoundCommand::BraceGroup(commands)) => {
             group_attachment_span(commands.as_slice(), source_map, '{', '}')

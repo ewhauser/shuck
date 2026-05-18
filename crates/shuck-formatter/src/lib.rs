@@ -1523,6 +1523,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn keeps_command_list_rhs_brace_group_body_comments_inside_group() {
+        let source = "if { true; } &&\n   command &&\n   {\n     # inside group\n     [[ -t 1 ]] ||\n     true\n   }\nthen\n  :\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if { true; } &&\n\tcommand &&\n\t{\n\t\t# inside group\n\t\t[[ -t 1 ]] ||\n\t\t\ttrue\n\t}; then\n\t:\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn ignores_branch_keywords_inside_leading_comments() {
         let source = "f() {\n  if [ -f .iterate ]; then\n    #ls ./*/.git &>/dev/null; then  # note\n    hr\n  fi\n}\n";
         let options = ShellFormatOptions::default();
