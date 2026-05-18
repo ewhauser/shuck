@@ -2160,7 +2160,7 @@ pub(crate) fn multiline_compound_assignment_layout(
         &common_indent,
         !open_line.trim().is_empty(),
     );
-    let lines = raw_lines
+    let mut lines = raw_lines
         .iter()
         .enumerate()
         .map(|(index, line)| {
@@ -2172,12 +2172,113 @@ pub(crate) fn multiline_compound_assignment_layout(
             )
         })
         .collect::<Vec<_>>();
+    for line in &mut lines {
+        *line = trim_inline_command_substitution_open_padding(line);
+    }
+    let lines = normalize_multiline_compound_assignment_command_substitutions(lines);
 
     (!lines.is_empty()).then_some(MultilineCompoundAssignmentLayout {
         lines,
         open_inline: !open_line.trim().is_empty(),
         close_inline: !close_line.trim().is_empty(),
     })
+}
+
+fn trim_inline_command_substitution_open_padding(line: &str) -> String {
+    let mut rendered = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(open) = rest.find("$(") {
+        rendered.push_str(&rest[..open + 2]);
+        rest = &rest[open + 2..];
+        rest = rest.trim_start_matches([' ', '\t']);
+    }
+    rendered.push_str(rest);
+    rendered
+}
+
+fn normalize_multiline_compound_assignment_command_substitutions(
+    mut lines: Vec<String>,
+) -> Vec<String> {
+    let mut index = 0;
+    while index < lines.len() {
+        if !line_has_unclosed_command_substitution_open(&lines[index]) {
+            index += 1;
+            continue;
+        }
+
+        let Some(close_index) = lines[index + 1..]
+            .iter()
+            .position(|line| line.trim_start_matches([' ', '\t']).starts_with(')'))
+            .map(|relative| index + 1 + relative)
+        else {
+            index += 1;
+            continue;
+        };
+
+        let body_prefix =
+            multiline_compound_assignment_command_substitution_body_prefix(&lines[index]);
+        if body_prefix.is_empty() {
+            index = close_index + 1;
+            continue;
+        }
+
+        let common_indent = common_command_substitution_body_indent(&lines[index + 1..close_index]);
+        for line in &mut lines[index + 1..close_index] {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let stripped = line
+                .strip_prefix(&common_indent)
+                .unwrap_or_else(|| line.trim_start_matches([' ', '\t']));
+            *line = format!("{body_prefix}{stripped}");
+        }
+        lines[close_index] = lines[close_index]
+            .trim_start_matches([' ', '\t'])
+            .to_string();
+        index = close_index + 1;
+    }
+    lines
+}
+
+fn multiline_compound_assignment_command_substitution_body_prefix(open_line: &str) -> &'static str {
+    let Some(open) = open_line.find("$(") else {
+        return "";
+    };
+    let prefix = open_line[..open].trim_start_matches([' ', '\t']);
+    if prefix.is_empty() || prefix.contains("$(") || prefix.contains('(') || prefix.contains('=') {
+        ""
+    } else {
+        "\t"
+    }
+}
+
+fn line_has_unclosed_command_substitution_open(line: &str) -> bool {
+    let Some(open) = line.find("$(") else {
+        return false;
+    };
+    !line[open + 2..].contains(')')
+}
+
+fn common_command_substitution_body_indent(lines: &[String]) -> String {
+    let mut common: Option<String> = None;
+    for line in lines {
+        let trimmed = line.trim_start_matches([' ', '\t']);
+        if trimmed.is_empty() {
+            continue;
+        }
+        let indent = leading_shell_indent(line);
+        if indent.is_empty() {
+            return String::new();
+        }
+        common = Some(match common.take() {
+            Some(previous) => common_indent_prefix(&previous, indent).to_string(),
+            None => indent.to_string(),
+        });
+        if common.as_deref() == Some("") {
+            return String::new();
+        }
+    }
+    common.unwrap_or_default()
 }
 
 fn normalize_multiline_compound_assignment_line(

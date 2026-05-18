@@ -3045,6 +3045,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn normalizes_array_command_substitution_elements_like_shfmt() {
+        let source = "options=( \n  config_file \"$(\n     [[ \"$config\" == *.cfg ]] && echo ok\n  )\"\n  enabled \"$( [[ -n \"$flag\" ]] && echo true || echo false)\"\n)\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "options=(\n\tconfig_file \"$(\n\t\t[[ \"$config\" == *.cfg ]] && echo ok\n\t)\"\n\tenabled \"$([[ -n \"$flag\" ]] && echo true || echo false)\"\n)\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_inline_multiline_compound_assignment_delimiters() {
         let source = "options=(path frozen without\n  ssl_verify_mode system_bindir user_agent)\n";
         let options = ShellFormatOptions::default();

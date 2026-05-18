@@ -6849,7 +6849,8 @@ fn multiline_compound_assignment_line_extra_indent(
     if closes_inline_assignment && line == ")" {
         return 0;
     }
-    if let Some(rest) = line.strip_prefix(')')
+    if closes_inline_assignment
+        && let Some(rest) = line.strip_prefix(')')
         && !rest.is_empty()
         && !rest.starts_with([' ', '\t'])
     {
