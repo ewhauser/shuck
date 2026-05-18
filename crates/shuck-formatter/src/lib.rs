@@ -5788,6 +5788,21 @@ function R() {
     }
 
     #[test]
+    fn preserves_decl_multiline_compound_assignment_literal_shape() {
+        let source = "f() {\n  local options=(\n    1 \"Short\"\n    \"First line\n\nliteral continuation\"\n  )\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\tlocal options=(\n\t\t1 \"Short\"\n\t\t\"First line\n\nliteral continuation\"\n\t)\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn binary_next_line_pipeline_keeps_heredoc_body_unindented() {
         let options = ShellFormatOptions::default().with_binary_next_line(true);
         let formatted =

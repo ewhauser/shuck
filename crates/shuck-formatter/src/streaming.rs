@@ -1856,6 +1856,14 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.format_structural_multiline_compound_assignment(assignment);
             return;
         }
+        if assignment_has_multiline_literal_source(assignment, self.source())
+            && !Self::compound_assignment_source_has_line_continuations(
+                assignment.span.slice(self.source()),
+            )
+        {
+            self.write_multiline_compound_literal_assignment(assignment);
+            return;
+        }
 
         let Some(layout) = multiline_compound_assignment_layout(assignment, self.source()) else {
             self.write_assignment(assignment);
@@ -4517,9 +4525,24 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         };
 
         self.write_text(head);
-        self.newline();
-        self.write_indent_units(1);
-        self.write_verbatim(tail.trim_start_matches([' ', '\t']));
+        let mut quote = None;
+        for line in tail.lines() {
+            self.newline();
+            if quote.is_some() {
+                self.write_verbatim(line.trim_end_matches('\r'));
+                quote = multiline_literal_quote_state_after_line(line, quote);
+                continue;
+            }
+
+            let trimmed = line.trim_start_matches([' ', '\t']).trim_end_matches('\r');
+            if trimmed.starts_with(')') {
+                self.write_text(trimmed);
+            } else {
+                self.write_indent_units(1);
+                self.write_text(trimmed);
+            }
+            quote = multiline_literal_quote_state_after_line(trimmed, quote);
+        }
     }
 
     fn can_inline_body(&self, commands: &StmtSeq, enclosing_span: Span) -> bool {
@@ -7015,6 +7038,49 @@ fn stmt_source_starts_with_redirect(stmt: &Stmt, source: &str) -> bool {
         index += 1;
     }
     matches!(bytes.get(index), Some(b'<' | b'>'))
+}
+
+#[derive(Clone, Copy)]
+enum MultilineLiteralQuote {
+    Single,
+    Double,
+}
+
+fn multiline_literal_quote_state_after_line(
+    line: &str,
+    mut quote: Option<MultilineLiteralQuote>,
+) -> Option<MultilineLiteralQuote> {
+    let mut escaped = false;
+    for ch in line.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match quote {
+            Some(MultilineLiteralQuote::Single) => {
+                if ch == '\'' {
+                    quote = None;
+                }
+            }
+            Some(MultilineLiteralQuote::Double) => {
+                if ch == '\\' {
+                    escaped = true;
+                } else if ch == '"' {
+                    quote = None;
+                }
+            }
+            None => {
+                if ch == '\'' {
+                    quote = Some(MultilineLiteralQuote::Single);
+                } else if ch == '"' {
+                    quote = Some(MultilineLiteralQuote::Double);
+                } else if ch == '\\' {
+                    escaped = true;
+                }
+            }
+        }
+    }
+    quote
 }
 
 fn line_has_trailing_continuation_backslash(line: &str) -> bool {
