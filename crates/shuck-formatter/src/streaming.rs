@@ -21,7 +21,8 @@ use crate::command::{
     render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
     render_subscript_to_buf, render_var_ref_to_buf, slice_span, stmt_attachment_span,
     stmt_format_span, stmt_render_start_line, stmt_seq_has_heredoc, stmt_span,
-    stmt_verbatim_span_with_source_map, trim_unescaped_trailing_whitespace,
+    stmt_start_after_operator, stmt_verbatim_span_with_source_map,
+    trim_unescaped_trailing_whitespace,
 };
 use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
@@ -2093,7 +2094,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }) {
             return;
         }
-        let command_start = interstitial_comment_end(stmt, self.source_map());
+        let command_start = interstitial_comment_end(
+            stmt,
+            operator_span.end.offset,
+            self.source(),
+            self.source_map(),
+        );
         if command_start <= operator_span.end.offset {
             return;
         }
@@ -2201,7 +2207,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         stmt: &Stmt,
         operator_span: Span,
     ) -> bool {
-        let command_start = interstitial_comment_end(stmt, self.source_map());
+        let command_start = interstitial_comment_end(
+            stmt,
+            operator_span.end.offset,
+            self.source(),
+            self.source_map(),
+        );
         if command_start <= operator_span.end.offset {
             return false;
         }
@@ -7449,7 +7460,12 @@ fn pipeline_operator_breaks(
         let Some((_, operator_span)) = operators.get(index - 1) else {
             continue;
         };
-        let next_start = interstitial_comment_end(statements[index], source_map);
+        let next_start = interstitial_comment_end(
+            statements[index],
+            operator_span.end.offset,
+            source,
+            source_map,
+        );
         breaks.push(
             pipeline_operator_starts_or_ends_line(source, *operator_span)
                 || has_newline_between_offsets(source, operator_span.end.offset, next_start),
@@ -7503,19 +7519,13 @@ fn command_substitution_assignment_line_closes_block(remaining: &str) -> bool {
         .is_some_and(|line| line.trim_start_matches([' ', '\t']).starts_with(')'))
 }
 
-fn interstitial_comment_end(stmt: &Stmt, source_map: &SourceMap<'_>) -> usize {
-    let group_span = match &stmt.command {
-        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
-            group_attachment_span(commands.as_slice(), source_map, '{', '}')
-        }
-        Command::Compound(CompoundCommand::Subshell(commands)) => {
-            group_attachment_span(commands.as_slice(), source_map, '(', ')')
-        }
-        _ => None,
-    };
-    group_span
-        .map(|span| span.start.offset)
-        .unwrap_or_else(|| command_format_span(&stmt.command).start.offset)
+fn interstitial_comment_end(
+    stmt: &Stmt,
+    operator_end: usize,
+    source: &str,
+    source_map: &SourceMap<'_>,
+) -> usize {
+    stmt_start_after_operator(stmt, operator_end, source, source_map)
 }
 
 fn loop_condition_has_multiple_commands(condition: &StmtSeq) -> bool {

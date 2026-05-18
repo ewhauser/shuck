@@ -3060,6 +3060,105 @@ pub(crate) fn group_attachment_span(
     Some(source_map.span_for_offsets(open_offset, end))
 }
 
+pub(crate) fn stmt_start_after_operator(
+    stmt: &Stmt,
+    operator_end: usize,
+    source: &str,
+    source_map: &crate::comments::SourceMap<'_>,
+) -> usize {
+    match &stmt.command {
+        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
+            group_open_offset_after_operator(
+                stmt,
+                commands.as_slice(),
+                operator_end,
+                source,
+                source_map,
+                '{',
+                '}',
+            )
+        }
+        Command::Compound(CompoundCommand::Subshell(commands)) => group_open_offset_after_operator(
+            stmt,
+            commands.as_slice(),
+            operator_end,
+            source,
+            source_map,
+            '(',
+            ')',
+        ),
+        _ => command_format_span(&stmt.command).start.offset,
+    }
+}
+
+fn group_open_offset_after_operator(
+    stmt: &Stmt,
+    commands: &[Stmt],
+    operator_end: usize,
+    source: &str,
+    source_map: &crate::comments::SourceMap<'_>,
+    open: char,
+    close: char,
+) -> usize {
+    let search_end = commands
+        .first()
+        .map(|first| stmt_group_attachment_start_offset(first, source_map))
+        .unwrap_or_else(|| stmt_span(stmt).end.offset);
+
+    find_group_open_offset_between(source, operator_end, search_end, open)
+        .or_else(|| {
+            group_attachment_span(commands, source_map, open, close).map(|span| span.start.offset)
+        })
+        .unwrap_or_else(|| command_format_span(&stmt.command).start.offset)
+}
+
+fn find_group_open_offset_between(
+    source: &str,
+    search_start: usize,
+    search_end: usize,
+    open: char,
+) -> Option<usize> {
+    let mut offset = search_start.min(source.len());
+    let upper = search_end.min(source.len());
+
+    while offset < upper {
+        let tail = &source[offset..upper];
+        let ch = tail.chars().next()?;
+        match ch {
+            '\\' => {
+                offset += ch.len_utf8();
+                if let Some(escaped) = source[offset..upper].chars().next() {
+                    offset += escaped.len_utf8();
+                }
+                continue;
+            }
+            '\'' => {
+                offset = skip_single_quoted(source, offset + ch.len_utf8(), upper);
+                continue;
+            }
+            '"' => {
+                offset = skip_double_quoted(source, offset + ch.len_utf8(), upper);
+                continue;
+            }
+            '#' if shell_comment_can_start(source, offset) => {
+                offset = tail
+                    .find('\n')
+                    .map_or(upper, |newline| offset + newline + 1);
+                continue;
+            }
+            _ => {}
+        }
+
+        if ch == open {
+            return Some(offset);
+        }
+
+        offset += ch.len_utf8();
+    }
+
+    None
+}
+
 fn find_group_open_offset_before_stmt(
     source: &str,
     search_end: usize,

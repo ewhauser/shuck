@@ -4789,6 +4789,21 @@ function R() {
     }
 
     #[test]
+    fn keeps_multiline_condition_list_operator_before_brace_group() {
+        let source = "while [[ -n \"$x\" ]] &&\n  ! {\n    [[ -d \"$x\" ]] &&\n      [[ -f \"$x\" ]]\n  } && {\n    {\n      [[ \"$x\" =~ ^/ ]] &&\n        [[ \"$x\" != / ]]\n    } || {\n      [[ \"$x\" != /tmp ]]\n    }\n  }; do\n  x=\"${x%/*}\"\ndone\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "while [[ -n \"$x\" ]] &&\n\t! {\n\t\t[[ -d \"$x\" ]] &&\n\t\t\t[[ -f \"$x\" ]]\n\t} && {\n\t{\n\t\t[[ \"$x\" =~ ^/ ]] &&\n\t\t\t[[ \"$x\" != / ]]\n\t} || {\n\t\t[[ \"$x\" != /tmp ]]\n\t}\n}; do\n\tx=\"${x%/*}\"\ndone\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn formats_completion_function_subscripts_and_case_indent_like_shfmt() {
         let source = r#"_saltkey() {
 	local cur prev opts prev pprev

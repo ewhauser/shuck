@@ -14,7 +14,7 @@ use crate::command::{
     case_item_was_inline_in_source, group_attachment_span, group_open_suffix,
     group_was_inline_in_source, rendered_stmt_end_line, should_render_verbatim,
     stmt_attachment_span, stmt_format_span, stmt_has_trailing_comment, stmt_render_start_line,
-    stmt_span, stmt_verbatim_span_with_source_map,
+    stmt_span, stmt_start_after_operator, stmt_verbatim_span_with_source_map,
 };
 use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_window};
 use crate::options::ResolvedShellFormatOptions;
@@ -584,12 +584,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         self.visit_stmt(command.right.as_ref());
 
         if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll)
-            && pipeline_has_explicit_line_break(
-                command,
-                self.source,
-                self.source_map(),
-                self.options,
-            )
+            && pipeline_has_explicit_line_break(command, self.source, self.source_map())
         {
             self.facts
                 .pipeline_breaks
@@ -600,7 +595,12 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             let mut rest = Vec::new();
             let mut previous = collect_command_list_first(command, &mut rest);
             for item in rest {
-                let next_start = self.facts.stmt(item.stmt).attachment_span().start.offset;
+                let next_start = stmt_start_after_operator(
+                    item.stmt,
+                    item.operator_span.end.offset,
+                    self.source,
+                    self.source_map(),
+                );
                 let next_start_line = self.source_map().line_number_for_offset(next_start);
                 let previous_span = stmt_span(previous);
                 if operator_starts_or_ends_line(self.source, item.operator_span)
@@ -1153,14 +1153,18 @@ fn stmt_is_multiline_conditional(stmt: &Stmt) -> bool {
 }
 
 fn stmt_can_follow_multiline_conditional_inline(stmt: &Stmt) -> bool {
-    matches!(stmt.command, Command::Simple(_) | Command::Builtin(_))
+    matches!(
+        stmt.command,
+        Command::Simple(_)
+            | Command::Builtin(_)
+            | Command::Compound(CompoundCommand::BraceGroup(_) | CompoundCommand::Subshell(_))
+    )
 }
 
 fn pipeline_has_explicit_line_break(
     pipeline: &BinaryCommand,
     source: &str,
     source_map: &SourceMap<'_>,
-    options: &ResolvedShellFormatOptions,
 ) -> bool {
     let mut statements = Vec::new();
     let mut operators = Vec::new();
@@ -1170,8 +1174,12 @@ fn pipeline_has_explicit_line_break(
         let Some(operator_span) = operators.get(index - 1) else {
             continue;
         };
-        let next_start =
-            pipeline_stage_start_offset(statements[index], source, source_map, options);
+        let next_start = stmt_start_after_operator(
+            statements[index],
+            operator_span.end.offset,
+            source,
+            source_map,
+        );
         if operator_starts_or_ends_line(source, *operator_span)
             || has_newline_between(source, operator_span.end.offset, next_start)
         {
@@ -1180,39 +1188,6 @@ fn pipeline_has_explicit_line_break(
     }
 
     false
-}
-
-fn pipeline_stage_start_offset(
-    stmt: &Stmt,
-    source: &str,
-    source_map: &SourceMap<'_>,
-    options: &ResolvedShellFormatOptions,
-) -> usize {
-    match &stmt.command {
-        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
-            group_attachment_span(commands.as_slice(), source_map, '{', '}')
-                .map(|span| span.start.offset)
-                .unwrap_or_else(|| {
-                    stmt_attachment_span(stmt, source, source_map, options)
-                        .start
-                        .offset
-                })
-        }
-        Command::Compound(CompoundCommand::Subshell(commands)) => {
-            group_attachment_span(commands.as_slice(), source_map, '(', ')')
-                .map(|span| span.start.offset)
-                .unwrap_or_else(|| {
-                    stmt_attachment_span(stmt, source, source_map, options)
-                        .start
-                        .offset
-                })
-        }
-        _ => {
-            stmt_attachment_span(stmt, source, source_map, options)
-                .start
-                .offset
-        }
-    }
 }
 
 fn collect_pipeline<'a>(
