@@ -828,6 +828,21 @@ mod tests {
     }
 
     #[test]
+    fn aligns_else_suffix_comments_with_nested_multiline_header_suffix_comments() {
+        let source = "if foo; then\n  :\nelse # branch\n  if [[ \"$x\" =~ y ]]\n  then # nested\n    :\n  fi\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if foo; then\n\t:\nelse                      # branch\n\tif [[ \"$x\" =~ y ]]; then # nested\n\t\t:\n\tfi\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn ignores_commented_branch_keywords_when_finding_else() {
         let source = "if a; then\n  one\nelse\n# disabled pre\n#if b; then\n#else\n  two\nfi\n";
         let options = ShellFormatOptions::default();

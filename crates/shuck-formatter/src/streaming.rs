@@ -6647,6 +6647,15 @@ fn trailing_comment_alignment_column(source: &str, comment: &SourceComment<'_>) 
             .find('\n')
             .map_or(source.len(), |offset| start + offset);
         let Some(width) = inline_comment_code_width(source, start, end, None) else {
+            if let Some((width, suffix_end)) =
+                multiline_header_suffix_comment_width(source, line_start, start, end)
+            {
+                widths.push(width);
+                next_start = suffix_end
+                    .checked_add(1)
+                    .filter(|offset| *offset < source.len());
+                continue;
+            }
             break;
         };
         widths.push(width);
@@ -6774,6 +6783,84 @@ fn inline_comment_code_width(
         return None;
     }
     trimmed_line_width(prefix)
+}
+
+fn multiline_header_suffix_comment_width(
+    source: &str,
+    current_line_start: usize,
+    header_start: usize,
+    header_end: usize,
+) -> Option<(usize, usize)> {
+    let header_line = source.get(header_start..header_end)?;
+    if find_inline_comment_start(header_line, header_start).is_some() {
+        return None;
+    }
+    let header = header_line.trim_matches([' ', '\t', '\r']);
+    let suffix = multiline_header_suffix_keyword(header)?;
+
+    let suffix_start = header_end.checked_add(1)?;
+    if suffix_start >= source.len() {
+        return None;
+    }
+    let suffix_end = source[suffix_start..]
+        .find('\n')
+        .map_or(source.len(), |offset| suffix_start + offset);
+    let suffix_line = source.get(suffix_start..suffix_end)?;
+    let comment_offset = find_inline_comment_start(suffix_line, suffix_start)?;
+    let suffix_prefix = source.get(suffix_start..comment_offset)?;
+    if suffix_prefix.trim_matches([' ', '\t', '\r']) != suffix {
+        return None;
+    }
+
+    let header = header.trim_end_matches(';').trim_end();
+    let rendered = format!("{header}; {suffix}");
+    let indent_delta =
+        rendered_indent_delta_between_lines(source, current_line_start, header_start);
+    Some((
+        normalized_comment_alignment_width(&rendered) + indent_delta,
+        suffix_end,
+    ))
+}
+
+fn multiline_header_suffix_keyword(header: &str) -> Option<&'static str> {
+    match header.split_whitespace().next()? {
+        "if" | "elif" => Some("then"),
+        "for" | "select" | "until" | "while" => Some("do"),
+        _ => None,
+    }
+}
+
+fn rendered_indent_delta_between_lines(
+    source: &str,
+    current_line_start: usize,
+    target_line_start: usize,
+) -> usize {
+    let Some((_, current_line_end)) = line_bounds_for_offset(source, current_line_start) else {
+        return 0;
+    };
+    let Some((_, target_line_end)) = line_bounds_for_offset(source, target_line_start) else {
+        return 0;
+    };
+    let current_indent = line_indent_width(source, current_line_start, current_line_end);
+    let target_indent = line_indent_width(source, target_line_start, target_line_end);
+    if target_indent <= current_indent {
+        return 0;
+    }
+    let delta = target_indent - current_indent;
+    let unit = if current_indent == 0 {
+        delta
+    } else {
+        current_indent.min(delta)
+    }
+    .max(1);
+    delta.div_ceil(unit)
+}
+
+fn line_indent_width(source: &str, line_start: usize, line_end: usize) -> usize {
+    source
+        .get(line_start..line_end)
+        .and_then(leading_indent_and_code_start)
+        .map_or(0, |(indent, _)| indent)
 }
 
 fn find_inline_comment_start(line: &str, line_start: usize) -> Option<usize> {
