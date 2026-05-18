@@ -2207,8 +2207,15 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 if if_next_branch_has_blank_line_before_keyword(command, index, source) {
                     self.newline();
                 }
+                let preserve_blank_after_prefix =
+                    if_branch_prefix_comments_have_blank_line_before_keyword(
+                        command, index, source,
+                    );
                 self.emit_branch_prefix_comments(command, index);
                 self.newline();
+                if preserve_blank_after_prefix {
+                    self.newline();
+                }
                 if condition_keyword_on_previous_non_empty_line(condition, source, "elif")
                     || elif_condition_has_explicit_statement_break(condition, body, source)
                 {
@@ -2249,8 +2256,17 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 ) {
                     self.newline();
                 }
+                let preserve_blank_after_prefix =
+                    if_branch_prefix_comments_have_blank_line_before_keyword(
+                        command,
+                        command.elif_branches.len(),
+                        source,
+                    );
                 self.emit_branch_prefix_comments(command, command.elif_branches.len());
                 self.newline();
+                if preserve_blank_after_prefix {
+                    self.newline();
+                }
                 self.write_text("else");
                 let body_upper_bound = fi_upper_bound;
                 self.write_sequence_open_suffix(body, Some(body_upper_bound));
@@ -2414,8 +2430,15 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 if if_next_branch_has_blank_line_before_keyword(command, index, source) {
                     self.newline();
                 }
+                let preserve_blank_after_prefix =
+                    if_branch_prefix_comments_have_blank_line_before_keyword(
+                        command, index, source,
+                    );
                 self.emit_branch_prefix_comments(command, index);
                 self.newline();
+                if preserve_blank_after_prefix {
+                    self.newline();
+                }
                 if condition_keyword_on_previous_non_empty_line(condition, source, "elif")
                     || elif_condition_has_explicit_statement_break(condition, body, source)
                 {
@@ -2460,8 +2483,17 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 ) {
                     self.newline();
                 }
+                let preserve_blank_after_prefix =
+                    if_branch_prefix_comments_have_blank_line_before_keyword(
+                        command,
+                        command.elif_branches.len(),
+                        source,
+                    );
                 self.emit_branch_prefix_comments(command, command.elif_branches.len());
                 self.newline();
+                if preserve_blank_after_prefix {
+                    self.newline();
+                }
                 self.write_text("else");
             }
             let body_upper_bound = fi_upper_bound;
@@ -2592,16 +2624,22 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 (
                     self.source_map().line_number_for_offset(comment.offset),
                     comment.text,
+                    comment.source_indent,
                 )
             })
             .collect::<Vec<_>>();
         if comments.is_empty() {
             return;
         }
+        let disabled_branch_block = branch_prefix_comments_use_disabled_body_indent(&comments);
         self.newline();
-        for (index, (line, text)) in comments.iter().enumerate() {
-            self.write_text(text);
-            if let Some((next_line, _)) = comments.get(index + 1) {
+        for (index, (line, text, _)) in comments.iter().enumerate() {
+            if disabled_branch_block {
+                self.with_indent(|formatter| formatter.write_text(text));
+            } else {
+                self.write_text(text);
+            }
+            if let Some((next_line, _, _)) = comments.get(index + 1) {
                 self.write_line_breaks(line_gap_break_count(*line, *next_line));
             }
         }
@@ -7386,6 +7424,23 @@ fn if_next_branch_has_blank_line_before_keyword(
     })
 }
 
+fn if_branch_prefix_comments_have_blank_line_before_keyword(
+    command: &IfCommand,
+    branch_index: usize,
+    source: &str,
+) -> bool {
+    if_next_branch_region(command, branch_index, source).is_some_and(|(start, end)| {
+        let comments = branch_prefix_comments(source, start, end);
+        let Some(last) = comments.last() else {
+            return false;
+        };
+        let Some(line_end) = source[last.offset..end].find('\n') else {
+            return false;
+        };
+        gap_has_empty_physical_line(source, last.offset + line_end, end)
+    })
+}
+
 fn if_next_branch_region(
     command: &IfCommand,
     branch_index: usize,
@@ -7492,6 +7547,7 @@ fn branch_keyword_candidate_matches(line: &str, start: usize, end: usize) -> boo
 struct BranchPrefixComment {
     offset: usize,
     text: String,
+    source_indent: usize,
 }
 
 fn branch_prefix_comments(source: &str, start: usize, end: usize) -> Vec<BranchPrefixComment> {
@@ -7503,20 +7559,52 @@ fn branch_prefix_comments(source: &str, start: usize, end: usize) -> Vec<BranchP
     let keyword_indent = line_indent_before_offset(source, end).unwrap_or("");
 
     let mut comments = Vec::new();
+    let mut in_branch_prefix_run = false;
     let mut offset = start;
     for line in slice.split_inclusive('\n') {
         let text = line.trim_end_matches(['\n', '\r']);
         let trimmed = text.trim_start_matches([' ', '\t']);
         let indent = text.len().saturating_sub(trimmed.len());
-        if trimmed.starts_with('#') && text.get(..indent) == Some(keyword_indent) {
+        if trimmed.starts_with('#')
+            && (in_branch_prefix_run || text.get(..indent) == Some(keyword_indent))
+        {
             comments.push(BranchPrefixComment {
                 offset: offset + indent,
                 text: trimmed.trim_end_matches([' ', '\t', '\r']).to_string(),
+                source_indent: indent,
             });
+            in_branch_prefix_run = true;
+        } else if !trimmed.is_empty() {
+            in_branch_prefix_run = false;
         }
         offset += line.len();
     }
     comments
+}
+
+fn comment_looks_like_disabled_if_branch(text: &str) -> bool {
+    let body = text
+        .strip_prefix('#')
+        .unwrap_or(text)
+        .trim_start_matches([' ', '\t']);
+    ["elif", "else"]
+        .iter()
+        .any(|keyword| shell_keyword_prefix_matches(body, keyword))
+}
+
+fn branch_prefix_comments_use_disabled_body_indent(comments: &[(usize, String, usize)]) -> bool {
+    let Some((_, first_text, first_indent)) = comments.first() else {
+        return false;
+    };
+    comment_looks_like_disabled_if_branch(first_text)
+        && comments
+            .iter()
+            .skip(1)
+            .any(|(_, _, indent)| indent > first_indent)
+}
+
+fn shell_keyword_prefix_matches(text: &str, keyword: &str) -> bool {
+    text.starts_with(keyword) && shell_keyword_boundaries_match(text, 0, keyword.len())
 }
 
 fn own_line_comments_in_region(source: &str, start: usize, end: usize) -> Vec<BranchPrefixComment> {
@@ -7542,6 +7630,7 @@ fn own_line_comments_in_region(source: &str, start: usize, end: usize) -> Vec<Br
             comments.push(BranchPrefixComment {
                 offset: offset + indent,
                 text: trimmed.trim_end_matches([' ', '\t', '\r']).to_string(),
+                source_indent: indent,
             });
         }
         offset += line.len();
