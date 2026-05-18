@@ -4475,6 +4475,22 @@ function R() {
     }
 
     #[test]
+    fn keeps_pipeline_blank_before_disabled_comment_block() {
+        let source =
+            "produce_json |\n\n#if disabled; then\n#  old_filter\n#fi\n\njq -r '.items[]'\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "produce_json |\n\n\t#if disabled; then\n\t#  old_filter\n\t#fi\n\tjq -r '.items[]'\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_comments_between_pipeline_and_compound_command() {
         let source = "while read -r value; do\n  echo \"$value\"\ndone |\n# keep alternate implementation note\nif type -P helper >/dev/null; then\n  helper\nelse\n  cat\nfi\n";
         let options = ShellFormatOptions::default();

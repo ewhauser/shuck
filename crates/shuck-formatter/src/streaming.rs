@@ -1007,6 +1007,34 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
     }
 
+    fn emit_pipeline_leading_comments_after_operator(
+        &mut self,
+        comments: &[SourceComment<'_>],
+        next_line: usize,
+        operator_end: usize,
+    ) {
+        let preserve_blank_before_comments = comments.first().is_some_and(|comment| {
+            gap_has_blank_line(self.source(), operator_end, comment.span().start.offset)
+        });
+        if preserve_blank_before_comments {
+            self.newline();
+        }
+
+        for (index, comment) in comments.iter().enumerate() {
+            self.write_comment(comment);
+            let target_line = comments
+                .get(index + 1)
+                .map(SourceComment::line)
+                .unwrap_or(next_line);
+            let breaks = if preserve_blank_before_comments && index + 1 == comments.len() {
+                1
+            } else {
+                line_gap_break_count(comment.line(), target_line)
+            };
+            self.write_line_breaks(breaks);
+        }
+    }
+
     fn emit_trailing_comments_for_stmt(&mut self, comments: &[SourceComment<'_>]) {
         for comment in comments {
             let current_code_column = self.column.saturating_sub(self.line_indent_column);
@@ -2096,7 +2124,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                         .is_none_or(|min_start| comment.span().start.offset >= min_start)
             })
             .collect::<Vec<_>>();
-        self.emit_leading_comments(&leading, next_line);
+        if let Some(operator_end) = min_comment_start {
+            self.emit_pipeline_leading_comments_after_operator(&leading, next_line, operator_end);
+        } else {
+            self.emit_leading_comments(&leading, next_line);
+        }
         self.format_stmt(stmt)
     }
 
