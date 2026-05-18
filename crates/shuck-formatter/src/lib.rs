@@ -4163,6 +4163,21 @@ function R() {
     }
 
     #[test]
+    fn indents_block_command_substitution_pipeline_comments_inside_assignments() {
+        let source = "snapshots=\"$(\n    tmutil listlocalsnapshots \"$path\" |\n    tail -n +2 |\n    # update snapshots can't be deleted so just take the date timestamped ones:\n    #\n    #                  2026-02-14-041148\n    command ggrep -oP '\\d{4}-\\d\\d-\\d\\d-\\d+'\n)\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "snapshots=\"$(\n\ttmutil listlocalsnapshots \"$path\" |\n\t\ttail -n +2 |\n\t\t# update snapshots can't be deleted so just take the date timestamped ones:\n\t\t#\n\t\t#                  2026-02-14-041148\n\t\tcommand ggrep -oP '\\d{4}-\\d\\d-\\d\\d-\\d+'\n)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_command_substitution_assignment_continuation_alignment() {
         let source = "LIBS=\"$(pkg-config --libs openssl)\" \\\nCFLAGS=\"$SLKCFLAGS -Wl,-s -I$(pwd)/lib\" \\\n./configure \\\n--prefix=/usr\n";
         let options = ShellFormatOptions::default();

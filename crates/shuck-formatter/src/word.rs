@@ -1057,7 +1057,7 @@ impl RawShellQuoteState {
 
     fn scan_line(&mut self, line: &str) {
         let mut escaped = false;
-        for ch in line.chars() {
+        for (index, ch) in line.char_indices() {
             match self.quote {
                 Some('\'') => {
                     if ch == '\'' {
@@ -1070,6 +1070,9 @@ impl RawShellQuoteState {
                     }
                 }
                 _ => {
+                    if ch == '#' && shell_comment_can_start(line, index) {
+                        break;
+                    }
                     if ch == '\'' || (ch == '"' && !escaped) {
                         self.quote = Some(ch);
                     }
@@ -1082,6 +1085,13 @@ impl RawShellQuoteState {
             }
         }
     }
+}
+
+fn shell_comment_can_start(line: &str, offset: usize) -> bool {
+    line[..offset]
+        .chars()
+        .next_back()
+        .is_none_or(|ch| ch.is_whitespace() || matches!(ch, ';' | '&' | '|'))
 }
 
 fn render_word_part(
