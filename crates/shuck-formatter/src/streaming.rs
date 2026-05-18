@@ -876,6 +876,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             && word_is_quoted_formattable_command_substitution_only(word, self.source())
         {
             self.write_text_preserving_current_line_indent(&scratch);
+        } else if scratch.contains('\n') && word_contains_process_substitution(word) {
+            self.write_text_preserving_current_line_indent(&scratch);
         } else if word_has_multiline_literal_source(word, self.source()) {
             self.write_rendered_shell_text(&scratch);
         } else if scratch.contains('\n') && word_contains_command_substitution(word) {
@@ -2077,6 +2079,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         stmt: &Stmt,
         min_comment_start: Option<usize>,
     ) -> Result<()> {
+        let statement_start =
+            stmt_attachment_span(stmt, self.source(), self.source_map(), self.options())
+                .start
+                .offset;
         let next_line =
             stmt_render_start_line(stmt, self.source(), self.source_map(), self.options());
         let leading = stmt
@@ -2085,6 +2091,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             .filter_map(|comment| self.source_map().source_comment(*comment))
             .filter(|comment| {
                 !comment.inline()
+                    && comment.span().end.offset <= statement_start
                     && min_comment_start
                         .is_none_or(|min_start| comment.span().start.offset >= min_start)
             })
@@ -7428,6 +7435,12 @@ fn word_contains_command_substitution(word: &Word) -> bool {
         .any(|part| word_part_contains_command_substitution(&part.kind))
 }
 
+fn word_contains_process_substitution(word: &Word) -> bool {
+    word.parts
+        .iter()
+        .any(|part| word_part_contains_process_substitution(&part.kind))
+}
+
 fn word_part_contains_command_substitution(part: &WordPart) -> bool {
     match part {
         WordPart::CommandSubstitution { .. } => true,
@@ -7463,6 +7476,43 @@ fn word_part_contains_command_substitution(part: &WordPart) -> bool {
                 || length_word_ast
                     .as_deref()
                     .is_some_and(word_contains_command_substitution)
+        }
+        _ => false,
+    }
+}
+
+fn word_part_contains_process_substitution(part: &WordPart) -> bool {
+    match part {
+        WordPart::ProcessSubstitution { .. } => true,
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| word_part_contains_process_substitution(&part.kind)),
+        WordPart::ArithmeticExpansion {
+            expression_word_ast,
+            ..
+        } => word_contains_process_substitution(expression_word_ast),
+        WordPart::ParameterExpansion {
+            operand_word_ast, ..
+        }
+        | WordPart::IndirectExpansion {
+            operand_word_ast, ..
+        } => operand_word_ast
+            .as_deref()
+            .is_some_and(word_contains_process_substitution),
+        WordPart::Substring {
+            offset_word_ast,
+            length_word_ast,
+            ..
+        }
+        | WordPart::ArraySlice {
+            offset_word_ast,
+            length_word_ast,
+            ..
+        } => {
+            word_contains_process_substitution(offset_word_ast)
+                || length_word_ast
+                    .as_deref()
+                    .is_some_and(word_contains_process_substitution)
         }
         _ => false,
     }

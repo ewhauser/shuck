@@ -2410,7 +2410,10 @@ fn line_ends_with_pipeline_operator(line: &str) -> bool {
 }
 
 fn line_ends_with_raw_continuation_operator(line: &str) -> bool {
-    let trimmed = line.trim_end_matches([' ', '\t', '\r']);
+    let code = trailing_comment_start(line)
+        .map(|comment_start| &line[..comment_start])
+        .unwrap_or(line);
+    let trimmed = code.trim_end_matches([' ', '\t', '\r']);
     line_ends_with_pipeline_operator(trimmed) || trimmed.ends_with("&&") || trimmed.ends_with("||")
 }
 
@@ -2665,6 +2668,7 @@ fn push_raw_block_command_substitution_without_outer_indent(
         let content = &line[indent.len()..];
         if let Some(previous_indent) = previous_pipeline_indent.as_deref()
             && !content.trim().is_empty()
+            && !raw_line_closes_substitution_wrapper(content)
         {
             let desired_indent = if normalized_pipeline_continuation {
                 previous_indent.to_string()
@@ -2859,7 +2863,10 @@ fn push_raw_shell_line_with_normalized_source_indent(
     }
     let trimmed_content = content.trim_matches([' ', '\t', '\r']);
     let mut rendered_indent = String::new();
-    if body_indent == Some("") && !trimmed_content.is_empty() && trimmed_content != ")" {
+    if body_indent == Some("")
+        && !trimmed_content.is_empty()
+        && !raw_line_closes_substitution_wrapper(trimmed_content)
+    {
         push_indent_units(&mut rendered_indent, options, 1);
     } else {
         rendered_indent.push_str(&normalized_raw_shell_indent(indent, options));
@@ -2898,7 +2905,10 @@ fn rendered_raw_shell_indent_for_line(
     options: &ResolvedShellFormatOptions,
 ) -> String {
     let trimmed_content = content.trim_matches([' ', '\t', '\r']);
-    if body_indent == Some("") && !trimmed_content.is_empty() && trimmed_content != ")" {
+    if body_indent == Some("")
+        && !trimmed_content.is_empty()
+        && !raw_line_closes_substitution_wrapper(trimmed_content)
+    {
         let mut rendered = String::new();
         push_indent_units(&mut rendered, options, 1);
         rendered
@@ -2960,6 +2970,21 @@ fn trailing_comment_start(line: &str) -> Option<usize> {
     }
 
     None
+}
+
+fn raw_line_closes_substitution_wrapper(content: &str) -> bool {
+    let Some(rest) = content.trim_matches([' ', '\t', '\r']).strip_prefix(')') else {
+        return false;
+    };
+    let rest = rest.trim_matches([' ', '\t', '\r']);
+    rest.is_empty()
+        || rest == "\\"
+        || rest == "|"
+        || rest == "|&"
+        || rest.starts_with("#")
+        || rest.starts_with("\\ ")
+        || rest.starts_with("| ")
+        || rest.starts_with("|& ")
 }
 
 fn push_raw_shell_text_with_normalized_redirect_spacing(target: &mut String, text: &str) {
