@@ -5731,13 +5731,15 @@ fn body_has_blank_line_after_open(
     {
         first_start = stmt_first_content_offset(stmt, source, source_map);
     }
-    let first_start = source_map
-        .first_comment_between(open_end_offset, first_start)
-        .filter(|comment_start| {
-            source_map.line_number_for_offset(*comment_start)
-                != source_map.line_number_for_offset(open_end_offset)
-        })
-        .unwrap_or(first_start);
+    let open_line = source_map.line_number_for_offset(open_end_offset);
+    let mut comment_search = open_end_offset;
+    while let Some(comment_start) = source_map.first_comment_between(comment_search, first_start) {
+        if source_map.line_number_for_offset(comment_start) != open_line {
+            first_start = comment_start;
+            break;
+        }
+        comment_search = comment_start.saturating_add(1);
+    }
     gap_has_blank_line(source, open_end_offset, first_start)
         || (source
             .get(..open_end_offset.min(source.len()))

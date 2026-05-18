@@ -5656,6 +5656,21 @@ function R() {
     }
 
     #[test]
+    fn does_not_insert_blank_after_then_suffix_comment_before_body_comment() {
+        let source = "if [[ \"${#_test_line}\" -gt \"${_COLUMNS}\" ]]\nthen # wrap to next line\n  # Use the existing value.\n  echo yes\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if [[ \"${#_test_line}\" -gt \"${_COLUMNS}\" ]]; then # wrap to next line\n\t# Use the existing value.\n\techo yes\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_blank_line_before_if_fi() {
         let source =
             "if true; then\n  if other; then\n    echo yes\n  else\n    echo no\n  fi\n\nfi\n";
