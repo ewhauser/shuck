@@ -3606,13 +3606,63 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         else {
             return Vec::new();
         };
-        self.facts()
+        let mut comments: Vec<_> = self
+            .facts()
             .sequence(&item.body, upper_bound)
             .leading_for(0)
             .iter()
             .copied()
             .filter(|comment| comment.span().start.offset < first_pattern_start)
-            .collect()
+            .collect();
+        for comment in self.case_item_source_prefix_comments(first_pattern_start) {
+            if !comments
+                .iter()
+                .any(|existing| existing.span().start.offset == comment.span().start.offset)
+            {
+                comments.push(comment);
+            }
+        }
+        comments.sort_by_key(|comment| comment.span().start.offset);
+        comments
+    }
+
+    fn case_item_source_prefix_comments(
+        &self,
+        first_pattern_start: usize,
+    ) -> Vec<SourceComment<'source>> {
+        let source = self.source();
+        let Some((pattern_line_start, _)) = line_bounds_for_offset(source, first_pattern_start)
+        else {
+            return Vec::new();
+        };
+        let mut comments = Vec::new();
+        let mut next_start = pattern_line_start;
+        while let Some((start, end)) = previous_line_bounds(source, next_start) {
+            let Some(line) = source.get(start..end) else {
+                break;
+            };
+            let trimmed = line.trim_matches([' ', '\t', '\r']);
+            if trimmed.is_empty() {
+                next_start = start;
+                continue;
+            }
+            let leading_padding = line.len() - line.trim_start_matches([' ', '\t']).len();
+            let comment = &line[leading_padding..];
+            if !comment.starts_with('#') {
+                break;
+            }
+            let absolute_start = start + leading_padding;
+            let absolute_end = absolute_start + comment.trim_end_matches([' ', '\t', '\r']).len();
+            if let Some(comment) = self
+                .source_map()
+                .source_comment_for_offsets(absolute_start, absolute_end)
+            {
+                comments.push(comment);
+            }
+            next_start = start;
+        }
+        comments.reverse();
+        comments
     }
 
     fn case_suffix_comments_before_esac(

@@ -3837,6 +3837,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_prefix_comments_before_empty_case_items() {
+        let source = "case \"$LUA\" in\n  # LUA=no: accept and do nothing\n  no) ;;\n  # Anything else is a fail\n  *) echo fail ;;\nesac\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case \"$LUA\" in\n# LUA=no: accept and do nothing\nno) ;;\n# Anything else is a fail\n*) echo fail ;;\nesac\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_comments_after_final_case_terminator() {
         let source = "case $key in\nfoo)\n  echo foo\n  ;;\n\n  #if TestValue --function equals --value \"$value\" --search \"1\"; then\n  #     echo \"Found $value\"\n  #else\n  #     echo \"Not found\"\n  #fi\nesac\n";
         let options = ShellFormatOptions::default();
