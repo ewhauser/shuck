@@ -1748,6 +1748,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn normalizes_pipeline_spacing_inside_parameter_default_commands() {
+        let source = "value=${value:-$(printf x|tr x y)}\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted("value=${value:-$(printf x | tr x y)}\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn normalizes_here_string_spacing_inside_command_substitutions() {
         let source = "[[ $versions = \"$(sort -V <<< \"$versions\")\" ]]\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

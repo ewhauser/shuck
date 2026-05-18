@@ -646,7 +646,7 @@ fn word_part_has_parameter_command_redirect_spacing_needs_normalization(
 ) -> bool {
     match part {
         WordPart::Parameter(_) | WordPart::ParameterExpansion { .. } => {
-            raw_source_slice(span, source).is_some_and(raw_command_redirect_spacing_would_change)
+            raw_source_slice(span, source).is_some_and(raw_parameter_command_spacing_would_change)
         }
         WordPart::DoubleQuoted { parts, .. } => parts.iter().any(|part| {
             word_part_has_parameter_command_redirect_spacing_needs_normalization(
@@ -1636,7 +1636,7 @@ fn render_word_part(
                 }
                 rendered.push_str(parameter_defaulting_operator(operator.as_ref()));
                 if let Some(operand) = operand {
-                    push_parameter_operand(rendered, operand, source);
+                    push_parameter_operand(rendered, operand, source, options);
                 }
             }
             rendered.push('}');
@@ -1689,12 +1689,12 @@ fn preferred_raw_word_part_source<'a>(
             let raw = raw_source_slice(span, source)?;
             (parameter_prefers_raw_source(parameter, span, source)
                 && !parameter_raw_subscript_needs_compaction(parameter, source, options)
-                && !raw_command_redirect_spacing_would_change(raw))
+                && !raw_parameter_command_spacing_would_change(raw))
             .then_some(raw)
         }
         WordPart::ParameterExpansion { .. } => {
             let raw = raw_source_slice(span, source)?;
-            (!raw_command_redirect_spacing_would_change(raw)).then_some(raw)
+            (!raw_parameter_command_spacing_would_change(raw)).then_some(raw)
         }
         WordPart::Substring {
             offset_ast,
@@ -3550,6 +3550,11 @@ fn raw_command_redirect_spacing_would_change(raw: &str) -> bool {
     let mut normalized = String::with_capacity(raw.len());
     push_raw_shell_text_with_normalized_redirect_spacing(&mut normalized, raw);
     normalized != raw
+}
+
+fn raw_parameter_command_spacing_would_change(raw: &str) -> bool {
+    raw_command_redirect_spacing_would_change(raw)
+        || raw_command_substitution_needs_structural_spacing(raw)
 }
 
 fn raw_command_substitution_needs_structural_spacing(raw: &str) -> bool {
@@ -5570,13 +5575,102 @@ fn push_parameter_word(
     Ok(())
 }
 
-fn push_parameter_operand(rendered: &mut String, operand: &shuck_ast::SourceText, source: &str) {
+fn push_parameter_operand(
+    rendered: &mut String,
+    operand: &shuck_ast::SourceText,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+) {
     let operand = compact_parameter_operand_subscripts(operand.slice(source));
     if operand.contains("$(") || operand.contains('`') {
-        push_raw_shell_text_with_normalized_redirect_spacing(rendered, &operand);
+        let mut normalized = String::new();
+        push_raw_shell_text_with_normalized_redirect_spacing(&mut normalized, &operand);
+        if let Some(command_normalized) =
+            normalize_inline_command_substitutions_in_parameter_operand(&normalized, options)
+        {
+            rendered.push_str(&command_normalized);
+        } else {
+            rendered.push_str(&normalized);
+        }
     } else {
         rendered.push_str(&operand);
     }
+}
+
+fn normalize_inline_command_substitutions_in_parameter_operand(
+    raw: &str,
+    options: &ResolvedShellFormatOptions,
+) -> Option<String> {
+    let bytes = raw.as_bytes();
+    let mut rendered = String::with_capacity(raw.len());
+    let mut cursor = 0usize;
+    let mut index = 0usize;
+    let mut changed = false;
+
+    while index + 1 < bytes.len() {
+        if bytes[index] == b'$'
+            && bytes[index + 1] == b'('
+            && index
+                .checked_sub(1)
+                .and_then(|previous| bytes.get(previous))
+                .is_none_or(|byte| *byte != b'\\')
+            && bytes.get(index + 2).is_none_or(|byte| *byte != b'(')
+            && let Some(close_offset) = matching_raw_command_substitution_close(raw, index + 2)
+        {
+            let body = &raw[index + 2..close_offset];
+            if !body.contains('\n')
+                && let Some(normalized_body) =
+                    normalize_inline_parameter_command_substitution_body(body, options)
+                && normalized_body != body
+            {
+                rendered.push_str(&raw[cursor..index]);
+                rendered.push_str("$(");
+                rendered.push_str(&normalized_body);
+                rendered.push(')');
+                cursor = close_offset + 1;
+                changed = true;
+            }
+            index = close_offset + 1;
+            continue;
+        }
+        index += 1;
+    }
+
+    if changed {
+        rendered.push_str(&raw[cursor..]);
+        Some(rendered)
+    } else {
+        None
+    }
+}
+
+fn normalize_inline_parameter_command_substitution_body(
+    body: &str,
+    options: &ResolvedShellFormatOptions,
+) -> Option<String> {
+    let trimmed = body.trim_matches([' ', '\t', '\r']);
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let parsed = shuck_parser::parser::Parser::with_dialect(trimmed, options.dialect()).parse();
+    if parsed.is_err() {
+        return None;
+    }
+
+    let facts = FormatterFacts::build(trimmed, &parsed.file, options);
+    let mut nested = String::new();
+    format_stmt_sequence_streaming_to_buf(
+        trimmed,
+        &parsed.file.body,
+        options,
+        &facts,
+        None,
+        &mut nested,
+    )
+    .ok()?;
+    let formatted = trim_trailing_line_endings(&nested);
+    (!formatted.is_empty() && !formatted.contains('\n')).then(|| formatted.to_string())
 }
 
 fn compact_raw_parameter_subscript(raw: &str) -> String {
@@ -5636,7 +5730,7 @@ fn render_parameter_expansion(
             }
             rendered.push_str(parameter_defaulting_operator(operator));
             if let Some(operand) = operand {
-                push_parameter_operand(rendered, operand, source);
+                push_parameter_operand(rendered, operand, source, options);
             }
         }
         ParameterOp::RemovePrefixShort { pattern } => {
