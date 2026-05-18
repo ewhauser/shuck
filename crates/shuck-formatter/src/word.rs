@@ -2557,15 +2557,19 @@ fn push_inline_raw_command_substitution_as_block(
         return true;
     }
 
-    let nested = normalize_inline_raw_command_substitution_body(body_source);
+    let nested = normalize_inline_raw_command_substitution_body(body_source, options);
     target.push_str("$(\n");
     push_indented_rendered_block(target, &nested, options, 1);
     target.push_str("\n)");
     true
 }
 
-fn normalize_inline_raw_command_substitution_body(body_source: &str) -> String {
+fn normalize_inline_raw_command_substitution_body(
+    body_source: &str,
+    options: &ResolvedShellFormatOptions,
+) -> String {
     let normalized = normalize_raw_pipeline_continuations(body_source);
+    let normalized_pipeline_continuation = normalized.is_some();
     let body_source = normalized.as_deref().unwrap_or(body_source);
     let normalized_comment_continuations =
         normalize_continuations_before_comment_lines(body_source);
@@ -2573,47 +2577,122 @@ fn normalize_inline_raw_command_substitution_body(body_source: &str) -> String {
         .as_deref()
         .unwrap_or(body_source);
     let lines = body_source.lines().map(str::to_string).collect::<Vec<_>>();
+    let source_base_indent = inline_raw_body_source_base_indent(&lines);
 
     let mut rendered = String::new();
-    let mut previous_ends_pipeline = false;
+    let mut previous_pipeline_indent_units: Option<usize> = None;
     let mut continuation_indent_units: Option<usize> = None;
+    let mut pipeline_compounds = Vec::<InlinePipelineCompound>::new();
     for (index, line) in lines.iter().enumerate() {
         if index > 0 {
             rendered.push('\n');
         }
         let content = line.trim_start_matches([' ', '\t']);
         if content.trim().is_empty() {
-            previous_ends_pipeline = false;
+            previous_pipeline_indent_units = None;
             continuation_indent_units = None;
             continue;
         }
-        let indent_units = if content.starts_with('#') {
-            0
-        } else if let Some(units) = continuation_indent_units {
-            units
-        } else if previous_ends_pipeline {
-            1
+
+        let carried_pipeline_indent = previous_pipeline_indent_units;
+        let pipeline_base_units = pipeline_compounds
+            .last()
+            .map(|compound| compound.base_units)
+            .unwrap_or(0);
+        let relative_indent = if content.starts_with('#')
+            && carried_pipeline_indent.is_none()
+            && pipeline_compounds.is_empty()
+        {
+            ""
         } else {
-            0
+            inline_raw_body_relative_source_indent(line, index, source_base_indent.as_deref())
         };
+        let mut indent_units = pipeline_base_units + raw_indent_units(relative_indent, options);
+        if let Some(previous_units) = carried_pipeline_indent {
+            let extra_units = usize::from(!normalized_pipeline_continuation);
+            indent_units = indent_units.max(previous_units + extra_units);
+        }
+        if let Some(units) = continuation_indent_units.take()
+            && !content.starts_with('#')
+        {
+            indent_units = units;
+        }
+
         for _ in 0..indent_units {
             rendered.push('\t');
         }
         push_raw_shell_line_with_normalized_redirect_spacing(&mut rendered, content);
+        let line_is_pipeline_continuation_stage = carried_pipeline_indent.is_some();
         if content.starts_with('#') {
-            previous_ends_pipeline = false;
-            continuation_indent_units = None;
+            previous_pipeline_indent_units = carried_pipeline_indent;
         } else {
-            previous_ends_pipeline = line_ends_with_raw_continuation_operator(content);
+            previous_pipeline_indent_units =
+                line_ends_with_raw_continuation_operator(content).then_some(indent_units);
             if line_without_continuation_backslash(content).is_some() {
                 continuation_indent_units.get_or_insert(indent_units + 1);
             } else {
                 continuation_indent_units = None;
             }
         }
+        if let Some(close_keyword) = raw_compound_close_keyword(content)
+            && (line_is_pipeline_continuation_stage || !pipeline_compounds.is_empty())
+        {
+            pipeline_compounds.push(InlinePipelineCompound {
+                close_keyword,
+                base_units: if line_is_pipeline_continuation_stage {
+                    indent_units
+                } else {
+                    pipeline_base_units
+                },
+            });
+        }
+        if pipeline_compounds
+            .last()
+            .is_some_and(|compound| raw_line_closes_compound(content, compound.close_keyword))
+        {
+            pipeline_compounds.pop();
+        }
     }
 
     rendered
+}
+
+struct InlinePipelineCompound {
+    close_keyword: &'static str,
+    base_units: usize,
+}
+
+fn inline_raw_body_source_base_indent(lines: &[String]) -> Option<String> {
+    let mut common: Option<String> = None;
+    for line in lines.iter().skip(1) {
+        if line.trim_matches([' ', '\t', '\r']).is_empty() {
+            continue;
+        }
+        let indent = line_leading_shell_indent(line);
+        common = Some(match common.take() {
+            Some(previous) => common_indent_prefix(&previous, indent).to_string(),
+            None => indent.to_string(),
+        });
+        if common.as_deref() == Some("") {
+            return None;
+        }
+    }
+    common
+}
+
+fn inline_raw_body_relative_source_indent<'a>(
+    line: &'a str,
+    index: usize,
+    source_base_indent: Option<&str>,
+) -> &'a str {
+    let indent = line_leading_shell_indent(line);
+    if index == 0 {
+        return indent;
+    }
+    let Some(source_base_indent) = source_base_indent else {
+        return indent;
+    };
+    indent.strip_prefix(source_base_indent).unwrap_or("")
 }
 
 fn command_substitution_source_prefers_continued_inline_body(raw: &str) -> bool {

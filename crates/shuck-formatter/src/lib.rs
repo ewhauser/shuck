@@ -4707,6 +4707,21 @@ function R() {
     }
 
     #[test]
+    fn indents_inline_raw_command_substitution_compound_pipeline_bodies() {
+        let source = "playlist_id=\"$(producer |\n    if [ \"$x\" ]; then\n        # keep exact match\n        while read -r id name; do\n            if [[ \"$name\" = \"$playlist_name\" ]]; then\n               echo \"$id\"\n               break\n            fi\n        done\n    else\n        grep -Fi \"$playlist_name\" |\n        awk '{print $1}'\n    fi || :\n)\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "playlist_id=\"$(\n\tproducer |\n\t\tif [ \"$x\" ]; then\n\t\t\t# keep exact match\n\t\t\twhile read -r id name; do\n\t\t\t\tif [[ \"$name\" = \"$playlist_name\" ]]; then\n\t\t\t\t\techo \"$id\"\n\t\t\t\t\tbreak\n\t\t\t\tfi\n\t\t\tdone\n\t\telse\n\t\t\tgrep -Fi \"$playlist_name\" |\n\t\t\t\tawk '{print $1}'\n\t\tfi || :\n)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_loop_body_brace_group_background_before_done() {
         let source = "for workflow_name in $workflows; do\n  {\n    output=\"$(printf '%s\\n' \"$workflow_name\")\"\n    echo \"$output\"\n  } &\ndone |\nsort\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
