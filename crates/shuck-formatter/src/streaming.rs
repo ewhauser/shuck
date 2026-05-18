@@ -2321,16 +2321,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 if preserve_blank_after_prefix {
                     self.newline();
                 }
+                let condition_prefix_comments =
+                    self.elif_condition_prefix_comments(command, index, condition);
                 if condition_keyword_on_previous_non_empty_line(condition, source, "elif")
                     || elif_condition_has_explicit_statement_break(condition, body, source)
+                    || !condition_prefix_comments.is_empty()
                 {
-                    self.write_text("elif");
-                    self.newline();
-                    self.with_indent(|formatter| {
-                        formatter.format_stmt_sequence(condition, Some(body.span.start.offset))
-                    })?;
-                    self.newline();
-                    self.write_text("then");
+                    self.write_multiline_elif_header(condition, body)?;
                 } else {
                     self.write_text("elif ");
                     self.format_inline_stmts(condition)?;
@@ -2544,16 +2541,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 if preserve_blank_after_prefix {
                     self.newline();
                 }
+                let condition_prefix_comments =
+                    self.elif_condition_prefix_comments(command, index, condition);
                 if condition_keyword_on_previous_non_empty_line(condition, source, "elif")
                     || elif_condition_has_explicit_statement_break(condition, body, source)
+                    || !condition_prefix_comments.is_empty()
                 {
-                    self.write_text("elif");
-                    self.newline();
-                    self.with_indent(|formatter| {
-                        formatter.format_stmt_sequence(condition, Some(body.span.start.offset))
-                    })?;
-                    self.newline();
-                    self.write_text("then");
+                    self.write_multiline_elif_header(condition, body)?;
                 } else {
                     self.write_text("elif ");
                     self.format_inline_stmts(condition)?;
@@ -2748,6 +2742,38 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.write_line_breaks(line_gap_break_count(*line, *next_line));
             }
         }
+    }
+
+    fn elif_condition_prefix_comments(
+        &self,
+        command: &IfCommand,
+        branch_index: usize,
+        condition: &StmtSeq,
+    ) -> Vec<BranchPrefixComment> {
+        let Some((_, keyword_offset)) = if_next_branch_region(command, branch_index, self.source())
+        else {
+            return Vec::new();
+        };
+        let Some(first) = condition.first() else {
+            return Vec::new();
+        };
+        let condition_start = stmt_span(first).start.offset;
+        if keyword_offset >= condition_start {
+            return Vec::new();
+        }
+
+        self.own_line_comments_in_region(keyword_offset, condition_start)
+    }
+
+    fn write_multiline_elif_header(&mut self, condition: &StmtSeq, body: &StmtSeq) -> Result<()> {
+        self.write_text("elif");
+        self.newline();
+        self.with_indent(|formatter| {
+            formatter.format_stmt_sequence(condition, Some(body.span.start.offset))
+        })?;
+        self.newline();
+        self.write_text("then");
+        Ok(())
     }
 
     fn write_sequence_open_suffix(&mut self, commands: &StmtSeq, upper_bound: Option<usize>) {

@@ -871,6 +871,20 @@ mod tests {
     }
 
     #[test]
+    fn preserves_comments_between_elif_and_condition() {
+        let source = "if a; then\none\nelif\n# explain\n [[ b ]]; then\ntwo\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if a; then\n\tone\nelif\n\t# explain\n\t[[ b ]]\nthen\n\ttwo\nfi\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_comments_after_if_blocks() {
         let formatted = format_source(
             "if true; then\necho hi\nfi\n# after\necho bye\n",
