@@ -1013,7 +1013,7 @@ fn push_raw_command_substitution_with_normalized_spacing(
             }
             let used_continuation_indent = continuation_indent.is_some();
             push_raw_shell_line_with_normalized_source_indent(target, &line, options, None);
-            previous_pipeline_indent = line_ends_with_pipeline_operator(&line)
+            previous_pipeline_indent = line_ends_with_raw_continuation_operator(&line)
                 .then(|| line_leading_shell_indent(&line).to_string());
             let line_continues = line_without_continuation_backslash(&line).is_some();
             let line_indent = line_leading_shell_indent(&line).to_string();
@@ -2188,7 +2188,7 @@ fn indent_inline_pipeline_continuations(
         rendered.push_str(&rendered_line);
         let line_continues = line_without_continuation_backslash(&rendered_line).is_some();
         quote.scan_line(&rendered_line);
-        previous_ends_pipeline = line_ends_with_pipeline_operator(&rendered_line);
+        previous_ends_pipeline = line_ends_with_raw_continuation_operator(&rendered_line);
         continuation_indent = line_continues.then(|| {
             let indent = line_leading_shell_indent(&rendered_line);
             if quote.in_multiline_literal() || used_continuation_indent {
@@ -2209,6 +2209,11 @@ fn line_needs_inline_pipeline_indent(line: &str) -> bool {
 fn line_ends_with_pipeline_operator(line: &str) -> bool {
     let trimmed = line.trim_end_matches([' ', '\t', '\r']);
     trimmed.ends_with("|&") || (trimmed.ends_with('|') && !trimmed.ends_with("||"))
+}
+
+fn line_ends_with_raw_continuation_operator(line: &str) -> bool {
+    let trimmed = line.trim_end_matches([' ', '\t', '\r']);
+    line_ends_with_pipeline_operator(trimmed) || trimmed.ends_with("&&") || trimmed.ends_with("||")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2346,6 +2351,8 @@ fn push_inline_raw_command_substitution_as_block(
 }
 
 fn normalize_inline_raw_command_substitution_body(body_source: &str) -> String {
+    let normalized = normalize_raw_pipeline_continuations(body_source);
+    let body_source = normalized.as_deref().unwrap_or(body_source);
     let mut lines = body_source.lines().map(str::to_string).collect::<Vec<_>>();
 
     for index in 0..lines.len().saturating_sub(1) {
@@ -2389,7 +2396,7 @@ fn normalize_inline_raw_command_substitution_body(body_source: &str) -> String {
             previous_ends_pipeline = false;
             continuation_indent_units = None;
         } else {
-            previous_ends_pipeline = line_ends_with_pipeline_operator(content);
+            previous_ends_pipeline = line_ends_with_raw_continuation_operator(content);
             if line_without_continuation_backslash(content).is_some() {
                 continuation_indent_units.get_or_insert(indent_units + 1);
             } else {
@@ -2441,7 +2448,7 @@ fn push_raw_block_command_substitution_without_outer_indent(
             let content = &line[indent.len()..];
             previous_pipeline_indent = if content.trim().is_empty() {
                 None
-            } else if line_ends_with_pipeline_operator(line) {
+            } else if line_ends_with_raw_continuation_operator(line) {
                 Some(indent.to_string())
             } else {
                 None
@@ -2513,7 +2520,7 @@ fn push_raw_block_command_substitution_without_outer_indent(
         } else if content.starts_with('#') {
             carried_pipeline_indent
         } else {
-            line_ends_with_pipeline_operator(&line).then(|| indent.to_string())
+            line_ends_with_raw_continuation_operator(&line).then(|| indent.to_string())
         };
         quote.scan_line(&line);
         if let Some(close_keyword) = raw_compound_close_keyword(content) {
@@ -2701,7 +2708,7 @@ fn normalize_raw_leading_pipe_continuations(text: &str) -> Option<String> {
 
 fn line_without_trailing_pipe_continuation(line: &str) -> Option<&str> {
     let prefix = line_without_continuation_backslash(line)?;
-    line_ends_with_pipeline_operator(prefix).then_some(prefix)
+    line_ends_with_raw_continuation_operator(prefix).then_some(prefix)
 }
 
 fn line_without_continuation_backslash(line: &str) -> Option<&str> {
@@ -2719,8 +2726,10 @@ fn leading_pipe_continuation(line: &str) -> Option<(&str, &'static str, &str)> {
     let rest = &line[content_start..];
     if let Some(remainder) = rest.strip_prefix("|&") {
         Some((indent, "|&", remainder))
-    } else if rest.starts_with("||") {
-        None
+    } else if let Some(remainder) = rest.strip_prefix("||") {
+        Some((indent, "||", remainder))
+    } else if let Some(remainder) = rest.strip_prefix("&&") {
+        Some((indent, "&&", remainder))
     } else {
         rest.strip_prefix('|')
             .map(|remainder| (indent, "|", remainder))
