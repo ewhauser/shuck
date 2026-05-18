@@ -4379,6 +4379,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_compound_redirect_continuations() {
+        let source = "(\n  echo '#!/usr/bin/wish -f'\n  cat completion.tcl\n  sed '1,5d' $PRGNAM\n) \\\n  >$PKG/usr/bin/$PRGNAM\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "(\n\techo '#!/usr/bin/wish -f'\n\tcat completion.tcl\n\tsed '1,5d' $PRGNAM\n) \\\n\t>$PKG/usr/bin/$PRGNAM\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn trailing_comments_on_function_closing_braces_do_not_poison_following_layout() {
         let source = "foo() {\necho hi\n} # trailing\nbar\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();

@@ -1315,7 +1315,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
         if !stmt.redirects.is_empty() && !emit_redirects_first && !redirects_formatted_with_command
         {
-            if redirect_list_needs_leading_space(command_span, &stmt.redirects, source) {
+            if redirect_list_starts_on_continuation_line(command_span, &stmt.redirects, source) {
+                self.line_continuation();
+                self.write_indent_units(1);
+            } else if redirect_list_needs_leading_space(command_span, &stmt.redirects, source) {
                 self.write_space();
             }
             self.format_redirect_list(&stmt.redirects);
@@ -5515,6 +5518,24 @@ fn redirect_list_needs_leading_space(
     redirects.first().is_none_or(|redirect| {
         !redirect_is_attached_process_substitution(command_span, redirect, source)
     })
+}
+
+fn redirect_list_starts_on_continuation_line(
+    command_span: Span,
+    redirects: &[Redirect],
+    source: &str,
+) -> bool {
+    let Some(redirect) = redirects.first() else {
+        return false;
+    };
+    if command_span == Span::new() || redirect.span.start.offset <= command_span.end.offset {
+        return false;
+    }
+    source
+        .get(
+            command_span.end.offset.min(source.len())..redirect.span.start.offset.min(source.len()),
+        )
+        .is_some_and(|between| between.contains("\\\n") || between.contains("\\\r\n"))
 }
 
 fn redirect_is_attached_process_substitution(
