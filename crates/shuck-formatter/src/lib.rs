@@ -2195,6 +2195,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn formats_commented_brace_group_pipeline_command_substitutions_structurally() {
+        let source = "content=\"$(\n  {\n    cat \"$file\"\n  } | {\n    if [[ \"$tool\" =~ readab ]] &&\n       command -v readable; then # readability-cli\n      readable \\\n        --base \"$url\" \\\n        --quiet \\\n        2>/dev/null || cat\n    else\n      cat\n    fi\n  }\n)\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "content=\"$(\n\t{\n\t\tcat \"$file\"\n\t} | {\n\t\tif [[ \"$tool\" =~ readab ]] &&\n\t\t\tcommand -v readable; then # readability-cli\n\t\t\treadable \\\n\t\t\t\t--base \"$url\" \\\n\t\t\t\t--quiet \\\n\t\t\t\t2>/dev/null || cat\n\t\telse\n\t\t\tcat\n\t\tfi\n\t}\n)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn command_substitutions_with_comments_and_own_line_close_use_block_layout() {
         let source = "result=\"$(grep -En pattern \"$script\" |\n                     grep -Ev -e skip \\\n                              # keep this filter documented\n                    )\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

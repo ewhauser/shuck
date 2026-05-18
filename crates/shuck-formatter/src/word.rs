@@ -2221,10 +2221,30 @@ fn commented_command_substitution_can_use_structural_formatter(body: &StmtSeq) -
     !stmt.negated
         && stmt.redirects.is_empty()
         && stmt.terminator.is_none()
-        && matches!(
+        && (matches!(
             &stmt.command,
             Command::Compound(CompoundCommand::Case(_) | CompoundCommand::If(_))
-        )
+        ) || command_is_pipeline_of_compound_groups(&stmt.command))
+}
+
+fn command_is_pipeline_of_compound_groups(command: &Command) -> bool {
+    let Command::Binary(binary) = command else {
+        return false;
+    };
+    matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll)
+        && stmt_is_compound_group_pipeline_operand(&binary.left)
+        && stmt_is_compound_group_pipeline_operand(&binary.right)
+}
+
+fn stmt_is_compound_group_pipeline_operand(stmt: &Stmt) -> bool {
+    if stmt.negated || !stmt.redirects.is_empty() || stmt.terminator.is_some() {
+        return false;
+    }
+    match &stmt.command {
+        Command::Binary(_) => command_is_pipeline_of_compound_groups(&stmt.command),
+        Command::Compound(CompoundCommand::BraceGroup(_) | CompoundCommand::Subshell(_)) => true,
+        _ => false,
+    }
 }
 
 fn restore_raw_case_terminator_suffix_comments(
