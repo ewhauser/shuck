@@ -2292,20 +2292,24 @@ fn normalize_multiline_compound_assignment_line(
     if trimmed.is_empty() {
         return String::new();
     }
-    if open_inline_line || trimmed.starts_with(')') {
+    if open_inline_line {
+        return normalize_multiline_compound_assignment_spacing(trimmed);
+    }
+    if trimmed.starts_with(')') {
         return trimmed.to_string();
     }
     if trimmed.starts_with('[') {
-        return trimmed.to_string();
+        return normalize_multiline_compound_assignment_spacing(trimmed);
     }
     let stripped = line
         .strip_prefix(common_indent)
         .map(trim_multiline_compound_assignment_line_continuation)
         .unwrap_or(trimmed);
-    canonicalize_multiline_compound_assignment_residual_indent(
+    let normalized = canonicalize_multiline_compound_assignment_residual_indent(
         stripped,
         residual_space_indent_width,
-    )
+    );
+    normalize_multiline_compound_assignment_spacing(&normalized)
 }
 
 fn trim_multiline_compound_assignment_line_continuation(line: &str) -> &str {
@@ -2408,6 +2412,67 @@ fn canonicalize_multiline_compound_assignment_residual_indent(
     let mut rendered = "\t".repeat(indent_units);
     rendered.push_str(body);
     rendered
+}
+
+fn normalize_multiline_compound_assignment_spacing(line: &str) -> String {
+    let indent = leading_shell_indent(line);
+    let body = &line[indent.len()..];
+    if body.is_empty() || body.starts_with('#') {
+        return line.to_string();
+    }
+
+    let mut rendered = String::with_capacity(line.len());
+    rendered.push_str(indent);
+    let mut chars = body.chars().peekable();
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut escaped = false;
+    let mut changed = false;
+    let mut previous_was_space = false;
+
+    while let Some(ch) = chars.next() {
+        if escaped {
+            rendered.push(ch);
+            escaped = false;
+            previous_was_space = false;
+            continue;
+        }
+        if ch == '\\' && !in_single_quotes {
+            rendered.push(ch);
+            escaped = true;
+            previous_was_space = false;
+            continue;
+        }
+        if ch == '\'' && !in_double_quotes {
+            in_single_quotes = !in_single_quotes;
+            rendered.push(ch);
+            previous_was_space = false;
+            continue;
+        }
+        if ch == '"' && !in_single_quotes {
+            in_double_quotes = !in_double_quotes;
+            rendered.push(ch);
+            previous_was_space = false;
+            continue;
+        }
+        if !in_single_quotes && !in_double_quotes && matches!(ch, ' ' | '\t') {
+            while chars.peek().is_some_and(|next| matches!(next, ' ' | '\t')) {
+                chars.next();
+                changed = true;
+            }
+            if !previous_was_space && chars.peek().is_some() {
+                rendered.push(' ');
+                previous_was_space = true;
+            } else {
+                changed = true;
+            }
+            continue;
+        }
+        rendered.push(ch);
+        previous_was_space = false;
+    }
+
+    if changed { rendered } else { line.to_string() }
 }
 
 fn leading_shell_indent(line: &str) -> &str {
