@@ -896,17 +896,17 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 &mut scratch,
             );
         }
-        if scratch.contains('\n')
+        if assignment_contains_command_heredoc(assignment)
+            && rendered_shell_text_has_heredoc_tail(&scratch)
+        {
+            self.write_rendered_shell_text_preserving_heredoc_tails(&scratch);
+        } else if scratch.contains('\n')
             && assignment_value_is_quoted_formattable_command_substitution_only(
                 assignment,
                 self.source(),
             )
         {
             self.write_text_preserving_current_line_indent(&scratch);
-        } else if assignment_contains_command_heredoc(assignment)
-            && rendered_shell_text_has_heredoc_tail(&scratch)
-        {
-            self.write_rendered_shell_text_preserving_heredoc_tails(&scratch);
         } else if scratch.contains('\n')
             && assignment_source_has_command_substitution(assignment, self.source())
         {

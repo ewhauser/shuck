@@ -2551,18 +2551,12 @@ fn push_inline_raw_command_substitution_as_block(
 fn normalize_inline_raw_command_substitution_body(body_source: &str) -> String {
     let normalized = normalize_raw_pipeline_continuations(body_source);
     let body_source = normalized.as_deref().unwrap_or(body_source);
-    let mut lines = body_source.lines().map(str::to_string).collect::<Vec<_>>();
-
-    for index in 0..lines.len().saturating_sub(1) {
-        let next_starts_comment = lines[index + 1]
-            .trim_start_matches([' ', '\t'])
-            .starts_with('#');
-        if next_starts_comment
-            && let Some(prefix) = line_without_continuation_backslash(&lines[index])
-        {
-            lines[index] = prefix.to_string();
-        }
-    }
+    let normalized_comment_continuations =
+        normalize_continuations_before_comment_lines(body_source);
+    let body_source = normalized_comment_continuations
+        .as_deref()
+        .unwrap_or(body_source);
+    let lines = body_source.lines().map(str::to_string).collect::<Vec<_>>();
 
     let mut rendered = String::new();
     let mut previous_ends_pipeline = false;
@@ -2628,6 +2622,8 @@ fn push_raw_block_command_substitution_without_outer_indent(
     let normalized_pipeline = normalize_raw_pipeline_continuations(raw);
     let normalized_pipeline_continuation = normalized_pipeline.is_some();
     let raw = normalized_pipeline.as_deref().unwrap_or(raw);
+    let normalized_comment_continuations = normalize_continuations_before_comment_lines(raw);
+    let raw = normalized_comment_continuations.as_deref().unwrap_or(raw);
     let outer_indent = line_indent_before_source_offset(source, start_offset).unwrap_or("");
     let mut lines = raw.split('\n');
     if let Some(first) = lines.next() {
@@ -2635,6 +2631,7 @@ fn push_raw_block_command_substitution_without_outer_indent(
     }
     let mut body_indent: Option<String> = None;
     let mut previous_pipeline_indent: Option<String> = None;
+    let mut continuation_indent: Option<String> = None;
     let mut compound_indent_shifts = Vec::<RawCompoundIndentShift>::new();
     let mut compound_comment_indents = Vec::<RawCompoundCommentIndent>::new();
     let mut quote = RawShellQuoteState::default();
@@ -2695,6 +2692,16 @@ fn push_raw_block_command_substitution_without_outer_indent(
         }
         let indent = line_leading_shell_indent(&line);
         let content = &line[indent.len()..];
+        let mut forced_rendered_indent = None;
+        let mut used_continuation_indent = false;
+        if let Some(previous_indent) = continuation_indent.take()
+            && !content.trim().is_empty()
+            && !content.starts_with('#')
+        {
+            forced_rendered_indent = Some(previous_indent);
+            force_preserve_line_indent = true;
+            used_continuation_indent = true;
+        }
         if compound_comment_indents.len() > 1
             && compound_comment_indents
                 .last()
@@ -2716,14 +2723,19 @@ fn push_raw_block_command_substitution_without_outer_indent(
             } else {
                 body_indent.as_deref()
             };
-        push_raw_shell_line_with_normalized_source_indent(
-            target,
-            &line,
-            options,
-            body_indent_for_line,
-        );
-        let rendered_indent =
-            rendered_raw_shell_indent_for_line(indent, content, body_indent_for_line, options);
+        if let Some(rendered_indent) = forced_rendered_indent.as_deref() {
+            push_raw_shell_line_with_rendered_indent(target, &line, options, rendered_indent);
+        } else {
+            push_raw_shell_line_with_normalized_source_indent(
+                target,
+                &line,
+                options,
+                body_indent_for_line,
+            );
+        }
+        let rendered_indent = forced_rendered_indent.unwrap_or_else(|| {
+            rendered_raw_shell_indent_for_line(indent, content, body_indent_for_line, options)
+        });
         let line_is_pipeline_continuation_stage = carried_pipeline_indent.is_some();
         previous_pipeline_indent = if content.trim().is_empty() {
             None
@@ -2734,7 +2746,17 @@ fn push_raw_block_command_substitution_without_outer_indent(
         } else {
             None
         };
+        let line_continues = line_without_continuation_backslash(&line).is_some();
         quote.scan_line(&line);
+        continuation_indent = if line_continues && !content.starts_with('#') {
+            Some(if used_continuation_indent {
+                rendered_indent.clone()
+            } else {
+                source_indent_plus_one_unit(&rendered_indent, options)
+            })
+        } else {
+            None
+        };
         if let Some(close_keyword) = raw_compound_close_keyword(content) {
             compound_comment_indents.push(RawCompoundCommentIndent {
                 child_indent: source_indent_plus_one_unit(&rendered_indent, options),
@@ -2764,6 +2786,25 @@ fn push_raw_block_command_substitution_without_outer_indent(
             compound_comment_indents.pop();
         }
     }
+}
+
+fn normalize_continuations_before_comment_lines(text: &str) -> Option<String> {
+    let mut lines = text.lines().map(str::to_string).collect::<Vec<_>>();
+    let mut changed = false;
+
+    for index in 0..lines.len().saturating_sub(1) {
+        let next_starts_comment = lines[index + 1]
+            .trim_start_matches([' ', '\t'])
+            .starts_with('#');
+        if next_starts_comment
+            && let Some(prefix) = line_without_continuation_backslash(&lines[index])
+        {
+            lines[index] = prefix.to_string();
+            changed = true;
+        }
+    }
+
+    changed.then(|| lines.join("\n"))
 }
 
 #[derive(Debug)]
@@ -2834,6 +2875,20 @@ fn push_raw_shell_line_with_normalized_source_indent(
         normalized_content.as_deref().unwrap_or(content)
     };
     push_raw_shell_line_content_with_normalized_spacing(target, content, options, &rendered_indent);
+}
+
+fn push_raw_shell_line_with_rendered_indent(
+    target: &mut String,
+    line: &str,
+    options: &ResolvedShellFormatOptions,
+    rendered_indent: &str,
+) {
+    let indent = line_leading_shell_indent(line);
+    let content = &line[indent.len()..];
+    target.push_str(rendered_indent);
+    let normalized_content = normalize_padding_before_trailing_comment(content);
+    let content = normalized_content.as_deref().unwrap_or(content);
+    push_raw_shell_line_content_with_normalized_spacing(target, content, options, rendered_indent);
 }
 
 fn rendered_raw_shell_indent_for_line(

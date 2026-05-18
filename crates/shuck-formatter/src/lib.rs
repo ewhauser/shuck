@@ -2111,6 +2111,36 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn assignment_command_substitution_heredoc_keeps_literal_tail_unindented() {
+        let source = "if ok; then\n    response=\"$(\n        nc <<EOF || :\nHTTP/1.1 200 OK\n\naccepted\nEOF\n    )\"\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if ok; then\n\tresponse=\"$(\n\t\tnc <<EOF || :\nHTTP/1.1 200 OK\n\naccepted\nEOF\n\t)\"\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn raw_block_command_substitution_indents_backslash_continuations_before_comment() {
+        let source = "if ok; then\n    output=\"$(\n        NO_TOKEN_AUTH=1 \\\n        USERNAME=\"$SPOTIFY_ID\" \\\n        PASSWORD=\"$SPOTIFY_SECRET\" \\\n        -d code=\"$code\" \\\n        #-d code_verifier=\"$code_verifier\"\n    )\"\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if ok; then\n\toutput=\"$(\n\t\tNO_TOKEN_AUTH=1 \\\n\t\t\tUSERNAME=\"$SPOTIFY_ID\" \\\n\t\t\tPASSWORD=\"$SPOTIFY_SECRET\" \\\n\t\t\t-d code=\"$code\"\n\t\t#-d code_verifier=\"$code_verifier\"\n\t)\"\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn rendered_heredoc_bodies_preserve_escaped_variables() {
         let source = "cat <<EOF > script\n#!/bin/bash\nexec $(which dart) \"\\$@\"\nEOF\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
