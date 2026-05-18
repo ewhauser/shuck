@@ -528,18 +528,37 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         } else {
             self.line_indent_column
         };
-        let strip_context_indent = !text
+        let starts_with_block_command_substitution = text
             .lines()
             .next()
             .is_some_and(|line| line.trim_end_matches([' ', '\t', '\r']).ends_with("$("));
+        let strip_context_indent = !starts_with_block_command_substitution;
+        let pipeline_indent_column = base_indent_column
+            + match self.options.indent_style() {
+                IndentStyle::Tab => 1,
+                IndentStyle::Space => usize::from(self.options.indent_width()),
+            };
+        let mut indent_next_pipeline_stage = false;
+        let mut pipeline_quote_state = RenderedLineQuoteState::default();
         let mut remaining = text;
         while !remaining.is_empty() {
+            let pipeline_stage_indent = self.line_start
+                && !remaining.starts_with('\n')
+                && !starts_with_block_command_substitution
+                && indent_next_pipeline_stage
+                && !remaining
+                    .trim_start_matches([' ', '\t', '\r'])
+                    .starts_with('\n');
             let add_context_indent = self.line_start
                 && !remaining.starts_with('\n')
+                && !pipeline_stage_indent
                 && command_substitution_assignment_line_needs_context_indent(
                     remaining,
                     self.options(),
                 );
+            if pipeline_stage_indent {
+                self.write_indent_to_column(pipeline_indent_column);
+            }
             if add_context_indent {
                 self.write_indent_to_column(base_indent_column);
             }
@@ -548,17 +567,26 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 Some(index) => {
                     let end = index + 1;
                     let line = &remaining[..end];
-                    let line = if add_context_indent && strip_context_indent {
+                    let line = if pipeline_stage_indent {
+                        line.trim_start_matches([' ', '\t'])
+                    } else if add_context_indent && strip_context_indent {
                         strip_assignment_context_indent(line, base_indent_column, self.options())
                     } else {
                         line
                     };
                     self.push_output_str(line);
+                    indent_next_pipeline_stage = command_substitution_pipeline_stage_continues(
+                        line,
+                        pipeline_stage_indent,
+                        &mut pipeline_quote_state,
+                    );
                     self.line_start = true;
                     remaining = &remaining[end..];
                 }
                 None => {
-                    let line = if add_context_indent && strip_context_indent {
+                    let line = if pipeline_stage_indent {
+                        remaining.trim_start_matches([' ', '\t'])
+                    } else if add_context_indent && strip_context_indent {
                         strip_assignment_context_indent(
                             remaining,
                             base_indent_column,
@@ -6806,6 +6834,75 @@ fn command_substitution_assignment_line_needs_context_indent(
         IndentStyle::Tab => !remaining.starts_with(' '),
         IndentStyle::Space => true,
     }
+}
+
+#[derive(Default)]
+struct RenderedLineQuoteState {
+    single_quoted: bool,
+    double_quoted: bool,
+    escaped: bool,
+}
+
+impl RenderedLineQuoteState {
+    fn in_quote(&self) -> bool {
+        self.single_quoted || self.double_quoted
+    }
+}
+
+fn command_substitution_pipeline_stage_continues(
+    line: &str,
+    was_pipeline_stage: bool,
+    quote_state: &mut RenderedLineQuoteState,
+) -> bool {
+    let content = line.trim_end_matches(['\r', '\n']);
+    let scan_start = command_substitution_context_start(content).unwrap_or(0);
+    if scan_start > 0 {
+        *quote_state = RenderedLineQuoteState::default();
+    }
+    let content = &content[scan_start..];
+
+    if was_pipeline_stage
+        && !quote_state.in_quote()
+        && content.trim_start_matches([' ', '\t']).starts_with('#')
+    {
+        return true;
+    }
+    rendered_line_ends_with_structural_pipe_continuation_in_quote_state(content, quote_state)
+}
+
+fn rendered_line_ends_with_structural_pipe_continuation_in_quote_state(
+    line: &str,
+    quote_state: &mut RenderedLineQuoteState,
+) -> bool {
+    let trimmed = line.trim_end_matches([' ', '\t', '\r']);
+    let pipe_offset = final_pipe_operator_bounds(trimmed).map(|(offset, _)| offset);
+    let mut pipe_is_unquoted = false;
+
+    for (offset, ch) in trimmed.char_indices() {
+        if pipe_offset == Some(offset) {
+            pipe_is_unquoted = !quote_state.in_quote() && !quote_state.escaped;
+            break;
+        }
+
+        if quote_state.escaped {
+            quote_state.escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if !quote_state.single_quoted => quote_state.escaped = true,
+            '\'' if !quote_state.double_quoted => {
+                quote_state.single_quoted = !quote_state.single_quoted;
+            }
+            '"' if !quote_state.single_quoted => {
+                quote_state.double_quoted = !quote_state.double_quoted;
+            }
+            _ => {}
+        }
+    }
+
+    quote_state.escaped = false;
+    pipe_is_unquoted
 }
 
 fn strip_assignment_context_indent<'a>(
