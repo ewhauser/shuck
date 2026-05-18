@@ -4468,6 +4468,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let options = self.options().clone();
         if !options.simplify()
             && !options.minify()
+            && redirect.fd_var.is_none()
             && let Some(raw) = raw_redirect_source_slice(redirect, source)
             && should_preserve_raw_redirect(raw)
         {

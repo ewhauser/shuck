@@ -4661,8 +4661,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
 
     #[test]
     fn preserves_fd_close_redirect_targets() {
-        let source = "cmd 2>&-\nexec <&-\n";
-        let options = ShellFormatOptions::default();
+        let source = "cmd 2>&-\nexec <&-\nexec {ACCEPT_FD}>&-\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
         assert_eq!(
             format_source(source, None, &options).unwrap(),

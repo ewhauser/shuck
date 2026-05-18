@@ -14,6 +14,7 @@ impl FormatNodeRule<Redirect> for FormatRedirect {
         let options = formatter.context().options().clone();
         if !options.simplify()
             && !options.minify()
+            && redirect.fd_var.is_none()
             && let Some(raw) = raw_redirect_source_slice(redirect, source)
             && should_preserve_raw_redirect(raw)
         {
