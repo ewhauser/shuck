@@ -2287,7 +2287,8 @@ fn normalize_multiline_compound_assignment_line(
     residual_space_indent_width: usize,
     open_inline_line: bool,
 ) -> String {
-    let trimmed = line.trim_start_matches([' ', '\t']);
+    let trimmed =
+        trim_multiline_compound_assignment_line_continuation(line.trim_start_matches([' ', '\t']));
     if trimmed.is_empty() {
         return String::new();
     }
@@ -2297,11 +2298,29 @@ fn normalize_multiline_compound_assignment_line(
     if trimmed.starts_with('[') {
         return trimmed.to_string();
     }
-    let stripped = line.strip_prefix(common_indent).unwrap_or(trimmed);
+    let stripped = line
+        .strip_prefix(common_indent)
+        .map(trim_multiline_compound_assignment_line_continuation)
+        .unwrap_or(trimmed);
     canonicalize_multiline_compound_assignment_residual_indent(
         stripped,
         residual_space_indent_width,
     )
+}
+
+fn trim_multiline_compound_assignment_line_continuation(line: &str) -> &str {
+    let trimmed = line.trim_end_matches([' ', '\t']);
+    let trailing_backslashes = trimmed
+        .as_bytes()
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'\\')
+        .count();
+    if trailing_backslashes % 2 == 1 {
+        trimmed[..trimmed.len().saturating_sub(1)].trim_end_matches([' ', '\t'])
+    } else {
+        trimmed
+    }
 }
 
 fn multiline_compound_assignment_common_body_indent(lines: &[&str], open_inline: bool) -> String {

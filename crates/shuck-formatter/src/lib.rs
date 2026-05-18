@@ -2986,6 +2986,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn removes_multiline_compound_assignment_line_continuations() {
+        let source = "if ok; then\n    params+=(-Done=true -Dtwo=false \\\n               -Dthree=false \\\n               -Dfour=true)\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if ok; then\n\tparams+=(-Done=true -Dtwo=false\n\t\t-Dthree=false\n\t\t-Dfour=true)\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn ignores_comments_for_multiline_compound_assignment_body_indent() {
         let source =
             "versions=(1.16.0\n# Match the server package.\n                    21.1.16)\n";

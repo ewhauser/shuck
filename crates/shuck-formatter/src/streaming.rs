@@ -4483,7 +4483,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return Ok(());
         }
 
-        if assignment_has_multiline_literal_source(assignment, source) {
+        if assignment_has_multiline_literal_source(assignment, source)
+            && !Self::compound_assignment_source_has_line_continuations(
+                assignment.span.slice(source),
+            )
+        {
             self.write_multiline_compound_literal_assignment(assignment);
             return Ok(());
         }
@@ -4497,6 +4501,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.write_text("(");
         self.write_standalone_multiline_compound_assignment_layout(&layout);
         Ok(())
+    }
+
+    fn compound_assignment_source_has_line_continuations(raw: &str) -> bool {
+        raw.contains("\\\n") || raw.contains("\\\r\n")
     }
 
     fn write_multiline_compound_literal_assignment(&mut self, assignment: &Assignment) {
