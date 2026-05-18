@@ -4369,13 +4369,13 @@ function R() {
 
     #[test]
     fn collapses_then_on_next_line_after_simple_if_conditions_like_shfmt() {
-        let source = "f() {\n  if [ -z \"${EDITOR:-}\" ]\n  then\n    EDITOR=vi\n  elif grep -q \"$cur\" <<<'-g'\n  then\n    COMPREPLY+=(\"-g\")\n  fi\n}\n";
+        let source = "f() {\n  if [ -z \"${EDITOR:-}\" ]\n  then\n    EDITOR=vi\n  elif grep -q \"$cur\" <<<'-g'\n  then\n    COMPREPLY+=(\"-g\")\n  fi\n  if ! ContainsString \"lock\" \"$value\"\n  then\n    FOUND=1\n  fi\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
         assert_eq!(
             format_source(source, None, &options).unwrap(),
             FormattedSource::Formatted(
-                "f() {\n\tif [ -z \"${EDITOR:-}\" ]; then\n\t\tEDITOR=vi\n\telif grep -q \"$cur\" <<<'-g'; then\n\t\tCOMPREPLY+=(\"-g\")\n\tfi\n}\n"
+                "f() {\n\tif [ -z \"${EDITOR:-}\" ]; then\n\t\tEDITOR=vi\n\telif grep -q \"$cur\" <<<'-g'; then\n\t\tCOMPREPLY+=(\"-g\")\n\tfi\n\tif ! ContainsString \"lock\" \"$value\"; then\n\t\tFOUND=1\n\tfi\n}\n"
                     .to_string()
             )
         );

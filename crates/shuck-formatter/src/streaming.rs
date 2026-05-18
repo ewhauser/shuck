@@ -4976,7 +4976,7 @@ fn condition_sequence_has_explicit_statement_break(
             return false;
         }
         let start = stmt_span(stmt).start.offset;
-        let command_end = stmt_format_span(stmt).end.offset.min(upper_bound);
+        let command_end = condition_stmt_command_end(stmt).min(upper_bound);
         let end = upper_bound.min(source.len());
         return source
             .get(start..command_end)
@@ -4991,6 +4991,17 @@ fn condition_sequence_has_explicit_statement_break(
         let next_start = stmt_span(&pair[1]).start.offset;
         has_newline_between_offsets(source, previous_start, next_start)
     })
+}
+
+fn condition_stmt_command_end(stmt: &Stmt) -> usize {
+    let mut end = command_format_span(&stmt.command).end.offset;
+    if end == 0 {
+        end = stmt_span(stmt).end.offset;
+    }
+    for redirect in &stmt.redirects {
+        end = end.max(redirect.span.end.offset);
+    }
+    end
 }
 
 fn elif_condition_has_explicit_statement_break(
