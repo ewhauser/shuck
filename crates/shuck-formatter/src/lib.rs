@@ -2983,6 +2983,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_blank_line_before_esac_after_missing_terminator() {
+        let source = "case $x in\n*) echo \"$x\"\n\nesac\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted("case $x in\n*) echo \"$x\" ;;\n\nesac\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_blank_line_before_case_item_terminator() {
         let source = "case $x in\na)\n  echo a\n\n  ;;\nesac\n";
         let options = ShellFormatOptions::default();

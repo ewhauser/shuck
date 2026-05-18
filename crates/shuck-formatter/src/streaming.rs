@@ -5650,10 +5650,14 @@ fn case_item_source_end_offset(item: &CaseItem, source: &str) -> Option<usize> {
         .find(['\n', '\r'])
         .map_or(source.len(), |offset| stmt_end + offset);
     let terminator = case_terminator(item.terminator);
-    source.get(stmt_end..line_end).and_then(|tail| {
-        tail.find(terminator)
-            .map(|offset| stmt_end + offset + terminator.len())
-    })
+    let end = source
+        .get(stmt_end..line_end)
+        .and_then(|tail| {
+            tail.find(terminator)
+                .map(|offset| stmt_end + offset + terminator.len())
+        })
+        .unwrap_or(stmt_end);
+    Some(end)
 }
 
 fn case_item_body_terminator_was_inline_in_source(item: &CaseItem) -> bool {
