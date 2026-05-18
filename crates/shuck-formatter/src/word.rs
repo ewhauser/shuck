@@ -1372,7 +1372,7 @@ fn render_word_part(
                             1,
                             Some(raw),
                             source_map,
-                            facts,
+                            None,
                         )
                         .is_some()
                         {
@@ -2212,7 +2212,10 @@ fn commented_command_substitution_can_use_structural_formatter(body: &StmtSeq) -
     !stmt.negated
         && stmt.redirects.is_empty()
         && stmt.terminator.is_none()
-        && matches!(&stmt.command, Command::Compound(CompoundCommand::Case(_)))
+        && matches!(
+            &stmt.command,
+            Command::Compound(CompoundCommand::Case(_) | CompoundCommand::If(_))
+        )
 }
 
 fn restore_raw_case_terminator_suffix_comments(
