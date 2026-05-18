@@ -605,7 +605,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 }
                 self.visit_sequence_with_suffix(
                     &command.body,
-                    Some(foreach_body_upper_bound(command, self.source)),
+                    Some(foreach_body_upper_bound(command, self.source_map())),
                     group_open_char,
                     group_open_char
                         .is_none()
@@ -622,7 +622,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             CompoundCommand::ArithmeticFor(command) => {
                 self.visit_sequence_with_suffix(
                     &command.body,
-                    Some(done_body_upper_bound(self.source, command.span)),
+                    Some(done_body_upper_bound(self.source_map(), command.span)),
                     None,
                     branch_open_suffix_span(&command.body, self.source_map(), "do"),
                 );
@@ -702,7 +702,12 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         }
         self.visit_sequence_with_suffix(
             &command.then_branch,
-            Some(if_branch_upper_bound(command, 0, self.source)),
+            Some(if_branch_upper_bound(
+                command,
+                0,
+                self.source,
+                self.source_map(),
+            )),
             group_open_char,
             (!brace_syntax)
                 .then(|| branch_open_suffix_span(&command.then_branch, self.source_map(), "then"))
@@ -725,7 +730,12 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             }
             self.visit_sequence_with_suffix(
                 body,
-                Some(if_branch_upper_bound(command, index + 1, self.source)),
+                Some(if_branch_upper_bound(
+                    command,
+                    index + 1,
+                    self.source,
+                    self.source_map(),
+                )),
                 group_open_char,
                 (!brace_syntax)
                     .then(|| branch_open_suffix_span(body, self.source_map(), "then"))
@@ -740,7 +750,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     .inline_group_sequences
                     .insert(FactSpan::from(else_branch.span));
             }
-            let upper_bound = Some(if_close_start(command, self.source));
+            let upper_bound = Some(if_close_start(command, self.source_map()));
             self.visit_sequence_with_suffix(
                 else_branch,
                 upper_bound,
@@ -775,7 +785,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         }
         self.visit_sequence_with_suffix(
             &command.body,
-            Some(for_body_upper_bound(command, self.source)),
+            Some(for_body_upper_bound(command, self.source_map())),
             group_open_char,
             group_open_char
                 .is_none()
@@ -805,7 +815,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         }
         self.visit_sequence_with_suffix(
             &command.body,
-            Some(repeat_body_upper_bound(command, self.source)),
+            Some(repeat_body_upper_bound(command, self.source_map())),
             group_open_char,
             group_open_char
                 .is_none()
@@ -824,7 +834,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         self.visit_sequence(&command.condition, condition_upper_bound, None);
         self.visit_sequence_with_suffix(
             &command.body,
-            Some(done_body_upper_bound(self.source, command.span)),
+            Some(done_body_upper_bound(self.source_map(), command.span)),
             None,
             branch_open_suffix_span(&command.body, self.source_map(), "do"),
         );
@@ -836,7 +846,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         self.visit_sequence(&command.condition, condition_upper_bound, None);
         self.visit_sequence_with_suffix(
             &command.body,
-            Some(done_body_upper_bound(self.source, command.span)),
+            Some(done_body_upper_bound(self.source_map(), command.span)),
             None,
             branch_open_suffix_span(&command.body, self.source_map(), "do"),
         );
@@ -870,7 +880,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         }
         self.visit_sequence_with_suffix(
             &command.body,
-            Some(done_body_upper_bound(self.source, command.span)),
+            Some(done_body_upper_bound(self.source_map(), command.span)),
             None,
             branch_open_suffix_span(&command.body, self.source_map(), "do"),
         );
@@ -1300,21 +1310,22 @@ fn case_body_fallback_upper_bound(command: &CaseCommand, source_map: &SourceMap<
     last_shell_keyword_start(source_map, command.span, "esac").unwrap_or(command.span.end.offset)
 }
 
-fn done_body_upper_bound(source: &str, span: Span) -> usize {
-    done_close_span(source, span, None).map_or(span.end.offset, |close| close.start.offset)
+fn done_body_upper_bound(source_map: &SourceMap<'_>, span: Span) -> usize {
+    done_close_span(source_map, span, None).map_or(span.end.offset, |close| close.start.offset)
 }
 
-fn done_close_span(source: &str, span: Span, fallback: Option<Span>) -> Option<Span> {
+fn done_close_span(source_map: &SourceMap<'_>, span: Span, fallback: Option<Span>) -> Option<Span> {
+    let source = source_map.source();
     matching_done_close_start(source, span)
-        .map(|start| SourceMap::new(source).span_for_offsets(start, start + "done".len()))
-        .or_else(|| fallback.map(|span| normalized_close_keyword_span(source, span, "done")))
+        .map(|start| source_map.span_for_offsets(start, start + "done".len()))
+        .or_else(|| fallback.map(|span| normalized_close_keyword_span(source_map, span, "done")))
 }
 
-fn for_body_upper_bound(command: &ForCommand, source: &str) -> usize {
+fn for_body_upper_bound(command: &ForCommand, source_map: &SourceMap<'_>) -> usize {
     match command.syntax {
         shuck_ast::ForSyntax::InDoDone { done_span, .. }
         | shuck_ast::ForSyntax::ParenDoDone { done_span, .. } => {
-            done_close_span(source, command.span, Some(done_span))
+            done_close_span(source_map, command.span, Some(done_span))
                 .map_or(done_span.start.offset, |span| span.start.offset)
         }
         shuck_ast::ForSyntax::InBrace {
@@ -1329,10 +1340,10 @@ fn for_body_upper_bound(command: &ForCommand, source: &str) -> usize {
     }
 }
 
-fn foreach_body_upper_bound(command: &ForeachCommand, source: &str) -> usize {
+fn foreach_body_upper_bound(command: &ForeachCommand, source_map: &SourceMap<'_>) -> usize {
     match command.syntax {
         shuck_ast::ForeachSyntax::InDoDone { done_span, .. } => {
-            done_close_span(source, command.span, Some(done_span))
+            done_close_span(source_map, command.span, Some(done_span))
                 .map_or(done_span.start.offset, |span| span.start.offset)
         }
         shuck_ast::ForeachSyntax::ParenBrace {
@@ -1341,10 +1352,10 @@ fn foreach_body_upper_bound(command: &ForeachCommand, source: &str) -> usize {
     }
 }
 
-fn repeat_body_upper_bound(command: &RepeatCommand, source: &str) -> usize {
+fn repeat_body_upper_bound(command: &RepeatCommand, source_map: &SourceMap<'_>) -> usize {
     match command.syntax {
         shuck_ast::RepeatSyntax::DoDone { done_span, .. } => {
-            done_close_span(source, command.span, Some(done_span))
+            done_close_span(source_map, command.span, Some(done_span))
                 .map_or(done_span.start.offset, |span| span.start.offset)
         }
         shuck_ast::RepeatSyntax::Brace {
@@ -1354,28 +1365,30 @@ fn repeat_body_upper_bound(command: &RepeatCommand, source: &str) -> usize {
     }
 }
 
-fn if_close_span(command: &IfCommand, source: &str) -> Span {
+fn if_close_span(command: &IfCommand, source_map: &SourceMap<'_>) -> Span {
+    let source = source_map.source();
     let (syntax_close, keyword) = match command.syntax {
         shuck_ast::IfSyntax::ThenFi { fi_span, .. } => (fi_span, "fi"),
         shuck_ast::IfSyntax::Brace {
             right_brace_span, ..
         } => (right_brace_span, "}"),
     };
-    let syntax_close = normalized_close_keyword_span(source, syntax_close, keyword);
+    let syntax_close = normalized_close_keyword_span(source_map, syntax_close, keyword);
     matching_if_close_start(source, command.span)
-        .map(|start| SourceMap::new(source).span_for_offsets(start, start + keyword.len()))
+        .map(|start| source_map.span_for_offsets(start, start + keyword.len()))
         .unwrap_or(syntax_close)
 }
 
-fn if_close_start(command: &IfCommand, source: &str) -> usize {
-    if_close_span(command, source).start.offset
+fn if_close_start(command: &IfCommand, source_map: &SourceMap<'_>) -> usize {
+    if_close_span(command, source_map).start.offset
 }
 
-fn normalized_close_keyword_span(source: &str, span: Span, keyword: &str) -> Span {
+fn normalized_close_keyword_span(source_map: &SourceMap<'_>, span: Span, keyword: &str) -> Span {
+    let source = source_map.source();
     let start = span.start.offset.min(source.len());
     let end = start.saturating_add(keyword.len()).min(source.len());
     if source.get(start..end) == Some(keyword) {
-        SourceMap::new(source).span_for_offsets(start, end)
+        source_map.span_for_offsets(start, end)
     } else {
         span
     }
@@ -1556,11 +1569,16 @@ fn span_contains_comment(span: Span, comment: SourceComment<'_>) -> bool {
     span.start.offset <= comment.span().start.offset && comment.span().end.offset <= span.end.offset
 }
 
-fn if_branch_upper_bound(command: &IfCommand, branch_index: usize, source: &str) -> usize {
+fn if_branch_upper_bound(
+    command: &IfCommand,
+    branch_index: usize,
+    source: &str,
+    source_map: &SourceMap<'_>,
+) -> usize {
     if let Some((start, end)) = if_next_branch_region(command, branch_index, source) {
         branch_prefix_first_comment_offset(source, start, end).unwrap_or(end)
     } else {
-        if_close_start(command, source)
+        if_close_start(command, source_map)
     }
 }
 
@@ -1683,6 +1701,7 @@ mod tests {
                 },
                 1,
                 source,
+                facts.source_map(),
             )),
         );
         assert_eq!(elif_facts.leading_for(0).len(), 1);
@@ -1738,6 +1757,7 @@ mod tests {
                 },
                 0,
                 source,
+                facts.source_map(),
             )),
         );
         assert!(sequence.group_open_suffix_span().is_some());

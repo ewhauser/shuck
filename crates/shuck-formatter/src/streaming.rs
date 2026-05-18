@@ -1521,7 +1521,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if close_span.is_some_and(|span| {
             source_has_blank_line_immediately_before_offset(self.source(), span.start.offset)
         }) || (close_span.is_none()
-            && source_has_blank_line_before_last_keyword(self.source(), enclosing_span, close))
+            && source_has_blank_line_before_last_keyword(
+                self.source(),
+                self.source_map(),
+                enclosing_span,
+                close,
+            ))
         {
             self.newline();
         }
@@ -1557,7 +1562,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if close_span.is_some_and(|span| {
             source_has_blank_line_immediately_before_offset(self.source(), span.start.offset)
         }) || (close_span.is_none()
-            && source_has_blank_line_before_last_keyword(self.source(), enclosing_span, close))
+            && source_has_blank_line_before_last_keyword(
+                self.source(),
+                self.source_map(),
+                enclosing_span,
+                close,
+            ))
         {
             self.newline();
         }
@@ -1962,7 +1972,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             IfSyntax::ThenFi { then_span, fi_span } => (then_span, fi_span),
             IfSyntax::Brace { .. } => unreachable!("brace if cannot be formatted as then/fi"),
         };
-        let fi_span = if_close_span(source, command).unwrap_or(syntax_fi_span);
+        let fi_span = if_close_span(source, self.source_map(), command).unwrap_or(syntax_fi_span);
         let fi_upper_bound = fi_span.start.offset;
 
         if command.elif_branches.is_empty()
@@ -1971,7 +1981,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_text("if");
             self.write_text(&raw_condition);
             self.write_text("then");
-            let then_upper_bound = if_branch_upper_bound(command, 0, source);
+            let then_upper_bound = if_branch_upper_bound(command, 0, source, self.source_map());
             self.write_sequence_open_suffix(&command.then_branch, Some(then_upper_bound));
             let preserve_then_open_blank = body_has_blank_line_after_open(
                 source,
@@ -2029,7 +2039,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             })?;
             self.newline();
             self.write_text("then");
-            let then_upper_bound = if_branch_upper_bound(command, 0, source);
+            let then_upper_bound = if_branch_upper_bound(command, 0, source, self.source_map());
             self.write_sequence_open_suffix(&command.then_branch, Some(then_upper_bound));
             let preserve_then_open_blank = body_has_blank_line_after_open(
                 source,
@@ -2067,7 +2077,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     self.format_inline_stmts(condition)?;
                     self.write_text(self.then_separator_for_condition(condition));
                 }
-                let body_upper_bound = if_branch_upper_bound(command, index + 1, source);
+                let body_upper_bound =
+                    if_branch_upper_bound(command, index + 1, source, self.source_map());
                 self.write_sequence_open_suffix(body, Some(body_upper_bound));
                 let preserve_elif_open_blank = body_has_blank_line_after_keyword(
                     source,
@@ -2192,7 +2203,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 preserve_else_open_blank,
             )?;
             self.write_unmodeled_branch_background_terminator(else_branch, body_upper_bound);
-            let then_upper_bound = if_branch_upper_bound(command, 0, source);
+            let then_upper_bound = if_branch_upper_bound(command, 0, source, self.source_map());
             if self.if_final_branch_has_blank_line_before_fi(command, then_upper_bound) {
                 self.newline();
             }
@@ -2233,7 +2244,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
 
         self.write_text(then_separator);
-        let then_upper_bound = if_branch_upper_bound(command, 0, source);
+        let then_upper_bound = if_branch_upper_bound(command, 0, source, self.source_map());
         self.write_sequence_open_suffix(&command.then_branch, Some(then_upper_bound));
         let preserve_then_open_blank = body_has_blank_line_after_open(
             source,
@@ -2274,7 +2285,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     self.write_text(self.then_separator_for_condition(condition));
                 }
             }
-            let body_upper_bound = if_branch_upper_bound(command, index + 1, source);
+            let body_upper_bound =
+                if_branch_upper_bound(command, index + 1, source, self.source_map());
             self.write_sequence_open_suffix(body, Some(body_upper_bound));
             let preserve_elif_open_blank = body_has_blank_line_after_keyword(
                 source,
@@ -2344,7 +2356,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if !self.can_inline_body_with_upper_bound(
             &command.then_branch,
             command.span,
-            Some(if_branch_upper_bound(command, 0, source)),
+            Some(if_branch_upper_bound(command, 0, source, self.source_map())),
         ) {
             return false;
         }
@@ -2353,7 +2365,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             if !self.can_inline_body_with_upper_bound(
                 body,
                 command.span,
-                Some(if_branch_upper_bound(command, index + 1, source)),
+                Some(if_branch_upper_bound(
+                    command,
+                    index + 1,
+                    source,
+                    self.source_map(),
+                )),
             ) {
                 return false;
             }
@@ -2388,7 +2405,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 .facts()
                 .sequence(
                     &command.then_branch,
-                    Some(if_branch_upper_bound(command, 0, self.source())),
+                    Some(if_branch_upper_bound(
+                        command,
+                        0,
+                        self.source(),
+                        self.source_map(),
+                    )),
                 )
                 .has_comments()
     }
@@ -2465,7 +2487,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.write_space();
         self.format_brace_group(
             &command.then_branch,
-            Some(if_branch_upper_bound(command, 0, source)),
+            Some(if_branch_upper_bound(command, 0, source, self.source_map())),
         )?;
         for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
             self.write_text(" elif ");
@@ -2473,7 +2495,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_space();
             self.format_brace_group(
                 body,
-                Some(if_branch_upper_bound(command, index + 1, source)),
+                Some(if_branch_upper_bound(
+                    command,
+                    index + 1,
+                    source,
+                    self.source_map(),
+                )),
             )?;
         }
         if let Some(body) = &command.else_branch {
@@ -2502,9 +2529,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     );
                 }
                 let close_span = match command.syntax {
-                    ForSyntax::InDoDone { done_span, .. } => {
-                        done_close_span(self.source(), command.span, Some(done_span))
-                    }
+                    ForSyntax::InDoDone { done_span, .. } => done_close_span(
+                        self.source(),
+                        self.source_map(),
+                        command.span,
+                        Some(done_span),
+                    ),
                     _ => None,
                 };
                 self.format_do_done_body(&command.body, command.span, close_span, "done")?;
@@ -2535,9 +2565,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 }
                 self.write_text(")");
                 let close_span = match command.syntax {
-                    ForSyntax::ParenDoDone { done_span, .. } => {
-                        done_close_span(self.source(), command.span, Some(done_span))
-                    }
+                    ForSyntax::ParenDoDone { done_span, .. } => done_close_span(
+                        self.source(),
+                        self.source_map(),
+                        command.span,
+                        Some(done_span),
+                    ),
                     _ => None,
                 };
                 self.format_do_done_body(&command.body, command.span, close_span, "done")?;
@@ -2595,9 +2628,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         match command.syntax {
             RepeatSyntax::DoDone { .. } => {
                 let close_span = match command.syntax {
-                    RepeatSyntax::DoDone { done_span, .. } => {
-                        done_close_span(self.source(), command.span, Some(done_span))
-                    }
+                    RepeatSyntax::DoDone { done_span, .. } => done_close_span(
+                        self.source(),
+                        self.source_map(),
+                        command.span,
+                        Some(done_span),
+                    ),
                     _ => None,
                 };
                 self.format_do_done_body(&command.body, command.span, close_span, "done")?;
@@ -2633,9 +2669,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.write_text(" in");
                 self.write_word_list_preserving_breaks(&command.words);
                 let close_span = match command.syntax {
-                    ForeachSyntax::InDoDone { done_span, .. } => {
-                        done_close_span(self.source(), command.span, Some(done_span))
-                    }
+                    ForeachSyntax::InDoDone { done_span, .. } => done_close_span(
+                        self.source(),
+                        self.source_map(),
+                        command.span,
+                        Some(done_span),
+                    ),
                     _ => None,
                 };
                 self.format_do_done_body(&command.body, command.span, close_span, "done")?;
@@ -2649,13 +2688,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.write_text(command.variable.as_ref());
         self.write_text(" in");
         self.write_word_list_preserving_breaks(&command.words);
-        let close_span = done_close_span(self.source(), command.span, None);
+        let close_span = done_close_span(self.source(), self.source_map(), command.span, None);
         self.format_do_done_body(&command.body, command.span, close_span, "done")?;
         Ok(())
     }
 
     fn format_while(&mut self, command: &WhileCommand) -> Result<()> {
-        let close_span = done_close_span(self.source(), command.span, None);
+        let close_span = done_close_span(self.source(), self.source_map(), command.span, None);
         if loop_condition_starts_after_keyword(&command.condition, command.span) {
             self.write_text("while");
             self.newline();
@@ -2674,7 +2713,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn format_until(&mut self, command: &UntilCommand) -> Result<()> {
-        let close_span = done_close_span(self.source(), command.span, None);
+        let close_span = done_close_span(self.source(), self.source_map(), command.span, None);
         if loop_condition_starts_after_keyword(&command.condition, command.span) {
             self.write_text("until");
             self.newline();
@@ -2700,7 +2739,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return self.format_inline_case(command);
         }
 
-        let esac_span = last_shell_keyword_span(self.source(), command.span, "esac");
+        let esac_span =
+            last_shell_keyword_span(self.source(), self.source_map(), command.span, "esac");
         let case_body_fallback = esac_span
             .map(|span| span.start.offset)
             .unwrap_or(command.span.end.offset);
@@ -3269,7 +3309,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.write_text("; ");
         self.write_text(&step);
         self.write_text("))");
-        let close_span = done_close_span(self.source(), command.span, None);
+        let close_span = done_close_span(self.source(), self.source_map(), command.span, None);
         self.format_do_done_body(&command.body, command.span, close_span, "done")
     }
 
@@ -3690,7 +3730,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn format_inline_case(&mut self, command: &CaseCommand) -> Result<()> {
-        let esac_span = last_shell_keyword_span(self.source(), command.span, "esac");
+        let esac_span =
+            last_shell_keyword_span(self.source(), self.source_map(), command.span, "esac");
         self.write_text("case ");
         self.write_word(&command.word);
         self.write_text(" in");
@@ -5172,8 +5213,13 @@ fn source_has_blank_line_immediately_before_offset(source: &str, offset: usize) 
         .is_empty()
 }
 
-fn source_has_blank_line_before_last_keyword(source: &str, span: Span, keyword: &str) -> bool {
-    last_shell_keyword_span(source, span, keyword).is_some_and(|keyword_span| {
+fn source_has_blank_line_before_last_keyword(
+    source: &str,
+    source_map: &SourceMap<'_>,
+    span: Span,
+    keyword: &str,
+) -> bool {
+    last_shell_keyword_span(source, source_map, span, keyword).is_some_and(|keyword_span| {
         source_has_blank_line_immediately_before_offset(source, keyword_span.start.offset)
     })
 }
@@ -5254,7 +5300,12 @@ fn last_shell_keyword_end(text: &str, keyword: &str) -> Option<usize> {
         .last()
 }
 
-fn last_shell_keyword_span(source: &str, span: Span, keyword: &str) -> Option<Span> {
+fn last_shell_keyword_span(
+    source: &str,
+    source_map: &SourceMap<'_>,
+    span: Span,
+    keyword: &str,
+) -> Option<Span> {
     let upper = span.end.offset.min(source.len());
     let lower = span.start.offset.min(upper);
     let slice = source.get(lower..upper)?;
@@ -5265,36 +5316,47 @@ fn last_shell_keyword_span(source: &str, span: Span, keyword: &str) -> Option<Sp
             shell_keyword_boundaries_match(slice, start, end).then_some(lower + start)
         })
         .last()?;
-    Some(SourceMap::new(source).span_for_offsets(start, start + keyword.len()))
+    Some(source_map.span_for_offsets(start, start + keyword.len()))
 }
 
-fn if_close_span(source: &str, command: &IfCommand) -> Option<Span> {
+fn if_close_span(source: &str, source_map: &SourceMap<'_>, command: &IfCommand) -> Option<Span> {
     let (syntax_close, keyword) = match command.syntax {
         IfSyntax::ThenFi { fi_span, .. } => (fi_span, "fi"),
         IfSyntax::Brace {
             right_brace_span, ..
         } => (right_brace_span, "}"),
     };
-    let syntax_close = normalized_close_keyword_span(source, syntax_close, keyword);
-    matching_if_close_span(source, command.span).or(Some(syntax_close))
+    let syntax_close = normalized_close_keyword_span(source, source_map, syntax_close, keyword);
+    matching_if_close_span(source, source_map, command.span).or(Some(syntax_close))
 }
 
-fn done_close_span(source: &str, span: Span, fallback: Option<Span>) -> Option<Span> {
-    matching_done_close_span(source, span)
-        .or_else(|| fallback.map(|span| normalized_close_keyword_span(source, span, "done")))
+fn done_close_span(
+    source: &str,
+    source_map: &SourceMap<'_>,
+    span: Span,
+    fallback: Option<Span>,
+) -> Option<Span> {
+    matching_done_close_span(source, source_map, span).or_else(|| {
+        fallback.map(|span| normalized_close_keyword_span(source, source_map, span, "done"))
+    })
 }
 
-fn normalized_close_keyword_span(source: &str, span: Span, keyword: &str) -> Span {
+fn normalized_close_keyword_span(
+    source: &str,
+    source_map: &SourceMap<'_>,
+    span: Span,
+    keyword: &str,
+) -> Span {
     let start = span.start.offset.min(source.len());
     let end = start.saturating_add(keyword.len()).min(source.len());
     if source.get(start..end) == Some(keyword) {
-        SourceMap::new(source).span_for_offsets(start, end)
+        source_map.span_for_offsets(start, end)
     } else {
         span
     }
 }
 
-fn matching_if_close_span(source: &str, span: Span) -> Option<Span> {
+fn matching_if_close_span(source: &str, source_map: &SourceMap<'_>, span: Span) -> Option<Span> {
     let upper = span.end.offset.min(source.len());
     let mut offset = span.start.offset.min(upper);
     let mut depth = 0usize;
@@ -5327,7 +5389,7 @@ fn matching_if_close_span(source: &str, span: Span) -> Option<Span> {
             if depth > 0 {
                 depth -= 1;
                 if depth == 0 {
-                    return Some(SourceMap::new(source).span_for_offsets(offset, offset + 2));
+                    return Some(source_map.span_for_offsets(offset, offset + 2));
                 }
             }
             offset += "fi".len();
@@ -5338,7 +5400,7 @@ fn matching_if_close_span(source: &str, span: Span) -> Option<Span> {
     None
 }
 
-fn matching_done_close_span(source: &str, span: Span) -> Option<Span> {
+fn matching_done_close_span(source: &str, source_map: &SourceMap<'_>, span: Span) -> Option<Span> {
     let upper = span.end.offset.min(source.len());
     let mut offset = span.start.offset.min(upper);
     let mut depth = 0usize;
@@ -5375,7 +5437,7 @@ fn matching_done_close_span(source: &str, span: Span) -> Option<Span> {
             if depth > 0 {
                 depth -= 1;
                 if depth == 0 {
-                    return Some(SourceMap::new(source).span_for_offsets(offset, offset + 4));
+                    return Some(source_map.span_for_offsets(offset, offset + 4));
                 }
             }
             offset += "done".len();
@@ -6713,14 +6775,19 @@ fn list_item_multiline_separator(operator: BinaryOp) -> &'static str {
     }
 }
 
-fn if_branch_upper_bound(command: &IfCommand, branch_index: usize, source: &str) -> usize {
+fn if_branch_upper_bound(
+    command: &IfCommand,
+    branch_index: usize,
+    source: &str,
+    source_map: &SourceMap<'_>,
+) -> usize {
     if let Some((start, end)) = if_next_branch_region(command, branch_index, source) {
         branch_prefix_comments(source, start, end)
             .first()
             .map(|comment| comment.offset)
             .unwrap_or(end)
     } else {
-        if_close_span(source, command)
+        if_close_span(source, source_map, command)
             .map(|span| span.start.offset)
             .unwrap_or(command.span.end.offset)
     }
