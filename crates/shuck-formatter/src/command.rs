@@ -2691,28 +2691,26 @@ fn find_group_open_offset_before_stmt(
     search_end: usize,
     open: char,
 ) -> Option<usize> {
-    let search_end = search_end.min(source.len());
-    let mut last_open = None;
-    let mut line_start = 0;
+    let mut line_end = search_end.min(source.len());
 
-    while line_start < search_end {
-        let line_end = source[line_start..search_end]
-            .find('\n')
-            .map(|offset| line_start + offset)
-            .unwrap_or(search_end);
+    loop {
+        let line_start = source[..line_end]
+            .rfind('\n')
+            .map(|offset| offset + 1)
+            .unwrap_or(0);
         if let Some(open_offset) =
             find_group_open_offset_on_line(source, line_start, line_end, open)
         {
-            last_open = Some(open_offset);
+            return Some(open_offset);
         }
 
-        if line_end == search_end {
+        if line_start == 0 {
             break;
         }
-        line_start = line_end + 1;
+        line_end = line_start - 1;
     }
 
-    last_open
+    None
 }
 
 fn find_group_open_offset_on_line(
