@@ -5748,6 +5748,21 @@ function R() {
     }
 
     #[test]
+    fn aligns_trailing_comments_after_removed_semicolons() {
+        let source = "BUILD_TNC=${BUILD_TNC:-true}           ; # build tnc XML validator module\nBUILD_TDOMHTML=${BUILD_TDOMHTML:-true} ; # build tdomhtml html generation module\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "BUILD_TNC=${BUILD_TNC:-true}           # build tnc XML validator module\nBUILD_TDOMHTML=${BUILD_TDOMHTML:-true} # build tdomhtml html generation module\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn aligns_trailing_comments_after_adjacent_redirect_commands() {
         let source = "if ok; then\n  rm -f /tmp/OLSR/meshrdf_neighs* 2>/dev/null    # enforce rewrite some lines later\n  echo >>$SCHEDULER \"_wifi speed check $gateway\" # will only test once\nfi\n";
         let options = ShellFormatOptions::default();

@@ -7432,12 +7432,26 @@ fn trimmed_line_width(text: &str) -> Option<usize> {
 
 fn normalized_comment_alignment_width(text: &str) -> usize {
     let collapsed = collapse_horizontal_whitespace_runs(text);
-    let redirect_normalized = trim_redirect_padding_for_alignment(&collapsed);
+    let semicolon_normalized = trim_trailing_semicolon_for_alignment(&collapsed);
+    let redirect_normalized = trim_redirect_padding_for_alignment(&semicolon_normalized);
     let array_normalized = trim_compound_assignment_padding_for_alignment(&redirect_normalized);
     let normalized = trim_arithmetic_expansion_padding_for_alignment(&array_normalized);
     normalized.chars().count()
         + case_pattern_pipe_alignment_width(&normalized)
         + moved_function_brace_alignment_width(&normalized)
+}
+
+fn trim_trailing_semicolon_for_alignment(text: &str) -> String {
+    let trimmed = text.trim_end_matches([' ', '\t', '\r']);
+    let Some(without_semicolon) = trimmed.strip_suffix(';') else {
+        return text.to_string();
+    };
+    if without_semicolon.ends_with(';') || without_semicolon.trim().is_empty() {
+        return text.to_string();
+    }
+    without_semicolon
+        .trim_end_matches([' ', '\t', '\r'])
+        .to_string()
 }
 
 fn case_pattern_pipe_alignment_width(text: &str) -> usize {
