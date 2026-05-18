@@ -1286,6 +1286,18 @@ mod tests {
     }
 
     #[test]
+    fn preserves_escaped_html_closing_tags_in_double_quoted_assignments() {
+        let source = "_link=\"<a href=\\\"${target//' '/%20}\\\">[[${label:-}]]</a>\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_prompt_escapes_in_double_quoted_assignments() {
         let source = "PS1=\"\\u:\\W \\$ \"\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();

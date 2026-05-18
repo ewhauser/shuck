@@ -513,6 +513,7 @@ fn render_word_syntax_internal(
         || word_has_parameter_command_redirect_spacing_needs_normalization(word, source)
         || word_has_arithmetic_expansion_source_needs_trim(word, source)
     {
+        let start = rendered.len();
         if render_word_parts(
             word.parts.as_slice(),
             source,
@@ -524,6 +525,14 @@ fn render_word_syntax_internal(
         .is_err()
         {
             unreachable!("writing into a String should not fail");
+        }
+        if !options.simplify()
+            && !options.minify()
+            && let Some(slice) = raw_word_source_slice(word, source)
+            && should_preserve_special_rendered_raw_syntax(slice, &rendered[start..])
+        {
+            rendered.truncate(start);
+            rendered.push_str(slice);
         }
         return;
     }
@@ -6181,6 +6190,10 @@ fn should_preserve_raw_syntax(raw: &str, rendered: &str) -> bool {
     raw != rendered && could_need_preserve_raw_syntax(raw)
 }
 
+fn should_preserve_special_rendered_raw_syntax(raw: &str, rendered: &str) -> bool {
+    raw != rendered && could_need_preserve_raw_syntax_beyond_line_continuations(raw)
+}
+
 fn could_need_preserve_raw_syntax(raw: &str) -> bool {
     raw.starts_with('\\')
         || raw.starts_with('&')
@@ -6189,6 +6202,15 @@ fn could_need_preserve_raw_syntax(raw: &str) -> bool {
         || raw.contains("\\\"")
         || raw.contains("\\`")
         || raw_contains_double_backslash_outside_single_quotes(raw)
+        || raw.contains("[^ ]")
+}
+
+fn could_need_preserve_raw_syntax_beyond_line_continuations(raw: &str) -> bool {
+    raw.starts_with('\\')
+        || raw.starts_with('&')
+        || raw.starts_with("$'")
+        || raw.contains("\\\"")
+        || raw.contains("\\`")
         || raw.contains("[^ ]")
 }
 
