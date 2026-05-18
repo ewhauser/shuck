@@ -2104,6 +2104,12 @@ fn render_command_substitution(
         trimmed
     };
     if trimmed.is_empty() {
+        if raw
+            .and_then(raw_dollar_command_substitution_body)
+            .is_some_and(|body| !body.trim_matches([' ', '\t', '\r', '\n']).is_empty())
+        {
+            return None;
+        }
         rendered.push_str("$()");
         return Some(());
     }

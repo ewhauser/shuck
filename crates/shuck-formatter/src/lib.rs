@@ -1854,6 +1854,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_unmodeled_command_substitution_bodies() {
+        let source = "themes=$(grep \\{EXTRA_THEMES install.sh | cut -d= -f2 | cut -d} -f1)\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn trims_inline_command_substitution_padding() {
         let source = "echo \"MD5SUM=\\\"$( md5sum file | cut -d' ' -f1 )\\\"\"\nlocal minute=\"${MINUTE:-$( date +%H )}\"\noutput=$( ls packages 2> /dev/null | grep pattern )\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
