@@ -4315,10 +4315,7 @@ fn render_process_substitution(
     raw: Option<&str>,
     facts: Option<&FormatterFacts<'_>>,
 ) -> Option<()> {
-    if stmt_seq_has_heredoc(body) {
-        return None;
-    }
-
+    let has_heredoc = stmt_seq_has_heredoc(body);
     let mut nested = String::new();
     let owned_facts;
     let facts = match facts {
@@ -4350,7 +4347,7 @@ fn render_process_substitution(
         return Some(());
     }
 
-    if multiline {
+    if multiline || has_heredoc {
         if let Some(raw) = raw
             && process_substitution_source_starts_with_body_line(raw)
             && !process_substitution_source_closes_on_own_line(raw)

@@ -3986,6 +3986,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn formats_process_substitution_heredocs_as_blocks() {
+        let source = "curl -d @<(cat <<EOF\nbody\nEOF\n)\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted("curl -d @<(\n\tcat <<EOF\nbody\nEOF\n)\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_block_process_substitution_source_indentation() {
         let source = "while read -r line; do\n\techo \"$line\"\ndone < <(\n\tprintf \"%s\\n\" \"${items[@]}\"\n)\n";
         let options = ShellFormatOptions::default();
