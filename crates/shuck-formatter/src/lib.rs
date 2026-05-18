@@ -4931,6 +4931,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn separates_numeric_word_before_output_both_redirects() {
+        let source = "echo \"Usage\" 1&>2\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted("echo \"Usage\" 1 &>2\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_explicit_stdout_fd_on_dup_redirects() {
         let source = "cat 1>&2 <<EOF\nhi\nEOF\n";
         let options = ShellFormatOptions::default();
