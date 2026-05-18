@@ -1457,6 +1457,9 @@ fn render_word_part(
                             span.start.offset,
                             options,
                         );
+                    } else if push_inline_raw_command_substitution_with_normalized_body(
+                        rendered, raw, options,
+                    ) {
                     } else {
                         push_raw_shell_text_with_normalized_redirect_spacing(rendered, raw);
                     }
@@ -2496,6 +2499,9 @@ fn push_command_substitution_inline_body(
         indent_inline_pipeline_continuations(body, options, inline_continuation_indent_levels)
     });
     let body = adjusted_body.as_deref().unwrap_or(body);
+    if body.starts_with('(') {
+        target.push(' ');
+    }
     if options.space_redirects() {
         target.push_str(body);
     } else {
@@ -2792,9 +2798,59 @@ fn push_inline_raw_command_substitution_as_block(
     true
 }
 
+fn push_inline_raw_command_substitution_with_normalized_body(
+    target: &mut String,
+    raw: &str,
+    options: &ResolvedShellFormatOptions,
+) -> bool {
+    if command_substitution_source_starts_with_body_line(raw)
+        || command_substitution_source_closes_on_own_line(raw)
+    {
+        return false;
+    }
+    let Some(body_source) = raw_dollar_command_substitution_body(raw) else {
+        return false;
+    };
+    if !body_source.contains('\n') {
+        return false;
+    }
+
+    let body_source = body_source.trim_start_matches([' ', '\t', '\r']);
+    if !body_source.starts_with('(') {
+        return false;
+    }
+
+    let nested = normalize_inline_raw_command_substitution_body_preserving_nested_comments(
+        body_source,
+        options,
+    );
+    target.push_str("$(");
+    if nested.starts_with('(') {
+        target.push(' ');
+    }
+    target.push_str(&nested);
+    target.push(')');
+    true
+}
+
 fn normalize_inline_raw_command_substitution_body(
     body_source: &str,
     options: &ResolvedShellFormatOptions,
+) -> String {
+    normalize_inline_raw_command_substitution_body_with_options(body_source, options, false)
+}
+
+fn normalize_inline_raw_command_substitution_body_preserving_nested_comments(
+    body_source: &str,
+    options: &ResolvedShellFormatOptions,
+) -> String {
+    normalize_inline_raw_command_substitution_body_with_options(body_source, options, true)
+}
+
+fn normalize_inline_raw_command_substitution_body_with_options(
+    body_source: &str,
+    options: &ResolvedShellFormatOptions,
+    preserve_nested_comment_indent: bool,
 ) -> String {
     let normalized = normalize_raw_pipeline_continuations(body_source);
     let normalized_pipeline_continuation = normalized.is_some();
@@ -2832,13 +2888,16 @@ fn normalize_inline_raw_command_substitution_body(
             .last()
             .map(|compound| compound.base_units)
             .unwrap_or(0);
+        let relative_source_indent =
+            inline_raw_body_relative_source_indent(line, index, source_base_indent.as_deref());
         let relative_indent = if content.starts_with('#')
             && carried_pipeline_indent.is_none()
             && pipeline_compounds.is_empty()
+            && (!preserve_nested_comment_indent || relative_source_indent.is_empty())
         {
             ""
         } else {
-            inline_raw_body_relative_source_indent(line, index, source_base_indent.as_deref())
+            relative_source_indent
         };
         let mut indent_units = pipeline_base_units + raw_indent_units(relative_indent, options);
         if let Some(previous_units) = carried_pipeline_indent {

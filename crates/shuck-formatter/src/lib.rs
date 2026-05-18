@@ -1989,6 +1989,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn formats_commented_inline_subshell_here_string_targets() {
+        let source = "f() {\n\tIFS=\" \" read -r -a COMPREPLY <<< \"$( (\n\t\twhile read -r -d ' ' i; do\n\t\t\t[[ -z \"$i\" ]] && continue\n\t\t\t# flatten array with spaces on either side,\n\t\t\t# otherwise we cannot grep on word boundaries of\n\t\t\t# first and last word\n\t\t\tCOMPREPLYSTR=\" ${COMPREPLY[*]} \"\n\t\t\t# remove word from list of completions\n\t\t\tIFS=\" \" read -r -a COMPREPLY <<< \"${COMPREPLYSTR/ ${i%% *} / }\"\n\t\tdone\n\t\tprintf '%s ' \"${COMPREPLY[@]}\"\n\t) <<< \"${COMP_WORDS[@]}\")\"\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\tIFS=\" \" read -r -a COMPREPLY <<<\"$( (\n\t\twhile read -r -d ' ' i; do\n\t\t\t[[ -z \"$i\" ]] && continue\n\t\t\t# flatten array with spaces on either side,\n\t\t\t# otherwise we cannot grep on word boundaries of\n\t\t\t# first and last word\n\t\t\tCOMPREPLYSTR=\" ${COMPREPLY[*]} \"\n\t\t\t# remove word from list of completions\n\t\t\tIFS=\" \" read -r -a COMPREPLY <<<\"${COMPREPLYSTR/ ${i%% *} / }\"\n\t\tdone\n\t\tprintf '%s ' \"${COMPREPLY[@]}\"\n\t) <<<\"${COMP_WORDS[@]}\")\"\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_unmodeled_command_substitution_bodies() {
         let source = "themes=$(grep \\{EXTRA_THEMES install.sh | cut -d= -f2 | cut -d} -f1)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
