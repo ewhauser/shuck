@@ -2199,26 +2199,55 @@ fn render_command_substitution(
     }
     let normalized_close_continuation = trim_rendered_close_line_continuation(trimmed);
     let trimmed = normalized_close_continuation.as_deref().unwrap_or(trimmed);
+    let trailing_escaped_whitespace = raw
+        .and_then(raw_command_substitution_trailing_escaped_horizontal_whitespace)
+        .or_else(|| {
+            source_trailing_escaped_horizontal_whitespace_before_offset(source, upper_bound)
+        });
 
     match layout {
         CommandSubstitutionLayout::Inline => {
             rendered.push_str("$(");
-            push_command_substitution_inline_body(
-                rendered,
-                trim_inline_command_substitution_padding(trimmed),
-                options,
-                inline_continuation_indent_levels,
-            );
+            let trimmed = trim_inline_command_substitution_padding(trimmed);
+            if let Some(body) =
+                restore_trailing_escaped_horizontal_whitespace(trimmed, trailing_escaped_whitespace)
+            {
+                push_command_substitution_inline_body(
+                    rendered,
+                    &body,
+                    options,
+                    inline_continuation_indent_levels,
+                );
+            } else {
+                push_command_substitution_inline_body(
+                    rendered,
+                    trimmed,
+                    options,
+                    inline_continuation_indent_levels,
+                );
+            }
             rendered.push(')');
         }
         CommandSubstitutionLayout::InlineContinued => {
             rendered.push_str("$(");
-            push_command_substitution_inline_body(
-                rendered,
-                trim_inline_command_substitution_padding(trimmed),
-                options,
-                inline_continuation_indent_levels,
-            );
+            let trimmed = trim_inline_command_substitution_padding(trimmed);
+            if let Some(body) =
+                restore_trailing_escaped_horizontal_whitespace(trimmed, trailing_escaped_whitespace)
+            {
+                push_command_substitution_inline_body(
+                    rendered,
+                    &body,
+                    options,
+                    inline_continuation_indent_levels,
+                );
+            } else {
+                push_command_substitution_inline_body(
+                    rendered,
+                    trimmed,
+                    options,
+                    inline_continuation_indent_levels,
+                );
+            }
             rendered.push(')');
         }
         CommandSubstitutionLayout::InlineSourceIndented => {
@@ -2234,6 +2263,47 @@ fn render_command_substitution(
     }
 
     Some(())
+}
+
+fn restore_trailing_escaped_horizontal_whitespace(
+    body: &str,
+    escaped_whitespace: Option<char>,
+) -> Option<String> {
+    let whitespace = escaped_whitespace?;
+    body.ends_with('\\').then(|| {
+        let mut restored = body.to_string();
+        restored.push(whitespace);
+        restored
+    })
+}
+
+fn raw_command_substitution_trailing_escaped_horizontal_whitespace(raw: &str) -> Option<char> {
+    let body = raw_dollar_command_substitution_body(raw)?;
+    trailing_escaped_horizontal_whitespace(body)
+}
+
+fn source_trailing_escaped_horizontal_whitespace_before_offset(
+    source: &str,
+    upper_bound: usize,
+) -> Option<char> {
+    let close_offset = upper_bound.checked_sub(1)?;
+    if source.as_bytes().get(close_offset) != Some(&b')') {
+        return None;
+    }
+    trailing_escaped_horizontal_whitespace(source.get(..close_offset)?)
+}
+
+fn trailing_escaped_horizontal_whitespace(body: &str) -> Option<char> {
+    let (whitespace_start, whitespace) = body.char_indices().next_back()?;
+    if !matches!(whitespace, ' ' | '\t') {
+        return None;
+    }
+    let backslash_count = body.as_bytes()[..whitespace_start]
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'\\')
+        .count();
+    (backslash_count % 2 == 1).then_some(whitespace)
 }
 
 fn trim_rendered_close_line_continuation(rendered: &str) -> Option<String> {
@@ -3968,7 +4038,7 @@ fn normalize_raw_command_substitution_padding(raw: &str) -> Option<String> {
         {
             let body = &raw[index + 2..close_offset];
             if !body.contains('\n') {
-                let trimmed = body.trim_matches([' ', '\t']);
+                let trimmed = trim_raw_command_substitution_horizontal_padding(body);
                 let normalized_body = normalize_raw_command_substitution_padding(trimmed)
                     .unwrap_or_else(|| trimmed.to_string());
                 if trimmed.len() != body.len() || normalized_body != trimmed {
@@ -3992,6 +4062,10 @@ fn normalize_raw_command_substitution_padding(raw: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+fn trim_raw_command_substitution_horizontal_padding(body: &str) -> &str {
+    trim_unescaped_trailing_whitespace(body.trim_start_matches([' ', '\t']))
 }
 
 fn normalize_raw_empty_parameter_replacement_delimiters(raw: &str) -> Option<String> {
@@ -6402,6 +6476,7 @@ fn could_need_preserve_raw_syntax(raw: &str) -> bool {
     raw.starts_with('\\')
         || raw.starts_with('&')
         || raw.starts_with("$'")
+        || raw_contains_escaped_horizontal_whitespace(raw)
         || raw.contains("\\\n")
         || raw.contains("\\\"")
         || raw.contains("\\`")
@@ -6413,9 +6488,14 @@ fn could_need_preserve_raw_syntax_beyond_line_continuations(raw: &str) -> bool {
     raw.starts_with('\\')
         || raw.starts_with('&')
         || raw.starts_with("$'")
+        || raw_contains_escaped_horizontal_whitespace(raw)
         || raw.contains("\\\"")
         || raw.contains("\\`")
         || raw.contains("[^ ]")
+}
+
+fn raw_contains_escaped_horizontal_whitespace(raw: &str) -> bool {
+    raw.contains("\\ ") || raw.contains("\\\t")
 }
 
 fn raw_contains_double_backslash_outside_single_quotes(raw: &str) -> bool {
