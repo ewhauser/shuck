@@ -3636,6 +3636,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         else {
             return Vec::new();
         };
+        if source
+            .get(pattern_line_start..first_pattern_start)
+            .is_some_and(|prefix| !prefix.trim_matches([' ', '\t', '\r']).is_empty())
+        {
+            return Vec::new();
+        }
         let mut comments = Vec::new();
         let mut next_start = pattern_line_start;
         while let Some((start, end)) = previous_line_bounds(source, next_start) {
