@@ -3374,6 +3374,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 .sequence(&item.body, upper_bound)
                 .has_comments();
             let comments = self.empty_case_item_body_comments(item);
+            if pattern_suffix_comment.is_some() && !self.options().compact_layout() {
+                self.newline();
+                self.write_case_prefix(base_indent + 1);
+                self.write_case_terminator(item);
+                return Ok(());
+            }
             if (body_has_comments || !comments.is_empty()) && !self.options().compact_layout() {
                 self.newline();
                 if comments.is_empty() {
