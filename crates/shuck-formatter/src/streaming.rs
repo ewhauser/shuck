@@ -2028,13 +2028,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let mut operators = Vec::new();
         collect_pipeline(pipeline, &mut statements, &mut operators);
 
-        let mut operator_breaks = pipeline_operator_breaks(
-            &statements,
-            &operators,
-            self.source(),
-            self.source_map(),
-            self.options(),
-        );
+        let mut operator_breaks =
+            pipeline_operator_breaks(&statements, &operators, self.source(), self.source_map());
         if self.facts().pipeline_has_explicit_line_break(pipeline)
             && !operator_breaks.iter().any(|broken| *broken)
         {
@@ -7448,22 +7443,15 @@ fn pipeline_operator_breaks(
     operators: &[(BinaryOp, Span)],
     source: &str,
     source_map: &SourceMap<'_>,
-    options: &ResolvedShellFormatOptions,
 ) -> Vec<bool> {
     let mut breaks = Vec::with_capacity(operators.len());
     for index in 1..statements.len() {
         let Some((_, operator_span)) = operators.get(index - 1) else {
             continue;
         };
-        let previous_end = stmt_attachment_span(statements[index - 1], source, source_map, options)
-            .end
-            .offset;
-        let next_start = stmt_attachment_span(statements[index], source, source_map, options)
-            .start
-            .offset;
+        let next_start = interstitial_comment_end(statements[index], source_map);
         breaks.push(
             pipeline_operator_starts_or_ends_line(source, *operator_span)
-                || has_newline_between_offsets(source, previous_end, operator_span.start.offset)
                 || has_newline_between_offsets(source, operator_span.end.offset, next_start),
         );
     }

@@ -1170,13 +1170,9 @@ fn pipeline_has_explicit_line_break(
         let Some(operator_span) = operators.get(index - 1) else {
             continue;
         };
-        let previous_end = stmt_attachment_span(statements[index - 1], source, source_map, options)
-            .end
-            .offset;
-        let next_start = stmt_attachment_span(statements[index], source, source_map, options)
-            .start
-            .offset;
-        if has_newline_between(source, previous_end, operator_span.start.offset)
+        let next_start =
+            pipeline_stage_start_offset(statements[index], source, source_map, options);
+        if operator_starts_or_ends_line(source, *operator_span)
             || has_newline_between(source, operator_span.end.offset, next_start)
         {
             return true;
@@ -1184,6 +1180,39 @@ fn pipeline_has_explicit_line_break(
     }
 
     false
+}
+
+fn pipeline_stage_start_offset(
+    stmt: &Stmt,
+    source: &str,
+    source_map: &SourceMap<'_>,
+    options: &ResolvedShellFormatOptions,
+) -> usize {
+    match &stmt.command {
+        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
+            group_attachment_span(commands.as_slice(), source_map, '{', '}')
+                .map(|span| span.start.offset)
+                .unwrap_or_else(|| {
+                    stmt_attachment_span(stmt, source, source_map, options)
+                        .start
+                        .offset
+                })
+        }
+        Command::Compound(CompoundCommand::Subshell(commands)) => {
+            group_attachment_span(commands.as_slice(), source_map, '(', ')')
+                .map(|span| span.start.offset)
+                .unwrap_or_else(|| {
+                    stmt_attachment_span(stmt, source, source_map, options)
+                        .start
+                        .offset
+                })
+        }
+        _ => {
+            stmt_attachment_span(stmt, source, source_map, options)
+                .start
+                .offset
+        }
+    }
 }
 
 fn collect_pipeline<'a>(

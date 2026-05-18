@@ -3992,6 +3992,36 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn keeps_same_line_pipeline_rhs_brace_group_attached() {
+        let source = "f() {\n  {\n    echo body\n  } | {\n    # Header\n    cat\n  } | {\n    # Footer\n    cat\n  }\n}\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\t{\n\t\techo body\n\t} | {\n\t\t# Header\n\t\tcat\n\t} | {\n\t\t# Footer\n\t\tcat\n\t}\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn keeps_nested_same_line_pipeline_rhs_brace_group_attached() {
+        let source = "f() {\n  {\n    {\n      echo body\n    } || {\n      echo fallback\n    }\n  } | {\n    # Header\n    cat\n  } | {\n    # Footer\n    cat\n  }\n}\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\t{\n\t\t{\n\t\t\techo body\n\t\t} || {\n\t\t\techo fallback\n\t\t}\n\t} | {\n\t\t# Header\n\t\tcat\n\t} | {\n\t\t# Footer\n\t\tcat\n\t}\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn standalone_brace_groups_do_not_consume_later_file_comments() {
         let source = "[ -n \"$x\" ] && {\nset -x\n}\n# later\nnext\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
