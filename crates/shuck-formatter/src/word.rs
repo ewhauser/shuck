@@ -416,11 +416,20 @@ pub(crate) fn render_heredoc_body_to_buf(
     source: &str,
     options: &ResolvedShellFormatOptions,
     _facts: &FormatterFacts<'_>,
+    embedded_command_indent_levels: usize,
     rendered: &mut String,
 ) {
     for part in &body.parts {
-        if render_heredoc_body_part(rendered, &part.kind, part.span, source, options, _facts)
-            .is_err()
+        if render_heredoc_body_part(
+            rendered,
+            &part.kind,
+            part.span,
+            source,
+            options,
+            _facts,
+            embedded_command_indent_levels,
+        )
+        .is_err()
         {
             unreachable!("writing into a String should not fail");
         }
@@ -744,6 +753,7 @@ fn render_heredoc_body_part(
     source: &str,
     options: &ResolvedShellFormatOptions,
     _facts: &FormatterFacts<'_>,
+    embedded_command_indent_levels: usize,
 ) -> Result<(), std::fmt::Error> {
     match part {
         HeredocBodyPart::Literal(text) => {
@@ -792,6 +802,7 @@ fn render_heredoc_body_part(
                     source,
                     options,
                     layout,
+                    embedded_command_indent_levels,
                     raw,
                     None,
                     None,
@@ -1321,6 +1332,7 @@ fn render_word_part(
                                 false,
                                 context.source_indented_inline_command_substitution,
                             ),
+                            1,
                             Some(raw),
                             source_map,
                             facts,
@@ -1381,6 +1393,7 @@ fn render_word_part(
                         false,
                         context.source_indented_inline_command_substitution,
                     ),
+                    1,
                     Some(raw),
                     source_map,
                     facts,
@@ -1404,6 +1417,7 @@ fn render_word_part(
                     *syntax == CommandSubstitutionSyntax::DollarParen,
                     false,
                 ),
+                1,
                 None,
                 source_map,
                 facts,
@@ -1947,6 +1961,7 @@ fn render_command_substitution(
     source: &str,
     options: &ResolvedShellFormatOptions,
     layout: CommandSubstitutionLayout,
+    inline_continuation_indent_levels: usize,
     raw: Option<&str>,
     _source_map: Option<&SourceMap<'_>>,
     facts: Option<&FormatterFacts<'_>>,
@@ -1994,6 +2009,7 @@ fn render_command_substitution(
                 rendered,
                 trim_inline_command_substitution_padding(trimmed),
                 options,
+                inline_continuation_indent_levels,
             );
             rendered.push(')');
         }
@@ -2003,6 +2019,7 @@ fn render_command_substitution(
                 rendered,
                 trim_inline_command_substitution_padding(trimmed),
                 options,
+                inline_continuation_indent_levels,
             );
             rendered.push(')');
         }
@@ -2233,11 +2250,13 @@ fn push_command_substitution_inline_body(
     target: &mut String,
     body: &str,
     options: &ResolvedShellFormatOptions,
+    inline_continuation_indent_levels: usize,
 ) {
     let expanded_pipeline_brace_group = expand_inline_pipeline_brace_group_body(body, options);
     let body = expanded_pipeline_brace_group.as_deref().unwrap_or(body);
-    let adjusted_body = indent_inline_case_command_body(body, options)
-        .or_else(|| indent_inline_pipeline_continuations(body, options));
+    let adjusted_body = indent_inline_case_command_body(body, options).or_else(|| {
+        indent_inline_pipeline_continuations(body, options, inline_continuation_indent_levels)
+    });
     let body = adjusted_body.as_deref().unwrap_or(body);
     if options.space_redirects() {
         target.push_str(body);
@@ -2308,18 +2327,21 @@ fn trim_inline_command_substitution_padding(body: &str) -> &str {
 fn indent_inline_pipeline_continuations(
     body: &str,
     options: &ResolvedShellFormatOptions,
+    indent_levels: usize,
 ) -> Option<String> {
     if !body.contains('\n') {
         return None;
     }
 
-    let prefix = match options.indent_style() {
+    let unit = match options.indent_style() {
         IndentStyle::Tab => "\t".to_string(),
         IndentStyle::Space => " ".repeat(usize::from(options.indent_width())),
     };
+    let prefix = unit.repeat(indent_levels.max(1));
     let mut rendered = String::with_capacity(body.len() + prefix.len());
     let mut changed = false;
     let mut previous_ends_pipeline = false;
+    let mut pipeline_comment_continuation = false;
     let mut continuation_indent: Option<String> = None;
     let mut quote = RawShellQuoteState::default();
 
@@ -2338,21 +2360,36 @@ fn indent_inline_pipeline_continuations(
         } else {
             false
         };
+        let continues_pipeline_operand = previous_ends_pipeline || pipeline_comment_continuation;
         if !used_continuation_indent
-            && previous_ends_pipeline
+            && continues_pipeline_operand
             && line_needs_inline_pipeline_indent(line)
         {
             rendered_line.push_str(&prefix);
             rendered_line.push_str(line);
+            changed = true;
+        } else if !used_continuation_indent
+            && continues_pipeline_operand
+            && indent_levels > 1
+            && !line.trim().is_empty()
+            && line_leading_shell_indent(line) != prefix
+        {
+            rendered_line.push_str(&prefix);
+            rendered_line.push_str(line.trim_start_matches([' ', '\t']));
             changed = true;
         } else if !used_continuation_indent {
             rendered_line.push_str(line);
         }
 
         rendered.push_str(&rendered_line);
+        let line_is_pipeline_comment = continues_pipeline_operand
+            && rendered_line
+                .trim_start_matches([' ', '\t'])
+                .starts_with('#');
         let line_continues = line_without_continuation_backslash(&rendered_line).is_some();
         quote.scan_line(&rendered_line);
         previous_ends_pipeline = line_ends_with_raw_continuation_operator(&rendered_line);
+        pipeline_comment_continuation = line_is_pipeline_comment;
         continuation_indent = line_continues.then(|| {
             let indent = line_leading_shell_indent(&rendered_line);
             if quote.in_multiline_literal() || used_continuation_indent {
@@ -3098,6 +3135,7 @@ fn render_inline_raw_command_substitution_as_block(
             &mut rendered,
             trim_inline_command_substitution_padding(trimmed),
             options,
+            1,
         );
         rendered.push(')');
     } else {

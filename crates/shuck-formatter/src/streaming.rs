@@ -4230,6 +4230,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     source,
                     &self.options,
                     self.facts,
+                    self.indent_level.saturating_add(1),
                     &mut rendered,
                 );
                 rendered

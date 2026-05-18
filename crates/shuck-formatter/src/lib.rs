@@ -2004,6 +2004,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn heredoc_command_substitution_continuations_follow_shell_indent() {
+        let source = "if ok; then\n  cat <<EOF\nx $(date +%F |\n      # comment\n      sed 's/-/--/g') y\nEOF\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if ok; then\n\tcat <<EOF\nx $(date +%F |\n\t\t# comment\n\t\tsed 's/-/--/g') y\nEOF\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn command_substitution_bounds_do_not_capture_following_comments() {
         let source = "value=$(pwd)\n# after\nnext\n";
         let options = ShellFormatOptions::default();
