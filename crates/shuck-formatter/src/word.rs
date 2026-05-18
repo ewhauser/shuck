@@ -4052,6 +4052,9 @@ fn normalize_raw_command_substitution_padding(raw: &str) -> Option<String> {
                 if trimmed.len() != body.len() || normalized_body != trimmed {
                     rendered.push_str(&raw[cursor..index]);
                     rendered.push_str("$(");
+                    if normalized_body.starts_with('(') {
+                        rendered.push(' ');
+                    }
                     rendered.push_str(&normalized_body);
                     rendered.push(')');
                     cursor = close_offset + 1;
