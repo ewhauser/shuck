@@ -2593,6 +2593,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 if preserve_blank_after_prefix {
                     self.newline();
                 }
+                if self.can_inline_else_branch_close(command, body, fi_span) {
+                    self.write_text("else ");
+                    self.format_inline_stmts(body)?;
+                    self.write_text("; fi");
+                    self.write_close_suffix_after_span(Some(fi_span));
+                    return Ok(());
+                }
                 self.write_text("else");
             }
             let body_upper_bound = fi_upper_bound;
@@ -2623,6 +2630,34 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_close_suffix_after_span(Some(fi_span));
         }
         Ok(())
+    }
+
+    fn can_inline_else_branch_close(
+        &self,
+        command: &IfCommand,
+        body: &StmtSeq,
+        fi_span: Span,
+    ) -> bool {
+        let [stmt] = body.as_slice() else {
+            return false;
+        };
+        if matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
+            || !self.can_inline_stmt(stmt)
+            || self
+                .facts()
+                .sequence(body, Some(fi_span.start.offset))
+                .has_comments()
+        {
+            return false;
+        };
+        let Some((_, else_offset)) =
+            if_next_branch_region(command, command.elif_branches.len(), self.source())
+        else {
+            return false;
+        };
+        let else_line = self.source_map().line_number_for_offset(else_offset);
+        let body_line = stmt_span(stmt).start.line;
+        else_line == body_line && body_line == fi_span.start.line
     }
 
     fn can_inline_if_chain(&self, command: &IfCommand, fi_span: Span) -> bool {
