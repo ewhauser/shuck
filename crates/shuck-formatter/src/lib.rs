@@ -6627,14 +6627,29 @@ function R() {
     }
 
     #[test]
-    fn expands_inline_case_arms_with_if_bodies() {
+    fn keeps_inline_case_arms_with_if_bodies() {
         let source = "case \"$name\" in\nFastfile) if [[ \"$path\" =~ /fastlane/Fastfile ]]; then\n  ruby -c \"$name\"\nfi ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
         assert_eq!(
             format_source(source, None, &options).unwrap(),
             FormattedSource::Formatted(
-                "case \"$name\" in\nFastfile)\n\tif [[ \"$path\" =~ /fastlane/Fastfile ]]; then\n\t\truby -c \"$name\"\n\tfi\n\t;;\nesac\n"
+                "case \"$name\" in\nFastfile) if [[ \"$path\" =~ /fastlane/Fastfile ]]; then\n\truby -c \"$name\"\nfi ;;\nesac\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn keeps_inline_case_arms_with_if_else_bodies() {
+        let source = "case \"$RETROARCH\" in\n*) if [ -x /usr/share/games/retroarch ]; then\n    build_ra=yes\nelse\n    build_ra=no\nfi ;;\nesac\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "case \"$RETROARCH\" in\n*) if [ -x /usr/share/games/retroarch ]; then\n\tbuild_ra=yes\nelse\n\tbuild_ra=no\nfi ;;\nesac\n"
                     .to_string()
             )
         );

@@ -3417,11 +3417,18 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     .any(|comment| comment.line() > pattern_line)
             });
             let first_body_line = body_sequence.first_rendered_line_for(0);
+            let pattern_body_terminator_was_inline =
+                case_item_pattern_body_terminator_was_inline_in_source(item, self.source());
             let item_was_inline_in_source = self.facts().case_item_was_inline_in_source(item)
-                || case_item_pattern_body_terminator_was_inline_in_source(item, self.source());
+                || pattern_body_terminator_was_inline;
             if base_indent == 0
                 && item.body.len() == 1
-                && case_item_single_body_stmt_can_inline(&item.body[0])
+                && case_item_single_body_stmt_can_inline(
+                    item,
+                    self.source(),
+                    self.source_map(),
+                    pattern_body_terminator_was_inline,
+                )
                 && (item_was_inline_in_source
                     || (pattern_suffix_comment.is_some()
                         && !body_has_later_comments
@@ -6580,8 +6587,40 @@ fn case_item_body_can_share_terminator(item: &CaseItem) -> bool {
         && stmt.terminator.is_none()
 }
 
-fn case_item_single_body_stmt_can_inline(stmt: &Stmt) -> bool {
-    !matches!(stmt.command, Command::Compound(CompoundCommand::If(_)))
+fn case_item_single_body_stmt_can_inline(
+    item: &CaseItem,
+    source: &str,
+    source_map: &SourceMap<'_>,
+    pattern_body_terminator_was_inline: bool,
+) -> bool {
+    let [stmt] = item.body.as_slice() else {
+        return false;
+    };
+    if let Command::Compound(CompoundCommand::If(command)) = &stmt.command {
+        return pattern_body_terminator_was_inline
+            && case_item_close_paren_shares_line_with_body(item, source)
+            && case_item_if_close_shares_terminator(command, item, source, source_map);
+    }
+    true
+}
+
+fn case_item_if_close_shares_terminator(
+    command: &IfCommand,
+    item: &CaseItem,
+    source: &str,
+    source_map: &SourceMap<'_>,
+) -> bool {
+    let Some(terminator_span) = item.terminator_span else {
+        return false;
+    };
+    let Some(fi_span) = if_close_span(source, source_map, command) else {
+        return false;
+    };
+    let fi_end = fi_span.end.offset.min(source.len());
+    let terminator_start = terminator_span.start.offset.min(source.len());
+    source
+        .get(fi_end..terminator_start)
+        .is_some_and(|gap| !gap.contains('\n') && !gap.contains('\r'))
 }
 
 fn case_item_body_was_inline_without_terminator(item: &CaseItem) -> bool {
