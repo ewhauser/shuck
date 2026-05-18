@@ -479,6 +479,15 @@ fn render_word_syntax_internal(
     if !options.simplify()
         && !options.minify()
         && let Some(raw) = raw_word_source_slice(word, source)
+        && let Some(normalized) = normalize_raw_empty_parameter_replacement_delimiters(raw)
+    {
+        rendered.push_str(&normalized);
+        return;
+    }
+
+    if !options.simplify()
+        && !options.minify()
+        && let Some(raw) = raw_word_source_slice(word, source)
         && (word_has_multiline_double_quoted_source(word, source)
             || (raw.starts_with('"') && raw.contains("\\\n")))
         && !word_is_quoted_formattable_command_substitution_only(word, source)
@@ -714,6 +723,10 @@ fn part_needs_special_rendering(part: &WordPart) -> bool {
             .any(|part| part_needs_special_rendering(&part.kind)),
         WordPart::ArithmeticExpansion { expression_ast, .. } => expression_ast.is_some(),
         WordPart::Parameter(parameter) => parameter_needs_special_rendering(parameter),
+        WordPart::ParameterExpansion { operator, .. } => matches!(
+            operator.as_ref(),
+            ParameterOp::ReplaceFirst { .. } | ParameterOp::ReplaceAll { .. }
+        ),
         WordPart::Substring { .. } | WordPart::ArraySlice { .. } => true,
         WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => true,
         _ => false,
@@ -1543,7 +1556,7 @@ fn render_word_part(
             operator.as_ref(),
             operand.as_ref(),
             *colon_variant,
-            None,
+            Some(span),
             source,
             options,
         )?,
@@ -3524,6 +3537,187 @@ fn normalize_raw_command_substitution_padding(raw: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+fn normalize_raw_empty_parameter_replacement_delimiters(raw: &str) -> Option<String> {
+    if !raw.contains("${") {
+        return None;
+    }
+
+    let bytes = raw.as_bytes();
+    let mut rendered = String::with_capacity(raw.len());
+    let mut cursor = 0usize;
+    let mut index = 0usize;
+    let mut changed = false;
+
+    while index + 1 < bytes.len() {
+        if bytes[index] == b'$'
+            && bytes[index + 1] == b'{'
+            && index
+                .checked_sub(1)
+                .and_then(|previous| bytes.get(previous))
+                .is_none_or(|byte| *byte != b'\\')
+            && let Some(close_offset) = matching_raw_parameter_expansion_close(raw, index + 2)
+        {
+            let body = &raw[index + 2..close_offset];
+            if raw_parameter_replacement_needs_empty_delimiter(body) {
+                rendered.push_str(&raw[cursor..close_offset]);
+                rendered.push('/');
+                cursor = close_offset;
+                changed = true;
+            }
+            index = close_offset + 1;
+            continue;
+        }
+        index += 1;
+    }
+
+    if changed {
+        rendered.push_str(&raw[cursor..]);
+        Some(rendered)
+    } else {
+        None
+    }
+}
+
+fn matching_raw_parameter_expansion_close(raw: &str, body_start: usize) -> Option<usize> {
+    let bytes = raw.as_bytes();
+    let mut depth = 1usize;
+    let mut escaped = false;
+    let mut index = body_start;
+
+    while index < bytes.len() {
+        if escaped {
+            escaped = false;
+            index += 1;
+            continue;
+        }
+
+        match bytes[index] {
+            b'\\' => escaped = true,
+            b'$' if bytes.get(index + 1) == Some(&b'{') => {
+                depth += 1;
+                index += 1;
+            }
+            b'}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+
+    None
+}
+
+fn raw_parameter_replacement_needs_empty_delimiter(body: &str) -> bool {
+    let Some(after_operator) = raw_parameter_replacement_body_after_operator(body) else {
+        return false;
+    };
+    let (_, replacement) = split_raw_parameter_replacement(after_operator);
+    if replacement.is_empty() {
+        return !raw_has_final_replacement_delimiter(after_operator);
+    }
+
+    replacement_ends_with_ambiguous_quote(replacement)
+}
+
+fn raw_parameter_replacement_body_after_operator(body: &str) -> Option<&str> {
+    let mut index = body.strip_prefix('!').map_or(0, |_| 1);
+    let bytes = body.as_bytes();
+    if index >= bytes.len() {
+        return None;
+    }
+
+    if bytes[index].is_ascii_alphabetic() || bytes[index] == b'_' {
+        index += 1;
+        while index < bytes.len() && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
+        {
+            index += 1;
+        }
+    } else if bytes[index].is_ascii_digit()
+        || matches!(
+            bytes[index],
+            b'@' | b'*' | b'#' | b'?' | b'-' | b'$' | b'!' | b'0'
+        )
+    {
+        index += 1;
+    } else {
+        return None;
+    }
+
+    if bytes.get(index) == Some(&b'[') {
+        index = raw_parameter_subscript_end(body, index)?;
+    }
+
+    body.get(index..)
+        .and_then(|rest| rest.strip_prefix("//").or_else(|| rest.strip_prefix('/')))
+}
+
+fn raw_parameter_subscript_end(body: &str, open: usize) -> Option<usize> {
+    let bytes = body.as_bytes();
+    let mut depth = 1usize;
+    let mut escaped = false;
+    let mut index = open + 1;
+    while index < bytes.len() {
+        if escaped {
+            escaped = false;
+            index += 1;
+            continue;
+        }
+        match bytes[index] {
+            b'\\' => escaped = true,
+            b'[' => depth += 1,
+            b']' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some(index + 1);
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+fn raw_has_final_replacement_delimiter(after_operator: &str) -> bool {
+    let Some((last_index, _)) = after_operator.char_indices().next_back() else {
+        return false;
+    };
+    after_operator[last_index..].starts_with('/')
+        && !raw_char_is_escaped(after_operator, last_index)
+}
+
+fn raw_char_is_escaped(raw: &str, index: usize) -> bool {
+    let mut backslashes = 0usize;
+    for ch in raw[..index].chars().rev() {
+        if ch == '\\' {
+            backslashes += 1;
+        } else {
+            break;
+        }
+    }
+    backslashes % 2 == 1
+}
+
+fn replacement_ends_with_ambiguous_quote(replacement: &str) -> bool {
+    if replacement.ends_with('\'') {
+        return replacement[..replacement.len() - '\''.len_utf8()].ends_with('\\');
+    }
+    if replacement.ends_with('"') {
+        let quote_index = replacement.len() - '"'.len_utf8();
+        let backslashes = replacement[..quote_index]
+            .chars()
+            .rev()
+            .take_while(|ch| *ch == '\\')
+            .count();
+        return backslashes > 0 && backslashes % 2 == 0;
+    }
+    false
 }
 
 fn normalize_raw_arithmetic_command_substitution_padding(raw: &str) -> Option<String> {
