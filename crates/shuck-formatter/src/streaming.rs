@@ -3522,8 +3522,19 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if let Some(command) = &command.command {
             self.write_space();
             self.format_stmt(command)?;
+            self.write_time_inner_trailing_comment(command);
         }
         Ok(())
+    }
+
+    fn write_time_inner_trailing_comment(&mut self, stmt: &Stmt) {
+        if !time_inner_stmt_needs_trailing_comment(stmt) {
+            return;
+        }
+        let Some(comment) = self.close_suffix_comment_after_span(stmt_format_span(stmt)) else {
+            return;
+        };
+        self.emit_trailing_comments_for_stmt(&[comment]);
     }
 
     fn format_conditional(&mut self, command: &ConditionalCommand) -> Result<()> {
@@ -7605,6 +7616,15 @@ fn branch_prefix_comments_use_disabled_body_indent(comments: &[(usize, String, u
 
 fn shell_keyword_prefix_matches(text: &str, keyword: &str) -> bool {
     text.starts_with(keyword) && shell_keyword_boundaries_match(text, 0, keyword.len())
+}
+
+fn time_inner_stmt_needs_trailing_comment(stmt: &Stmt) -> bool {
+    match &stmt.command {
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => true,
+        Command::Compound(CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_)) => true,
+        Command::Binary(command) => time_inner_stmt_needs_trailing_comment(&command.right),
+        _ => false,
+    }
 }
 
 fn own_line_comments_in_region(source: &str, start: usize, end: usize) -> Vec<BranchPrefixComment> {

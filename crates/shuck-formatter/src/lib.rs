@@ -4051,6 +4051,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_time_command_trailing_comment_after_redirect() {
+        let source = "time nice ffmpeg -i \"$filepath\" \"$mp4_filepath\" < /dev/null  # note\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "time nice ffmpeg -i \"$filepath\" \"$mp4_filepath\" </dev/null # note\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_regex_operands_in_conditionals() {
         let source = "[[ \"$x\" =~ \"git version \"([^ ]*).* ]]\n";
         let options = ShellFormatOptions::default();
