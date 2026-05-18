@@ -4339,6 +4339,21 @@ function R() {
     }
 
     #[test]
+    fn normalizes_raw_block_command_substitution_inline_comment_padding() {
+        let source = "resources=\"$(\n    kubectl api-resources |\n    tail -n +2 || :  # ignore incomplete API discovery\n)\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "resources=\"$(\n\tkubectl api-resources |\n\t\ttail -n +2 || : # ignore incomplete API discovery\n)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn normalizes_raw_command_substitution_leading_list_operators() {
         let source = "matches=\"$(git grep -Ei \\\n    -e a \\\n    | grep -Fv x \\\n    || :\n    # note\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

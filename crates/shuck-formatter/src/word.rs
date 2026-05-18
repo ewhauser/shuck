@@ -2625,11 +2625,13 @@ fn push_raw_shell_line_with_normalized_source_indent(
         target.push_str(&normalized_raw_shell_indent(indent, options));
     }
     let normalized_content;
-    let content = if body_indent.is_some() {
-        normalized_content = strip_semicolon_before_trailing_comment(content);
+    let content = {
+        normalized_content = body_indent
+            .is_some()
+            .then(|| strip_semicolon_before_trailing_comment(content))
+            .flatten()
+            .or_else(|| normalize_padding_before_trailing_comment(content));
         normalized_content.as_deref().unwrap_or(content)
-    } else {
-        content
     };
     push_raw_shell_line_with_normalized_redirect_spacing(target, content);
 }
@@ -2660,6 +2662,24 @@ fn strip_semicolon_before_trailing_comment(line: &str) -> Option<String> {
 
     let mut rendered = String::with_capacity(line.len().saturating_sub(1));
     rendered.push_str(before_semicolon.trim_end_matches([' ', '\t', '\r']));
+    rendered.push(' ');
+    rendered.push_str(&line[comment_start..]);
+    Some(rendered)
+}
+
+fn normalize_padding_before_trailing_comment(line: &str) -> Option<String> {
+    let comment_start = trailing_comment_start(line)?;
+    let before_comment = &line[..comment_start];
+    let code = before_comment.trim_end_matches([' ', '\t', '\r']);
+    if code.is_empty()
+        || code.len() == before_comment.len()
+        || before_comment[code.len()..].chars().count() == 1
+    {
+        return None;
+    }
+
+    let mut rendered = String::with_capacity(line.len());
+    rendered.push_str(code);
     rendered.push(' ');
     rendered.push_str(&line[comment_start..]);
     Some(rendered)
