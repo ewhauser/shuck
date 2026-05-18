@@ -7105,7 +7105,22 @@ fn case_prefix_comment_uses_body_indent(
     if disabled_case_pattern_context && comment_looks_like_disabled_case_pattern(comment) {
         return comment_width < pattern_width;
     }
+    if comment_width < pattern_width && case_prefix_comment_follows_terminator(source, comment) {
+        return true;
+    }
     comment_width > pattern_width || (comment_width == 0 && pattern_width > 0)
+}
+
+fn case_prefix_comment_follows_terminator(source: &str, comment: &SourceComment<'_>) -> bool {
+    let Some((line_start, _)) = line_bounds_for_offset(source, comment.span().start.offset) else {
+        return false;
+    };
+    let Some((previous_start, previous_end)) = previous_line_bounds(source, line_start) else {
+        return false;
+    };
+    source
+        .get(previous_start..previous_end)
+        .is_some_and(|line| line.trim_end_matches([' ', '\t', '\r']).ends_with(";;"))
 }
 
 fn comment_looks_like_disabled_case_pattern(comment: &SourceComment<'_>) -> bool {

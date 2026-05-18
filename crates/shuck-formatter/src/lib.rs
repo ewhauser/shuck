@@ -3401,6 +3401,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_body_indented_comments_before_overindented_case_patterns() {
+        let source = "if [ -z \"$ARCH\" ]; then\n  case \"$( uname -m )\" in\n    arm*) ARCH=arm\n          NO_ASM=1 ;;\n    # comment\n       *) ARCH=$( uname -m ) ;;\n  esac\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\tarm*)\n\t\tARCH=arm\n\t\tNO_ASM=1\n\t\t;;\n\t\t# comment\n\t*) ARCH=$(uname -m) ;;\n\tesac\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn indents_disabled_case_arm_comments_before_next_pattern() {
         let source = "f() {\n  case \"$mode\" in\n  client)\n    echo client\n    ;;\n#\t\thybrid)\n#\t\t\techo hybrid\n#\t\t;;\n  *)\n    echo default\n    ;;\n  esac\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
