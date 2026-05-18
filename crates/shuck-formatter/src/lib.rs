@@ -3913,6 +3913,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn expands_subshells_with_line_continuation_headers() {
+        let source = "(cd samples/ && \\\n  find . -name \"build.sh\" -exec chmod 0755 {} \\;\n)\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "(\n\tcd samples/ &&\n\t\tfind . -name \"build.sh\" -exec chmod 0755 {} \\;\n)\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_multiline_subshell_around_loop() {
         let source = "f() {\n  (while sudo -v; do\n    sleep 50\n  done) &\n}\n";
         let options = ShellFormatOptions::default();

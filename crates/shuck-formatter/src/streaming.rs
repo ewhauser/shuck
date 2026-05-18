@@ -4688,7 +4688,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         else {
             return false;
         };
-        if !group_span.slice(self.source()).contains('\n') {
+        let group_source = group_span.slice(self.source());
+        if !group_source.contains('\n')
+            || group_source.contains("\\\n")
+            || group_source.contains("\\\r\n")
+        {
             return false;
         }
 
