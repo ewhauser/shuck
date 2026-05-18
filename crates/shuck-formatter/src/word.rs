@@ -1253,16 +1253,6 @@ fn render_word_part(
                 )
                 .is_some()
                 {
-                } else if command_substitution_source_starts_with_body_line(raw)
-                    && !stmt_seq_has_heredoc(body)
-                {
-                    push_raw_block_command_substitution_without_outer_indent(
-                        rendered,
-                        raw,
-                        source,
-                        span.start.offset,
-                        options,
-                    );
                 } else {
                     rendered.push_str(raw);
                 }
@@ -3615,7 +3605,6 @@ fn push_indented_rendered_block(
     let common_source_indent = common_rendered_block_indent(rendered, options);
 
     let mut active_heredoc: Option<CommandSubstitutionHeredocIndent> = None;
-    let mut previous_pipeline_indent: Option<String> = None;
     for (index, line) in rendered.lines().enumerate() {
         if index > 0 {
             target.push('\n');
@@ -3636,35 +3625,12 @@ fn push_indented_rendered_block(
             continue;
         }
 
-        let carried_pipeline_indent = previous_pipeline_indent.clone();
-        let mut line = strip_common_rendered_block_indent(line, &common_source_indent).to_string();
-        if let Some(previous_indent) = carried_pipeline_indent.as_deref() {
-            let indent = line_leading_shell_indent(&line);
-            let content = &line[indent.len()..];
-            if !content.trim().is_empty() && !content.starts_with('#') {
-                let desired_indent = source_indent_plus_one_unit(previous_indent, options);
-                if raw_indent_units(indent, options) < raw_indent_units(&desired_indent, options) {
-                    line = format!("{desired_indent}{content}");
-                }
-            }
-        }
-        if line_needs_command_substitution_indent(&line, options) {
+        let line = strip_common_rendered_block_indent(line, &common_source_indent);
+        if line_needs_command_substitution_indent(line, options) {
             target.push_str(&prefix);
         }
-        target.push_str(&line);
-        let indent = line_leading_shell_indent(&line);
-        let content = &line[indent.len()..];
-        previous_pipeline_indent = if content.trim().is_empty() {
-            None
-        } else if content.starts_with('#') {
-            carried_pipeline_indent
-        } else if !content.starts_with('-') {
-            line_ends_with_pipeline_operator(&line)
-                .then(|| carried_pipeline_indent.unwrap_or_else(|| indent.to_string()))
-        } else {
-            None
-        };
-        active_heredoc = command_substitution_heredoc_indent(&line);
+        target.push_str(line);
+        active_heredoc = command_substitution_heredoc_indent(line);
     }
 }
 

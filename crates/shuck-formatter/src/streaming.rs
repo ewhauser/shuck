@@ -529,12 +529,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.line_indent_column
         };
         let mut remaining = text;
-        let mut previous_pipeline_indent_units: Option<usize> = None;
         while !remaining.is_empty() {
-            let line_end = remaining
-                .find('\n')
-                .map_or(remaining.len(), |index| index + 1);
-            let line = &remaining[..line_end];
             if self.line_start
                 && !remaining.starts_with('\n')
                 && command_substitution_assignment_line_needs_context_indent(
@@ -545,56 +540,19 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.write_indent_to_column(base_indent_column);
             }
 
-            let line_indent_units =
-                rendered_shell_line_leading_indent_units(line, self.options());
-            let content = rendered_shell_line_content(line);
-            let mut pipeline_indent_units = None;
-            if let Some(previous_units) = previous_pipeline_indent_units
-                && !content.trim().is_empty()
-                && !content.starts_with('#')
-            {
-                let desired_units = previous_units.saturating_add(1);
-                if line_indent_units < desired_units {
-                    pipeline_indent_units = Some(desired_units);
+            match remaining.find('\n') {
+                Some(index) => {
+                    let end = index + 1;
+                    self.push_output_str(&remaining[..end]);
+                    self.line_start = true;
+                    remaining = &remaining[end..];
+                }
+                None => {
+                    self.push_output_str(remaining);
+                    self.line_start = false;
+                    break;
                 }
             }
-
-            if let Some(indent_units) = pipeline_indent_units {
-                if self.line_start && !line.starts_with('\n') {
-                    self.write_indent_to_column(base_indent_column);
-                }
-                self.write_indent_units(indent_units);
-                self.push_output_str(line.trim_start_matches([' ', '\t']));
-                self.line_start = line.ends_with('\n');
-                remaining = &remaining[line_end..];
-            } else {
-                match remaining.find('\n') {
-                    Some(index) => {
-                        let end = index + 1;
-                        self.push_output_str(&remaining[..end]);
-                        self.line_start = true;
-                        remaining = &remaining[end..];
-                    }
-                    None => {
-                        self.push_output_str(remaining);
-                        self.line_start = false;
-                        break;
-                    }
-                }
-            }
-
-            let effective_indent_units = pipeline_indent_units.unwrap_or(line_indent_units);
-            previous_pipeline_indent_units = if content.trim().is_empty() {
-                None
-            } else if content.starts_with('#') {
-                previous_pipeline_indent_units
-            } else if rendered_shell_line_ends_with_pipeline_operator(line)
-                && !content.starts_with('-')
-            {
-                previous_pipeline_indent_units.or(Some(effective_indent_units))
-            } else {
-                None
-            };
         }
     }
 
@@ -6806,29 +6764,6 @@ fn command_substitution_assignment_line_needs_context_indent(
         IndentStyle::Tab => !remaining.starts_with(' '),
         IndentStyle::Space => true,
     }
-}
-
-fn rendered_shell_line_leading_indent_units(
-    line: &str,
-    options: &ResolvedShellFormatOptions,
-) -> usize {
-    let indent_width = usize::from(options.indent_width()).max(1);
-    let columns = line
-        .chars()
-        .take_while(|ch| matches!(ch, ' ' | '\t'))
-        .map(|ch| if ch == '\t' { indent_width } else { 1 })
-        .sum::<usize>();
-    columns.div_ceil(indent_width)
-}
-
-fn rendered_shell_line_content(line: &str) -> &str {
-    line.trim_start_matches([' ', '\t'])
-        .trim_end_matches(['\r', '\n'])
-}
-
-fn rendered_shell_line_ends_with_pipeline_operator(line: &str) -> bool {
-    let trimmed = line.trim_end_matches([' ', '\t', '\r', '\n']);
-    (trimmed.ends_with('|') && !trimmed.ends_with("||")) || trimmed.ends_with("|&")
 }
 
 fn has_newline_between_offsets(source: &str, start: usize, end: usize) -> bool {
