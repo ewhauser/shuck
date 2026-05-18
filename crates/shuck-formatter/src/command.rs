@@ -10,8 +10,7 @@ use shuck_ast::{
     Word,
 };
 use shuck_format::{
-    Document, Format, FormatElement, FormatResult, hard_line_break, indent, space, text, token,
-    verbatim, write,
+    Document, Format, FormatResult, hard_line_break, indent, space, text, token, verbatim, write,
 };
 
 use crate::FormatNodeRule;
@@ -43,10 +42,13 @@ impl FormatNodeRule<Stmt> for FormatStatement {
             should_render_verbatim(stmt, source_map, options)
         };
         if render_verbatim {
-            let span = stmt_verbatim_span(stmt, source);
+            let span = {
+                let source_map = formatter.context().comments().source_map();
+                stmt_verbatim_span_with_source_map(stmt, source_map)
+            };
             formatter.context_mut().comments_mut().claim_in_span(span);
-            if let Some(document) = verbatim_stmt(stmt, source) {
-                return write!(formatter, [document]);
+            if span.end.offset <= source.len() {
+                return write!(formatter, [verbatim(span.slice(source))]);
             }
         }
 
@@ -187,30 +189,26 @@ fn format_stmt_sequence_with_upper_bound(
     if attachments
         .as_ref()
         .is_some_and(|value| value.is_ambiguous())
-        && let Some(document) = verbatim_stmts(statements, source)
+        && let Some(span) = {
+            let source_map = formatter.context().comments().source_map();
+            statements
+                .iter()
+                .map(|stmt| stmt_verbatim_span_with_source_map(stmt, source_map))
+                .reduce(|left, right| left.merge(right))
+        }
+        && span.end.offset <= source.len()
     {
-        let span = statements
-            .iter()
-            .map(|stmt| stmt_verbatim_span(stmt, source))
-            .reduce(|left, right| left.merge(right))
-            .unwrap_or_default();
-        if let Some(attachment) = &attachments
-            && let Some(first) = statements.first()
-        {
+        if let Some(attachment) = &attachments {
             let leading = attachment
                 .leading_for(0)
                 .iter()
                 .copied()
                 .filter(|comment| comment.span().end.offset <= span.start.offset)
                 .collect::<Vec<_>>();
-            emit_leading_comments(
-                &leading,
-                stmt_verbatim_span(first, source).start.line,
-                formatter,
-            )?;
+            emit_leading_comments(&leading, span.start.line, formatter)?;
         }
         formatter.context_mut().comments_mut().claim_in_span(span);
-        write!(formatter, [document])?;
+        write!(formatter, [verbatim(span.slice(source))])?;
         if let Some(attachment) = &attachments {
             emit_dangling_comments(attachment.dangling(), formatter)?;
         }
@@ -2413,22 +2411,13 @@ fn is_heredoc(redirect: &shuck_ast::Redirect) -> bool {
     )
 }
 
-fn verbatim_stmt(stmt: &Stmt, source: &str) -> Option<FormatElement> {
-    let span = stmt_verbatim_span(stmt, source);
-    (span.end.offset <= source.len()).then(|| verbatim(span.slice(source)))
+pub(crate) fn stmt_verbatim_span_with_source_map(stmt: &Stmt, source_map: &SourceMap<'_>) -> Span {
+    stmt_verbatim_span_impl(stmt, source_map.source(), Some(source_map))
 }
 
-fn verbatim_stmts(statements: &[Stmt], source: &str) -> Option<FormatElement> {
-    let span = statements
-        .iter()
-        .map(|stmt| stmt_verbatim_span(stmt, source))
-        .reduce(|left, right| left.merge(right))?;
-    (span.end.offset <= source.len()).then(|| verbatim(span.slice(source)))
-}
-
-pub(crate) fn stmt_verbatim_span(stmt: &Stmt, source: &str) -> Span {
+fn stmt_verbatim_span_impl(stmt: &Stmt, source: &str, source_map: Option<&SourceMap<'_>>) -> Span {
     let mut span = merge_redirect_heredoc_spans(
-        command_verbatim_span(&stmt.command, source),
+        command_verbatim_span(&stmt.command, source, source_map),
         &stmt.redirects,
         source,
     );
@@ -2447,7 +2436,11 @@ pub(crate) fn stmt_verbatim_span(stmt: &Stmt, source: &str) -> Span {
     }
 }
 
-fn command_verbatim_span(command: &Command, source: &str) -> Span {
+fn command_verbatim_span(
+    command: &Command,
+    source: &str,
+    source_map: Option<&SourceMap<'_>>,
+) -> Span {
     match command {
         Command::Simple(command) => command.span,
         Command::Builtin(command) => match command {
@@ -2457,14 +2450,16 @@ fn command_verbatim_span(command: &Command, source: &str) -> Span {
             BuiltinCommand::Exit(command) => command.span,
         },
         Command::Decl(command) => command.span,
-        Command::Binary(command) => stmt_verbatim_span(&command.left, source)
-            .merge(stmt_verbatim_span(&command.right, source)),
-        Command::Compound(command) => compound_verbatim_span(command, source),
-        Command::Function(command) => {
-            function_header_span(command).merge(stmt_verbatim_span(&command.body, source))
-        }
+        Command::Binary(command) => stmt_verbatim_span_impl(&command.left, source, source_map)
+            .merge(stmt_verbatim_span_impl(&command.right, source, source_map)),
+        Command::Compound(command) => compound_verbatim_span(command, source, source_map),
+        Command::Function(command) => function_header_span(command).merge(stmt_verbatim_span_impl(
+            &command.body,
+            source,
+            source_map,
+        )),
         Command::AnonymousFunction(command) => anonymous_function_header_span(command)
-            .merge(stmt_verbatim_span(&command.body, source))
+            .merge(stmt_verbatim_span_impl(&command.body, source, source_map))
             .merge(words_span(&command.args)),
     }
 }
@@ -2516,85 +2511,123 @@ fn compound_span(command: &CompoundCommand) -> Span {
     }
 }
 
-fn compound_verbatim_span(command: &CompoundCommand, source: &str) -> Span {
+fn compound_verbatim_span(
+    command: &CompoundCommand,
+    source: &str,
+    source_map: Option<&SourceMap<'_>>,
+) -> Span {
     match command {
         CompoundCommand::If(command) => {
             let mut span = command.span;
-            span = merge_stmt_sequence_verbatim_span(span, &command.condition, source);
-            span = merge_stmt_sequence_verbatim_span(span, &command.then_branch, source);
+            span = merge_stmt_sequence_verbatim_span(span, &command.condition, source, source_map);
+            span =
+                merge_stmt_sequence_verbatim_span(span, &command.then_branch, source, source_map);
             for (condition, body) in &command.elif_branches {
-                span = merge_stmt_sequence_verbatim_span(span, condition, source);
-                span = merge_stmt_sequence_verbatim_span(span, body, source);
+                span = merge_stmt_sequence_verbatim_span(span, condition, source, source_map);
+                span = merge_stmt_sequence_verbatim_span(span, body, source, source_map);
             }
             if let Some(body) = &command.else_branch {
-                span = merge_stmt_sequence_verbatim_span(span, body, source);
+                span = merge_stmt_sequence_verbatim_span(span, body, source, source_map);
             }
             span
         }
         CompoundCommand::For(command) => {
-            merge_stmt_sequence_verbatim_span(command.span, &command.body, source)
+            merge_stmt_sequence_verbatim_span(command.span, &command.body, source, source_map)
         }
         CompoundCommand::Repeat(command) => {
-            merge_stmt_sequence_verbatim_span(command.span, &command.body, source)
+            merge_stmt_sequence_verbatim_span(command.span, &command.body, source, source_map)
         }
         CompoundCommand::Foreach(command) => {
-            merge_stmt_sequence_verbatim_span(command.span, &command.body, source)
+            merge_stmt_sequence_verbatim_span(command.span, &command.body, source, source_map)
         }
         CompoundCommand::ArithmeticFor(command) => {
-            merge_stmt_sequence_verbatim_span(command.span, &command.body, source)
+            merge_stmt_sequence_verbatim_span(command.span, &command.body, source, source_map)
         }
         CompoundCommand::While(command) => {
-            let span = merge_stmt_sequence_verbatim_span(command.span, &command.condition, source);
-            merge_stmt_sequence_verbatim_span(span, &command.body, source)
+            let span = merge_stmt_sequence_verbatim_span(
+                command.span,
+                &command.condition,
+                source,
+                source_map,
+            );
+            merge_stmt_sequence_verbatim_span(span, &command.body, source, source_map)
         }
         CompoundCommand::Until(command) => {
-            let span = merge_stmt_sequence_verbatim_span(command.span, &command.condition, source);
-            merge_stmt_sequence_verbatim_span(span, &command.body, source)
+            let span = merge_stmt_sequence_verbatim_span(
+                command.span,
+                &command.condition,
+                source,
+                source_map,
+            );
+            merge_stmt_sequence_verbatim_span(span, &command.body, source, source_map)
         }
         CompoundCommand::Case(command) => {
             let mut span = command.span;
             for item in &command.cases {
-                span = merge_stmt_sequence_verbatim_span(span, &item.body, source);
+                span = merge_stmt_sequence_verbatim_span(span, &item.body, source, source_map);
             }
             span
         }
         CompoundCommand::Select(command) => {
-            merge_stmt_sequence_verbatim_span(command.span, &command.body, source)
+            merge_stmt_sequence_verbatim_span(command.span, &command.body, source, source_map)
         }
         CompoundCommand::Subshell(commands) => {
-            group_verbatim_span(commands.as_slice(), source, '(', ')')
+            group_verbatim_span_impl(commands.as_slice(), source, source_map, '(', ')')
         }
         CompoundCommand::BraceGroup(commands) => {
-            group_verbatim_span(commands.as_slice(), source, '{', '}')
+            group_verbatim_span_impl(commands.as_slice(), source, source_map, '{', '}')
         }
         CompoundCommand::Arithmetic(command) => command.span,
         CompoundCommand::Time(command) => command
             .command
             .as_ref()
-            .map(|inner| command.span.merge(stmt_verbatim_span(inner, source)))
+            .map(|inner| {
+                command
+                    .span
+                    .merge(stmt_verbatim_span_impl(inner, source, source_map))
+            })
             .unwrap_or(command.span),
         CompoundCommand::Conditional(command) => command.span,
-        CompoundCommand::Coproc(command) => command
-            .span
-            .merge(stmt_verbatim_span(&command.body, source)),
+        CompoundCommand::Coproc(command) => {
+            command
+                .span
+                .merge(stmt_verbatim_span_impl(&command.body, source, source_map))
+        }
         CompoundCommand::Always(command) => {
-            let span = merge_stmt_sequence_verbatim_span(command.span, &command.body, source);
-            merge_stmt_sequence_verbatim_span(span, &command.always_body, source)
+            let span =
+                merge_stmt_sequence_verbatim_span(command.span, &command.body, source, source_map);
+            merge_stmt_sequence_verbatim_span(span, &command.always_body, source, source_map)
         }
     }
 }
 
-fn merge_stmt_sequence_verbatim_span(mut span: Span, commands: &StmtSeq, source: &str) -> Span {
+fn merge_stmt_sequence_verbatim_span(
+    mut span: Span,
+    commands: &StmtSeq,
+    source: &str,
+    source_map: Option<&SourceMap<'_>>,
+) -> Span {
     for command in commands.iter() {
-        span = merge_non_empty_span(span, stmt_verbatim_span(command, source));
+        span = merge_non_empty_span(span, stmt_verbatim_span_impl(command, source, source_map));
     }
     span
 }
 
+#[cfg(test)]
 fn group_verbatim_span(commands: &[Stmt], source: &str, open: char, close: char) -> Span {
+    group_verbatim_span_impl(commands, source, None, open, close)
+}
+
+fn group_verbatim_span_impl(
+    commands: &[Stmt],
+    source: &str,
+    source_map: Option<&SourceMap<'_>>,
+    open: char,
+    close: char,
+) -> Span {
     let inner = commands
         .iter()
-        .map(|command| stmt_verbatim_span(command, source))
+        .map(|command| stmt_verbatim_span_impl(command, source, source_map))
         .reduce(|left, right| left.merge(right))
         .unwrap_or_default();
     if inner == Span::new() {
@@ -2612,7 +2645,12 @@ fn group_verbatim_span(commands: &[Stmt], source: &str, open: char, close: char)
         return inner;
     };
 
-    span_for_offsets(source, open_offset, close_offset + close.len_utf8())
+    span_for_offsets(
+        source,
+        source_map,
+        open_offset,
+        close_offset + close.len_utf8(),
+    )
 }
 
 fn format_group_with_upper_bound(
@@ -2758,19 +2796,30 @@ fn stmt_group_attachment_start_offset(
     stmt: &Stmt,
     source_map: &crate::comments::SourceMap<'_>,
 ) -> usize {
-    let source = source_map.source();
     match &stmt.command {
         Command::Compound(CompoundCommand::BraceGroup(commands)) => {
             group_attachment_span(commands.as_slice(), source_map, '{', '}')
                 .map(|span| span.start.offset)
-                .unwrap_or_else(|| stmt_verbatim_span(stmt, source).start.offset)
+                .unwrap_or_else(|| {
+                    stmt_verbatim_span_with_source_map(stmt, source_map)
+                        .start
+                        .offset
+                })
         }
         Command::Compound(CompoundCommand::Subshell(commands)) => {
             group_attachment_span(commands.as_slice(), source_map, '(', ')')
                 .map(|span| span.start.offset)
-                .unwrap_or_else(|| stmt_verbatim_span(stmt, source).start.offset)
+                .unwrap_or_else(|| {
+                    stmt_verbatim_span_with_source_map(stmt, source_map)
+                        .start
+                        .offset
+                })
         }
-        _ => stmt_verbatim_span(stmt, source).start.offset,
+        _ => {
+            stmt_verbatim_span_with_source_map(stmt, source_map)
+                .start
+                .offset
+        }
     }
 }
 
@@ -2778,20 +2827,31 @@ fn stmt_group_attachment_end_offset(
     stmt: &Stmt,
     source_map: &crate::comments::SourceMap<'_>,
 ) -> usize {
-    let source = source_map.source();
     match &stmt.command {
         Command::Compound(CompoundCommand::BraceGroup(commands)) => {
             group_attachment_span(commands.as_slice(), source_map, '{', '}')
                 .map(|span| span.end.offset)
-                .unwrap_or_else(|| stmt_verbatim_span(stmt, source).end.offset)
+                .unwrap_or_else(|| {
+                    stmt_verbatim_span_with_source_map(stmt, source_map)
+                        .end
+                        .offset
+                })
         }
         Command::Compound(CompoundCommand::Subshell(commands)) => {
             group_attachment_span(commands.as_slice(), source_map, '(', ')')
                 .map(|span| span.end.offset)
-                .unwrap_or_else(|| stmt_verbatim_span(stmt, source).end.offset)
+                .unwrap_or_else(|| {
+                    stmt_verbatim_span_with_source_map(stmt, source_map)
+                        .end
+                        .offset
+                })
         }
         Command::Function(_) | Command::AnonymousFunction(_) => stmt_span(stmt).end.offset,
-        _ if has_heredoc(stmt) => stmt_verbatim_span(stmt, source).end.offset,
+        _ if has_heredoc(stmt) => {
+            stmt_verbatim_span_with_source_map(stmt, source_map)
+                .end
+                .offset
+        }
         _ => stmt_span(stmt).end.offset,
     }
 }
@@ -3030,8 +3090,17 @@ pub(crate) fn merge_non_empty_span(current: Span, next: Span) -> Span {
     }
 }
 
-fn span_for_offsets(source: &str, start: usize, end: usize) -> Span {
-    crate::comments::SourceMap::new(source).span_for_offsets(start, end)
+fn span_for_offsets(
+    source: &str,
+    source_map: Option<&SourceMap<'_>>,
+    start: usize,
+    end: usize,
+) -> Span {
+    if let Some(source_map) = source_map {
+        source_map.span_for_offsets(start, end)
+    } else {
+        crate::comments::SourceMap::new(source).span_for_offsets(start, end)
+    }
 }
 
 fn emit_leading_comments(
@@ -3089,9 +3158,11 @@ pub(crate) fn rendered_stmt_end_line(
         Command::Function(_) | Command::AnonymousFunction(_) => {
             span_render_end_line(stmt_span(stmt), source, source_map)
         }
-        _ if has_heredoc(stmt) => {
-            span_render_end_line(stmt_verbatim_span(stmt, source), source, source_map)
-        }
+        _ if has_heredoc(stmt) => span_render_end_line(
+            stmt_verbatim_span_with_source_map(stmt, source_map),
+            source,
+            source_map,
+        ),
         Command::Compound(CompoundCommand::Subshell(commands)) => {
             let mut span = group_attachment_span(commands.as_slice(), source_map, '(', ')')
                 .unwrap_or_else(|| stmt_span(stmt));
@@ -3244,7 +3315,7 @@ pub(crate) fn stmt_attachment_span(
     options: &crate::options::ResolvedShellFormatOptions,
 ) -> Span {
     let span = if should_render_verbatim(stmt, source_map, options) {
-        stmt_verbatim_span(stmt, source)
+        stmt_verbatim_span_with_source_map(stmt, source_map)
     } else if let Command::Function(command) = &stmt.command {
         function_attachment_span(command)
     } else if let Command::AnonymousFunction(command) = &stmt.command {

@@ -20,7 +20,8 @@ use crate::command::{
     multiline_compound_assignment_layout, multiline_compound_assignment_lines,
     render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
     render_subscript_to_buf, render_var_ref_to_buf, slice_span, stmt_attachment_span,
-    stmt_format_span, stmt_render_start_line, stmt_seq_has_heredoc, stmt_span, stmt_verbatim_span,
+    stmt_format_span, stmt_render_start_line, stmt_seq_has_heredoc, stmt_span,
+    stmt_verbatim_span_with_source_map,
 };
 use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
@@ -952,7 +953,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             && attachments
                 .as_ref()
                 .is_some_and(|value| value.is_ambiguous())
-            && let Some(span) = sequence_verbatim_span(statements, source)
+            && let Some(span) = sequence_verbatim_span(statements, self.source_map())
         {
             if let Some(attachment) = attachments.as_ref()
                 && let Some(first) = statements.first()
@@ -5280,14 +5281,26 @@ fn stmt_first_content_offset(stmt: &Stmt, source: &str, source_map: &SourceMap<'
         Command::Compound(CompoundCommand::BraceGroup(commands)) => {
             group_attachment_span(commands.as_slice(), source_map, '{', '}')
                 .map(|span| span.start.offset)
-                .unwrap_or_else(|| stmt_verbatim_span(stmt, source).start.offset)
+                .unwrap_or_else(|| {
+                    stmt_verbatim_span_with_source_map(stmt, source_map)
+                        .start
+                        .offset
+                })
         }
         Command::Compound(CompoundCommand::Subshell(commands)) => {
             group_attachment_span(commands.as_slice(), source_map, '(', ')')
                 .map(|span| span.start.offset)
-                .unwrap_or_else(|| stmt_verbatim_span(stmt, source).start.offset)
+                .unwrap_or_else(|| {
+                    stmt_verbatim_span_with_source_map(stmt, source_map)
+                        .start
+                        .offset
+                })
         }
-        _ => stmt_verbatim_span(stmt, source).start.offset,
+        _ => {
+            stmt_verbatim_span_with_source_map(stmt, source_map)
+                .start
+                .offset
+        }
     }
 }
 
@@ -6427,10 +6440,10 @@ fn trim_arithmetic_expansion_padding_for_alignment(text: &str) -> String {
     rendered
 }
 
-fn sequence_verbatim_span(statements: &StmtSeq, source: &str) -> Option<Span> {
+fn sequence_verbatim_span(statements: &StmtSeq, source_map: &SourceMap<'_>) -> Option<Span> {
     statements
         .iter()
-        .map(|stmt| stmt_verbatim_span(stmt, source))
+        .map(|stmt| stmt_verbatim_span_with_source_map(stmt, source_map))
         .reduce(|left, right| left.merge(right))
 }
 

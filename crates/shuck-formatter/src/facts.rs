@@ -13,7 +13,7 @@ use crate::command::{
     case_item_was_inline_in_source, group_attachment_span, group_open_suffix,
     group_was_inline_in_source, rendered_stmt_end_line, should_render_verbatim,
     stmt_attachment_span, stmt_format_span, stmt_has_trailing_comment, stmt_render_start_line,
-    stmt_span, stmt_verbatim_span,
+    stmt_span, stmt_verbatim_span_with_source_map,
 };
 use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_window};
 use crate::options::ResolvedShellFormatOptions;
@@ -409,7 +409,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         if !self.facts.stmt_facts.contains_key(&stmt_key) {
             let preserve_verbatim = should_render_verbatim(stmt, self.source_map(), self.options);
             let render_span = if preserve_verbatim {
-                stmt_verbatim_span(stmt, self.source)
+                stmt_verbatim_span_with_source_map(stmt, self.source_map())
             } else {
                 stmt_format_span(stmt)
             };
