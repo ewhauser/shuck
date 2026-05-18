@@ -4696,6 +4696,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn keeps_nested_process_substitution_close_indent_in_raw_command_substitutions() {
+        let source = "urls=\"$(\n    while read -r filename; do\n        # keep comment with raw block path\n        { grep -E \"$url_regex\" \"$filename\" || : ; } |\n        if [ -n \"${URL_LINKS_IGNORED:-}\" ]; then\n            grep -Eivf <(\n                tr '[:space:]' '\\n' <<< \"$URL_LINKS_IGNORED\" |\n                sed 's/^[[:space:]]*//;\n                     s/[[:space:]]*$//;\n                     /^[[:space:]]*$/d'\n            )\n        else\n            cat\n        fi\n    done |\n    sort -uf\n)\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "urls=\"$(\n\twhile read -r filename; do\n\t\t# keep comment with raw block path\n\t\t{ grep -E \"$url_regex\" \"$filename\" || :; } |\n\t\t\tif [ -n \"${URL_LINKS_IGNORED:-}\" ]; then\n\t\t\t\tgrep -Eivf <(\n\t\t\t\t\ttr '[:space:]' '\\n' <<<\"$URL_LINKS_IGNORED\" |\n\t\t\t\t\t\tsed 's/^[[:space:]]*//;\n                     s/[[:space:]]*$//;\n                     /^[[:space:]]*$/d'\n\t\t\t\t)\n\t\t\telse\n\t\t\t\tcat\n\t\t\tfi\n\tdone |\n\t\tsort -uf\n)\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn indents_continued_process_substitution_comments_once() {
         let source = "cmd \\\n<(\n    produce |\n    sort #|\n    # keep the sorted stream documented\n    # before the process substitution closes\n) \\\n<(\n    # describe target stream\n    consume\n) |\nsed 's/x/y/'\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

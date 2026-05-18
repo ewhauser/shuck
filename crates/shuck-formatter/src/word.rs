@@ -1047,24 +1047,27 @@ fn push_raw_command_substitution_with_normalized_spacing(
     let raw = normalized_close_continuations.as_deref().unwrap_or(raw);
     let outer_indent = line_indent_before_source_offset(source, start_offset).unwrap_or("");
     let mut quote = RawShellQuoteState::default();
-    let mut lines = raw.split('\n');
-    if let Some(first) = lines.next() {
-        target.push_str(first);
-        quote.scan_line(first);
-    }
+    let raw_lines = raw.split('\n').collect::<Vec<_>>();
+    let Some((first, lines)) = raw_lines.split_first() else {
+        return;
+    };
+    target.push_str(first);
+    quote.scan_line(first);
     let mut previous_pipeline_indent: Option<String> = None;
     let mut continuation_pipeline_stage_indent: Option<String> = None;
     let mut compound_indent_shifts = Vec::<RawCompoundIndentShift>::new();
     let mut compound_comment_indents = Vec::<RawCompoundCommentIndent>::new();
     let outer_shell_indent = normalized_raw_shell_indent(outer_indent, options);
-    let mut continuation_indent: Option<String> = raw.split('\n').next().and_then(|first| {
-        let continued = line_without_continuation_backslash(first)?;
-        let starts_command_substitution = first.trim_start_matches([' ', '\t']).starts_with("$(");
-        (starts_command_substitution && !continued.contains(')'))
-            .then(|| source_indent_plus_one_unit(&outer_shell_indent, options))
-    });
+    let mut continuation_indent: Option<String> = line_without_continuation_backslash(first)
+        .and_then(|continued| {
+            let starts_command_substitution =
+                first.trim_start_matches([' ', '\t']).starts_with("$(");
+            (starts_command_substitution && !continued.contains(')'))
+                .then(|| source_indent_plus_one_unit(&outer_shell_indent, options))
+        });
     let mut literal_exit_continuation_indent: Option<String> = None;
-    for line in lines {
+    for (line_index, line) in lines.iter().enumerate() {
+        let line = *line;
         target.push('\n');
         if quote.in_multiline_literal() {
             let line_continues = line_without_continuation_backslash(line).is_some();
@@ -1119,11 +1122,13 @@ fn push_raw_command_substitution_with_normalized_spacing(
             }
             let indent = line_leading_shell_indent(&line);
             let content = &line[indent.len()..];
+            let closes_substitution_wrapper = raw_line_closes_substitution_wrapper(content)
+                && raw_block_line_is_outer_substitution_close(lines, line_index);
             let mut continuation_adjusted_line = None;
             if let Some(previous_indent) = continuation_indent.as_deref()
                 && !content.trim().is_empty()
                 && !content.starts_with('#')
-                && !raw_line_closes_substitution_wrapper(content)
+                && !closes_substitution_wrapper
                 && normalized_raw_shell_indent(indent, options) != previous_indent
             {
                 continuation_adjusted_line = Some(format!("{previous_indent}{content}"));
@@ -1152,7 +1157,7 @@ fn push_raw_command_substitution_with_normalized_spacing(
             let indent = line_leading_shell_indent(&line);
             let content = &line[indent.len()..];
             let used_continuation_indent = continuation_indent.is_some();
-            let rendered_indent = if raw_line_closes_substitution_wrapper(content) {
+            let rendered_indent = if closes_substitution_wrapper {
                 push_raw_shell_line_with_rendered_indent(target, &line, options, "");
                 String::new()
             } else {
@@ -3021,17 +3026,19 @@ fn push_raw_block_command_substitution_without_outer_indent(
         normalize_continuations_before_substitution_close_lines(raw);
     let raw = normalized_close_continuations.as_deref().unwrap_or(raw);
     let outer_indent = line_indent_before_source_offset(source, start_offset).unwrap_or("");
-    let mut lines = raw.split('\n');
-    if let Some(first) = lines.next() {
-        target.push_str(first);
-    }
+    let raw_lines = raw.split('\n').collect::<Vec<_>>();
+    let Some((first, lines)) = raw_lines.split_first() else {
+        return;
+    };
+    target.push_str(first);
     let mut body_indent: Option<String> = None;
     let mut previous_pipeline_indent: Option<String> = None;
     let mut continuation_indent: Option<String> = None;
     let mut compound_indent_shifts = Vec::<RawCompoundIndentShift>::new();
     let mut compound_comment_indents = Vec::<RawCompoundCommentIndent>::new();
     let mut quote = RawShellQuoteState::default();
-    for line in lines {
+    for (line_index, line) in lines.iter().enumerate() {
+        let line = *line;
         target.push('\n');
         if quote.in_multiline_literal() {
             target.push_str(line);
@@ -3107,7 +3114,8 @@ fn push_raw_block_command_substitution_without_outer_indent(
         {
             force_preserve_line_indent = true;
         }
-        let closes_substitution_wrapper = raw_line_closes_substitution_wrapper(content);
+        let closes_substitution_wrapper = raw_line_closes_substitution_wrapper(content)
+            && raw_block_line_is_outer_substitution_close(lines, line_index);
         let leading_block_comment = body_indent.is_none() && content.starts_with('#');
         if body_indent.is_none()
             && !content.trim().is_empty()
@@ -3191,6 +3199,16 @@ fn push_raw_block_command_substitution_without_outer_indent(
             compound_comment_indents.pop();
         }
     }
+}
+
+fn raw_block_line_is_outer_substitution_close(lines: &[&str], index: usize) -> bool {
+    lines
+        .get(index.saturating_add(1)..)
+        .is_none_or(|remaining| {
+            remaining
+                .iter()
+                .all(|line| line.trim_matches([' ', '\t', '\r']).is_empty())
+        })
 }
 
 fn normalize_continuations_before_comment_lines(text: &str) -> Option<String> {
