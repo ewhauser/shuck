@@ -4527,17 +4527,22 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 }
             }
         }
+        let normalized_target = normalized_redirect_target(redirect.kind, &target);
         if redirect_target_starts_on_continuation_line(redirect, source) {
             self.line_continuation();
             self.write_indent_units(1);
         } else if needs_space_before_target(
             redirect.kind,
-            normalized_redirect_target(redirect.kind, &target),
+            normalized_target,
             options.space_redirects(),
         ) {
             self.write_space();
         }
-        self.write_rendered_shell_text(normalized_redirect_target(redirect.kind, &target));
+        if matches!(redirect.kind, RedirectKind::HereString) && normalized_target.contains('\n') {
+            self.write_text_preserving_current_line_indent(normalized_target);
+        } else {
+            self.write_rendered_shell_text(normalized_target);
+        }
         self.restore_scratch_buffer(target);
     }
 
