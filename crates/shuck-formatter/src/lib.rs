@@ -3403,6 +3403,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn indents_array_append_command_substitution_elements_like_shfmt() {
+        let source = "f() {\n  if ok; then\n    opts+=(\"$(\n      get x\n    )\")\n  fi\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\tif ok; then\n\t\topts+=(\"$(\n\t\t\tget x\n\t\t)\")\n\tfi\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_inline_multiline_compound_assignment_delimiters() {
         let source = "options=(path frozen without\n  ssl_verify_mode system_bindir user_agent)\n";
         let options = ShellFormatOptions::default();
@@ -3456,6 +3471,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             format_source(source, None, &options).unwrap(),
             FormattedSource::Formatted(
                 "f() {\n\t_remote_branches=($(\n\t\tgit -C \"$path\" ls-remote --heads \"$url\" 2>/dev/null |\n\t\t\tLC_ALL=C sed \"s/.*\\///g\"\n\t))\n\t_diff=($(\n\t\tprintf \"%s\\n\" \\\n\t\t\t\"${_index_list[@]:-}\" \\\n\t\t\t\"${_file_list[@]:-}\" |\n\t\t\tsort |\n\t\t\tuniq -u\n\t))\n}\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn strips_redirect_residual_indent_in_compound_assignment_command_substitutions() {
+        let source = "f() {\n  _remote_branches=($(\n    git -C \"$path\" ls-remote        \\\n      --heads \"$url\"        \\\n       2>/dev/null                              \\\n      | LC_ALL=C sed \"s/.*\\///g\" || :\n  ))\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "f() {\n\t_remote_branches=($(\n\t\tgit -C \"$path\" ls-remote \\\n\t\t\t--heads \"$url\" \\\n\t\t\t2>/dev/null |\n\t\t\tLC_ALL=C sed \"s/.*\\///g\" || :\n\t))\n}\n"
                     .to_string()
             )
         );

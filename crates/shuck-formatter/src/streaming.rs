@@ -17,6 +17,8 @@ use crate::Result;
 use crate::command::{
     binary_operator, case_terminator, command_format_span, format_arithmetic_command_source,
     format_arithmetic_for_clause_source, group_attachment_span, line_gap_break_count,
+    line_has_unclosed_command_substitution_open,
+    multiline_compound_assignment_command_substitution_body_prefix,
     multiline_compound_assignment_layout, multiline_compound_assignment_lines,
     render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
     render_subscript_to_buf, render_var_ref_to_buf, slice_span, stmt_attachment_span,
@@ -1900,15 +1902,28 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             0
         };
 
+        let mut inline_command_substitution_open = layout.open_inline
+            && layout.lines.first().is_some_and(|line| {
+                line_has_unclosed_command_substitution_open(line)
+                    && !multiline_compound_assignment_command_substitution_body_prefix(line)
+                        .is_empty()
+            });
         for (index, line) in layout.lines[body_start..].iter().enumerate() {
             self.newline();
             let closes_inline_assignment =
                 layout.close_inline && body_start + index + 1 == layout.lines.len();
-            self.write_indent_units(multiline_compound_assignment_line_extra_indent(
-                line,
-                closes_inline_assignment,
-            ));
+            let extra_indent = if inline_command_substitution_open {
+                0
+            } else {
+                multiline_compound_assignment_line_extra_indent(line, closes_inline_assignment)
+            };
+            self.write_indent_units(extra_indent);
             self.write_text(line);
+            if inline_command_substitution_open
+                && line.trim_start_matches([' ', '\t']).starts_with(')')
+            {
+                inline_command_substitution_open = false;
+            }
         }
         if layout.close_inline {
             self.write_text(")");
@@ -1996,16 +2011,29 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
         if body_start < layout.lines.len() {
             self.newline();
+            let mut inline_command_substitution_open = layout.open_inline
+                && layout.lines.first().is_some_and(|line| {
+                    line_has_unclosed_command_substitution_open(line)
+                        && !multiline_compound_assignment_command_substitution_body_prefix(line)
+                            .is_empty()
+                });
             for (index, line) in layout.lines[body_start..].iter().enumerate() {
                 if index > 0 {
                     self.newline();
                 }
                 let closes_inline_assignment =
                     layout.close_inline && body_start + index + 1 == layout.lines.len();
-                self.with_extra_prefix_indent(
-                    multiline_compound_assignment_line_extra_indent(line, closes_inline_assignment),
-                    |formatter| formatter.write_text(line),
-                );
+                let extra_indent = if inline_command_substitution_open {
+                    0
+                } else {
+                    multiline_compound_assignment_line_extra_indent(line, closes_inline_assignment)
+                };
+                self.with_extra_prefix_indent(extra_indent, |formatter| formatter.write_text(line));
+                if inline_command_substitution_open
+                    && line.trim_start_matches([' ', '\t']).starts_with(')')
+                {
+                    inline_command_substitution_open = false;
+                }
             }
         }
 

@@ -2301,7 +2301,9 @@ fn normalize_multiline_compound_assignment_command_substitution_pipeline_continu
     }
 }
 
-fn multiline_compound_assignment_command_substitution_body_prefix(open_line: &str) -> &'static str {
+pub(crate) fn multiline_compound_assignment_command_substitution_body_prefix(
+    open_line: &str,
+) -> &'static str {
     let Some(open) = open_line.find("$(") else {
         return "";
     };
@@ -2313,7 +2315,7 @@ fn multiline_compound_assignment_command_substitution_body_prefix(open_line: &st
     }
 }
 
-fn line_has_unclosed_command_substitution_open(line: &str) -> bool {
+pub(crate) fn line_has_unclosed_command_substitution_open(line: &str) -> bool {
     let Some(open) = line.find("$(") else {
         return false;
     };
@@ -2377,15 +2379,32 @@ fn normalize_multiline_compound_assignment_line(
             }
         })
         .unwrap_or(trimmed);
-    let normalized = if preserve_line_continuation {
-        canonicalize_multiline_compound_assignment_residual_indent(
-            stripped,
-            residual_space_indent_width,
-        )
-    } else {
-        stripped.trim_start_matches([' ', '\t']).to_string()
-    };
+    let normalized =
+        if preserve_line_continuation && line_starts_with_redirect_continuation(stripped) {
+            format!("\t{}", stripped.trim_start_matches([' ', '\t']))
+        } else if preserve_line_continuation {
+            canonicalize_multiline_compound_assignment_residual_indent(
+                stripped,
+                residual_space_indent_width,
+            )
+        } else {
+            stripped.trim_start_matches([' ', '\t']).to_string()
+        };
     normalize_multiline_compound_assignment_spacing(&normalized)
+}
+
+fn line_starts_with_redirect_continuation(line: &str) -> bool {
+    let trimmed = line.trim_start_matches([' ', '\t']);
+    let bytes = trimmed.as_bytes();
+    let mut index = 0;
+    while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+        index += 1;
+    }
+    match bytes.get(index) {
+        Some(b'<' | b'>') => true,
+        Some(b'&') => bytes.get(index + 1) == Some(&b'>'),
+        _ => false,
+    }
 }
 
 fn trim_multiline_compound_assignment_line_continuation(line: &str) -> &str {
