@@ -936,20 +936,14 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if !self.line_start {
             return;
         }
-        let Some(source_indent) =
-            line_indent_before_offset(self.source(), comment.span().start.offset)
-        else {
-            return;
-        };
-        let source_column = shell_indent_width(source_indent);
-        if source_column < self.indent_column_for_level(self.indent_level)
-            && comment_precedes_close_keyword_at_same_indent(self.source(), comment)
-        {
-            if source_column == 0 {
+        if comment_precedes_close_keyword_at_same_indent(self.source(), comment) {
+            let close_indent_column =
+                self.indent_column_for_level(self.indent_level.saturating_sub(1));
+            if close_indent_column == 0 {
                 self.line_indent_column = 0;
                 self.line_start = false;
             } else {
-                self.write_indent_to_column(source_column);
+                self.write_indent_to_column(close_indent_column);
             }
         }
     }
