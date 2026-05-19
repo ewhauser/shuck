@@ -157,9 +157,7 @@ impl<'a> Parser<'a> {
                     self.advance();
                     words.push(word);
                 }
-                Some(TokenKind::DoubleRightBracket)
-                    if self.should_consume_double_right_bracket_as_literal_argument(&words) =>
-                {
+                Some(TokenKind::DoubleRightBracket) if !words.is_empty() => {
                     let span = self.current_span;
                     let word = self.word_from_raw_text(span.slice(self.input), span);
                     self.advance();
@@ -350,25 +348,5 @@ impl<'a> Parser<'a> {
         };
         words.pop();
         (Some(fd_var), Some(fd_var_span))
-    }
-
-    fn should_consume_double_right_bracket_as_literal_argument(&self, words: &[Word]) -> bool {
-        words
-            .first()
-            .and_then(|word| self.single_literal_word_text(word))
-            .is_some()
-            || words.iter().any(|word| word.span.slice(self.input) == "[[")
-            || words.first().is_some_and(|word| {
-                matches!(
-                    word.parts.as_slice(),
-                    [WordPartNode {
-                        kind: WordPart::ArithmeticExpansion {
-                            syntax: ArithmeticExpansionSyntax::DollarParenParen,
-                            ..
-                        },
-                        ..
-                    }]
-                )
-            })
     }
 }

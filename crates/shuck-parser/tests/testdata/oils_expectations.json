@@ -84,8 +84,8 @@
     "reason": "corpus case intentionally exercises a shell parse error"
   },
   "oils/dbracket.test.sh::[[ at runtime doesn't work": {
-    "expectation": "parse_err",
-    "reason": "corpus case intentionally exercises a shell parse error"
+    "expectation": "parse_ok",
+    "reason": "the shell parses this as a simple command and reports command-not-found at runtime"
   },
   "oils/dbracket.test.sh::[[ with op variable (compare with test-builtin.test.sh)": {
     "expectation": "parse_err",

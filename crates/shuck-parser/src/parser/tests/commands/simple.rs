@@ -89,6 +89,10 @@ fn test_simple_command_treats_conditional_brackets_as_arguments_after_name() {
         ),
         ("\"eval\" [[ 1 ]]", vec!["eval", "[[", "1", "]]"]),
         ("${cmd} [[ 1 ]]", vec!["${cmd}", "[[", "1", "]]"]),
+        (
+            "$dbracket foo == foo ]]",
+            vec!["$dbracket", "foo", "==", "foo", "]]"],
+        ),
     ];
 
     for (input, expected_words) in cases {
@@ -110,11 +114,25 @@ fn test_simple_command_treats_conditional_brackets_as_arguments_after_name() {
 }
 
 #[test]
-fn test_runtime_constructed_conditional_open_does_not_enable_close_token() {
+fn test_runtime_constructed_conditional_open_keeps_close_as_argument() {
     let input = "dbracket=[[\n$dbracket foo == foo ]]";
-    let parsed = Parser::new(input).parse();
+    let parsed = Parser::new(input).parse().unwrap();
 
-    assert!(parsed.is_err());
+    assert_eq!(parsed.status, ParseStatus::Clean);
+    assert_eq!(parsed.file.body.len(), 2);
+    let AstCommand::Simple(command) = &parsed.file.body[1].command else {
+        panic!("expected simple command");
+    };
+
+    assert_eq!(command.name.render(input), "$dbracket");
+    assert_eq!(
+        command
+            .args
+            .iter()
+            .map(|arg| arg.render(input))
+            .collect::<Vec<_>>(),
+        vec!["foo", "==", "foo", "]]"]
+    );
 }
 
 #[test]
