@@ -148,6 +148,23 @@ fn test_parse_conditional_accepts_adjacent_group_closes_after_rhs_words() {
 }
 
 #[test]
+fn test_parse_conditional_stops_quoted_rhs_before_adjacent_group_closes() {
+    for input in ["[[ (( x == \"foo\" )) ]]\n", "[[ (( x =~ \"foo\" )) ]]\n"] {
+        let script = Parser::new(input).parse().unwrap().file;
+
+        let (compound, _) = expect_compound(&script.body[0]);
+        let AstCompoundCommand::Conditional(command) = compound else {
+            panic!("expected conditional compound command for {input}");
+        };
+
+        assert!(matches!(
+            command.expression,
+            ConditionalExpr::Parenthesized(_)
+        ));
+    }
+}
+
+#[test]
 fn test_parse_conditional_pattern_rhs_preserves_structure() {
     let input = "[[ foo == @(bar|baz)* ]]\n";
     let script = Parser::new(input).parse().unwrap().file;

@@ -498,6 +498,9 @@ impl<'a> Parser<'a> {
                 Some(TokenKind::DoubleRightBracket) => break,
                 Some(TokenKind::And) | Some(TokenKind::Or) if paren_depth == 0 => break,
                 Some(TokenKind::RightParen) if stop_at_right_paren && paren_depth == 0 => break,
+                Some(TokenKind::DoubleRightParen) if stop_at_right_paren && paren_depth == 0 => {
+                    break;
+                }
                 None => break,
                 _ => {}
             }
