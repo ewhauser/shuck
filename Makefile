@@ -1,4 +1,4 @@
-.PHONY: build test run check check-scripts setup-hooks setup-large-corpus ensure-cache test-large-corpus large-corpus-report large-corpus-report-from-log large-corpus-report-open test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark test-oracle-shellcheck-cli fuzz-setup fuzz-list fuzz-smoke fuzz-run fuzz-cli bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-large-corpus-hotspots bench-macro bench-macro-single bench-macro-format bench-macro-format-summary bench-macro-format-single bench-macro-site-local bench-repo-corpus profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view profile-large-corpus profile-large-corpus-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli harden-release check-release-security
+.PHONY: build test run check check-scripts setup-hooks setup-large-corpus ensure-cache test-large-corpus large-corpus-report large-corpus-report-from-log large-corpus-report-open test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark test-oracle-shfmt-large-corpus test-oracle-shellcheck-cli fuzz-setup fuzz-list fuzz-smoke fuzz-run fuzz-cli bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-large-corpus-hotspots bench-macro bench-macro-single bench-macro-format bench-macro-format-summary bench-macro-format-single bench-macro-site-local bench-repo-corpus profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view profile-large-corpus profile-large-corpus-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli harden-release check-release-security
 
 ARGS ?= --help
 BENCH_FILE ?=
@@ -147,6 +147,14 @@ test-oracle-shfmt-fixtures:
 test-oracle-shfmt-benchmark:
 	SHUCK_RUN_SHFMT_ORACLE=1 \
 	$(NIX_DEVELOP) cargo test -p shuck-benchmark --test formatter_corpus formatter_benchmark_corpus_matches_shfmt_baseline -- --ignored --exact --nocapture
+
+test-oracle-shfmt-large-corpus: ensure-cache
+	SHUCK_RUN_SHFMT_ORACLE=1 \
+	SHUCK_TEST_LARGE_CORPUS=1 \
+	SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=$(SHUCK_LARGE_CORPUS_SAMPLE_PERCENT) \
+	TEST_SHARD_INDEX=$(TEST_SHARD_INDEX) \
+	TEST_TOTAL_SHARDS=$(TEST_TOTAL_SHARDS) \
+	$(NIX_DEVELOP) cargo test -p shuck-formatter --test oracle_shfmt large_corpus_matches_shfmt -- --ignored --exact --nocapture
 
 test-oracle-shellcheck-cli:
 	$(NIX_DEVELOP) cargo test -p shuck-cli --test oracle_shellcheck_cli -- --ignored --nocapture
