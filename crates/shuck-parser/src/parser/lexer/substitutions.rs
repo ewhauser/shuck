@@ -850,13 +850,9 @@ impl<'a> Lexer<'a> {
                                     escape_start,
                                 );
                                 if preserve_escape_width {
-                                    if let Some(text) = content.as_mut() {
-                                        text.push('\x00');
-                                        text.push(esc);
-                                    }
-                                } else {
-                                    Self::push_capture_char(content, esc);
+                                    Self::push_capture_char(content, '\x00');
                                 }
+                                Self::push_capture_char(content, esc);
                                 self.advance();
                             }
                             '}' => {
