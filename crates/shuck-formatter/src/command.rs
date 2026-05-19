@@ -19,8 +19,9 @@ use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::prelude::{AsFormat, ShellFormatter};
 use crate::word::{
-    normalize_raw_pipeline_continuations, render_arithmetic_expr_to_buf, render_pattern_syntax,
-    render_word_syntax, render_word_syntax_to_buf, render_word_syntax_with_facts_to_buf,
+    matching_raw_command_substitution_close, normalize_raw_pipeline_continuations,
+    render_arithmetic_expr_to_buf, render_pattern_syntax, render_word_syntax,
+    render_word_syntax_to_buf, render_word_syntax_with_facts_to_buf,
     word_gap_end_before_trailing_continuation,
 };
 
@@ -2210,10 +2211,8 @@ fn normalize_multiline_compound_assignment_command_substitutions(
             continue;
         }
 
-        let Some(close_index) = lines[index + 1..]
-            .iter()
-            .position(|line| line.trim_start_matches([' ', '\t']).starts_with(')'))
-            .map(|relative| index + 1 + relative)
+        let Some(close_index) =
+            multiline_compound_assignment_command_substitution_close_index(&lines, index)
         else {
             index += 1;
             continue;
@@ -2221,8 +2220,8 @@ fn normalize_multiline_compound_assignment_command_substitutions(
 
         normalize_multiline_compound_assignment_command_substitution_pipeline_continuations(
             &mut lines,
-            index + 1,
-            close_index,
+            index,
+            close_index + 1,
         );
 
         let body_prefix =
@@ -2232,22 +2231,51 @@ fn normalize_multiline_compound_assignment_command_substitutions(
             continue;
         }
 
-        let common_indent = common_command_substitution_body_indent(&lines[index + 1..close_index]);
-        for line in &mut lines[index + 1..close_index] {
+        let close_line_is_standalone = lines[close_index]
+            .trim_start_matches([' ', '\t'])
+            .starts_with(')');
+        let body_end = if close_line_is_standalone {
+            close_index
+        } else {
+            close_index + 1
+        };
+        let common_indent = common_command_substitution_body_indent(&lines[index + 1..body_end]);
+        for line in &mut lines[index + 1..body_end] {
             if line.trim().is_empty() {
                 continue;
             }
-            let stripped = line
-                .strip_prefix(&common_indent)
-                .unwrap_or_else(|| line.trim_start_matches([' ', '\t']));
+            let stripped = if common_indent.is_empty() {
+                line.trim_start_matches([' ', '\t'])
+            } else {
+                line.strip_prefix(&common_indent)
+                    .unwrap_or_else(|| line.trim_start_matches([' ', '\t']))
+            };
             *line = format!("{body_prefix}{stripped}");
         }
-        lines[close_index] = lines[close_index]
-            .trim_start_matches([' ', '\t'])
-            .to_string();
+        if close_line_is_standalone {
+            lines[close_index] = lines[close_index]
+                .trim_start_matches([' ', '\t'])
+                .to_string();
+        }
         index = close_index + 1;
     }
     lines
+}
+
+fn multiline_compound_assignment_command_substitution_close_index<T: AsRef<str>>(
+    lines: &[T],
+    open_index: usize,
+) -> Option<usize> {
+    let mut tail = String::new();
+    for (index, line) in lines.get(open_index..)?.iter().enumerate() {
+        if index > 0 {
+            tail.push('\n');
+        }
+        tail.push_str(line.as_ref());
+    }
+    let open = tail.find("$(")?;
+    let close = matching_raw_command_substitution_close(&tail, open + 2)?;
+    Some(open_index + tail[..close].bytes().filter(|byte| *byte == b'\n').count())
 }
 
 fn multiline_compound_assignment_command_substitution_body_lines(raw_lines: &[&str]) -> Vec<bool> {
@@ -2259,16 +2287,22 @@ fn multiline_compound_assignment_command_substitution_body_lines(raw_lines: &[&s
             continue;
         }
 
-        let Some(close_index) = raw_lines[index + 1..]
-            .iter()
-            .position(|line| line.trim_start_matches([' ', '\t']).starts_with(')'))
-            .map(|relative| index + 1 + relative)
+        let Some(close_index) =
+            multiline_compound_assignment_command_substitution_close_index(raw_lines, index)
         else {
             index += 1;
             continue;
         };
 
-        for body_line in &mut body_lines[index + 1..close_index] {
+        let close_line_is_standalone = raw_lines[close_index]
+            .trim_start_matches([' ', '\t'])
+            .starts_with(')');
+        let body_end = if close_line_is_standalone {
+            close_index
+        } else {
+            close_index + 1
+        };
+        for body_line in &mut body_lines[index + 1..body_end] {
             *body_line = true;
         }
         index = close_index + 1;
@@ -2309,6 +2343,12 @@ pub(crate) fn multiline_compound_assignment_command_substitution_body_prefix(
         return "";
     };
     let prefix = open_line[..open].trim_start_matches([' ', '\t']);
+    let inline_body = !open_line[open + 2..]
+        .trim_matches([' ', '\t', '\r', '\\'])
+        .is_empty();
+    if prefix.is_empty() && inline_body {
+        return "\t";
+    }
     if prefix.is_empty() || prefix.contains("$(") || prefix.contains('(') || prefix.contains('=') {
         ""
     } else {

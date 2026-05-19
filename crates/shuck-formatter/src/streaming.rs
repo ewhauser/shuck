@@ -968,9 +968,25 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         } else if scratch.contains('\n') && word_contains_process_substitution(word) {
             self.write_text_preserving_current_line_indent(&scratch);
         } else if word_has_multiline_literal_source(word, self.source()) {
-            self.write_rendered_shell_text(&scratch);
-        } else if scratch.contains('\n') && word_contains_command_substitution(word) {
-            self.write_text_preserving_current_line_indent(&scratch);
+            if scratch.contains('\n')
+                && (word_contains_command_substitution(word)
+                    || rendered_text_has_shell_substitution(&scratch))
+                && let Some(normalized) =
+                    normalize_rendered_leading_list_operator_continuations(&scratch)
+            {
+                self.write_command_substitution_assignment_text(&normalized);
+            } else {
+                self.write_rendered_shell_text(&scratch);
+            }
+        } else if scratch.contains('\n')
+            && (word_contains_command_substitution(word)
+                || rendered_text_has_shell_substitution(&scratch))
+        {
+            if rendered_text_has_leading_list_operator_line(&scratch) {
+                self.write_command_substitution_assignment_text(&scratch);
+            } else {
+                self.write_text_preserving_current_line_indent(&scratch);
+            }
         } else {
             self.write_text(&scratch);
         }
@@ -5027,7 +5043,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let normalized =
             normalize_escaped_multiline_word_command_substitution_indent(&scratch, self.options());
         let rendered = normalized.as_deref().unwrap_or(&scratch);
-        if rendered.contains('\n') {
+        if rendered.contains('\n')
+            && rendered_text_has_shell_substitution(rendered)
+            && let Some(normalized) =
+                normalize_rendered_leading_list_operator_continuations(rendered)
+        {
+            self.write_command_substitution_assignment_text(&normalized);
+        } else if rendered.contains('\n') {
             self.write_rendered_shell_text(rendered);
         } else {
             self.write_text(rendered);
@@ -5811,6 +5833,64 @@ fn normalize_escaped_multiline_word_command_substitution_indent(
     }
 
     changed.then_some(output)
+}
+
+fn normalize_rendered_leading_list_operator_continuations(rendered: &str) -> Option<String> {
+    let mut output = Vec::<String>::new();
+    let mut changed = false;
+
+    for line in rendered.split('\n') {
+        let mut current = line.to_string();
+        if let Some((operator, rest)) = leading_list_operator_line_parts(line)
+            && let Some(previous) = output.last_mut()
+            && remove_trailing_continuation_backslash(previous)
+        {
+            previous.push(' ');
+            previous.push_str(operator);
+            current.clear();
+            current.push_str(rest);
+            changed = true;
+        }
+        output.push(current);
+    }
+
+    changed.then(|| output.join("\n"))
+}
+
+fn leading_list_operator_line_parts(line: &str) -> Option<(&'static str, &str)> {
+    let trimmed = line.trim_start_matches([' ', '\t', '\r']);
+    let (operator, rest) = if let Some(rest) = trimmed.strip_prefix("||") {
+        ("||", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("&&") {
+        ("&&", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("|&") {
+        ("|&", rest)
+    } else if let Some(rest) = trimmed.strip_prefix('|') {
+        if trimmed.starts_with("|)") {
+            return None;
+        }
+        ("|", rest)
+    } else {
+        return None;
+    };
+
+    Some((operator, rest.trim_start_matches([' ', '\t', '\r'])))
+}
+
+fn remove_trailing_continuation_backslash(line: &mut String) -> bool {
+    let trimmed_len = line.trim_end_matches([' ', '\t', '\r']).len();
+    let Some(prefix) = line.get(..trimmed_len) else {
+        return false;
+    };
+    if !prefix.ends_with('\\') {
+        return false;
+    }
+
+    let without_backslash = prefix[..prefix.len().saturating_sub(1)]
+        .trim_end_matches([' ', '\t', '\r'])
+        .len();
+    line.truncate(without_backslash);
+    true
 }
 
 fn normalize_scalar_assignment_unquoted_continuations(
@@ -8494,7 +8574,10 @@ fn command_substitution_pipeline_stage_continuation(
         return CommandSubstitutionPipelineContinuation::Comment;
     }
     let line_started_in_quote = quote_state.in_quote();
-    if rendered_line_ends_with_structural_pipe_continuation_in_quote_state(content, quote_state) {
+    if rendered_line_ends_with_command_substitution_continuation_in_quote_state(
+        content,
+        quote_state,
+    ) {
         CommandSubstitutionPipelineContinuation::StructuralPipe {
             line_started_in_quote,
         }
@@ -8503,17 +8586,18 @@ fn command_substitution_pipeline_stage_continuation(
     }
 }
 
-fn rendered_line_ends_with_structural_pipe_continuation_in_quote_state(
+fn rendered_line_ends_with_command_substitution_continuation_in_quote_state(
     line: &str,
     quote_state: &mut RenderedLineQuoteState,
 ) -> bool {
     let trimmed = line.trim_end_matches([' ', '\t', '\r']);
-    let pipe_offset = final_pipe_operator_bounds(trimmed).map(|(offset, _)| offset);
-    let mut pipe_is_unquoted = false;
+    let operator_offset =
+        final_command_substitution_continuation_operator_bounds(trimmed).map(|(offset, _)| offset);
+    let mut operator_is_unquoted = false;
 
     for (offset, ch) in trimmed.char_indices() {
-        if pipe_offset == Some(offset) {
-            pipe_is_unquoted = !quote_state.in_quote() && !quote_state.escaped;
+        if operator_offset == Some(offset) {
+            operator_is_unquoted = !quote_state.in_quote() && !quote_state.escaped;
             break;
         }
 
@@ -8535,7 +8619,7 @@ fn rendered_line_ends_with_structural_pipe_continuation_in_quote_state(
     }
 
     quote_state.escaped = false;
-    pipe_is_unquoted
+    operator_is_unquoted
 }
 
 fn strip_assignment_context_indent<'a>(
@@ -8640,6 +8724,16 @@ fn final_pipe_operator_bounds(line: &str) -> Option<(usize, usize)> {
     if line.ends_with("|&") {
         Some((line.len().saturating_sub(2), line.len()))
     } else if line.ends_with('|') && !line.ends_with("||") {
+        Some((line.len().saturating_sub(1), line.len()))
+    } else {
+        None
+    }
+}
+
+fn final_command_substitution_continuation_operator_bounds(line: &str) -> Option<(usize, usize)> {
+    if line.ends_with("||") || line.ends_with("&&") || line.ends_with("|&") {
+        Some((line.len().saturating_sub(2), line.len()))
+    } else if line.ends_with('|') {
         Some((line.len().saturating_sub(1), line.len()))
     } else {
         None
@@ -8781,6 +8875,13 @@ fn rendered_text_starts_like_assignment_with_substitution(text: &str) -> bool {
         .min()
         .unwrap_or(first_line.len());
     first_line[..substitution_start].contains('=')
+}
+
+fn rendered_text_has_leading_list_operator_line(text: &str) -> bool {
+    text.lines().skip(1).any(|line| {
+        let trimmed = line.trim_start_matches([' ', '\t', '\r']);
+        (trimmed.starts_with('|') && !trimmed.starts_with("|)")) || trimmed.starts_with("&&")
+    })
 }
 
 fn word_part_contains_command_substitution(part: &WordPart) -> bool {

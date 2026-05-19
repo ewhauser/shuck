@@ -4395,7 +4395,10 @@ fn matching_raw_arithmetic_expansion_close(raw: &str, body_start: usize) -> Opti
     None
 }
 
-fn matching_raw_command_substitution_close(raw: &str, body_start: usize) -> Option<usize> {
+pub(crate) fn matching_raw_command_substitution_close(
+    raw: &str,
+    body_start: usize,
+) -> Option<usize> {
     let mut quote: Option<char> = None;
     let mut escaped = false;
     let mut paren_depth = 0usize;
