@@ -636,7 +636,6 @@ mod tests {
             .unwrap()
         );
     }
-
     #[test]
     fn formats_heredoc_command_heads_structurally() {
         let formatted = format_source(
@@ -3013,5 +3012,24 @@ print hidden &!
             formatted_c001 <= original_c001,
             "formatter introduced extra C001 diagnostics: original={original_c001}, formatted={formatted_c001}\nformatted source:\n{formatted:?}"
         );
+    }
+
+    #[test]
+    fn explicit_zsh_mode_preserves_zsh_source_idempotently() {
+        let source = "\
+#!/bin/zsh
+print ${(m)name}
+repeat 2; do print $name; done
+foreach item (alpha beta) { print $item }
+";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Zsh);
+        let path = Some(Path::new("script.zsh"));
+        let formatted = format_to_string(source, path, &options);
+
+        assert!(formatted.contains("${(m)name}"));
+        assert!(formatted.contains("repeat 2"));
+        assert!(formatted.contains("foreach item"));
+        assert_idempotent(&formatted, path, &options);
+        assert!(source_is_formatted(&formatted, path, &options).unwrap());
     }
 }
