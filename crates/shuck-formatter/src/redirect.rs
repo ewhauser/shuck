@@ -14,26 +14,23 @@ impl FormatNodeRule<Redirect> for FormatRedirect {
         let options = formatter.context().options().clone();
         if !options.simplify()
             && !options.minify()
+            && redirect.fd_var.is_none()
             && let Some(raw) = raw_redirect_source_slice(redirect, source)
             && should_preserve_raw_redirect(raw)
         {
             return write!(formatter, [text(raw.to_string())]);
         }
 
-        let mut rendered_explicit_fd = false;
-        let adjacent_numeric_fd = redirect_has_adjacent_numeric_fd(redirect, source);
         if let Some(name) = &redirect.fd_var {
             write!(
                 formatter,
                 [token("{"), text(name.as_str().to_string()), token("}")]
             )?;
-            rendered_explicit_fd = true;
         } else if let Some(fd) = redirect
             .fd
-            .filter(|fd| should_render_explicit_fd(*fd, redirect, source))
+            .filter(|fd| should_render_explicit_fd(*fd, redirect.kind))
         {
             write!(formatter, [text(fd.to_string())])?;
-            rendered_explicit_fd = true;
         }
 
         write!(
@@ -59,48 +56,36 @@ impl FormatNodeRule<Redirect> for FormatRedirect {
             (None, None) => String::new(),
             (Some(_), Some(_)) => unreachable!("redirect target cannot be both word and heredoc"),
         };
-        if needs_space_before_target(
-            redirect.kind,
-            &target,
-            options.space_redirects(),
-            rendered_explicit_fd || adjacent_numeric_fd,
-        ) {
+        if needs_space_before_target(redirect.kind, &target, options.space_redirects()) {
             write!(formatter, [space()])?;
         }
-        write!(formatter, [text(target)])
+        write!(
+            formatter,
+            [text(
+                normalized_redirect_target(redirect.kind, &target).to_string()
+            )]
+        )
     }
 }
 
-fn should_render_explicit_fd(fd: i32, redirect: &Redirect, source: &str) -> bool {
-    raw_redirect_source_slice(redirect, source).is_some_and(|raw| {
-        raw.trim_start()
-            .strip_prefix(&fd.to_string())
-            .is_some_and(|rest| rest.starts_with(['<', '>']))
-    })
+fn should_render_explicit_fd(fd: i32, kind: RedirectKind) -> bool {
+    match kind {
+        RedirectKind::Output
+        | RedirectKind::Clobber
+        | RedirectKind::Append
+        | RedirectKind::DupOutput
+        | RedirectKind::OutputBoth => fd != 1,
+        RedirectKind::Input
+        | RedirectKind::ReadWrite
+        | RedirectKind::HereDoc
+        | RedirectKind::HereDocStrip
+        | RedirectKind::HereString
+        | RedirectKind::DupInput => fd != 0,
+    }
 }
 
-fn redirect_has_adjacent_numeric_fd(redirect: &Redirect, source: &str) -> bool {
-    let start = redirect.span.start.offset.min(source.len());
-    let Some(prefix) = source.get(..start) else {
-        return false;
-    };
-    let token = prefix
-        .rsplit_once(|ch: char| ch.is_whitespace() || ch == ';' || ch == '&' || ch == '|')
-        .map_or(prefix, |(_, token)| token);
-    !token.is_empty() && token.chars().all(|ch| ch.is_ascii_digit())
-}
-
-fn needs_space_before_target(
-    kind: RedirectKind,
-    target: &str,
-    space_redirects: bool,
-    explicit_fd: bool,
-) -> bool {
+fn needs_space_before_target(kind: RedirectKind, target: &str, space_redirects: bool) -> bool {
     if target.is_empty() {
-        return false;
-    }
-
-    if explicit_fd {
         return false;
     }
 
@@ -115,6 +100,25 @@ fn needs_space_before_target(
             .is_some_and(|byte| matches!(byte, b'<' | b'>' | b'&'))
 }
 
+fn normalized_redirect_target(kind: RedirectKind, target: &str) -> &str {
+    if matches!(
+        kind,
+        RedirectKind::Output
+            | RedirectKind::Clobber
+            | RedirectKind::Append
+            | RedirectKind::Input
+            | RedirectKind::ReadWrite
+            | RedirectKind::HereDoc
+            | RedirectKind::HereDocStrip
+            | RedirectKind::HereString
+            | RedirectKind::OutputBoth
+    ) {
+        target.trim_start_matches([' ', '\t', '\r'])
+    } else {
+        target
+    }
+}
+
 fn raw_redirect_source_slice<'a>(redirect: &Redirect, source: &'a str) -> Option<&'a str> {
     let span = redirect.span;
     (span.start.offset < span.end.offset && span.end.offset <= source.len())
@@ -122,5 +126,5 @@ fn raw_redirect_source_slice<'a>(redirect: &Redirect, source: &'a str) -> Option
 }
 
 fn should_preserve_raw_redirect(raw: &str) -> bool {
-    raw.contains(">&$") || raw.contains("<&$")
+    raw.contains(">&$") || raw.contains("<&$") || raw.contains(">&-") || raw.contains("<&-")
 }
