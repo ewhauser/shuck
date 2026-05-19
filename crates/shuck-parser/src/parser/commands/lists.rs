@@ -275,12 +275,7 @@ impl<'a> Parser<'a> {
             Some(Keyword::Function) => false,
             None => matches!(
                 self.current_token_kind,
-                Some(
-                    TokenKind::DoubleLeftBracket
-                        | TokenKind::DoubleLeftParen
-                        | TokenKind::LeftParen
-                        | TokenKind::LeftBrace
-                )
+                Some(TokenKind::DoubleLeftParen | TokenKind::LeftParen | TokenKind::LeftBrace)
             ),
             _ => false,
         }
