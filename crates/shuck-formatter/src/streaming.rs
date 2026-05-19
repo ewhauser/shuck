@@ -3930,12 +3930,18 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 || self.can_inline_source_line_subshell(commands, upper_bound));
         if should_inline {
             self.write_text("(");
+            if stmt_sequence_renders_with_subshell_open(commands) {
+                self.write_space();
+            }
             self.format_inline_stmts(commands)?;
             self.write_text(")");
             return Ok(());
         }
         if self.can_format_multiline_subshell_inline(commands, upper_bound) {
             self.write_text("(");
+            if stmt_sequence_renders_with_subshell_open(commands) {
+                self.write_space();
+            }
             self.format_stmt_sequence(commands, upper_bound)?;
             self.write_text(")");
             return Ok(());
@@ -6508,6 +6514,31 @@ fn stmt_first_content_offset(stmt: &Stmt, source: &str, source_map: &SourceMap<'
                 .start
                 .offset
         }
+    }
+}
+
+fn stmt_sequence_renders_with_subshell_open(commands: &StmtSeq) -> bool {
+    commands
+        .first()
+        .is_some_and(stmt_renders_with_subshell_open)
+}
+
+fn stmt_renders_with_subshell_open(stmt: &Stmt) -> bool {
+    if stmt.negated {
+        return false;
+    }
+    let command_start = command_format_span(&stmt.command).start.offset;
+    if stmt
+        .redirects
+        .iter()
+        .any(|redirect| redirect.span.start.offset < command_start)
+    {
+        return false;
+    }
+    match &stmt.command {
+        Command::Binary(command) => stmt_renders_with_subshell_open(&command.left),
+        Command::Compound(CompoundCommand::Subshell(_)) => true,
+        _ => false,
     }
 }
 

@@ -2130,6 +2130,20 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn keeps_inline_nested_subshells_from_becoming_arithmetic_commands() {
+        let source = "run() {\n  ( ( echo hi ) 2>&1 | ( cat ) ) 5>&1\n}\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "run() {\n\t( (echo hi) 2>&1 | (cat)) 5>&1\n}\n".to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn normalizes_inline_command_substitution_internal_spacing() {
         let source = "nlq=\"$(  _sanitizer run \"$nlq\"  numeric )\"\nline=$( head -n 2 $file|tail -n 1 )\nfile2patch=\"$( echo \"$line\" | cut -d' ' -f2 |cut -f1 )\"\nmsg=\"Welcome Hari - your last access was $(last|head -n2|tail -n1|sed 's/[^ ]\\+ \\+[^ ]\\+ \\+[^ ]\\+ \\+//;s/ *$//')\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
