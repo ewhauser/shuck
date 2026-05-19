@@ -3962,7 +3962,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             .source()
             .get(command.span.start.offset..command.span.end.offset)
             .unwrap_or_default();
-        self.write_text(&format_arithmetic_command_source(rendered));
+        let mut formatted = format_arithmetic_command_source(rendered);
+        if arithmetic_command_is_followed_by_inline_branch_keyword(command.span, self.source()) {
+            trim_final_line_ending(&mut formatted);
+        }
+        self.write_text(&formatted);
         Ok(())
     }
 
@@ -5915,6 +5919,36 @@ fn normalize_scalar_assignment_unquoted_continuations(
     let mut normalized = head;
     normalized.push_str(&normalized_value);
     Some(normalized)
+}
+
+fn arithmetic_command_is_followed_by_inline_branch_keyword(span: Span, source: &str) -> bool {
+    let Some(after) = source.get(span.end.offset.min(source.len())..) else {
+        return false;
+    };
+    let trimmed = after.trim_start_matches([' ', '\t', '\r']);
+    let after_separator = trimmed
+        .strip_prefix(';')
+        .map(|rest| rest.trim_start_matches([' ', '\t', '\r']))
+        .unwrap_or(trimmed);
+
+    shell_keyword_prefix(after_separator, "then") || shell_keyword_prefix(after_separator, "do")
+}
+
+fn shell_keyword_prefix(text: &str, keyword: &str) -> bool {
+    let Some(rest) = text.strip_prefix(keyword) else {
+        return false;
+    };
+    rest.chars()
+        .next()
+        .is_none_or(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n' | ';' | '&' | '|'))
+}
+
+fn trim_final_line_ending(text: &mut String) {
+    if text.ends_with("\r\n") {
+        text.truncate(text.len().saturating_sub(2));
+    } else if text.ends_with('\n') {
+        text.truncate(text.len().saturating_sub(1));
+    }
 }
 
 fn assignment_has_quoted_backslash_continuation_literal(

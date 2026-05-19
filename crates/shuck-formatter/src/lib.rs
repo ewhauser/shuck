@@ -3014,6 +3014,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn keeps_multiline_arithmetic_if_condition_then_attached() {
+        let source = "if ! (( BASH_VERSINFO[0] > 4 ||\n        BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 2 )); then\n  exit 1\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if ! ((\\\nBASH_VERSINFO[0] > 4 || \\\nBASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 2)); then\n\texit 1\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn formats_arithmetic_for_init_assignment_spacing() {
         let source = "for ((i=1;i<limit;++i)); do\n  echo \"$i\"\ndone\nfor ((j = 1; ; j++)); do\n  echo \"$j\"\ndone\n";
         let options = ShellFormatOptions::default();
