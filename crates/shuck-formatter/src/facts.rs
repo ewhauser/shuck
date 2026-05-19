@@ -1,19 +1,21 @@
 use std::collections::{HashMap, HashSet};
 
+use shuck_ast::TextSize;
 use shuck_ast::{
-    AnonymousFunctionCommand, ArrayElem, Assignment, AssignmentValue, BinaryCommand, BinaryOp,
-    BuiltinCommand, CaseCommand, CaseItem, Command, CommandSubstitutionSyntax, CompoundCommand,
-    ConditionalCommand, ConditionalExpr, DeclClause, DeclOperand, File, ForCommand, FunctionDef,
-    IfCommand, Pattern, PatternPart, Redirect, RepeatCommand, SelectCommand, Span, Stmt, StmtSeq,
-    StmtTerminator, TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
+    AnonymousFunctionCommand, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem,
+    Assignment, AssignmentValue, BinaryCommand, BinaryOp, BuiltinCommand, CaseCommand, CaseItem,
+    Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalCommand, ConditionalExpr,
+    DeclClause, DeclOperand, File, ForCommand, ForeachCommand, FunctionDef, HeredocBody,
+    HeredocBodyPart, IfCommand, Pattern, PatternPart, Redirect, RepeatCommand, SelectCommand, Span,
+    Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
 };
+use shuck_indexer::Indexer;
 
-use crate::ast_format::flatten_comments;
 use crate::command::{
     case_item_was_inline_in_source, group_attachment_span, group_open_suffix,
     group_was_inline_in_source, rendered_stmt_end_line, should_render_verbatim,
     stmt_attachment_span, stmt_format_span, stmt_has_trailing_comment, stmt_render_start_line,
-    stmt_span, stmt_verbatim_span,
+    stmt_span, stmt_start_after_operator, stmt_verbatim_span_with_source_map,
 };
 use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_window};
 use crate::options::ResolvedShellFormatOptions;
@@ -50,19 +52,6 @@ impl SequenceSiteKey {
         Self {
             span: FactSpan::from(sequence.span),
             upper_bound,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct StmtSiteKey {
-    ptr: usize,
-}
-
-impl StmtSiteKey {
-    fn new(stmt: &Stmt) -> Self {
-        Self {
-            ptr: stmt as *const Stmt as usize,
         }
     }
 }
@@ -158,14 +147,14 @@ impl<'source> SequenceFacts<'source> {
 #[derive(Debug, Clone)]
 pub(crate) struct FormatterFacts<'source> {
     source_map: SourceMap<'source>,
-    stmt_facts: HashMap<StmtSiteKey, StmtFacts>,
-    stmt_facts_by_span: HashMap<FactSpan, StmtFacts>,
+    stmt_facts: HashMap<FactSpan, StmtFacts>,
     sequence_facts: HashMap<SequenceSiteKey, SequenceFacts<'source>>,
     pipeline_breaks: HashSet<FactSpan>,
     list_item_breaks: HashSet<FactSpan>,
     background_breaks: HashSet<FactSpan>,
     inline_group_sequences: HashSet<FactSpan>,
     inline_case_item_bodies: HashSet<FactSpan>,
+    indexer: Indexer,
 }
 
 impl<'source> FormatterFacts<'source> {
@@ -174,7 +163,8 @@ impl<'source> FormatterFacts<'source> {
         file: &File,
         options: &ResolvedShellFormatOptions,
     ) -> Self {
-        FormatterFactsBuilder::new(source, options).build(file)
+        let indexer = Indexer::for_file(source, file);
+        FormatterFactsBuilder::new(source, options, indexer).build(file)
     }
 
     pub(crate) fn source_map(&self) -> &SourceMap<'source> {
@@ -182,10 +172,7 @@ impl<'source> FormatterFacts<'source> {
     }
 
     pub(crate) fn stmt(&self, stmt: &Stmt) -> &StmtFacts {
-        let Some(facts) = self.stmt_facts.get(&StmtSiteKey::new(stmt)).or_else(|| {
-            self.stmt_facts_by_span
-                .get(&FactSpan::from(stmt_span(stmt)))
-        }) else {
+        let Some(facts) = self.stmt_facts.get(&FactSpan::from(stmt_span(stmt))) else {
             unreachable!("missing statement facts");
         };
         facts
@@ -207,6 +194,11 @@ impl<'source> FormatterFacts<'source> {
             };
             facts
         })
+    }
+
+    pub(crate) fn pipeline_has_explicit_line_break(&self, pipeline: &BinaryCommand) -> bool {
+        self.pipeline_breaks
+            .contains(&FactSpan::from(pipeline.span))
     }
 
     pub(crate) fn list_item_has_explicit_line_break(&self, operator_span: Span) -> bool {
@@ -234,16 +226,22 @@ impl<'source> FormatterFacts<'source> {
             .contains(&FactSpan::from(item.body.span))
     }
 
+    pub(crate) fn offset_is_in_heredoc_body(&self, offset: usize) -> bool {
+        self.indexer
+            .region_index()
+            .is_heredoc(TextSize::new(offset as u32))
+    }
+
     #[cfg(feature = "benchmarking")]
     pub(crate) fn len(&self) -> usize {
         self.stmt_facts.len()
-            + self.stmt_facts_by_span.len()
             + self.sequence_facts.len()
             + self.pipeline_breaks.len()
             + self.list_item_breaks.len()
             + self.background_breaks.len()
             + self.inline_group_sequences.len()
             + self.inline_case_item_bodies.len()
+            + self.indexer.region_index().heredoc_ranges().len()
     }
 }
 
@@ -255,29 +253,46 @@ struct FormatterFactsBuilder<'source, 'options> {
 }
 
 impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
-    fn new(source: &'source str, options: &'options ResolvedShellFormatOptions) -> Self {
+    fn new(
+        source: &'source str,
+        options: &'options ResolvedShellFormatOptions,
+        indexer: Indexer,
+    ) -> Self {
+        let source_map = SourceMap::from_indexer(source, &indexer, options.keep_padding());
+
         Self {
             source,
             options,
             facts: FormatterFacts {
-                source_map: SourceMap::new(source),
+                source_map,
                 stmt_facts: HashMap::new(),
-                stmt_facts_by_span: HashMap::new(),
                 sequence_facts: HashMap::new(),
                 pipeline_breaks: HashSet::new(),
                 list_item_breaks: HashSet::new(),
                 background_breaks: HashSet::new(),
                 inline_group_sequences: HashSet::new(),
                 inline_case_item_bodies: HashSet::new(),
+                indexer,
             },
             source_comments: Box::from([]),
         }
     }
 
     fn build(mut self, file: &File) -> FormatterFacts<'source> {
-        let mut source_comments = flatten_comments(file)
-            .into_iter()
-            .filter_map(|comment| self.source_map().source_comment(comment))
+        let mut source_comments = self
+            .facts
+            .indexer
+            .comment_index()
+            .comments()
+            .iter()
+            .filter(|comment| {
+                !self
+                    .facts
+                    .indexer
+                    .region_index()
+                    .is_heredoc(comment.range.start())
+            })
+            .filter_map(|comment| self.source_map().source_comment_for_indexed(comment))
             .collect::<Vec<_>>();
         source_comments.sort_by_key(|comment| comment.span().start.offset);
         self.source_comments = source_comments.into_boxed_slice();
@@ -291,6 +306,16 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         upper_bound: Option<usize>,
         group_open_char: Option<char>,
     ) {
+        self.visit_sequence_with_suffix(sequence, upper_bound, group_open_char, None);
+    }
+
+    fn visit_sequence_with_suffix(
+        &mut self,
+        sequence: &StmtSeq,
+        upper_bound: Option<usize>,
+        group_open_char: Option<char>,
+        open_suffix_span: Option<Span>,
+    ) {
         for stmt in sequence.iter() {
             self.visit_stmt(stmt);
         }
@@ -301,34 +326,28 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         }
 
         let mut facts = SequenceFacts::new(sequence.len());
-        facts.group_open_suffix_span = group_open_char.and_then(|open| {
-            group_open_suffix(sequence.as_slice(), self.source_map(), open).map(|(span, _)| span)
-        });
-        let sequence_limit = group_open_char
-            .and_then(|open| {
-                let close = match open {
-                    '{' => '}',
-                    '(' => ')',
-                    other => other,
-                };
-                group_attachment_span(sequence.as_slice(), self.source_map(), open, close)
-                    .map(|span| span.end.offset)
+        facts.group_open_suffix_span = open_suffix_span.or_else(|| {
+            group_open_char.and_then(|open| {
+                group_open_suffix(sequence.as_slice(), self.source_map(), open)
+                    .map(|(span, _)| span)
             })
-            .or(upper_bound);
-
-        let mut lower_bound = sequence_comment_lower_bound(sequence);
-        if let Some(open) = group_open_char {
+        });
+        let group_attachment_span = group_open_char.and_then(|open| {
             let close = match open {
                 '{' => '}',
                 '(' => ')',
                 other => other,
             };
-            if let Some(span) =
-                group_attachment_span(sequence.as_slice(), self.source_map(), open, close)
-            {
-                lower_bound = lower_bound.min(span.start.offset);
-            }
-        }
+            group_attachment_span(sequence.as_slice(), self.source_map(), open, close)
+        });
+        let sequence_limit = group_attachment_span
+            .map(|span| span.end.offset)
+            .or(upper_bound);
+
+        let comment_lower_bound = sequence_comment_lower_bound(sequence, self.source_map());
+        let lower_bound = group_attachment_span
+            .map(|span| span.start.offset.min(comment_lower_bound))
+            .unwrap_or(comment_lower_bound);
         let comment_window = self.comment_window(lower_bound, sequence_limit);
 
         if sequence.is_empty() {
@@ -415,31 +434,29 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_stmt(&mut self, stmt: &Stmt) {
-        let stmt_key = StmtSiteKey::new(stmt);
+        let stmt_key = FactSpan::from(stmt_span(stmt));
         if !self.facts.stmt_facts.contains_key(&stmt_key) {
             let preserve_verbatim = should_render_verbatim(stmt, self.source_map(), self.options);
             let render_span = if preserve_verbatim {
-                stmt_verbatim_span(stmt, self.source)
+                stmt_verbatim_span_with_source_map(stmt, self.source_map())
             } else {
                 stmt_format_span(stmt)
             };
-            let facts = StmtFacts {
-                attachment_span: stmt_attachment_span(
-                    stmt,
-                    self.source,
-                    self.source_map(),
-                    self.options,
-                ),
-                render_span,
-                rendered_end_line: rendered_stmt_end_line(stmt, self.source, self.source_map()),
-                has_trailing_comment: stmt_has_trailing_comment(stmt, self.source_map()),
-                preserve_verbatim,
-            };
-            self.facts
-                .stmt_facts_by_span
-                .entry(FactSpan::from(stmt_span(stmt)))
-                .or_insert_with(|| facts.clone());
-            self.facts.stmt_facts.insert(stmt_key, facts);
+            self.facts.stmt_facts.insert(
+                stmt_key,
+                StmtFacts {
+                    attachment_span: stmt_attachment_span(
+                        stmt,
+                        self.source,
+                        self.source_map(),
+                        self.options,
+                    ),
+                    render_span,
+                    rendered_end_line: rendered_stmt_end_line(stmt, self.source, self.source_map()),
+                    has_trailing_comment: stmt_has_trailing_comment(stmt, self.source_map()),
+                    preserve_verbatim,
+                },
+            );
         }
 
         for redirect in &stmt.redirects {
@@ -556,7 +573,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         self.visit_stmt(command.right.as_ref());
 
         if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll)
-            && pipeline_has_explicit_line_break(command, self.source)
+            && pipeline_has_explicit_line_break(command, self.source, self.source_map())
         {
             self.facts
                 .pipeline_breaks
@@ -565,26 +582,28 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
 
         if matches!(command.op, BinaryOp::And | BinaryOp::Or) {
             let mut rest = Vec::new();
-            let first = collect_command_list_first(command, &mut rest);
-            let mut previous_stmt = first;
+            let mut previous = collect_command_list_first(command, &mut rest);
             for item in rest {
-                let previous_span_end = stmt_span(previous_stmt).end.offset;
-                let previous_end = if previous_span_end <= item.operator_span.start.offset {
-                    previous_span_end
-                } else {
-                    self.facts.stmt(previous_stmt).render_span().end.offset
-                };
-                let next_start = self.facts.stmt(item.stmt).attachment_span().start.offset;
-                let has_break_before_operator =
-                    has_newline_between(self.source, previous_end, item.operator_span.start.offset);
-                let has_break_after_operator =
-                    has_newline_between(self.source, item.operator_span.end.offset, next_start);
-                if has_break_before_operator || has_break_after_operator {
+                let next_start = stmt_start_after_operator(
+                    item.stmt,
+                    item.operator_span.end.offset,
+                    self.source,
+                    self.source_map(),
+                );
+                let next_start_line = self.source_map().line_number_for_offset(next_start);
+                let previous_span = stmt_span(previous);
+                if operator_starts_or_ends_line(self.source, item.operator_span)
+                    || has_newline_between(self.source, item.operator_span.end.offset, next_start)
+                    || (stmt_is_multiline_conditional(previous)
+                        && previous_span.start.line < item.operator_span.start.line
+                        && item.operator_span.end.line == next_start_line
+                        && !stmt_can_follow_multiline_conditional_inline(item.stmt))
+                {
                     self.facts
                         .list_item_breaks
                         .insert(FactSpan::from(item.operator_span));
                 }
-                previous_stmt = item.stmt;
+                previous = item.stmt;
             }
         }
     }
@@ -613,14 +632,38 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                         .inline_group_sequences
                         .insert(FactSpan::from(command.body.span));
                 }
-                self.visit_sequence(
+                self.visit_sequence_with_suffix(
                     &command.body,
-                    Some(command.span.end.offset),
+                    Some(foreach_body_upper_bound(command, self.source_map())),
                     group_open_char,
+                    group_open_char
+                        .is_none()
+                        .then(|| {
+                            matches!(command.syntax, shuck_ast::ForeachSyntax::InDoDone { .. })
+                                .then(|| {
+                                    branch_open_suffix_span(&command.body, self.source_map(), "do")
+                                })
+                                .flatten()
+                        })
+                        .flatten(),
                 );
             }
             CompoundCommand::ArithmeticFor(command) => {
-                self.visit_sequence(&command.body, Some(command.span.end.offset), None);
+                if let Some(expr) = &command.init_ast {
+                    self.visit_arithmetic_expr(expr);
+                }
+                if let Some(expr) = &command.condition_ast {
+                    self.visit_arithmetic_expr(expr);
+                }
+                if let Some(expr) = &command.step_ast {
+                    self.visit_arithmetic_expr(expr);
+                }
+                self.visit_sequence_with_suffix(
+                    &command.body,
+                    Some(done_body_upper_bound(self.source_map(), command.span)),
+                    None,
+                    branch_open_suffix_span(&command.body, self.source_map(), "do"),
+                );
             }
             CompoundCommand::While(command) => self.visit_while(command),
             CompoundCommand::Until(command) => self.visit_until(command),
@@ -642,7 +685,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 }
                 self.visit_sequence(body, None, Some('{'));
             }
-            CompoundCommand::Arithmetic(_) => {}
+            CompoundCommand::Arithmetic(command) => {
+                if let Some(expr) = &command.expr_ast {
+                    self.visit_arithmetic_expr(expr);
+                }
+            }
             CompoundCommand::Time(command) => self.visit_time(command),
             CompoundCommand::Conditional(command) => self.visit_conditional(command),
             CompoundCommand::Coproc(command) => self.visit_stmt(command.body.as_ref()),
@@ -674,7 +721,13 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_if(&mut self, command: &IfCommand) {
-        self.visit_sequence(&command.condition, None, None);
+        let condition_upper_bound = match command.syntax {
+            shuck_ast::IfSyntax::ThenFi { then_span, .. } => Some(then_span.start.offset),
+            shuck_ast::IfSyntax::Brace {
+                left_brace_span, ..
+            } => Some(left_brace_span.start.offset),
+        };
+        self.visit_sequence(&command.condition, condition_upper_bound, None);
         let brace_syntax = matches!(command.syntax, shuck_ast::IfSyntax::Brace { .. });
         let group_open_char = brace_syntax.then_some('{');
         if brace_syntax
@@ -689,13 +742,27 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 .inline_group_sequences
                 .insert(FactSpan::from(command.then_branch.span));
         }
-        self.visit_sequence(
+        self.visit_sequence_with_suffix(
             &command.then_branch,
-            Some(if_branch_upper_bound(command, 0, self.source)),
+            Some(if_branch_upper_bound(
+                command,
+                0,
+                self.source,
+                self.source_map(),
+            )),
             group_open_char,
+            (!brace_syntax)
+                .then(|| branch_open_suffix_span(&command.then_branch, self.source_map(), "then"))
+                .flatten(),
         );
         for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
-            self.visit_sequence(condition, None, None);
+            let condition_upper_bound = if brace_syntax {
+                group_attachment_span(body.as_slice(), self.source_map(), '{', '}')
+                    .map(|span| span.start.offset)
+            } else {
+                branch_open_keyword_start(body, self.source_map(), "then")
+            };
+            self.visit_sequence(condition, condition_upper_bound, None);
             if brace_syntax
                 && group_was_inline_in_source(body.as_slice(), self.source_map(), '{', '}')
             {
@@ -703,10 +770,18 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     .inline_group_sequences
                     .insert(FactSpan::from(body.span));
             }
-            self.visit_sequence(
+            self.visit_sequence_with_suffix(
                 body,
-                Some(if_branch_upper_bound(command, index + 1, self.source)),
+                Some(if_branch_upper_bound(
+                    command,
+                    index + 1,
+                    self.source,
+                    self.source_map(),
+                )),
                 group_open_char,
+                (!brace_syntax)
+                    .then(|| branch_open_suffix_span(body, self.source_map(), "then"))
+                    .flatten(),
             );
         }
         if let Some(else_branch) = &command.else_branch {
@@ -717,12 +792,15 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     .inline_group_sequences
                     .insert(FactSpan::from(else_branch.span));
             }
-            let upper_bound = match command.syntax {
-                shuck_ast::IfSyntax::ThenFi { .. } | shuck_ast::IfSyntax::Brace { .. } => {
-                    Some(command.span.end.offset)
-                }
-            };
-            self.visit_sequence(else_branch, upper_bound, group_open_char);
+            let upper_bound = Some(if_close_start(command, self.source_map()));
+            self.visit_sequence_with_suffix(
+                else_branch,
+                upper_bound,
+                group_open_char,
+                (!brace_syntax)
+                    .then(|| branch_open_suffix_span(else_branch, self.source_map(), "else"))
+                    .flatten(),
+            );
         }
     }
 
@@ -747,10 +825,22 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 .inline_group_sequences
                 .insert(FactSpan::from(command.body.span));
         }
-        self.visit_sequence(
+        self.visit_sequence_with_suffix(
             &command.body,
-            Some(command.span.end.offset),
+            Some(for_body_upper_bound(command, self.source_map())),
             group_open_char,
+            group_open_char
+                .is_none()
+                .then(|| {
+                    matches!(
+                        command.syntax,
+                        shuck_ast::ForSyntax::InDoDone { .. }
+                            | shuck_ast::ForSyntax::ParenDoDone { .. }
+                    )
+                    .then(|| branch_open_suffix_span(&command.body, self.source_map(), "do"))
+                    .flatten()
+                })
+                .flatten(),
         );
     }
 
@@ -765,21 +855,43 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 .inline_group_sequences
                 .insert(FactSpan::from(command.body.span));
         }
-        self.visit_sequence(
+        self.visit_sequence_with_suffix(
             &command.body,
-            Some(command.span.end.offset),
+            Some(repeat_body_upper_bound(command, self.source_map())),
             group_open_char,
+            group_open_char
+                .is_none()
+                .then(|| {
+                    matches!(command.syntax, shuck_ast::RepeatSyntax::DoDone { .. })
+                        .then(|| branch_open_suffix_span(&command.body, self.source_map(), "do"))
+                        .flatten()
+                })
+                .flatten(),
         );
     }
 
     fn visit_while(&mut self, command: &WhileCommand) {
-        self.visit_sequence(&command.condition, None, None);
-        self.visit_sequence(&command.body, Some(command.span.end.offset), None);
+        let condition_upper_bound =
+            branch_open_keyword_start(&command.body, self.source_map(), "do");
+        self.visit_sequence(&command.condition, condition_upper_bound, None);
+        self.visit_sequence_with_suffix(
+            &command.body,
+            Some(done_body_upper_bound(self.source_map(), command.span)),
+            None,
+            branch_open_suffix_span(&command.body, self.source_map(), "do"),
+        );
     }
 
     fn visit_until(&mut self, command: &UntilCommand) {
-        self.visit_sequence(&command.condition, None, None);
-        self.visit_sequence(&command.body, Some(command.span.end.offset), None);
+        let condition_upper_bound =
+            branch_open_keyword_start(&command.body, self.source_map(), "do");
+        self.visit_sequence(&command.condition, condition_upper_bound, None);
+        self.visit_sequence_with_suffix(
+            &command.body,
+            Some(done_body_upper_bound(self.source_map(), command.span)),
+            None,
+            branch_open_suffix_span(&command.body, self.source_map(), "do"),
+        );
     }
 
     fn visit_case(&mut self, command: &CaseCommand) {
@@ -795,7 +907,10 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             }
             self.visit_sequence(
                 &item.body,
-                case_item_body_upper_bound(item, Some(command.span.end.offset)),
+                case_item_body_upper_bound(
+                    item,
+                    case_body_fallback_upper_bound(command, self.source_map()),
+                ),
                 None,
             );
         }
@@ -805,7 +920,12 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         for word in &command.words {
             self.visit_word(word);
         }
-        self.visit_sequence(&command.body, Some(command.span.end.offset), None);
+        self.visit_sequence_with_suffix(
+            &command.body,
+            Some(done_body_upper_bound(self.source_map(), command.span)),
+            None,
+            branch_open_suffix_span(&command.body, self.source_map(), "do"),
+        );
     }
 
     fn visit_time(&mut self, command: &TimeCommand) {
@@ -898,6 +1018,9 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         if let Some(word) = redirect.word_target() {
             self.visit_word(word);
         }
+        if let Some(heredoc) = redirect.heredoc() {
+            self.visit_heredoc_body(&heredoc.body);
+        }
     }
 
     fn visit_assignment(&mut self, assignment: &Assignment) {
@@ -963,8 +1086,12 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 self.visit_sequence(body, Some(span.end.offset), None);
             }
             WordPart::ProcessSubstitution { body, .. } => {
-                self.visit_sequence(body, Some(span.end.offset), None);
+                self.visit_sequence(body, span.end.offset.checked_sub(1), None);
             }
+            WordPart::ArithmeticExpansion {
+                expression_ast: Some(expr),
+                ..
+            } => self.visit_arithmetic_expr(expr),
             WordPart::CommandSubstitution { .. }
             | WordPart::Literal(_)
             | WordPart::SingleQuoted { .. }
@@ -987,6 +1114,74 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     self.visit_word_part(&part.kind, part.span);
                 }
             }
+        }
+    }
+
+    fn visit_heredoc_body(&mut self, body: &HeredocBody) {
+        for part in &body.parts {
+            self.visit_heredoc_body_part(&part.kind, part.span);
+        }
+    }
+
+    fn visit_heredoc_body_part(&mut self, part: &HeredocBodyPart, span: Span) {
+        match part {
+            HeredocBodyPart::CommandSubstitution { body, syntax }
+                if matches!(
+                    *syntax,
+                    CommandSubstitutionSyntax::DollarParen | CommandSubstitutionSyntax::Backtick
+                ) =>
+            {
+                self.visit_sequence(body, Some(span.end.offset), None);
+            }
+            HeredocBodyPart::ArithmeticExpansion {
+                expression_ast: Some(expr),
+                ..
+            } => self.visit_arithmetic_expr(expr),
+            HeredocBodyPart::ArithmeticExpansion {
+                expression_ast: None,
+                expression_word_ast,
+                ..
+            } => self.visit_word(expression_word_ast),
+            HeredocBodyPart::Literal(_)
+            | HeredocBodyPart::Variable(_)
+            | HeredocBodyPart::CommandSubstitution { .. }
+            | HeredocBodyPart::Parameter(_) => {}
+        }
+    }
+
+    fn visit_arithmetic_expr(&mut self, expr: &ArithmeticExprNode) {
+        match &expr.kind {
+            ArithmeticExpr::ShellWord(word) => self.visit_word(word),
+            ArithmeticExpr::Indexed { index, .. } => self.visit_arithmetic_expr(index),
+            ArithmeticExpr::Parenthesized { expression } => self.visit_arithmetic_expr(expression),
+            ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+                self.visit_arithmetic_expr(expr);
+            }
+            ArithmeticExpr::Binary { left, right, .. } => {
+                self.visit_arithmetic_expr(left);
+                self.visit_arithmetic_expr(right);
+            }
+            ArithmeticExpr::Conditional {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
+                self.visit_arithmetic_expr(condition);
+                self.visit_arithmetic_expr(then_expr);
+                self.visit_arithmetic_expr(else_expr);
+            }
+            ArithmeticExpr::Assignment { target, value, .. } => {
+                self.visit_arithmetic_lvalue(target);
+                self.visit_arithmetic_expr(value);
+            }
+            ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
+        }
+    }
+
+    fn visit_arithmetic_lvalue(&mut self, target: &ArithmeticLvalue) {
+        match target {
+            ArithmeticLvalue::Indexed { index, .. } => self.visit_arithmetic_expr(index),
+            ArithmeticLvalue::Variable(_) => {}
         }
     }
 
@@ -1027,144 +1222,599 @@ fn collect_command_list_first<'a>(
     first
 }
 
-fn pipeline_has_explicit_line_break(pipeline: &BinaryCommand, source: &str) -> bool {
+fn stmt_is_multiline_conditional(stmt: &Stmt) -> bool {
+    matches!(
+        stmt.command,
+        Command::Compound(CompoundCommand::Conditional(_))
+    )
+}
+
+fn stmt_can_follow_multiline_conditional_inline(stmt: &Stmt) -> bool {
+    matches!(
+        stmt.command,
+        Command::Simple(_)
+            | Command::Builtin(_)
+            | Command::Compound(CompoundCommand::BraceGroup(_) | CompoundCommand::Subshell(_))
+    )
+}
+
+fn pipeline_has_explicit_line_break(
+    pipeline: &BinaryCommand,
+    source: &str,
+    source_map: &SourceMap<'_>,
+) -> bool {
     let mut statements = Vec::new();
-    collect_pipeline(pipeline, &mut statements);
+    let mut operators = Vec::new();
+    collect_pipeline(pipeline, &mut statements, &mut operators);
 
-    let mut previous_end = match statements.first() {
-        Some(stmt) => stmt_span(stmt).end.offset,
-        None => return false,
-    };
-
-    for stmt in statements.iter().skip(1) {
-        let next_start = stmt_span(stmt).start.offset;
-        if has_newline_between(source, previous_end, next_start) {
+    for index in 1..statements.len() {
+        let Some(operator_span) = operators.get(index - 1) else {
+            continue;
+        };
+        let next_start = stmt_start_after_operator(
+            statements[index],
+            operator_span.end.offset,
+            source,
+            source_map,
+        );
+        if operator_starts_or_ends_line(source, *operator_span)
+            || has_newline_between(source, operator_span.end.offset, next_start)
+        {
             return true;
         }
-        previous_end = stmt_span(stmt).end.offset;
     }
 
     false
 }
 
-fn collect_pipeline<'a>(command: &'a BinaryCommand, statements: &mut Vec<&'a Stmt>) {
-    collect_pipeline_stmt(command.left.as_ref(), statements);
-    collect_pipeline_stmt(command.right.as_ref(), statements);
+fn collect_pipeline<'a>(
+    command: &'a BinaryCommand,
+    statements: &mut Vec<&'a Stmt>,
+    operators: &mut Vec<Span>,
+) {
+    collect_pipeline_stmt(command.left.as_ref(), statements, operators);
+    operators.push(command.op_span);
+    collect_pipeline_stmt(command.right.as_ref(), statements, operators);
 }
 
-fn collect_pipeline_stmt<'a>(stmt: &'a Stmt, statements: &mut Vec<&'a Stmt>) {
+fn collect_pipeline_stmt<'a>(
+    stmt: &'a Stmt,
+    statements: &mut Vec<&'a Stmt>,
+    operators: &mut Vec<Span>,
+) {
     if let Command::Binary(binary) = &stmt.command
         && stmt.redirects.is_empty()
         && !stmt.negated
         && stmt.terminator.is_none()
         && matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll)
     {
-        collect_pipeline(binary, statements);
+        collect_pipeline(binary, statements, operators);
     } else {
         statements.push(stmt);
     }
 }
 
 fn has_newline_between(source: &str, start: usize, end: usize) -> bool {
+    let lower = start.min(end).min(source.len());
+    let upper = start.max(end).min(source.len());
     source
-        .get(start.min(end)..end.min(source.len()))
+        .get(lower..upper)
         .is_some_and(|between| between.contains('\n'))
 }
 
-fn sequence_comment_lower_bound(sequence: &StmtSeq) -> usize {
+fn operator_starts_or_ends_line(source: &str, operator_span: Span) -> bool {
+    let start = operator_span.start.offset;
+    let end = operator_span.end.offset;
+    if start >= end || end > source.len() {
+        return false;
+    }
+
+    let line_start = source[..start]
+        .rfind('\n')
+        .map_or(0, |offset| offset.saturating_add(1));
+    let line_end = source[end..]
+        .find('\n')
+        .map_or(source.len(), |offset| end.saturating_add(offset));
+    let has_previous_line = line_start > 0;
+    let has_next_line = line_end < source.len();
+    let before = &source[line_start..start];
+    let after = &source[end..line_end];
+
+    (has_previous_line && line_edge_is_blank_or_continuation(before))
+        || (has_next_line && line_edge_is_blank_or_continuation(after))
+}
+
+fn line_edge_is_blank_or_continuation(text: &str) -> bool {
+    let trimmed = text.trim_matches(|ch| matches!(ch, ' ' | '\t' | '\r'));
+    trimmed.is_empty() || trimmed == "\\"
+}
+
+fn branch_open_suffix_span(
+    sequence: &StmtSeq,
+    source_map: &SourceMap<'_>,
+    keyword: &str,
+) -> Option<Span> {
+    let source = source_map.source();
+    let keyword_offset = branch_open_keyword_start(sequence, source_map, keyword)?;
+    let line_end = source[keyword_offset..]
+        .find('\n')
+        .map(|offset| keyword_offset + offset)
+        .unwrap_or(source.len());
+    let suffix_start = keyword_offset + keyword.len();
+    let suffix = source.get(suffix_start..line_end)?;
+    suffix
+        .trim_start_matches(char::is_whitespace)
+        .starts_with('#')
+        .then(|| source_map.span_for_offsets(suffix_start, line_end))
+}
+
+fn branch_open_keyword_start(
+    sequence: &StmtSeq,
+    source_map: &SourceMap<'_>,
+    keyword: &str,
+) -> Option<usize> {
+    let source = source_map.source();
+    let first = sequence.first()?;
+    let first_start = stmt_span(first).start.offset;
+    let mut search_end = first_start.min(source.len());
+    loop {
+        let offset = source[..search_end].rfind(keyword)?;
+        let end = offset + keyword.len();
+        if shell_keyword_boundaries_match(source, offset, end)
+            && !line_has_shell_comment_before(source, offset)
+        {
+            return Some(offset);
+        }
+        search_end = offset;
+    }
+}
+
+fn line_has_shell_comment_before(source: &str, offset: usize) -> bool {
+    let upper = offset.min(source.len());
+    let line_start = source[..upper]
+        .rfind('\n')
+        .map_or(0, |newline| newline.saturating_add(1));
+    let mut cursor = line_start;
+    while cursor < upper {
+        let Some(ch) = source[cursor..].chars().next() else {
+            break;
+        };
+        match ch {
+            '\'' => {
+                cursor = skip_single_quoted(source, cursor + ch.len_utf8(), upper);
+                continue;
+            }
+            '"' => {
+                cursor = skip_double_quoted(source, cursor + ch.len_utf8(), upper);
+                continue;
+            }
+            '#' if shell_comment_can_start(source, cursor) => return true,
+            _ => {}
+        }
+        cursor += ch.len_utf8();
+    }
+    false
+}
+
+fn sequence_comment_lower_bound(sequence: &StmtSeq, source_map: &SourceMap<'_>) -> usize {
     let mut lower_bound = sequence.span.start.offset;
     for comment in &sequence.leading_comments {
-        lower_bound = lower_bound.min(usize::from(comment.range.start()));
+        if source_map
+            .source_comment(*comment)
+            .is_some_and(|comment| !comment.inline())
+        {
+            lower_bound = lower_bound.min(usize::from(comment.range.start()));
+        }
     }
     for stmt in sequence.iter() {
         for comment in &stmt.leading_comments {
-            lower_bound = lower_bound.min(usize::from(comment.range.start()));
+            if source_map
+                .source_comment(*comment)
+                .is_some_and(|comment| !comment.inline())
+            {
+                lower_bound = lower_bound.min(usize::from(comment.range.start()));
+            }
         }
     }
     lower_bound
 }
 
-fn case_item_body_upper_bound(item: &CaseItem, fallback: Option<usize>) -> Option<usize> {
-    item.terminator_span
-        .map(|span| span.start.offset)
-        .or(fallback)
+fn case_item_body_upper_bound(item: &CaseItem, fallback: usize) -> Option<usize> {
+    Some(
+        item.terminator_span
+            .map(|span| span.start.offset)
+            .unwrap_or(fallback),
+    )
+}
+
+fn case_body_fallback_upper_bound(command: &CaseCommand, source_map: &SourceMap<'_>) -> usize {
+    last_shell_keyword_start(source_map, command.span, "esac").unwrap_or(command.span.end.offset)
+}
+
+fn done_body_upper_bound(source_map: &SourceMap<'_>, span: Span) -> usize {
+    done_close_span(source_map, span, None).map_or(span.end.offset, |close| close.start.offset)
+}
+
+fn done_close_span(source_map: &SourceMap<'_>, span: Span, fallback: Option<Span>) -> Option<Span> {
+    let source = source_map.source();
+    matching_done_close_start(source, span)
+        .map(|start| source_map.span_for_offsets(start, start + "done".len()))
+        .or_else(|| fallback.map(|span| normalized_close_keyword_span(source_map, span, "done")))
+}
+
+fn for_body_upper_bound(command: &ForCommand, source_map: &SourceMap<'_>) -> usize {
+    match command.syntax {
+        shuck_ast::ForSyntax::InDoDone { done_span, .. }
+        | shuck_ast::ForSyntax::ParenDoDone { done_span, .. } => {
+            done_close_span(source_map, command.span, Some(done_span))
+                .map_or(done_span.start.offset, |span| span.start.offset)
+        }
+        shuck_ast::ForSyntax::InBrace {
+            right_brace_span, ..
+        }
+        | shuck_ast::ForSyntax::ParenBrace {
+            right_brace_span, ..
+        } => right_brace_span.start.offset,
+        shuck_ast::ForSyntax::InDirect { .. } | shuck_ast::ForSyntax::ParenDirect { .. } => {
+            command.span.end.offset
+        }
+    }
+}
+
+fn foreach_body_upper_bound(command: &ForeachCommand, source_map: &SourceMap<'_>) -> usize {
+    match command.syntax {
+        shuck_ast::ForeachSyntax::InDoDone { done_span, .. } => {
+            done_close_span(source_map, command.span, Some(done_span))
+                .map_or(done_span.start.offset, |span| span.start.offset)
+        }
+        shuck_ast::ForeachSyntax::ParenBrace {
+            right_brace_span, ..
+        } => right_brace_span.start.offset,
+    }
+}
+
+fn repeat_body_upper_bound(command: &RepeatCommand, source_map: &SourceMap<'_>) -> usize {
+    match command.syntax {
+        shuck_ast::RepeatSyntax::DoDone { done_span, .. } => {
+            done_close_span(source_map, command.span, Some(done_span))
+                .map_or(done_span.start.offset, |span| span.start.offset)
+        }
+        shuck_ast::RepeatSyntax::Brace {
+            right_brace_span, ..
+        } => right_brace_span.start.offset,
+        shuck_ast::RepeatSyntax::Direct => command.span.end.offset,
+    }
+}
+
+fn if_close_span(command: &IfCommand, source_map: &SourceMap<'_>) -> Span {
+    let source = source_map.source();
+    let (syntax_close, keyword) = match command.syntax {
+        shuck_ast::IfSyntax::ThenFi { fi_span, .. } => (fi_span, "fi"),
+        shuck_ast::IfSyntax::Brace {
+            right_brace_span, ..
+        } => (right_brace_span, "}"),
+    };
+    let syntax_close = normalized_close_keyword_span(source_map, syntax_close, keyword);
+    matching_if_close_start(source, command.span)
+        .map(|start| source_map.span_for_offsets(start, start + keyword.len()))
+        .unwrap_or(syntax_close)
+}
+
+fn if_close_start(command: &IfCommand, source_map: &SourceMap<'_>) -> usize {
+    if_close_span(command, source_map).start.offset
+}
+
+fn normalized_close_keyword_span(source_map: &SourceMap<'_>, span: Span, keyword: &str) -> Span {
+    let source = source_map.source();
+    let start = span.start.offset.min(source.len());
+    let end = start.saturating_add(keyword.len()).min(source.len());
+    if source.get(start..end) == Some(keyword) {
+        source_map.span_for_offsets(start, end)
+    } else {
+        span
+    }
+}
+
+fn matching_if_close_start(source: &str, span: Span) -> Option<usize> {
+    let upper = span.end.offset.min(source.len());
+    let mut offset = span.start.offset.min(upper);
+    let mut depth = 0usize;
+    while offset < upper {
+        let ch = source[offset..].chars().next()?;
+        match ch {
+            '\'' => {
+                offset = skip_single_quoted(source, offset + ch.len_utf8(), upper);
+                continue;
+            }
+            '"' => {
+                offset = skip_double_quoted(source, offset + ch.len_utf8(), upper);
+                continue;
+            }
+            '#' if shell_comment_can_start(source, offset) => {
+                offset = source[offset..]
+                    .find('\n')
+                    .map_or(upper, |newline| offset + newline + 1);
+                continue;
+            }
+            _ => {}
+        }
+
+        if shell_keyword_at(source, offset, upper, "if") {
+            depth = depth.saturating_add(1);
+            offset += "if".len();
+            continue;
+        }
+        if shell_keyword_at(source, offset, upper, "fi") {
+            if depth > 0 {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(offset);
+                }
+            }
+            offset += "fi".len();
+            continue;
+        }
+        offset += ch.len_utf8();
+    }
+    None
+}
+
+fn matching_done_close_start(source: &str, span: Span) -> Option<usize> {
+    let upper = span.end.offset.min(source.len());
+    let mut offset = span.start.offset.min(upper);
+    let mut depth = 0usize;
+    while offset < upper {
+        let ch = source[offset..].chars().next()?;
+        match ch {
+            '\'' => {
+                offset = skip_single_quoted(source, offset + ch.len_utf8(), upper);
+                continue;
+            }
+            '"' => {
+                offset = skip_double_quoted(source, offset + ch.len_utf8(), upper);
+                continue;
+            }
+            '#' if shell_comment_can_start(source, offset) => {
+                offset = source[offset..]
+                    .find('\n')
+                    .map_or(upper, |newline| offset + newline + 1);
+                continue;
+            }
+            _ => {}
+        }
+
+        if loop_open_keyword_at(source, offset, upper) {
+            depth = depth.saturating_add(1);
+            offset += source[offset..]
+                .chars()
+                .take_while(|ch| ch.is_ascii_alphabetic())
+                .map(char::len_utf8)
+                .sum::<usize>();
+            continue;
+        }
+        if shell_keyword_at(source, offset, upper, "done") {
+            if depth > 0 {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(offset);
+                }
+            }
+            offset += "done".len();
+            continue;
+        }
+        offset += ch.len_utf8();
+    }
+    None
+}
+
+fn loop_open_keyword_at(source: &str, offset: usize, upper: usize) -> bool {
+    ["for", "select", "while", "until", "foreach", "repeat"]
+        .iter()
+        .any(|keyword| shell_keyword_at(source, offset, upper, keyword))
+}
+
+fn shell_keyword_at(source: &str, offset: usize, upper: usize, keyword: &str) -> bool {
+    let end = offset.saturating_add(keyword.len());
+    end <= upper
+        && source.get(offset..end) == Some(keyword)
+        && shell_keyword_boundaries_match(source, offset, end)
+}
+
+fn shell_comment_can_start(source: &str, offset: usize) -> bool {
+    source[..offset]
+        .chars()
+        .next_back()
+        .is_none_or(|ch| ch == '\n' || ch.is_whitespace() || matches!(ch, ';' | '&' | '|'))
+}
+
+fn skip_single_quoted(source: &str, mut offset: usize, upper: usize) -> usize {
+    while offset < upper {
+        let Some(ch) = source[offset..].chars().next() else {
+            break;
+        };
+        offset += ch.len_utf8();
+        if ch == '\'' {
+            break;
+        }
+    }
+    offset
+}
+
+fn skip_double_quoted(source: &str, mut offset: usize, upper: usize) -> usize {
+    while offset < upper {
+        let Some(ch) = source[offset..].chars().next() else {
+            break;
+        };
+        offset += ch.len_utf8();
+        if ch == '\\' {
+            if let Some(escaped) = source[offset..].chars().next() {
+                offset += escaped.len_utf8();
+            }
+        } else if ch == '"' {
+            break;
+        }
+    }
+    offset
+}
+
+fn last_shell_keyword_start(
+    source_map: &SourceMap<'_>,
+    span: Span,
+    keyword: &str,
+) -> Option<usize> {
+    let source = source_map.source();
+    let upper = span.end.offset.min(source.len());
+    let lower = span.start.offset.min(upper);
+    let slice = source.get(lower..upper)?;
+    slice
+        .match_indices(keyword)
+        .filter_map(|(start, _)| {
+            let end = start + keyword.len();
+            shell_keyword_boundaries_match(slice, start, end).then_some(lower + start)
+        })
+        .last()
+}
+
+fn shell_keyword_boundaries_match(text: &str, start: usize, end: usize) -> bool {
+    let before = text[..start].chars().next_back();
+    let after = text[end..].chars().next();
+    before.is_none_or(|ch| !is_shell_keyword_char(ch))
+        && after.is_none_or(|ch| !is_shell_keyword_char(ch))
+}
+
+fn is_shell_keyword_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
 }
 
 fn span_contains_comment(span: Span, comment: SourceComment<'_>) -> bool {
     span.start.offset <= comment.span().start.offset && comment.span().end.offset <= span.end.offset
 }
 
-fn if_branch_upper_bound(command: &IfCommand, branch_index: usize, source: &str) -> usize {
+fn if_branch_upper_bound(
+    command: &IfCommand,
+    branch_index: usize,
+    source: &str,
+    source_map: &SourceMap<'_>,
+) -> usize {
+    if let Some((start, end)) = if_next_branch_region(command, branch_index, source) {
+        branch_prefix_first_comment_offset(source, start, end).unwrap_or(end)
+    } else {
+        if_close_start(command, source_map)
+    }
+}
+
+fn if_next_branch_region(
+    command: &IfCommand,
+    branch_index: usize,
+    source: &str,
+) -> Option<(usize, usize)> {
     let current_branch_end = if branch_index == 0 {
-        stmt_seq_content_end(&command.then_branch, source)
+        branch_body_content_end(&command.then_branch)
     } else {
         command
             .elif_branches
             .get(branch_index - 1)
-            .map(|(_, body)| stmt_seq_content_end(body, source))
-            .unwrap_or_else(|| stmt_seq_content_end(&command.then_branch, source))
+            .map(|(_, body)| branch_body_content_end(body))
+            .unwrap_or_else(|| branch_body_content_end(&command.then_branch))
     };
 
     if let Some((condition, _)) = command.elif_branches.get(branch_index) {
-        let keyword_offset = branch_keyword_offset(
+        let keyword = branch_keyword_offset(
             source,
             current_branch_end,
             condition.span.start.offset,
             "elif",
         )
         .unwrap_or(condition.span.start.offset);
-        branch_leading_comment_start(source, current_branch_end, keyword_offset)
-            .unwrap_or(keyword_offset)
-    } else if let Some(body) = &command.else_branch {
-        let keyword_offset =
-            branch_keyword_offset(source, current_branch_end, body.span.start.offset, "else")
-                .unwrap_or(body.span.start.offset);
-        branch_leading_comment_start(source, current_branch_end, keyword_offset)
-            .unwrap_or(keyword_offset)
+        Some((current_branch_end, keyword))
+    } else if branch_index == command.elif_branches.len() {
+        command.else_branch.as_ref().map(|body| {
+            let keyword =
+                branch_keyword_offset(source, current_branch_end, body.span.start.offset, "else")
+                    .unwrap_or(body.span.start.offset);
+            (current_branch_end, keyword)
+        })
     } else {
-        command.span.end.offset
+        None
     }
 }
 
-fn stmt_seq_content_end(commands: &StmtSeq, source: &str) -> usize {
-    commands
-        .last()
-        .map(|stmt| stmt_verbatim_span(stmt, source).end.offset)
-        .unwrap_or(commands.span.end.offset)
-}
-
-fn branch_leading_comment_start(source: &str, start: usize, end: usize) -> Option<usize> {
-    let start = start.min(end).min(source.len());
-    let end = end.min(source.len());
-    let mut offset = start;
-    let mut first_comment = None;
-    while offset < end {
-        let relative_end = source[offset..end]
-            .find('\n')
-            .map_or(end - offset, |index| index);
-        let line_end = offset + relative_end;
-        let line = &source[offset..line_end];
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed == "\\" {
-            offset = (line_end + 1).min(end);
-            continue;
-        }
-        if trimmed.starts_with('#') {
-            first_comment.get_or_insert(offset);
-            offset = (line_end + 1).min(end);
-            continue;
-        }
-        return None;
-    }
-    first_comment
+fn branch_body_content_end(body: &StmtSeq) -> usize {
+    body.last()
+        .map(|stmt| stmt_span(stmt).end.offset)
+        .unwrap_or(body.span.end.offset)
 }
 
 fn branch_keyword_offset(source: &str, start: usize, end: usize, keyword: &str) -> Option<usize> {
     let start = start.min(end).min(source.len());
     let end = end.min(source.len());
-    source[start..end]
-        .rfind(keyword)
-        .map(|offset| start + offset)
+    let mut line_start = start;
+    while line_start < end {
+        let line_end = source[line_start..end]
+            .find('\n')
+            .map_or(end, |offset| line_start + offset);
+        let line = source.get(line_start..line_end)?;
+        let mut search_start = 0;
+        while let Some(relative) = line[search_start..].find(keyword) {
+            let keyword_start = search_start + relative;
+            let keyword_end = keyword_start + keyword.len();
+            if branch_keyword_candidate_matches(line, keyword_start, keyword_end) {
+                return Some(line_start + keyword_start);
+            }
+            search_start = keyword_end;
+        }
+        line_start = line_end.saturating_add(1);
+    }
+    None
+}
+
+fn branch_keyword_candidate_matches(line: &str, start: usize, end: usize) -> bool {
+    if !shell_keyword_boundaries_match(line, start, end) {
+        return false;
+    }
+
+    let prefix = &line[..start];
+    let trimmed = prefix.trim_start_matches([' ', '\t']);
+    if trimmed.starts_with('#') {
+        return false;
+    }
+
+    let before = prefix.trim_end_matches([' ', '\t']);
+    before.is_empty() || before.ends_with(';') || before.ends_with('&')
+}
+
+fn branch_prefix_first_comment_offset(source: &str, start: usize, end: usize) -> Option<usize> {
+    let start = start.min(end).min(source.len());
+    let end = end.min(source.len());
+    let slice = source.get(start..end)?;
+    let keyword_indent = line_indent_before_offset(source, end)?;
+
+    let mut offset = start;
+    for line in slice.split_inclusive('\n') {
+        let text = line.trim_end_matches(['\n', '\r']);
+        let trimmed = text.trim_start_matches([' ', '\t']);
+        let indent = text.len().saturating_sub(trimmed.len());
+        if trimmed.starts_with('#') && text.get(..indent) == Some(keyword_indent) {
+            return Some(offset + indent);
+        }
+        offset += line.len();
+    }
+    None
+}
+
+fn line_indent_before_offset(source: &str, offset: usize) -> Option<&str> {
+    let offset = offset.min(source.len());
+    let bytes = source.as_bytes();
+    let mut line_start = offset;
+    while line_start > 0 && bytes.get(line_start - 1) != Some(&b'\n') {
+        line_start -= 1;
+    }
+    let line = source.get(line_start..offset)?;
+    let indent_end = line
+        .char_indices()
+        .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
+        .map_or(line.len(), |(index, _)| index);
+    line.get(..indent_end)
 }
 
 #[cfg(test)]
@@ -1202,6 +1852,7 @@ mod tests {
                 },
                 1,
                 source,
+                facts.source_map(),
             )),
         );
         assert_eq!(elif_facts.leading_for(0).len(), 1);
@@ -1237,33 +1888,7 @@ mod tests {
     }
 
     #[test]
-    fn captures_group_body_comment_after_open_suffix_comment() {
-        let source = "{ # open\n\n# inner\nx=1\n}\n";
-        let file = parse(source);
-        let options = ShellFormatOptions::default();
-        let resolved = options.resolve(source, Some(Path::new("test.sh")));
-        let facts = FormatterFacts::build(source, &file, &resolved);
-
-        let body = match &file.body[0].command {
-            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
-            _ => panic!("expected brace group"),
-        };
-        let sequence = facts.sequence(body, Some(file.body[0].span.end.offset));
-        assert_eq!(facts.stmt(&body[0]).attachment_span().slice(source), "x=1");
-
-        assert!(sequence.group_open_suffix_span().is_some());
-        assert_eq!(
-            sequence
-                .leading_for(0)
-                .iter()
-                .map(SourceComment::text)
-                .collect::<Vec<_>>(),
-            ["# inner"]
-        );
-    }
-
-    #[test]
-    fn skips_header_suffix_comments_before_first_body_statement() {
+    fn captures_then_branch_open_suffix_comments() {
         let source = "if foo; then # note\n  bar\nfi\n";
         let file = parse(source);
         let options = ShellFormatOptions::default();
@@ -1283,10 +1908,12 @@ mod tests {
                 },
                 0,
                 source,
+                facts.source_map(),
             )),
         );
+        assert!(sequence.group_open_suffix_span().is_some());
         assert!(!sequence.is_ambiguous());
-        assert!(!sequence.has_comments());
+        assert!(sequence.leading_for(0).is_empty());
     }
 
     #[test]
@@ -1377,6 +2004,30 @@ mod tests {
                 .expect("expected brace group attachment span");
 
         assert_eq!(attachment_span.slice(source), "{\n  echo ${value}\n}");
+    }
+
+    #[test]
+    fn function_body_comments_with_parameter_syntax_attach_to_first_stmt() {
+        let source = "function f() {\n  # parse all defined shortcuts ${BASH_IT_DIRS_BKS}\n  if [[ -s x ]]; then\n    echo ok\n  fi\n}\n";
+        let file = parse(source);
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+        let resolved = options.resolve(source, Some(Path::new("test.bash")));
+        let facts = FormatterFacts::build(source, &file, &resolved);
+
+        let Command::Function(function) = &file.body[0].command else {
+            panic!("expected function");
+        };
+        let Command::Compound(CompoundCommand::BraceGroup(body)) = &function.body.command else {
+            panic!("expected brace group body");
+        };
+        let sequence = facts.sequence(body, Some(function.span.end.offset));
+        let leading = sequence.leading_for(0);
+
+        assert_eq!(leading.len(), 1);
+        assert_eq!(
+            leading[0].text(),
+            "# parse all defined shortcuts ${BASH_IT_DIRS_BKS}"
+        );
     }
 
     #[test]
