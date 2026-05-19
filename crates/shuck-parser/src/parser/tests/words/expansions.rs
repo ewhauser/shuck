@@ -320,6 +320,39 @@ fn test_parse_command_substitution_with_piped_tr_after_quoted_variable_keeps_nes
 }
 
 #[test]
+fn test_command_substitution_rebases_for_target_word() {
+    let input = r#"echo "$(for i in 1; do echo "$i"; done)""#;
+    let script = Parser::new(input).parse().unwrap().file;
+    let command = expect_simple(&script.body[0]);
+    let word = &command.args[0];
+
+    let [
+        WordPartNode {
+            kind: WordPart::DoubleQuoted { parts, .. },
+            ..
+        },
+    ] = word.parts.as_slice()
+    else {
+        panic!("expected double-quoted argument");
+    };
+    let body = parts
+        .iter()
+        .find_map(|part| match &part.kind {
+            WordPart::CommandSubstitution { body, .. } => Some(body),
+            _ => None,
+        })
+        .expect("expected command substitution");
+    let (compound, _) = expect_compound(&body[0]);
+    let AstCompoundCommand::For(command) = compound else {
+        panic!("expected for loop in command substitution");
+    };
+
+    assert_eq!(command.targets[0].name.as_deref(), Some("i"));
+    assert_eq!(command.targets[0].word.render_syntax(input), "i");
+    assert_eq!(command.targets[0].span.slice(input), "i");
+}
+
+#[test]
 fn test_parse_positional_parameters() {
     let parser = Parser::new("echo $@ $*");
     let script = parser.parse().unwrap().file;
