@@ -500,25 +500,41 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         } else {
             self.line_indent_column
         };
+        let mut active_heredoc: Option<RenderedHeredocTail> = None;
         let mut remaining = text;
         while !remaining.is_empty() {
-            if self.line_start && !remaining.starts_with('\n') {
-                self.write_indent_to_column(base_indent_column);
+            let (line, next, had_newline) = match remaining.find('\n') {
+                Some(index) => (&remaining[..index], &remaining[index + 1..], true),
+                None => (remaining, "", false),
+            };
+
+            if let Some(heredoc) = active_heredoc.as_ref() {
+                if heredoc.strip_tabs {
+                    if self.line_start && !line.is_empty() {
+                        self.write_indent_to_column(base_indent_column);
+                    }
+                    self.push_output_str(line);
+                    self.line_start = false;
+                } else {
+                    self.write_verbatim(heredoc.body_line(line));
+                }
+                if heredoc.closes(line) {
+                    active_heredoc = None;
+                }
+            } else {
+                if self.line_start && !line.is_empty() {
+                    self.write_indent_to_column(base_indent_column);
+                }
+                self.push_output_str(line);
+                self.line_start = false;
+                active_heredoc = rendered_heredoc_tail_start(line);
             }
 
-            match remaining.find('\n') {
-                Some(index) => {
-                    let end = index + 1;
-                    self.push_output_str(&remaining[..end]);
-                    self.line_start = true;
-                    remaining = &remaining[end..];
-                }
-                None => {
-                    self.push_output_str(remaining);
-                    self.line_start = false;
-                    break;
-                }
+            if had_newline {
+                self.push_output_str(self.line_ending());
+                self.line_start = true;
             }
+            remaining = next;
         }
     }
 
@@ -697,7 +713,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             };
 
             if let Some(heredoc) = active_heredoc.as_ref() {
-                self.write_verbatim(line);
+                self.write_verbatim(heredoc.body_line(line));
                 if heredoc.closes(line) {
                     active_heredoc = None;
                 }
@@ -712,6 +728,56 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 active_heredoc = Some(heredoc);
             } else {
                 self.write_text(line);
+            }
+
+            if had_newline {
+                self.push_output_str(self.line_ending());
+                self.line_start = true;
+            }
+            rest = next;
+        }
+    }
+
+    fn write_assignment_shell_text_preserving_heredoc_tails(&mut self, text: &str) {
+        let base_indent_column = if self.line_start {
+            self.indent_column_for_level(self.indent_level)
+        } else if self.line_indent_column > 0 {
+            self.line_indent_column
+        } else {
+            self.column
+        };
+        if self.line_start {
+            self.write_indent_to_column(base_indent_column);
+        }
+
+        let mut active_heredoc: Option<RenderedHeredocTail> = None;
+        let mut rest = text;
+
+        while !rest.is_empty() {
+            let (line, next, had_newline) = match rest.find('\n') {
+                Some(index) => (&rest[..index], &rest[index + 1..], true),
+                None => (rest, "", false),
+            };
+
+            if let Some(heredoc) = active_heredoc.as_ref() {
+                self.write_verbatim(heredoc.body_line(line));
+                if heredoc.closes(line) {
+                    active_heredoc = None;
+                }
+            } else {
+                if let Some(heredoc) = rendered_heredoc_tail_start(line) {
+                    if self.options().space_redirects() {
+                        self.write_verbatim(line);
+                    } else if let Some(normalized) = normalize_rendered_heredoc_start_spacing(line)
+                    {
+                        self.write_verbatim(&normalized);
+                    } else {
+                        self.write_verbatim(line);
+                    }
+                    active_heredoc = Some(heredoc);
+                } else {
+                    self.write_verbatim(line);
+                }
             }
 
             if had_newline {
@@ -885,8 +951,16 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 &mut scratch,
             );
         }
-        if word_contains_command_heredoc(word) && rendered_shell_text_has_heredoc_tail(&scratch) {
-            self.write_rendered_shell_text_preserving_heredoc_tails(&scratch);
+        if rendered_shell_text_has_heredoc_tail(&scratch)
+            && (word_contains_command_heredoc(word)
+                || word_source_has_shell_substitution(word, self.source())
+                || rendered_text_has_shell_substitution(&scratch))
+        {
+            if rendered_text_starts_with_block_command_substitution(&scratch) {
+                self.write_rendered_shell_text_preserving_heredoc_tails(&scratch);
+            } else {
+                self.write_assignment_shell_text_preserving_heredoc_tails(&scratch);
+            }
         } else if scratch.contains('\n')
             && word_is_quoted_formattable_command_substitution_only(word, self.source())
         {
@@ -950,10 +1024,16 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 &mut scratch,
             );
         }
-        if assignment_contains_command_heredoc(assignment)
-            && rendered_shell_text_has_heredoc_tail(&scratch)
+        if rendered_shell_text_has_heredoc_tail(&scratch)
+            && (assignment_contains_command_heredoc(assignment)
+                || assignment_source_has_command_substitution(assignment, self.source())
+                || rendered_text_has_shell_substitution(&scratch))
         {
-            self.write_rendered_shell_text_preserving_heredoc_tails(&scratch);
+            if rendered_text_starts_with_block_command_substitution(&scratch) {
+                self.write_rendered_shell_text_preserving_heredoc_tails(&scratch);
+            } else {
+                self.write_assignment_shell_text_preserving_heredoc_tails(&scratch);
+            }
         } else if scratch.contains('\n')
             && assignment_value_is_quoted_formattable_command_substitution_only(
                 assignment,
@@ -1008,8 +1088,24 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             previous_end
         } else {
             self.write_command_gap(previous_end, name_span.start.offset);
-            self.write_text(rendered_name);
+            self.write_rendered_name_text(rendered_name);
             Some(name_span.end.offset)
+        }
+    }
+
+    fn write_rendered_name_text(&mut self, rendered_name: &str) {
+        if rendered_shell_text_has_heredoc_tail(rendered_name)
+            && rendered_text_has_shell_substitution(rendered_name)
+        {
+            if rendered_text_starts_with_block_command_substitution(rendered_name) {
+                self.write_rendered_shell_text_preserving_heredoc_tails(rendered_name);
+            } else if rendered_text_starts_like_assignment_with_substitution(rendered_name) {
+                self.write_assignment_shell_text_preserving_heredoc_tails(rendered_name);
+            } else {
+                self.write_rendered_shell_text_preserving_heredoc_tails(rendered_name);
+            }
+        } else {
+            self.write_text(rendered_name);
         }
     }
 
@@ -1508,7 +1604,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             let end_offset = part.end_offset(command);
             match part {
                 SimpleCommandPart::Assignment(assignment) => self.write_assignment(assignment),
-                SimpleCommandPart::Name => self.write_text(&rendered_name),
+                SimpleCommandPart::Name => self.write_rendered_name_text(&rendered_name),
                 SimpleCommandPart::Argument(argument) => self.write_word(argument),
                 SimpleCommandPart::Redirect(redirect) => {
                     if let Some(SimpleCommandPart::Redirect(next)) =
@@ -5331,10 +5427,24 @@ fn word_part_contains_command_heredoc(part: &WordPart) -> bool {
 struct RenderedHeredocTail {
     delimiter: String,
     strip_tabs: bool,
+    command_indent: String,
 }
 
 impl RenderedHeredocTail {
+    fn body_line<'a>(&self, line: &'a str) -> &'a str {
+        if self.strip_tabs {
+            line
+        } else if let Some(stripped) = line.strip_prefix(&self.command_indent)
+            && stripped == self.delimiter
+        {
+            stripped
+        } else {
+            line
+        }
+    }
+
     fn closes(&self, line: &str) -> bool {
+        let line = self.body_line(line);
         if self.strip_tabs {
             line.trim_start_matches('\t') == self.delimiter
         } else {
@@ -5368,6 +5478,7 @@ fn rendered_heredoc_tail_start(line: &str) -> Option<RenderedHeredocTail> {
     (!delimiter.is_empty()).then_some(RenderedHeredocTail {
         delimiter,
         strip_tabs,
+        command_indent: line_leading_indent(line).to_string(),
     })
 }
 
@@ -8645,6 +8756,31 @@ fn word_contains_process_substitution(word: &Word) -> bool {
     word.parts
         .iter()
         .any(|part| word_part_contains_process_substitution(&part.kind))
+}
+
+fn word_source_has_shell_substitution(word: &Word, source: &str) -> bool {
+    let raw = word.span.slice(source);
+    rendered_text_has_shell_substitution(raw)
+}
+
+fn rendered_text_has_shell_substitution(text: &str) -> bool {
+    text.contains("$(") || text.contains('`') || text.contains("<(") || text.contains(">(")
+}
+
+fn rendered_text_starts_with_block_command_substitution(text: &str) -> bool {
+    text.lines()
+        .next()
+        .is_some_and(|line| line.trim_end_matches([' ', '\t', '\r']).ends_with("$("))
+}
+
+fn rendered_text_starts_like_assignment_with_substitution(text: &str) -> bool {
+    let first_line = text.lines().next().unwrap_or(text);
+    let substitution_start = ["$(", "`", "<(", ">("]
+        .iter()
+        .filter_map(|marker| first_line.find(marker))
+        .min()
+        .unwrap_or(first_line.len());
+    first_line[..substitution_start].contains('=')
 }
 
 fn word_part_contains_command_substitution(part: &WordPart) -> bool {

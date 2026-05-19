@@ -2503,6 +2503,34 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn command_position_command_substitution_heredoc_keeps_literal_tail_unindented() {
+        let source = "(\n$(\ncat << HERE\nHERE\n)\n)\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted("(\n\t$(\n\t\tcat <<HERE\nHERE\n\t)\n)\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn process_substitution_heredoc_in_assignment_keeps_literal_tail_unindented() {
+        let source =
+            "if ok; then\n  result=$(OPENSSL_CONF=<(cat <<EOF\nbody\nEOF\n) curl url)\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if ok; then\n\tresult=$(OPENSSL_CONF=<(\n\t\tcat <<EOF\nbody\nEOF\n\t) curl url)\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn raw_block_command_substitution_indents_backslash_continuations_before_comment() {
         let source = "if ok; then\n    output=\"$(\n        NO_TOKEN_AUTH=1 \\\n        USERNAME=\"$SPOTIFY_ID\" \\\n        PASSWORD=\"$SPOTIFY_SECRET\" \\\n        -d code=\"$code\" \\\n        #-d code_verifier=\"$code_verifier\"\n    )\"\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
