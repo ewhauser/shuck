@@ -3948,6 +3948,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn indents_space_disabled_case_pattern_comments_between_arms() {
+        let source = "if [ -z \"$ARCH\" ]; then\n  case \"$( uname -m )\" in\n    i?86) ARCH=i586 ;;\n#    arm*) ARCH=arm ;;\n    *)    ARCH=$( uname -m ) ;;\n  esac\nfi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\ti?86) ARCH=i586 ;;\n\t\t#    arm*) ARCH=arm ;;\n\t*) ARCH=$(uname -m) ;;\n\tesac\nfi\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn indents_aligned_disabled_case_arm_comments_before_next_pattern() {
         let source = "case \"$ext\" in\n          #.envrc)  cd \"$dirname\" && direnv allow .\n           .envrc)  shellcheck \"$basename\"\n                    ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);

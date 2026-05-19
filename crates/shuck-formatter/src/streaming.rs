@@ -3852,20 +3852,26 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         first_pattern: &Pattern,
         base_indent: usize,
     ) {
+        let mut body_indent_context = false;
+        let mut disabled_case_pattern_context = false;
         for (index, comment) in comments.iter().enumerate() {
-            let disabled_case_pattern_context = comments[..index]
-                .iter()
-                .any(comment_looks_like_disabled_case_pattern);
-            let extra_indent = base_indent
-                + usize::from(case_prefix_comment_uses_body_indent(
-                    self.source(),
-                    comment,
-                    first_pattern.span.start.offset,
-                    disabled_case_pattern_context,
-                ));
+            let uses_body_indent = case_prefix_comment_uses_body_indent(
+                self.source(),
+                comment,
+                first_pattern.span.start.offset,
+                disabled_case_pattern_context,
+                body_indent_context,
+            );
+            let extra_indent = base_indent + usize::from(uses_body_indent);
             self.with_extra_prefix_indent(extra_indent, |formatter| {
                 formatter.write_comment(comment);
             });
+            if uses_body_indent {
+                body_indent_context = true;
+            }
+            if comment_looks_like_disabled_case_pattern(comment) {
+                disabled_case_pattern_context = true;
+            }
             let target_line = comments
                 .get(index + 1)
                 .map(SourceComment::line)
@@ -8194,6 +8200,7 @@ fn case_prefix_comment_uses_body_indent(
     comment: &SourceComment<'_>,
     pattern_start: usize,
     disabled_case_pattern_context: bool,
+    body_indent_context: bool,
 ) -> bool {
     let Some(comment_indent) = line_indent_before_offset(source, comment.span().start.offset)
     else {
@@ -8205,6 +8212,13 @@ fn case_prefix_comment_uses_body_indent(
     let comment_width = shell_indent_width(comment_indent);
     let pattern_width = shell_indent_width(pattern_indent);
     if comment_looks_like_disabled_case_pattern(comment) || disabled_case_pattern_context {
+        if body_indent_context {
+            return true;
+        }
+        if comment_width != pattern_width && case_prefix_comment_follows_terminator(source, comment)
+        {
+            return true;
+        }
         return comment_text_after_hash_starts_with_tab(comment) && comment_width < pattern_width;
     }
     if comment_width < pattern_width && case_prefix_comment_follows_terminator(source, comment) {
