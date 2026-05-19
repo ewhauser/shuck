@@ -137,9 +137,14 @@ fn test_runtime_constructed_conditional_open_keeps_close_as_argument() {
 
 #[test]
 fn test_simple_command_treats_conditional_open_as_name_after_prefixes() {
-    let cases = [("VAR=1 [[ 1 ]]", 1, 0), (">out [[ 1 ]]", 0, 1)];
+    let cases = [
+        ("VAR=1 [[ 1 ]]", "[[", vec!["1", "]]"], 1, 0),
+        (">out [[ 1 ]]", "[[", vec!["1", "]]"], 0, 1),
+        ("VAR=1 ]]", "]]", Vec::new(), 1, 0),
+        (">out ]]", "]]", Vec::new(), 0, 1),
+    ];
 
-    for (input, expected_assignments, expected_redirects) in cases {
+    for (input, expected_name, expected_args, expected_assignments, expected_redirects) in cases {
         let parsed = Parser::new(input).parse().unwrap();
 
         assert_eq!(parsed.status, ParseStatus::Clean, "{input}");
@@ -151,14 +156,14 @@ fn test_simple_command_treats_conditional_open_as_name_after_prefixes() {
 
         assert_eq!(command.assignments.len(), expected_assignments, "{input}");
         assert_eq!(stmt.redirects.len(), expected_redirects, "{input}");
-        assert_eq!(command.name.render(input), "[[", "{input}");
+        assert_eq!(command.name.render(input), expected_name, "{input}");
         assert_eq!(
             command
                 .args
                 .iter()
                 .map(|arg| arg.render(input))
                 .collect::<Vec<_>>(),
-            vec!["1", "]]"],
+            expected_args,
             "{input}"
         );
     }

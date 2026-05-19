@@ -159,7 +159,7 @@ impl<'a> Parser<'a> {
                     self.advance();
                     words.push(word);
                 }
-                Some(TokenKind::DoubleRightBracket) if !words.is_empty() => {
+                Some(TokenKind::DoubleRightBracket) if has_simple_command_prefix => {
                     let span = self.current_span;
                     let word = self.word_from_raw_text(span.slice(self.input), span);
                     self.advance();
