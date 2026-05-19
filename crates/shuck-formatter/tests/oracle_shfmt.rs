@@ -14,6 +14,7 @@ use similar::TextDiff;
 const MAX_ORACLE_DIFF_LINES: usize = 200;
 const MAX_LARGE_CORPUS_FAILURES: usize = 25;
 const SHFMT_LARGE_CORPUS_TIMEOUT: Duration = Duration::from_secs(10);
+const LARGE_CORPUS_MAX_DURATION: Duration = Duration::from_secs(60);
 const LARGE_CORPUS_PROGRESS_INTERVAL: usize = 1_000;
 const LARGE_CORPUS_SLOW_FIXTURE: Duration = Duration::from_secs(3);
 const LARGE_CORPUS_ENV: &str = "SHUCK_TEST_LARGE_CORPUS";
@@ -148,6 +149,7 @@ fn large_corpus_matches_shfmt() {
         return;
     };
 
+    let large_corpus_started = Instant::now();
     probe_shfmt().expect("shfmt not found on PATH; run under `nix develop`");
 
     let all_fixtures = collect_large_corpus_fixtures(&cfg.corpus_dir);
@@ -214,8 +216,9 @@ fn large_corpus_matches_shfmt() {
         }
     }
 
+    let elapsed = large_corpus_started.elapsed();
     eprintln!(
-        "large corpus shfmt oracle summary: fixtures={} compared={} matched={} mismatches={} shuck_errors={} shfmt_skips={} unsupported_dialects={} non_utf8={}",
+        "large corpus shfmt oracle summary: fixtures={} compared={} matched={} mismatches={} shuck_errors={} shfmt_skips={} unsupported_dialects={} non_utf8={} elapsed={:.2}s max_elapsed={}s",
         fixtures.len(),
         compared,
         matched,
@@ -224,13 +227,28 @@ fn large_corpus_matches_shfmt() {
         shfmt_skips,
         unsupported_dialects,
         non_utf8,
+        elapsed.as_secs_f64(),
+        LARGE_CORPUS_MAX_DURATION.as_secs(),
     );
 
+    let timing_failure = if elapsed > LARGE_CORPUS_MAX_DURATION {
+        format!(
+            "large corpus shfmt oracle exceeded {}s limit (took {:.2}s)\n\n",
+            LARGE_CORPUS_MAX_DURATION.as_secs(),
+            elapsed.as_secs_f64(),
+        )
+    } else {
+        String::new()
+    };
+
     assert!(
-        shuck_errors.is_empty() && mismatches.is_empty(),
-        "large corpus shfmt oracle found {} shuck error(s) and {} mismatch(es):\n\n{}{}",
+        elapsed <= LARGE_CORPUS_MAX_DURATION && shuck_errors.is_empty() && mismatches.is_empty(),
+        "large corpus shfmt oracle found {} shuck error(s) and {} mismatch(es) in {:.2}s (limit {}s):\n\n{}{}{}",
         shuck_errors.len(),
         mismatches.len(),
+        elapsed.as_secs_f64(),
+        LARGE_CORPUS_MAX_DURATION.as_secs(),
+        timing_failure,
         format_failure_list("shuck formatter errors", &shuck_errors),
         format_failure_list("formatter mismatches", &mismatches),
     );

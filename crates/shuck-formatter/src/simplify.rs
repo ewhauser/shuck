@@ -2002,7 +2002,6 @@ mod tests {
     use shuck_format::format;
     use shuck_parser::parser::Parser;
 
-    use crate::ast_format::flatten_comments;
     use crate::comments::Comments;
     use crate::context::ShellFormatContext;
     use crate::options::ShellFormatOptions;
@@ -2028,7 +2027,7 @@ mod tests {
         let context = ShellFormatContext::new(
             options.resolve(source, Some(Path::new("test.sh"))),
             source,
-            Comments::from_ast(source, &flatten_comments(&parsed.file)),
+            Comments::from_file(source, &parsed.file),
         );
         let formatted = format!(context, [file.format()]).unwrap();
         let mut output = formatted.print().unwrap().into_code();

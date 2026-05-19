@@ -1873,9 +1873,11 @@ dependencies = [
 name = "shuck-formatter"
 version = "0.0.40"
 dependencies = [
+ "memchr",
  "rayon",
  "shuck-ast",
  "shuck-format",
+ "shuck-indexer",
  "shuck-linter",
  "shuck-parser",
  "similar",
