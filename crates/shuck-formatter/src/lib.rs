@@ -4754,6 +4754,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_process_substitution_redirect_spacing_inside_command_substitutions() {
+        let source = "output=\"$(\n  exec > >(tee /dev/fd/2) 2>&1\n)\"\nlatest=\"$(grep x < <(jq -r '.body' <<< \"$response\"))\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "output=\"$(\n\texec > >(tee /dev/fd/2) 2>&1\n)\"\nlatest=\"$(grep x < <(jq -r '.body' <<<\"$response\"))\"\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn formats_redirect_spacing_inside_process_substitution() {
         let source = "read -ra candidates < <(complete words 2> /dev/null)\n";
         let options = ShellFormatOptions::default();

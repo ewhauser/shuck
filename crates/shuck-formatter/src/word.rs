@@ -4697,6 +4697,11 @@ fn raw_redirect_target_spacing_can_be_stripped(
     if !matches!(bytes.get(operator_start), Some(b'<' | b'>')) {
         return true;
     }
+    if bytes.get(operator_start) == bytes.get(target_start)
+        && bytes.get(target_start + 1) == Some(&b'(')
+    {
+        return false;
+    }
     !bytes
         .get(target_start)
         .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
