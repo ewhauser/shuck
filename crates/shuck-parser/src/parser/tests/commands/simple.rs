@@ -81,6 +81,95 @@ fn test_parse_multiple_args() {
 }
 
 #[test]
+fn test_simple_command_treats_conditional_brackets_as_arguments_after_name() {
+    let cases = [
+        (
+            "eval ! [[ \"$env_var\" =~ ^[[:digit:]]+$ ]]",
+            vec!["eval", "!", "[[", "$env_var", "=~", "^[[:digit:]]+$", "]]"],
+        ),
+        ("\"eval\" [[ 1 ]]", vec!["eval", "[[", "1", "]]"]),
+        ("${cmd} [[ 1 ]]", vec!["${cmd}", "[[", "1", "]]"]),
+        (
+            "$dbracket foo == foo ]]",
+            vec!["$dbracket", "foo", "==", "foo", "]]"],
+        ),
+    ];
+
+    for (input, expected_words) in cases {
+        let parsed = Parser::new(input).parse().unwrap();
+
+        assert_eq!(parsed.status, ParseStatus::Clean, "{input}");
+        assert_eq!(parsed.file.body.len(), 1, "{input}");
+        let AstCommand::Simple(command) = &parsed.file.body[0].command else {
+            panic!("expected simple command for {input}");
+        };
+
+        let words = std::iter::once(&command.name)
+            .chain(command.args.iter())
+            .map(|arg| arg.render(input))
+            .collect::<Vec<_>>();
+
+        assert_eq!(words, expected_words, "{input}");
+    }
+}
+
+#[test]
+fn test_runtime_constructed_conditional_open_keeps_close_as_argument() {
+    let input = "dbracket=[[\n$dbracket foo == foo ]]";
+    let parsed = Parser::new(input).parse().unwrap();
+
+    assert_eq!(parsed.status, ParseStatus::Clean);
+    assert_eq!(parsed.file.body.len(), 2);
+    let AstCommand::Simple(command) = &parsed.file.body[1].command else {
+        panic!("expected simple command");
+    };
+
+    assert_eq!(command.name.render(input), "$dbracket");
+    assert_eq!(
+        command
+            .args
+            .iter()
+            .map(|arg| arg.render(input))
+            .collect::<Vec<_>>(),
+        vec!["foo", "==", "foo", "]]"]
+    );
+}
+
+#[test]
+fn test_simple_command_treats_conditional_open_as_name_after_prefixes() {
+    let cases = [
+        ("VAR=1 [[ 1 ]]", "[[", vec!["1", "]]"], 1, 0),
+        (">out [[ 1 ]]", "[[", vec!["1", "]]"], 0, 1),
+        ("VAR=1 ]]", "]]", Vec::new(), 1, 0),
+        (">out ]]", "]]", Vec::new(), 0, 1),
+    ];
+
+    for (input, expected_name, expected_args, expected_assignments, expected_redirects) in cases {
+        let parsed = Parser::new(input).parse().unwrap();
+
+        assert_eq!(parsed.status, ParseStatus::Clean, "{input}");
+        assert_eq!(parsed.file.body.len(), 1, "{input}");
+        let stmt = &parsed.file.body[0];
+        let AstCommand::Simple(command) = &stmt.command else {
+            panic!("expected simple command for {input}");
+        };
+
+        assert_eq!(command.assignments.len(), expected_assignments, "{input}");
+        assert_eq!(stmt.redirects.len(), expected_redirects, "{input}");
+        assert_eq!(command.name.render(input), expected_name, "{input}");
+        assert_eq!(
+            command
+                .args
+                .iter()
+                .map(|arg| arg.render(input))
+                .collect::<Vec<_>>(),
+            expected_args,
+            "{input}"
+        );
+    }
+}
+
+#[test]
 fn test_simple_command_allows_nft_brace_literals_inside_and_block() {
     let input = "\
 start_nftables() {

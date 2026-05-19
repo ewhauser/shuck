@@ -76,6 +76,8 @@ impl<'a> Parser<'a> {
             let right_brace_is_literal_argument = self.at(TokenKind::RightBrace)
                 && !words.is_empty()
                 && self.should_consume_right_brace_as_literal_argument(next_kind_after_right_brace);
+            let has_simple_command_prefix =
+                !words.is_empty() || !assignments.is_empty() || !redirects.is_empty();
             match self.current_token_kind {
                 Some(kind) if kind.is_word_like() => {
                     // Bail out before touching word text when the token is a
@@ -151,20 +153,13 @@ impl<'a> Parser<'a> {
                     };
                     words.push(word);
                 }
-                Some(TokenKind::DoubleRightBracket)
-                    if words.first().is_some_and(|word| {
-                        matches!(
-                            word.parts.as_slice(),
-                            [WordPartNode {
-                                kind: WordPart::ArithmeticExpansion {
-                                    syntax: ArithmeticExpansionSyntax::DollarParenParen,
-                                    ..
-                                },
-                                ..
-                            }]
-                        )
-                    }) =>
-                {
+                Some(TokenKind::DoubleLeftBracket) if has_simple_command_prefix => {
+                    let span = self.current_span;
+                    let word = self.word_from_raw_text(span.slice(self.input), span);
+                    self.advance();
+                    words.push(word);
+                }
+                Some(TokenKind::DoubleRightBracket) if has_simple_command_prefix => {
                     let span = self.current_span;
                     let word = self.word_from_raw_text(span.slice(self.input), span);
                     self.advance();
