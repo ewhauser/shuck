@@ -2856,15 +2856,46 @@ fn command_verbatim_span(
         Command::Binary(command) => stmt_verbatim_span_impl(&command.left, source, source_map)
             .merge(stmt_verbatim_span_impl(&command.right, source, source_map)),
         Command::Compound(command) => compound_verbatim_span(command, source, source_map),
-        Command::Function(command) => function_header_span(command).merge(stmt_verbatim_span_impl(
-            &command.body,
-            source,
-            source_map,
-        )),
+        Command::Function(command) => function_header_span(command).merge(
+            function_body_verbatim_span(&command.body, source, source_map),
+        ),
         Command::AnonymousFunction(command) => anonymous_function_header_span(command)
-            .merge(stmt_verbatim_span_impl(&command.body, source, source_map))
+            .merge(function_body_verbatim_span(
+                &command.body,
+                source,
+                source_map,
+            ))
             .merge(words_span(&command.args)),
     }
+}
+
+fn function_body_verbatim_span(
+    body: &Stmt,
+    source: &str,
+    source_map: Option<&SourceMap<'_>>,
+) -> Span {
+    let mut span = stmt_verbatim_span_impl(body, source, source_map);
+    let Some(source_map) = source_map else {
+        return span;
+    };
+    match &body.command {
+        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
+            if let Some(group_span) =
+                group_attachment_span(commands.as_slice(), source_map, '{', '}')
+            {
+                span = merge_non_empty_span(span, group_span);
+            }
+        }
+        Command::Compound(CompoundCommand::Subshell(commands)) => {
+            if let Some(group_span) =
+                group_attachment_span(commands.as_slice(), source_map, '(', ')')
+            {
+                span = merge_non_empty_span(span, group_span);
+            }
+        }
+        _ => {}
+    }
+    span
 }
 
 fn merge_redirect_heredoc_spans(mut span: Span, redirects: &[Redirect], source: &str) -> Span {

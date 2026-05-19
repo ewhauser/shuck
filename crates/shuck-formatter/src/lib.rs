@@ -4631,6 +4631,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn heredoc_function_close_suffix_keeps_closing_brace() {
+        let source = "foo() {\ncat <<EOF\nbody\nEOF\n} # trailing\nbar() { :; }\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_escaped_command_names() {
         let source = "\\grep -q foo file\n";
         let options = ShellFormatOptions::default();
