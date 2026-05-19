@@ -1,5 +1,90 @@
 # Changelog
 
+## [0.0.41](https://github.com/ewhauser/shuck/compare/v0.0.40...v0.0.41) (2026-05-19)
+
+
+### Features
+
+* **formatter:** expose format command by default ([#1059](https://github.com/ewhauser/shuck/issues/1059)) ([33283da](https://github.com/ewhauser/shuck/commit/33283daf3ea27bb429e182964333a342a4103af6))
+* **formatter:** restore shell formatter ([#1053](https://github.com/ewhauser/shuck/issues/1053)) ([e62dd71](https://github.com/ewhauser/shuck/commit/e62dd71424b9cd563fb2b91532e7e9642e76a12e))
+* **linter:** add C016 stray control keyword rule ([#1042](https://github.com/ewhauser/shuck/issues/1042)) ([3a7949c](https://github.com/ewhauser/shuck/commit/3a7949cf83450fb932fc22270a1fc481d55d1640))
+* **linter:** add C162 extra masked returns ([f66409a](https://github.com/ewhauser/shuck/commit/f66409afd98fe11e3f41a9c9873c17f348760abf))
+* **linter:** add K006 rm rootish target rule ([e6a8b37](https://github.com/ewhauser/shuck/commit/e6a8b377f72eb115239c925baa353e79d2412426))
+* **linter:** add K007 chmod sensitive path rule ([aa16519](https://github.com/ewhauser/shuck/commit/aa165195734cc29f7a2dedb23b6845adf672bb89))
+* **linter:** add K008 fork bomb pattern rule ([c30c38f](https://github.com/ewhauser/shuck/commit/c30c38f78fd957cfeee225712edfa257482dd51b))
+* **linter:** add S078 shebang shell policy rule ([0a89e43](https://github.com/ewhauser/shuck/commit/0a89e43106b4c507b19bd76593e4a3d421cc042a))
+* **linter:** add S079 shebang form policy rule ([e648253](https://github.com/ewhauser/shuck/commit/e648253b97138451e16c0b3f8dbc6def89ef0efa))
+* **linter:** add S080 script size threshold rule ([3f5e6d9](https://github.com/ewhauser/shuck/commit/3f5e6d9f7e5ade329dbe020fd4bb3ce9032aefcf))
+* **linter:** add S081 file description rule ([f21518e](https://github.com/ewhauser/shuck/commit/f21518ec6c8364a56475b0f0c7b5ba1a448264ff))
+* **linter:** add S082 todo format rule ([174fbd8](https://github.com/ewhauser/shuck/commit/174fbd8fb5df444561da25125b9d62f21709c65e))
+* **linter:** add S083 missing function doc rule ([e72640d](https://github.com/ewhauser/shuck/commit/e72640d20b7f5a5eedba24f4a331206020c0f38f))
+* **linter:** add S084 function doc content rule ([#1040](https://github.com/ewhauser/shuck/issues/1040)) ([68bec68](https://github.com/ewhauser/shuck/commit/68bec68e1848b606bff511f536d4359cec657190))
+* **linter:** add S085 main entrypoint rule ([#1041](https://github.com/ewhauser/shuck/issues/1041)) ([a39cbb4](https://github.com/ewhauser/shuck/commit/a39cbb4548737ac42d5ec96fea3fe0f1bce22d1b))
+* **linter:** fix c-style arithmetic diagnostics ([#1002](https://github.com/ewhauser/shuck/issues/1002)) ([d0d8f9f](https://github.com/ewhauser/shuck/commit/d0d8f9ffba2786b2e12ed16cda8d3845620c072f))
+* **linter:** fix ssh local expansion diagnostics ([#1001](https://github.com/ewhauser/shuck/issues/1001)) ([8991782](https://github.com/ewhauser/shuck/commit/89917827c567299fc33b2fb655cef5eb26d8b7fc))
+* **linter:** fix suspect closing quote diagnostics ([#1007](https://github.com/ewhauser/shuck/issues/1007)) ([eefbe2d](https://github.com/ewhauser/shuck/commit/eefbe2da7011e2e7e3140753604bea9847034f3c))
+* **linter:** implement C016 stray closing keyword ([#1009](https://github.com/ewhauser/shuck/issues/1009)) ([e6dfe43](https://github.com/ewhauser/shuck/commit/e6dfe438ada3a1ce0deb3e766bd66aefb4bb72e9))
+* **linter:** implement C023 leading zero arithmetic ([#1010](https://github.com/ewhauser/shuck/issues/1010)) ([75a44af](https://github.com/ewhauser/shuck/commit/75a44af96dcd44c32d8a9a0d12f3a75e0fcaa1d8))
+* **linter:** implement C024 assignment spacing ([#1011](https://github.com/ewhauser/shuck/issues/1011)) ([0ca833d](https://github.com/ewhauser/shuck/commit/0ca833d7aa062818220b2c525b6d936c1f0289ac))
+* **linter:** implement C027 bare done word ([#1012](https://github.com/ewhauser/shuck/issues/1012)) ([a394aa1](https://github.com/ewhauser/shuck/commit/a394aa19ce17973a9907bff7ebed27f73bfdef7d))
+* **linter:** implement C031 bracket close spacing ([#1013](https://github.com/ewhauser/shuck/issues/1013)) ([9acbae6](https://github.com/ewhauser/shuck/commit/9acbae679bfe7abf018dcd90bfc81300c791f29b))
+* **linter:** implement C032 jammed test bracket ([#1014](https://github.com/ewhauser/shuck/issues/1014)) ([dab0380](https://github.com/ewhauser/shuck/commit/dab0380d54d77217ac8b3942be7b7e2e5176304c))
+* **linter:** implement C033 indented heredoc close ([98b68aa](https://github.com/ewhauser/shuck/commit/98b68aa1f5f9033710d42005f1f070f8ef176b52))
+* **linter:** implement C034 unterminated if ([62f6c89](https://github.com/ewhauser/shuck/commit/62f6c89be566dde23c55bd753fdf35ff5c0a7e9f))
+* **linter:** implement C044 bare glob command path ([8f2a5bb](https://github.com/ewhauser/shuck/commit/8f2a5bb4d08688d3982cec96f7d3ba801a03c921))
+* **linter:** implement C045 diff marker line ([5c80793](https://github.com/ewhauser/shuck/commit/5c80793fa43a050b83ed1232a494ed1738f327c7))
+* **linter:** implement C049 tautology chain ([#1019](https://github.com/ewhauser/shuck/issues/1019)) ([6b4e94f](https://github.com/ewhauser/shuck/commit/6b4e94fa50f5b186aac989132c9938de00cb6d35))
+* **linter:** implement C051 duplicate redirect ([29883ee](https://github.com/ewhauser/shuck/commit/29883ee06af2e99fe62dfa1b281199a70281742d))
+* **linter:** implement C052 assign special zero ([763e6a8](https://github.com/ewhauser/shuck/commit/763e6a802a9667f627edbc329c4d409dd612e4e0))
+* **linter:** implement C053 spacey assign ([04e0f9e](https://github.com/ewhauser/shuck/commit/04e0f9ea289f745beeb7f07468ea4b1db5f1ccf7))
+* **linter:** implement C158 implicit globals ([8a6ba6e](https://github.com/ewhauser/shuck/commit/8a6ba6eeced80b3c3f7d9efb80493799c0ef1214))
+* **linter:** implement C159 mutable globals ([b0da635](https://github.com/ewhauser/shuck/commit/b0da63594dcb4e87f21781c8d56c68f422493e2a))
+* **linter:** implement C160 unanchored source paths ([31d3df2](https://github.com/ewhauser/shuck/commit/31d3df26c81167c39cee8d4bfccc9f3f074b4f4b))
+* **linter:** implement C161 function call ordering ([a46ae1f](https://github.com/ewhauser/shuck/commit/a46ae1fa730fb817a72c11fc3e30feb34e88a3b4))
+* **linter:** implement rule-local autofixes ([#1000](https://github.com/ewhauser/shuck/issues/1000)) ([f63f18b](https://github.com/ewhauser/shuck/commit/f63f18b8a49206659f1de2c3cb4e404810736fd4))
+* **server:** add document symbols ([#1045](https://github.com/ewhauser/shuck/issues/1045)) ([e05f65e](https://github.com/ewhauser/shuck/commit/e05f65ec6046c6c1d59a355cd926e8018b7d0980))
+* **server:** add LSP editor features ([#1052](https://github.com/ewhauser/shuck/issues/1052)) ([923f249](https://github.com/ewhauser/shuck/commit/923f2493f05a73baab26cfd6429f161e791d6257))
+* **server:** add semantic symbol hover ([#1050](https://github.com/ewhauser/shuck/issues/1050)) ([29be31f](https://github.com/ewhauser/shuck/commit/29be31f1c52337ca11796939847ae897b94371a3))
+* **server:** add workspace symbols ([#1046](https://github.com/ewhauser/shuck/issues/1046)) ([bc82227](https://github.com/ewhauser/shuck/commit/bc822279e769059efe45719cb845367ce82fcb09))
+* **server:** cache document analysis for LSP requests ([#1051](https://github.com/ewhauser/shuck/issues/1051)) ([ec1e1e7](https://github.com/ewhauser/shuck/commit/ec1e1e73d81d75ac6aaf3b380452db4e1a9245df))
+
+
+### Bug Fixes
+
+* **deps:** update dependency next to v16.2.6 [security] ([#996](https://github.com/ewhauser/shuck/issues/996)) ([9e15087](https://github.com/ewhauser/shuck/commit/9e150874a19658ea875fa0f20e64cd3aa1da6951))
+* **formatter:** restore shfmt parity ([#1057](https://github.com/ewhauser/shuck/issues/1057)) ([f7ca339](https://github.com/ewhauser/shuck/commit/f7ca339ecd7c2a4da177d446577920065fc09294))
+* **linter:** add documented autofixes ([#999](https://github.com/ewhauser/shuck/issues/999)) ([209d590](https://github.com/ewhauser/shuck/commit/209d590ce255c90cff5e7c340af2705d95490064))
+* **linter:** handle missing xargs option arguments ([#995](https://github.com/ewhauser/shuck/issues/995)) ([98c1359](https://github.com/ewhauser/shuck/commit/98c135983eab87d40567f22edeac948bec7588b0))
+* **linter:** keep unicode quote spans source-backed ([#998](https://github.com/ewhauser/shuck/issues/998)) ([e88f2f7](https://github.com/ewhauser/shuck/commit/e88f2f7130f964eb8a8be04e5525a1c5562a0ca4))
+* **parser:** handle corpus shell edge cases ([#1062](https://github.com/ewhauser/shuck/issues/1062)) ([e0d948d](https://github.com/ewhauser/shuck/commit/e0d948d398ed20aff4168477d7a885750a424a18))
+* **parser:** preserve command substitution spans ([#1064](https://github.com/ewhauser/shuck/issues/1064)) ([60e715a](https://github.com/ewhauser/shuck/commit/60e715a4447904851edd6e71e7e4e7c1c4320f1b))
+
+
+### Performance
+
+* **linter:** narrow zsh array fanout value-flow checks ([#990](https://github.com/ewhauser/shuck/issues/990)) ([c7f20bb](https://github.com/ewhauser/shuck/commit/c7f20bb442f1184f7b6fa9dd38729d61a88679ee))
+
+
+### Reverts
+
+* **linter:** roll back C162 extra masked returns ([#1054](https://github.com/ewhauser/shuck/issues/1054)) ([e25292a](https://github.com/ewhauser/shuck/commit/e25292a5c0cf4eb1c9416ee3fa669969fbdf4ff8))
+
+
+### Documentation
+
+* present shuck as lint, format, and server tool ([#1058](https://github.com/ewhauser/shuck/issues/1058)) ([cded150](https://github.com/ewhauser/shuck/commit/cded150d9a11760a43bfe9af5a190aa010b03465))
+* specify LSP editor features ([#1044](https://github.com/ewhauser/shuck/issues/1044)) ([edad630](https://github.com/ewhauser/shuck/commit/edad6305605190067d47a438b55baafc87038680))
+* tighten public API docs boundaries ([#1037](https://github.com/ewhauser/shuck/issues/1037)) ([9fe5fa2](https://github.com/ewhauser/shuck/commit/9fe5fa23a5ab131f06683ce144263ce803aeee8d))
+
+
+### Refactor
+
+* **linter:** move array use classification into semantic ([#991](https://github.com/ewhauser/shuck/issues/991)) ([cf9537c](https://github.com/ewhauser/shuck/commit/cf9537c39e837233c062fdeef244959283070b64))
+* **linter:** remove legacy fact accessors ([#1039](https://github.com/ewhauser/shuck/issues/1039)) ([212f1df](https://github.com/ewhauser/shuck/commit/212f1df7354d0c0dcd21c09459117505f1372114))
+* **linter:** replace public lint matrix ([#1008](https://github.com/ewhauser/shuck/issues/1008)) ([1126750](https://github.com/ewhauser/shuck/commit/112675050c1c10337f219bbc5e94279fca12ee72))
+* **linter:** split linter fact stores ([#1034](https://github.com/ewhauser/shuck/issues/1034)) ([5f389a4](https://github.com/ewhauser/shuck/commit/5f389a4f4df99fe6e6f3be154433d4c625225d46))
+* **parser:** split parser modules and tests ([#1043](https://github.com/ewhauser/shuck/issues/1043)) ([6479535](https://github.com/ewhauser/shuck/commit/64795353ba4f547b7ac49fec7a875e4f6b5d9c8d))
+
 ## [0.0.40](https://github.com/ewhauser/shuck/compare/v0.0.39...v0.0.40) (2026-05-08)
 
 
