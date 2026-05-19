@@ -647,6 +647,53 @@ fn test_assignment_replacement_expansion_span_keeps_escaped_backslashes() {
 }
 
 #[test]
+fn test_quoted_assignment_replacement_expansion_span_keeps_escaped_quotes() {
+    let input = r#"query="${query//\"/\\\"}""#;
+    assert_eq!(
+        Parser::scan_array_parameter_expansion_len(r#"query//\"/\\\"}""#),
+        Some(r#"query//\"/\\\"}"#.len())
+    );
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double quoted value");
+    };
+
+    assert_eq!(parts[0].span.slice(input), r#"${query//\"/\\\"}"#);
+    let (_, operator, _) = expect_parameter_operation_part(&parts[0].kind);
+    assert!(matches!(operator, ParameterOp::ReplaceAll { .. }));
+}
+
+#[test]
+fn test_quoted_assignment_replacement_expansion_span_keeps_escaped_slashes() {
+    let input = r#"url_path="${url_path//https:\\/\\/api.openai.com\/v1}""#;
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double quoted value");
+    };
+
+    assert_eq!(
+        parts[0].span.slice(input),
+        r#"${url_path//https:\\/\\/api.openai.com\/v1}"#
+    );
+    let (_, operator, _) = expect_parameter_operation_part(&parts[0].kind);
+    assert!(matches!(operator, ParameterOp::ReplaceAll { .. }));
+}
+
+#[test]
 fn test_parse_arithmetic_command_distinguishes_assignment_from_comparison() {
     let input = "(( a = b == c ))\n";
     let script = Parser::new(input).parse().unwrap().file;

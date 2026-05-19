@@ -253,7 +253,7 @@ impl<'a> Lexer<'a> {
                     // doesn't stop at the inner }.
                     Self::push_capture_char(&mut word, '{');
                     self.advance();
-                    let _ = self.read_param_expansion_into(&mut word, start);
+                    let _ = self.read_param_expansion_into(&mut word, start, false);
                 } else {
                     // Check for special single-character variables ($?, $#, $@, $*, $!, $$, $-, $0-$9)
                     if let Some(c) = self.peek_char() {

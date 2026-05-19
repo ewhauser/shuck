@@ -429,7 +429,8 @@ impl<'a> Lexer<'a> {
                     } else if self.peek_char() == Some('{') {
                         Self::push_capture_char(&mut content, '{');
                         self.advance();
-                        borrowable &= self.read_param_expansion_into(&mut content, content_start);
+                        borrowable &=
+                            self.read_param_expansion_into(&mut content, content_start, true);
                     }
                     content_end = self.current_position();
                 }

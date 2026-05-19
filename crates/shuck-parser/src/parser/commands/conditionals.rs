@@ -111,7 +111,7 @@ impl<'a> Parser<'a> {
                     let word = self.collect_conditional_context_word(stop_at_right_paren)?;
                     self.conditional_var_ref_expr(word)
                 } else {
-                    let word = self.parse_conditional_operand_word()?;
+                    let word = self.parse_conditional_operand_word(stop_at_right_paren)?;
                     ConditionalExpr::Word(word)
                 }
             };
@@ -162,7 +162,7 @@ impl<'a> Parser<'a> {
                 right_paren_span,
             })
         } else {
-            ConditionalExpr::Word(self.parse_conditional_operand_word()?)
+            ConditionalExpr::Word(self.parse_conditional_operand_word(stop_at_right_paren)?)
         };
 
         self.skip_conditional_newlines();
@@ -188,7 +188,7 @@ impl<'a> Parser<'a> {
                 let word = self.collect_conditional_context_word(stop_at_right_paren)?;
                 ConditionalExpr::Pattern(self.pattern_from_conditional_word(&word))
             }
-            _ => ConditionalExpr::Word(self.parse_conditional_operand_word()?),
+            _ => ConditionalExpr::Word(self.parse_conditional_operand_word(stop_at_right_paren)?),
         };
 
         Ok(ConditionalExpr::Binary(ConditionalBinaryExpr {
@@ -199,12 +199,15 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    pub(super) fn parse_conditional_operand_word(&mut self) -> Result<Word> {
+    pub(super) fn parse_conditional_operand_word(
+        &mut self,
+        stop_at_right_paren: bool,
+    ) -> Result<Word> {
         self.skip_conditional_newlines();
 
-        if let Some(word) = self.current_conditional_source_word(false) {
+        if let Some(word) = self.current_conditional_source_word(stop_at_right_paren) {
             self.advance_past_word(&word);
-            self.restore_conditional_source_delimiter(word.span.end, false);
+            self.restore_conditional_source_delimiter(word.span.end, stop_at_right_paren);
             return Ok(word);
         }
 
@@ -365,6 +368,8 @@ impl<'a> Parser<'a> {
             (TokenKind::And, "&&")
         } else if rest.starts_with("||") {
             (TokenKind::Or, "||")
+        } else if stop_at_right_paren && rest.starts_with("))") {
+            (TokenKind::DoubleRightParen, "))")
         } else if stop_at_right_paren && rest.starts_with(')') {
             (TokenKind::RightParen, ")")
         } else {
