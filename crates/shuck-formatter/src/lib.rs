@@ -2647,6 +2647,18 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     }
 
     #[test]
+    fn preserves_escaped_quote_words_with_nested_quoted_command_substitutions() {
+        let source = "echo \"\\\"$BUILDSCRIPT\\\" -a \\\"$TERMUX_ARCH\\\" $TERMUX_DEBUG_BUILD --format \\\"$TERMUX_FORMAT\\\" --library $(test \"${PKG_DIR%/*}\" = \"gpkg\" && echo \"glibc\" || echo \"bionic\") ${TERMUX_OUTPUT_DIR+-o $TERMUX_OUTPUT_DIR} $TERMUX_INSTALL_DEPS \\\"$PKG_DIR\\\"\"\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn preserves_file_not_grpowned_command_substitution_shape() {
         let source = "[[ \" $(id -G \"${USER}\") \" != *\" $(get_group \"$1\") \"* ]]\n";
         let options = ShellFormatOptions::default();

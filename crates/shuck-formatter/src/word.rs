@@ -493,6 +493,15 @@ fn render_word_syntax_internal(
     if !options.simplify()
         && !options.minify()
         && let Some(raw) = raw_word_source_slice(word, source)
+        && raw_single_line_escaped_quote_command_substitution_should_preserve(raw)
+    {
+        rendered.push_str(raw);
+        return;
+    }
+
+    if !options.simplify()
+        && !options.minify()
+        && let Some(raw) = raw_word_source_slice(word, source)
         && let Some(normalized) = normalize_raw_compound_assignment_word_continuations(raw)
     {
         rendered.push_str(&normalized);
@@ -625,6 +634,20 @@ fn word_part_has_escaped_command_substitution(
 fn raw_escaped_multiline_double_quoted_word(raw: &str) -> bool {
     raw.strip_prefix('$').unwrap_or(raw).starts_with("\"\\\n")
         || raw.strip_prefix('$').unwrap_or(raw).starts_with("\"\\\r\n")
+}
+
+fn raw_single_line_escaped_quote_command_substitution_should_preserve(raw: &str) -> bool {
+    let Some(escaped_quote) = raw.find("\\\"") else {
+        return false;
+    };
+    let Some(command_substitution) = raw.find("$(") else {
+        return false;
+    };
+
+    !raw.contains('\n')
+        && raw.starts_with('"')
+        && raw.ends_with('"')
+        && escaped_quote < command_substitution
 }
 
 fn word_needs_special_rendering(word: &Word) -> bool {
