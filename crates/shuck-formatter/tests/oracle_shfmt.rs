@@ -173,7 +173,10 @@ fn large_corpus_matches_shfmt() {
         cfg.corpus_dir.join("scripts").display()
     );
 
-    let fixtures = select_large_corpus_fixtures(all_fixtures, &cfg);
+    let fixtures = sample_fixtures(
+        shard_fixtures(all_fixtures, cfg.shard_index, cfg.total_shards),
+        cfg.sample_percent,
+    );
     assert!(
         !fixtures.is_empty(),
         "no large-corpus fixtures selected from {}",
@@ -204,7 +207,13 @@ fn large_corpus_matches_shfmt() {
     let mut mismatches = Vec::new();
 
     for result in results {
-        report_slow_large_corpus_fixture(&result.filename, result.elapsed);
+        if result.elapsed >= LARGE_CORPUS_SLOW_FIXTURE {
+            eprintln!(
+                "large corpus shfmt oracle slow fixture: {} took {:.1}s",
+                result.filename,
+                result.elapsed.as_secs_f64(),
+            );
+        }
         match result.comparison {
             LargeCorpusComparison::Matched => {
                 compared += 1;
@@ -527,16 +536,6 @@ fn collect_reader(
     }
 }
 
-fn report_slow_large_corpus_fixture(filename: &str, elapsed: Duration) {
-    if elapsed >= LARGE_CORPUS_SLOW_FIXTURE {
-        eprintln!(
-            "large corpus shfmt oracle slow fixture: {} took {:.1}s",
-            filename,
-            elapsed.as_secs_f64(),
-        );
-    }
-}
-
 fn render_oracle_mismatch(
     case_name: &str,
     filename: &str,
@@ -697,7 +696,10 @@ fn collect_large_corpus_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
 }
 
 fn fixture_path_is_supported(path: &Path) -> bool {
-    !(path_matches_large_corpus_suffix(path, LARGE_CORPUS_STATIC_IGNORE_SUFFIXES)
+    let path_text = path.to_string_lossy();
+    !(LARGE_CORPUS_STATIC_IGNORE_SUFFIXES
+        .iter()
+        .any(|suffix| path_text.ends_with(suffix))
         || path_extension_matches(path, LARGE_CORPUS_IGNORED_EXTENSIONS)
         || path_file_name_matches(
             path,
@@ -705,11 +707,6 @@ fn fixture_path_is_supported(path: &Path) -> bool {
             LARGE_CORPUS_IGNORED_FILE_SUFFIXES,
             LARGE_CORPUS_IGNORED_FILE_CONTAINS,
         ))
-}
-
-fn path_matches_large_corpus_suffix(path: &Path, suffixes: &[&str]) -> bool {
-    let path = path.to_string_lossy();
-    suffixes.iter().any(|suffix| path.ends_with(suffix))
 }
 
 fn path_extension_matches(path: &Path, extensions: &[&str]) -> bool {
@@ -736,15 +733,6 @@ fn path_file_name_matches(
     prefixes.iter().any(|prefix| name.starts_with(prefix))
         || suffixes.iter().any(|suffix| lower_name.ends_with(suffix))
         || contains.iter().any(|needle| name.contains(needle))
-}
-
-fn select_large_corpus_fixtures(
-    mut fixtures: Vec<LargeCorpusFixture>,
-    cfg: &LargeCorpusConfig,
-) -> Vec<LargeCorpusFixture> {
-    fixtures = shard_fixtures(fixtures, cfg.shard_index, cfg.total_shards);
-    fixtures = sample_fixtures(fixtures, cfg.sample_percent);
-    fixtures
 }
 
 fn shard_fixtures(
