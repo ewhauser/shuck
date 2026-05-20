@@ -831,13 +831,6 @@ pub(crate) fn render_var_ref_to_buf(reference: &VarRef, source: &str, rendered: 
     }
 }
 
-#[allow(dead_code)]
-pub(crate) fn render_subscript(subscript: &Subscript, source: &str) -> String {
-    let mut rendered = String::new();
-    render_subscript_to_buf(subscript, source, &mut rendered);
-    rendered
-}
-
 pub(crate) fn render_subscript_to_buf(subscript: &Subscript, source: &str, rendered: &mut String) {
     if let Some(selector) = subscript.selector() {
         rendered.push(selector.as_char());
@@ -870,13 +863,6 @@ pub(crate) fn trim_unescaped_trailing_whitespace(text: &str) -> &str {
     }
 
     &text[..end]
-}
-
-#[allow(dead_code)]
-pub(crate) fn render_source_text(text: &SourceText, source: &str) -> String {
-    let mut rendered = String::new();
-    render_source_text_to_buf(text, source, &mut rendered);
-    rendered
 }
 
 pub(crate) fn render_source_text_to_buf(text: &SourceText, source: &str, rendered: &mut String) {
