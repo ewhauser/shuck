@@ -871,10 +871,12 @@ fn render_heredoc_body_part(
                     expression,
                     expression_ast.as_ref(),
                     *syntax,
-                    source,
-                    options,
-                    Some(facts.source_map()),
-                    Some(facts),
+                    ArithmeticRenderEnv::new(
+                        source,
+                        options,
+                        Some(facts.source_map()),
+                        Some(facts),
+                    ),
                 );
             }
         }
@@ -1481,10 +1483,7 @@ fn render_word_part(
             expression,
             expression_ast.as_deref(),
             *syntax,
-            source,
-            options,
-            source_map,
-            facts,
+            ArithmeticRenderEnv::new(source, options, source_map, facts),
         ),
         WordPart::Parameter(parameter) => {
             push_parameter_word(rendered, parameter, source, options)?;
@@ -5166,19 +5165,10 @@ fn push_arithmetic_expr(
 fn push_arithmetic_expansion_body(
     rendered: &mut String,
     expr: &ArithmeticExprNode,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-    source_map: Option<&SourceMap<'_>>,
-    facts: Option<&FormatterFacts<'_>>,
+    env: ArithmeticRenderEnv<'_, '_>,
 ) {
     let mut body = String::new();
-    push_arithmetic_expr(
-        &mut body,
-        expr,
-        ArithmeticContext::TopLevel,
-        false,
-        ArithmeticRenderEnv::new(source, options, source_map, facts),
-    );
+    push_arithmetic_expr(&mut body, expr, ArithmeticContext::TopLevel, false, env);
     if body.contains("$(")
         || body.contains('`')
         || arithmetic_expr_contains_command_substitution(expr)
@@ -5493,20 +5483,17 @@ fn push_arithmetic_expansion(
     expression: &shuck_ast::SourceText,
     expression_ast: Option<&ArithmeticExprNode>,
     syntax: ArithmeticExpansionSyntax,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-    source_map: Option<&SourceMap<'_>>,
-    facts: Option<&FormatterFacts<'_>>,
+    env: ArithmeticRenderEnv<'_, '_>,
 ) {
-    let expression_source = expression.slice(source);
+    let expression_source = expression.slice(env.source);
     if matches!(syntax, ArithmeticExpansionSyntax::LegacyBracket) {
         push_trimmed_arithmetic_expansion_source(rendered, expression_source, syntax);
     } else if let Some(formatted) = format_multiline_arithmetic_expansion_source(
         expression_source,
         syntax,
         expression_ast,
-        source,
-        options,
+        env.source,
+        env.options,
     ) {
         rendered.push_str(&formatted);
     } else if arithmetic_expression_prefers_raw_source(expression_source)
@@ -5517,14 +5504,7 @@ fn push_arithmetic_expansion(
         match syntax {
             ArithmeticExpansionSyntax::DollarParenParen => {
                 rendered.push_str("$((");
-                push_arithmetic_expansion_body(
-                    rendered,
-                    expression_ast,
-                    source,
-                    options,
-                    source_map,
-                    facts,
-                );
+                push_arithmetic_expansion_body(rendered, expression_ast, env);
                 rendered.push_str("))");
             }
             ArithmeticExpansionSyntax::LegacyBracket => unreachable!("handled above"),
