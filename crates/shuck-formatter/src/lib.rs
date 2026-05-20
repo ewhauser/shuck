@@ -462,6 +462,15 @@ mod tests {
     }
 
     #[track_caller]
+    fn assert_default_idempotent(source: &str, filename: &str) {
+        assert_idempotent(
+            source,
+            Some(Path::new(filename)),
+            &ShellFormatOptions::default(),
+        );
+    }
+
+    #[track_caller]
     fn assert_formats_to(
         source: &str,
         path: Option<&Path>,
@@ -491,18 +500,6 @@ mod tests {
     }
 
     #[track_caller]
-    fn assert_formats_default_with_ast(source: &str, expected: impl Into<String>) {
-        let options = ShellFormatOptions::default();
-        assert_formats_to_with_ast(source, None, &options, expected);
-    }
-
-    #[track_caller]
-    fn assert_bash_formats_with_ast(source: &str, expected: impl Into<String>) {
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-        assert_formats_to_with_ast(source, None, &options, expected);
-    }
-
-    #[track_caller]
     fn assert_unchanged(source: &str, path: Option<&Path>, options: &ShellFormatOptions) {
         assert_eq!(
             format_source(source, path, options).unwrap(),
@@ -521,27 +518,6 @@ mod tests {
         assert_source_and_ast_paths_match(source, path, options);
     }
 
-    #[track_caller]
-    fn assert_default_unchanged_with_ast(source: &str) {
-        let options = ShellFormatOptions::default();
-        assert_unchanged_with_ast(source, None, &options);
-    }
-
-    #[track_caller]
-    fn assert_bash_unchanged_with_ast(source: &str) {
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-        assert_unchanged_with_ast(source, None, &options);
-    }
-
-    #[track_caller]
-    fn assert_default_idempotent(source: &str, filename: &str) {
-        assert_idempotent(
-            source,
-            Some(Path::new(filename)),
-            &ShellFormatOptions::default(),
-        );
-    }
-
     macro_rules! formatter_cases {
         ($($name:ident $body:block)+) => {
             $(
@@ -553,13 +529,15 @@ mod tests {
 
     macro_rules! default_format_ast_cases {
         ($($name:ident: $source:expr => $expected:expr;)+) => {
-            formatter_cases! { $($name { assert_formats_default_with_ast($source, $expected); })+ }
+            formatter_cases! { $($name { assert_formats_to_with_ast($source, None, &ShellFormatOptions::default(), $expected); })+ }
         };
     }
 
     macro_rules! bash_format_ast_cases {
         ($($name:ident: $source:expr => $expected:expr;)+) => {
-            formatter_cases! { $($name { assert_bash_formats_with_ast($source, $expected); })+ }
+            formatter_cases! { $($name {
+                assert_formats_to_with_ast($source, None, &ShellFormatOptions::default().with_dialect(ShellDialect::Bash), $expected);
+            })+ }
         };
     }
 
@@ -571,13 +549,15 @@ mod tests {
 
     macro_rules! default_unchanged_ast_cases {
         ($($name:ident: $source:expr;)+) => {
-            formatter_cases! { $($name { assert_default_unchanged_with_ast($source); })+ }
+            formatter_cases! { $($name { assert_unchanged_with_ast($source, None, &ShellFormatOptions::default()); })+ }
         };
     }
 
     macro_rules! bash_unchanged_ast_cases {
         ($($name:ident: $source:expr;)+) => {
-            formatter_cases! { $($name { assert_bash_unchanged_with_ast($source); })+ }
+            formatter_cases! { $($name {
+                assert_unchanged_with_ast($source, None, &ShellFormatOptions::default().with_dialect(ShellDialect::Bash));
+            })+ }
         };
     }
 
@@ -1001,7 +981,7 @@ mod tests {
     fn preserves_escaped_dollar_command_substitutions_in_prompt_assignments() {
         let source = r##"PS1="\$([[ -n \$(git branch 2> /dev/null) ]] && echo \" on ${icon_branch}  \")${white?}$(scm_prompt_info)${normal?}\n${icon_end}"
 "##;
-        assert_default_unchanged_with_ast(source);
+        assert_unchanged_with_ast(source, None, &ShellFormatOptions::default());
     }
 
     #[test]
@@ -1011,7 +991,7 @@ $YELLOW\u$LIGHT_BLUE@$YELLOW\h\
 $LIGHT_BLUE-$(__theme_clock)\
 $WHITE\$ $NO_COLOUR "
 "##;
-        assert_default_unchanged_with_ast(source);
+        assert_unchanged_with_ast(source, None, &ShellFormatOptions::default());
     }
 
     #[test]
@@ -1026,7 +1006,7 @@ $YELLOW-$LIGHT_BLUE-(\
 $(__tonka_clock)\
 $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
 "##;
-        assert_default_unchanged_with_ast(source);
+        assert_unchanged_with_ast(source, None, &ShellFormatOptions::default());
     }
 
     #[test]
@@ -1043,8 +1023,10 @@ $(__tonka_clock)\
 $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
 }
 "##;
-        assert_formats_default_with_ast(
+        assert_formats_to_with_ast(
             source,
+            None,
+            &ShellFormatOptions::default(),
             r##"prompt() {
 	PS1="$TITLEBAR$YELLOW-$LIGHT_BLUE-(\
 $YELLOW\u$LIGHT_BLUE@$YELLOW\h\
