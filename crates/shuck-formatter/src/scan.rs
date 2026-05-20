@@ -412,42 +412,52 @@ pub(crate) fn normalized_close_keyword_span(
 }
 
 pub(crate) fn matching_if_close_start(source: &str, span: Span) -> Option<usize> {
+    matching_close_keyword_start(source, span, "fi", |source, offset, upper| {
+        shell_keyword_at(source, offset, upper, "if").then_some("if".len())
+    })
+}
+
+pub(crate) fn matching_done_close_start(source: &str, span: Span) -> Option<usize> {
+    matching_close_keyword_start(source, span, "done", |source, offset, upper| {
+        loop_open_keyword_at(source, offset, upper).then(|| {
+            source[offset..]
+                .chars()
+                .take_while(char::is_ascii_alphabetic)
+                .map(char::len_utf8)
+                .sum()
+        })
+    })
+}
+
+fn matching_close_keyword_start(
+    source: &str,
+    span: Span,
+    close_keyword: &str,
+    mut open_len_at: impl FnMut(&str, usize, usize) -> Option<usize>,
+) -> Option<usize> {
     let upper = span.end.offset.min(source.len());
     let mut offset = span.start.offset.min(upper);
     let mut depth = 0usize;
     while offset < upper {
         let ch = source[offset..].chars().next()?;
-        match ch {
-            '\'' => {
-                offset = skip_single_quoted(source, offset + ch.len_utf8(), upper);
-                continue;
-            }
-            '"' => {
-                offset = skip_double_quoted(source, offset + ch.len_utf8(), upper);
-                continue;
-            }
-            '#' if shell_comment_can_start(source, offset) => {
-                offset = source[offset..]
-                    .find('\n')
-                    .map_or(upper, |newline| offset + newline + 1);
-                continue;
-            }
-            _ => {}
-        }
-
-        if shell_keyword_at(source, offset, upper, "if") {
-            depth = depth.saturating_add(1);
-            offset += "if".len();
+        if let Some(next) = shell_quoted_or_comment_end(source, offset, upper, ch) {
+            offset = next;
             continue;
         }
-        if shell_keyword_at(source, offset, upper, "fi") {
+
+        if let Some(open_len) = open_len_at(source, offset, upper) {
+            depth = depth.saturating_add(1);
+            offset += open_len;
+            continue;
+        }
+        if shell_keyword_at(source, offset, upper, close_keyword) {
             if depth > 0 {
                 depth -= 1;
                 if depth == 0 {
                     return Some(offset);
                 }
             }
-            offset += "fi".len();
+            offset += close_keyword.len();
             continue;
         }
         offset += ch.len_utf8();
@@ -455,50 +465,20 @@ pub(crate) fn matching_if_close_start(source: &str, span: Span) -> Option<usize>
     None
 }
 
-pub(crate) fn matching_done_close_start(source: &str, span: Span) -> Option<usize> {
-    let upper = span.end.offset.min(source.len());
-    let mut offset = span.start.offset.min(upper);
-    let mut depth = 0usize;
-    while offset < upper {
-        let ch = source[offset..].chars().next()?;
-        match ch {
-            '\'' => {
-                offset = skip_single_quoted(source, offset + ch.len_utf8(), upper);
-                continue;
-            }
-            '"' => {
-                offset = skip_double_quoted(source, offset + ch.len_utf8(), upper);
-                continue;
-            }
-            '#' if shell_comment_can_start(source, offset) => {
-                offset = source[offset..]
-                    .find('\n')
-                    .map_or(upper, |newline| offset + newline + 1);
-                continue;
-            }
-            _ => {}
-        }
-
-        if loop_open_keyword_at(source, offset, upper) {
-            depth = depth.saturating_add(1);
-            offset += source[offset..]
-                .chars()
-                .take_while(char::is_ascii_alphabetic)
-                .map(char::len_utf8)
-                .sum::<usize>();
-            continue;
-        }
-        if shell_keyword_at(source, offset, upper, "done") {
-            if depth > 0 {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(offset);
-                }
-            }
-            offset += "done".len();
-            continue;
-        }
-        offset += ch.len_utf8();
+fn shell_quoted_or_comment_end(
+    source: &str,
+    offset: usize,
+    upper: usize,
+    ch: char,
+) -> Option<usize> {
+    match ch {
+        '\'' => Some(skip_single_quoted(source, offset + ch.len_utf8(), upper)),
+        '"' => Some(skip_double_quoted(source, offset + ch.len_utf8(), upper)),
+        '#' if shell_comment_can_start(source, offset) => Some(
+            source[offset..]
+                .find('\n')
+                .map_or(upper, |newline| offset + newline + 1),
+        ),
+        _ => None,
     }
-    None
 }
