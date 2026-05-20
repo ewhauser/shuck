@@ -617,48 +617,35 @@ mod tests {
     }
 
     fn stable_formatter_fixture_cases() -> Vec<(&'static str, &'static str, ShellFormatOptions)> {
+        let same_name = |fixture, options| (fixture, fixture, options);
+        let with_name = |fixture, filename, options| (fixture, filename, options);
+
         vec![
-            (
-                "function_next_line.sh",
+            same_name(
                 "function_next_line.sh",
                 ShellFormatOptions::default().with_function_next_line(true),
             ),
-            (
-                "case_default.sh",
-                "case_default.sh",
-                ShellFormatOptions::default(),
-            ),
-            (
-                "space_redirects.sh",
+            same_name("case_default.sh", ShellFormatOptions::default()),
+            same_name(
                 "space_redirects.sh",
                 ShellFormatOptions::default().with_space_redirects(true),
             ),
-            (
-                "keep_padding.sh",
+            same_name(
                 "keep_padding.sh",
                 ShellFormatOptions::default().with_keep_padding(true),
             ),
-            (
-                "never_split.sh",
+            same_name(
                 "never_split.sh",
                 ShellFormatOptions::default().with_never_split(true),
             ),
-            (
-                "nested_heredoc.sh",
-                "nested_heredoc.sh",
-                ShellFormatOptions::default(),
-            ),
-            (
+            same_name("nested_heredoc.sh", ShellFormatOptions::default()),
+            with_name(
                 "simplify.sh",
                 "simplify.bash",
                 ShellFormatOptions::default().with_simplify(true),
             ),
-            (
-                "minify.sh",
-                "minify.sh",
-                ShellFormatOptions::default().with_minify(true),
-            ),
-            (
+            same_name("minify.sh", ShellFormatOptions::default().with_minify(true)),
+            with_name(
                 "mksh_select.sh",
                 "script.mksh",
                 ShellFormatOptions::default().with_dialect(ShellDialect::Mksh),
