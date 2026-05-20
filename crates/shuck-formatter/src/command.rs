@@ -896,40 +896,68 @@ pub(crate) fn compound_contains_child(
     mut stmt_predicate: impl FnMut(&Stmt) -> bool,
     mut seq_predicate: impl FnMut(&StmtSeq) -> bool,
 ) -> bool {
+    let mut found = false;
+    for_each_compound_child(command, |child| {
+        if found {
+            return;
+        }
+        found = match child {
+            CompoundChild::Stmt(stmt) => stmt_predicate(stmt),
+            CompoundChild::Sequence(sequence) => seq_predicate(sequence),
+        };
+    });
+    found
+}
+
+enum CompoundChild<'a> {
+    Stmt(&'a Stmt),
+    Sequence(&'a StmtSeq),
+}
+
+fn for_each_compound_child(command: &CompoundCommand, mut visitor: impl FnMut(CompoundChild<'_>)) {
     match command {
         CompoundCommand::If(command) => {
-            seq_predicate(&command.condition)
-                || seq_predicate(&command.then_branch)
-                || command
-                    .elif_branches
-                    .iter()
-                    .any(|(condition, body)| seq_predicate(condition) || seq_predicate(body))
-                || command.else_branch.as_ref().is_some_and(seq_predicate)
+            visitor(CompoundChild::Sequence(&command.condition));
+            visitor(CompoundChild::Sequence(&command.then_branch));
+            for (condition, body) in &command.elif_branches {
+                visitor(CompoundChild::Sequence(condition));
+                visitor(CompoundChild::Sequence(body));
+            }
+            if let Some(body) = &command.else_branch {
+                visitor(CompoundChild::Sequence(body));
+            }
         }
-        CompoundCommand::For(command) => seq_predicate(&command.body),
-        CompoundCommand::Repeat(command) => seq_predicate(&command.body),
-        CompoundCommand::Foreach(command) => seq_predicate(&command.body),
-        CompoundCommand::ArithmeticFor(command) => seq_predicate(&command.body),
+        CompoundCommand::For(command) => visitor(CompoundChild::Sequence(&command.body)),
+        CompoundCommand::Repeat(command) => visitor(CompoundChild::Sequence(&command.body)),
+        CompoundCommand::Foreach(command) => visitor(CompoundChild::Sequence(&command.body)),
+        CompoundCommand::ArithmeticFor(command) => visitor(CompoundChild::Sequence(&command.body)),
         CompoundCommand::While(command) => {
-            seq_predicate(&command.condition) || seq_predicate(&command.body)
+            visitor(CompoundChild::Sequence(&command.condition));
+            visitor(CompoundChild::Sequence(&command.body));
         }
         CompoundCommand::Until(command) => {
-            seq_predicate(&command.condition) || seq_predicate(&command.body)
+            visitor(CompoundChild::Sequence(&command.condition));
+            visitor(CompoundChild::Sequence(&command.body));
         }
         CompoundCommand::Case(command) => {
-            command.cases.iter().any(|item| seq_predicate(&item.body))
+            for item in &command.cases {
+                visitor(CompoundChild::Sequence(&item.body));
+            }
         }
-        CompoundCommand::Select(command) => seq_predicate(&command.body),
+        CompoundCommand::Select(command) => visitor(CompoundChild::Sequence(&command.body)),
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            seq_predicate(commands)
+            visitor(CompoundChild::Sequence(commands));
         }
-        CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => false,
+        CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => {}
         CompoundCommand::Time(command) => {
-            command.command.as_deref().is_some_and(&mut stmt_predicate)
+            if let Some(command) = command.command.as_deref() {
+                visitor(CompoundChild::Stmt(command));
+            }
         }
-        CompoundCommand::Coproc(command) => stmt_predicate(&command.body),
+        CompoundCommand::Coproc(command) => visitor(CompoundChild::Stmt(&command.body)),
         CompoundCommand::Always(command) => {
-            seq_predicate(&command.body) || seq_predicate(&command.always_body)
+            visitor(CompoundChild::Sequence(&command.body));
+            visitor(CompoundChild::Sequence(&command.always_body));
         }
     }
 }
@@ -1085,88 +1113,33 @@ fn compound_verbatim_span(
     source_map: Option<&SourceMap<'_>>,
 ) -> Span {
     match command {
-        CompoundCommand::If(command) => {
-            let mut span = command.span;
-            span = merge_stmt_sequence_verbatim_span(span, &command.condition, source, source_map);
-            span =
-                merge_stmt_sequence_verbatim_span(span, &command.then_branch, source, source_map);
-            for (condition, body) in &command.elif_branches {
-                span = merge_stmt_sequence_verbatim_span(span, condition, source, source_map);
-                span = merge_stmt_sequence_verbatim_span(span, body, source, source_map);
-            }
-            if let Some(body) = &command.else_branch {
-                span = merge_stmt_sequence_verbatim_span(span, body, source, source_map);
-            }
-            span
-        }
-        CompoundCommand::For(command) => {
-            merge_stmt_sequence_verbatim_span(command.span, &command.body, source, source_map)
-        }
-        CompoundCommand::Repeat(command) => {
-            merge_stmt_sequence_verbatim_span(command.span, &command.body, source, source_map)
-        }
-        CompoundCommand::Foreach(command) => {
-            merge_stmt_sequence_verbatim_span(command.span, &command.body, source, source_map)
-        }
-        CompoundCommand::ArithmeticFor(command) => {
-            merge_stmt_sequence_verbatim_span(command.span, &command.body, source, source_map)
-        }
-        CompoundCommand::While(command) => {
-            let span = merge_stmt_sequence_verbatim_span(
-                command.span,
-                &command.condition,
-                source,
-                source_map,
-            );
-            merge_stmt_sequence_verbatim_span(span, &command.body, source, source_map)
-        }
-        CompoundCommand::Until(command) => {
-            let span = merge_stmt_sequence_verbatim_span(
-                command.span,
-                &command.condition,
-                source,
-                source_map,
-            );
-            merge_stmt_sequence_verbatim_span(span, &command.body, source, source_map)
-        }
-        CompoundCommand::Case(command) => {
-            let mut span = command.span;
-            for item in &command.cases {
-                span = merge_stmt_sequence_verbatim_span(span, &item.body, source, source_map);
-            }
-            span
-        }
-        CompoundCommand::Select(command) => {
-            merge_stmt_sequence_verbatim_span(command.span, &command.body, source, source_map)
-        }
         CompoundCommand::Subshell(commands) => {
             group_verbatim_span_impl(commands.as_slice(), source, source_map, '(', ')')
         }
         CompoundCommand::BraceGroup(commands) => {
             group_verbatim_span_impl(commands.as_slice(), source, source_map, '{', '}')
         }
-        CompoundCommand::Arithmetic(command) => command.span,
-        CompoundCommand::Time(command) => command
-            .command
-            .as_ref()
-            .map(|inner| {
-                command
-                    .span
-                    .merge(stmt_verbatim_span_impl(inner, source, source_map))
-            })
-            .unwrap_or(command.span),
-        CompoundCommand::Conditional(command) => command.span,
-        CompoundCommand::Coproc(command) => {
-            command
-                .span
-                .merge(stmt_verbatim_span_impl(&command.body, source, source_map))
-        }
-        CompoundCommand::Always(command) => {
-            let span =
-                merge_stmt_sequence_verbatim_span(command.span, &command.body, source, source_map);
-            merge_stmt_sequence_verbatim_span(span, &command.always_body, source, source_map)
-        }
+        _ => compound_verbatim_span_from_children(command, source, source_map),
     }
+}
+
+fn compound_verbatim_span_from_children(
+    command: &CompoundCommand,
+    source: &str,
+    source_map: Option<&SourceMap<'_>>,
+) -> Span {
+    let mut span = compound_span(command);
+    for_each_compound_child(command, |child| {
+        span = match child {
+            CompoundChild::Stmt(stmt) => {
+                span.merge(stmt_verbatim_span_impl(stmt, source, source_map))
+            }
+            CompoundChild::Sequence(sequence) => {
+                merge_stmt_sequence_verbatim_span(span, sequence, source, source_map)
+            }
+        };
+    });
+    span
 }
 
 fn merge_stmt_sequence_verbatim_span(
