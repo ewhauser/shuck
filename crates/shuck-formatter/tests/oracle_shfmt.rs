@@ -267,29 +267,18 @@ fn large_corpus_matches_shfmt() {
 
 impl LargeCorpusProgress {
     fn observe(&self, result: &LargeCorpusFixtureResult, total: usize) {
-        match &result.comparison {
-            LargeCorpusComparison::Matched => {
-                self.compared.fetch_add(1, Ordering::Relaxed);
-                self.matched.fetch_add(1, Ordering::Relaxed);
-            }
-            LargeCorpusComparison::Mismatch(_) => {
-                self.compared.fetch_add(1, Ordering::Relaxed);
-                self.mismatches.fetch_add(1, Ordering::Relaxed);
-            }
-            LargeCorpusComparison::ShuckError(_) => {
-                self.compared.fetch_add(1, Ordering::Relaxed);
-                self.shuck_errors.fetch_add(1, Ordering::Relaxed);
-            }
-            LargeCorpusComparison::ShfmtSkip => {
-                self.shfmt_skips.fetch_add(1, Ordering::Relaxed);
-            }
-            LargeCorpusComparison::UnsupportedDialect => {
-                self.unsupported_dialects.fetch_add(1, Ordering::Relaxed);
-            }
-            LargeCorpusComparison::NonUtf8 => {
-                self.non_utf8.fetch_add(1, Ordering::Relaxed);
-            }
+        let (counts_comparison, counter) = match &result.comparison {
+            LargeCorpusComparison::Matched => (true, &self.matched),
+            LargeCorpusComparison::Mismatch(_) => (true, &self.mismatches),
+            LargeCorpusComparison::ShuckError(_) => (true, &self.shuck_errors),
+            LargeCorpusComparison::ShfmtSkip => (false, &self.shfmt_skips),
+            LargeCorpusComparison::UnsupportedDialect => (false, &self.unsupported_dialects),
+            LargeCorpusComparison::NonUtf8 => (false, &self.non_utf8),
+        };
+        if counts_comparison {
+            self.compared.fetch_add(1, Ordering::Relaxed);
         }
+        counter.fetch_add(1, Ordering::Relaxed);
 
         let processed = self.processed.fetch_add(1, Ordering::Relaxed) + 1;
         if processed.is_multiple_of(LARGE_CORPUS_PROGRESS_INTERVAL) {
