@@ -243,13 +243,9 @@ fn builtin_args_have_multiline_literal_source(
     assignments: &[Assignment],
     source: &str,
 ) -> bool {
-    optional_word_has_multiline_literal_source(primary, source)
+    primary.is_some_and(|word| word_has_multiline_literal_source(word, source))
         || words_have_multiline_literal_source(extra_args, source)
         || assignments_have_multiline_literal_source(assignments, source)
-}
-
-fn optional_word_has_multiline_literal_source(word: Option<&Word>, source: &str) -> bool {
-    word.is_some_and(|word| word_has_multiline_literal_source(word, source))
 }
 
 fn compound_has_multiline_literal_source(command: &CompoundCommand, source: &str) -> bool {
@@ -498,17 +494,15 @@ fn render_word_syntax_internal(
 /// misinterpreted a literal prompt fragment as a command-substitution delimiter.
 /// In that case the word's raw source must be preserved verbatim.
 fn word_has_escaped_command_substitution(word: &Word, source: &str) -> bool {
-    if raw_word_source_slice(word, source).is_some_and(raw_word_has_escaped_command_substitution) {
+    if raw_word_source_slice(word, source)
+        .is_some_and(|raw| raw.contains("\\$(") || raw.contains("\\`"))
+    {
         return true;
     }
 
     word_part_nodes_any(&word.parts, &mut |part| {
         word_part_has_escaped_command_substitution(&part.kind, part.span, source)
     })
-}
-
-fn raw_word_has_escaped_command_substitution(raw: &str) -> bool {
-    raw.contains("\\$(") || raw.contains("\\`")
 }
 
 fn word_part_has_escaped_command_substitution(
@@ -721,7 +715,8 @@ fn render_heredoc_body_part(
         HeredocBodyPart::Literal(text) => {
             let raw = span.slice(source);
             let cooked = text.as_str(source, span);
-            if heredoc_literal_needs_raw_source(raw, cooked) {
+            if raw != cooked && (raw.contains("\\$") || raw.contains("\\`") || raw.contains("\\\\"))
+            {
                 rendered.push_str(raw);
             } else {
                 rendered.push_str(cooked);
@@ -826,10 +821,6 @@ fn escaped_heredoc_expansion_source(span: shuck_ast::Span, source: &str) -> Opti
     }
 
     None
-}
-
-fn heredoc_literal_needs_raw_source(raw: &str, cooked: &str) -> bool {
-    raw != cooked && (raw.contains("\\$") || raw.contains("\\`") || raw.contains("\\\\"))
 }
 
 fn push_raw_word_with_normalized_command_redirect_spacing(
@@ -1662,7 +1653,7 @@ fn normalize_raw_compound_assignment_word_continuations(raw: &str) -> Option<Str
     }
 
     let common_indent =
-        common_raw_compound_assignment_body_indent(body_lines.get(1..).unwrap_or_default());
+        common_nonempty_shell_indent(body_lines.get(1..).unwrap_or_default().iter().copied());
     let mut normalized = String::with_capacity(raw.len());
     normalized.push_str(head);
     normalized.push_str(body_lines[0].trim_start_matches([' ', '\t']));
@@ -1691,10 +1682,6 @@ fn raw_compound_assignment_head_is_simple(head: &str) -> bool {
     };
     matches!(first, '_' | 'a'..='z' | 'A'..='Z')
         && chars.all(|ch| matches!(ch, '_' | 'a'..='z' | 'A'..='Z' | '0'..='9'))
-}
-
-fn common_raw_compound_assignment_body_indent(lines: &[&str]) -> String {
-    common_nonempty_shell_indent(lines.iter().copied())
 }
 
 fn parameter_bourne_operand_needs_subscript_compaction(
