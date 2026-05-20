@@ -2414,18 +2414,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             )?;
             for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
                 self.write_if_branch_prefix(command, index, source);
-                let condition_prefix_comments =
-                    self.elif_condition_prefix_comments(command, index, condition);
-                if condition_keyword_on_previous_non_empty_line(condition, source, "elif")
-                    || elif_condition_has_explicit_statement_break(condition, body, source)
-                    || !condition_prefix_comments.is_empty()
-                {
-                    self.write_multiline_elif_header(condition, body)?;
-                } else {
-                    self.write_text("elif ");
-                    self.format_inline_stmts(condition)?;
-                    self.write_text(self.then_separator_for_condition(condition));
-                }
+                self.write_elif_header(command, index, condition, body, source)?;
                 let body_upper_bound =
                     if_branch_upper_bound(command, index + 1, source, self.source_map());
                 self.format_if_branch_body_after_keyword(
@@ -2584,18 +2573,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.write_text(self.then_separator_for_condition(condition));
             } else {
                 self.write_if_branch_prefix(command, index, source);
-                let condition_prefix_comments =
-                    self.elif_condition_prefix_comments(command, index, condition);
-                if condition_keyword_on_previous_non_empty_line(condition, source, "elif")
-                    || elif_condition_has_explicit_statement_break(condition, body, source)
-                    || !condition_prefix_comments.is_empty()
-                {
-                    self.write_multiline_elif_header(condition, body)?;
-                } else {
-                    self.write_text("elif ");
-                    self.format_inline_stmts(condition)?;
-                    self.write_text(self.then_separator_for_condition(condition));
-                }
+                self.write_elif_header(command, index, condition, body, source)?;
             }
             let body_upper_bound =
                 if_branch_upper_bound(command, index + 1, source, self.source_map());
@@ -2771,6 +2749,36 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
     }
 
+    fn write_elif_header(
+        &mut self,
+        command: &IfCommand,
+        branch_index: usize,
+        condition: &StmtSeq,
+        body: &StmtSeq,
+        source: &str,
+    ) -> Result<()> {
+        if condition_keyword_on_previous_non_empty_line(condition, source, "elif")
+            || elif_condition_has_explicit_statement_break(condition, body, source)
+            || !self
+                .elif_condition_prefix_comments(command, branch_index, condition)
+                .is_empty()
+        {
+            self.write_text("elif");
+            self.newline();
+            self.with_indent(|formatter| {
+                formatter.format_stmt_sequence(condition, Some(body.span.start.offset))
+            })?;
+            self.newline();
+            self.write_text("then");
+            Ok(())
+        } else {
+            self.write_text("elif ");
+            self.format_inline_stmts(condition)?;
+            self.write_text(self.then_separator_for_condition(condition));
+            Ok(())
+        }
+    }
+
     fn emit_branch_prefix_comments(&mut self, command: &IfCommand, branch_index: usize) {
         let Some((start, end)) = if_next_branch_region(command, branch_index, self.source()) else {
             return;
@@ -2814,17 +2822,6 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
 
         self.own_line_comments_in_region(keyword_offset, condition_start)
-    }
-
-    fn write_multiline_elif_header(&mut self, condition: &StmtSeq, body: &StmtSeq) -> Result<()> {
-        self.write_text("elif");
-        self.newline();
-        self.with_indent(|formatter| {
-            formatter.format_stmt_sequence(condition, Some(body.span.start.offset))
-        })?;
-        self.newline();
-        self.write_text("then");
-        Ok(())
     }
 
     fn write_sequence_open_suffix(&mut self, commands: &StmtSeq, upper_bound: Option<usize>) {
