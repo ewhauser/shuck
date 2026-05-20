@@ -565,6 +565,17 @@ mod tests {
         };
     }
 
+    macro_rules! default_format_cases {
+        ($($name:ident: $source:expr => $expected:expr;)+) => {
+            $(
+                #[test]
+                fn $name() {
+                    assert_formats($source, $expected);
+                }
+            )+
+        };
+    }
+
     macro_rules! default_unchanged_ast_cases {
         ($($name:ident: $source:expr;)+) => {
             $(
@@ -1691,139 +1702,67 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn block_command_substitution_pipeline_stage_after_multiline_literal_keeps_stage_indent() {
-        let source = "versions=\"$(\n    grep rpm <<< \"$downloads_page\" |\n    sed '\n        s/^.*basic[[:alpha:]]*-//;\n        s/linuxx64//;\n    ' |\n    sort -Vur\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "versions=\"$(\n\tgrep rpm <<<\"$downloads_page\" |\n\t\tsed '\n        s/^.*basic[[:alpha:]]*-//;\n        s/linuxx64//;\n    ' |\n\t\tsort -Vur\n)\"\n",
-        );
+    bash_format_ast_cases! {
+        block_command_substitution_pipeline_stage_after_multiline_literal_keeps_stage_indent:
+            "versions=\"$(\n    grep rpm <<< \"$downloads_page\" |\n    sed '\n        s/^.*basic[[:alpha:]]*-//;\n        s/linuxx64//;\n    ' |\n    sort -Vur\n)\"\n"
+            => "versions=\"$(\n\tgrep rpm <<<\"$downloads_page\" |\n\t\tsed '\n        s/^.*basic[[:alpha:]]*-//;\n        s/linuxx64//;\n    ' |\n\t\tsort -Vur\n)\"\n";
+        block_command_substitution_pipeline_after_command_continuations_keeps_stage_indent:
+            "artist_id=\"$(\n    SEARCH_TYPE=artist \\\n    SEARCH_LIMIT=50 \\\n    \"$srcdir/search.sh\" \"$artist\" |\n    jq -r \"\n        .items[] |\n        .id\n    \" |\n    head -n1\n)\"\n"
+            => "artist_id=\"$(\n\tSEARCH_TYPE=artist \\\n\t\tSEARCH_LIMIT=50 \\\n\t\t\"$srcdir/search.sh\" \"$artist\" |\n\t\tjq -r \"\n        .items[] |\n        .id\n    \" |\n\t\thead -n1\n)\"\n";
+        inline_assignment_command_substitution_pipeline_after_multiline_literal_keeps_body_indent:
+            "f() {\n  packages=\"$(sed 's/#.*//;\n         s/[<>=].*//;\n         /^[[:space:]]*$/d;' $package_files |\n        sort |\n        uniq -d\n    )\"\n}\n"
+            => "f() {\n\tpackages=\"$(\n\t\tsed 's/#.*//;\n         s/[<>=].*//;\n         /^[[:space:]]*$/d;' $package_files |\n\t\t\tsort |\n\t\t\tuniq -d\n\t)\"\n}\n";
+        preserves_quoted_command_substitution_multiline_literals:
+            "f() {\n  _comp_compgen_split -- \"$(cmd | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}')\"\n}\n"
+            => "f() {\n\t_comp_compgen_split -- \"$(cmd | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}')\"\n}\n";
+        indents_block_command_substitution_assignments_with_multiline_literals:
+            "f() {\n  gw=\"$(\n    netstat -rn |\n    awk '\n            /^default/ { print $2 }\n        '\n  )\"\n}\n"
+            => "f() {\n\tgw=\"$(\n\t\tnetstat -rn |\n\t\t\tawk '\n            /^default/ { print $2 }\n        '\n\t)\"\n}\n";
+        keeps_multiline_arithmetic_if_condition_then_attached:
+            "if ! (( BASH_VERSINFO[0] > 4 ||\n        BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 2 )); then\n  exit 1\nfi\n"
+            => "if ! ((\\\nBASH_VERSINFO[0] > 4 || \\\nBASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 2)); then\n\texit 1\nfi\n";
+        formats_binary_spacing_around_command_substitution_arithmetic_operands:
+            "printf \"%s\\n\" \"$(($(foo)-bar))\"\n"
+            => "printf \"%s\\n\" \"$(($(foo) - bar))\"\n";
     }
 
-    #[test]
-    fn block_command_substitution_pipeline_after_command_continuations_keeps_stage_indent() {
-        let source = "artist_id=\"$(\n    SEARCH_TYPE=artist \\\n    SEARCH_LIMIT=50 \\\n    \"$srcdir/search.sh\" \"$artist\" |\n    jq -r \"\n        .items[] |\n        .id\n    \" |\n    head -n1\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "artist_id=\"$(\n\tSEARCH_TYPE=artist \\\n\t\tSEARCH_LIMIT=50 \\\n\t\t\"$srcdir/search.sh\" \"$artist\" |\n\t\tjq -r \"\n        .items[] |\n        .id\n    \" |\n\t\thead -n1\n)\"\n",
-        );
+    bash_unchanged_ast_cases! {
+        preserves_inline_if_elif_command_substitutions:
+            "color=\"$(if [ \"$status\" = ok ]; then echo GREEN; elif [ \"$status\" = bad ]; then echo RED; else echo WHITE; fi)\"\n";
     }
 
-    #[test]
-    fn inline_assignment_command_substitution_pipeline_after_multiline_literal_keeps_body_indent() {
-        let source = "f() {\n  packages=\"$(sed 's/#.*//;\n         s/[<>=].*//;\n         /^[[:space:]]*$/d;' $package_files |\n        sort |\n        uniq -d\n    )\"\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tpackages=\"$(\n\t\tsed 's/#.*//;\n         s/[<>=].*//;\n         /^[[:space:]]*$/d;' $package_files |\n\t\t\tsort |\n\t\t\tuniq -d\n\t)\"\n}\n",
-        );
+    default_format_cases! {
+        formats_arithmetic_expansions_from_ruby_build:
+            "echo $(( ver[0]*100 + ver[1] ))\n"
+            => "echo $((ver[0] * 100 + ver[1]))\n";
+        trims_arithmetic_command_delimiter_padding:
+            "if (( EUID == 0 )); then\n  abort root\nfi\n"
+            => "if ((EUID == 0)); then\n\tabort root\nfi\n";
+        formats_shell_style_variables_inside_arithmetic_expansions_like_shfmt:
+            "index=$(($index+1))\n"
+            => "index=$(($index + 1))\n";
     }
 
-    #[test]
-    fn preserves_quoted_command_substitution_multiline_literals() {
-        let source = "f() {\n  _comp_compgen_split -- \"$(cmd | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}')\"\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\t_comp_compgen_split -- \"$(cmd | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}')\"\n}\n",
-        );
+    default_format_ast_cases! {
+        formats_arithmetic_for_init_assignment_spacing:
+            "for ((i=1;i<limit;++i)); do\n  echo \"$i\"\ndone\nfor ((j = 1; ; j++)); do\n  echo \"$j\"\ndone\n"
+            => "for ((i = 1; i < limit; ++i)); do\n\techo \"$i\"\ndone\nfor ((j = 1; ; j++)); do\n\techo \"$j\"\ndone\n";
+        formats_arithmetic_command_assignment_spacing:
+            "((count+=1))\n((total = count + 1))\n((y=x+1))\nif ((${value:=0} == 1)); then\n  return 0\nfi\n"
+            => "((count += 1))\n((total = count + 1))\n((y = x + 1))\nif ((${value:=0} == 1)); then\n\treturn 0\nfi\n";
+        trims_command_substitution_padding_inside_arithmetic_expansions:
+            "echo $(( $( echo \"$speed\" | cut -d'k' -f1 ) * 1024 ))\nborder=$(( $( _system uptime days ) * 3 )) # daily\n"
+            => "echo $(($(echo \"$speed\" | cut -d'k' -f1) * 1024))\nborder=$(($(_system uptime days) * 3)) # daily\n";
+        trims_arithmetic_expansion_padding_inside_double_quotes:
+            "echo \"$(( $(_system date unixtime) - DIFF ))\"\necho \"lasts $(( $t2 - $t1 )) seconds ($(( ($t2 - $t1) / 60 )) minutes)\"\n"
+            => "echo \"$(($(_system date unixtime) - DIFF))\"\necho \"lasts $(($t2 - $t1)) seconds ($((($t2 - $t1) / 60)) minutes)\"\n";
     }
 
-    #[test]
-    fn indents_block_command_substitution_assignments_with_multiline_literals() {
-        let source = "f() {\n  gw=\"$(\n    netstat -rn |\n    awk '\n            /^default/ { print $2 }\n        '\n  )\"\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tgw=\"$(\n\t\tnetstat -rn |\n\t\t\tawk '\n            /^default/ { print $2 }\n        '\n\t)\"\n}\n",
-        );
-    }
-
-    #[test]
-    fn preserves_inline_if_elif_command_substitutions() {
-        let source = "color=\"$(if [ \"$status\" = ok ]; then echo GREEN; elif [ \"$status\" = bad ]; then echo RED; else echo WHITE; fi)\"\n";
-        assert_bash_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn formats_arithmetic_expansions_from_ruby_build() {
-        let source = "echo $(( ver[0]*100 + ver[1] ))\n";
-
-        assert_formats(source, "echo $((ver[0] * 100 + ver[1]))\n");
-    }
-
-    #[test]
-    fn trims_arithmetic_command_delimiter_padding() {
-        let source = "if (( EUID == 0 )); then\n  abort root\nfi\n";
-
-        assert_formats(source, "if ((EUID == 0)); then\n\tabort root\nfi\n");
-    }
-
-    #[test]
-    fn keeps_multiline_arithmetic_if_condition_then_attached() {
-        let source = "if ! (( BASH_VERSINFO[0] > 4 ||\n        BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 2 )); then\n  exit 1\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if ! ((\\\nBASH_VERSINFO[0] > 4 || \\\nBASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 2)); then\n\texit 1\nfi\n",
-        );
-    }
-
-    #[test]
-    fn formats_arithmetic_for_init_assignment_spacing() {
-        let source = "for ((i=1;i<limit;++i)); do\n  echo \"$i\"\ndone\nfor ((j = 1; ; j++)); do\n  echo \"$j\"\ndone\n";
-        assert_formats_default_with_ast(
-            source,
-            "for ((i = 1; i < limit; ++i)); do\n\techo \"$i\"\ndone\nfor ((j = 1; ; j++)); do\n\techo \"$j\"\ndone\n",
-        );
-    }
-
-    #[test]
-    fn formats_arithmetic_command_assignment_spacing() {
-        let source = "((count+=1))\n((total = count + 1))\n((y=x+1))\nif ((${value:=0} == 1)); then\n  return 0\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "((count += 1))\n((total = count + 1))\n((y = x + 1))\nif ((${value:=0} == 1)); then\n\treturn 0\nfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_shell_style_variables_inside_arithmetic_expansions() {
-        let source = "index=$(($index + 1))\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn formats_shell_style_variables_inside_arithmetic_expansions_like_shfmt() {
-        let source = "index=$(($index+1))\n";
-
-        assert_formats(source, "index=$(($index + 1))\n");
-    }
-
-    #[test]
-    fn preserves_command_substitutions_inside_arithmetic_expansions() {
-        let source = "echo $(($(echo \"$speed\" | cut -d'k' -f1) * 1024))\nborder=$(($(_system uptime days) * 3)) # daily\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn formats_binary_spacing_around_command_substitution_arithmetic_operands() {
-        let source = "printf \"%s\\n\" \"$(($(foo)-bar))\"\n";
-        assert_bash_formats_with_ast(source, "printf \"%s\\n\" \"$(($(foo) - bar))\"\n");
-    }
-
-    #[test]
-    fn trims_command_substitution_padding_inside_arithmetic_expansions() {
-        let source = "echo $(( $( echo \"$speed\" | cut -d'k' -f1 ) * 1024 ))\nborder=$(( $( _system uptime days ) * 3 )) # daily\n";
-        assert_formats_default_with_ast(
-            source,
-            "echo $(($(echo \"$speed\" | cut -d'k' -f1) * 1024))\nborder=$(($(_system uptime days) * 3)) # daily\n",
-        );
-    }
-
-    #[test]
-    fn trims_arithmetic_expansion_padding_inside_double_quotes() {
-        let source = "echo \"$(( $(_system date unixtime) - DIFF ))\"\necho \"lasts $(( $t2 - $t1 )) seconds ($(( ($t2 - $t1) / 60 )) minutes)\"\n";
-        assert_formats_default_with_ast(
-            source,
-            "echo \"$(($(_system date unixtime) - DIFF))\"\necho \"lasts $(($t2 - $t1)) seconds ($((($t2 - $t1) / 60)) minutes)\"\n",
-        );
+    default_unchanged_ast_cases! {
+        preserves_shell_style_variables_inside_arithmetic_expansions:
+            "index=$(($index + 1))\n";
+        preserves_command_substitutions_inside_arithmetic_expansions:
+            "echo $(($(echo \"$speed\" | cut -d'k' -f1) * 1024))\nborder=$(($(_system uptime days) * 3)) # daily\n";
     }
 
     #[test]
