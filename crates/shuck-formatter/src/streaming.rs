@@ -434,6 +434,19 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.scratch = scratch;
     }
 
+    fn render_word_with_facts_to_buffer(&self, word: &Word, rendered: &mut String) {
+        let source_map = self.source_map().clone();
+        let facts = self.facts();
+        render_word_syntax_with_facts_to_buf(
+            word,
+            self.source(),
+            self.options(),
+            &source_map,
+            facts,
+            rendered,
+        );
+    }
+
     fn write_rendered(
         &mut self,
         render: impl FnOnce(&mut String, &'source str, &ResolvedShellFormatOptions),
@@ -1485,19 +1498,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
     fn format_simple_command(&mut self, command: &SimpleCommand) -> Result<()> {
         let source = self.source();
-        let source_map = self.source_map().clone();
         let mut rendered_name = self.take_scratch_buffer();
-        {
-            let facts = self.facts();
-            render_word_syntax_with_facts_to_buf(
-                &command.name,
-                source,
-                self.options(),
-                &source_map,
-                facts,
-                &mut rendered_name,
-            );
-        }
+        self.render_word_with_facts_to_buffer(&command.name, &mut rendered_name);
         if command.args.is_empty()
             && command.assignments.len() == 1
             && rendered_name.is_empty()
@@ -1545,19 +1547,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         redirects: &[Redirect],
     ) {
         let source = self.source();
-        let source_map = self.source_map().clone();
         let mut rendered_name = self.take_scratch_buffer();
-        {
-            let facts = self.facts();
-            render_word_syntax_with_facts_to_buf(
-                &command.name,
-                source,
-                self.options(),
-                &source_map,
-                facts,
-                &mut rendered_name,
-            );
-        }
+        self.render_word_with_facts_to_buffer(&command.name, &mut rendered_name);
 
         let mut parts = Vec::with_capacity(
             command.assignments.len()
@@ -3964,19 +3955,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if function.header.entries.len() == 1
             && let Some(name) = function.header.entries[0].static_name.as_ref()
         {
-            let source_map = self.source_map().clone();
             let mut rendered_entry = self.take_scratch_buffer();
-            {
-                let facts = self.facts();
-                render_word_syntax_with_facts_to_buf(
-                    &function.header.entries[0].word,
-                    self.source(),
-                    self.options(),
-                    &source_map,
-                    facts,
-                    &mut rendered_entry,
-                );
-            }
+            self.render_word_with_facts_to_buffer(
+                &function.header.entries[0].word,
+                &mut rendered_entry,
+            );
             let classic_single_name = name.as_str() == rendered_entry;
             self.restore_scratch_buffer(rendered_entry);
 
