@@ -949,37 +949,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             self.visit_word(&entry.word);
         }
 
-        match function.body.as_ref() {
-            Stmt {
-                command: Command::Compound(CompoundCommand::BraceGroup(commands)),
-                negated: false,
-                redirects,
-                terminator: None,
-                ..
-            } if redirects.is_empty() => {
-                if group_was_inline_in_source(commands.as_slice(), self.source_map(), '{', '}') {
-                    self.facts
-                        .inline_group_sequences
-                        .insert(FactSpan::from(commands.span));
-                }
-                self.visit_sequence(commands, Some(function.span.end.offset), Some('{'));
-            }
-            Stmt {
-                command: Command::Compound(CompoundCommand::Subshell(commands)),
-                negated: false,
-                redirects,
-                terminator: None,
-                ..
-            } if redirects.is_empty() => {
-                if group_was_inline_in_source(commands.as_slice(), self.source_map(), '(', ')') {
-                    self.facts
-                        .inline_group_sequences
-                        .insert(FactSpan::from(commands.span));
-                }
-                self.visit_sequence(commands, Some(function.span.end.offset), Some('('));
-            }
-            body => self.visit_stmt(body),
-        }
+        self.visit_function_body(function.body.as_ref(), function.span.end.offset);
     }
 
     fn visit_anonymous_function(&mut self, function: &AnonymousFunctionCommand) {
@@ -987,7 +957,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             self.visit_word(argument);
         }
 
-        match function.body.as_ref() {
+        self.visit_function_body(function.body.as_ref(), function.span.end.offset);
+    }
+
+    fn visit_function_body(&mut self, body: &Stmt, function_end_offset: usize) {
+        match body {
             Stmt {
                 command: Command::Compound(CompoundCommand::BraceGroup(commands)),
                 negated: false,
@@ -995,12 +969,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 terminator: None,
                 ..
             } if redirects.is_empty() => {
-                if group_was_inline_in_source(commands.as_slice(), self.source_map(), '{', '}') {
-                    self.facts
-                        .inline_group_sequences
-                        .insert(FactSpan::from(commands.span));
-                }
-                self.visit_sequence(commands, Some(function.span.end.offset), Some('{'));
+                self.visit_function_group_body(commands, function_end_offset, '{', '}');
             }
             Stmt {
                 command: Command::Compound(CompoundCommand::Subshell(commands)),
@@ -1009,15 +978,25 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 terminator: None,
                 ..
             } if redirects.is_empty() => {
-                if group_was_inline_in_source(commands.as_slice(), self.source_map(), '(', ')') {
-                    self.facts
-                        .inline_group_sequences
-                        .insert(FactSpan::from(commands.span));
-                }
-                self.visit_sequence(commands, Some(function.span.end.offset), Some('('));
+                self.visit_function_group_body(commands, function_end_offset, '(', ')');
             }
             body => self.visit_stmt(body),
         }
+    }
+
+    fn visit_function_group_body(
+        &mut self,
+        commands: &StmtSeq,
+        function_end_offset: usize,
+        open: char,
+        close: char,
+    ) {
+        if group_was_inline_in_source(commands.as_slice(), self.source_map(), open, close) {
+            self.facts
+                .inline_group_sequences
+                .insert(FactSpan::from(commands.span));
+        }
+        self.visit_sequence(commands, Some(function_end_offset), Some(open));
     }
 
     fn visit_redirect(&mut self, redirect: &Redirect) {
