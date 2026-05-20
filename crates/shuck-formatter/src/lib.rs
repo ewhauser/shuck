@@ -796,29 +796,18 @@ mod tests {
             => "foo() {\n\tif a; then\n\t\tone\n\telif b; then\n\t\t# note\n\t\ttwo\n\tfi\n}\n";
     }
 
-    #[test]
-    fn multiline_if_conditions_do_not_capture_later_body_comments() {
-        let source = "f() {\n\tif\n\t\t[[ -n \"${GEM_HOME:-}\" ]]\n\tthen\n\t\tcase \"$PATH:\" in\n\t\t$GEM_HOME/bin:*) true ;; # all fine\n\t\t*)\n\t\t\t# body note\n\t\t\twarn\n\t\t\t;;\n\t\tesac\n\tfi\n}\n\n# marker\ng() { :; }\n";
-        assert_bash_unchanged_with_ast(source);
+    bash_unchanged_ast_cases! {
+        multiline_if_conditions_do_not_capture_later_body_comments:
+            "f() {\n\tif\n\t\t[[ -n \"${GEM_HOME:-}\" ]]\n\tthen\n\t\tcase \"$PATH:\" in\n\t\t$GEM_HOME/bin:*) true ;; # all fine\n\t\t*)\n\t\t\t# body note\n\t\t\twarn\n\t\t\t;;\n\t\tesac\n\tfi\n}\n\n# marker\ng() { :; }\n";
     }
 
-    #[test]
-    fn keeps_inline_else_arm_after_multiline_then() {
-        let source =
-            "if [ $size != scalable ]; then\n  ex=png\n  size=${size}x${size}\nelse ex=svg; fi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if [ $size != scalable ]; then\n\tex=png\n\tsize=${size}x${size}\nelse ex=svg; fi\n",
-        );
-    }
-
-    #[test]
-    fn aligns_else_suffix_comments_with_nested_multiline_header_suffix_comments() {
-        let source = "if foo; then\n  :\nelse # branch\n  if [[ \"$x\" =~ y ]]\n  then # nested\n    :\n  fi\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if foo; then\n\t:\nelse                      # branch\n\tif [[ \"$x\" =~ y ]]; then # nested\n\t\t:\n\tfi\nfi\n",
-        );
+    bash_format_ast_cases! {
+        keeps_inline_else_arm_after_multiline_then:
+            "if [ $size != scalable ]; then\n  ex=png\n  size=${size}x${size}\nelse ex=svg; fi\n"
+            => "if [ $size != scalable ]; then\n\tex=png\n\tsize=${size}x${size}\nelse ex=svg; fi\n";
+        aligns_else_suffix_comments_with_nested_multiline_header_suffix_comments:
+            "if foo; then\n  :\nelse # branch\n  if [[ \"$x\" =~ y ]]\n  then # nested\n    :\n  fi\nfi\n"
+            => "if foo; then\n\t:\nelse                      # branch\n\tif [[ \"$x\" =~ y ]]; then # nested\n\t\t:\n\tfi\nfi\n";
     }
 
     default_format_ast_cases! {
@@ -839,58 +828,37 @@ mod tests {
             => "if [ -d \"$source_dir\" ]; then\n\tif ! mkdir -p \"$target_dir\"; then\n\t\treturn 1\n\tfi\n# if instead it is a file\nelif [ -f \"$source_dir\" ]; then\n\ttouch \"$target_dir\"\nfi\n";
     }
 
-    #[test]
-    fn preserves_comments_between_elif_and_condition() {
-        let source = "if a; then\none\nelif\n# explain\n [[ b ]]; then\ntwo\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if a; then\n\tone\nelif\n\t# explain\n\t[[ b ]]\nthen\n\ttwo\nfi\n",
-        );
+    bash_format_ast_cases! {
+        preserves_comments_between_elif_and_condition:
+            "if a; then\none\nelif\n# explain\n [[ b ]]; then\ntwo\nfi\n"
+            => "if a; then\n\tone\nelif\n\t# explain\n\t[[ b ]]\nthen\n\ttwo\nfi\n";
     }
 
-    #[test]
-    fn preserves_comments_after_if_blocks() {
-        assert_formats(
-            "if true; then\necho hi\nfi\n# after\necho bye\n",
-            "if true; then\n\techo hi\nfi\n# after\necho bye\n",
-        );
+    default_format_cases! {
+        preserves_comments_after_if_blocks:
+            "if true; then\necho hi\nfi\n# after\necho bye\n"
+            => "if true; then\n\techo hi\nfi\n# after\necho bye\n";
     }
 
-    #[test]
-    fn preserves_dangling_comment_inside_binary_brace_group_once() {
-        let source =
-            "if true; then\n  ls today && {\n    log done\n#\t\tcontinue\n  }\n\n  rm next\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if true; then\n\tls today && {\n\t\tlog done\n\t\t#\t\tcontinue\n\t}\n\n\trm next\nfi\n",
-        );
+    default_format_ast_cases! {
+        preserves_dangling_comment_inside_binary_brace_group_once:
+            "if true; then\n  ls today && {\n    log done\n#\t\tcontinue\n  }\n\n  rm next\nfi\n"
+            => "if true; then\n\tls today && {\n\t\tlog done\n\t\t#\t\tcontinue\n\t}\n\n\trm next\nfi\n";
     }
 
-    #[test]
-    fn binary_brace_group_does_not_gain_blank_before_next_command() {
-        let source = "main() {\n  [[ ! -f $ok ]] && {\n    err missing\n  }\n  next\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "main() {\n\t[[ ! -f $ok ]] && {\n\t\terr missing\n\t}\n\tnext\n}\n",
-        );
+    bash_format_ast_cases! {
+        binary_brace_group_does_not_gain_blank_before_next_command:
+            "main() {\n  [[ ! -f $ok ]] && {\n    err missing\n  }\n  next\n}\n"
+            => "main() {\n\t[[ ! -f $ok ]] && {\n\t\terr missing\n\t}\n\tnext\n}\n";
+        preserves_leading_comments_inside_redirected_brace_group:
+            "if [[ -n $DEBUG ]]; then\n  {\n    # one\n    # two\n    echo hi\n  } >&2\nfi\n"
+            => "if [[ -n $DEBUG ]]; then\n\t{\n\t\t# one\n\t\t# two\n\t\techo hi\n\t} >&2\nfi\n";
     }
 
-    #[test]
-    fn preserves_leading_comments_inside_redirected_brace_group() {
-        let source =
-            "if [[ -n $DEBUG ]]; then\n  {\n    # one\n    # two\n    echo hi\n  } >&2\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if [[ -n $DEBUG ]]; then\n\t{\n\t\t# one\n\t\t# two\n\t\techo hi\n\t} >&2\nfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_comments_after_function_blocks() {
-        assert_formats(
-            "foo() {\necho hi\n}\n# after\nbar\n",
-            "foo() {\n\techo hi\n}\n# after\nbar\n",
-        );
+    default_format_cases! {
+        preserves_comments_after_function_blocks:
+            "foo() {\necho hi\n}\n# after\nbar\n"
+            => "foo() {\n\techo hi\n}\n# after\nbar\n";
     }
 
     default_format_ast_cases! {
@@ -931,23 +899,13 @@ mod tests {
             "cat <<EOF # note\nhi\nEOF\n";
     }
 
-    #[test]
-    fn formats_heredoc_pipeline_with_trailing_comment_structurally() {
-        let source =
-            "f(){\n    cat <<EOF |\nbody\n# heredoc comment\nEOF\n    python #|\n    #sed x\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tcat <<EOF |\nbody\n# heredoc comment\nEOF\n\t\tpython #|\n\t#sed x\n}\n",
-        );
-    }
-
-    #[test]
-    fn defers_heredoc_body_until_continued_pipeline_head_finishes() {
-        let source = "if true; then\ncat << EOF | openssl req -new -key \"$key\" \\\n -x509 \\\n -out \"$cert\"\nbody\nEOF\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if true; then\n\tcat <<EOF | openssl req -new -key \"$key\" \\\n\t\t-x509 \\\n\t\t-out \"$cert\"\nbody\nEOF\nfi\n",
-        );
+    bash_format_ast_cases! {
+        formats_heredoc_pipeline_with_trailing_comment_structurally:
+            "f(){\n    cat <<EOF |\nbody\n# heredoc comment\nEOF\n    python #|\n    #sed x\n}\n"
+            => "f() {\n\tcat <<EOF |\nbody\n# heredoc comment\nEOF\n\t\tpython #|\n\t#sed x\n}\n";
+        defers_heredoc_body_until_continued_pipeline_head_finishes:
+            "if true; then\ncat << EOF | openssl req -new -key \"$key\" \\\n -x509 \\\n -out \"$cert\"\nbody\nEOF\nfi\n"
+            => "if true; then\n\tcat <<EOF | openssl req -new -key \"$key\" \\\n\t\t-x509 \\\n\t\t-out \"$cert\"\nbody\nEOF\nfi\n";
     }
 
     #[test]
