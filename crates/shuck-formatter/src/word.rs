@@ -394,11 +394,17 @@ fn redirect_has_multiline_literal_source(redirect: &Redirect, source: &str) -> b
 }
 
 fn assignment_has_multiline_literal_source(assignment: &Assignment, source: &str) -> bool {
+    assignment_value_has_multiline_literal_source(assignment, source)
+        || matches!(&assignment.value, AssignmentValue::Scalar(_))
+            && assignment_has_raw_backslash_continuation_literal(assignment, source)
+}
+
+pub(crate) fn assignment_value_has_multiline_literal_source(
+    assignment: &Assignment,
+    source: &str,
+) -> bool {
     match &assignment.value {
-        AssignmentValue::Scalar(word) => {
-            assignment_has_raw_backslash_continuation_literal(assignment, source)
-                || word_has_multiline_literal_source(word, source)
-        }
+        AssignmentValue::Scalar(word) => word_has_multiline_literal_source(word, source),
         AssignmentValue::Compound(array) => array.elements.iter().any(|element| match element {
             ArrayElem::Sequential(word)
             | ArrayElem::Keyed { value: word, .. }

@@ -41,6 +41,7 @@ use crate::scan::{
     shell_keyword_at, skip_double_quoted, skip_single_quoted,
 };
 use crate::word::{
+    assignment_value_has_multiline_literal_source as assignment_has_multiline_literal_source,
     normalize_raw_unquoted_word_continuations, render_arithmetic_expr_to_buf,
     render_escaped_multiline_word_syntax_with_facts_to_buf, render_heredoc_body_to_buf,
     render_pattern_syntax_to_buf, render_word_syntax_with_facts_to_buf,
@@ -5771,19 +5772,6 @@ fn decl_operand_span(operand: &DeclOperand) -> Span {
         DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => word.span,
         DeclOperand::Name(name) => name.span,
         DeclOperand::Assignment(assignment) => assignment.span,
-    }
-}
-
-fn assignment_has_multiline_literal_source(assignment: &Assignment, source: &str) -> bool {
-    match &assignment.value {
-        AssignmentValue::Scalar(word) => word_has_multiline_literal_source(word, source),
-        AssignmentValue::Compound(array) => array.elements.iter().any(|element| match element {
-            ArrayElem::Sequential(word)
-            | ArrayElem::Keyed { value: word, .. }
-            | ArrayElem::KeyedAppend { value: word, .. } => {
-                word_has_multiline_literal_source(word, source)
-            }
-        }),
     }
 }
 
