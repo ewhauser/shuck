@@ -1276,14 +1276,30 @@ mod tests {
         Parser::new(source).parse().unwrap().file
     }
 
+    fn build_facts<'source>(source: &'source str) -> (shuck_ast::File, FormatterFacts<'source>) {
+        build_facts_with_options(source, ShellFormatOptions::default(), "test.sh")
+    }
+
+    fn build_facts_with_options<'source>(
+        source: &'source str,
+        options: ShellFormatOptions,
+        path: &str,
+    ) -> (shuck_ast::File, FormatterFacts<'source>) {
+        let file = parse(source);
+        let resolved = options.resolve(source, Some(Path::new(path)));
+        let facts = FormatterFacts::build(source, &file, &resolved);
+        (file, facts)
+    }
+
     #[test]
     fn builds_branch_comment_sequence_facts() {
         let source =
             "if foo; then\n  one\nelif bar; then\n  # note\n  two\nelse\n  # alt\n  three\nfi\n";
-        let file = parse(source);
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-        let resolved = options.resolve(source, Some(Path::new("test.bash")));
-        let facts = FormatterFacts::build(source, &file, &resolved);
+        let (file, facts) = build_facts_with_options(
+            source,
+            ShellFormatOptions::default().with_dialect(ShellDialect::Bash),
+            "test.bash",
+        );
 
         let (_, elif_body) = &match &file.body[0].command {
             Command::Compound(CompoundCommand::If(command)) => &command.elif_branches[0],
@@ -1308,10 +1324,7 @@ mod tests {
     #[test]
     fn captures_group_open_suffix_comments() {
         let source = "foo() {\n  # outer\n  { # note\n    echo hi\n  }\n}\n";
-        let file = parse(source);
-        let options = ShellFormatOptions::default();
-        let resolved = options.resolve(source, Some(Path::new("test.sh")));
-        let facts = FormatterFacts::build(source, &file, &resolved);
+        let (file, facts) = build_facts(source);
 
         let body = match &file.body[0].command {
             Command::Function(function) => match function.body.as_ref() {
@@ -1336,10 +1349,7 @@ mod tests {
     #[test]
     fn captures_then_branch_open_suffix_comments() {
         let source = "if foo; then # note\n  bar\nfi\n";
-        let file = parse(source);
-        let options = ShellFormatOptions::default();
-        let resolved = options.resolve(source, Some(Path::new("test.sh")));
-        let facts = FormatterFacts::build(source, &file, &resolved);
+        let (file, facts) = build_facts(source);
 
         let then_branch = match &file.body[0].command {
             Command::Compound(CompoundCommand::If(command)) => &command.then_branch,
@@ -1365,10 +1375,7 @@ mod tests {
     #[test]
     fn records_explicit_break_layout_facts() {
         let list_source = "foo &&\n  bar\n";
-        let list_file = parse(list_source);
-        let options = ShellFormatOptions::default();
-        let list_resolved = options.resolve(list_source, Some(Path::new("test.sh")));
-        let list_facts = FormatterFacts::build(list_source, &list_file, &list_resolved);
+        let (list_file, list_facts) = build_facts(list_source);
 
         let Command::Binary(list) = &list_file.body[0].command else {
             panic!("expected command list");
@@ -1376,20 +1383,18 @@ mod tests {
         assert!(list_facts.list_item_has_explicit_line_break(list.op_span));
 
         let background_source = "background &\necho next\n";
-        let background_file = parse(background_source);
-        let background_resolved = options.resolve(background_source, Some(Path::new("test.sh")));
-        let background_facts =
-            FormatterFacts::build(background_source, &background_file, &background_resolved);
+        let (background_file, background_facts) = build_facts(background_source);
         assert!(background_facts.background_has_explicit_line_break(&background_file.body[0]));
     }
 
     #[test]
     fn records_padding_and_heredoc_verbatim_facts() {
         let source = "a=1  b=2\ncat <<EOF # note\nhi\nEOF\n";
-        let file = parse(source);
-        let options = ShellFormatOptions::default().with_keep_padding(true);
-        let resolved = options.resolve(source, Some(Path::new("test.sh")));
-        let facts = FormatterFacts::build(source, &file, &resolved);
+        let (file, facts) = build_facts_with_options(
+            source,
+            ShellFormatOptions::default().with_keep_padding(true),
+            "test.sh",
+        );
 
         assert!(facts.stmt(&file.body[0]).preserve_verbatim());
         assert!(facts.stmt(&file.body[1]).preserve_verbatim());
@@ -1398,10 +1403,7 @@ mod tests {
     #[test]
     fn grouped_condition_sequences_do_not_capture_later_file_comments() {
         let source = "download() {\n  local url\n  url=https://github.com/junegunn/fzf/releases/download/v$version/${1}\n  set -o pipefail\n  if ! (try_curl $url || try_wget $url); then\n    set +o pipefail\n    binary_error=\"Failed to download with curl and wget\"\n    return\n  fi\n  set +o pipefail\n}\n\n# Try to download binary executable\narchi=$(uname -smo 2> /dev/null || uname -sm)\n";
-        let file = parse(source);
-        let options = ShellFormatOptions::default();
-        let resolved = options.resolve(source, Some(Path::new("test.sh")));
-        let facts = FormatterFacts::build(source, &file, &resolved);
+        let (file, facts) = build_facts(source);
 
         let function = match &file.body[0].command {
             Command::Function(function) => function,
@@ -1436,10 +1438,7 @@ mod tests {
     #[test]
     fn brace_group_attachment_span_reaches_wrapper_close_after_parameter_expansion() {
         let source = "{\n  echo ${value}\n}\n# outside\nprintf '%s\\n' done\n";
-        let file = parse(source);
-        let options = ShellFormatOptions::default();
-        let resolved = options.resolve(source, Some(Path::new("test.sh")));
-        let facts = FormatterFacts::build(source, &file, &resolved);
+        let (file, facts) = build_facts(source);
 
         let brace_group = match &file.body[0].command {
             Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
@@ -1455,10 +1454,11 @@ mod tests {
     #[test]
     fn function_body_comments_with_parameter_syntax_attach_to_first_stmt() {
         let source = "function f() {\n  # parse all defined shortcuts ${BASH_IT_DIRS_BKS}\n  if [[ -s x ]]; then\n    echo ok\n  fi\n}\n";
-        let file = parse(source);
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-        let resolved = options.resolve(source, Some(Path::new("test.bash")));
-        let facts = FormatterFacts::build(source, &file, &resolved);
+        let (file, facts) = build_facts_with_options(
+            source,
+            ShellFormatOptions::default().with_dialect(ShellDialect::Bash),
+            "test.bash",
+        );
 
         let Command::Function(function) = &file.body[0].command else {
             panic!("expected function");
@@ -1479,10 +1479,7 @@ mod tests {
     #[test]
     fn subshell_attachment_span_reaches_wrapper_close_after_command_substitution() {
         let source = "(\n  echo $(printf '%s' value)\n)\n# outside\nprintf '%s\\n' done\n";
-        let file = parse(source);
-        let options = ShellFormatOptions::default();
-        let resolved = options.resolve(source, Some(Path::new("test.sh")));
-        let facts = FormatterFacts::build(source, &file, &resolved);
+        let (file, facts) = build_facts(source);
 
         let subshell = match &file.body[0].command {
             Command::Compound(CompoundCommand::Subshell(commands)) => commands,
@@ -1501,10 +1498,7 @@ mod tests {
     #[test]
     fn brace_group_attachment_span_keeps_semicolon_terminated_trailing_comments() {
         let source = "{\n  echo ok; # inside\n}\n# outside\nprintf '%s\\n' done\n";
-        let file = parse(source);
-        let options = ShellFormatOptions::default();
-        let resolved = options.resolve(source, Some(Path::new("test.sh")));
-        let facts = FormatterFacts::build(source, &file, &resolved);
+        let (file, facts) = build_facts(source);
 
         let brace_group = match &file.body[0].command {
             Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
@@ -1520,10 +1514,7 @@ mod tests {
     #[test]
     fn brace_group_attachment_span_reaches_wrapper_close_after_heredoc_body() {
         let source = "{\n  cat <<EOF\npayload\nEOF\n}\n# outside\nprintf '%s\\n' done\n";
-        let file = parse(source);
-        let options = ShellFormatOptions::default();
-        let resolved = options.resolve(source, Some(Path::new("test.sh")));
-        let facts = FormatterFacts::build(source, &file, &resolved);
+        let (file, facts) = build_facts(source);
 
         let brace_group = match &file.body[0].command {
             Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
@@ -1542,10 +1533,7 @@ mod tests {
     #[test]
     fn brace_group_attachment_span_reaches_wrapper_close_after_line_continuation() {
         let source = "{ echo ok; \\\n}\n# outside\nprintf '%s\\n' done\n";
-        let file = parse(source);
-        let options = ShellFormatOptions::default();
-        let resolved = options.resolve(source, Some(Path::new("test.sh")));
-        let facts = FormatterFacts::build(source, &file, &resolved);
+        let (file, facts) = build_facts(source);
 
         let brace_group = match &file.body[0].command {
             Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
