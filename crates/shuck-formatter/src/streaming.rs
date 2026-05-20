@@ -15,11 +15,11 @@ use shuck_format::{IndentStyle, LineEnding};
 
 use crate::Result;
 use crate::command::{
-    array_elem_parts, binary_operator, case_terminator, command_format_span,
-    command_group_commands, done_close_span as command_done_close_span,
+    array_elem_parts, binary_operator, case_item_body_upper_bound, case_terminator,
+    command_format_span, command_group_commands, done_close_span as command_done_close_span,
     format_arithmetic_command_source, format_arithmetic_for_clause_source, group_attachment_span,
-    if_close_span as command_if_close_span, line_gap_break_count,
-    line_has_unclosed_command_substitution_open, matching_group_close,
+    if_close_span as command_if_close_span, if_next_branch_region_with_body_end,
+    line_gap_break_count, line_has_unclosed_command_substitution_open, matching_group_close,
     multiline_compound_assignment_command_substitution_body_prefix,
     multiline_compound_assignment_layout, multiline_compound_assignment_lines,
     render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
@@ -32,10 +32,10 @@ use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    BranchPrefixComment, branch_keyword_offset, branch_prefix_comments,
-    close_suffix_comment_offsets, has_newline_between_offsets, last_shell_keyword_end,
-    last_shell_keyword_start, last_shell_keyword_start_between,
-    last_uncommented_shell_keyword_before, line_indent_before_offset,
+    BranchPrefixComment, branch_prefix_comments, close_suffix_comment_offsets,
+    has_newline_between_offsets, last_shell_keyword_end, last_shell_keyword_start,
+    last_shell_keyword_start_between, last_uncommented_shell_keyword_before,
+    line_indent_before_offset,
     operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line,
     own_line_comments_in_region as scan_own_line_comments_in_region, redirect_operator_end,
     shell_keyword_at, skip_double_quoted, skip_single_quoted, source_between_offsets,
@@ -6113,14 +6113,6 @@ fn gap_starts_with_empty_physical_line(source: &str, start: usize, end: usize) -
     false
 }
 
-fn case_item_body_upper_bound(item: &CaseItem, fallback: usize) -> Option<usize> {
-    Some(
-        item.terminator_span
-            .map(|span| span.start.offset)
-            .unwrap_or(fallback),
-    )
-}
-
 fn case_has_blank_line_after_in(command: &CaseCommand, source: &str) -> bool {
     let Some(first_pattern_start) = command
         .cases
@@ -8319,35 +8311,9 @@ fn if_next_branch_region(
     branch_index: usize,
     source: &str,
 ) -> Option<(usize, usize)> {
-    let current_branch_end = if branch_index == 0 {
-        branch_body_content_end(&command.then_branch, source)
-    } else {
-        command
-            .elif_branches
-            .get(branch_index - 1)
-            .map(|(_, body)| branch_body_content_end(body, source))
-            .unwrap_or_else(|| branch_body_content_end(&command.then_branch, source))
-    };
-
-    if let Some((condition, _)) = command.elif_branches.get(branch_index) {
-        let keyword = branch_keyword_offset(
-            source,
-            current_branch_end,
-            condition.span.start.offset,
-            "elif",
-        )
-        .unwrap_or(condition.span.start.offset);
-        Some((current_branch_end, keyword))
-    } else if branch_index == command.elif_branches.len() {
-        command.else_branch.as_ref().map(|body| {
-            let keyword =
-                branch_keyword_offset(source, current_branch_end, body.span.start.offset, "else")
-                    .unwrap_or(body.span.start.offset);
-            (current_branch_end, keyword)
-        })
-    } else {
-        None
-    }
+    if_next_branch_region_with_body_end(command, branch_index, source, |body| {
+        branch_body_content_end(body, source)
+    })
 }
 
 fn branch_body_content_end(body: &StmtSeq, source: &str) -> usize {

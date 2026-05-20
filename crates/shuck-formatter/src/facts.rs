@@ -12,8 +12,9 @@ use shuck_ast::{
 use shuck_indexer::Indexer;
 
 use crate::command::{
-    array_elem_parts, case_item_was_inline_in_source, command_group_commands, done_close_span,
-    group_attachment_span, group_open_suffix, group_was_inline_in_source, if_close_span,
+    array_elem_parts, case_item_body_upper_bound, case_item_was_inline_in_source,
+    command_group_commands, done_close_span, group_attachment_span, group_open_suffix,
+    group_was_inline_in_source, if_close_span, if_next_branch_region_with_body_end,
     matching_group_close, rendered_stmt_end_line, should_render_verbatim, stmt_attachment_span,
     stmt_format_span, stmt_has_trailing_comment, stmt_render_start_line, stmt_span,
     stmt_start_after_operator, stmt_verbatim_span_with_source_map,
@@ -21,9 +22,8 @@ use crate::command::{
 use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_window};
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    branch_keyword_offset, branch_prefix_first_comment_offset,
-    has_newline_between_offsets as has_newline_between, last_shell_keyword_start,
-    last_uncommented_shell_keyword_before, operator_starts_or_ends_line,
+    branch_prefix_first_comment_offset, has_newline_between_offsets as has_newline_between,
+    last_shell_keyword_start, last_uncommented_shell_keyword_before, operator_starts_or_ends_line,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1307,14 +1307,6 @@ fn sequence_comment_lower_bound(sequence: &StmtSeq, source_map: &SourceMap<'_>) 
     lower_bound
 }
 
-fn case_item_body_upper_bound(item: &CaseItem, fallback: usize) -> Option<usize> {
-    Some(
-        item.terminator_span
-            .map(|span| span.start.offset)
-            .unwrap_or(fallback),
-    )
-}
-
 fn case_body_fallback_upper_bound(command: &CaseCommand, source_map: &SourceMap<'_>) -> usize {
     last_shell_keyword_start(source_map.source(), command.span, "esac")
         .unwrap_or(command.span.end.offset)
@@ -1406,35 +1398,7 @@ fn if_next_branch_region(
     branch_index: usize,
     source: &str,
 ) -> Option<(usize, usize)> {
-    let current_branch_end = if branch_index == 0 {
-        branch_body_content_end(&command.then_branch)
-    } else {
-        command
-            .elif_branches
-            .get(branch_index - 1)
-            .map(|(_, body)| branch_body_content_end(body))
-            .unwrap_or_else(|| branch_body_content_end(&command.then_branch))
-    };
-
-    if let Some((condition, _)) = command.elif_branches.get(branch_index) {
-        let keyword = branch_keyword_offset(
-            source,
-            current_branch_end,
-            condition.span.start.offset,
-            "elif",
-        )
-        .unwrap_or(condition.span.start.offset);
-        Some((current_branch_end, keyword))
-    } else if branch_index == command.elif_branches.len() {
-        command.else_branch.as_ref().map(|body| {
-            let keyword =
-                branch_keyword_offset(source, current_branch_end, body.span.start.offset, "else")
-                    .unwrap_or(body.span.start.offset);
-            (current_branch_end, keyword)
-        })
-    } else {
-        None
-    }
+    if_next_branch_region_with_body_end(command, branch_index, source, branch_body_content_end)
 }
 
 fn branch_body_content_end(body: &StmtSeq) -> usize {

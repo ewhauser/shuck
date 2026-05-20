@@ -2,9 +2,10 @@ use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    close_suffix_comment_offsets, last_shell_keyword_start, leading_shell_indent,
-    matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
-    refine_common_indent, shell_comment_can_start, skip_double_quoted, skip_single_quoted,
+    branch_keyword_offset, close_suffix_comment_offsets, last_shell_keyword_start,
+    leading_shell_indent, matching_done_close_start, matching_if_close_start,
+    normalized_close_keyword_span, refine_common_indent, shell_comment_can_start,
+    skip_double_quoted, skip_single_quoted,
 };
 use crate::word::{
     matching_raw_command_substitution_close, normalize_raw_pipeline_continuations,
@@ -1051,6 +1052,43 @@ pub(crate) fn command_group_commands(command: &Command) -> Option<(&StmtSeq, cha
         Command::Compound(CompoundCommand::BraceGroup(commands)) => Some((commands, '{')),
         Command::Compound(CompoundCommand::Subshell(commands)) => Some((commands, '(')),
         _ => None,
+    }
+}
+
+pub(crate) fn if_next_branch_region_with_body_end(
+    command: &IfCommand,
+    branch_index: usize,
+    source: &str,
+    mut branch_body_end: impl FnMut(&StmtSeq) -> usize,
+) -> Option<(usize, usize)> {
+    let current_branch_end = if branch_index == 0 {
+        branch_body_end(&command.then_branch)
+    } else {
+        command
+            .elif_branches
+            .get(branch_index - 1)
+            .map(|(_, body)| branch_body_end(body))
+            .unwrap_or_else(|| branch_body_end(&command.then_branch))
+    };
+
+    if let Some((condition, _)) = command.elif_branches.get(branch_index) {
+        let keyword = branch_keyword_offset(
+            source,
+            current_branch_end,
+            condition.span.start.offset,
+            "elif",
+        )
+        .unwrap_or(condition.span.start.offset);
+        Some((current_branch_end, keyword))
+    } else if branch_index == command.elif_branches.len() {
+        command.else_branch.as_ref().map(|body| {
+            let keyword =
+                branch_keyword_offset(source, current_branch_end, body.span.start.offset, "else")
+                    .unwrap_or(body.span.start.offset);
+            (current_branch_end, keyword)
+        })
+    } else {
+        None
     }
 }
 
@@ -2143,6 +2181,14 @@ pub(crate) fn case_item_was_inline_in_source(item: &CaseItem) -> bool {
         && item
             .terminator_span
             .is_some_and(|span| span.start.line == stmt_format_span(stmt).end.line)
+}
+
+pub(crate) fn case_item_body_upper_bound(item: &CaseItem, fallback: usize) -> Option<usize> {
+    Some(
+        item.terminator_span
+            .map(|span| span.start.offset)
+            .unwrap_or(fallback),
+    )
 }
 
 fn command_token_spans(command: &Command) -> Vec<Span> {
