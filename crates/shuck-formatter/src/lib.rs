@@ -566,6 +566,56 @@ mod tests {
             .count()
     }
 
+    fn stable_formatter_fixture_cases() -> Vec<(&'static str, &'static str, ShellFormatOptions)> {
+        vec![
+            (
+                "function_next_line.sh",
+                "function_next_line.sh",
+                ShellFormatOptions::default().with_function_next_line(true),
+            ),
+            (
+                "case_default.sh",
+                "case_default.sh",
+                ShellFormatOptions::default(),
+            ),
+            (
+                "space_redirects.sh",
+                "space_redirects.sh",
+                ShellFormatOptions::default().with_space_redirects(true),
+            ),
+            (
+                "keep_padding.sh",
+                "keep_padding.sh",
+                ShellFormatOptions::default().with_keep_padding(true),
+            ),
+            (
+                "never_split.sh",
+                "never_split.sh",
+                ShellFormatOptions::default().with_never_split(true),
+            ),
+            (
+                "nested_heredoc.sh",
+                "nested_heredoc.sh",
+                ShellFormatOptions::default(),
+            ),
+            (
+                "simplify.sh",
+                "simplify.bash",
+                ShellFormatOptions::default().with_simplify(true),
+            ),
+            (
+                "minify.sh",
+                "minify.sh",
+                ShellFormatOptions::default().with_minify(true),
+            ),
+            (
+                "mksh_select.sh",
+                "script.mksh",
+                ShellFormatOptions::default().with_dialect(ShellDialect::Mksh),
+            ),
+        ]
+    }
+
     #[test]
     fn format_file_ast_requires_explicit_clone_for_ast_reuse() {
         let source = "echo $(( $a + ${b} ))\n";
@@ -4713,63 +4763,17 @@ print hidden &!
     #[test]
     fn format_file_ast_matches_format_source_for_formatter_fixtures() {
         let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/oracle-fixtures");
-        let cases = vec![
-            (
-                "function_next_line.sh",
-                "function_next_line.sh",
-                ShellFormatOptions::default().with_function_next_line(true),
-            ),
-            (
-                "case_default.sh",
-                "case_default.sh",
-                ShellFormatOptions::default(),
-            ),
-            (
-                "space_redirects.sh",
-                "space_redirects.sh",
-                ShellFormatOptions::default().with_space_redirects(true),
-            ),
-            (
-                "keep_padding.sh",
-                "keep_padding.sh",
-                ShellFormatOptions::default().with_keep_padding(true),
-            ),
-            (
-                "never_split.sh",
-                "never_split.sh",
-                ShellFormatOptions::default().with_never_split(true),
-            ),
-            (
-                "nested_heredoc.sh",
-                "nested_heredoc.sh",
-                ShellFormatOptions::default(),
-            ),
-            (
-                "binary_next_line.sh",
-                "binary_next_line.sh",
-                ShellFormatOptions::default().with_binary_next_line(true),
-            ),
-            (
-                "simplify.sh",
-                "simplify.bash",
-                ShellFormatOptions::default().with_simplify(true),
-            ),
-            (
-                "minify.sh",
-                "minify.sh",
-                ShellFormatOptions::default().with_minify(true),
-            ),
-            (
-                "mksh_select.sh",
-                "script.mksh",
-                ShellFormatOptions::default().with_dialect(ShellDialect::Mksh),
-            ),
-        ];
-
-        for (fixture, filename, options) in cases {
+        for (fixture, filename, options) in stable_formatter_fixture_cases() {
             let source = fs::read_to_string(fixture_root.join(fixture)).unwrap();
             assert_source_and_ast_paths_match(&source, Some(Path::new(filename)), &options);
         }
+        let source = fs::read_to_string(fixture_root.join("binary_next_line.sh")).unwrap();
+        let options = ShellFormatOptions::default().with_binary_next_line(true);
+        assert_source_and_ast_paths_match(
+            &source,
+            Some(Path::new("binary_next_line.sh")),
+            &options,
+        );
 
         assert_source_and_ast_paths_match(
             "if true; then\n# note\necho hi\nfi\n",
@@ -4791,55 +4795,7 @@ print hidden &!
     #[test]
     fn stable_formatter_fixtures_are_idempotent() {
         let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/oracle-fixtures");
-        let cases = vec![
-            (
-                "function_next_line.sh",
-                "function_next_line.sh",
-                ShellFormatOptions::default().with_function_next_line(true),
-            ),
-            (
-                "case_default.sh",
-                "case_default.sh",
-                ShellFormatOptions::default(),
-            ),
-            (
-                "space_redirects.sh",
-                "space_redirects.sh",
-                ShellFormatOptions::default().with_space_redirects(true),
-            ),
-            (
-                "keep_padding.sh",
-                "keep_padding.sh",
-                ShellFormatOptions::default().with_keep_padding(true),
-            ),
-            (
-                "never_split.sh",
-                "never_split.sh",
-                ShellFormatOptions::default().with_never_split(true),
-            ),
-            (
-                "nested_heredoc.sh",
-                "nested_heredoc.sh",
-                ShellFormatOptions::default(),
-            ),
-            (
-                "simplify.sh",
-                "simplify.bash",
-                ShellFormatOptions::default().with_simplify(true),
-            ),
-            (
-                "minify.sh",
-                "minify.sh",
-                ShellFormatOptions::default().with_minify(true),
-            ),
-            (
-                "mksh_select.sh",
-                "script.mksh",
-                ShellFormatOptions::default().with_dialect(ShellDialect::Mksh),
-            ),
-        ];
-
-        for (fixture, filename, options) in cases {
+        for (fixture, filename, options) in stable_formatter_fixture_cases() {
             let source = fs::read_to_string(fixture_root.join(fixture)).unwrap();
             assert_idempotent(&source, Some(Path::new(filename)), &options);
         }
