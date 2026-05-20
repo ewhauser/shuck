@@ -30,8 +30,9 @@ use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    branch_keyword_offset, last_uncommented_shell_keyword_before, line_indent_before_offset,
-    matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
+    branch_keyword_offset, close_suffix_comment_offsets, last_uncommented_shell_keyword_before,
+    line_indent_before_offset, matching_done_close_start, matching_if_close_start,
+    normalized_close_keyword_span,
     operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line,
     shell_keyword_boundaries_match, skip_double_quoted, skip_single_quoted,
 };
@@ -4635,33 +4636,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn close_suffix_comment_after_span(&self, close_span: Span) -> Option<SourceComment<'source>> {
-        if close_span.start.line != close_span.end.line {
-            return None;
-        }
         let source = self.source();
-        let start = close_span.end.offset.min(source.len());
-        let suffix_source = source.get(start..)?;
-        let line_end = suffix_source
-            .find('\n')
-            .map_or(source.len(), |offset| start + offset);
-        let suffix = source.get(start..line_end)?;
-        let mut comment_start = None;
-        for (offset, ch) in suffix.char_indices() {
-            match ch {
-                ' ' | '\t' => {}
-                '#' => {
-                    comment_start = Some(start + offset);
-                    break;
-                }
-                _ => return None,
-            }
-        }
-        let comment_start = comment_start?;
-        let comment_end = source
-            .get(comment_start..line_end)?
-            .trim_end_matches([' ', '\t', '\r'])
-            .len()
-            + comment_start;
+        let (comment_start, comment_end) = close_suffix_comment_offsets(source, close_span)?;
         self.source_map()
             .source_comment_for_offsets(comment_start, comment_end)
     }

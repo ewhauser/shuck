@@ -155,6 +155,39 @@ pub(crate) fn line_indent_before_offset(source: &str, offset: usize) -> Option<&
     line.get(..indent_end)
 }
 
+pub(crate) fn close_suffix_comment_offsets(
+    source: &str,
+    close_span: Span,
+) -> Option<(usize, usize)> {
+    if close_span.start.line != close_span.end.line {
+        return None;
+    }
+    let start = close_span.end.offset.min(source.len());
+    let suffix_source = source.get(start..)?;
+    let line_end = suffix_source
+        .find('\n')
+        .map_or(source.len(), |offset| start + offset);
+    let suffix = source.get(start..line_end)?;
+    let mut comment_start = None;
+    for (offset, ch) in suffix.char_indices() {
+        match ch {
+            ' ' | '\t' => {}
+            '#' => {
+                comment_start = Some(start + offset);
+                break;
+            }
+            _ => return None,
+        }
+    }
+    let comment_start = comment_start?;
+    let comment_end = source
+        .get(comment_start..line_end)?
+        .trim_end_matches([' ', '\t', '\r'])
+        .len()
+        + comment_start;
+    Some((comment_start, comment_end))
+}
+
 pub(crate) fn loop_open_keyword_at(source: &str, offset: usize, upper: usize) -> bool {
     ["for", "select", "while", "until", "foreach", "repeat"]
         .iter()

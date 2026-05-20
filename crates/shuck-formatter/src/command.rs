@@ -2,9 +2,10 @@ use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    leading_shell_indent, matching_done_close_start, matching_if_close_start,
-    normalized_close_keyword_span, refine_common_indent, shell_comment_can_start,
-    shell_keyword_boundaries_match, skip_double_quoted, skip_single_quoted,
+    close_suffix_comment_offsets, leading_shell_indent, matching_done_close_start,
+    matching_if_close_start, normalized_close_keyword_span, refine_common_indent,
+    shell_comment_can_start, shell_keyword_boundaries_match, skip_double_quoted,
+    skip_single_quoted,
 };
 use crate::word::{
     matching_raw_command_substitution_close, normalize_raw_pipeline_continuations,
@@ -2039,32 +2040,7 @@ fn close_suffix_comment_span(
     source_map: &crate::comments::SourceMap<'_>,
     close_span: Span,
 ) -> Option<Span> {
-    if close_span.start.line != close_span.end.line {
-        return None;
-    }
-    let start = close_span.end.offset.min(source.len());
-    let suffix_source = source.get(start..)?;
-    let line_end = suffix_source
-        .find('\n')
-        .map_or(source.len(), |offset| start + offset);
-    let suffix = source.get(start..line_end)?;
-    let mut comment_start = None;
-    for (offset, ch) in suffix.char_indices() {
-        match ch {
-            ' ' | '\t' => {}
-            '#' => {
-                comment_start = Some(start + offset);
-                break;
-            }
-            _ => return None,
-        }
-    }
-    let comment_start = comment_start?;
-    let comment_end = source
-        .get(comment_start..line_end)?
-        .trim_end_matches([' ', '\t', '\r'])
-        .len()
-        + comment_start;
+    let (comment_start, comment_end) = close_suffix_comment_offsets(source, close_span)?;
     Some(source_map.span_for_offsets(comment_start, comment_end))
 }
 
