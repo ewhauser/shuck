@@ -1459,143 +1459,58 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn formats_multiline_command_substitutions_with_escaped_quotes_structurally() {
-        let source = "response=\"$(\n  download --flag \\\n    \"https://example.test?url=${target}\" |\n    LC_ALL=C sed -E \"s/.*\\\"url\\\": \\\"([^\\\"]+)\\\".*/\\1/g\" || printf \"\"\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "response=\"$(\n\tdownload --flag \\\n\t\t\"https://example.test?url=${target}\" |\n\t\tLC_ALL=C sed -E \"s/.*\\\"url\\\": \\\"([^\\\"]+)\\\".*/\\1/g\" || printf \"\"\n)\"\n",
-        );
+    default_format_ast_cases! {
+        command_substitutions_with_heredocs_use_block_layout:
+            "result=$(cat <<EOF\nhello\nEOF\n)\n"
+            => "result=$(\n\tcat <<EOF\nhello\nEOF\n)\n";
     }
 
-    #[test]
-    fn formats_commented_brace_group_pipeline_command_substitutions_structurally() {
-        let source = "content=\"$(\n  {\n    cat \"$file\"\n  } | {\n    if [[ \"$tool\" =~ readab ]] &&\n       command -v readable; then # readability-cli\n      readable \\\n        --base \"$url\" \\\n        --quiet \\\n        2>/dev/null || cat\n    else\n      cat\n    fi\n  }\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "content=\"$(\n\t{\n\t\tcat \"$file\"\n\t} | {\n\t\tif [[ \"$tool\" =~ readab ]] &&\n\t\t\tcommand -v readable; then # readability-cli\n\t\t\treadable \\\n\t\t\t\t--base \"$url\" \\\n\t\t\t\t--quiet \\\n\t\t\t\t2>/dev/null || cat\n\t\telse\n\t\t\tcat\n\t\tfi\n\t}\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn command_substitutions_with_comments_and_own_line_close_use_block_layout() {
-        let source = "result=\"$(grep -En pattern \"$script\" |\n                     grep -Ev -e skip \\\n                              # keep this filter documented\n                    )\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "result=\"$(\n\tgrep -En pattern \"$script\" |\n\t\tgrep -Ev -e skip\n\t# keep this filter documented\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_raw_block_command_substitution_short_space_indent() {
-        let source = "version=$(\n  # keep the sourced version local\n  source ./version.sh\n  echo \"$VERSION\"\n)\n";
-        assert_bash_formats_with_ast(
-            source,
-            "version=$(\n\t# keep the sourced version local\n\tsource ./version.sh\n\techo \"$VERSION\"\n)\n",
-        );
-    }
-
-    #[test]
-    fn command_substitutions_with_heredocs_use_block_layout() {
-        let source = "result=$(cat <<EOF\nhello\nEOF\n)\n";
-        assert_formats_default_with_ast(source, "result=$(\n\tcat <<EOF\nhello\nEOF\n)\n");
-    }
-
-    #[test]
-    fn command_substitution_heredoc_arguments_keep_body_unindented() {
-        let source = "if ok; then\n    upload --policy \"$(cat <<EOF\n{\n  \"items\": [\n$(\n    for item in \"${items[@]}\"; do\n        printf '\"%s\",\\n' \"$item\"\n    done |\n    sed '$ s/,$//'\n)\n  ]\n}\nEOF\n)\"\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if ok; then\n\tupload --policy \"$(\n\t\tcat <<EOF\n{\n  \"items\": [\n$(\n\t\t\t\tfor item in \"${items[@]}\"; do\n\t\t\t\t\tprintf '\"%s\",\\n' \"$item\"\n\t\t\t\tdone |\n\t\t\t\t\tsed '$ s/,$//'\n\t\t\t)\n  ]\n}\nEOF\n\t)\"\nfi\n",
-        );
-    }
-
-    #[test]
-    fn command_substitution_heredocs_strip_wrapper_indent() {
-        let source = "if true; then\n\tjson+=$(\n\t\tcat << EOF\n\t\t\t\t,\nEOF\n\t)\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if true; then\n\tjson+=$(\n\t\tcat <<EOF\n\t\t\t\t,\nEOF\n\t)\nfi\n",
-        );
-    }
-
-    #[test]
-    fn command_substitution_heredocs_normalize_top_level_operator_spacing() {
-        let source = "json=$(\n\tcat << EOF\n{\n\t\"ok\": true\n}\nEOF\n)\n";
-        assert_bash_formats_with_ast(
-            source,
-            "json=$(\n\tcat <<EOF\n{\n\t\"ok\": true\n}\nEOF\n)\n",
-        );
-    }
-
-    #[test]
-    fn command_substitution_stripped_heredoc_closer_follows_command_indent() {
-        let source = "x=\"$(\n    if ok; then\n        cat <<-EOF\nbody\nEOF\n    fi\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "x=\"$(\n\tif ok; then\n\t\tcat <<-EOF\n\t\t\tbody\n\t\tEOF\n\tfi\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn quoted_command_substitution_with_escaped_replacements_formats_structurally() {
-        let source = "sed_script=\"$(\n        for prefix in $prefixes; do\n            echo \"s|${prefix}\\\\>|$prefix|g;\"\n        done\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "sed_script=\"$(\n\tfor prefix in $prefixes; do\n\t\techo \"s|${prefix}\\\\>|$prefix|g;\"\n\tdone\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn raw_block_command_substitution_strips_wrapper_indent_with_comments() {
-        let source = "sed_script=\"$(\n        while read -r directory prefix; do\n            if [ -z \"$directory\" ]; then\n                continue\n            fi\n            # catch whole scripts\n            echo \"s|${prefix}\\\\>|$directory/${prefix}|g;\"\n        done <<< \"$mappings\"\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "sed_script=\"$(\n\twhile read -r directory prefix; do\n\t\tif [ -z \"$directory\" ]; then\n\t\t\tcontinue\n\t\tfi\n\t\t# catch whole scripts\n\t\techo \"s|${prefix}\\\\>|$directory/${prefix}|g;\"\n\tdone <<<\"$mappings\"\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn assignment_command_substitution_heredoc_keeps_literal_tail_unindented() {
-        let source = "if ok; then\n    response=\"$(\n        nc <<EOF || :\nHTTP/1.1 200 OK\n\naccepted\nEOF\n    )\"\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if ok; then\n\tresponse=\"$(\n\t\tnc <<EOF || :\nHTTP/1.1 200 OK\n\naccepted\nEOF\n\t)\"\nfi\n",
-        );
-    }
-
-    #[test]
-    fn command_position_command_substitution_heredoc_keeps_literal_tail_unindented() {
-        let source = "(\n$(\ncat << HERE\nHERE\n)\n)\n";
-        assert_bash_formats_with_ast(source, "(\n\t$(\n\t\tcat <<HERE\nHERE\n\t)\n)\n");
-    }
-
-    #[test]
-    fn process_substitution_heredoc_in_assignment_keeps_literal_tail_unindented() {
-        let source =
-            "if ok; then\n  result=$(OPENSSL_CONF=<(cat <<EOF\nbody\nEOF\n) curl url)\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if ok; then\n\tresult=$(OPENSSL_CONF=<(\n\t\tcat <<EOF\nbody\nEOF\n\t) curl url)\nfi\n",
-        );
-    }
-
-    #[test]
-    fn raw_block_command_substitution_indents_backslash_continuations_before_comment() {
-        let source = "if ok; then\n    output=\"$(\n        NO_TOKEN_AUTH=1 \\\n        USERNAME=\"$SPOTIFY_ID\" \\\n        PASSWORD=\"$SPOTIFY_SECRET\" \\\n        -d code=\"$code\" \\\n        #-d code_verifier=\"$code_verifier\"\n    )\"\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if ok; then\n\toutput=\"$(\n\t\tNO_TOKEN_AUTH=1 \\\n\t\t\tUSERNAME=\"$SPOTIFY_ID\" \\\n\t\t\tPASSWORD=\"$SPOTIFY_SECRET\" \\\n\t\t\t-d code=\"$code\"\n\t\t#-d code_verifier=\"$code_verifier\"\n\t)\"\nfi\n",
-        );
-    }
-
-    #[test]
-    fn rendered_heredoc_bodies_preserve_escaped_variables() {
-        let source = "cat <<EOF > script\n#!/bin/bash\nexec $(which dart) \"\\$@\"\nEOF\n";
-        assert_bash_formats_with_ast(
-            source,
-            "cat <<EOF >script\n#!/bin/bash\nexec $(which dart) \"\\$@\"\nEOF\n",
-        );
+    bash_format_ast_cases! {
+        formats_multiline_command_substitutions_with_escaped_quotes_structurally:
+            "response=\"$(\n  download --flag \\\n    \"https://example.test?url=${target}\" |\n    LC_ALL=C sed -E \"s/.*\\\"url\\\": \\\"([^\\\"]+)\\\".*/\\1/g\" || printf \"\"\n)\"\n"
+            => "response=\"$(\n\tdownload --flag \\\n\t\t\"https://example.test?url=${target}\" |\n\t\tLC_ALL=C sed -E \"s/.*\\\"url\\\": \\\"([^\\\"]+)\\\".*/\\1/g\" || printf \"\"\n)\"\n";
+        formats_commented_brace_group_pipeline_command_substitutions_structurally:
+            "content=\"$(\n  {\n    cat \"$file\"\n  } | {\n    if [[ \"$tool\" =~ readab ]] &&\n       command -v readable; then # readability-cli\n      readable \\\n        --base \"$url\" \\\n        --quiet \\\n        2>/dev/null || cat\n    else\n      cat\n    fi\n  }\n)\"\n"
+            => "content=\"$(\n\t{\n\t\tcat \"$file\"\n\t} | {\n\t\tif [[ \"$tool\" =~ readab ]] &&\n\t\t\tcommand -v readable; then # readability-cli\n\t\t\treadable \\\n\t\t\t\t--base \"$url\" \\\n\t\t\t\t--quiet \\\n\t\t\t\t2>/dev/null || cat\n\t\telse\n\t\t\tcat\n\t\tfi\n\t}\n)\"\n";
+        command_substitutions_with_comments_and_own_line_close_use_block_layout:
+            "result=\"$(grep -En pattern \"$script\" |\n                     grep -Ev -e skip \\\n                              # keep this filter documented\n                    )\"\n"
+            => "result=\"$(\n\tgrep -En pattern \"$script\" |\n\t\tgrep -Ev -e skip\n\t# keep this filter documented\n)\"\n";
+        normalizes_raw_block_command_substitution_short_space_indent:
+            "version=$(\n  # keep the sourced version local\n  source ./version.sh\n  echo \"$VERSION\"\n)\n"
+            => "version=$(\n\t# keep the sourced version local\n\tsource ./version.sh\n\techo \"$VERSION\"\n)\n";
+        command_substitution_heredoc_arguments_keep_body_unindented:
+            "if ok; then\n    upload --policy \"$(cat <<EOF\n{\n  \"items\": [\n$(\n    for item in \"${items[@]}\"; do\n        printf '\"%s\",\\n' \"$item\"\n    done |\n    sed '$ s/,$//'\n)\n  ]\n}\nEOF\n)\"\nfi\n"
+            => "if ok; then\n\tupload --policy \"$(\n\t\tcat <<EOF\n{\n  \"items\": [\n$(\n\t\t\t\tfor item in \"${items[@]}\"; do\n\t\t\t\t\tprintf '\"%s\",\\n' \"$item\"\n\t\t\t\tdone |\n\t\t\t\t\tsed '$ s/,$//'\n\t\t\t)\n  ]\n}\nEOF\n\t)\"\nfi\n";
+        command_substitution_heredocs_strip_wrapper_indent:
+            "if true; then\n\tjson+=$(\n\t\tcat << EOF\n\t\t\t\t,\nEOF\n\t)\nfi\n"
+            => "if true; then\n\tjson+=$(\n\t\tcat <<EOF\n\t\t\t\t,\nEOF\n\t)\nfi\n";
+        command_substitution_heredocs_normalize_top_level_operator_spacing:
+            "json=$(\n\tcat << EOF\n{\n\t\"ok\": true\n}\nEOF\n)\n"
+            => "json=$(\n\tcat <<EOF\n{\n\t\"ok\": true\n}\nEOF\n)\n";
+        command_substitution_stripped_heredoc_closer_follows_command_indent:
+            "x=\"$(\n    if ok; then\n        cat <<-EOF\nbody\nEOF\n    fi\n)\"\n"
+            => "x=\"$(\n\tif ok; then\n\t\tcat <<-EOF\n\t\t\tbody\n\t\tEOF\n\tfi\n)\"\n";
+        quoted_command_substitution_with_escaped_replacements_formats_structurally:
+            "sed_script=\"$(\n        for prefix in $prefixes; do\n            echo \"s|${prefix}\\\\>|$prefix|g;\"\n        done\n)\"\n"
+            => "sed_script=\"$(\n\tfor prefix in $prefixes; do\n\t\techo \"s|${prefix}\\\\>|$prefix|g;\"\n\tdone\n)\"\n";
+        raw_block_command_substitution_strips_wrapper_indent_with_comments:
+            "sed_script=\"$(\n        while read -r directory prefix; do\n            if [ -z \"$directory\" ]; then\n                continue\n            fi\n            # catch whole scripts\n            echo \"s|${prefix}\\\\>|$directory/${prefix}|g;\"\n        done <<< \"$mappings\"\n)\"\n"
+            => "sed_script=\"$(\n\twhile read -r directory prefix; do\n\t\tif [ -z \"$directory\" ]; then\n\t\t\tcontinue\n\t\tfi\n\t\t# catch whole scripts\n\t\techo \"s|${prefix}\\\\>|$directory/${prefix}|g;\"\n\tdone <<<\"$mappings\"\n)\"\n";
+        assignment_command_substitution_heredoc_keeps_literal_tail_unindented:
+            "if ok; then\n    response=\"$(\n        nc <<EOF || :\nHTTP/1.1 200 OK\n\naccepted\nEOF\n    )\"\nfi\n"
+            => "if ok; then\n\tresponse=\"$(\n\t\tnc <<EOF || :\nHTTP/1.1 200 OK\n\naccepted\nEOF\n\t)\"\nfi\n";
+        command_position_command_substitution_heredoc_keeps_literal_tail_unindented:
+            "(\n$(\ncat << HERE\nHERE\n)\n)\n"
+            => "(\n\t$(\n\t\tcat <<HERE\nHERE\n\t)\n)\n";
+        process_substitution_heredoc_in_assignment_keeps_literal_tail_unindented:
+            "if ok; then\n  result=$(OPENSSL_CONF=<(cat <<EOF\nbody\nEOF\n) curl url)\nfi\n"
+            => "if ok; then\n\tresult=$(OPENSSL_CONF=<(\n\t\tcat <<EOF\nbody\nEOF\n\t) curl url)\nfi\n";
+        raw_block_command_substitution_indents_backslash_continuations_before_comment:
+            "if ok; then\n    output=\"$(\n        NO_TOKEN_AUTH=1 \\\n        USERNAME=\"$SPOTIFY_ID\" \\\n        PASSWORD=\"$SPOTIFY_SECRET\" \\\n        -d code=\"$code\" \\\n        #-d code_verifier=\"$code_verifier\"\n    )\"\nfi\n"
+            => "if ok; then\n\toutput=\"$(\n\t\tNO_TOKEN_AUTH=1 \\\n\t\t\tUSERNAME=\"$SPOTIFY_ID\" \\\n\t\t\tPASSWORD=\"$SPOTIFY_SECRET\" \\\n\t\t\t-d code=\"$code\"\n\t\t#-d code_verifier=\"$code_verifier\"\n\t)\"\nfi\n";
+        rendered_heredoc_bodies_preserve_escaped_variables:
+            "cat <<EOF > script\n#!/bin/bash\nexec $(which dart) \"\\$@\"\nEOF\n"
+            => "cat <<EOF >script\n#!/bin/bash\nexec $(which dart) \"\\$@\"\nEOF\n";
     }
 
     bash_unchanged_ast_cases! {
@@ -1603,13 +1518,10 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "cat <<EOF\nline \\\\\nEOF\n";
     }
 
-    #[test]
-    fn heredoc_command_substitution_continuations_follow_shell_indent() {
-        let source = "if ok; then\n  cat <<EOF\nx $(date +%F |\n      # comment\n      sed 's/-/--/g') y\nEOF\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if ok; then\n\tcat <<EOF\nx $(date +%F |\n\t\t# comment\n\t\tsed 's/-/--/g') y\nEOF\nfi\n",
-        );
+    bash_format_ast_cases! {
+        heredoc_command_substitution_continuations_follow_shell_indent:
+            "if ok; then\n  cat <<EOF\nx $(date +%F |\n      # comment\n      sed 's/-/--/g') y\nEOF\nfi\n"
+            => "if ok; then\n\tcat <<EOF\nx $(date +%F |\n\t\t# comment\n\t\tsed 's/-/--/g') y\nEOF\nfi\n";
     }
 
     default_unchanged_ast_cases! {
@@ -1617,10 +1529,10 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "value=$(pwd)\n# after\nnext\n";
     }
 
-    #[test]
-    fn command_substitution_bounds_do_not_capture_following_list_operators() {
-        let source = "value=$(cmd \\\n  arg) || echo no\n";
-        assert_bash_formats_with_ast(source, "value=$(cmd \\\n\targ) || echo no\n");
+    bash_format_ast_cases! {
+        command_substitution_bounds_do_not_capture_following_list_operators:
+            "value=$(cmd \\\n  arg) || echo no\n"
+            => "value=$(cmd \\\n\targ) || echo no\n";
     }
 
     default_unchanged_ast_cases! {
