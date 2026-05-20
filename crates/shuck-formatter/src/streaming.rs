@@ -273,6 +273,12 @@ enum MultilineCompoundAssignmentPlacement {
     Standalone,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum HeredocTailTextMode {
+    Rendered,
+    Assignment,
+}
+
 struct ShellStreamFormatter<'source, 'facts> {
     source: &'source str,
     options: ResolvedShellFormatOptions,
@@ -707,39 +713,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn write_rendered_shell_text_preserving_heredoc_tails(&mut self, text: &str) {
-        let mut active_heredoc: Option<RenderedHeredocTail> = None;
-        let mut rest = text;
-
-        while !rest.is_empty() {
-            let (line, next, had_newline) = match rest.find('\n') {
-                Some(index) => (&rest[..index], &rest[index + 1..], true),
-                None => (rest, "", false),
-            };
-
-            if let Some(heredoc) = active_heredoc.as_ref() {
-                self.write_verbatim(heredoc.body_line(line));
-                if heredoc.closes(line) {
-                    active_heredoc = None;
-                }
-            } else if let Some(heredoc) = rendered_heredoc_tail_start(line) {
-                if self.options().space_redirects() {
-                    self.write_text(line);
-                } else if let Some(normalized) = normalize_rendered_heredoc_start_spacing(line) {
-                    self.write_text(&normalized);
-                } else {
-                    self.write_text(line);
-                }
-                active_heredoc = Some(heredoc);
-            } else {
-                self.write_text(line);
-            }
-
-            if had_newline {
-                self.push_output_str(self.line_ending());
-                self.line_start = true;
-            }
-            rest = next;
-        }
+        self.write_shell_text_preserving_heredoc_tails(text, HeredocTailTextMode::Rendered);
     }
 
     fn write_assignment_shell_text_preserving_heredoc_tails(&mut self, text: &str) {
@@ -754,6 +728,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_indent_to_column(base_indent_column);
         }
 
+        self.write_shell_text_preserving_heredoc_tails(text, HeredocTailTextMode::Assignment);
+    }
+
+    fn write_shell_text_preserving_heredoc_tails(&mut self, text: &str, mode: HeredocTailTextMode) {
         let mut active_heredoc: Option<RenderedHeredocTail> = None;
         let mut rest = text;
 
@@ -769,19 +747,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     active_heredoc = None;
                 }
             } else {
-                if let Some(heredoc) = rendered_heredoc_tail_start(line) {
-                    if self.options().space_redirects() {
-                        self.write_verbatim(line);
-                    } else if let Some(normalized) = normalize_rendered_heredoc_start_spacing(line)
-                    {
-                        self.write_verbatim(&normalized);
-                    } else {
-                        self.write_verbatim(line);
-                    }
-                    active_heredoc = Some(heredoc);
-                } else {
-                    self.write_verbatim(line);
-                }
+                active_heredoc = self.write_heredoc_tail_start_or_line(line, mode);
             }
 
             if had_newline {
@@ -789,6 +755,32 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.line_start = true;
             }
             rest = next;
+        }
+    }
+
+    fn write_heredoc_tail_start_or_line(
+        &mut self,
+        line: &str,
+        mode: HeredocTailTextMode,
+    ) -> Option<RenderedHeredocTail> {
+        let heredoc = rendered_heredoc_tail_start(line);
+        let normalized = heredoc
+            .is_some()
+            .then(|| normalize_rendered_heredoc_start_spacing(line))
+            .flatten();
+        let line = if self.options().space_redirects() {
+            line
+        } else {
+            normalized.as_deref().unwrap_or(line)
+        };
+        self.write_heredoc_tail_line(line, mode);
+        heredoc
+    }
+
+    fn write_heredoc_tail_line(&mut self, line: &str, mode: HeredocTailTextMode) {
+        match mode {
+            HeredocTailTextMode::Rendered => self.write_text(line),
+            HeredocTailTextMode::Assignment => self.write_verbatim(line),
         }
     }
 
