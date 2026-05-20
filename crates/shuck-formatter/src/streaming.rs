@@ -2314,27 +2314,22 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.write_text("if ");
         self.format_inline_stmts(&command.condition)?;
         let then_separator = self.then_separator_for_condition(&command.condition);
-        if command.elif_branches.is_empty()
-            && command.else_branch.is_none()
+        let no_elifs = command.elif_branches.is_empty();
+        let can_inline_then = no_elifs
             && self.can_inline_body_with_upper_bound(
                 &command.then_branch,
                 command.span,
                 Some(fi_upper_bound),
-            )
-        {
+            );
+        if no_elifs && command.else_branch.is_none() && can_inline_then {
             self.write_text(then_separator);
             self.write_space();
             self.format_inline_stmts(&command.then_branch)?;
             self.write_if_close("; fi", fi_span);
             return Ok(());
         }
-        if command.elif_branches.is_empty()
+        if can_inline_then
             && let Some(else_branch) = &command.else_branch
-            && self.can_inline_body_with_upper_bound(
-                &command.then_branch,
-                command.span,
-                Some(fi_upper_bound),
-            )
             && self.can_inline_body_with_upper_bound(
                 else_branch,
                 command.span,
@@ -2349,13 +2344,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_if_close("; fi", fi_span);
             return Ok(());
         }
-        if command.elif_branches.is_empty()
+        if can_inline_then
             && let Some(else_branch) = &command.else_branch
-            && self.can_inline_body_with_upper_bound(
-                &command.then_branch,
-                command.span,
-                Some(fi_upper_bound),
-            )
             && !self.can_inline_body_with_upper_bound(
                 else_branch,
                 command.span,
@@ -2372,7 +2362,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.finish_multiline_if_close(command, then_upper_bound, fi_span);
             return Ok(());
         }
-        if command.elif_branches.is_empty()
+        if no_elifs
             && command.else_branch.is_none()
             && self.then_branch_starts_with_inline_if(command, then_span, fi_span)
         {
