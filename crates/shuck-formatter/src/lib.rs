@@ -713,67 +713,28 @@ mod tests {
         assert!(!source_is_formatted(source, None, &ShellFormatOptions::default()).unwrap());
     }
 
-    #[test]
-    fn preserves_inline_comments() {
-        assert_formats("echo hi    # note\n", "echo hi # note\n");
-    }
-
-    #[test]
-    fn keeps_if_close_suffix_comment_on_outer_close() {
-        let source = "if outer; then\n  if inner; then\n    :\n  fi\nfi # outer\n";
-
-        assert_formats(
-            source,
-            "if outer; then\n\tif inner; then\n\t\t:\n\tfi\nfi # outer\n",
-        );
-    }
-
-    #[test]
-    fn keeps_inline_if_close_suffix_comment_on_fi() {
-        let source = "if ok; then good; fi    # done\n";
-
-        assert_formats(source, "if ok; then good; fi # done\n");
-    }
-
-    #[test]
-    fn keeps_loop_and_case_close_suffix_comments_on_close_keywords() {
-        let source =
-            "while ok; do\n  case $cmd in\n    run) : ;;\n  esac # command\n  :\ndone # loop\n";
-
-        assert_formats(
-            source,
-            "while ok; do\n\tcase $cmd in\n\trun) : ;;\n\tesac # command\n\t:\ndone # loop\n",
-        );
-    }
-
-    #[test]
-    fn keeps_inline_case_close_suffix_comment_on_esac() {
-        let source = "case \"$IP\" in fe80::*) exit 0 ;; esac\t# ignore IPv6 linklocal, ip2dev() does not work here reliable anyway\n";
-
-        assert_formats(
-            source,
-            "case \"$IP\" in fe80::*) exit 0 ;; esac # ignore IPv6 linklocal, ip2dev() does not work here reliable anyway\n",
-        );
-    }
-
-    #[test]
-    fn aligns_nested_close_suffix_comments_by_column() {
-        let source = "if outer; then\n\tif inner; then\n\t\tcase $cmd in\n\t\t*) : ;;\n\t\tesac # case\n\tfi # inner\nfi # outer\n";
-
-        assert_formats(
-            source,
-            "if outer; then\n\tif inner; then\n\t\tcase $cmd in\n\t\t*) : ;;\n\t\tesac # case\n\tfi    # inner\nfi     # outer\n",
-        );
-    }
-
-    #[test]
-    fn aligns_space_indented_close_suffix_comments_by_column() {
-        let source = "if outer; then\n  if inner; then\n    :\n  fi # inner\nfi # outer\n";
-
-        assert_formats(
-            source,
-            "if outer; then\n\tif inner; then\n\t\t:\n\tfi # inner\nfi  # outer\n",
-        );
+    default_format_cases! {
+        preserves_inline_comments:
+            "echo hi    # note\n"
+            => "echo hi # note\n";
+        keeps_if_close_suffix_comment_on_outer_close:
+            "if outer; then\n  if inner; then\n    :\n  fi\nfi # outer\n"
+            => "if outer; then\n\tif inner; then\n\t\t:\n\tfi\nfi # outer\n";
+        keeps_inline_if_close_suffix_comment_on_fi:
+            "if ok; then good; fi    # done\n"
+            => "if ok; then good; fi # done\n";
+        keeps_loop_and_case_close_suffix_comments_on_close_keywords:
+            "while ok; do\n  case $cmd in\n    run) : ;;\n  esac # command\n  :\ndone # loop\n"
+            => "while ok; do\n\tcase $cmd in\n\trun) : ;;\n\tesac # command\n\t:\ndone # loop\n";
+        keeps_inline_case_close_suffix_comment_on_esac:
+            "case \"$IP\" in fe80::*) exit 0 ;; esac\t# ignore IPv6 linklocal, ip2dev() does not work here reliable anyway\n"
+            => "case \"$IP\" in fe80::*) exit 0 ;; esac # ignore IPv6 linklocal, ip2dev() does not work here reliable anyway\n";
+        aligns_nested_close_suffix_comments_by_column:
+            "if outer; then\n\tif inner; then\n\t\tcase $cmd in\n\t\t*) : ;;\n\t\tesac # case\n\tfi # inner\nfi # outer\n"
+            => "if outer; then\n\tif inner; then\n\t\tcase $cmd in\n\t\t*) : ;;\n\t\tesac # case\n\tfi    # inner\nfi     # outer\n";
+        aligns_space_indented_close_suffix_comments_by_column:
+            "if outer; then\n  if inner; then\n    :\n  fi # inner\nfi # outer\n"
+            => "if outer; then\n\tif inner; then\n\t\t:\n\tfi # inner\nfi  # outer\n";
     }
 
     #[test]
@@ -788,17 +749,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn formats_heredoc_command_heads_structurally() {
-        assert_formats("cat<<EOF\nhello\nEOF\n", "cat <<EOF\nhello\nEOF\n");
-    }
-
-    #[test]
-    fn formats_nested_heredoc_commands_without_indenting_body() {
-        assert_formats(
-            "if true; then\ncat<<EOF\nhello\nEOF\nfi\n",
-            "if true; then\n\tcat <<EOF\nhello\nEOF\nfi\n",
-        );
+    default_format_cases! {
+        formats_heredoc_command_heads_structurally:
+            "cat<<EOF\nhello\nEOF\n"
+            => "cat <<EOF\nhello\nEOF\n";
+        formats_nested_heredoc_commands_without_indenting_body:
+            "if true; then\ncat<<EOF\nhello\nEOF\nfi\n"
+            => "if true; then\n\tcat <<EOF\nhello\nEOF\nfi\n";
     }
 
     default_format_ast_cases! {
@@ -816,39 +773,27 @@ mod tests {
             => "build() {\n\tcat <<-EOF >./prerm\n\t\t#!$PREFIX/bin/bash\n\t\tif [ -d $PREFIX/etc ]; then\n\t\t\techo ok\n\t\t\trm -f file\n\t\tfi\n\t\texit 0\n\tEOF\n}\n";
     }
 
-    #[test]
-    fn preserves_multiline_if_body_comments() {
-        assert_formats(
-            "if true; then\n# note\necho hi\nfi\n",
-            "if true; then\n\t# note\n\techo hi\nfi\n",
-        );
+    default_format_cases! {
+        preserves_multiline_if_body_comments:
+            "if true; then\n# note\necho hi\nfi\n"
+            => "if true; then\n\t# note\n\techo hi\nfi\n";
     }
 
-    #[test]
-    fn keeps_simple_if_else_inline() {
-        let source =
+    default_unchanged_ast_cases! {
+        keeps_simple_if_else_inline:
             "if [ -n \"$REPORTFILE\" ]; then PREQS_MET=\"YES\"; else PREQS_MET=\"NO\"; fi\n";
-        assert_default_unchanged_with_ast(source);
     }
 
-    #[test]
-    fn keeps_inline_then_arm_before_multiline_else() {
-        let source =
-            "if [ -n \"$REPORTFILE\" ]; then PREQS_MET=\"YES\"; else\n  PREQS_MET=\"NO\"\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if [ -n \"$REPORTFILE\" ]; then PREQS_MET=\"YES\"; else\n\tPREQS_MET=\"NO\"\nfi\n",
-        );
+    default_format_ast_cases! {
+        keeps_inline_then_arm_before_multiline_else:
+            "if [ -n \"$REPORTFILE\" ]; then PREQS_MET=\"YES\"; else\n  PREQS_MET=\"NO\"\nfi\n"
+            => "if [ -n \"$REPORTFILE\" ]; then PREQS_MET=\"YES\"; else\n\tPREQS_MET=\"NO\"\nfi\n";
     }
 
-    #[test]
-    fn preserves_comments_inside_elif_bodies() {
-        let source = "foo() {\nif a; then\none\nelif b; then\n# note\n two\nfi\n}\n";
-
-        assert_formats(
-            source,
-            "foo() {\n\tif a; then\n\t\tone\n\telif b; then\n\t\t# note\n\t\ttwo\n\tfi\n}\n",
-        );
+    default_format_cases! {
+        preserves_comments_inside_elif_bodies:
+            "foo() {\nif a; then\none\nelif b; then\n# note\n two\nfi\n}\n"
+            => "foo() {\n\tif a; then\n\t\tone\n\telif b; then\n\t\t# note\n\t\ttwo\n\tfi\n}\n";
     }
 
     #[test]
