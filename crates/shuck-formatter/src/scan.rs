@@ -2,6 +2,32 @@ use shuck_ast::Span;
 
 use crate::comments::SourceMap;
 
+pub(crate) fn leading_shell_indent(line: &str) -> &str {
+    let indent_end = line
+        .char_indices()
+        .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
+        .map_or(line.len(), |(index, _)| index);
+    &line[..indent_end]
+}
+
+pub(crate) fn common_indent_prefix<'a>(left: &'a str, right: &str) -> &'a str {
+    let len = left
+        .as_bytes()
+        .iter()
+        .zip(right.as_bytes())
+        .take_while(|(left, right)| left == right)
+        .count();
+    &left[..len]
+}
+
+pub(crate) fn refine_common_indent(common: &mut Option<String>, indent: &str) -> bool {
+    *common = Some(match common.take() {
+        Some(previous) => common_indent_prefix(&previous, indent).to_string(),
+        None => indent.to_string(),
+    });
+    common.as_deref() == Some("")
+}
+
 pub(crate) fn loop_open_keyword_at(source: &str, offset: usize, upper: usize) -> bool {
     ["for", "select", "while", "until", "foreach", "repeat"]
         .iter()

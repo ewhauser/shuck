@@ -14,6 +14,7 @@ use crate::command::stmt_seq_has_heredoc;
 use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
+use crate::scan::{leading_shell_indent as line_leading_shell_indent, refine_common_indent};
 use crate::streaming::format_stmt_sequence_streaming_to_buf;
 
 pub(crate) fn word_gap_end_before_trailing_continuation(word: &Word, source: &str) -> usize {
@@ -2021,11 +2022,7 @@ fn common_raw_compound_assignment_body_indent(lines: &[&str]) -> String {
         if indent.is_empty() {
             return String::new();
         }
-        common = Some(match common.take() {
-            Some(previous) => common_indent_prefix(&previous, indent).to_string(),
-            None => indent.to_string(),
-        });
-        if common.as_deref() == Some("") {
+        if refine_common_indent(&mut common, indent) {
             return String::new();
         }
     }
@@ -3067,11 +3064,7 @@ fn inline_raw_body_source_base_indent(lines: &[String]) -> Option<String> {
             continue;
         }
         let indent = line_leading_shell_indent(line);
-        common = Some(match common.take() {
-            Some(previous) => common_indent_prefix(&previous, indent).to_string(),
-            None => indent.to_string(),
-        });
-        if common.as_deref() == Some("") {
+        if refine_common_indent(&mut common, indent) {
             return None;
         }
     }
@@ -5008,14 +5001,6 @@ fn normalized_raw_shell_indent(indent: &str, options: &ResolvedShellFormatOption
     }
 }
 
-fn line_leading_shell_indent(line: &str) -> &str {
-    let indent_end = line
-        .char_indices()
-        .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
-        .map_or(line.len(), |(index, _)| index);
-    &line[..indent_end]
-}
-
 fn push_indented_rendered_block(
     target: &mut String,
     rendered: &str,
@@ -5122,11 +5107,7 @@ fn common_rendered_block_indent(rendered: &str, options: &ResolvedShellFormatOpt
             if indent.is_empty() {
                 return String::new();
             }
-            common = Some(match common.take() {
-                Some(previous) => common_indent_prefix(&previous, indent).to_string(),
-                None => indent.to_string(),
-            });
-            if common.as_deref() == Some("") {
+            if refine_common_indent(&mut common, indent) {
                 return String::new();
             }
         }
@@ -5143,16 +5124,6 @@ fn strip_common_rendered_block_indent<'a>(line: &'a str, common_indent: &str) ->
     } else {
         line.strip_prefix(common_indent).unwrap_or(line)
     }
-}
-
-fn common_indent_prefix<'a>(left: &'a str, right: &str) -> &'a str {
-    let len = left
-        .as_bytes()
-        .iter()
-        .zip(right.as_bytes())
-        .take_while(|(left, right)| left == right)
-        .count();
-    &left[..len]
 }
 
 #[derive(Debug, Clone)]

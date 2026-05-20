@@ -2,9 +2,9 @@ use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
-    shell_comment_can_start, shell_keyword_boundaries_match, skip_double_quoted,
-    skip_single_quoted,
+    leading_shell_indent, matching_done_close_start, matching_if_close_start,
+    normalized_close_keyword_span, refine_common_indent, shell_comment_can_start,
+    shell_keyword_boundaries_match, skip_double_quoted, skip_single_quoted,
 };
 use crate::word::{
     matching_raw_command_substitution_close, normalize_raw_pipeline_continuations,
@@ -532,11 +532,7 @@ fn common_command_substitution_body_indent(lines: &[String]) -> String {
         if indent.is_empty() {
             return String::new();
         }
-        common = Some(match common.take() {
-            Some(previous) => common_indent_prefix(&previous, indent).to_string(),
-            None => indent.to_string(),
-        });
-        if common.as_deref() == Some("") {
+        if refine_common_indent(&mut common, indent) {
             return String::new();
         }
     }
@@ -677,11 +673,7 @@ fn multiline_compound_assignment_common_body_indent(lines: &[&str], open_inline:
         if indent.is_empty() {
             continue;
         }
-        common = Some(match common.take() {
-            Some(previous) => common_indent_prefix(&previous, indent).to_string(),
-            None => indent.to_string(),
-        });
-        if common.as_deref() == Some("") {
+        if refine_common_indent(&mut common, indent) {
             return String::new();
         }
     }
@@ -806,24 +798,6 @@ fn normalize_multiline_compound_assignment_spacing(line: &str) -> String {
     }
 
     if changed { rendered } else { line.to_string() }
-}
-
-fn leading_shell_indent(line: &str) -> &str {
-    let indent_end = line
-        .char_indices()
-        .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
-        .map_or(line.len(), |(index, _)| index);
-    &line[..indent_end]
-}
-
-fn common_indent_prefix<'a>(left: &'a str, right: &str) -> &'a str {
-    let len = left
-        .as_bytes()
-        .iter()
-        .zip(right.as_bytes())
-        .take_while(|(left, right)| left == right)
-        .count();
-    &left[..len]
 }
 
 pub(crate) fn multiline_compound_assignment_lines(
