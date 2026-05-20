@@ -1069,7 +1069,7 @@ fn compound_span(command: &CompoundCommand) -> Span {
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => commands
             .iter()
             .map(stmt_span)
-            .reduce(|left, right| left.merge(right))
+            .reduce(Span::merge)
             .unwrap_or_default(),
         CompoundCommand::Arithmetic(command) => command.span,
         CompoundCommand::Time(command) => command.span,
@@ -1196,7 +1196,7 @@ fn group_verbatim_span_impl(
     let inner = commands
         .iter()
         .map(|command| stmt_verbatim_span_impl(command, source, source_map))
-        .reduce(|left, right| left.merge(right))
+        .reduce(Span::merge)
         .unwrap_or_default();
     if inner == Span::new() {
         return inner;
@@ -1694,7 +1694,7 @@ pub(crate) fn compound_format_span(command: &CompoundCommand) -> Span {
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => commands
             .iter()
             .map(stmt_format_span)
-            .reduce(|left, right| left.merge(right))
+            .reduce(Span::merge)
             .unwrap_or_default(),
         _ => compound_span(command),
     }

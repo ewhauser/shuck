@@ -1246,7 +1246,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if first_leading_min_offset.is_none()
             && attachments
                 .as_ref()
-                .is_some_and(|value| value.is_ambiguous())
+                .is_some_and(crate::facts::SequenceFacts::is_ambiguous)
             && let Some(span) = sequence_verbatim_span(statements, self.source_map())
         {
             if let Some(attachment) = attachments.as_ref()
@@ -7504,7 +7504,7 @@ fn sequence_verbatim_span(statements: &StmtSeq, source_map: &SourceMap<'_>) -> O
     statements
         .iter()
         .map(|stmt| stmt_verbatim_span_with_source_map(stmt, source_map))
-        .reduce(|left, right| left.merge(right))
+        .reduce(Span::merge)
 }
 
 fn multiline_compound_assignment_line_extra_indent(

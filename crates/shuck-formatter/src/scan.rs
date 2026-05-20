@@ -483,7 +483,7 @@ pub(crate) fn matching_done_close_start(source: &str, span: Span) -> Option<usiz
             depth = depth.saturating_add(1);
             offset += source[offset..]
                 .chars()
-                .take_while(|ch| ch.is_ascii_alphabetic())
+                .take_while(char::is_ascii_alphabetic)
                 .map(char::len_utf8)
                 .sum::<usize>();
             continue;
