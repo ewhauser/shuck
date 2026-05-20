@@ -2480,73 +2480,37 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "(cd \"$fzf_base\"/bin && rm -f fzf && ln -sf \"$which_fzf\" fzf)\n";
     }
 
-    #[test]
-    fn preserves_multiline_subshell_open_and_close_placement() {
-        let source = "if ok; then\n  (mkdir -p -- \"$cachedir\" &&\n    echo \"$cache_id_line\"$'\\n'\"$output\" >\"$cachefile\") 2>/dev/null\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if ok; then\n\t(mkdir -p -- \"$cachedir\" &&\n\t\techo \"$cache_id_line\"$'\\n'\"$output\" >\"$cachefile\") 2>/dev/null\nfi\n",
-        );
+    default_format_ast_cases! {
+        preserves_multiline_subshell_open_and_close_placement:
+            "if ok; then\n  (mkdir -p -- \"$cachedir\" &&\n    echo \"$cache_id_line\"$'\\n'\"$output\" >\"$cachefile\") 2>/dev/null\nfi\n"
+            => "if ok; then\n\t(mkdir -p -- \"$cachedir\" &&\n\t\techo \"$cache_id_line\"$'\\n'\"$output\" >\"$cachefile\") 2>/dev/null\nfi\n";
+        preserves_multiline_subshell_around_loop:
+            "f() {\n  (while sudo -v; do\n    sleep 50\n  done) &\n}\n"
+            => "f() {\n\t(while sudo -v; do\n\t\tsleep 50\n\tdone) &\n}\n";
+        preserves_single_line_subshell_with_background_body:
+            "if ready; then\n  ($REGEN_CMD &)\nfi\n"
+            => "if ready; then\n\t($REGEN_CMD &)\nfi\n";
     }
 
-    #[test]
-    fn expands_subshells_with_line_continuation_headers() {
-        let source = "(cd samples/ && \\\n  find . -name \"build.sh\" -exec chmod 0755 {} \\;\n)\n";
-        assert_bash_formats_with_ast(
-            source,
-            "(\n\tcd samples/ &&\n\t\tfind . -name \"build.sh\" -exec chmod 0755 {} \\;\n)\n",
-        );
+    bash_format_ast_cases! {
+        expands_subshells_with_line_continuation_headers:
+            "(cd samples/ && \\\n  find . -name \"build.sh\" -exec chmod 0755 {} \\;\n)\n"
+            => "(\n\tcd samples/ &&\n\t\tfind . -name \"build.sh\" -exec chmod 0755 {} \\;\n)\n";
+        preserves_compound_redirect_continuations:
+            "(\n  echo '#!/usr/bin/wish -f'\n  cat completion.tcl\n  sed '1,5d' $PRGNAM\n) \\\n  >$PKG/usr/bin/$PRGNAM\n"
+            => "(\n\techo '#!/usr/bin/wish -f'\n\tcat completion.tcl\n\tsed '1,5d' $PRGNAM\n) \\\n\t>$PKG/usr/bin/$PRGNAM\n";
     }
 
-    #[test]
-    fn preserves_multiline_subshell_around_loop() {
-        let source = "f() {\n  (while sudo -v; do\n    sleep 50\n  done) &\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "f() {\n\t(while sudo -v; do\n\t\tsleep 50\n\tdone) &\n}\n",
-        );
-    }
-
-    #[test]
-    fn preserves_single_line_subshell_with_background_body() {
-        let source = "if ready; then\n  ($REGEN_CMD &)\nfi\n";
-        assert_formats_default_with_ast(source, "if ready; then\n\t($REGEN_CMD &)\nfi\n");
-    }
-
-    #[test]
-    fn preserves_single_line_subshells_inside_case_bodies() {
-        let source = "build_package_pyston() {\n  build_package_copy\n  mkdir -p \"${PREFIX_PATH}/bin\" \"${PREFIX_PATH}/lib\"\n  local bin\n  shopt -s nullglob\n  for bin in \"bin/\"*; do\n    if [ -f \"${bin}\" ] && [ -x \"${bin}\" ] && [ ! -L \"${bin}\" ]; then\n      case \"${bin##*/}\" in\n      \"pyston\"* )\n        ( cd \"${PREFIX_PATH}/bin\" && ln -fs \"${bin##*/}\" \"python\" )\n        ;;\n      esac\n    fi\n  done\n  shopt -u nullglob\n}\n";
-
-        assert_formats(
-            source,
-            "build_package_pyston() {\n\tbuild_package_copy\n\tmkdir -p \"${PREFIX_PATH}/bin\" \"${PREFIX_PATH}/lib\"\n\tlocal bin\n\tshopt -s nullglob\n\tfor bin in \"bin/\"*; do\n\t\tif [ -f \"${bin}\" ] && [ -x \"${bin}\" ] && [ ! -L \"${bin}\" ]; then\n\t\t\tcase \"${bin##*/}\" in\n\t\t\t\"pyston\"*)\n\t\t\t\t(cd \"${PREFIX_PATH}/bin\" && ln -fs \"${bin##*/}\" \"python\")\n\t\t\t\t;;\n\t\t\tesac\n\t\tfi\n\tdone\n\tshopt -u nullglob\n}\n",
-        );
-    }
-
-    #[test]
-    fn preserves_inline_group_redirect_suffixes() {
-        let source = "build_package_activepython() {\n  local package_name=\"$1\"\n  { bash \"install.sh\" --install-dir \"${PREFIX_PATH}\"\n  } >&4 2>&1\n}\n";
-
-        assert_formats(
-            source,
-            "build_package_activepython() {\n\tlocal package_name=\"$1\"\n\t{\n\t\tbash \"install.sh\" --install-dir \"${PREFIX_PATH}\"\n\t} >&4 2>&1\n}\n",
-        );
-    }
-
-    #[test]
-    fn preserves_compound_redirect_continuations() {
-        let source = "(\n  echo '#!/usr/bin/wish -f'\n  cat completion.tcl\n  sed '1,5d' $PRGNAM\n) \\\n  >$PKG/usr/bin/$PRGNAM\n";
-        assert_bash_formats_with_ast(
-            source,
-            "(\n\techo '#!/usr/bin/wish -f'\n\tcat completion.tcl\n\tsed '1,5d' $PRGNAM\n) \\\n\t>$PKG/usr/bin/$PRGNAM\n",
-        );
-    }
-
-    #[test]
-    fn trailing_comments_on_function_closing_braces_do_not_poison_following_layout() {
-        let source = "foo() {\necho hi\n} # trailing\nbar\n";
-
-        assert_formats(source, "foo() {\n\techo hi\n} # trailing\nbar\n");
+    default_format_cases! {
+        preserves_single_line_subshells_inside_case_bodies:
+            "build_package_pyston() {\n  build_package_copy\n  mkdir -p \"${PREFIX_PATH}/bin\" \"${PREFIX_PATH}/lib\"\n  local bin\n  shopt -s nullglob\n  for bin in \"bin/\"*; do\n    if [ -f \"${bin}\" ] && [ -x \"${bin}\" ] && [ ! -L \"${bin}\" ]; then\n      case \"${bin##*/}\" in\n      \"pyston\"* )\n        ( cd \"${PREFIX_PATH}/bin\" && ln -fs \"${bin##*/}\" \"python\" )\n        ;;\n      esac\n    fi\n  done\n  shopt -u nullglob\n}\n"
+            => "build_package_pyston() {\n\tbuild_package_copy\n\tmkdir -p \"${PREFIX_PATH}/bin\" \"${PREFIX_PATH}/lib\"\n\tlocal bin\n\tshopt -s nullglob\n\tfor bin in \"bin/\"*; do\n\t\tif [ -f \"${bin}\" ] && [ -x \"${bin}\" ] && [ ! -L \"${bin}\" ]; then\n\t\t\tcase \"${bin##*/}\" in\n\t\t\t\"pyston\"*)\n\t\t\t\t(cd \"${PREFIX_PATH}/bin\" && ln -fs \"${bin##*/}\" \"python\")\n\t\t\t\t;;\n\t\t\tesac\n\t\tfi\n\tdone\n\tshopt -u nullglob\n}\n";
+        preserves_inline_group_redirect_suffixes:
+            "build_package_activepython() {\n  local package_name=\"$1\"\n  { bash \"install.sh\" --install-dir \"${PREFIX_PATH}\"\n  } >&4 2>&1\n}\n"
+            => "build_package_activepython() {\n\tlocal package_name=\"$1\"\n\t{\n\t\tbash \"install.sh\" --install-dir \"${PREFIX_PATH}\"\n\t} >&4 2>&1\n}\n";
+        trailing_comments_on_function_closing_braces_do_not_poison_following_layout:
+            "foo() {\necho hi\n} # trailing\nbar\n"
+            => "foo() {\n\techo hi\n} # trailing\nbar\n";
     }
 
     default_unchanged_ast_cases! {
@@ -2575,13 +2539,10 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "shopt -s expand_aliases\nalias die='EXIT=$? LINE=$LINENO error_exit'\ncase $CLASS in\n*) false || die \"Invalid storage class.\" ;;\nesac\n";
     }
 
-    #[test]
-    fn preserves_leading_comments_inside_function_bodies() {
-        let source = "function f() {\n  # parse all defined shortcuts ${BASH_IT_DIRS_BKS}\n  if [[ -s x ]]; then\n    echo yes\n  fi\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "function f() {\n\t# parse all defined shortcuts ${BASH_IT_DIRS_BKS}\n\tif [[ -s x ]]; then\n\t\techo yes\n\tfi\n}\n",
-        );
+    default_format_ast_cases! {
+        preserves_leading_comments_inside_function_bodies:
+            "function f() {\n  # parse all defined shortcuts ${BASH_IT_DIRS_BKS}\n  if [[ -s x ]]; then\n    echo yes\n  fi\n}\n"
+            => "function f() {\n\t# parse all defined shortcuts ${BASH_IT_DIRS_BKS}\n\tif [[ -s x ]]; then\n\t\techo yes\n\tfi\n}\n";
     }
 
     default_unchanged_ast_cases! {
@@ -2589,22 +2550,16 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "cat < <(which -a foo)\n";
     }
 
-    #[test]
-    fn preserves_process_substitution_redirect_spacing_inside_command_substitutions() {
-        let source = "output=\"$(\n  exec > >(tee /dev/fd/2) 2>&1\n)\"\nlatest=\"$(grep x < <(jq -r '.body' <<< \"$response\"))\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "output=\"$(\n\texec > >(tee /dev/fd/2) 2>&1\n)\"\nlatest=\"$(grep x < <(jq -r '.body' <<<\"$response\"))\"\n",
-        );
+    bash_format_ast_cases! {
+        preserves_process_substitution_redirect_spacing_inside_command_substitutions:
+            "output=\"$(\n  exec > >(tee /dev/fd/2) 2>&1\n)\"\nlatest=\"$(grep x < <(jq -r '.body' <<< \"$response\"))\"\n"
+            => "output=\"$(\n\texec > >(tee /dev/fd/2) 2>&1\n)\"\nlatest=\"$(grep x < <(jq -r '.body' <<<\"$response\"))\"\n";
     }
 
-    #[test]
-    fn formats_redirect_spacing_inside_process_substitution() {
-        let source = "read -ra candidates < <(complete words 2> /dev/null)\n";
-        assert_formats_default_with_ast(
-            source,
-            "read -ra candidates < <(complete words 2>/dev/null)\n",
-        );
+    default_format_ast_cases! {
+        formats_redirect_spacing_inside_process_substitution:
+            "read -ra candidates < <(complete words 2> /dev/null)\n"
+            => "read -ra candidates < <(complete words 2>/dev/null)\n";
     }
 
     default_unchanged_ast_cases! {
@@ -2614,13 +2569,10 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "while read -r line; do\n\techo \"$line\"\ndone < <(comm -23 <(printf \"%s\\n\" \"${left[@]}\" | sort) \\\n\t<(printf \"%s\\n\" \"${right[@]}\" | sort))\n";
     }
 
-    #[test]
-    fn normalizes_inline_process_substitution_source_indent() {
-        let source = "unsetall() {\n    while read -r env_var; do\n        unset \"$env_var\"\n    done < <( env |\n        grep -i \"$match\" |\n        sed 's/=.*//' )\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "unsetall() {\n\twhile read -r env_var; do\n\t\tunset \"$env_var\"\n\tdone < <(env |\n\t\tgrep -i \"$match\" |\n\t\tsed 's/=.*//')\n}\n",
-        );
+    default_format_ast_cases! {
+        normalizes_inline_process_substitution_source_indent:
+            "unsetall() {\n    while read -r env_var; do\n        unset \"$env_var\"\n    done < <( env |\n        grep -i \"$match\" |\n        sed 's/=.*//' )\n}\n"
+            => "unsetall() {\n\twhile read -r env_var; do\n\t\tunset \"$env_var\"\n\tdone < <(env |\n\t\tgrep -i \"$match\" |\n\t\tsed 's/=.*//')\n}\n";
     }
 
     bash_unchanged_ast_cases! {
@@ -2628,19 +2580,16 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "_sqlmap() {\n\tif [[ \"$cur\" == * ]]; then\n\t\twhile IFS='' read -r line; do COMPREPLY+=(\"$line\"); done < <(\n\t\t\tcompgen -W '-h --help \\\n\t\t\t--data --cookie \\\n\t\t\t--wizard' -- \"$cur\"\n\t\t)\n\tfi\n}\n";
     }
 
-    #[test]
-    fn formats_process_substitution_with_own_line_close_as_block() {
-        let source = "while read x; do\n  :\ndone < <(cmd | \\\n        awk 'BEGIN {x=0} /Sink/ {\n                 x=$1\n             }'\n        )\n";
-        assert_formats_default_with_ast(
-            source,
-            "while read x; do\n\t:\ndone < <(\n\tcmd |\n\t\tawk 'BEGIN {x=0} /Sink/ {\n                 x=$1\n             }'\n)\n",
-        );
+    default_format_ast_cases! {
+        formats_process_substitution_with_own_line_close_as_block:
+            "while read x; do\n  :\ndone < <(cmd | \\\n        awk 'BEGIN {x=0} /Sink/ {\n                 x=$1\n             }'\n        )\n"
+            => "while read x; do\n\t:\ndone < <(\n\tcmd |\n\t\tawk 'BEGIN {x=0} /Sink/ {\n                 x=$1\n             }'\n)\n";
     }
 
-    #[test]
-    fn formats_process_substitution_heredocs_as_blocks() {
-        let source = "curl -d @<(cat <<EOF\nbody\nEOF\n)\n";
-        assert_bash_formats_with_ast(source, "curl -d @<(\n\tcat <<EOF\nbody\nEOF\n)\n");
+    bash_format_ast_cases! {
+        formats_process_substitution_heredocs_as_blocks:
+            "curl -d @<(cat <<EOF\nbody\nEOF\n)\n"
+            => "curl -d @<(\n\tcat <<EOF\nbody\nEOF\n)\n";
     }
 
     default_unchanged_ast_cases! {
@@ -2648,114 +2597,49 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "while read -r line; do\n\techo \"$line\"\ndone < <(\n\tprintf \"%s\\n\" \"${items[@]}\"\n)\n";
     }
 
-    #[test]
-    fn normalizes_block_process_substitution_source_indent() {
-        let source =
-            "while read -r line; do\n    echo \"$line\"\ndone < <(\n    produce_items\n)\n";
-        assert_formats_default_with_ast(
-            source,
-            "while read -r line; do\n\techo \"$line\"\ndone < <(\n\tproduce_items\n)\n",
-        );
+    default_format_ast_cases! {
+        normalizes_block_process_substitution_source_indent:
+            "while read -r line; do\n    echo \"$line\"\ndone < <(\n    produce_items\n)\n"
+            => "while read -r line; do\n\techo \"$line\"\ndone < <(\n\tproduce_items\n)\n";
     }
 
-    #[test]
-    fn expands_multistatement_process_substitutions_as_blocks() {
-        let source =
-            "while read game; do\n    echo \"$game\"\ndone < <(_get_opts; echo -e \"a\\nb\")\n";
-        assert_bash_formats_with_ast(
-            source,
-            "while read game; do\n\techo \"$game\"\ndone < <(\n\t_get_opts\n\techo -e \"a\\nb\"\n)\n",
-        );
+    bash_format_ast_cases! {
+        expands_multistatement_process_substitutions_as_blocks:
+            "while read game; do\n    echo \"$game\"\ndone < <(_get_opts; echo -e \"a\\nb\")\n"
+            => "while read game; do\n\techo \"$game\"\ndone < <(\n\t_get_opts\n\techo -e \"a\\nb\"\n)\n";
+        normalizes_process_substitution_block_indent_from_partial_source_indent:
+            "if ok; then\n   cat < <(produce; consume)\nfi\n"
+            => "if ok; then\n\tcat < <(\n\t\tproduce\n\t\tconsume\n\t)\nfi\n";
+        keeps_inline_process_substitution_brace_group_attached:
+            "while read -r line; do\n    menu+=(\"$line\")\ndone < <( { echo \"$a\"; echo \"$b\"; } | sort -u )\n"
+            => "while read -r line; do\n\tmenu+=(\"$line\")\ndone < <({\n\techo \"$a\"\n\techo \"$b\"\n} | sort -u)\n";
+        does_not_duplicate_process_substitution_comments_before_pipeline_rhs:
+            "while read -r item; do\n    echo \"$item\"\ndone < <(\n    # note\n    produce_items\n) |\nconsume_items\n"
+            => "while read -r item; do\n\techo \"$item\"\ndone < <(\n\t# note\n\tproduce_items\n) |\n\tconsume_items\n";
+        indents_process_substitution_pipeline_comments:
+            "cat < <(\n    produce_items |\n    # keep this filter documented\n    filter_items |\n    sort_items\n)\n"
+            => "cat < <(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\tfilter_items |\n\t\tsort_items\n)\n";
+        aligns_raw_pipeline_comments_after_continuation_stages:
+            "cat < <(\n    produce_items |\n    filter_items |\n    # keep this filter documented\n    normalize_items |\n    sort_items\n)\n"
+            => "cat < <(\n\tproduce_items |\n\t\tfilter_items |\n\t\t# keep this filter documented\n\t\tnormalize_items |\n\t\tsort_items\n)\n";
+        compacts_raw_process_substitution_semicolon_terminators:
+            "cat < <(\n    produce_items |\n    # keep this filter documented\n    { filter_items || : ; } |\n    sort_items\n)\n"
+            => "cat < <(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\t{ filter_items || :; } |\n\t\tsort_items\n)\n";
     }
 
-    #[test]
-    fn normalizes_process_substitution_block_indent_from_partial_source_indent() {
-        let source = "if ok; then\n   cat < <(produce; consume)\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if ok; then\n\tcat < <(\n\t\tproduce\n\t\tconsume\n\t)\nfi\n",
-        );
-    }
-
-    #[test]
-    fn keeps_inline_process_substitution_brace_group_attached() {
-        let source = "while read -r line; do\n    menu+=(\"$line\")\ndone < <( { echo \"$a\"; echo \"$b\"; } | sort -u )\n";
-        assert_bash_formats_with_ast(
-            source,
-            "while read -r line; do\n\tmenu+=(\"$line\")\ndone < <({\n\techo \"$a\"\n\techo \"$b\"\n} | sort -u)\n",
-        );
-    }
-
-    #[test]
-    fn does_not_duplicate_process_substitution_comments_before_pipeline_rhs() {
-        let source = "while read -r item; do\n    echo \"$item\"\ndone < <(\n    # note\n    produce_items\n) |\nconsume_items\n";
-        assert_bash_formats_with_ast(
-            source,
-            "while read -r item; do\n\techo \"$item\"\ndone < <(\n\t# note\n\tproduce_items\n) |\n\tconsume_items\n",
-        );
-    }
-
-    #[test]
-    fn indents_process_substitution_pipeline_comments() {
-        let source = "cat < <(\n    produce_items |\n    # keep this filter documented\n    filter_items |\n    sort_items\n)\n";
-        assert_bash_formats_with_ast(
-            source,
-            "cat < <(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\tfilter_items |\n\t\tsort_items\n)\n",
-        );
-    }
-
-    #[test]
-    fn aligns_raw_pipeline_comments_after_continuation_stages() {
-        let source = "cat < <(\n    produce_items |\n    filter_items |\n    # keep this filter documented\n    normalize_items |\n    sort_items\n)\n";
-        assert_bash_formats_with_ast(
-            source,
-            "cat < <(\n\tproduce_items |\n\t\tfilter_items |\n\t\t# keep this filter documented\n\t\tnormalize_items |\n\t\tsort_items\n)\n",
-        );
-    }
-
-    #[test]
-    fn compacts_raw_process_substitution_semicolon_terminators() {
-        let source = "cat < <(\n    produce_items |\n    # keep this filter documented\n    { filter_items || : ; } |\n    sort_items\n)\n";
-        assert_bash_formats_with_ast(
-            source,
-            "cat < <(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\t{ filter_items || :; } |\n\t\tsort_items\n)\n",
-        );
-    }
-
-    #[test]
-    fn keeps_nested_process_substitution_close_indent_in_raw_command_substitutions() {
-        let source = "urls=\"$(\n    while read -r filename; do\n        # keep comment with raw block path\n        { grep -E \"$url_regex\" \"$filename\" || : ; } |\n        if [ -n \"${URL_LINKS_IGNORED:-}\" ]; then\n            grep -Eivf <(\n                tr '[:space:]' '\\n' <<< \"$URL_LINKS_IGNORED\" |\n                sed 's/^[[:space:]]*//;\n                     s/[[:space:]]*$//;\n                     /^[[:space:]]*$/d'\n            )\n        else\n            cat\n        fi\n    done |\n    sort -uf\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "urls=\"$(\n\twhile read -r filename; do\n\t\t# keep comment with raw block path\n\t\t{ grep -E \"$url_regex\" \"$filename\" || :; } |\n\t\t\tif [ -n \"${URL_LINKS_IGNORED:-}\" ]; then\n\t\t\t\tgrep -Eivf <(\n\t\t\t\t\ttr '[:space:]' '\\n' <<<\"$URL_LINKS_IGNORED\" |\n\t\t\t\t\t\tsed 's/^[[:space:]]*//;\n                     s/[[:space:]]*$//;\n                     /^[[:space:]]*$/d'\n\t\t\t\t)\n\t\t\telse\n\t\t\t\tcat\n\t\t\tfi\n\tdone |\n\t\tsort -uf\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn indents_continued_process_substitution_comments_once() {
-        let source = "cmd \\\n<(\n    produce |\n    sort #|\n    # keep the sorted stream documented\n    # before the process substitution closes\n) \\\n<(\n    # describe target stream\n    consume\n) |\nsed 's/x/y/'\n";
-        assert_bash_formats_with_ast(
-            source,
-            "cmd \\\n\t<(\n\t\tproduce |\n\t\t\tsort #|\n\t\t# keep the sorted stream documented\n\t\t# before the process substitution closes\n\t) \\\n\t<(\n\t\t# describe target stream\n\t\tconsume\n\t) |\n\tsed 's/x/y/'\n",
-        );
-    }
-
-    #[test]
-    fn preserves_raw_block_multiline_literal_payloads() {
-        let source = "value=\"$(\n    produce_items |\n    sed '\n        s/a/b ;\n    ' |\n    consume_items\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "value=\"$(\n\tproduce_items |\n\t\tsed '\n        s/a/b ;\n    ' |\n\t\tconsume_items\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn shifts_raw_pipeline_compound_bodies_with_continuation() {
-        let source = "value=\"$(\n    produce_items |\n    # keep this filter documented\n    while read -r item; do\n        consume_item \"$item\"\n    done || :\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "value=\"$(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\twhile read -r item; do\n\t\t\tconsume_item \"$item\"\n\t\tdone || :\n)\"\n",
-        );
+    bash_format_ast_cases! {
+        keeps_nested_process_substitution_close_indent_in_raw_command_substitutions:
+            "urls=\"$(\n    while read -r filename; do\n        # keep comment with raw block path\n        { grep -E \"$url_regex\" \"$filename\" || : ; } |\n        if [ -n \"${URL_LINKS_IGNORED:-}\" ]; then\n            grep -Eivf <(\n                tr '[:space:]' '\\n' <<< \"$URL_LINKS_IGNORED\" |\n                sed 's/^[[:space:]]*//;\n                     s/[[:space:]]*$//;\n                     /^[[:space:]]*$/d'\n            )\n        else\n            cat\n        fi\n    done |\n    sort -uf\n)\"\n"
+            => "urls=\"$(\n\twhile read -r filename; do\n\t\t# keep comment with raw block path\n\t\t{ grep -E \"$url_regex\" \"$filename\" || :; } |\n\t\t\tif [ -n \"${URL_LINKS_IGNORED:-}\" ]; then\n\t\t\t\tgrep -Eivf <(\n\t\t\t\t\ttr '[:space:]' '\\n' <<<\"$URL_LINKS_IGNORED\" |\n\t\t\t\t\t\tsed 's/^[[:space:]]*//;\n                     s/[[:space:]]*$//;\n                     /^[[:space:]]*$/d'\n\t\t\t\t)\n\t\t\telse\n\t\t\t\tcat\n\t\t\tfi\n\tdone |\n\t\tsort -uf\n)\"\n";
+        indents_continued_process_substitution_comments_once:
+            "cmd \\\n<(\n    produce |\n    sort #|\n    # keep the sorted stream documented\n    # before the process substitution closes\n) \\\n<(\n    # describe target stream\n    consume\n) |\nsed 's/x/y/'\n"
+            => "cmd \\\n\t<(\n\t\tproduce |\n\t\t\tsort #|\n\t\t# keep the sorted stream documented\n\t\t# before the process substitution closes\n\t) \\\n\t<(\n\t\t# describe target stream\n\t\tconsume\n\t) |\n\tsed 's/x/y/'\n";
+        preserves_raw_block_multiline_literal_payloads:
+            "value=\"$(\n    produce_items |\n    sed '\n        s/a/b ;\n    ' |\n    consume_items\n)\"\n"
+            => "value=\"$(\n\tproduce_items |\n\t\tsed '\n        s/a/b ;\n    ' |\n\t\tconsume_items\n)\"\n";
+        shifts_raw_pipeline_compound_bodies_with_continuation:
+            "value=\"$(\n    produce_items |\n    # keep this filter documented\n    while read -r item; do\n        consume_item \"$item\"\n    done || :\n)\"\n"
+            => "value=\"$(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\twhile read -r item; do\n\t\t\tconsume_item \"$item\"\n\t\tdone || :\n)\"\n";
     }
 
     default_unchanged_ast_cases! {
