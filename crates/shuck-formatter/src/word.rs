@@ -17,7 +17,7 @@ use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
     leading_shell_indent as line_leading_shell_indent,
     line_indent_before_offset as line_indent_before_source_offset, redirect_operator_end,
-    refine_common_indent,
+    refine_common_indent, shell_comment_can_start,
 };
 use crate::streaming::format_stmt_sequence_streaming_to_buf;
 
@@ -1326,13 +1326,6 @@ impl RawShellQuoteState {
             }
         }
     }
-}
-
-fn shell_comment_can_start(line: &str, offset: usize) -> bool {
-    line[..offset]
-        .chars()
-        .next_back()
-        .is_none_or(|ch| ch.is_whitespace() || matches!(ch, ';' | '&' | '|'))
 }
 
 fn render_word_part(

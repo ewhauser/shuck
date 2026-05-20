@@ -231,6 +231,17 @@ pub(crate) fn last_uncommented_shell_keyword_before(
 pub(crate) fn last_shell_keyword_start(source: &str, span: Span, keyword: &str) -> Option<usize> {
     let upper = span.end.offset.min(source.len());
     let lower = span.start.offset.min(upper);
+    last_shell_keyword_start_between(source, lower, upper, keyword)
+}
+
+pub(crate) fn last_shell_keyword_start_between(
+    source: &str,
+    lower: usize,
+    upper: usize,
+    keyword: &str,
+) -> Option<usize> {
+    let upper = upper.min(source.len());
+    let lower = lower.min(upper);
     let slice = source.get(lower..upper)?;
     slice
         .match_indices(keyword)
@@ -239,6 +250,11 @@ pub(crate) fn last_shell_keyword_start(source: &str, span: Span, keyword: &str) 
             shell_keyword_boundaries_match(slice, start, end).then_some(lower + start)
         })
         .last()
+}
+
+pub(crate) fn last_shell_keyword_end(text: &str, keyword: &str) -> Option<usize> {
+    last_shell_keyword_start_between(text, 0, text.len(), keyword)
+        .map(|start| start + keyword.len())
 }
 
 pub(crate) fn line_indent_before_offset(source: &str, offset: usize) -> Option<&str> {

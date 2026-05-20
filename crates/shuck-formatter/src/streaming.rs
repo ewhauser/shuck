@@ -33,11 +33,12 @@ use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
     BranchPrefixComment, branch_keyword_offset, branch_prefix_comments,
-    close_suffix_comment_offsets, last_shell_keyword_start, last_uncommented_shell_keyword_before,
+    close_suffix_comment_offsets, last_shell_keyword_end, last_shell_keyword_start,
+    last_shell_keyword_start_between, last_uncommented_shell_keyword_before,
     line_indent_before_offset,
     operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line,
     own_line_comments_in_region as scan_own_line_comments_in_region, redirect_operator_end,
-    shell_keyword_boundaries_match, skip_double_quoted, skip_single_quoted,
+    shell_keyword_at, skip_double_quoted, skip_single_quoted,
 };
 use crate::word::{
     normalize_raw_unquoted_word_continuations, render_arithmetic_expr_to_buf,
@@ -6399,20 +6400,11 @@ fn source_has_blank_line_before_last_keyword_after(
 ) -> bool {
     let upper = span.end.offset.min(source.len());
     let lower = start_offset.max(span.start.offset).min(upper);
-    let Some(slice) = source.get(lower..upper) else {
-        return false;
-    };
-    let Some(keyword_start) = slice
-        .match_indices(keyword)
-        .filter_map(|(start, _)| {
-            let end = start + keyword.len();
-            shell_keyword_boundaries_match(slice, start, end).then_some(start)
-        })
-        .last()
+    let Some(keyword_start) = last_shell_keyword_start_between(source, lower, upper, keyword)
     else {
         return false;
     };
-    gap_has_empty_physical_line(source, lower, lower + keyword_start)
+    gap_has_empty_physical_line(source, lower, keyword_start)
 }
 
 fn sequence_first_content_offset(
@@ -6493,15 +6485,6 @@ fn stmt_renders_with_subshell_open(stmt: &Stmt) -> bool {
         Command::Compound(CompoundCommand::Subshell(_)) => true,
         _ => false,
     }
-}
-
-fn last_shell_keyword_end(text: &str, keyword: &str) -> Option<usize> {
-    text.match_indices(keyword)
-        .filter_map(|(start, _)| {
-            let end = start + keyword.len();
-            shell_keyword_boundaries_match(text, start, end).then_some(end)
-        })
-        .last()
 }
 
 fn last_shell_keyword_span(
@@ -8903,7 +8886,7 @@ fn comment_looks_like_disabled_if_branch(text: &str) -> bool {
         .trim_start_matches([' ', '\t']);
     ["elif", "else"]
         .iter()
-        .any(|keyword| shell_keyword_prefix_matches(body, keyword))
+        .any(|keyword| shell_keyword_at(body, 0, body.len(), keyword))
 }
 
 fn branch_prefix_comments_use_disabled_body_indent(comments: &[BranchPrefixComment]) -> bool {
@@ -8915,10 +8898,6 @@ fn branch_prefix_comments_use_disabled_body_indent(comments: &[BranchPrefixComme
             .iter()
             .skip(1)
             .any(|comment| comment.source_indent > first.source_indent)
-}
-
-fn shell_keyword_prefix_matches(text: &str, keyword: &str) -> bool {
-    text.starts_with(keyword) && shell_keyword_boundaries_match(text, 0, keyword.len())
 }
 
 fn time_inner_stmt_needs_trailing_comment(stmt: &Stmt) -> bool {
