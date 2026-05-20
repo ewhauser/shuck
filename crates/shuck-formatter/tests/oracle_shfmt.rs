@@ -364,6 +364,31 @@ fn compare_large_corpus_fixture(fixture: &LargeCorpusFixture) -> LargeCorpusFixt
 }
 
 impl OracleCase {
+    fn new(name: &'static str, fixture: &'static str) -> Self {
+        Self {
+            name,
+            fixture,
+            filename: fixture,
+            shfmt_flags: &[],
+            options: ShellFormatOptions::default(),
+        }
+    }
+
+    fn with_filename(mut self, filename: &'static str) -> Self {
+        self.filename = filename;
+        self
+    }
+
+    fn with_shfmt_flags(mut self, shfmt_flags: &'static [&'static str]) -> Self {
+        self.shfmt_flags = shfmt_flags;
+        self
+    }
+
+    fn with_options(mut self, options: ShellFormatOptions) -> Self {
+        self.options = options;
+        self
+    }
+
     fn is_supported(&self, shfmt: &ShfmtProbe) -> bool {
         self.shfmt_flags
             .iter()
@@ -851,89 +876,33 @@ fn percentage_env_int(name: &str, default: usize) -> usize {
 
 fn oracle_cases() -> Vec<OracleCase> {
     vec![
-        OracleCase {
-            name: "function next line",
-            fixture: "function_next_line.sh",
-            filename: "function_next_line.sh",
-            shfmt_flags: &["-fn"],
-            options: ShellFormatOptions::default().with_function_next_line(true),
-        },
-        OracleCase {
-            name: "case arms",
-            fixture: "case_default.sh",
-            filename: "case_default.sh",
-            shfmt_flags: &[],
-            options: ShellFormatOptions::default(),
-        },
-        OracleCase {
-            name: "space redirects",
-            fixture: "space_redirects.sh",
-            filename: "space_redirects.sh",
-            shfmt_flags: &["-sr"],
-            options: ShellFormatOptions::default().with_space_redirects(true),
-        },
-        OracleCase {
-            name: "keep padding",
-            fixture: "keep_padding.sh",
-            filename: "keep_padding.sh",
-            shfmt_flags: &["-kp"],
-            options: ShellFormatOptions::default().with_keep_padding(true),
-        },
-        OracleCase {
-            name: "nested heredoc",
-            fixture: "nested_heredoc.sh",
-            filename: "nested_heredoc.sh",
-            shfmt_flags: &[],
-            options: ShellFormatOptions::default(),
-        },
-        OracleCase {
-            name: "if body comment",
-            fixture: "if_body_comment.sh",
-            filename: "if_body_comment.sh",
-            shfmt_flags: &[],
-            options: ShellFormatOptions::default(),
-        },
-        OracleCase {
-            name: "heredoc trailing comment",
-            fixture: "heredoc_trailing_comment.sh",
-            filename: "heredoc_trailing_comment.sh",
-            shfmt_flags: &[],
-            options: ShellFormatOptions::default(),
-        },
-        OracleCase {
-            name: "declare heredoc",
-            fixture: "decl_heredoc.sh",
-            filename: "decl_heredoc.sh",
-            shfmt_flags: &[],
-            options: ShellFormatOptions::default(),
-        },
-        OracleCase {
-            name: "binary next line",
-            fixture: "binary_next_line.sh",
-            filename: "binary_next_line.sh",
-            shfmt_flags: &["-bn"],
-            options: ShellFormatOptions::default().with_binary_next_line(true),
-        },
-        OracleCase {
-            name: "simplify",
-            fixture: "simplify.sh",
-            filename: "simplify.bash",
-            shfmt_flags: &["-s"],
-            options: ShellFormatOptions::default().with_simplify(true),
-        },
-        OracleCase {
-            name: "minify",
-            fixture: "minify.sh",
-            filename: "minify.sh",
-            shfmt_flags: &["-mn"],
-            options: ShellFormatOptions::default().with_minify(true),
-        },
-        OracleCase {
-            name: "mksh select",
-            fixture: "mksh_select.sh",
-            filename: "script.mksh",
-            shfmt_flags: &["-ln=mksh"],
-            options: ShellFormatOptions::default().with_dialect(ShellDialect::Mksh),
-        },
+        OracleCase::new("function next line", "function_next_line.sh")
+            .with_shfmt_flags(&["-fn"])
+            .with_options(ShellFormatOptions::default().with_function_next_line(true)),
+        OracleCase::new("case arms", "case_default.sh"),
+        OracleCase::new("space redirects", "space_redirects.sh")
+            .with_shfmt_flags(&["-sr"])
+            .with_options(ShellFormatOptions::default().with_space_redirects(true)),
+        OracleCase::new("keep padding", "keep_padding.sh")
+            .with_shfmt_flags(&["-kp"])
+            .with_options(ShellFormatOptions::default().with_keep_padding(true)),
+        OracleCase::new("nested heredoc", "nested_heredoc.sh"),
+        OracleCase::new("if body comment", "if_body_comment.sh"),
+        OracleCase::new("heredoc trailing comment", "heredoc_trailing_comment.sh"),
+        OracleCase::new("declare heredoc", "decl_heredoc.sh"),
+        OracleCase::new("binary next line", "binary_next_line.sh")
+            .with_shfmt_flags(&["-bn"])
+            .with_options(ShellFormatOptions::default().with_binary_next_line(true)),
+        OracleCase::new("simplify", "simplify.sh")
+            .with_filename("simplify.bash")
+            .with_shfmt_flags(&["-s"])
+            .with_options(ShellFormatOptions::default().with_simplify(true)),
+        OracleCase::new("minify", "minify.sh")
+            .with_shfmt_flags(&["-mn"])
+            .with_options(ShellFormatOptions::default().with_minify(true)),
+        OracleCase::new("mksh select", "mksh_select.sh")
+            .with_filename("script.mksh")
+            .with_shfmt_flags(&["-ln=mksh"])
+            .with_options(ShellFormatOptions::default().with_dialect(ShellDialect::Mksh)),
     ]
 }
