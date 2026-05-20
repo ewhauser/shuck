@@ -2681,9 +2681,7 @@ fn normalize_inline_raw_command_substitution_body_with_options(
             used_continuation_indent = true;
         }
 
-        for _ in 0..indent_units {
-            rendered.push('\t');
-        }
+        rendered.extend(std::iter::repeat_n('\t', indent_units));
         push_raw_shell_line_with_normalized_redirect_spacing(&mut rendered, content);
         let line_is_pipeline_continuation_stage = carried_pipeline_indent.is_some();
         if content.starts_with('#') {
@@ -2942,34 +2940,31 @@ fn raw_block_line_is_outer_substitution_close(lines: &[&str], index: usize) -> b
 }
 
 fn normalize_continuations_before_comment_lines(text: &str) -> Option<String> {
-    let mut lines = text.lines().map(str::to_string).collect::<Vec<_>>();
-    let mut changed = false;
-
-    for index in 0..lines.len().saturating_sub(1) {
-        let next_starts_comment = lines[index + 1]
-            .trim_start_matches([' ', '\t'])
-            .starts_with('#');
-        if next_starts_comment
-            && let Some(prefix) = line_without_continuation_backslash(&lines[index])
-        {
-            lines[index] = prefix.to_string();
-            changed = true;
-        }
-    }
-
-    changed.then(|| lines.join("\n"))
+    normalize_continuations_before_matching_lines(text, false, |next| next.starts_with('#'))
 }
 
 fn normalize_continuations_before_substitution_close_lines(text: &str) -> Option<String> {
+    normalize_continuations_before_matching_lines(text, true, raw_line_closes_substitution_wrapper)
+}
+
+fn normalize_continuations_before_matching_lines(
+    text: &str,
+    trim_prefix: bool,
+    next_line_matches: impl Fn(&str) -> bool,
+) -> Option<String> {
     let mut lines = text.lines().map(str::to_string).collect::<Vec<_>>();
     let mut changed = false;
 
     for index in 0..lines.len().saturating_sub(1) {
         let next_content = lines[index + 1].trim_start_matches([' ', '\t']);
-        if raw_line_closes_substitution_wrapper(next_content)
+        if next_line_matches(next_content)
             && let Some(prefix) = line_without_continuation_backslash(&lines[index])
         {
-            lines[index] = prefix.trim_end_matches([' ', '\t']).to_string();
+            lines[index] = if trim_prefix {
+                prefix.trim_end_matches([' ', '\t']).to_string()
+            } else {
+                prefix.to_string()
+            };
             changed = true;
         }
     }
