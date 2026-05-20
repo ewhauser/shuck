@@ -669,7 +669,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 }
                 self.push_output_str(line);
                 let line_continues_command = !pipeline_quote_state.in_quote()
-                    && line_has_trailing_continuation_backslash(line);
+                    && line_without_continuation_backslash(line.trim_end_matches('\n')).is_some();
                 let continuation = command_substitution_pipeline_stage_continuation(
                     line,
                     pipeline_stage_indent,
@@ -1594,7 +1594,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.write_text(command.variant.as_ref());
         previous_end = Some(command.variant_span.end.offset);
         for operand in &command.operands {
-            let span = decl_operand_span(operand);
+            let span = match operand {
+                DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => word.span,
+                DeclOperand::Name(name) => name.span,
+                DeclOperand::Assignment(assignment) => assignment.span,
+            };
             self.write_command_gap(previous_end, span.start.offset);
             self.write_decl_operand(operand);
             previous_end = Some(span.end.offset);
@@ -5246,14 +5250,6 @@ fn redirect_is_attached_process_substitution(
         })
 }
 
-fn decl_operand_span(operand: &DeclOperand) -> Span {
-    match operand {
-        DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => word.span,
-        DeclOperand::Name(name) => name.span,
-        DeclOperand::Assignment(assignment) => assignment.span,
-    }
-}
-
 fn normalize_escaped_multiline_word_command_substitution_indent(
     rendered: &str,
     options: &ResolvedShellFormatOptions,
@@ -5306,8 +5302,9 @@ fn normalize_rendered_leading_list_operator_continuations(rendered: &str) -> Opt
         let mut current = line.to_string();
         if let Some((operator, rest)) = leading_list_operator_line_parts(line)
             && let Some(previous) = output.last_mut()
-            && remove_trailing_continuation_backslash(previous)
+            && let Some(prefix_len) = line_without_continuation_backslash(previous).map(str::len)
         {
+            previous.truncate(prefix_len);
             previous.push(' ');
             previous.push_str(operator);
             current.clear();
@@ -5338,15 +5335,6 @@ fn leading_list_operator_line_parts(line: &str) -> Option<(&'static str, &str)> 
     };
 
     Some((operator, rest.trim_start_matches([' ', '\t', '\r'])))
-}
-
-fn remove_trailing_continuation_backslash(line: &mut String) -> bool {
-    let Some(prefix) = line_without_continuation_backslash(line) else {
-        return false;
-    };
-    let len = prefix.len();
-    line.truncate(len);
-    true
 }
 
 fn normalize_scalar_assignment_unquoted_continuations(
@@ -7411,10 +7399,6 @@ fn multiline_literal_quote_state_after_line(
         }
     }
     quote
-}
-
-fn line_has_trailing_continuation_backslash(line: &str) -> bool {
-    line_without_continuation_backslash(line.trim_end_matches('\n')).is_some()
 }
 
 fn pipeline_operator_breaks(
