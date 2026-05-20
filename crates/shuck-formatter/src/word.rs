@@ -526,12 +526,10 @@ fn render_word_syntax_internal(
 
     if word_needs_formatter_rendering(word, source, options) {
         let start = rendered.len();
+        let env = WordRenderEnv::new(source, options, source_map, facts);
         if render_word_parts(
             word.parts.as_slice(),
-            source,
-            options,
-            source_map,
-            facts,
+            env,
             preserve_escaped_multiline_words,
             rendered,
         )
@@ -755,10 +753,7 @@ fn part_needs_special_rendering(part: &WordPart) -> bool {
 
 fn render_word_parts(
     parts: &[shuck_ast::WordPartNode],
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-    source_map: Option<&SourceMap<'_>>,
-    facts: Option<&FormatterFacts<'_>>,
+    env: WordRenderEnv<'_, '_>,
     allow_source_indented_inline_command_substitution: bool,
     rendered: &mut String,
 ) -> Result<(), std::fmt::Error> {
@@ -767,10 +762,7 @@ fn render_word_parts(
             rendered,
             &part.kind,
             part.span,
-            source,
-            options,
-            source_map,
-            facts,
+            env,
             WordPartRenderContext {
                 allow_source_indented_inline_command_substitution,
                 ..WordPartRenderContext::default()
@@ -871,12 +863,7 @@ fn render_heredoc_body_part(
                     expression,
                     expression_ast.as_ref(),
                     *syntax,
-                    ArithmeticRenderEnv::new(
-                        source,
-                        options,
-                        Some(facts.source_map()),
-                        Some(facts),
-                    ),
+                    WordRenderEnv::new(source, options, Some(facts.source_map()), Some(facts)),
                 );
             }
         }
@@ -1241,12 +1228,14 @@ fn render_word_part(
     rendered: &mut String,
     part: &WordPart,
     span: shuck_ast::Span,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-    source_map: Option<&SourceMap<'_>>,
-    facts: Option<&FormatterFacts<'_>>,
+    env: WordRenderEnv<'_, '_>,
     context: WordPartRenderContext,
 ) -> Result<(), std::fmt::Error> {
+    let source = env.source;
+    let options = env.options;
+    let source_map = env.source_map;
+    let facts = env.facts;
+
     if let Some(raw) = preferred_raw_word_part_source(part, span, source, options) {
         rendered.push_str(raw);
         return Ok(());
@@ -1292,10 +1281,7 @@ fn render_word_part(
                             &mut inner,
                             other,
                             part.span,
-                            source,
-                            options,
-                            source_map,
-                            facts,
+                            env,
                             WordPartRenderContext {
                                 allow_source_indented_inline_command_substitution: context
                                     .allow_source_indented_inline_command_substitution,
@@ -1483,7 +1469,7 @@ fn render_word_part(
             expression,
             expression_ast.as_deref(),
             *syntax,
-            ArithmeticRenderEnv::new(source, options, source_map, facts),
+            env,
         ),
         WordPart::Parameter(parameter) => {
             push_parameter_word(rendered, parameter, source, options)?;
@@ -4993,7 +4979,7 @@ pub(crate) fn render_arithmetic_expr_to_buf(
         expr,
         ArithmeticContext::TopLevel,
         false,
-        ArithmeticRenderEnv::new(source, options, None, None),
+        WordRenderEnv::new(source, options, None, None),
     );
 }
 
@@ -5009,7 +4995,7 @@ fn render_arithmetic_subscript_expr_to_buf(
         expr,
         ArithmeticContext::Subscript,
         compact,
-        ArithmeticRenderEnv::new(source, options, None, None),
+        WordRenderEnv::new(source, options, None, None),
     );
 }
 
@@ -5026,14 +5012,14 @@ enum ArithmeticContext {
 }
 
 #[derive(Clone, Copy)]
-struct ArithmeticRenderEnv<'source, 'a> {
+struct WordRenderEnv<'source, 'a> {
     source: &'source str,
     options: &'a ResolvedShellFormatOptions,
     source_map: Option<&'a SourceMap<'source>>,
     facts: Option<&'a FormatterFacts<'source>>,
 }
 
-impl<'source, 'a> ArithmeticRenderEnv<'source, 'a> {
+impl<'source, 'a> WordRenderEnv<'source, 'a> {
     fn new(
         source: &'source str,
         options: &'a ResolvedShellFormatOptions,
@@ -5054,7 +5040,7 @@ fn push_arithmetic_expr(
     expr: &ArithmeticExprNode,
     context: ArithmeticContext,
     compact: bool,
-    env: ArithmeticRenderEnv<'_, '_>,
+    env: WordRenderEnv<'_, '_>,
 ) {
     let needs_parentheses = arithmetic_needs_parentheses(expr, context);
     if needs_parentheses {
@@ -5172,7 +5158,7 @@ fn push_arithmetic_expr(
 fn push_arithmetic_expansion_body(
     rendered: &mut String,
     expr: &ArithmeticExprNode,
-    env: ArithmeticRenderEnv<'_, '_>,
+    env: WordRenderEnv<'_, '_>,
 ) {
     let mut body = String::new();
     push_arithmetic_expr(&mut body, expr, ArithmeticContext::TopLevel, false, env);
@@ -5406,7 +5392,7 @@ fn arithmetic_assign_operator(op: ArithmeticAssignOp) -> &'static str {
 fn push_arithmetic_lvalue(
     rendered: &mut String,
     target: &ArithmeticLvalue,
-    env: ArithmeticRenderEnv<'_, '_>,
+    env: WordRenderEnv<'_, '_>,
 ) {
     match target {
         ArithmeticLvalue::Variable(name) => rendered.push_str(name),
@@ -5490,7 +5476,7 @@ fn push_arithmetic_expansion(
     expression: &shuck_ast::SourceText,
     expression_ast: Option<&ArithmeticExprNode>,
     syntax: ArithmeticExpansionSyntax,
-    env: ArithmeticRenderEnv<'_, '_>,
+    env: WordRenderEnv<'_, '_>,
 ) {
     let expression_source = expression.slice(env.source);
     if matches!(syntax, ArithmeticExpansionSyntax::LegacyBracket) {
