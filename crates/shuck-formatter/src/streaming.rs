@@ -1850,35 +1850,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return Ok(());
         }
 
-        self.write_text("; do");
-        self.write_sequence_open_suffix(body, Some(body_upper_bound));
-        let preserve_open_blank = body_has_blank_line_after_keyword(
-            self.source(),
-            self.source_map(),
-            enclosing_span.start.offset,
-            "do",
-            body,
-        );
-        self.format_body_with_upper_bound_and_open_blank(
-            body,
-            Some(body_upper_bound),
-            preserve_open_blank,
-        )?;
-        self.write_unmodeled_branch_background_terminator(body, body_upper_bound);
-        if close_span.is_some_and(|span| {
-            source_has_blank_line_immediately_before_offset(self.source(), span.start.offset)
-        }) || (close_span.is_none()
-            && source_has_blank_line_before_last_keyword(
-                self.source(),
-                self.source_map(),
-                enclosing_span,
-                close,
-            ))
-        {
-            self.newline();
-        }
-        self.finish_block_with_close_suffix(close, close_span);
-        Ok(())
+        self.format_multiline_do_done_body(body, enclosing_span, close_span, close, "; do")
     }
 
     fn format_split_do_done_body(
@@ -1888,11 +1860,22 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         close_span: Option<Span>,
         close: &'static str,
     ) -> Result<()> {
+        self.format_multiline_do_done_body(body, enclosing_span, close_span, close, "do")
+    }
+
+    fn format_multiline_do_done_body(
+        &mut self,
+        body: &StmtSeq,
+        enclosing_span: Span,
+        close_span: Option<Span>,
+        close: &'static str,
+        open: &'static str,
+    ) -> Result<()> {
         let body_upper_bound = close_span
             .map(|span| span.start.offset)
             .unwrap_or(enclosing_span.end.offset);
 
-        self.write_text("do");
+        self.write_text(open);
         self.write_sequence_open_suffix(body, Some(body_upper_bound));
         let preserve_open_blank = body_has_blank_line_after_keyword(
             self.source(),
