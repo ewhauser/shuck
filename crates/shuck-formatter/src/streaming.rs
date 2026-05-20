@@ -7,9 +7,9 @@ use shuck_ast::{
     Command, CompoundCommand, ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand,
     ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, CoprocCommand,
     DeclClause, DeclOperand, File, ForCommand, ForSyntax, ForeachCommand, ForeachSyntax,
-    FunctionDef, Heredoc, HeredocBody, HeredocBodyPart, IfCommand, IfSyntax, Pattern, PatternPart,
-    Redirect, RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand, Span, Stmt,
-    StmtSeq, StmtTerminator, TimeCommand, UntilCommand, VarRef, WhileCommand, Word, WordPart,
+    FunctionDef, HeredocBody, HeredocBodyPart, IfCommand, IfSyntax, Pattern, PatternPart, Redirect,
+    RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand, Span, Stmt, StmtSeq,
+    StmtTerminator, TimeCommand, UntilCommand, VarRef, WhileCommand, Word, WordPart,
 };
 use shuck_format::{IndentStyle, LineEnding};
 
@@ -34,12 +34,8 @@ use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    BranchPrefixComment, branch_prefix_comments, branch_prefix_first_comment_offset,
-    close_suffix_comment_offsets, has_newline_between_offsets, heredoc_start,
-    last_shell_keyword_end, last_shell_keyword_start, last_shell_keyword_start_between,
-    line_indent_before_offset, line_without_continuation_backslash,
-    operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line,
-    own_line_comments_in_region as scan_own_line_comments_in_region, redirect_operator_end,
+    BranchPrefixComment, heredoc_start, last_shell_keyword_end, last_shell_keyword_start,
+    last_shell_keyword_start_between, line_without_continuation_backslash, redirect_operator_end,
     shell_keyword_at, skip_double_quoted, skip_single_quoted, source_between_offsets,
 };
 use crate::word::{
@@ -221,25 +217,25 @@ impl<'source> CompareSink<'source> {
     }
 }
 
-pub(crate) fn format_file_streaming(
+pub(crate) fn format_file_streaming_with_facts(
     source: &str,
     file: &File,
     options: &ResolvedShellFormatOptions,
+    facts: &FormatterFacts<'_>,
 ) -> Result<String> {
-    let facts = FormatterFacts::build(source, file, options);
-    let mut formatter = ShellStreamFormatter::new(source, options, &facts);
+    let mut formatter = ShellStreamFormatter::new(source, options, facts);
     formatter.format_stmt_sequence(&file.body, None)?;
 
     Ok(formatter.finish_into_string())
 }
 
-pub(crate) fn format_file_streaming_matches_source(
+pub(crate) fn format_file_streaming_matches_source_with_facts(
     source: &str,
     file: &File,
     options: &ResolvedShellFormatOptions,
+    facts: &FormatterFacts<'_>,
 ) -> Result<bool> {
-    let facts = FormatterFacts::build(source, file, options);
-    let mut formatter = ShellStreamFormatter::new_compare(source, options, &facts);
+    let mut formatter = ShellStreamFormatter::new_compare(source, options, facts);
     formatter.format_stmt_sequence(&file.body, None)?;
 
     Ok(formatter.finish_matches_source())
@@ -945,7 +941,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     fn write_case_pattern(&mut self, item: &CaseItem, pattern: &Pattern) {
         let mut scratch = self.take_scratch_buffer();
         render_pattern_syntax_to_buf(pattern, self.source(), self.options(), &mut scratch);
-        if case_item_pattern_close_paren_on_own_line(item, self.source()) {
+        if case_item_pattern_close_paren_on_own_line(item, self.source(), self.source_map()) {
             trim_trailing_pattern_line_continuation(&mut scratch);
         }
         self.write_text(&scratch);
@@ -963,9 +959,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_rendered_shell_text(assignment.span.slice(self.source()));
             return;
         }
-        if let Some(normalized) =
-            normalize_scalar_assignment_unquoted_continuations(assignment, self.source())
-        {
+        if let Some(normalized) = normalize_scalar_assignment_unquoted_continuations(
+            assignment,
+            self.source(),
+            self.facts(),
+        ) {
             self.write_text(&normalized);
             return;
         }
@@ -1095,6 +1093,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             let current_code_column = self.column.saturating_sub(self.line_indent_column);
             let padding = trailing_comment_padding(
                 self.source(),
+                self.source_map(),
                 comment,
                 current_code_column,
                 self.line_indent_column,
@@ -1160,7 +1159,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if !self.line_start {
             return;
         }
-        if comment_precedes_close_keyword_at_same_indent(self.source(), comment) {
+        if comment_precedes_close_keyword_at_same_indent(self.source(), self.source_map(), comment)
+        {
             let close_indent_column =
                 self.indent_column_for_level(self.indent_level.saturating_sub(1));
             if close_indent_column == 0 {
@@ -1353,7 +1353,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
         if !stmt.redirects.is_empty() && !emit_redirects_first && !redirects_formatted_with_command
         {
-            if redirect_list_starts_on_continuation_line(command_span, &stmt.redirects, source) {
+            if redirect_list_starts_on_continuation_line(
+                command_span,
+                &stmt.redirects,
+                self.facts(),
+            ) {
                 self.line_continuation();
                 self.write_indent_units(1);
             } else if redirect_list_needs_leading_space(command_span, &stmt.redirects, source) {
@@ -1370,7 +1374,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.write_text(render_background_operator(operator));
             }
             Some(StmtTerminator::Semicolon)
-                if stmt_semicolon_terminator_starts_on_continuation_line(stmt, source) =>
+                if stmt_semicolon_terminator_starts_on_continuation_line(
+                    stmt,
+                    self.source_map(),
+                ) =>
             {
                 self.line_continuation();
                 self.write_indent_units(1);
@@ -1494,7 +1501,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     SimpleCommandPart::Assignment(_)
                 ) if keep_assignment_continuations_flush_left
             ) && previous_end.is_some_and(|previous_end| {
-                has_newline_between_offsets(source, previous_end, part.start_offset(command))
+                self.facts()
+                    .contains_newline_between(previous_end, part.start_offset(command))
             }) {
                 self.line_continuation();
             } else if let SimpleCommandPart::Redirect(redirect) = &part {
@@ -1739,7 +1747,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         )?;
         self.write_unmodeled_branch_background_terminator(body, body_upper_bound);
         if close_span.is_some_and(|span| {
-            source_has_blank_line_immediately_before_offset(self.source(), span.start.offset)
+            self.source_map()
+                .has_blank_line_immediately_before_offset(span.start.offset)
         }) || (close_span.is_none()
             && source_has_blank_line_before_last_keyword(
                 self.source(),
@@ -1769,10 +1778,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
     fn source_line_before_offset_ends_with_do(&self, offset: usize) -> bool {
         let source = self.source();
-        let line_start = source[..offset]
-            .rfind('\n')
-            .map_or(0, |offset| offset.saturating_add(1));
-        source[line_start..offset]
+        let Some((line_start, _)) = self.source_map().line_bounds_for_offset(offset) else {
+            return false;
+        };
+        source
+            .get(line_start..offset.min(source.len()))
+            .unwrap_or("")
             .trim_end_matches([' ', '\t', '\r'])
             .ends_with("do")
     }
@@ -2117,10 +2128,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn own_line_comments_in_region(&self, start: usize, end: usize) -> Vec<BranchPrefixComment> {
-        scan_own_line_comments_in_region(self.source(), start, end)
-            .into_iter()
-            .filter(|comment| !self.facts().offset_is_in_heredoc_body(comment.offset))
-            .collect()
+        self.facts().own_line_comments_in_region(start, end)
     }
 
     fn format_pipeline_stmt(&mut self, stmt: &Stmt) -> Result<()> {
@@ -2257,19 +2265,21 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 source,
                 self.source_map(),
                 self.options(),
+                self.facts(),
             )
         {
             self.write_text("if");
             self.write_text(&raw_condition);
             self.write_text("then");
-            let then_upper_bound = if_branch_upper_bound(command, 0, source, self.source_map());
+            let then_upper_bound =
+                if_branch_upper_bound(command, 0, source, self.source_map(), self.facts());
             self.format_if_branch_body_after_open(
                 &command.then_branch,
                 then_upper_bound,
                 then_span.end.offset,
             )?;
             if let Some(body) = &command.else_branch {
-                if if_next_branch_has_blank_line_before_keyword(command, 0, source) {
+                if self.if_next_branch_has_blank_line_before_keyword(command, 0, source) {
                     self.newline();
                 }
                 self.newline();
@@ -2286,8 +2296,14 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             source,
             self.source_map(),
             self.options(),
-        ) || if_condition_has_explicit_statement_break(command, then_span, source)
-        {
+            self.facts(),
+        ) || if_condition_has_explicit_statement_break(
+            command,
+            then_span,
+            source,
+            self.source_map(),
+            self.facts(),
+        ) {
             self.write_text("if");
             self.newline();
             self.with_indent(|formatter| {
@@ -2295,7 +2311,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             })?;
             self.newline();
             self.write_text("then");
-            let then_upper_bound = if_branch_upper_bound(command, 0, source, self.source_map());
+            let then_upper_bound =
+                if_branch_upper_bound(command, 0, source, self.source_map(), self.facts());
             self.format_if_branch_body_after_open(
                 &command.then_branch,
                 then_upper_bound,
@@ -2304,8 +2321,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
                 self.write_if_branch_prefix(command, index, source);
                 self.write_elif_header(command, index, condition, body, source)?;
-                let body_upper_bound =
-                    if_branch_upper_bound(command, index + 1, source, self.source_map());
+                let body_upper_bound = if_branch_upper_bound(
+                    command,
+                    index + 1,
+                    source,
+                    self.source_map(),
+                    self.facts(),
+                );
                 self.format_if_branch_body_after_keyword(
                     body,
                     body_upper_bound,
@@ -2369,7 +2391,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.format_inline_stmts(&command.then_branch)?;
             self.write_text("; else");
             self.format_else_branch_body(command, else_branch, fi_upper_bound)?;
-            let then_upper_bound = if_branch_upper_bound(command, 0, source, self.source_map());
+            let then_upper_bound =
+                if_branch_upper_bound(command, 0, source, self.source_map(), self.facts());
             self.finish_multiline_if_close(command, then_upper_bound, fi_span);
             return Ok(());
         }
@@ -2403,7 +2426,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
 
         self.write_text(then_separator);
-        let then_upper_bound = if_branch_upper_bound(command, 0, source, self.source_map());
+        let then_upper_bound =
+            if_branch_upper_bound(command, 0, source, self.source_map(), self.facts());
         if !self.write_condition_separator_suffix_comment(&command.condition, then_span) {
             self.write_sequence_open_suffix(&command.then_branch, Some(then_upper_bound));
         }
@@ -2429,7 +2453,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.write_elif_header(command, index, condition, body, source)?;
             }
             let body_upper_bound =
-                if_branch_upper_bound(command, index + 1, source, self.source_map());
+                if_branch_upper_bound(command, index + 1, source, self.source_map(), self.facts());
             self.format_if_branch_body_after_keyword(
                 body,
                 body_upper_bound,
@@ -2496,9 +2520,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         {
             return false;
         };
-        let Some((_, else_offset)) =
-            if_next_branch_region(command, command.elif_branches.len(), self.source())
-        else {
+        let Some((_, else_offset)) = if_next_branch_region(
+            command,
+            command.elif_branches.len(),
+            self.source(),
+            self.facts(),
+        ) else {
             return false;
         };
         let else_line = self.source_map().line_number_for_offset(else_offset);
@@ -2515,7 +2542,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if !self.can_inline_body_with_upper_bound(
             &command.then_branch,
             command.span,
-            Some(if_branch_upper_bound(command, 0, source, self.source_map())),
+            Some(if_branch_upper_bound(
+                command,
+                0,
+                source,
+                self.source_map(),
+                self.facts(),
+            )),
         ) {
             return false;
         }
@@ -2529,6 +2562,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     index + 1,
                     source,
                     self.source_map(),
+                    self.facts(),
                 )),
             ) {
                 return false;
@@ -2569,6 +2603,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                         0,
                         self.source(),
                         self.source_map(),
+                        self.facts(),
                     )),
                 )
                 .has_comments()
@@ -2588,18 +2623,22 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         !body.is_empty()
             && source_has_blank_line_before_last_keyword_after(
                 self.source(),
-                sequence_close_gap_start(body, self.source()),
+                sequence_close_gap_start(body, self.source(), self.facts()),
                 command.span,
                 "fi",
             )
     }
 
     fn write_if_branch_prefix(&mut self, command: &IfCommand, branch_index: usize, source: &str) {
-        if if_next_branch_has_blank_line_before_keyword(command, branch_index, source) {
+        if self.if_next_branch_has_blank_line_before_keyword(command, branch_index, source) {
             self.newline();
         }
-        let preserve_blank_after_prefix =
-            if_branch_prefix_comments_have_blank_line_before_keyword(command, branch_index, source);
+        let preserve_blank_after_prefix = self
+            .if_branch_prefix_comments_have_blank_line_before_keyword(
+                command,
+                branch_index,
+                source,
+            );
         self.emit_branch_prefix_comments(command, branch_index);
         self.newline();
         if preserve_blank_after_prefix {
@@ -2615,11 +2654,19 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         body: &StmtSeq,
         source: &str,
     ) -> Result<()> {
-        if condition_keyword_on_previous_non_empty_line(condition, source, "elif")
-            || elif_condition_has_explicit_statement_break(condition, body, source)
-            || !self
-                .elif_condition_prefix_comments(command, branch_index, condition)
-                .is_empty()
+        if condition_keyword_on_previous_non_empty_line(
+            condition,
+            source,
+            self.source_map(),
+            "elif",
+        ) || elif_condition_has_explicit_statement_break(
+            condition,
+            body,
+            source,
+            self.source_map(),
+        ) || !self
+            .elif_condition_prefix_comments(command, branch_index, condition)
+            .is_empty()
         {
             self.write_text("elif");
             self.newline();
@@ -2638,10 +2685,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn emit_branch_prefix_comments(&mut self, command: &IfCommand, branch_index: usize) {
-        let Some((start, end)) = if_next_branch_region(command, branch_index, self.source()) else {
+        let Some((start, end)) =
+            if_next_branch_region(command, branch_index, self.source(), self.facts())
+        else {
             return;
         };
-        let comments = branch_prefix_comments(self.source(), start, end);
+        let comments = self.facts().branch_prefix_comments(start, end);
         if comments.is_empty() {
             return;
         }
@@ -2667,7 +2716,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         branch_index: usize,
         condition: &StmtSeq,
     ) -> Vec<BranchPrefixComment> {
-        let Some((_, keyword_offset)) = if_next_branch_region(command, branch_index, self.source())
+        let Some((_, keyword_offset)) =
+            if_next_branch_region(command, branch_index, self.source(), self.facts())
         else {
             return Vec::new();
         };
@@ -2680,6 +2730,47 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
 
         self.own_line_comments_in_region(keyword_offset, condition_start)
+    }
+
+    fn if_next_branch_has_blank_line_before_keyword(
+        &self,
+        command: &IfCommand,
+        branch_index: usize,
+        source: &str,
+    ) -> bool {
+        if_next_branch_region(command, branch_index, source, self.facts()).is_some_and(
+            |(start, end)| {
+                let first_prefix = self
+                    .facts()
+                    .branch_prefix_first_comment_offset(start, end)
+                    .unwrap_or(end);
+                gap_has_empty_physical_line(source, start, first_prefix)
+            },
+        )
+    }
+
+    fn if_branch_prefix_comments_have_blank_line_before_keyword(
+        &self,
+        command: &IfCommand,
+        branch_index: usize,
+        source: &str,
+    ) -> bool {
+        if_next_branch_region(command, branch_index, source, self.facts()).is_some_and(
+            |(start, end)| {
+                let comments = self.facts().branch_prefix_comments(start, end);
+                let Some(last) = comments.last() else {
+                    return false;
+                };
+                let Some(line_end) = self
+                    .facts()
+                    .line_end_for_offset(last.offset)
+                    .filter(|line_end| *line_end < end)
+                else {
+                    return false;
+                };
+                gap_has_empty_physical_line(source, line_end, end)
+            },
+        )
     }
 
     fn write_sequence_open_suffix(&mut self, commands: &StmtSeq, upper_bound: Option<usize>) {
@@ -2726,10 +2817,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return None;
         }
         let comment_start = start + comment_rel;
-        let line_end = source
-            .get(comment_start..end)?
-            .find('\n')
-            .map_or(end, |offset| comment_start + offset);
+        let (_, indexed_line_end) = self.source_map().line_bounds_for_offset(comment_start)?;
+        let line_end = indexed_line_end.min(end);
         let comment = source
             .get(comment_start..line_end)?
             .trim_end_matches([' ', '\t', '\r']);
@@ -2811,7 +2900,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.write_space();
         self.format_brace_group(
             &command.then_branch,
-            Some(if_branch_upper_bound(command, 0, source, self.source_map())),
+            Some(if_branch_upper_bound(
+                command,
+                0,
+                source,
+                self.source_map(),
+                self.facts(),
+            )),
         )?;
         for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
             self.write_text(" elif ");
@@ -2824,6 +2919,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     index + 1,
                     source,
                     self.source_map(),
+                    self.facts(),
                 )),
             )?;
         }
@@ -3075,11 +3171,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let source = self.source();
         let start = command.word.span.end.offset.min(source.len());
         let end = first_pattern.span.start.offset.min(source.len());
-        let Some(between) = source.get(start..end) else {
+        let Some((_, indexed_line_end)) = self.source_map().line_bounds_for_offset(start) else {
             return;
         };
-        let line_end = between.find('\n').unwrap_or(between.len());
-        let header = &between[..line_end];
+        let line_end = indexed_line_end.min(end);
+        let Some(header) = source.get(start..line_end) else {
+            return;
+        };
         let header = header.trim_start_matches([' ', '\t']);
         let Some(suffix) = header.strip_prefix("in") else {
             return;
@@ -3110,11 +3208,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         for (index, word) in item.patterns.iter().enumerate() {
             if index > 0 {
                 let previous = &item.patterns[index - 1];
-                if has_newline_between_offsets(
-                    self.source(),
-                    previous.span.end.offset,
-                    word.span.start.offset,
-                ) {
+                if self
+                    .facts()
+                    .contains_newline_between(previous.span.end.offset, word.span.start.offset)
+                {
                     self.write_text(" |");
                     self.line_continuation();
                     self.write_indent_units(1);
@@ -3130,12 +3227,18 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             let current_code_column = self.column.saturating_sub(self.line_indent_column);
             let mut padding = trailing_comment_padding(
                 self.source(),
+                self.source_map(),
                 comment,
                 current_code_column,
                 self.line_indent_column,
             );
-            if trailing_comment_alignment_column(self.source(), comment, self.line_indent_column)
-                .is_some()
+            if trailing_comment_alignment_column(
+                self.source(),
+                self.source_map(),
+                comment,
+                self.line_indent_column,
+            )
+            .is_some()
             {
                 padding += 1;
             }
@@ -3247,8 +3350,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     stmt_render_start_line(stmt, self.source(), self.source_map(), self.options())
                 })
                 .unwrap_or(first_body_line);
-            if (case_item_pattern_close_paren_on_own_line(item, self.source())
-                && !case_item_close_paren_shares_line_with_body(item, self.source()))
+            if (case_item_pattern_close_paren_on_own_line(item, self.source(), self.source_map())
+                && !case_item_close_paren_shares_line_with_body(
+                    item,
+                    self.source(),
+                    self.source_map(),
+                ))
                 || case_item_has_blank_line_after_pattern(
                     item,
                     self.source(),
@@ -3265,7 +3372,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     first_pattern_start,
                 )
             })?;
-            if case_item_has_blank_line_before_terminator(item, self.source()) {
+            if case_item_has_blank_line_before_terminator(item, self.source(), self.facts()) {
                 self.newline();
             }
             self.newline();
@@ -3349,22 +3456,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if span.start.line != span.end.line {
             return None;
         }
-        let source = self.source();
-        let start = span.end.offset.min(source.len());
-        let suffix_source = source.get(start..)?;
-        let line_end = suffix_source
-            .find('\n')
-            .map_or(source.len(), |offset| start + offset);
-        let suffix = source.get(start..line_end)?;
-        let leading_padding = suffix.len() - suffix.trim_start_matches([' ', '\t']).len();
-        let comment = suffix[leading_padding..].trim_end_matches([' ', '\t', '\r']);
-        if !comment.starts_with('#') {
-            return None;
-        }
-        let absolute_start = start + leading_padding;
-        let absolute_end = absolute_start + comment.len();
-        self.source_map()
-            .source_comment_for_offsets(absolute_start, absolute_end)
+        self.source_map().suffix_comment_after_span(span)
     }
 
     fn case_item_prefix_comments(
@@ -3404,7 +3496,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         first_pattern_start: usize,
     ) -> Vec<SourceComment<'source>> {
         let source = self.source();
-        let Some((pattern_line_start, _)) = line_bounds_for_offset(source, first_pattern_start)
+        let Some((pattern_line_start, _)) = self
+            .source_map()
+            .line_bounds_for_offset(first_pattern_start)
         else {
             return Vec::new();
         };
@@ -3416,7 +3510,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
         let mut comments = Vec::new();
         let mut next_start = pattern_line_start;
-        while let Some((start, end)) = previous_line_bounds(source, next_start) {
+        while let Some((start, end)) = self.source_map().previous_line_bounds(next_start) {
             let Some(line) = source.get(start..end) else {
                 break;
             };
@@ -3500,6 +3594,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         for (index, comment) in comments.iter().enumerate() {
             let uses_body_indent = case_prefix_comment_uses_body_indent(
                 self.source(),
+                self.source_map(),
                 comment,
                 first_pattern.span.start.offset,
                 disabled_case_pattern_context,
@@ -3935,7 +4030,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let first = commands.first()?;
         let source = self.source();
         let start = stmt_span(first).start.offset.min(source.len());
-        let (line_start, line_end) = line_bounds_for_offset(source, start)?;
+        let (line_start, line_end) = self.source_map().line_bounds_for_offset(start)?;
         let width = inline_comment_code_width(source, line_start, line_end, None)?;
         Some(width + 1)
     }
@@ -3952,10 +4047,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return None;
         }
 
-        let line_end = source[header_end..body_start]
-            .find('\n')
-            .map(|offset| header_end + offset)
-            .unwrap_or(body_start);
+        let (_, indexed_line_end) = self.source_map().line_bounds_for_offset(header_end)?;
+        let line_end = indexed_line_end.min(body_start);
         let between = source.get(header_end..line_end)?;
         let comment_offset = between.find('#')?;
         if between[..comment_offset].contains('{') {
@@ -4197,11 +4290,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     fn write_comment_with_padding(
         &mut self,
         comment: &SourceComment<'_>,
-        padding_for: impl FnOnce(&str, &SourceComment<'_>, usize, usize) -> usize,
+        padding_for: impl FnOnce(&str, &SourceMap<'_>, &SourceComment<'_>, usize, usize) -> usize,
     ) {
         let current_code_column = self.column.saturating_sub(self.line_indent_column);
         let padding = padding_for(
             self.source(),
+            self.source_map(),
             comment,
             current_code_column,
             self.line_indent_column,
@@ -4219,13 +4313,19 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let current_code_column = self.column.saturating_sub(self.line_indent_column);
         let mut padding = trailing_comment_padding(
             self.source(),
+            self.source_map(),
             &comment,
             current_code_column,
             self.line_indent_column,
         );
         if nudge_aligned
-            && trailing_comment_alignment_column(self.source(), &comment, self.line_indent_column)
-                .is_some()
+            && trailing_comment_alignment_column(
+                self.source(),
+                self.source_map(),
+                &comment,
+                self.line_indent_column,
+            )
+            .is_some()
         {
             padding += 1;
         }
@@ -4248,10 +4348,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn close_suffix_comment_after_span(&self, close_span: Span) -> Option<SourceComment<'source>> {
-        let source = self.source();
-        let (comment_start, comment_end) = close_suffix_comment_offsets(source, close_span)?;
-        self.source_map()
-            .source_comment_for_offsets(comment_start, comment_end)
+        self.source_map().suffix_comment_after_span(close_span)
     }
 
     fn format_group_with_upper_bound(
@@ -4293,7 +4390,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let preserve_close_blank = group_span.is_some_and(|span| {
             let close_offset =
                 group_close_offset(source, span, upper_bound, close_char, close.len());
-            source_has_blank_line_immediately_before_offset(source, close_offset)
+            self.source_map()
+                .has_blank_line_immediately_before_offset(close_offset)
         });
 
         self.format_body_with_upper_bound_open_blank_and_leading_filter(
@@ -4372,20 +4470,18 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             RedirectKind::OutputBoth => "&>",
         });
 
-        self.write_redirect_target(redirect, source, &options, true);
+        self.write_redirect_target(redirect, &options, true);
     }
 
     fn format_append_both_redirect(&mut self, redirect: &Redirect) {
-        let source = self.source();
         let options = self.options().clone();
         self.write_text("&>>");
-        self.write_redirect_target(redirect, source, &options, false);
+        self.write_redirect_target(redirect, &options, false);
     }
 
     fn write_redirect_target(
         &mut self,
         redirect: &Redirect,
-        source: &'source str,
         options: &ResolvedShellFormatOptions,
         preserve_here_string_indent: bool,
     ) {
@@ -4401,7 +4497,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             }
         }
         let normalized_target = normalized_redirect_target(redirect.kind, &target);
-        if redirect_target_starts_on_continuation_line(redirect, source) {
+        if redirect_target_starts_on_continuation_line(redirect, self.facts()) {
             self.line_continuation();
             self.write_indent_units(1);
         } else if needs_space_before_target(
@@ -4450,7 +4546,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             };
             // The opening redirection keeps delimiter quoting, but the closing
             // marker line uses the cooked delimiter text after quote removal.
-            let delimiter = heredoc_closing_marker_bounds(heredoc, source)
+            let delimiter = self
+                .facts()
+                .heredoc_closing_marker_bounds(heredoc)
                 .and_then(|(start, line_end)| source.get(start..line_end))
                 .map(str::to_owned)
                 .unwrap_or_else(|| heredoc.delimiter.cooked.to_string());
@@ -4492,15 +4590,22 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         Ok(())
     }
 
-    fn compound_assignment_source_has_line_continuations(raw: &str) -> bool {
-        raw.contains("\\\n") || raw.contains("\\\r\n")
+    fn compound_assignment_has_raw_line_continuations(&self, assignment: &Assignment) -> bool {
+        self.facts().has_raw_continuation_backslash_between(
+            assignment.span.start.offset,
+            assignment.span.end.offset,
+        )
     }
 
-    fn compound_assignment_source_has_escaped_multiline_double_quoted_item(raw: &str) -> bool {
-        if !Self::compound_assignment_source_has_line_continuations(raw) {
+    fn compound_assignment_source_has_escaped_multiline_double_quoted_item(
+        &self,
+        assignment: &Assignment,
+    ) -> bool {
+        if !self.compound_assignment_has_raw_line_continuations(assignment) {
             return false;
         }
 
+        let raw = assignment.span.slice(self.source());
         let Some(open) = raw.find('(') else {
             return false;
         };
@@ -4524,17 +4629,14 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return false;
         }
 
-        let raw = assignment.span.slice(source);
-        !Self::compound_assignment_source_has_line_continuations(raw)
+        !self.compound_assignment_has_raw_line_continuations(assignment)
     }
 
     fn format_escaped_multiline_double_quoted_compound_assignment(
         &mut self,
         assignment: &Assignment,
     ) -> bool {
-        if !Self::compound_assignment_source_has_escaped_multiline_double_quoted_item(
-            assignment.span.slice(self.source()),
-        ) {
+        if !self.compound_assignment_source_has_escaped_multiline_double_quoted_item(assignment) {
             return false;
         }
 
@@ -4722,10 +4824,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         else {
             return false;
         };
-        let group_source = group_span.slice(self.source());
-        if !group_source.contains('\n')
-            || group_source.contains("\\\n")
-            || group_source.contains("\\\r\n")
+        if !self
+            .facts()
+            .contains_newline_between(group_span.start.offset, group_span.end.offset)
+            || self.facts().has_raw_continuation_backslash_between(
+                group_span.start.offset,
+                group_span.end.offset,
+            )
         {
             return false;
         }
@@ -4796,7 +4901,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.format_conditional_expr(&expression.left)?;
         self.write_space();
         self.write_text(expression.op.as_str());
-        if conditional_binary_has_explicit_rhs_break(expression, self.source()) {
+        if conditional_binary_has_explicit_rhs_break(expression, self.source_map()) {
             self.newline();
             if !conditional_expr_contains_command_substitution(&expression.left) {
                 self.write_indent_units(1);
@@ -5020,23 +5125,6 @@ fn normalize_rendered_heredoc_start_spacing(line: &str) -> Option<String> {
     Some(normalized)
 }
 
-fn heredoc_closing_marker_bounds(heredoc: &Heredoc, source: &str) -> Option<(usize, usize)> {
-    let mut start = heredoc.body.span.end.offset.min(source.len());
-    if source
-        .as_bytes()
-        .get(start)
-        .is_some_and(|byte| *byte == b'\n')
-    {
-        start += 1;
-    }
-    let line_end = source[start..]
-        .find(['\n', '\r'])
-        .map_or(source.len(), |offset| start + offset);
-    let line = source.get(start..line_end)?;
-    (line.trim_start_matches('\t') == heredoc.delimiter.cooked.as_str())
-        .then_some((start, line_end))
-}
-
 fn raw_redirect_source_slice<'a>(redirect: &Redirect, source: &'a str) -> Option<&'a str> {
     let span = redirect.span;
     (span.start.offset < span.end.offset && span.end.offset <= source.len())
@@ -5091,7 +5179,10 @@ fn append_both_redirect_pair_matches_source(
     false
 }
 
-fn redirect_target_starts_on_continuation_line(redirect: &Redirect, source: &str) -> bool {
+fn redirect_target_starts_on_continuation_line(
+    redirect: &Redirect,
+    facts: &FormatterFacts<'_>,
+) -> bool {
     let target_start = redirect
         .word_target()
         .map(|word| word.span.start.offset)
@@ -5103,9 +5194,7 @@ fn redirect_target_starts_on_continuation_line(redirect: &Redirect, source: &str
     let Some(target_start) = target_start else {
         return false;
     };
-    source
-        .get(redirect.span.start.offset.min(source.len())..target_start.min(source.len()))
-        .is_some_and(|between| between.contains("\\\n") || between.contains("\\\r\n"))
+    facts.has_continuation_line_start_between(redirect.span.start.offset, target_start)
 }
 
 fn should_render_explicit_fd(fd: i32, kind: RedirectKind) -> bool {
@@ -5212,7 +5301,7 @@ fn redirect_list_needs_leading_space(
 fn redirect_list_starts_on_continuation_line(
     command_span: Span,
     redirects: &[Redirect],
-    source: &str,
+    facts: &FormatterFacts<'_>,
 ) -> bool {
     let Some(redirect) = redirects.first() else {
         return false;
@@ -5220,11 +5309,7 @@ fn redirect_list_starts_on_continuation_line(
     if command_span == Span::new() || redirect.span.start.offset <= command_span.end.offset {
         return false;
     }
-    source
-        .get(
-            command_span.end.offset.min(source.len())..redirect.span.start.offset.min(source.len()),
-        )
-        .is_some_and(|between| between.contains("\\\n") || between.contains("\\\r\n"))
+    facts.has_continuation_line_start_between(command_span.end.offset, redirect.span.start.offset)
 }
 
 fn redirect_is_attached_process_substitution(
@@ -5336,6 +5421,7 @@ fn leading_list_operator_line_parts(line: &str) -> Option<(&'static str, &str)> 
 fn normalize_scalar_assignment_unquoted_continuations(
     assignment: &Assignment,
     source: &str,
+    facts: &FormatterFacts,
 ) -> Option<String> {
     if assignment_source_has_command_substitution(assignment, source) {
         return None;
@@ -5343,11 +5429,14 @@ fn normalize_scalar_assignment_unquoted_continuations(
     let AssignmentValue::Scalar(_) = &assignment.value else {
         return None;
     };
-    let raw = assignment.span.slice(source);
-    if !raw.contains("\\\n") && !raw.contains("\\\r\n") {
+    if !facts.has_raw_continuation_backslash_between(
+        assignment.span.start.offset,
+        assignment.span.end.offset,
+    ) {
         return None;
     }
 
+    let raw = assignment.span.slice(source);
     let mut head = String::new();
     render_assignment_head_to_buf(assignment, source, &mut head);
     let raw_value = raw.strip_prefix(&head)?;
@@ -5472,7 +5561,10 @@ fn assignment_value_is_quoted_command_substitution_only(assignment: &Assignment)
     }
 }
 
-fn stmt_semicolon_terminator_starts_on_continuation_line(stmt: &Stmt, source: &str) -> bool {
+fn stmt_semicolon_terminator_starts_on_continuation_line(
+    stmt: &Stmt,
+    source_map: &SourceMap<'_>,
+) -> bool {
     let Some(terminator_span) = stmt.terminator_span else {
         return false;
     };
@@ -5481,7 +5573,7 @@ fn stmt_semicolon_terminator_starts_on_continuation_line(stmt: &Stmt, source: &s
         .last()
         .map(|redirect| redirect.span.end.offset)
         .unwrap_or_else(|| command_format_span(&stmt.command).end.offset);
-    has_newline_between_offsets(source, render_end, terminator_span.start.offset)
+    source_map.contains_newline_between(render_end, terminator_span.start.offset)
 }
 
 fn stmt_rendered_end_line_after_format(
@@ -5491,7 +5583,7 @@ fn stmt_rendered_end_line_after_format(
     fallback: usize,
 ) -> usize {
     if matches!(stmt.terminator, Some(StmtTerminator::Semicolon))
-        && stmt_semicolon_terminator_starts_on_continuation_line(stmt, source)
+        && stmt_semicolon_terminator_starts_on_continuation_line(stmt, source_map)
         && let Some(terminator_span) = stmt.terminator_span
     {
         return terminator_span.start.line;
@@ -5536,8 +5628,9 @@ fn if_condition_starts_after_keyword(
     source: &str,
     source_map: &SourceMap<'_>,
     options: &ResolvedShellFormatOptions,
+    facts: &FormatterFacts,
 ) -> bool {
-    if raw_if_condition_starts_with_negation_continuation(command, then_span, source) {
+    if raw_if_condition_starts_with_negation_continuation(command, then_span, source, facts) {
         return false;
     }
     command.condition.first().is_some_and(|stmt| {
@@ -5549,14 +5642,17 @@ fn if_condition_has_explicit_statement_break(
     command: &IfCommand,
     then_span: Span,
     source: &str,
+    source_map: &SourceMap<'_>,
+    facts: &FormatterFacts,
 ) -> bool {
-    if raw_if_condition_starts_with_negation_continuation(command, then_span, source) {
+    if raw_if_condition_starts_with_negation_continuation(command, then_span, source, facts) {
         return false;
     }
     condition_sequence_has_explicit_statement_break(
         &command.condition,
         then_span.start.offset,
         source,
+        source_map,
     )
 }
 
@@ -5564,27 +5660,30 @@ fn raw_if_condition_starts_with_negation_continuation(
     command: &IfCommand,
     then_span: Span,
     source: &str,
+    facts: &FormatterFacts,
 ) -> bool {
     let condition_start = command.span.start.offset.saturating_add("if".len());
     let condition_end = then_span.start.offset.min(source.len());
-    source
-        .get(condition_start..condition_end)
-        .is_some_and(raw_condition_starts_with_negation_continuation)
-}
-
-fn raw_condition_starts_with_negation_continuation(raw: &str) -> bool {
+    let Some(raw) = source.get(condition_start..condition_end) else {
+        return false;
+    };
     let raw = raw.trim_start_matches([' ', '\t', '\r']);
     let Some(after_negation) = raw.strip_prefix('!') else {
         return false;
     };
     let after_negation = after_negation.trim_start_matches([' ', '\t', '\r']);
-    after_negation.starts_with("\\\n") || after_negation.starts_with("\\\r\n")
+    let continuation_offset = condition_end - after_negation.len();
+    facts.has_raw_continuation_backslash_between(
+        continuation_offset,
+        continuation_offset.saturating_add(1),
+    )
 }
 
 fn condition_sequence_has_explicit_statement_break(
     condition: &StmtSeq,
     upper_bound: usize,
     source: &str,
+    source_map: &SourceMap<'_>,
 ) -> bool {
     if condition.len() == 1 {
         let Some(stmt) = condition.first() else {
@@ -5603,7 +5702,7 @@ fn condition_sequence_has_explicit_statement_break(
     condition.as_slice().windows(2).any(|pair| {
         let previous_start = stmt_span(&pair[0]).start.offset;
         let next_start = stmt_span(&pair[1]).start.offset;
-        has_newline_between_offsets(source, previous_start, next_start)
+        source_map.contains_newline_between(previous_start, next_start)
     })
 }
 
@@ -5622,10 +5721,11 @@ fn elif_condition_has_explicit_statement_break(
     condition: &StmtSeq,
     body: &StmtSeq,
     source: &str,
+    source_map: &SourceMap<'_>,
 ) -> bool {
     let upper_bound =
         branch_open_keyword_start(body, source, "then").unwrap_or(body.span.start.offset);
-    condition_sequence_has_explicit_statement_break(condition, upper_bound, source)
+    condition_sequence_has_explicit_statement_break(condition, upper_bound, source, source_map)
 }
 
 fn has_unescaped_line_break(text: &str) -> bool {
@@ -5666,17 +5766,19 @@ fn loop_condition_starts_after_keyword(condition: &StmtSeq, span: Span) -> bool 
 fn condition_keyword_on_previous_non_empty_line(
     condition: &StmtSeq,
     source: &str,
+    source_map: &SourceMap<'_>,
     keyword: &str,
 ) -> bool {
     let Some(first) = condition.first() else {
         return false;
     };
-    let Some((mut line_start, _)) = line_bounds_for_offset(source, stmt_span(first).start.offset)
+    let Some((mut line_start, _)) =
+        source_map.line_bounds_for_offset(stmt_span(first).start.offset)
     else {
         return false;
     };
 
-    while let Some((start, end)) = previous_line_bounds(source, line_start) {
+    while let Some((start, end)) = source_map.previous_line_bounds(line_start) {
         let Some(line) = source.get(start..end) else {
             return false;
         };
@@ -5696,8 +5798,9 @@ fn raw_grouped_if_condition(
     source: &str,
     source_map: &SourceMap<'_>,
     options: &ResolvedShellFormatOptions,
+    facts: &FormatterFacts,
 ) -> Option<String> {
-    if !if_condition_starts_after_keyword(command, then_span, source, source_map, options) {
+    if !if_condition_starts_after_keyword(command, then_span, source, source_map, options, facts) {
         return None;
     }
     let start = command.span.start.offset.checked_add("if".len())?;
@@ -5709,7 +5812,9 @@ fn raw_grouped_if_condition(
     if !(raw.trim_start().starts_with('{') && raw.contains('}') && raw.contains('\n')) {
         return None;
     }
-    let outer_indent = line_indent_before_offset(source, command.span.start.offset).unwrap_or("");
+    let outer_indent = source_map
+        .line_indent_before_offset(command.span.start.offset)
+        .unwrap_or("");
     Some(strip_outer_indent_after_first_line(raw, outer_indent))
 }
 
@@ -5786,29 +5891,6 @@ fn body_has_blank_line_after_keyword(
     gap_has_blank_line(source, search_start + keyword_end, first_start)
 }
 
-fn source_has_blank_line_immediately_before_offset(source: &str, offset: usize) -> bool {
-    let offset = offset.min(source.len());
-    let close_line_start = source[..offset]
-        .rfind('\n')
-        .map_or(0, |index| index.saturating_add(1));
-    if !source[close_line_start..offset]
-        .trim_matches([' ', '\t', '\r'])
-        .is_empty()
-    {
-        return false;
-    }
-    if close_line_start == 0 {
-        return false;
-    }
-    let previous_line_end = close_line_start.saturating_sub(1);
-    let previous_line_start = source[..previous_line_end]
-        .rfind('\n')
-        .map_or(0, |index| index.saturating_add(1));
-    source[previous_line_start..previous_line_end]
-        .trim_matches([' ', '\t', '\r'])
-        .is_empty()
-}
-
 fn source_has_blank_line_before_last_keyword(
     source: &str,
     source_map: &SourceMap<'_>,
@@ -5816,7 +5898,7 @@ fn source_has_blank_line_before_last_keyword(
     keyword: &str,
 ) -> bool {
     last_shell_keyword_span(source, source_map, span, keyword).is_some_and(|keyword_span| {
-        source_has_blank_line_immediately_before_offset(source, keyword_span.start.offset)
+        source_map.has_blank_line_immediately_before_offset(keyword_span.start.offset)
     })
 }
 
@@ -6079,7 +6161,7 @@ fn case_item_single_body_stmt_can_inline(
     };
     if let Command::Compound(CompoundCommand::If(command)) = &stmt.command {
         return pattern_body_terminator_was_inline
-            && case_item_close_paren_shares_line_with_body(item, source)
+            && case_item_close_paren_shares_line_with_body(item, source, source_map)
             && case_item_if_close_shares_terminator(command, item, source, source_map);
     }
     if let Command::Compound(CompoundCommand::Case(command)) = &stmt.command {
@@ -6178,7 +6260,11 @@ fn case_item_pattern_starts_on_case_header(command: &CaseCommand, item: &CaseIte
         .is_some_and(|pattern| pattern.span.start.line == command.span.start.line)
 }
 
-fn case_item_pattern_close_paren_on_own_line(item: &CaseItem, source: &str) -> bool {
+fn case_item_pattern_close_paren_on_own_line(
+    item: &CaseItem,
+    source: &str,
+    source_map: &SourceMap<'_>,
+) -> bool {
     let Some(first_pattern) = item.patterns.first() else {
         return false;
     };
@@ -6195,15 +6281,22 @@ fn case_item_pattern_close_paren_on_own_line(item: &CaseItem, source: &str) -> b
     let Some(close_offset) = slice.rfind(')') else {
         return false;
     };
-    let line_start = slice[..close_offset]
-        .rfind('\n')
-        .map_or(0, |offset| offset + 1);
-    slice[line_start..close_offset]
+    let close_offset = first_pattern.span.start.offset + close_offset;
+    let Some((line_start, _)) = source_map.line_bounds_for_offset(close_offset) else {
+        return false;
+    };
+    source
+        .get(line_start..close_offset)
+        .unwrap_or("")
         .trim_matches([' ', '\t', '\r'])
         .is_empty()
 }
 
-fn case_item_close_paren_shares_line_with_body(item: &CaseItem, source: &str) -> bool {
+fn case_item_close_paren_shares_line_with_body(
+    item: &CaseItem,
+    source: &str,
+    source_map: &SourceMap<'_>,
+) -> bool {
     let Some(first_pattern) = item.patterns.first() else {
         return false;
     };
@@ -6217,7 +6310,8 @@ fn case_item_close_paren_shares_line_with_body(item: &CaseItem, source: &str) ->
     let Some(close_offset) = slice.rfind(')') else {
         return false;
     };
-    !slice[close_offset + 1..].contains(['\n', '\r'])
+    let close_offset = first_pattern.span.start.offset + close_offset;
+    !source_map.contains_newline_between(close_offset + 1, stmt_start)
 }
 
 fn trim_trailing_pattern_line_continuation(rendered: &mut String) {
@@ -6260,14 +6354,18 @@ fn case_item_has_blank_line_after_pattern(
     })
 }
 
-fn case_item_has_blank_line_before_terminator(item: &CaseItem, source: &str) -> bool {
+fn case_item_has_blank_line_before_terminator(
+    item: &CaseItem,
+    source: &str,
+    facts: &FormatterFacts<'_>,
+) -> bool {
     let Some(terminator_start) = item.terminator_span.map(|span| span.start.offset) else {
         return false;
     };
     if item.body.is_empty() {
         return false;
     }
-    let content_end = sequence_close_gap_start(&item.body, source);
+    let content_end = sequence_close_gap_start(&item.body, source, facts);
     gap_has_empty_physical_line(source, content_end, terminator_start)
 }
 
@@ -6282,13 +6380,13 @@ fn case_suffix_comment_start_line(item: &CaseItem) -> Option<usize> {
         .or_else(|| item.patterns.last().map(|pattern| pattern.span.end.line))
 }
 
-fn sequence_close_gap_start(commands: &StmtSeq, source: &str) -> usize {
+fn sequence_close_gap_start(commands: &StmtSeq, source: &str, facts: &FormatterFacts<'_>) -> usize {
     commands
         .trailing_comments
         .iter()
         .map(|comment| usize::from(comment.range.end()))
         .max()
-        .unwrap_or_else(|| branch_body_content_end(commands, source))
+        .unwrap_or_else(|| branch_body_content_end(commands, source, facts))
 }
 
 fn case_has_blank_line_before_esac(command: &CaseCommand, source: &str) -> bool {
@@ -6363,16 +6461,17 @@ fn group_close_offset(
 
 fn trailing_comment_padding(
     source: &str,
+    source_map: &SourceMap<'_>,
     comment: &SourceComment<'_>,
     current_code_column: usize,
     current_indent_column: usize,
 ) -> usize {
     let Some(target_column) =
-        trailing_comment_alignment_column(source, comment, current_indent_column)
+        trailing_comment_alignment_column(source, source_map, comment, current_indent_column)
     else {
         return 1;
     };
-    let indent_adjust = trailing_comment_tab_indent_adjust(source, comment);
+    let indent_adjust = trailing_comment_tab_indent_adjust(source, source_map, comment);
     target_column
         .saturating_sub(current_code_column.saturating_add(indent_adjust))
         .max(1)
@@ -6380,28 +6479,37 @@ fn trailing_comment_padding(
 
 fn close_suffix_comment_padding(
     source: &str,
+    source_map: &SourceMap<'_>,
     comment: &SourceComment<'_>,
     current_code_column: usize,
     current_indent_column: usize,
 ) -> usize {
     if let Some(padding) = aligned_close_suffix_comment_padding(
         source,
+        source_map,
         comment,
         current_code_column,
         current_indent_column,
     ) {
         return padding;
     }
-    trailing_comment_padding(source, comment, current_code_column, current_indent_column)
+    trailing_comment_padding(
+        source,
+        source_map,
+        comment,
+        current_code_column,
+        current_indent_column,
+    )
 }
 
 fn aligned_close_suffix_comment_padding(
     source: &str,
+    source_map: &SourceMap<'_>,
     comment: &SourceComment<'_>,
     current_code_column: usize,
     current_indent_column: usize,
 ) -> Option<usize> {
-    let entries = close_suffix_comment_alignment_entries(source, comment)?;
+    let entries = close_suffix_comment_alignment_entries(source, source_map, comment)?;
     if entries.len() <= 1 {
         return None;
     }
@@ -6443,9 +6551,10 @@ struct CloseSuffixAlignmentEntry {
 
 fn close_suffix_comment_alignment_entries(
     source: &str,
+    source_map: &SourceMap<'_>,
     comment: &SourceComment<'_>,
 ) -> Option<Vec<CloseSuffixAlignmentEntry>> {
-    let (line_start, line_end) = line_bounds_for_offset(source, comment.span().start.offset)?;
+    let (line_start, line_end) = source_map.line_bounds_for_offset(comment.span().start.offset)?;
     let mut entries = vec![close_suffix_alignment_entry(
         source,
         line_start,
@@ -6454,7 +6563,7 @@ fn close_suffix_comment_alignment_entries(
     )?];
 
     let mut previous_start = line_start;
-    while let Some((start, end)) = previous_line_bounds(source, previous_start) {
+    while let Some((start, end)) = source_map.previous_line_bounds(previous_start) {
         let Some(entry) = close_suffix_alignment_entry(source, start, end, None) else {
             break;
         };
@@ -6462,13 +6571,13 @@ fn close_suffix_comment_alignment_entries(
         previous_start = start;
     }
 
-    let mut next_line = next_line_bounds(source, line_end);
+    let mut next_line = source_map.next_line_bounds(line_end);
     while let Some((start, end)) = next_line {
         let Some(entry) = close_suffix_alignment_entry(source, start, end, None) else {
             break;
         };
         entries.push(entry);
-        next_line = next_line_bounds(source, end);
+        next_line = source_map.next_line_bounds(end);
     }
 
     Some(entries)
@@ -6523,16 +6632,17 @@ fn leading_indent_and_code_start(text: &str) -> Option<(usize, usize)> {
 
 fn trailing_comment_alignment_column(
     source: &str,
+    source_map: &SourceMap<'_>,
     comment: &SourceComment<'_>,
     current_indent_column: usize,
 ) -> Option<usize> {
-    let (line_start, line_end) = line_bounds_for_offset(source, comment.span().start.offset)?;
+    let (line_start, line_end) = source_map.line_bounds_for_offset(comment.span().start.offset)?;
     let mut widths = vec![trimmed_line_width(
         source.get(line_start..comment.span().start.offset)?,
     )?];
 
     let mut previous_start = line_start;
-    while let Some((start, end)) = previous_line_bounds(source, previous_start) {
+    while let Some((start, end)) = source_map.previous_line_bounds(previous_start) {
         let Some(width) = inline_comment_code_width(source, start, end, None) else {
             if source
                 .get(start..end)
@@ -6547,31 +6657,37 @@ fn trailing_comment_alignment_column(
         previous_start = start;
     }
 
-    let mut next_line = next_line_bounds(source, line_end);
+    let mut next_line = source_map.next_line_bounds(line_end);
     while let Some((start, end)) = next_line {
         let Some(width) = inline_comment_code_width(source, start, end, None) else {
             if let Some((width, suffix_end)) = multiline_header_suffix_comment_width(
                 source,
+                source_map,
                 line_start,
                 start,
                 end,
                 current_indent_column,
             ) {
                 widths.push(width);
-                next_line = next_line_bounds(source, suffix_end);
+                next_line = source_map.next_line_bounds(suffix_end);
                 continue;
             }
             break;
         };
         widths.push(width);
-        next_line = next_line_bounds(source, end);
+        next_line = source_map.next_line_bounds(end);
     }
 
     (widths.len() > 1).then(|| widths.into_iter().max().unwrap_or(0) + 1)
 }
 
-fn trailing_comment_tab_indent_adjust(source: &str, comment: &SourceComment<'_>) -> usize {
-    let Some((line_start, line_end)) = line_bounds_for_offset(source, comment.span().start.offset)
+fn trailing_comment_tab_indent_adjust(
+    source: &str,
+    source_map: &SourceMap<'_>,
+    comment: &SourceComment<'_>,
+) -> usize {
+    let Some((line_start, line_end)) =
+        source_map.line_bounds_for_offset(comment.span().start.offset)
     else {
         return 0;
     };
@@ -6584,7 +6700,7 @@ fn trailing_comment_tab_indent_adjust(source: &str, comment: &SourceComment<'_>)
     }
 
     let mut previous_start = line_start;
-    while let Some((start, end)) = previous_line_bounds(source, previous_start) {
+    while let Some((start, end)) = source_map.previous_line_bounds(previous_start) {
         if inline_comment_code_width(source, start, end, None).is_some() {
             return source
                 .get(start..end)
@@ -6607,7 +6723,7 @@ fn trailing_comment_tab_indent_adjust(source: &str, comment: &SourceComment<'_>)
         break;
     }
 
-    let mut next_line = next_line_bounds(source, line_end);
+    let mut next_line = source_map.next_line_bounds(line_end);
     while let Some((start, end)) = next_line {
         if inline_comment_code_width(source, start, end, None).is_some() {
             return source
@@ -6625,7 +6741,7 @@ fn trailing_comment_tab_indent_adjust(source: &str, comment: &SourceComment<'_>)
             .get(start..end)
             .is_some_and(line_is_skippable_alignment_opener)
         {
-            next_line = next_line_bounds(source, end);
+            next_line = source_map.next_line_bounds(end);
             continue;
         }
         break;
@@ -6645,41 +6761,6 @@ fn leading_tabs_only_indent_width(line: &str) -> usize {
     tabs
 }
 
-fn line_bounds_for_offset(source: &str, offset: usize) -> Option<(usize, usize)> {
-    if source.is_empty() {
-        return None;
-    }
-    let offset = offset.min(source.len().saturating_sub(1));
-    let start = source[..offset]
-        .rfind('\n')
-        .map_or(0, |index| index.saturating_add(1));
-    let end = source[offset..]
-        .find('\n')
-        .map_or(source.len(), |index| offset + index);
-    Some((start, end))
-}
-
-fn previous_line_bounds(source: &str, line_start: usize) -> Option<(usize, usize)> {
-    if line_start == 0 {
-        return None;
-    }
-    let end = line_start.saturating_sub(1);
-    let start = source[..end]
-        .rfind('\n')
-        .map_or(0, |index| index.saturating_add(1));
-    Some((start, end))
-}
-
-fn next_line_bounds(source: &str, line_end: usize) -> Option<(usize, usize)> {
-    let start = line_end
-        .checked_add(1)
-        .filter(|offset| *offset < source.len())?;
-    let end = source[start..]
-        .find('\n')
-        .map_or(source.len(), |offset| start + offset);
-    Some((start, end))
-}
-
 fn inline_comment_code_width(
     source: &str,
     line_start: usize,
@@ -6697,6 +6778,7 @@ fn inline_comment_code_width(
 
 fn multiline_header_suffix_comment_width(
     source: &str,
+    source_map: &SourceMap<'_>,
     current_line_start: usize,
     header_start: usize,
     header_end: usize,
@@ -6709,7 +6791,7 @@ fn multiline_header_suffix_comment_width(
     let header = header_line.trim_matches([' ', '\t', '\r']);
     let suffix = multiline_header_suffix_keyword(header)?;
 
-    let (suffix_start, suffix_end) = next_line_bounds(source, header_end)?;
+    let (suffix_start, suffix_end) = source_map.next_line_bounds(header_end)?;
     let suffix_line = source.get(suffix_start..suffix_end)?;
     let comment_offset = find_inline_comment_start(suffix_line, suffix_start)?;
     let suffix_prefix = source.get(suffix_start..comment_offset)?;
@@ -6722,6 +6804,7 @@ fn multiline_header_suffix_comment_width(
     Some((
         alignment_width_relative_to_current_indent(
             source,
+            source_map,
             current_line_start,
             header_start,
             normalized_comment_alignment_width(&rendered),
@@ -6741,15 +6824,16 @@ fn multiline_header_suffix_keyword(header: &str) -> Option<&'static str> {
 
 fn alignment_width_relative_to_current_indent(
     source: &str,
+    source_map: &SourceMap<'_>,
     current_line_start: usize,
     target_line_start: usize,
     width: usize,
     current_indent_column: usize,
 ) -> usize {
-    let Some((_, current_line_end)) = line_bounds_for_offset(source, current_line_start) else {
+    let Some((_, current_line_end)) = source_map.line_bounds_for_offset(current_line_start) else {
         return width;
     };
-    let Some((_, target_line_end)) = line_bounds_for_offset(source, target_line_start) else {
+    let Some((_, target_line_end)) = source_map.line_bounds_for_offset(target_line_start) else {
         return width;
     };
     let current_indent = line_indent_info(source, current_line_start, current_line_end);
@@ -6769,6 +6853,7 @@ fn alignment_width_relative_to_current_indent(
     }
     let delta = rendered_indent_delta_between_lines(
         source,
+        source_map,
         current_line_start,
         target_line_start,
         current_indent_column,
@@ -6782,14 +6867,15 @@ fn alignment_width_relative_to_current_indent(
 
 fn rendered_indent_delta_between_lines(
     source: &str,
+    source_map: &SourceMap<'_>,
     current_line_start: usize,
     target_line_start: usize,
     current_rendered_indent: usize,
 ) -> isize {
-    let Some((_, current_line_end)) = line_bounds_for_offset(source, current_line_start) else {
+    let Some((_, current_line_end)) = source_map.line_bounds_for_offset(current_line_start) else {
         return 0;
     };
-    let Some((_, target_line_end)) = line_bounds_for_offset(source, target_line_start) else {
+    let Some((_, target_line_end)) = source_map.line_bounds_for_offset(target_line_start) else {
         return 0;
     };
     let current_indent = line_indent_info(source, current_line_start, current_line_end);
@@ -7206,16 +7292,17 @@ fn multiline_compound_assignment_line_extra_indent(
 
 fn case_prefix_comment_uses_body_indent(
     source: &str,
+    source_map: &SourceMap<'_>,
     comment: &SourceComment<'_>,
     pattern_start: usize,
     disabled_case_pattern_context: bool,
     body_indent_context: bool,
 ) -> bool {
-    let Some(comment_indent) = line_indent_before_offset(source, comment.span().start.offset)
+    let Some(comment_indent) = source_map.line_indent_before_offset(comment.span().start.offset)
     else {
         return false;
     };
-    let Some(pattern_indent) = line_indent_before_offset(source, pattern_start) else {
+    let Some(pattern_indent) = source_map.line_indent_before_offset(pattern_start) else {
         return false;
     };
     let comment_width = shell_indent_width(comment_indent);
@@ -7224,23 +7311,31 @@ fn case_prefix_comment_uses_body_indent(
         if body_indent_context {
             return true;
         }
-        if comment_width != pattern_width && case_prefix_comment_follows_terminator(source, comment)
+        if comment_width != pattern_width
+            && case_prefix_comment_follows_terminator(source, source_map, comment)
         {
             return true;
         }
         return comment_text_after_hash_starts_with_tab(comment) && comment_width < pattern_width;
     }
-    if comment_width < pattern_width && case_prefix_comment_follows_terminator(source, comment) {
+    if comment_width < pattern_width
+        && case_prefix_comment_follows_terminator(source, source_map, comment)
+    {
         return true;
     }
     comment_width > pattern_width || (comment_width == 0 && pattern_width > 0)
 }
 
-fn case_prefix_comment_follows_terminator(source: &str, comment: &SourceComment<'_>) -> bool {
-    let Some((line_start, _)) = line_bounds_for_offset(source, comment.span().start.offset) else {
+fn case_prefix_comment_follows_terminator(
+    source: &str,
+    source_map: &SourceMap<'_>,
+    comment: &SourceComment<'_>,
+) -> bool {
+    let Some((line_start, _)) = source_map.line_bounds_for_offset(comment.span().start.offset)
+    else {
         return false;
     };
-    let Some((previous_start, previous_end)) = previous_line_bounds(source, line_start) else {
+    let Some((previous_start, previous_end)) = source_map.previous_line_bounds(line_start) else {
         return false;
     };
     source
@@ -7273,31 +7368,26 @@ fn shell_indent_width(indent: &str) -> usize {
 
 fn comment_precedes_close_keyword_at_same_indent(
     source: &str,
+    source_map: &SourceMap<'_>,
     comment: &SourceComment<'_>,
 ) -> bool {
-    let Some(comment_indent) = line_indent_before_offset(source, comment.span().start.offset)
+    let Some(comment_indent) = source_map.line_indent_before_offset(comment.span().start.offset)
     else {
         return false;
     };
-    let mut offset = source
-        .get(comment.span().end.offset..)
-        .and_then(|suffix| {
-            suffix
-                .find('\n')
-                .map(|line_end| comment.span().end.offset + line_end + 1)
-        })
-        .unwrap_or(source.len());
+    let Some((_, comment_line_end)) = source_map.line_bounds_for_offset(comment.span().end.offset)
+    else {
+        return false;
+    };
+    let mut next_line = source_map.next_line_bounds(comment_line_end);
 
-    while offset < source.len() {
-        let line_end = source[offset..]
-            .find('\n')
-            .map_or(source.len(), |line_end| offset + line_end);
-        let Some(line) = source.get(offset..line_end) else {
+    while let Some((line_start, line_end)) = next_line {
+        let Some(line) = source.get(line_start..line_end) else {
             return false;
         };
         let trimmed = line.trim_start_matches([' ', '\t']);
         if trimmed.trim().is_empty() {
-            offset = line_end.saturating_add(1);
+            next_line = source_map.next_line_bounds(line_end);
             continue;
         }
         let indent_len = line.len() - trimmed.len();
@@ -7306,7 +7396,7 @@ fn comment_precedes_close_keyword_at_same_indent(
                 return true;
             }
             if trimmed.starts_with('#') {
-                offset = line_end.saturating_add(1);
+                next_line = source_map.next_line_bounds(line_end);
                 continue;
             }
         }
@@ -7408,8 +7498,8 @@ fn pipeline_operator_breaks(
         let next_start =
             interstitial_comment_end(statement, operator_span.end.offset, source, source_map);
         breaks.push(
-            pipeline_operator_starts_or_ends_line(source, *operator_span)
-                || has_newline_between_offsets(source, operator_span.end.offset, next_start),
+            source_map.operator_starts_or_ends_line(*operator_span)
+                || source_map.contains_newline_between(operator_span.end.offset, next_start),
         );
     }
 
@@ -7788,7 +7878,7 @@ fn final_pipe_operator_is_unquoted(text: &str) -> bool {
 
 fn conditional_binary_has_explicit_rhs_break(
     expression: &ConditionalBinaryExpr,
-    source: &str,
+    source_map: &SourceMap<'_>,
 ) -> bool {
     if !matches!(
         expression.op,
@@ -7796,14 +7886,12 @@ fn conditional_binary_has_explicit_rhs_break(
     ) {
         return false;
     }
-    pipeline_operator_starts_or_ends_line(source, expression.op_span)
-        || has_newline_between_offsets(
-            source,
+    source_map.operator_starts_or_ends_line(expression.op_span)
+        || source_map.contains_newline_between(
             expression.left.span().end.offset,
             expression.op_span.start.offset,
         )
-        || has_newline_between_offsets(
-            source,
+        || source_map.contains_newline_between(
             expression.op_span.end.offset,
             expression.right.span().start.offset,
         )
@@ -7959,9 +8047,12 @@ fn if_branch_upper_bound(
     branch_index: usize,
     source: &str,
     source_map: &SourceMap<'_>,
+    facts: &FormatterFacts<'_>,
 ) -> usize {
-    if let Some((start, end)) = if_next_branch_region(command, branch_index, source) {
-        branch_prefix_first_comment_offset(source, start, end).unwrap_or(end)
+    if let Some((start, end)) = if_next_branch_region(command, branch_index, source, facts) {
+        facts
+            .branch_prefix_first_comment_offset(start, end)
+            .unwrap_or(end)
     } else {
         command_if_close_span(command, source, source_map)
             .start
@@ -7969,45 +8060,18 @@ fn if_branch_upper_bound(
     }
 }
 
-fn if_next_branch_has_blank_line_before_keyword(
-    command: &IfCommand,
-    branch_index: usize,
-    source: &str,
-) -> bool {
-    if_next_branch_region(command, branch_index, source).is_some_and(|(start, end)| {
-        let first_prefix = branch_prefix_first_comment_offset(source, start, end).unwrap_or(end);
-        gap_has_empty_physical_line(source, start, first_prefix)
-    })
-}
-
-fn if_branch_prefix_comments_have_blank_line_before_keyword(
-    command: &IfCommand,
-    branch_index: usize,
-    source: &str,
-) -> bool {
-    if_next_branch_region(command, branch_index, source).is_some_and(|(start, end)| {
-        let comments = branch_prefix_comments(source, start, end);
-        let Some(last) = comments.last() else {
-            return false;
-        };
-        let Some(line_end) = source[last.offset..end].find('\n') else {
-            return false;
-        };
-        gap_has_empty_physical_line(source, last.offset + line_end, end)
-    })
-}
-
 fn if_next_branch_region(
     command: &IfCommand,
     branch_index: usize,
     source: &str,
+    facts: &FormatterFacts<'_>,
 ) -> Option<(usize, usize)> {
     if_next_branch_region_with_body_end(command, branch_index, source, |body| {
-        branch_body_content_end(body, source)
+        branch_body_content_end(body, source, facts)
     })
 }
 
-fn branch_body_content_end(body: &StmtSeq, source: &str) -> usize {
+fn branch_body_content_end(body: &StmtSeq, source: &str, facts: &FormatterFacts<'_>) -> usize {
     let mut end = body
         .last()
         .map(|stmt| stmt_span(stmt).end.offset)
@@ -8017,7 +8081,8 @@ fn branch_body_content_end(body: &StmtSeq, source: &str) -> usize {
             let Some(heredoc) = redirect.heredoc() else {
                 continue;
             };
-            let heredoc_end = heredoc_closing_marker_bounds(heredoc, source)
+            let heredoc_end = facts
+                .heredoc_closing_marker_bounds(heredoc)
                 .map(|(_, line_end)| line_end)
                 .unwrap_or(heredoc.body.span.end.offset);
             end = end.max(heredoc_end);

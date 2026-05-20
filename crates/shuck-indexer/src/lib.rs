@@ -25,12 +25,47 @@ mod region_index;
 /// Comment lookup types derived from parser output.
 pub use comment_index::{CommentIndex, IndexedComment};
 /// Line-based offset lookup utilities.
-pub use line_index::LineIndex;
+pub use line_index::{LineEndingStyle, LineIndex};
 /// Structural region indexes over parsed shell source.
-pub use region_index::{RegionIndex, RegionKind};
+pub use region_index::{IndexedHeredoc, RegionIndex, RegionKind};
 
+use line_index::{RawContinuationCandidate, RawContinuationMode};
 use shuck_ast::{File, TextSize};
 use shuck_parser::parser::ParseResult;
+
+/// Optional index families that are not needed by every consumer.
+///
+/// The default options build the indexes used by linting and semantic analysis.
+/// Source-layout indexes retain formatter-oriented lookup tables such as raw
+/// continuation backslash offsets and heredoc closing-marker ranges.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct IndexerOptions {
+    source_layout_indexes: bool,
+}
+
+impl IndexerOptions {
+    /// Return default indexer options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Enable or disable formatter-oriented source-layout indexes.
+    ///
+    /// When enabled, [`LineIndex::raw_continuation_line_starts`],
+    /// [`LineIndex::raw_continuation_backslashes`], and
+    /// [`RegionIndex::heredoc_closing_marker_range`] retain their lookup data.
+    /// The default keeps those retained indexes disabled while still computing
+    /// semantic continuation lines for [`Indexer::continuation_line_starts`].
+    pub fn with_source_layout_indexes(mut self, enabled: bool) -> Self {
+        self.source_layout_indexes = enabled;
+        self
+    }
+
+    /// Return whether formatter-oriented source-layout indexes are enabled.
+    pub fn source_layout_indexes(self) -> bool {
+        self.source_layout_indexes
+    }
+}
 
 /// Pre-computed positional and structural index over a parsed shell script.
 ///
@@ -61,16 +96,41 @@ impl Indexer {
         Self::for_file(source, &output.file)
     }
 
+    /// Build indexes from parser output using explicit options.
+    ///
+    /// `source` must be the exact text used to produce `output`; ranges in the
+    /// parse result are interpreted as byte offsets into that string.
+    pub fn new_with_options(source: &str, output: &ParseResult, options: IndexerOptions) -> Self {
+        Self::for_file_with_options(source, &output.file, options)
+    }
+
     /// Build all indexes from an already parsed file and the original source text.
     ///
     /// `source` must be the exact text used to produce `file`; ranges in the
     /// AST are interpreted as byte offsets into that string.
     pub fn for_file(source: &str, file: &File) -> Self {
-        let line_index = LineIndex::new(source);
+        Self::for_file_with_options(source, file, IndexerOptions::default())
+    }
+
+    /// Build indexes from an already parsed file using explicit options.
+    ///
+    /// `source` must be the exact text used to produce `file`; ranges in the
+    /// AST are interpreted as byte offsets into that string.
+    pub fn for_file_with_options(source: &str, file: &File, options: IndexerOptions) -> Self {
+        let raw_mode = if options.source_layout_indexes() {
+            RawContinuationMode::StoreAndReturn
+        } else {
+            RawContinuationMode::ReturnOnly
+        };
+        let (line_index, raw_continuations) = LineIndex::build(source, raw_mode);
         let comment_index = CommentIndex::new(source, &line_index, file);
-        let region_index = RegionIndex::new(source, file);
+        let region_index = RegionIndex::new_with_source_layout_indexes(
+            source,
+            file,
+            options.source_layout_indexes(),
+        );
         let continuation_lines =
-            collect_continuation_lines(&line_index, &comment_index, &region_index);
+            collect_continuation_lines(&raw_continuations, &comment_index, &region_index);
 
         Self {
             line_index,
@@ -131,22 +191,21 @@ impl Indexer {
 }
 
 fn collect_continuation_lines(
-    line_index: &LineIndex,
+    raw_continuations: &[RawContinuationCandidate],
     comment_index: &CommentIndex,
     region_index: &RegionIndex,
 ) -> Vec<TextSize> {
     let mut continuation_lines = Vec::new();
 
-    for line_start in line_index.raw_continuation_line_starts() {
-        let backslash_offset = TextSize::new(line_start.to_u32() - 2);
-        if comment_index.is_comment(backslash_offset)
-            || region_index.is_heredoc(backslash_offset)
-            || region_index.is_quoted(backslash_offset)
+    for continuation in raw_continuations {
+        if comment_index.is_comment(continuation.backslash)
+            || region_index.is_heredoc(continuation.backslash)
+            || region_index.is_quoted(continuation.backslash)
         {
             continue;
         }
 
-        continuation_lines.push(*line_start);
+        continuation_lines.push(continuation.line_start);
     }
 
     continuation_lines
@@ -174,6 +233,30 @@ mod tests {
         assert_eq!(indexer.continuation_line_starts().len(), 1);
         assert!(indexer.is_continuation(TextSize::new(11)));
         assert!(!indexer.is_continuation(TextSize::new(28)));
+        assert!(
+            indexer
+                .line_index()
+                .raw_continuation_backslashes()
+                .is_empty()
+        );
+        assert!(indexer.region_index().heredocs().is_empty());
+    }
+
+    #[test]
+    fn retains_source_layout_indexes_only_when_requested() {
+        let source = "echo foo \\\n  bar\ncat <<EOF\nbody\nEOF\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new_with_options(
+            source,
+            &output,
+            IndexerOptions::new().with_source_layout_indexes(true),
+        );
+
+        assert_eq!(
+            indexer.line_index().raw_continuation_backslashes(),
+            &[TextSize::new(source.find('\\').unwrap() as u32)]
+        );
+        assert_eq!(indexer.region_index().heredocs().len(), 1);
     }
 
     #[test]

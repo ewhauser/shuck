@@ -33,7 +33,6 @@ use shuck_ast::File;
 use shuck_format::LineEnding;
 use shuck_parser::{Error as ParseError, parser::Parser};
 
-#[cfg(feature = "benchmarking")]
 use crate::facts::FormatterFacts;
 
 /// Formatter option types exposed by the shell formatter.
@@ -109,7 +108,7 @@ pub fn format_source(
     path: Option<&Path>,
     options: &ShellFormatOptions,
 ) -> Result<FormattedSource> {
-    let resolved = options.resolve(source, path);
+    let resolved = options.resolve_for_format(source, path);
 
     let dialect = resolved.dialect();
     let parsed = Parser::with_dialect(source, dialect).parse();
@@ -126,7 +125,7 @@ pub fn source_is_formatted(
     path: Option<&Path>,
     options: &ShellFormatOptions,
 ) -> Result<bool> {
-    let resolved = options.resolve(source, path);
+    let resolved = options.resolve_for_format(source, path);
 
     let dialect = resolved.dialect();
     let parsed = Parser::with_dialect(source, dialect).parse();
@@ -144,7 +143,7 @@ pub fn format_file_ast(
     path: Option<&Path>,
     options: &ShellFormatOptions,
 ) -> Result<FormattedSource> {
-    let resolved = options.resolve(source, path);
+    let resolved = options.resolve_for_format(source, path);
     let output = format_output(source, file, &resolved)?;
 
     Ok(formatted_source_from_output(source, output))
@@ -160,7 +159,9 @@ fn check_file(source: &str, mut file: File, resolved: ResolvedShellFormatOptions
         simplify::simplify_file(&mut file, source);
     }
 
-    streaming::format_file_streaming_matches_source(source, &file, &resolved)
+    let facts = FormatterFacts::build(source, &file, &resolved);
+    let resolved = resolved.with_line_ending(facts.line_ending());
+    streaming::format_file_streaming_matches_source_with_facts(source, &file, &resolved, &facts)
 }
 
 fn format_output(
@@ -172,7 +173,9 @@ fn format_output(
         simplify::simplify_file(&mut file, source);
     }
 
-    let mut output = streaming::format_file_streaming(source, &file, resolved)?;
+    let facts = FormatterFacts::build(source, &file, resolved);
+    let resolved = resolved.clone().with_line_ending(facts.line_ending());
+    let mut output = streaming::format_file_streaming_with_facts(source, &file, &resolved, &facts)?;
     if resolved.minify() {
         preserve_initial_shebang(source, &mut output, resolved.line_ending());
     }
@@ -193,7 +196,7 @@ fn formatted_source_from_output(source: &str, output: String) -> FormattedSource
 #[doc(hidden)]
 #[must_use]
 pub fn build_formatter_facts(source: &str, file: &File) -> usize {
-    let resolved = ShellFormatOptions::default().resolve(source, None);
+    let resolved = ShellFormatOptions::default().resolve_for_format(source, None);
     FormatterFacts::build(source, file, &resolved).len()
 }
 

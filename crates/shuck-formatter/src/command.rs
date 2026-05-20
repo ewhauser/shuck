@@ -2,10 +2,10 @@ use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    branch_keyword_offset, close_suffix_comment_offsets, common_nonempty_shell_indent,
-    last_shell_keyword_start, last_uncommented_shell_keyword_before, leading_shell_indent,
-    matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
-    refine_common_indent, shell_comment_can_start, skip_escaped_or_quoted,
+    branch_keyword_offset, common_nonempty_shell_indent, last_shell_keyword_start,
+    last_uncommented_shell_keyword_before, leading_shell_indent, matching_done_close_start,
+    matching_if_close_start, normalized_close_keyword_span, refine_common_indent,
+    shell_comment_can_start, skip_escaped_or_quoted,
 };
 use crate::word::{
     matching_raw_command_substitution_close, normalize_raw_pipeline_continuations,
@@ -1337,11 +1337,8 @@ pub(crate) fn group_open_suffix<'a>(
     let source = source_map.source();
     let first = commands.first()?;
     let first_start = stmt_group_attachment_start_offset(first, source_map);
-    let open_offset = find_group_open_offset_before_stmt(source, first_start, open)?;
-    let line_end = source[open_offset..]
-        .find('\n')
-        .map(|offset| open_offset + offset)
-        .unwrap_or(source.len());
+    let open_offset = find_group_open_offset_before_stmt(source_map, first_start, open)?;
+    let (_, line_end) = source_map.line_bounds_for_offset(open_offset)?;
     let suffix_start = open_offset + open.len_utf8();
     let suffix = source.get(suffix_start..line_end)?;
     suffix
@@ -1359,7 +1356,7 @@ pub(crate) fn group_attachment_span(
     let source = source_map.source();
     let first = commands.first()?;
     let open_offset = find_group_open_offset_before_stmt(
-        source,
+        source_map,
         stmt_group_attachment_start_offset(first, source_map),
         open,
     )?;
@@ -1460,19 +1457,23 @@ fn find_group_open_offset_between(
 }
 
 fn find_group_open_offset_before_stmt(
-    source: &str,
+    source_map: &SourceMap<'_>,
     search_end: usize,
     open: char,
 ) -> Option<usize> {
+    let source = source_map.source();
     let mut line_end = search_end.min(source.len());
 
     loop {
-        let line_start = source[..line_end]
-            .rfind('\n')
-            .map(|offset| offset + 1)
-            .unwrap_or(0);
+        let lookup_offset = if line_end == 0 {
+            0
+        } else {
+            line_end.saturating_sub(usize::from(line_end == source.len()))
+        };
+        let (line_start, indexed_line_end) = source_map.line_bounds_for_offset(lookup_offset)?;
+        let search_line_end = line_end.min(indexed_line_end);
         if let Some(open_offset) =
-            find_group_open_offset_on_line(source, line_start, line_end, open)
+            find_group_open_offset_on_line(source, line_start, search_line_end, open)
         {
             return Some(open_offset);
         }
@@ -1480,7 +1481,7 @@ fn find_group_open_offset_before_stmt(
         if line_start == 0 {
             break;
         }
-        line_end = line_start - 1;
+        line_end = line_start.saturating_sub(1);
     }
 
     None
@@ -1991,11 +1992,8 @@ fn extend_compound_close_suffix_attachment_span(
     let Some(close_span) = stmt_compound_close_span(stmt, source, source_map) else {
         return span;
     };
-    if let Some((comment_start, comment_end)) = close_suffix_comment_offsets(source, close_span) {
-        merge_non_empty_span(
-            span,
-            source_map.span_for_offsets(comment_start, comment_end),
-        )
+    if let Some(comment) = source_map.suffix_comment_after_span(close_span) {
+        merge_non_empty_span(span, comment.span())
     } else {
         span
     }

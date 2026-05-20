@@ -1,10 +1,11 @@
 use shuck_ast::{
     ArithmeticForCommand, Assignment, AssignmentValue, BourneParameterExpansion, BuiltinCommand,
     Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalExpr, DeclClause, DeclOperand,
-    File, FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, ParameterExpansion,
-    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, PatternPartNode, Redirect,
-    RedirectKind, Stmt, StmtSeq, Subscript, TextRange, TextSize, VarRef, Word, WordPart,
-    WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment, ZshParameterExpansion,
+    File, FunctionDef, Heredoc, HeredocBody, HeredocBodyPart, HeredocBodyPartNode,
+    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart,
+    PatternPartNode, Redirect, RedirectKind, Stmt, StmtSeq, Subscript, TextRange, TextSize, VarRef,
+    Word, WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
+    ZshParameterExpansion,
 };
 /// A syntactic region that affects source interpretation.
 ///
@@ -34,6 +35,15 @@ struct IndexedRegion {
     range: TextRange,
 }
 
+/// Indexed metadata for one heredoc body and its source closer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexedHeredoc {
+    /// Byte range of the parsed heredoc body.
+    pub body_range: TextRange,
+    /// Byte range of the original closing marker line, excluding the line ending.
+    pub closing_marker_range: Option<TextRange>,
+}
+
 /// Byte ranges of syntactic regions where special rules apply.
 ///
 /// `RegionIndex` stores one sorted range list per commonly queried region type
@@ -55,6 +65,7 @@ pub struct RegionIndex {
     arithmetic: Vec<TextRange>,
     conditionals: Vec<TextRange>,
     quoted_heredocs: Vec<TextRange>,
+    indexed_heredocs: Vec<IndexedHeredoc>,
     regions: Vec<IndexedRegion>,
     expansion_brace_edges: Vec<TextSize>,
     dollar_brace_pairs: Vec<TextRange>,
@@ -68,7 +79,25 @@ impl RegionIndex {
     /// driven by AST spans from `file`. `source` and `file` should describe the
     /// same parsed text.
     pub fn new(source: &str, file: &File) -> Self {
-        let mut collector = RegionCollector::new(source);
+        Self::new_with_source_layout_indexes(source, file, false)
+    }
+
+    /// Build a region index that also retains source-layout metadata.
+    ///
+    /// Most callers should use [`Self::new`]. Formatter-style consumers that
+    /// need heredoc closing marker ranges can use this constructor directly, or
+    /// build an [`crate::Indexer`] with
+    /// [`crate::IndexerOptions::with_source_layout_indexes`].
+    pub fn with_source_layout_indexes(source: &str, file: &File) -> Self {
+        Self::new_with_source_layout_indexes(source, file, true)
+    }
+
+    pub(crate) fn new_with_source_layout_indexes(
+        source: &str,
+        file: &File,
+        source_layout_indexes: bool,
+    ) -> Self {
+        let mut collector = RegionCollector::new(source, source_layout_indexes);
         collector.visit_file(file);
         collector.finish()
     }
@@ -166,6 +195,29 @@ impl RegionIndex {
         &self.heredocs
     }
 
+    /// Return indexed heredoc metadata in source order.
+    ///
+    /// This formatter-oriented metadata is only retained when source-layout
+    /// indexes are enabled.
+    pub fn heredocs(&self) -> &[IndexedHeredoc] {
+        &self.indexed_heredocs
+    }
+
+    /// Return the original closing marker range for a heredoc body range.
+    ///
+    /// Returns `None` unless source-layout indexes were enabled during
+    /// construction.
+    pub fn heredoc_closing_marker_range(&self, body_range: TextRange) -> Option<TextRange> {
+        let index = self.indexed_heredocs.partition_point(|heredoc| {
+            (heredoc.body_range.start(), heredoc.body_range.end())
+                < (body_range.start(), body_range.end())
+        });
+        self.indexed_heredocs
+            .get(index)
+            .filter(|heredoc| heredoc.body_range == body_range)
+            .and_then(|heredoc| heredoc.closing_marker_range)
+    }
+
     /// Return whether `offset` is the byte position of an `{` or `}` that the
     /// parser classified as part of an expansion construct.
     ///
@@ -197,6 +249,7 @@ impl RegionIndex {
 
 struct RegionCollector<'a> {
     _source: &'a str,
+    source_layout_indexes: bool,
     single_quoted: Vec<TextRange>,
     double_quoted: Vec<TextRange>,
     heredocs: Vec<TextRange>,
@@ -205,14 +258,16 @@ struct RegionCollector<'a> {
     arithmetic: Vec<TextRange>,
     conditionals: Vec<TextRange>,
     quoted_heredocs: Vec<TextRange>,
+    indexed_heredocs: Vec<IndexedHeredoc>,
     expansion_brace_edges: Vec<TextSize>,
     dollar_brace_pairs: Vec<TextRange>,
 }
 
 impl<'a> RegionCollector<'a> {
-    fn new(source: &'a str) -> Self {
+    fn new(source: &'a str, source_layout_indexes: bool) -> Self {
         Self {
             _source: source,
+            source_layout_indexes,
             single_quoted: Vec::new(),
             double_quoted: Vec::new(),
             heredocs: Vec::new(),
@@ -221,6 +276,7 @@ impl<'a> RegionCollector<'a> {
             arithmetic: Vec::new(),
             conditionals: Vec::new(),
             quoted_heredocs: Vec::new(),
+            indexed_heredocs: Vec::new(),
             expansion_brace_edges: Vec::new(),
             dollar_brace_pairs: Vec::new(),
         }
@@ -235,6 +291,12 @@ impl<'a> RegionCollector<'a> {
         sort_ranges(&mut self.arithmetic);
         sort_ranges(&mut self.conditionals);
         sort_ranges(&mut self.quoted_heredocs);
+        self.indexed_heredocs.sort_unstable_by_key(|heredoc| {
+            (
+                heredoc.body_range.start().to_u32(),
+                heredoc.body_range.end().to_u32(),
+            )
+        });
         self.expansion_brace_edges.sort_unstable();
         self.expansion_brace_edges.dedup();
         self.dollar_brace_pairs
@@ -307,6 +369,7 @@ impl<'a> RegionCollector<'a> {
             arithmetic: self.arithmetic,
             conditionals: self.conditionals,
             quoted_heredocs: self.quoted_heredocs,
+            indexed_heredocs: self.indexed_heredocs,
             regions,
             expansion_brace_edges: self.expansion_brace_edges,
             dollar_brace_pairs: self.dollar_brace_pairs,
@@ -616,6 +679,12 @@ impl<'a> RegionCollector<'a> {
                 };
                 let range = heredoc.body.span.to_range();
                 push_range(&mut self.heredocs, range);
+                if self.source_layout_indexes {
+                    self.indexed_heredocs.push(IndexedHeredoc {
+                        body_range: range,
+                        closing_marker_range: heredoc_closing_marker_range(heredoc, self._source),
+                    });
+                }
                 if heredoc.delimiter.quoted {
                     push_range(&mut self.quoted_heredocs, range);
                 }
@@ -1043,6 +1112,25 @@ fn push_range(ranges: &mut Vec<TextRange>, range: TextRange) {
     }
 }
 
+fn heredoc_closing_marker_range(heredoc: &Heredoc, source: &str) -> Option<TextRange> {
+    let mut start = heredoc.body.span.end.offset.min(source.len());
+    if source
+        .as_bytes()
+        .get(start)
+        .is_some_and(|byte| *byte == b'\n')
+    {
+        start += 1;
+    }
+    let line_end = source[start..]
+        .find(['\n', '\r'])
+        .map_or(source.len(), |offset| start + offset);
+    let line = source.get(start..line_end)?;
+    (line.trim_start_matches('\t') == heredoc.delimiter.cooked.as_str()).then_some(TextRange::new(
+        TextSize::new(start as u32),
+        TextSize::new(line_end as u32),
+    ))
+}
+
 fn contains(range: TextRange, offset: TextSize) -> bool {
     range.start() <= offset && offset < range.end()
 }
@@ -1283,6 +1371,11 @@ mod tests {
         RegionIndex::new(source, &output.file)
     }
 
+    fn regions_with_source_layout_indexes(source: &str) -> RegionIndex {
+        let output = Parser::new(source).parse().unwrap();
+        RegionIndex::with_source_layout_indexes(source, &output.file)
+    }
+
     #[test]
     fn finds_single_and_double_quoted_regions() {
         let source = "echo 'hello' \"world $name\"\n";
@@ -1341,6 +1434,45 @@ mod tests {
                 TextSize::new(start as u32),
                 TextSize::new(end as u32),
             )]
+        );
+    }
+
+    #[test]
+    fn tracks_heredoc_closing_marker_ranges() {
+        let source = "cat <<-EOF\n\tbody\n\tEOF\n";
+        let regions = regions_with_source_layout_indexes(source);
+        let body_start = source.find("body").unwrap();
+        let body_range = regions
+            .heredocs()
+            .iter()
+            .find(|heredoc| {
+                heredoc.body_range.start() <= TextSize::new(body_start as u32)
+                    && TextSize::new(body_start as u32) < heredoc.body_range.end()
+            })
+            .unwrap()
+            .body_range;
+        let close_start = source.rfind("\tEOF").unwrap();
+        let close_range = TextRange::new(
+            TextSize::new(close_start as u32),
+            TextSize::new((close_start + "\tEOF".len()) as u32),
+        );
+
+        assert_eq!(
+            regions.heredoc_closing_marker_range(body_range),
+            Some(close_range)
+        );
+    }
+
+    #[test]
+    fn skips_heredoc_closing_marker_ranges_by_default() {
+        let source = "cat <<-EOF\n\tbody\n\tEOF\n";
+        let regions = regions(source);
+
+        assert!(regions.heredocs().is_empty());
+        assert!(
+            regions
+                .heredoc_closing_marker_range(regions.heredoc_ranges()[0])
+                .is_none()
         );
     }
 

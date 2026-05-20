@@ -168,6 +168,28 @@ impl<'a> SourceMap<'a> {
     }
 
     #[must_use]
+    pub(crate) fn suffix_comment_after_span(&self, span: Span) -> Option<SourceComment<'a>> {
+        if span.start.line != span.end.line {
+            return None;
+        }
+        let start = span.end.offset.min(self.source.len());
+        let (_, line_end) = self.line_bounds_for_offset(start)?;
+        let comment_start = self.first_comment_between(start, line_end)?;
+        let prefix = self.source.get(start..comment_start)?;
+        if !prefix.chars().all(|ch| matches!(ch, ' ' | '\t')) {
+            return None;
+        }
+
+        let comment_end = self
+            .source
+            .get(comment_start..line_end)?
+            .trim_end_matches([' ', '\t', '\r'])
+            .len()
+            + comment_start;
+        self.source_comment_for_offsets(comment_start, comment_end)
+    }
+
+    #[must_use]
     pub fn contains_comment_between(&self, start: usize, end: usize) -> bool {
         contains_offset_in_range(&self.data.hash_offsets, start, end)
     }
@@ -197,7 +219,92 @@ impl<'a> SourceMap<'a> {
         self.data
             .line_index
             .line_start(self.line_number_for_offset(start) + 1)
-            .is_some_and(|offset| usize::from(offset) < end)
+            .is_some_and(|offset| usize::from(offset) <= end)
+    }
+
+    #[must_use]
+    pub(crate) fn operator_starts_or_ends_line(&self, operator_span: Span) -> bool {
+        let start = operator_span.start.offset;
+        let end = operator_span.end.offset;
+        if start >= end || end > self.source.len() {
+            return false;
+        }
+
+        let Some((line_start, _)) = self.line_bounds_for_offset(start) else {
+            return false;
+        };
+        let Some((_, line_end)) = self.line_bounds_for_offset(end.saturating_sub(1)) else {
+            return false;
+        };
+        let Some(before) = self.source.get(line_start..start) else {
+            return false;
+        };
+        let Some(after) = self.source.get(end..line_end) else {
+            return false;
+        };
+
+        (line_start > 0 && line_edge_is_blank_or_continuation(before))
+            || (line_end < self.source.len() && line_edge_is_blank_or_continuation(after))
+    }
+
+    #[must_use]
+    pub(crate) fn line_indent_before_offset(&self, offset: usize) -> Option<&'a str> {
+        let offset = offset.min(self.source.len());
+        let (line_start, _) = self.line_bounds_for_offset(offset)?;
+        let prefix = self.source.get(line_start..offset)?;
+        let indent_end = prefix
+            .char_indices()
+            .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
+            .map_or(prefix.len(), |(index, _)| index);
+        prefix.get(..indent_end)
+    }
+
+    #[must_use]
+    pub(crate) fn has_blank_line_immediately_before_offset(&self, offset: usize) -> bool {
+        let offset = offset.min(self.source.len());
+        let Some((line_start, _)) = self.line_bounds_for_offset(offset) else {
+            return false;
+        };
+        let Some(current_prefix) = self.source.get(line_start..offset) else {
+            return false;
+        };
+        if !line_is_blank(current_prefix) {
+            return false;
+        }
+
+        let Some((previous_start, previous_end)) = self.previous_line_bounds(line_start) else {
+            return false;
+        };
+        self.source
+            .get(previous_start..previous_end)
+            .is_some_and(line_is_blank)
+    }
+
+    #[must_use]
+    pub(crate) fn line_bounds_for_offset(&self, offset: usize) -> Option<(usize, usize)> {
+        if self.source.is_empty() {
+            return None;
+        }
+        let line = self.line_number_for_offset(offset);
+        self.line_bounds(line)
+    }
+
+    #[must_use]
+    pub(crate) fn previous_line_bounds(&self, line_start: usize) -> Option<(usize, usize)> {
+        if line_start == 0 || self.source.is_empty() {
+            return None;
+        }
+        let line = self.line_number_for_offset(line_start.saturating_sub(1));
+        self.line_bounds(line)
+    }
+
+    #[must_use]
+    pub(crate) fn next_line_bounds(&self, line_end: usize) -> Option<(usize, usize)> {
+        let next_start = line_end
+            .checked_add(1)
+            .filter(|offset| *offset < self.source.len())?;
+        let line = self.line_number_for_offset(next_start);
+        self.line_bounds(line)
     }
 
     #[must_use]
@@ -227,6 +334,11 @@ impl<'a> SourceMap<'a> {
         })
     }
 
+    fn line_bounds(&self, line: usize) -> Option<(usize, usize)> {
+        let range = self.data.line_index.line_range(line, self.source)?;
+        Some((usize::from(range.start()), usize::from(range.end())))
+    }
+
     fn clamped_offset(&self, offset: usize) -> usize {
         if self.source.is_empty() {
             0
@@ -234,6 +346,15 @@ impl<'a> SourceMap<'a> {
             offset.min(self.source.len().saturating_sub(1))
         }
     }
+}
+
+fn line_edge_is_blank_or_continuation(text: &str) -> bool {
+    let trimmed = text.trim_matches(|ch| matches!(ch, ' ' | '\t' | '\r'));
+    trimmed.is_empty() || trimmed == "\\"
+}
+
+fn line_is_blank(text: &str) -> bool {
+    text.trim_matches([' ', '\t', '\r']).is_empty()
 }
 
 fn slice_has_alignment_padding(slice: &str) -> bool {
