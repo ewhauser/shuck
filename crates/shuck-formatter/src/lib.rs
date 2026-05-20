@@ -542,105 +542,76 @@ mod tests {
         );
     }
 
-    macro_rules! default_format_ast_cases {
-        ($($name:ident: $source:expr => $expected:expr;)+) => {
+    macro_rules! formatter_cases {
+        ($($name:ident $body:block)+) => {
             $(
                 #[test]
-                fn $name() {
-                    let options = ShellFormatOptions::default();
-                    assert_formats_to_with_ast($source, None, &options, $expected);
-                }
+                fn $name() $body
             )+
+        };
+    }
+
+    macro_rules! default_format_ast_cases {
+        ($($name:ident: $source:expr => $expected:expr;)+) => {
+            formatter_cases! { $($name { assert_formats_default_with_ast($source, $expected); })+ }
         };
     }
 
     macro_rules! bash_format_ast_cases {
         ($($name:ident: $source:expr => $expected:expr;)+) => {
-            $(
-                #[test]
-                fn $name() {
-                    assert_bash_formats_with_ast($source, $expected);
-                }
-            )+
+            formatter_cases! { $($name { assert_bash_formats_with_ast($source, $expected); })+ }
         };
     }
 
     macro_rules! default_format_cases {
         ($($name:ident: $source:expr => $expected:expr;)+) => {
-            $(
-                #[test]
-                fn $name() {
-                    assert_formats($source, $expected);
-                }
-            )+
+            formatter_cases! { $($name { assert_formats($source, $expected); })+ }
         };
     }
 
     macro_rules! default_unchanged_ast_cases {
         ($($name:ident: $source:expr;)+) => {
-            $(
-                #[test]
-                fn $name() {
-                    assert_default_unchanged_with_ast($source);
-                }
-            )+
+            formatter_cases! { $($name { assert_default_unchanged_with_ast($source); })+ }
         };
     }
 
     macro_rules! bash_unchanged_ast_cases {
         ($($name:ident: $source:expr;)+) => {
-            $(
-                #[test]
-                fn $name() {
-                    assert_bash_unchanged_with_ast($source);
-                }
-            )+
+            formatter_cases! { $($name { assert_bash_unchanged_with_ast($source); })+ }
         };
     }
 
     macro_rules! default_unchanged_cases {
         ($($name:ident: $source:expr;)+) => {
-            $(
-                #[test]
-                fn $name() {
-                    assert_unchanged_default($source);
-                }
-            )+
+            formatter_cases! { $($name { assert_unchanged_default($source); })+ }
         };
     }
 
     macro_rules! default_idempotent_cases {
         ($($name:ident: $source:expr, $filename:expr;)+) => {
-            $(
-                #[test]
-                fn $name() {
-                    assert_default_idempotent($source, $filename);
-                }
-            )+
+            formatter_cases! { $($name { assert_default_idempotent($source, $filename); })+ }
         };
     }
 
     macro_rules! format_cases_with_options {
         ($($name:ident: $options:expr, $source:expr $(,)? => $expected:expr;)+) => {
-            $(
-                #[test]
-                fn $name() {
+            formatter_cases! {
+                $($name {
                     let options = $options;
                     assert_formats_to($source, None, &options, $expected);
-                }
-            )+
+                })+
+            }
         };
     }
 
     macro_rules! unchanged_cases_with_options {
         ($($name:ident: $options:expr, $source:expr $(,)?;)+) => {
-            $(
-                #[test]
-                fn $name() {
+            formatter_cases! {
+                $($name {
                     let options = $options;
                     assert_unchanged($source, None, &options);
-                }
-            )+
+                })+
+            }
         };
     }
 
