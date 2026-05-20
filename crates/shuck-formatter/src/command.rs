@@ -2,10 +2,10 @@ use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    branch_keyword_offset, close_suffix_comment_offsets, last_shell_keyword_start,
-    last_uncommented_shell_keyword_before, leading_shell_indent, matching_done_close_start,
-    matching_if_close_start, normalized_close_keyword_span, refine_common_indent,
-    shell_comment_can_start, skip_escaped_or_quoted,
+    branch_keyword_offset, close_suffix_comment_offsets, common_nonempty_shell_indent,
+    last_shell_keyword_start, last_uncommented_shell_keyword_before, leading_shell_indent,
+    matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
+    refine_common_indent, shell_comment_can_start, skip_escaped_or_quoted,
 };
 use crate::word::{
     matching_raw_command_substitution_close, normalize_raw_pipeline_continuations,
@@ -533,21 +533,7 @@ pub(crate) fn line_has_unclosed_command_substitution_open(line: &str) -> bool {
 }
 
 fn common_command_substitution_body_indent(lines: &[String]) -> String {
-    let mut common: Option<String> = None;
-    for line in lines {
-        let trimmed = line.trim_start_matches([' ', '\t']);
-        if trimmed.is_empty() {
-            continue;
-        }
-        let indent = leading_shell_indent(line);
-        if indent.is_empty() {
-            return String::new();
-        }
-        if refine_common_indent(&mut common, indent) {
-            return String::new();
-        }
-    }
-    common.unwrap_or_default()
+    common_nonempty_shell_indent(lines.iter().map(String::as_str))
 }
 
 fn normalize_multiline_compound_assignment_line(

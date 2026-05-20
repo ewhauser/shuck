@@ -56,6 +56,20 @@ pub(crate) fn refine_common_indent(common: &mut Option<String>, indent: &str) ->
     common.as_deref() == Some("")
 }
 
+pub(crate) fn common_nonempty_shell_indent<'a>(lines: impl IntoIterator<Item = &'a str>) -> String {
+    let mut common: Option<String> = None;
+    for line in lines {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let indent = leading_shell_indent(line);
+        if indent.is_empty() || refine_common_indent(&mut common, indent) {
+            return String::new();
+        }
+    }
+    common.unwrap_or_default()
+}
+
 pub(crate) fn operator_starts_or_ends_line(source: &str, operator_span: Span) -> bool {
     let start = operator_span.start.offset;
     let end = operator_span.end.offset;

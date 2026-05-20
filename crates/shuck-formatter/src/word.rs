@@ -18,7 +18,7 @@ use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    heredoc_start, leading_shell_indent as line_leading_shell_indent,
+    common_nonempty_shell_indent, heredoc_start, leading_shell_indent as line_leading_shell_indent,
     line_indent_before_offset as line_indent_before_source_offset, redirect_operator_end,
     refine_common_indent, shell_comment_can_start,
 };
@@ -1693,20 +1693,7 @@ fn raw_compound_assignment_head_is_simple(head: &str) -> bool {
 }
 
 fn common_raw_compound_assignment_body_indent(lines: &[&str]) -> String {
-    let mut common: Option<String> = None;
-    for line in lines {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let indent = line_leading_shell_indent(line);
-        if indent.is_empty() {
-            return String::new();
-        }
-        if refine_common_indent(&mut common, indent) {
-            return String::new();
-        }
-    }
-    common.unwrap_or_default()
+    common_nonempty_shell_indent(lines.iter().copied())
 }
 
 fn parameter_bourne_operand_needs_subscript_compaction(
