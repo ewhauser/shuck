@@ -1164,13 +1164,12 @@ mod tests {
         let source = "aws logs filter-log-events \\\n                           \"$@\"\n                           #--max-items 1 \\\n                           #--end-time \"$(date '+%s')000\" \\\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "aws logs filter-log-events \\\n\t\"$@\"\n#--max-items 1 \\\n#--end-time \"$(date '+%s')000\" \\\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "aws logs filter-log-events \\\n\t\"$@\"\n#--max-items 1 \\\n#--end-time \"$(date '+%s')000\" \\\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1200,11 +1199,7 @@ mod tests {
         let source = "_link=\"<a href=\\\"${target//' '/%20}\\\">[[${label:-}]]</a>\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -1220,11 +1215,7 @@ mod tests {
         let source = "RUNTIME_CLASSPATH=$(echo $ALL_JARS | xargs printf -- \"\\$this_dir/%s:\"):\\$this_dir\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -1232,11 +1223,7 @@ mod tests {
         let source = "XDGPATH=$(echo \"foreach dir [split [::tcl::tm::path list]] {puts \\$dir}\" | tclsh | tail -n1)\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -1244,14 +1231,13 @@ mod tests {
         let source = "XDGPATH=`echo \"foreach dir [split [::tcl::tm::path list]] {puts \\\\$dir}\" | tclsh | tail -n1`\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "XDGPATH=$(echo \"foreach dir [split [::tcl::tm::path list]] {puts \\$dir}\" | tclsh | tail -n1)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "XDGPATH=$(echo \"foreach dir [split [::tcl::tm::path list]] {puts \\$dir}\" | tclsh | tail -n1)\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1260,11 +1246,7 @@ mod tests {
 "##;
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -1276,11 +1258,7 @@ $WHITE\$ $NO_COLOUR "
 "##;
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -1297,11 +1275,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
 "##;
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -1320,10 +1294,11 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
 "##;
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                r##"prompt() {
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            r##"prompt() {
 	PS1="$TITLEBAR$YELLOW-$LIGHT_BLUE-(\
 $YELLOW\u$LIGHT_BLUE@$YELLOW\h\
 $LIGHT_BLUE)-(\
@@ -1335,10 +1310,8 @@ $(__tonka_clock)\
 $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
 }
 "##
-                .to_string()
-            )
+            .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1346,14 +1319,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if true; then\n  gcloud secrets list \\\n      --filter=\"labels.kubernetes-cluster=$current_cluster \\\n                AND NOT \\\n                labels.foo ~ .\" |\n  while read -r secret; do\n    echo \"$secret\"\n  done\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\tgcloud secrets list \\\n\t\t--filter=\"labels.kubernetes-cluster=$current_cluster \\\n                AND NOT \\\n                labels.foo ~ .\" |\n\t\twhile read -r secret; do\n\t\t\techo \"$secret\"\n\t\tdone\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if true; then\n\tgcloud secrets list \\\n\t\t--filter=\"labels.kubernetes-cluster=$current_cluster \\\n                AND NOT \\\n                labels.foo ~ .\" |\n\t\twhile read -r secret; do\n\t\t\techo \"$secret\"\n\t\tdone\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1361,14 +1333,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if [ -z \"$SUBIT\" ]; then\n  eval $CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\nelse\n  $SUBIT \"$CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\"\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if [ -z \"$SUBIT\" ]; then\n\teval $CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\nelse\n\t$SUBIT \"$CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\"\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if [ -z \"$SUBIT\" ]; then\n\teval $CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\nelse\n\t$SUBIT \"$CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\"\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1376,13 +1347,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if ok; then\n  run --flag & 2>/dev/null\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if ok; then\n\trun --flag &\n\t2>/dev/null\nfi\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ok; then\n\trun --flag &\n\t2>/dev/null\nfi\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1390,13 +1360,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if ok; then\n  run --flag 2>&1 & echo $! >\"$PIDFILE\"\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if ok; then\n\trun --flag 2>&1 &\n\techo $! >\"$PIDFILE\"\nfi\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ok; then\n\trun --flag 2>&1 &\n\techo $! >\"$PIDFILE\"\nfi\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1404,13 +1373,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if eval ! [[ \"$env_var\" =~ ^[[:digit:]]+$ ]]; then\n  echo ok\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if eval ! [[ \"$env_var\" =~ ^[[:digit:]]+$ ]]; then\n\techo ok\nfi\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if eval ! [[ \"$env_var\" =~ ^[[:digit:]]+$ ]]; then\n\techo ok\nfi\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1418,14 +1386,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if ! type -P wget &>/dev/null ||\n  type -P apk; then # Alpine built-in wget is not enough\n  \"$srcdir/../packages/install_packages.sh\" wget\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if ! type -P wget &>/dev/null ||\n\ttype -P apk; then # Alpine built-in wget is not enough\n\t\"$srcdir/../packages/install_packages.sh\" wget\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ! type -P wget &>/dev/null ||\n\ttype -P apk; then # Alpine built-in wget is not enough\n\t\"$srcdir/../packages/install_packages.sh\" wget\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1434,14 +1401,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "if ! out=\"$(\n     stat -c %Y \"$path\" 2>/dev/null\n   )\" # GNU\nthen\n  :\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if ! out=\"$(\n\tstat -c %Y \"$path\" 2>/dev/null\n)\"; then # GNU\n\t:\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ! out=\"$(\n\tstat -c %Y \"$path\" 2>/dev/null\n)\"; then # GNU\n\t:\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1449,14 +1415,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "while read -r module; do\n    if ! \\\n        git grep \"needle\" |\n        grep -v requirements.txt |\n        grep -q .; then\n        echo \"$module\"\n    fi\ndone\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "while read -r module; do\n\tif ! git grep \"needle\" |\n\t\tgrep -v requirements.txt |\n\t\tgrep -q .; then\n\t\techo \"$module\"\n\tfi\ndone\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while read -r module; do\n\tif ! git grep \"needle\" |\n\t\tgrep -v requirements.txt |\n\t\tgrep -q .; then\n\t\techo \"$module\"\n\tfi\ndone\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1464,14 +1429,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if [ -z \"$jar\" ] ||\n  # incomplete download, resume it\n  ! jar tf \"$jar\" &>/dev/null; then\n  echo fetch\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if [ -z \"$jar\" ] ||\n\t# incomplete download, resume it\n\t! jar tf \"$jar\" &>/dev/null; then\n\techo fetch\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if [ -z \"$jar\" ] ||\n\t# incomplete download, resume it\n\t! jar tf \"$jar\" &>/dev/null; then\n\techo fetch\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1479,14 +1443,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "docker-compose exec -T jenkins-server install-plugins.sh ||\n  # New: later switch to\n  {\n    docker-compose cp plugins.txt jenkins-server:/\n  } || :\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "docker-compose exec -T jenkins-server install-plugins.sh ||\n\t# New: later switch to\n\t{\n\t\tdocker-compose cp plugins.txt jenkins-server:/\n\t} || :\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "docker-compose exec -T jenkins-server install-plugins.sh ||\n\t# New: later switch to\n\t{\n\t\tdocker-compose cp plugins.txt jenkins-server:/\n\t} || :\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1494,14 +1457,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if { true; } &&\n   command &&\n   {\n     # inside group\n     [[ -t 1 ]] ||\n     true\n   }\nthen\n  :\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if { true; } &&\n\tcommand &&\n\t{\n\t\t# inside group\n\t\t[[ -t 1 ]] ||\n\t\t\ttrue\n\t}; then\n\t:\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if { true; } &&\n\tcommand &&\n\t{\n\t\t# inside group\n\t\t[[ -t 1 ]] ||\n\t\t\ttrue\n\t}; then\n\t:\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1509,14 +1471,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  if [ -f .iterate ]; then\n    #ls ./*/.git &>/dev/null; then  # note\n    hr\n  fi\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tif [ -f .iterate ]; then\n\t\t#ls ./*/.git &>/dev/null; then  # note\n\t\thr\n\tfi\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tif [ -f .iterate ]; then\n\t\t#ls ./*/.git &>/dev/null; then  # note\n\t\thr\n\tfi\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1525,14 +1486,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "if case \"$@\" in *--usecwd*) true ;; *) false ;; esac then\n  USE_CWD=1\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if case \"$@\" in *--usecwd*) true ;; *) false ;; esac then\n\tUSE_CWD=1\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if case \"$@\" in *--usecwd*) true ;; *) false ;; esac then\n\tUSE_CWD=1\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1540,11 +1500,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if {\n\t[ -n \"${SUDO_USER}\" ] || [ -n \"${DOAS_USER}\" ]\n} && [ \"$(id -ru)\" -eq 0 ]; then\n\tprintf '%s\\n' denied\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -1552,11 +1508,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "setup() {\n\tif {\n\t\t[ -d \"/etc/dpkg/dpkg.cfg.d/\" ] || [ -d \"/usr/share/libalpm/scripts\" ]\n\t} && [ \"${init}\" -eq 0 ]; then\n\t\tsetup_hooks\n\tfi\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -1564,14 +1516,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if {\n     [[ \"$group\" -eq 2 ]] &&\n       contains first\n   } || {\n     [[ \"$group\" -eq 3 ]] &&\n     ! contains second\n   }\nthen\n  return 0\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if {\n\t[[ \"$group\" -eq 2 ]] &&\n\t\tcontains first\n} || {\n\t[[ \"$group\" -eq 3 ]] &&\n\t\t! contains second\n}; then\n\treturn 0\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if {\n\t[[ \"$group\" -eq 2 ]] &&\n\t\tcontains first\n} || {\n\t[[ \"$group\" -eq 3 ]] &&\n\t\t! contains second\n}; then\n\treturn 0\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1579,14 +1530,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if ! { [[ -d \"${status_file%/*}\" ]] \\\n  && [[ -r \"${status_file}\" ]]; }; then\n  echo \"\"\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if ! { [[ -d \"${status_file%/*}\" ]] &&\n\t[[ -r \"${status_file}\" ]]; }; then\n\techo \"\"\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ! { [[ -d \"${status_file%/*}\" ]] &&\n\t[[ -r \"${status_file}\" ]]; }; then\n\techo \"\"\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1594,13 +1544,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "while read -r line; do {\n  echo \"$line\"\n}; done\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "while read -r line; do {\n\techo \"$line\"\n}; done\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while read -r line; do {\n\techo \"$line\"\n}; done\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1608,14 +1557,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "for item in $items; do {\n  case \"$item\" in\n  a)\n    echo a\n    ;;\n  esac\n} done\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "for item in $items; do {\n\tcase \"$item\" in\n\ta)\n\t\techo a\n\t\t;;\n\tesac\n} done\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "for item in $items; do {\n\tcase \"$item\" in\n\ta)\n\t\techo a\n\t\t;;\n\tesac\n} done\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1623,14 +1571,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "for item in $items; do {\n  ok && {\n    case \"$item\" in\n    a)\n      echo a\n      ;;\n    esac\n  }\n} done\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "for item in $items; do {\n\tok && {\n\t\tcase \"$item\" in\n\t\ta)\n\t\t\techo a\n\t\t\t;;\n\t\tesac\n\t}\n} done\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "for item in $items; do {\n\tok && {\n\t\tcase \"$item\" in\n\t\ta)\n\t\t\techo a\n\t\t\t;;\n\t\tesac\n\t}\n} done\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1638,13 +1585,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "while read -r line; do {\n  if ok; then\n    :\n  fi\n} done <file\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "while read -r line; do {\n\tif ok; then\n\t\t:\n\tfi\n}; done <file\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while read -r line; do {\n\tif ok; then\n\t\t:\n\tfi\n}; done <file\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1652,14 +1598,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "for dev in $devs; do {\n  scan \"$dev\" | while read -r line; do {\n    case \"$line\" in\n    a)\n      echo a\n      ;;\n    esac\n  } done\n} done\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "for dev in $devs; do {\n\tscan \"$dev\" | while read -r line; do {\n\t\tcase \"$line\" in\n\t\ta)\n\t\t\techo a\n\t\t\t;;\n\t\tesac\n\t} done\n} done\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "for dev in $devs; do {\n\tscan \"$dev\" | while read -r line; do {\n\t\tcase \"$line\" in\n\t\ta)\n\t\t\techo a\n\t\t\t;;\n\t\tesac\n\t} done\n} done\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1667,13 +1612,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "[[ $a -le 255 && $b -le 255 &&\n  $c -le 255 && $d -le 255 ]]\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "[[ $a -le 255 && $b -le 255 &&\n\t$c -le 255 && $d -le 255 ]]\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "[[ $a -le 255 && $b -le 255 &&\n\t$c -le 255 && $d -le 255 ]]\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1681,13 +1625,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "[[ $a -le 255 && $b -le 255 \\\n  && $c -le 255 && $d -le 255 ]]\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "[[ $a -le 255 && $b -le 255 &&\n\t$c -le 255 && $d -le 255 ]]\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "[[ $a -le 255 && $b -le 255 &&\n\t$c -le 255 && $d -le 255 ]]\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1695,14 +1638,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "rename() {\n  if [[ -n  \"${_remote_head_branch:-}\"                            ]] &&\n     [[     \"${_remote_branch_name:-\"${_current_branch}\"}\" ==     \\\n              \"${_remote_head_branch:-}\"                          ]]\n  then\n    _exit_1 printf \"Only orphan branches can be renamed.\\\\n\"\n  fi\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "rename() {\n\tif [[ -n \"${_remote_head_branch:-}\" ]] &&\n\t\t[[ \"${_remote_branch_name:-\"${_current_branch}\"}\" == \"${_remote_head_branch:-}\" ]]; then\n\t\t_exit_1 printf \"Only orphan branches can be renamed.\\\\n\"\n\tfi\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "rename() {\n\tif [[ -n \"${_remote_head_branch:-}\" ]] &&\n\t\t[[ \"${_remote_branch_name:-\"${_current_branch}\"}\" == \"${_remote_head_branch:-}\" ]]; then\n\t\t_exit_1 printf \"Only orphan branches can be renamed.\\\\n\"\n\tfi\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1733,13 +1675,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if $(! /sbin/pidof $PRGNAM > /dev/null 2>&1 ) ; then\n  echo stale\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if $(! /sbin/pidof $PRGNAM >/dev/null 2>&1); then\n\techo stale\nfi\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if $(! /sbin/pidof $PRGNAM >/dev/null 2>&1); then\n\techo stale\nfi\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1747,14 +1688,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "host_sockets=\"$(find /run/host/run \\\n\t-xdev \\\n\t2> /dev/null || :)\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "host_sockets=\"$(find /run/host/run \\\n\t-xdev \\\n\t2>/dev/null || :)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "host_sockets=\"$(find /run/host/run \\\n\t-xdev \\\n\t2>/dev/null || :)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1763,14 +1703,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "value=\"$(declare -f list_all \\\n\t| sed 's/list_all/list_all_without_hub/')\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "value=\"$(declare -f list_all |\n\tsed 's/list_all/list_all_without_hub/')\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "value=\"$(declare -f list_all |\n\tsed 's/list_all/list_all_without_hub/')\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1778,13 +1717,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "value=\"$(\n  # note\n  foo | \\\n  bar | \\\n  baz\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "value=\"$(\n\t# note\n\tfoo |\n\tbar |\n\tbaz\n)\"\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "value=\"$(\n\t# note\n\tfoo |\n\tbar |\n\tbaz\n)\"\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1792,14 +1730,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n    value=\"$(\n        # note\n        docker-compose \\\n            logs service | \\\n        grep token | \\\n        awk '{print $1}' || :\n    )\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tvalue=\"$(\n\t\t# note\n\t\tdocker-compose \\\n\t\t\tlogs service |\n\t\t\tgrep token |\n\t\t\tawk '{print $1}' || :\n\t)\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tvalue=\"$(\n\t\t# note\n\t\tdocker-compose \\\n\t\t\tlogs service |\n\t\t\tgrep token |\n\t\t\tawk '{print $1}' || :\n\t)\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1807,14 +1744,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "while read -r line; do :; done < <(\n\tcat clean_files.txt \\\n\t\t| grep -v '^#'\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "while read -r line; do :; done < <(\n\tcat clean_files.txt |\n\t\tgrep -v '^#'\n)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while read -r line; do :; done < <(\n\tcat clean_files.txt |\n\t\tgrep -v '^#'\n)\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1822,14 +1758,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if true; then\n  if [[ $a != \"$(cat x)\" ||\n  $b == c ]]; then\n    echo yes\n  fi\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\tif [[ $a != \"$(cat x)\" ||\n\t$b == c ]]; then\n\t\techo yes\n\tfi\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if true; then\n\tif [[ $a != \"$(cat x)\" ||\n\t$b == c ]]; then\n\t\techo yes\n\tfi\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1837,13 +1772,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "[[ -t 1 && \"${CLICOLOR:=$(tput colors 2> /dev/null)}\" -ge 8 ]]\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "[[ -t 1 && \"${CLICOLOR:=$(tput colors 2>/dev/null)}\" -ge 8 ]]\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "[[ -t 1 && \"${CLICOLOR:=$(tput colors 2>/dev/null)}\" -ge 8 ]]\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1851,11 +1785,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "value=${value:-$(printf x|tr x y)}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("value=${value:-$(printf x | tr x y)}\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "value=${value:-$(printf x | tr x y)}\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1863,13 +1798,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "[[ $versions = \"$(sort -V <<< \"$versions\")\" ]]\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "[[ $versions = \"$(sort -V <<<\"$versions\")\" ]]\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "[[ $versions = \"$(sort -V <<<\"$versions\")\" ]]\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1877,13 +1811,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "value=\"$(\n\t# keep comment\n\tcat <<< \"$payload\"\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "value=\"$(\n\t# keep comment\n\tcat <<<\"$payload\"\n)\"\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "value=\"$(\n\t# keep comment\n\tcat <<<\"$payload\"\n)\"\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1891,11 +1824,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "sort -V <<< \"$versions\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("sort -V <<<\"$versions\"\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "sort -V <<<\"$versions\"\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1903,14 +1837,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case $kind in\n  service)\n    cat >$unit <<<\"\n[Unit]\nDescription=$name\n\n[Service]\nExecStart=$bin\n\"\n    ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case $kind in\nservice)\n\tcat >$unit <<<\"\n[Unit]\nDescription=$name\n\n[Service]\nExecStart=$bin\n\"\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case $kind in\nservice)\n\tcat >$unit <<<\"\n[Unit]\nDescription=$name\n\n[Service]\nExecStart=$bin\n\"\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1919,14 +1852,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "f() {\n  IFS=' ' read -ra tags <<<\"$(\n    get_tags \"$1\" \"$2\"\n  )\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tIFS=' ' read -ra tags <<<\"$(\n\t\tget_tags \"$1\" \"$2\"\n\t)\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tIFS=' ' read -ra tags <<<\"$(\n\t\tget_tags \"$1\" \"$2\"\n\t)\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1934,11 +1866,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "result=$()\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -1946,14 +1874,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n\tIFS=\" \" read -r -a COMPREPLY <<< \"$( (\n\t\twhile read -r -d ' ' i; do\n\t\t\t[[ -z \"$i\" ]] && continue\n\t\t\t# flatten array with spaces on either side,\n\t\t\t# otherwise we cannot grep on word boundaries of\n\t\t\t# first and last word\n\t\t\tCOMPREPLYSTR=\" ${COMPREPLY[*]} \"\n\t\t\t# remove word from list of completions\n\t\t\tIFS=\" \" read -r -a COMPREPLY <<< \"${COMPREPLYSTR/ ${i%% *} / }\"\n\t\tdone\n\t\tprintf '%s ' \"${COMPREPLY[@]}\"\n\t) <<< \"${COMP_WORDS[@]}\")\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tIFS=\" \" read -r -a COMPREPLY <<<\"$( (\n\t\twhile read -r -d ' ' i; do\n\t\t\t[[ -z \"$i\" ]] && continue\n\t\t\t# flatten array with spaces on either side,\n\t\t\t# otherwise we cannot grep on word boundaries of\n\t\t\t# first and last word\n\t\t\tCOMPREPLYSTR=\" ${COMPREPLY[*]} \"\n\t\t\t# remove word from list of completions\n\t\t\tIFS=\" \" read -r -a COMPREPLY <<<\"${COMPREPLYSTR/ ${i%% *} / }\"\n\t\tdone\n\t\tprintf '%s ' \"${COMPREPLY[@]}\"\n\t) <<<\"${COMP_WORDS[@]}\")\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tIFS=\" \" read -r -a COMPREPLY <<<\"$( (\n\t\twhile read -r -d ' ' i; do\n\t\t\t[[ -z \"$i\" ]] && continue\n\t\t\t# flatten array with spaces on either side,\n\t\t\t# otherwise we cannot grep on word boundaries of\n\t\t\t# first and last word\n\t\t\tCOMPREPLYSTR=\" ${COMPREPLY[*]} \"\n\t\t\t# remove word from list of completions\n\t\t\tIFS=\" \" read -r -a COMPREPLY <<<\"${COMPREPLYSTR/ ${i%% *} / }\"\n\t\tdone\n\t\tprintf '%s ' \"${COMPREPLY[@]}\"\n\t) <<<\"${COMP_WORDS[@]}\")\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1961,11 +1888,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "themes=$(grep \\{EXTRA_THEMES install.sh | cut -d= -f2 | cut -d} -f1)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -1973,14 +1896,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "find_dig=$(which dig 2> /dev/null | grep -v \"no [^ ]* in\")\ncontext_id=\"$(jq_debug_pipe_dump <<< \"$output\" | jq -r \".items[] | select(.name == \\\"$context_name\\\") | .id\")\"\nurl=\"$(jq -r \"limit(1; .[] | select(.title == \\\"$selected\\\" or .animal == \\\"$selected\\\") ) | .cover_src\" < \"$json\")\"\nCOMPREPLY=($(compgen -W \"$(awk -F ':' 'BEGIN {print_line = 0}; /^[^ ]/ {print_line = 0}' < ${MASTER_CONFIG})\" -- \"${cur}\"))\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "find_dig=$(which dig 2>/dev/null | grep -v \"no [^ ]* in\")\ncontext_id=\"$(jq_debug_pipe_dump <<<\"$output\" | jq -r \".items[] | select(.name == \\\"$context_name\\\") | .id\")\"\nurl=\"$(jq -r \"limit(1; .[] | select(.title == \\\"$selected\\\" or .animal == \\\"$selected\\\") ) | .cover_src\" <\"$json\")\"\nCOMPREPLY=($(compgen -W \"$(awk -F ':' 'BEGIN {print_line = 0}; /^[^ ]/ {print_line = 0}' <${MASTER_CONFIG})\" -- \"${cur}\"))\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "find_dig=$(which dig 2>/dev/null | grep -v \"no [^ ]* in\")\ncontext_id=\"$(jq_debug_pipe_dump <<<\"$output\" | jq -r \".items[] | select(.name == \\\"$context_name\\\") | .id\")\"\nurl=\"$(jq -r \"limit(1; .[] | select(.title == \\\"$selected\\\" or .animal == \\\"$selected\\\") ) | .cover_src\" <\"$json\")\"\nCOMPREPLY=($(compgen -W \"$(awk -F ':' 'BEGIN {print_line = 0}; /^[^ ]/ {print_line = 0}' <${MASTER_CONFIG})\" -- \"${cur}\"))\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -1988,14 +1910,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "echo \"MD5SUM=\\\"$( md5sum file | cut -d' ' -f1 )\\\"\"\nlocal minute=\"${MINUTE:-$( date +%H )}\"\noutput=$( ls packages 2> /dev/null | grep pattern )\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "echo \"MD5SUM=\\\"$(md5sum file | cut -d' ' -f1)\\\"\"\nlocal minute=\"${MINUTE:-$(date +%H)}\"\noutput=$(ls packages 2>/dev/null | grep pattern)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "echo \"MD5SUM=\\\"$(md5sum file | cut -d' ' -f1)\\\"\"\nlocal minute=\"${MINUTE:-$(date +%H)}\"\noutput=$(ls packages 2>/dev/null | grep pattern)\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2003,11 +1924,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "_pre=\"$( echo $( du -hs \"$directory/\" ) )\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("_pre=\"$(echo $(du -hs \"$directory/\"))\"\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "_pre=\"$(echo $(du -hs \"$directory/\"))\"\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2015,13 +1937,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "id=$( (echo hi ; echo there) | checksum )\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "id=$( (\n\techo hi\n\techo there\n) | checksum)\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "id=$( (\n\techo hi\n\techo there\n) | checksum)\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2029,13 +1950,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "run() {\n  ( ( echo hi ) 2>&1 | ( cat ) ) 5>&1\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "run() {\n\t( (echo hi) 2>&1 | (cat)) 5>&1\n}\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "run() {\n\t( (echo hi) 2>&1 | (cat)) 5>&1\n}\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2043,14 +1963,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "nlq=\"$(  _sanitizer run \"$nlq\"  numeric )\"\nline=$( head -n 2 $file|tail -n 1 )\nfile2patch=\"$( echo \"$line\" | cut -d' ' -f2 |cut -f1 )\"\nmsg=\"Welcome Hari - your last access was $(last|head -n2|tail -n1|sed 's/[^ ]\\+ \\+[^ ]\\+ \\+[^ ]\\+ \\+//;s/ *$//')\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "nlq=\"$(_sanitizer run \"$nlq\" numeric)\"\nline=$(head -n 2 $file | tail -n 1)\nfile2patch=\"$(echo \"$line\" | cut -d' ' -f2 | cut -f1)\"\nmsg=\"Welcome Hari - your last access was $(last | head -n2 | tail -n1 | sed 's/[^ ]\\+ \\+[^ ]\\+ \\+[^ ]\\+ \\+//;s/ *$//')\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "nlq=\"$(_sanitizer run \"$nlq\" numeric)\"\nline=$(head -n 2 $file | tail -n 1)\nfile2patch=\"$(echo \"$line\" | cut -d' ' -f2 | cut -f1)\"\nmsg=\"Welcome Hari - your last access was $(last | head -n2 | tail -n1 | sed 's/[^ ]\\+ \\+[^ ]\\+ \\+[^ ]\\+ \\+//;s/ *$//')\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2058,11 +1977,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "result=$(\necho foo\necho bar\n)\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("result=$(\n\techo foo\n\techo bar\n)\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "result=$(\n\techo foo\n\techo bar\n)\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2070,14 +1990,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "size=$(\nstat -f\"%z\" \"$tmpFile\" 2> /dev/null; # OS X `stat`\nstat -c\"%s\" \"$tmpFile\" 2> /dev/null # GNU `stat`\n)\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "size=$(\n\tstat -f\"%z\" \"$tmpFile\" 2>/dev/null # OS X `stat`\n\tstat -c\"%s\" \"$tmpFile\" 2>/dev/null # GNU `stat`\n)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "size=$(\n\tstat -f\"%z\" \"$tmpFile\" 2>/dev/null # OS X `stat`\n\tstat -c\"%s\" \"$tmpFile\" 2>/dev/null # GNU `stat`\n)\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2085,11 +2004,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "output=\"$(foo |\n          bar\n         )\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("output=\"$(\n\tfoo |\n\t\tbar\n)\"\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "output=\"$(\n\tfoo |\n\t\tbar\n)\"\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2097,14 +2017,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "tag=\"$(\n  grep '\"tag_name.*\"'\".*$version\" \"$json\" \\\n  | head -1 \\\n  | sed 's,.*\"\\(gm'\"$version\"'[^\\\"]*\\)\".*,\\1,'\\\n  )\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "tag=\"$(\n\tgrep '\"tag_name.*\"'\".*$version\" \"$json\" |\n\t\thead -1 |\n\t\tsed 's,.*\"\\(gm'\"$version\"'[^\\\"]*\\)\".*,\\1,'\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "tag=\"$(\n\tgrep '\"tag_name.*\"'\".*$version\" \"$json\" |\n\t\thead -1 |\n\t\tsed 's,.*\"\\(gm'\"$version\"'[^\\\"]*\\)\".*,\\1,'\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2112,14 +2031,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "result=$(\nif foo; then\necho hi\nelse\necho bye\nfi\n)\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "result=$(\n\tif foo; then\n\t\techo hi\n\telse\n\t\techo bye\n\tfi\n)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "result=$(\n\tif foo; then\n\t\techo hi\n\telse\n\t\techo bye\n\tfi\n)\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2127,14 +2044,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "start() {\n  CHOICE=$(whiptail --title x --menu \\\n    foo 14 58 2 \\\n    yes \" \" no \" \" 3>&2 2>&1 1>&3)\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "start() {\n\tCHOICE=$(whiptail --title x --menu \\\n\t\tfoo 14 58 2 \\\n\t\tyes \" \" no \" \" 3>&2 2>&1 1>&3)\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "start() {\n\tCHOICE=$(whiptail --title x --menu \\\n\t\tfoo 14 58 2 \\\n\t\tyes \" \" no \" \" 3>&2 2>&1 1>&3)\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2142,14 +2058,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "icons() {\n  icon_files=\"${icon_files}¤$(find \\\n    /usr/share/icons \\\n    /usr/share/pixmaps \\\n    /var/lib/flatpak/exports/share/icons -iname \"*${icon}*\" \\\n    -printf \"%p¤\" 2> /dev/null || :)\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "icons() {\n\ticon_files=\"${icon_files}¤$(find \\\n\t\t/usr/share/icons \\\n\t\t/usr/share/pixmaps \\\n\t\t/var/lib/flatpak/exports/share/icons -iname \"*${icon}*\" \\\n\t\t-printf \"%p¤\" 2>/dev/null || :)\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "icons() {\n\ticon_files=\"${icon_files}¤$(find \\\n\t\t/usr/share/icons \\\n\t\t/usr/share/pixmaps \\\n\t\t/var/lib/flatpak/exports/share/icons -iname \"*${icon}*\" \\\n\t\t-printf \"%p¤\" 2>/dev/null || :)\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2157,14 +2072,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "_npm_completion() {\n  compadd -- $(COMP_CWORD=$((CURRENT-1)) \\\n               COMP_LINE=$BUFFER \\\n               COMP_POINT=0 \\\n               npm completion -- \"${words[@]}\" \\\n               2>/dev/null)\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "_npm_completion() {\n\tcompadd -- $(COMP_CWORD=$((CURRENT - 1)) \\\n\t\tCOMP_LINE=$BUFFER \\\n\t\tCOMP_POINT=0 \\\n\t\tnpm completion -- \"${words[@]}\" \\\n\t\t2>/dev/null)\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "_npm_completion() {\n\tcompadd -- $(COMP_CWORD=$((CURRENT - 1)) \\\n\t\tCOMP_LINE=$BUFFER \\\n\t\tCOMP_POINT=0 \\\n\t\tnpm completion -- \"${words[@]}\" \\\n\t\t2>/dev/null)\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2172,14 +2086,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "get_pr_url(){\n    local existing_pr\n    existing_pr=\"$(gh pr list -R \"$owner/$repo\" \\\n        --json baseRefName,changedFiles \\\n        -q \".[] |\n            select(.baseRefName == \\\"$base\\\")\n    \")\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "get_pr_url() {\n\tlocal existing_pr\n\texisting_pr=\"$(gh pr list -R \"$owner/$repo\" \\\n\t\t--json baseRefName,changedFiles \\\n\t\t-q \".[] |\n            select(.baseRefName == \\\"$base\\\")\n    \")\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "get_pr_url() {\n\tlocal existing_pr\n\texisting_pr=\"$(gh pr list -R \"$owner/$repo\" \\\n\t\t--json baseRefName,changedFiles \\\n\t\t-q \".[] |\n            select(.baseRefName == \\\"$base\\\")\n    \")\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2187,11 +2100,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "_comp_compgen_split -- \"$(\"$1\" -soundhw help | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}') all\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -2199,14 +2108,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  case $prev in\n    -soundhw)\n      _comp_compgen_split -- \"$(\"$1\" -soundhw help | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}') all\"\n      ;;\n  esac\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tcase $prev in\n\t-soundhw)\n\t\t_comp_compgen_split -- \"$(\"$1\" -soundhw help | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}') all\"\n\t\t;;\n\tesac\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tcase $prev in\n\t-soundhw)\n\t\t_comp_compgen_split -- \"$(\"$1\" -soundhw help | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}') all\"\n\t\t;;\n\tesac\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2214,11 +2122,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "result=$(echo foo # keep comment\necho bar)\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -2226,14 +2130,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "_SCOPED=\"$(\n  # selected notebook flag\n  if [[ \"$a\" != \"$b\" ]]\n  then\n    printf \"1\\\\n\"\n  else\n    printf \"0\\\\n\"\n  fi\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "_SCOPED=\"$(\n\t# selected notebook flag\n\tif [[ \"$a\" != \"$b\" ]]; then\n\t\tprintf \"1\\\\n\"\n\telse\n\t\tprintf \"0\\\\n\"\n\tfi\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "_SCOPED=\"$(\n\t# selected notebook flag\n\tif [[ \"$a\" != \"$b\" ]]; then\n\t\tprintf \"1\\\\n\"\n\telse\n\t\tprintf \"0\\\\n\"\n\tfi\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2241,14 +2144,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "response=\"$(\n  download --flag \\\n    \"https://example.test?url=${target}\" |\n    LC_ALL=C sed -E \"s/.*\\\"url\\\": \\\"([^\\\"]+)\\\".*/\\1/g\" || printf \"\"\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "response=\"$(\n\tdownload --flag \\\n\t\t\"https://example.test?url=${target}\" |\n\t\tLC_ALL=C sed -E \"s/.*\\\"url\\\": \\\"([^\\\"]+)\\\".*/\\1/g\" || printf \"\"\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "response=\"$(\n\tdownload --flag \\\n\t\t\"https://example.test?url=${target}\" |\n\t\tLC_ALL=C sed -E \"s/.*\\\"url\\\": \\\"([^\\\"]+)\\\".*/\\1/g\" || printf \"\"\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2256,14 +2158,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "content=\"$(\n  {\n    cat \"$file\"\n  } | {\n    if [[ \"$tool\" =~ readab ]] &&\n       command -v readable; then # readability-cli\n      readable \\\n        --base \"$url\" \\\n        --quiet \\\n        2>/dev/null || cat\n    else\n      cat\n    fi\n  }\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "content=\"$(\n\t{\n\t\tcat \"$file\"\n\t} | {\n\t\tif [[ \"$tool\" =~ readab ]] &&\n\t\t\tcommand -v readable; then # readability-cli\n\t\t\treadable \\\n\t\t\t\t--base \"$url\" \\\n\t\t\t\t--quiet \\\n\t\t\t\t2>/dev/null || cat\n\t\telse\n\t\t\tcat\n\t\tfi\n\t}\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "content=\"$(\n\t{\n\t\tcat \"$file\"\n\t} | {\n\t\tif [[ \"$tool\" =~ readab ]] &&\n\t\t\tcommand -v readable; then # readability-cli\n\t\t\treadable \\\n\t\t\t\t--base \"$url\" \\\n\t\t\t\t--quiet \\\n\t\t\t\t2>/dev/null || cat\n\t\telse\n\t\t\tcat\n\t\tfi\n\t}\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2271,14 +2172,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "result=\"$(grep -En pattern \"$script\" |\n                     grep -Ev -e skip \\\n                              # keep this filter documented\n                    )\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "result=\"$(\n\tgrep -En pattern \"$script\" |\n\t\tgrep -Ev -e skip\n\t# keep this filter documented\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "result=\"$(\n\tgrep -En pattern \"$script\" |\n\t\tgrep -Ev -e skip\n\t# keep this filter documented\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2286,14 +2186,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "version=$(\n  # keep the sourced version local\n  source ./version.sh\n  echo \"$VERSION\"\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "version=$(\n\t# keep the sourced version local\n\tsource ./version.sh\n\techo \"$VERSION\"\n)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "version=$(\n\t# keep the sourced version local\n\tsource ./version.sh\n\techo \"$VERSION\"\n)\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2301,11 +2200,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "result=$(cat <<EOF\nhello\nEOF\n)\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("result=$(\n\tcat <<EOF\nhello\nEOF\n)\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "result=$(\n\tcat <<EOF\nhello\nEOF\n)\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2313,14 +2213,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if ok; then\n    upload --policy \"$(cat <<EOF\n{\n  \"items\": [\n$(\n    for item in \"${items[@]}\"; do\n        printf '\"%s\",\\n' \"$item\"\n    done |\n    sed '$ s/,$//'\n)\n  ]\n}\nEOF\n)\"\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if ok; then\n\tupload --policy \"$(\n\t\tcat <<EOF\n{\n  \"items\": [\n$(\n\t\t\t\tfor item in \"${items[@]}\"; do\n\t\t\t\t\tprintf '\"%s\",\\n' \"$item\"\n\t\t\t\tdone |\n\t\t\t\t\tsed '$ s/,$//'\n\t\t\t)\n  ]\n}\nEOF\n\t)\"\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ok; then\n\tupload --policy \"$(\n\t\tcat <<EOF\n{\n  \"items\": [\n$(\n\t\t\t\tfor item in \"${items[@]}\"; do\n\t\t\t\t\tprintf '\"%s\",\\n' \"$item\"\n\t\t\t\tdone |\n\t\t\t\t\tsed '$ s/,$//'\n\t\t\t)\n  ]\n}\nEOF\n\t)\"\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2328,13 +2227,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if true; then\n\tjson+=$(\n\t\tcat << EOF\n\t\t\t\t,\nEOF\n\t)\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\tjson+=$(\n\t\tcat <<EOF\n\t\t\t\t,\nEOF\n\t)\nfi\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if true; then\n\tjson+=$(\n\t\tcat <<EOF\n\t\t\t\t,\nEOF\n\t)\nfi\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2342,13 +2240,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "json=$(\n\tcat << EOF\n{\n\t\"ok\": true\n}\nEOF\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "json=$(\n\tcat <<EOF\n{\n\t\"ok\": true\n}\nEOF\n)\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "json=$(\n\tcat <<EOF\n{\n\t\"ok\": true\n}\nEOF\n)\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2356,14 +2253,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "x=\"$(\n    if ok; then\n        cat <<-EOF\nbody\nEOF\n    fi\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "x=\"$(\n\tif ok; then\n\t\tcat <<-EOF\n\t\t\tbody\n\t\tEOF\n\tfi\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "x=\"$(\n\tif ok; then\n\t\tcat <<-EOF\n\t\t\tbody\n\t\tEOF\n\tfi\n)\"\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2371,14 +2266,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "sed_script=\"$(\n        for prefix in $prefixes; do\n            echo \"s|${prefix}\\\\>|$prefix|g;\"\n        done\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "sed_script=\"$(\n\tfor prefix in $prefixes; do\n\t\techo \"s|${prefix}\\\\>|$prefix|g;\"\n\tdone\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "sed_script=\"$(\n\tfor prefix in $prefixes; do\n\t\techo \"s|${prefix}\\\\>|$prefix|g;\"\n\tdone\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2386,14 +2280,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "sed_script=\"$(\n        while read -r directory prefix; do\n            if [ -z \"$directory\" ]; then\n                continue\n            fi\n            # catch whole scripts\n            echo \"s|${prefix}\\\\>|$directory/${prefix}|g;\"\n        done <<< \"$mappings\"\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "sed_script=\"$(\n\twhile read -r directory prefix; do\n\t\tif [ -z \"$directory\" ]; then\n\t\t\tcontinue\n\t\tfi\n\t\t# catch whole scripts\n\t\techo \"s|${prefix}\\\\>|$directory/${prefix}|g;\"\n\tdone <<<\"$mappings\"\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "sed_script=\"$(\n\twhile read -r directory prefix; do\n\t\tif [ -z \"$directory\" ]; then\n\t\t\tcontinue\n\t\tfi\n\t\t# catch whole scripts\n\t\techo \"s|${prefix}\\\\>|$directory/${prefix}|g;\"\n\tdone <<<\"$mappings\"\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2401,14 +2294,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if ok; then\n    response=\"$(\n        nc <<EOF || :\nHTTP/1.1 200 OK\n\naccepted\nEOF\n    )\"\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if ok; then\n\tresponse=\"$(\n\t\tnc <<EOF || :\nHTTP/1.1 200 OK\n\naccepted\nEOF\n\t)\"\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ok; then\n\tresponse=\"$(\n\t\tnc <<EOF || :\nHTTP/1.1 200 OK\n\naccepted\nEOF\n\t)\"\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2416,11 +2308,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "(\n$(\ncat << HERE\nHERE\n)\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("(\n\t$(\n\t\tcat <<HERE\nHERE\n\t)\n)\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "(\n\t$(\n\t\tcat <<HERE\nHERE\n\t)\n)\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2429,14 +2322,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "if ok; then\n  result=$(OPENSSL_CONF=<(cat <<EOF\nbody\nEOF\n) curl url)\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if ok; then\n\tresult=$(OPENSSL_CONF=<(\n\t\tcat <<EOF\nbody\nEOF\n\t) curl url)\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ok; then\n\tresult=$(OPENSSL_CONF=<(\n\t\tcat <<EOF\nbody\nEOF\n\t) curl url)\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2444,14 +2336,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if ok; then\n    output=\"$(\n        NO_TOKEN_AUTH=1 \\\n        USERNAME=\"$SPOTIFY_ID\" \\\n        PASSWORD=\"$SPOTIFY_SECRET\" \\\n        -d code=\"$code\" \\\n        #-d code_verifier=\"$code_verifier\"\n    )\"\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if ok; then\n\toutput=\"$(\n\t\tNO_TOKEN_AUTH=1 \\\n\t\t\tUSERNAME=\"$SPOTIFY_ID\" \\\n\t\t\tPASSWORD=\"$SPOTIFY_SECRET\" \\\n\t\t\t-d code=\"$code\"\n\t\t#-d code_verifier=\"$code_verifier\"\n\t)\"\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ok; then\n\toutput=\"$(\n\t\tNO_TOKEN_AUTH=1 \\\n\t\t\tUSERNAME=\"$SPOTIFY_ID\" \\\n\t\t\tPASSWORD=\"$SPOTIFY_SECRET\" \\\n\t\t\t-d code=\"$code\"\n\t\t#-d code_verifier=\"$code_verifier\"\n\t)\"\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2459,13 +2350,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "cat <<EOF > script\n#!/bin/bash\nexec $(which dart) \"\\$@\"\nEOF\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "cat <<EOF >script\n#!/bin/bash\nexec $(which dart) \"\\$@\"\nEOF\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "cat <<EOF >script\n#!/bin/bash\nexec $(which dart) \"\\$@\"\nEOF\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2473,11 +2363,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "cat <<EOF\nline \\\\\nEOF\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -2485,14 +2371,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if ok; then\n  cat <<EOF\nx $(date +%F |\n      # comment\n      sed 's/-/--/g') y\nEOF\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if ok; then\n\tcat <<EOF\nx $(date +%F |\n\t\t# comment\n\t\tsed 's/-/--/g') y\nEOF\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ok; then\n\tcat <<EOF\nx $(date +%F |\n\t\t# comment\n\t\tsed 's/-/--/g') y\nEOF\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2500,11 +2385,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "value=$(pwd)\n# after\nnext\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -2512,11 +2393,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "value=$(cmd \\\n  arg) || echo no\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("value=$(cmd \\\n\targ) || echo no\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "value=$(cmd \\\n\targ) || echo no\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2524,11 +2406,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "cd \"$(dirname \"${BASH_SOURCE[0]}\")\"\n# after\nnext\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -2536,11 +2414,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "INFO=\"$(which \"${COMMAND}\") ($(type \"${COMMAND}\" | command awk '{print $4}'))\"\n# after\nnext\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -2548,11 +2422,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "[[ \"$(get_permission \"$1\")\" != \"$(id -u)\" ]]\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -2560,11 +2430,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "echo \"\\\"$BUILDSCRIPT\\\" -a \\\"$TERMUX_ARCH\\\" $TERMUX_DEBUG_BUILD --format \\\"$TERMUX_FORMAT\\\" --library $(test \"${PKG_DIR%/*}\" = \"gpkg\" && echo \"glibc\" || echo \"bionic\") ${TERMUX_OUTPUT_DIR+-o $TERMUX_OUTPUT_DIR} $TERMUX_INSTALL_DEPS \\\"$PKG_DIR\\\"\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -2572,11 +2438,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "[[ \" $(id -G \"${USER}\") \" != *\" $(get_group \"$1\") \"* ]]\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -2584,11 +2446,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "package_url=\"${package_url%%#*}\"\necho \"${1%%.*}\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -2596,14 +2454,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if [ \"$package_url\" != \"${package_url/\\#}\" ]; then\n  echo \"${arg:$index:1}\"\n  local fetch_args=(\"$package_name\" \"${@:1:$package_type_nargs}\")\n  local y=${charmap:$((RANDOM%${#charmap})):1}\n  for arg in \"${@:$(( $package_type_nargs + 1 ))}\"; do\n    echo \"$arg\"\n  done\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if [ \"$package_url\" != \"${package_url/\\#/}\" ]; then\n\techo \"${arg:$index:1}\"\n\tlocal fetch_args=(\"$package_name\" \"${@:1:$package_type_nargs}\")\n\tlocal y=${charmap:$((RANDOM % ${#charmap})):1}\n\tfor arg in \"${@:$(($package_type_nargs + 1))}\"; do\n\t\techo \"$arg\"\n\tdone\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if [ \"$package_url\" != \"${package_url/\\#/}\" ]; then\n\techo \"${arg:$index:1}\"\n\tlocal fetch_args=(\"$package_name\" \"${@:1:$package_type_nargs}\")\n\tlocal y=${charmap:$((RANDOM % ${#charmap})):1}\n\tfor arg in \"${@:$(($package_type_nargs + 1))}\"; do\n\t\techo \"$arg\"\n\tdone\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2611,13 +2468,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "title=\"${title//\\\"}\"\nlocal profile=\"${1// }\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "title=\"${title//\\\"/}\"\nlocal profile=\"${1// /}\"\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "title=\"${title//\\\"/}\"\nlocal profile=\"${1// /}\"\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2625,11 +2481,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "query=\"${query//\\\"/\\\\\\\"}\"\nurl_path=\"${url_path//https:\\\\/\\\\/api.openai.com\\/v1}\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -2638,14 +2490,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "playlist=\"${playlist//\\\\\"/\\\\\\\\\"}\"\nplaylist=\"${playlist//'/\\\\'}\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "playlist=\"${playlist//\\\\\"/\\\\\\\\\"/}\"\nplaylist=\"${playlist//'/\\\\'/}\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "playlist=\"${playlist//\\\\\"/\\\\\\\\\"/}\"\nplaylist=\"${playlist//'/\\\\'/}\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2653,13 +2504,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if [ \"${filename: -5}\" != .orig ]; then\n  echo no\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if [ \"${filename: -5}\" != .orig ]; then\n\techo no\nfi\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if [ \"${filename: -5}\" != .orig ]; then\n\techo no\nfi\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2667,11 +2517,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "region=\"${zone::${#zone}-1}\"\nindex=\"${items:1+2:count-1}\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -2679,14 +2525,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "major_minor() {\n  echo \"${1%%.*}.$(\n    x=\"${1#*.}\"\n    echo \"${x%%.*}\"\n  )\"\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "major_minor() {\n\techo \"${1%%.*}.$(\n\t\tx=\"${1#*.}\"\n\t\techo \"${x%%.*}\"\n\t)\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "major_minor() {\n\techo \"${1%%.*}.$(\n\t\tx=\"${1#*.}\"\n\t\techo \"${x%%.*}\"\n\t)\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2694,14 +2539,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "ARGS=$(\n  nvm_echo \"$@\" | command sed \"\n    s/--progress-bar /--progress=bar /\n    s/-s /-q /\n  \"\n)\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "ARGS=$(\n\tnvm_echo \"$@\" | command sed \"\n    s/--progress-bar /--progress=bar /\n    s/-s /-q /\n  \"\n)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "ARGS=$(\n\tnvm_echo \"$@\" | command sed \"\n    s/--progress-bar /--progress=bar /\n    s/-s /-q /\n  \"\n)\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2709,14 +2553,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  declare -i -r test_jobs_effective=\"$(\n    if [[ \"${TEST_JOBS:-detect}\" = \"detect\" ]] \\\n      && command -v nproc &> /dev/null; then\n      nproc\n    fi\n  )\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tdeclare -i -r test_jobs_effective=\"$(\n\t\tif [[ \"${TEST_JOBS:-detect}\" = \"detect\" ]] &&\n\t\t\tcommand -v nproc &>/dev/null; then\n\t\t\tnproc\n\t\tfi\n\t)\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tdeclare -i -r test_jobs_effective=\"$(\n\t\tif [[ \"${TEST_JOBS:-detect}\" = \"detect\" ]] &&\n\t\t\tcommand -v nproc &>/dev/null; then\n\t\t\tnproc\n\t\tfi\n\t)\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2724,14 +2567,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  branchName=\"$(git symbolic-ref --quiet --short HEAD 2> /dev/null \\\n    || git rev-parse --short HEAD 2> /dev/null \\\n    || echo '(unknown)')\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tbranchName=\"$(git symbolic-ref --quiet --short HEAD 2>/dev/null ||\n\t\tgit rev-parse --short HEAD 2>/dev/null ||\n\t\techo '(unknown)')\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tbranchName=\"$(git symbolic-ref --quiet --short HEAD 2>/dev/null ||\n\t\tgit rev-parse --short HEAD 2>/dev/null ||\n\t\techo '(unknown)')\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2739,14 +2581,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  certText=$(echo \"${tmp}\" \\\n    | openssl x509 -text -certopt \"no_header, no_serial, \\\n    no_signame\")\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tcertText=$(echo \"${tmp}\" |\n\t\topenssl x509 -text -certopt \"no_header, no_serial, \\\n\t\tno_signame\")\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tcertText=$(echo \"${tmp}\" |\n\t\topenssl x509 -text -certopt \"no_header, no_serial, \\\n\t\tno_signame\")\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2755,14 +2596,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "f() {\n  providers=\"$(find . |\n    sed -e 's/^a/b/' \\\n      -e 's/^c/d/')\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tproviders=\"$(find . |\n\t\tsed -e 's/^a/b/' \\\n\t\t\t-e 's/^c/d/')\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tproviders=\"$(find . |\n\t\tsed -e 's/^a/b/' \\\n\t\t\t-e 's/^c/d/')\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2770,14 +2610,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  while ok; do\n    protected_branches=\"$protected_branches\n                            $(jq_debug_pipe_dump <<< \"$output\" |\n                              jq -r '.[] | select(.protected == true)')\"\n  done\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\twhile ok; do\n\t\tprotected_branches=\"$protected_branches\n                            $(jq_debug_pipe_dump <<<\"$output\" |\n\t\t\tjq -r '.[] | select(.protected == true)')\"\n\tdone\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\twhile ok; do\n\t\tprotected_branches=\"$protected_branches\n                            $(jq_debug_pipe_dump <<<\"$output\" |\n\t\t\tjq -r '.[] | select(.protected == true)')\"\n\tdone\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2785,14 +2624,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  allowed=\"$(sed 's/#.*//;\n                        s/^[[:space:]]*//;\n                        /^[[:space:]]*$/d;' \\\n                        \"$file\")\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tallowed=\"$(sed 's/#.*//;\n                        s/^[[:space:]]*//;\n                        /^[[:space:]]*$/d;' \\\n\t\t\"$file\")\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tallowed=\"$(sed 's/#.*//;\n                        s/^[[:space:]]*//;\n                        /^[[:space:]]*$/d;' \\\n\t\t\"$file\")\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2800,14 +2638,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if [ \"$version\" = latest ]; then\n    version=\"$(gh api \"repos/$owner_repo/tags\" \\\n                --jq '\n                    .[] |\n                    select(.name | test(\"^go[0-9]\")) |\n                    .name\n                ' --paginate |\n                head -n1 |\n                sed 's/^go//' || :)\"\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if [ \"$version\" = latest ]; then\n\tversion=\"$(gh api \"repos/$owner_repo/tags\" \\\n\t\t--jq '\n                    .[] |\n                    select(.name | test(\"^go[0-9]\")) |\n                    .name\n                ' --paginate |\n\t\thead -n1 |\n\t\tsed 's/^go//' || :)\"\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if [ \"$version\" = latest ]; then\n\tversion=\"$(gh api \"repos/$owner_repo/tags\" \\\n\t\t--jq '\n                    .[] |\n                    select(.name | test(\"^go[0-9]\")) |\n                    .name\n                ' --paginate |\n\t\thead -n1 |\n\t\tsed 's/^go//' || :)\"\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2815,14 +2652,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "backups=\"$(\n    while read -r mountpoint; do\n        ls -t \"$mountpoint\" |\n        sed '\n            s|\\.backup/*$||;\n        '\n    done <<< \"$mountpoints\" |\n    sort -r\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "backups=\"$(\n\twhile read -r mountpoint; do\n\t\tls -t \"$mountpoint\" |\n\t\t\tsed '\n            s|\\.backup/*$||;\n        '\n\tdone <<<\"$mountpoints\" |\n\t\tsort -r\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "backups=\"$(\n\twhile read -r mountpoint; do\n\t\tls -t \"$mountpoint\" |\n\t\t\tsed '\n            s|\\.backup/*$||;\n        '\n\tdone <<<\"$mountpoints\" |\n\t\tsort -r\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2830,14 +2666,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "versions=\"$(\n    grep rpm <<< \"$downloads_page\" |\n    sed '\n        s/^.*basic[[:alpha:]]*-//;\n        s/linuxx64//;\n    ' |\n    sort -Vur\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "versions=\"$(\n\tgrep rpm <<<\"$downloads_page\" |\n\t\tsed '\n        s/^.*basic[[:alpha:]]*-//;\n        s/linuxx64//;\n    ' |\n\t\tsort -Vur\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "versions=\"$(\n\tgrep rpm <<<\"$downloads_page\" |\n\t\tsed '\n        s/^.*basic[[:alpha:]]*-//;\n        s/linuxx64//;\n    ' |\n\t\tsort -Vur\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2845,14 +2680,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "artist_id=\"$(\n    SEARCH_TYPE=artist \\\n    SEARCH_LIMIT=50 \\\n    \"$srcdir/search.sh\" \"$artist\" |\n    jq -r \"\n        .items[] |\n        .id\n    \" |\n    head -n1\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "artist_id=\"$(\n\tSEARCH_TYPE=artist \\\n\t\tSEARCH_LIMIT=50 \\\n\t\t\"$srcdir/search.sh\" \"$artist\" |\n\t\tjq -r \"\n        .items[] |\n        .id\n    \" |\n\t\thead -n1\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "artist_id=\"$(\n\tSEARCH_TYPE=artist \\\n\t\tSEARCH_LIMIT=50 \\\n\t\t\"$srcdir/search.sh\" \"$artist\" |\n\t\tjq -r \"\n        .items[] |\n        .id\n    \" |\n\t\thead -n1\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2860,14 +2694,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  packages=\"$(sed 's/#.*//;\n         s/[<>=].*//;\n         /^[[:space:]]*$/d;' $package_files |\n        sort |\n        uniq -d\n    )\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tpackages=\"$(\n\t\tsed 's/#.*//;\n         s/[<>=].*//;\n         /^[[:space:]]*$/d;' $package_files |\n\t\t\tsort |\n\t\t\tuniq -d\n\t)\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tpackages=\"$(\n\t\tsed 's/#.*//;\n         s/[<>=].*//;\n         /^[[:space:]]*$/d;' $package_files |\n\t\t\tsort |\n\t\t\tuniq -d\n\t)\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2875,14 +2708,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  _comp_compgen_split -- \"$(cmd | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}')\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\t_comp_compgen_split -- \"$(cmd | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}')\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\t_comp_compgen_split -- \"$(cmd | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}')\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2890,14 +2722,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  gw=\"$(\n    netstat -rn |\n    awk '\n            /^default/ { print $2 }\n        '\n  )\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tgw=\"$(\n\t\tnetstat -rn |\n\t\t\tawk '\n            /^default/ { print $2 }\n        '\n\t)\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tgw=\"$(\n\t\tnetstat -rn |\n\t\t\tawk '\n            /^default/ { print $2 }\n        '\n\t)\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2905,11 +2736,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "color=\"$(if [ \"$status\" = ok ]; then echo GREEN; elif [ \"$status\" = bad ]; then echo RED; else echo WHITE; fi)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -2939,14 +2766,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if ! (( BASH_VERSINFO[0] > 4 ||\n        BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 2 )); then\n  exit 1\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if ! ((\\\nBASH_VERSINFO[0] > 4 || \\\nBASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 2)); then\n\texit 1\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ! ((\\\nBASH_VERSINFO[0] > 4 || \\\nBASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 2)); then\n\texit 1\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2954,13 +2780,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "for ((i=1;i<limit;++i)); do\n  echo \"$i\"\ndone\nfor ((j = 1; ; j++)); do\n  echo \"$j\"\ndone\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "for ((i = 1; i < limit; ++i)); do\n\techo \"$i\"\ndone\nfor ((j = 1; ; j++)); do\n\techo \"$j\"\ndone\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "for ((i = 1; i < limit; ++i)); do\n\techo \"$i\"\ndone\nfor ((j = 1; ; j++)); do\n\techo \"$j\"\ndone\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2968,14 +2793,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "((count+=1))\n((total = count + 1))\n((y=x+1))\nif ((${value:=0} == 1)); then\n  return 0\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "((count += 1))\n((total = count + 1))\n((y = x + 1))\nif ((${value:=0} == 1)); then\n\treturn 0\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "((count += 1))\n((total = count + 1))\n((y = x + 1))\nif ((${value:=0} == 1)); then\n\treturn 0\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2983,11 +2807,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "index=$(($index + 1))\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -3006,11 +2826,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "echo $(($(echo \"$speed\" | cut -d'k' -f1) * 1024))\nborder=$(($(_system uptime days) * 3)) # daily\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -3018,11 +2834,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "printf \"%s\\n\" \"$(($(foo)-bar))\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("printf \"%s\\n\" \"$(($(foo) - bar))\"\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "printf \"%s\\n\" \"$(($(foo) - bar))\"\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3030,14 +2847,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "echo $(( $( echo \"$speed\" | cut -d'k' -f1 ) * 1024 ))\nborder=$(( $( _system uptime days ) * 3 )) # daily\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "echo $(($(echo \"$speed\" | cut -d'k' -f1) * 1024))\nborder=$(($(_system uptime days) * 3)) # daily\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "echo $(($(echo \"$speed\" | cut -d'k' -f1) * 1024))\nborder=$(($(_system uptime days) * 3)) # daily\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3045,14 +2861,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "echo \"$(( $(_system date unixtime) - DIFF ))\"\necho \"lasts $(( $t2 - $t1 )) seconds ($(( ($t2 - $t1) / 60 )) minutes)\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "echo \"$(($(_system date unixtime) - DIFF))\"\necho \"lasts $(($t2 - $t1)) seconds ($((($t2 - $t1) / 60)) minutes)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "echo \"$(($(_system date unixtime) - DIFF))\"\necho \"lasts $(($t2 - $t1)) seconds ($((($t2 - $t1) / 60)) minutes)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3075,13 +2890,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "color=${AVAILABLE_COLORS[$RANDOM % ${#AVAILABLE_COLORS[@]}]}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "color=${AVAILABLE_COLORS[$RANDOM%${#AVAILABLE_COLORS[@]}]}\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "color=${AVAILABLE_COLORS[$RANDOM%${#AVAILABLE_COLORS[@]}]}\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3089,11 +2903,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "echo ${options[$((choice*2+1))]}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("echo ${options[$((choice * 2 + 1))]}\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "echo ${options[$((choice * 2 + 1))]}\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3101,14 +2916,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "echo ${arr[(($i+1))]}\necho ${arr[((i+1))]}\necho ${arr[(i+1)]}\necho ${arr[($i+1)]}\necho ${arr[$i+1]}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "echo ${arr[(($i + 1))]}\necho ${arr[((i + 1))]}\necho ${arr[(i + 1)]}\necho ${arr[($i + 1)]}\necho ${arr[$i+1]}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "echo ${arr[(($i + 1))]}\necho ${arr[((i + 1))]}\necho ${arr[(i + 1)]}\necho ${arr[($i + 1)]}\necho ${arr[$i+1]}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3116,13 +2930,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = ": \"${BASH_IT_BASHRC:=${BASH_SOURCE[${#BASH_SOURCE[@]} - 1]}}\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                ": \"${BASH_IT_BASHRC:=${BASH_SOURCE[${#BASH_SOURCE[@]}-1]}}\"\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            ": \"${BASH_IT_BASHRC:=${BASH_SOURCE[${#BASH_SOURCE[@]}-1]}}\"\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3130,11 +2943,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "prev=\"${COMP_WORDS[COMP_CWORD - 1]}\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("prev=\"${COMP_WORDS[COMP_CWORD-1]}\"\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "prev=\"${COMP_WORDS[COMP_CWORD-1]}\"\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3142,11 +2956,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "source \"${_files[_file - __array_offset]}\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("source \"${_files[_file-__array_offset]}\"\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "source \"${_files[_file-__array_offset]}\"\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3194,14 +3009,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "eval printf \"\\\"$name -> $`echo \"${env_var}_DEFAULT\"` => \\\"\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "eval printf \"\\\"$name -> $$(echo \"${env_var}_DEFAULT\") => \\\"\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "eval printf \"\\\"$name -> $$(echo \"${env_var}_DEFAULT\") => \\\"\"\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3257,11 +3070,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "ARCH=$(uname -a | cut -f12 -d\\ )\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -3394,14 +3203,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if ok; then\n    params+=(-Done=true -Dtwo=false \\\n               -Dthree=false \\\n               -Dfour=true)\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if ok; then\n\tparams+=(-Done=true -Dtwo=false\n\t\t-Dthree=false\n\t\t-Dfour=true)\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ok; then\n\tparams+=(-Done=true -Dtwo=false\n\t\t-Dthree=false\n\t\t-Dfour=true)\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3409,14 +3217,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "show() {\n  items+=(\"\\\n    $(printf \" ---------\")\n     Text.\n\n     $(\n  for   x in a b\n  do\n    echo \"$x\"\n  done\n)\")\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "show() {\n\titems+=(\"\\\n    $(printf \" ---------\")\n     Text.\n\n     $(\n\t\tfor x in a b; do\n\t\t\techo \"$x\"\n\t\tdone\n\t)\")\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "show() {\n\titems+=(\"\\\n    $(printf \" ---------\")\n     Text.\n\n     $(\n\t\tfor x in a b; do\n\t\t\techo \"$x\"\n\t\tdone\n\t)\")\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3424,13 +3231,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "cmd=(\n  grep -s                         \\\n    -e \"^<${url}>\"                 \\\n    -e \"^##\"\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "cmd=(\n\tgrep -s\n\t-e \"^<${url}>\"\n\t-e \"^##\"\n)\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "cmd=(\n\tgrep -s\n\t-e \"^<${url}>\"\n\t-e \"^##\"\n)\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3438,14 +3244,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "x=( $(find . -not \\( -path ./x -prune \\) -not -name lib \\\n  -not -name other | sort) )\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "x=($(find . -not \\( -path ./x -prune \\) -not -name lib \\\n\t-not -name other | sort))\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "x=($(find . -not \\( -path ./x -prune \\) -not -name lib \\\n\t-not -name other | sort))\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3453,14 +3258,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "local cmd=(dialog --title \"Select\" --default-item \"$default\" \\\n    --menu \"Choose\" 18 50 9)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "local cmd=(dialog --title \"Select\" --default-item \"$default\"\n\t--menu \"Choose\" 18 50 9)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "local cmd=(dialog --title \"Select\" --default-item \"$default\"\n\t--menu \"Choose\" 18 50 9)\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3468,14 +3272,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "options=(\n  1 \"1080p\"  \"Set 1080p\"\n  2 \"720p\"   \"Set 720p\"\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "options=(\n\t1 \"1080p\" \"Set 1080p\"\n\t2 \"720p\" \"Set 720p\"\n)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "options=(\n\t1 \"1080p\" \"Set 1080p\"\n\t2 \"720p\" \"Set 720p\"\n)\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3484,13 +3286,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "versions=(1.16.0\n# Match the server package.\n                    21.1.16)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "versions=(1.16.0\n\t# Match the server package.\n\t21.1.16)\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "versions=(1.16.0\n\t# Match the server package.\n\t21.1.16)\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3498,13 +3299,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "args=(\n  one\n\n  # group\n  two\n\n  three\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "args=(\n\tone\n\n\t# group\n\ttwo\n\n\tthree\n)\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "args=(\n\tone\n\n\t# group\n\ttwo\n\n\tthree\n)\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3513,13 +3313,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "declare -A map=(\n        [up]=one\n   [down]=two\n\n        [left]=three\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "declare -A map=(\n\t[up]=one\n\t[down]=two\n\n\t[left]=three\n)\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "declare -A map=(\n\t[up]=one\n\t[down]=two\n\n\t[left]=three\n)\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3527,14 +3326,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "items=(\nfirst\n    $(\n        for item in $items; do\n            echo \"$item\"\n        done\n    )\n\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "items=(\n\tfirst\n\t$(\n\t\tfor item in $items; do\n\t\t\techo \"$item\"\n\t\tdone\n\t)\n\n)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "items=(\n\tfirst\n\t$(\n\t\tfor item in $items; do\n\t\t\techo \"$item\"\n\t\tdone\n\t)\n\n)\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3542,14 +3340,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "options=( \n  config_file \"$(\n     [[ \"$config\" == *.cfg ]] && echo ok\n  )\"\n  enabled \"$( [[ -n \"$flag\" ]] && echo true || echo false)\"\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "options=(\n\tconfig_file \"$(\n\t\t[[ \"$config\" == *.cfg ]] && echo ok\n\t)\"\n\tenabled \"$([[ -n \"$flag\" ]] && echo true || echo false)\"\n)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "options=(\n\tconfig_file \"$(\n\t\t[[ \"$config\" == *.cfg ]] && echo ok\n\t)\"\n\tenabled \"$([[ -n \"$flag\" ]] && echo true || echo false)\"\n)\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3557,14 +3354,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  if ok; then\n    opts+=(\"$(\n      get x\n    )\")\n  fi\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tif ok; then\n\t\topts+=(\"$(\n\t\t\tget x\n\t\t)\")\n\tfi\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tif ok; then\n\t\topts+=(\"$(\n\t\t\tget x\n\t\t)\")\n\tfi\n}\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3572,14 +3367,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "options=(path frozen without\n  ssl_verify_mode system_bindir user_agent)\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "options=(path frozen without\n\tssl_verify_mode system_bindir user_agent)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "options=(path frozen without\n\tssl_verify_mode system_bindir user_agent)\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3587,14 +3381,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  case \"$prev\" in\n  -a)\n    COMPREPLY=($(compgen -W \"$(\n      salt-key -l un --no-color\n      salt-key -l rej --no-color\n    )\" -- \"${cur}\"))\n    ;;\n  esac\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tcase \"$prev\" in\n\t-a)\n\t\tCOMPREPLY=($(compgen -W \"$(\n\t\t\tsalt-key -l un --no-color\n\t\t\tsalt-key -l rej --no-color\n\t\t)\" -- \"${cur}\"))\n\t\t;;\n\tesac\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tcase \"$prev\" in\n\t-a)\n\t\tCOMPREPLY=($(compgen -W \"$(\n\t\t\tsalt-key -l un --no-color\n\t\t\tsalt-key -l rej --no-color\n\t\t)\" -- \"${cur}\"))\n\t\t;;\n\tesac\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3602,14 +3395,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  _files=($(\n    while [[ \"$PWD\" != \"/\" ]]; do\n      _file=\"$PWD/.env\"\n      if [[ -e \"${_file}\" ]]; then\n        echo \"${_file}\"\n      fi\n      builtin cd .. || true\n    done\n  ))\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\t_files=($(\n\t\twhile [[ \"$PWD\" != \"/\" ]]; do\n\t\t\t_file=\"$PWD/.env\"\n\t\t\tif [[ -e \"${_file}\" ]]; then\n\t\t\t\techo \"${_file}\"\n\t\t\tfi\n\t\t\tbuiltin cd .. || true\n\t\tdone\n\t))\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\t_files=($(\n\t\twhile [[ \"$PWD\" != \"/\" ]]; do\n\t\t\t_file=\"$PWD/.env\"\n\t\t\tif [[ -e \"${_file}\" ]]; then\n\t\t\t\techo \"${_file}\"\n\t\t\tfi\n\t\t\tbuiltin cd .. || true\n\t\tdone\n\t))\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3617,14 +3409,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  _remote_branches=($(\n    git -C \"$path\" ls-remote --heads \"$url\" 2>/dev/null \\\n      | LC_ALL=C sed \"s/.*\\///g\"\n  ))\n  _diff=($(\n    printf \"%s\\n\" \\\n      \"${_index_list[@]:-}\" \\\n      \"${_file_list[@]:-}\" \\\n      | sort \\\n      | uniq -u\n  ))\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\t_remote_branches=($(\n\t\tgit -C \"$path\" ls-remote --heads \"$url\" 2>/dev/null |\n\t\t\tLC_ALL=C sed \"s/.*\\///g\"\n\t))\n\t_diff=($(\n\t\tprintf \"%s\\n\" \\\n\t\t\t\"${_index_list[@]:-}\" \\\n\t\t\t\"${_file_list[@]:-}\" |\n\t\t\tsort |\n\t\t\tuniq -u\n\t))\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\t_remote_branches=($(\n\t\tgit -C \"$path\" ls-remote --heads \"$url\" 2>/dev/null |\n\t\t\tLC_ALL=C sed \"s/.*\\///g\"\n\t))\n\t_diff=($(\n\t\tprintf \"%s\\n\" \\\n\t\t\t\"${_index_list[@]:-}\" \\\n\t\t\t\"${_file_list[@]:-}\" |\n\t\t\tsort |\n\t\t\tuniq -u\n\t))\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3632,14 +3423,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  x=(\\\n    $(printf \"%s\\n\" \"${xs[@]}\" \\\n      | sort \\\n      | cut -d: -f1 \\\n    || true))\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tx=(\n\t\t$(printf \"%s\\n\" \"${xs[@]}\" |\n\t\t\tsort |\n\t\t\tcut -d: -f1 ||\n\t\t\ttrue))\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tx=(\n\t\t$(printf \"%s\\n\" \"${xs[@]}\" |\n\t\t\tsort |\n\t\t\tcut -d: -f1 ||\n\t\t\ttrue))\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3647,14 +3437,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  _remote_branches=($(\n    git -C \"$path\" ls-remote        \\\n      --heads \"$url\"        \\\n       2>/dev/null                              \\\n      | LC_ALL=C sed \"s/.*\\///g\" || :\n  ))\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\t_remote_branches=($(\n\t\tgit -C \"$path\" ls-remote \\\n\t\t\t--heads \"$url\" \\\n\t\t\t2>/dev/null |\n\t\t\tLC_ALL=C sed \"s/.*\\///g\" || :\n\t))\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\t_remote_branches=($(\n\t\tgit -C \"$path\" ls-remote \\\n\t\t\t--heads \"$url\" \\\n\t\t\t2>/dev/null |\n\t\t\tLC_ALL=C sed \"s/.*\\///g\" || :\n\t))\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3662,14 +3451,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  local -A ver=(\n    [libx11]=\"$(. \"${TERMUX_SCRIPTDIR}/packages/libx11/build.sh\"; echo \"${TERMUX_PKG_VERSION}\")\"\n  )\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tlocal -A ver=(\n\t\t[libx11]=\"$(\n\t\t\t. \"${TERMUX_SCRIPTDIR}/packages/libx11/build.sh\"\n\t\t\techo \"${TERMUX_PKG_VERSION}\"\n\t\t)\"\n\t)\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tlocal -A ver=(\n\t\t[libx11]=\"$(\n\t\t\t. \"${TERMUX_SCRIPTDIR}/packages/libx11/build.sh\"\n\t\t\techo \"${TERMUX_PKG_VERSION}\"\n\t\t)\"\n\t)\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3677,11 +3465,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "x=$(cd /tmp ; ls | wc -l )\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("x=$(\n\tcd /tmp\n\tls | wc -l\n)\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "x=$(\n\tcd /tmp\n\tls | wc -l\n)\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3689,14 +3478,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  eval \"$(\n    for key in a b; do\n      awk -F= \"/$key/\" <<< \"$profile_data\"\n    done\n  )\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\teval \"$(\n\t\tfor key in a b; do\n\t\t\tawk -F= \"/$key/\" <<<\"$profile_data\"\n\t\tdone\n\t)\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\teval \"$(\n\t\tfor key in a b; do\n\t\t\tawk -F= \"/$key/\" <<<\"$profile_data\"\n\t\tdone\n\t)\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3704,14 +3492,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n    value=\"$(\n        docker-compose -f file.yml \\\n            exec -T service cat secret </dev/null\n            # keep this note with the command\n    )\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tvalue=\"$(\n\t\tdocker-compose -f file.yml \\\n\t\t\texec -T service cat secret </dev/null\n\t\t# keep this note with the command\n\t)\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tvalue=\"$(\n\t\tdocker-compose -f file.yml \\\n\t\t\texec -T service cat secret </dev/null\n\t\t# keep this note with the command\n\t)\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3719,14 +3506,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n    value=\"$(\n        aws service call \\\n            --query 'Items[]{\n                        \"Name\": Name\n                    }' \\\n            --output json |\n        jq -r \"\n            .[]\n        \"\n    )\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tvalue=\"$(\n\t\taws service call \\\n\t\t\t--query 'Items[]{\n                        \"Name\": Name\n                    }' \\\n\t\t\t--output json |\n\t\t\tjq -r \"\n            .[]\n        \"\n\t)\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tvalue=\"$(\n\t\taws service call \\\n\t\t\t--query 'Items[]{\n                        \"Name\": Name\n                    }' \\\n\t\t\t--output json |\n\t\t\tjq -r \"\n            .[]\n        \"\n\t)\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3734,14 +3520,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "regions=\"$(\n    # choose enabled regions by default\n    if [ -n \"${ALL_REGIONS:-}\" ]; then\n        list_regions --all\n    else\n        list_regions\n    fi |\n    jq -r '.Regions[] | .Name'\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "regions=\"$(\n\t# choose enabled regions by default\n\tif [ -n \"${ALL_REGIONS:-}\" ]; then\n\t\tlist_regions --all\n\telse\n\t\tlist_regions\n\tfi |\n\t\tjq -r '.Regions[] | .Name'\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "regions=\"$(\n\t# choose enabled regions by default\n\tif [ -n \"${ALL_REGIONS:-}\" ]; then\n\t\tlist_regions --all\n\telse\n\t\tlist_regions\n\tfi |\n\t\tjq -r '.Regions[] | .Name'\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3757,14 +3542,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case \"$arg\" in\n--squash-msg)\n  SQUASH_MSG=1\n  ;;\n*)\n  # set the argument back\n  set -- \"$@\" \"$arg\"\n  ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$arg\" in\n--squash-msg)\n\tSQUASH_MSG=1\n\t;;\n*)\n\t# set the argument back\n\tset -- \"$@\" \"$arg\"\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$arg\" in\n--squash-msg)\n\tSQUASH_MSG=1\n\t;;\n*)\n\t# set the argument back\n\tset -- \"$@\" \"$arg\"\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3772,14 +3556,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case \"$1\" in\n# Fetch config\n--xsel | -b)\n  INIT_CONFIG_VAL=$(xsel -b)\n  ;;\n# Additional env vars\n-e | --env)\n  CONTAINER_ENV+=(\"$2\")\n  ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$1\" in\n# Fetch config\n--xsel | -b)\n\tINIT_CONFIG_VAL=$(xsel -b)\n\t;;\n# Additional env vars\n-e | --env)\n\tCONTAINER_ENV+=(\"$2\")\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$1\" in\n# Fetch config\n--xsel | -b)\n\tINIT_CONFIG_VAL=$(xsel -b)\n\t;;\n# Additional env vars\n-e | --env)\n\tCONTAINER_ENV+=(\"$2\")\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3787,14 +3570,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  case \"$prev\" in\n  -G)\n    echo grains\n    ;;\n    # FIXME\n  -R)\n    echo range\n    ;;\n  esac\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tcase \"$prev\" in\n\t-G)\n\t\techo grains\n\t\t;;\n\t\t# FIXME\n\t-R)\n\t\techo range\n\t\t;;\n\tesac\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tcase \"$prev\" in\n\t-G)\n\t\techo grains\n\t\t;;\n\t\t# FIXME\n\t-R)\n\t\techo range\n\t\t;;\n\tesac\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3802,14 +3584,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if [ -z \"$ARCH\" ]; then\n  case \"$( uname -m )\" in\n    arm*) ARCH=arm\n          NO_ASM=1 ;;\n    # comment\n       *) ARCH=$( uname -m ) ;;\n  esac\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\tarm*)\n\t\tARCH=arm\n\t\tNO_ASM=1\n\t\t;;\n\t\t# comment\n\t*) ARCH=$(uname -m) ;;\n\tesac\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\tarm*)\n\t\tARCH=arm\n\t\tNO_ASM=1\n\t\t;;\n\t\t# comment\n\t*) ARCH=$(uname -m) ;;\n\tesac\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3817,14 +3598,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  case \"$mode\" in\n  client)\n    echo client\n    ;;\n#\t\thybrid)\n#\t\t\techo hybrid\n#\t\t;;\n  *)\n    echo default\n    ;;\n  esac\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tcase \"$mode\" in\n\tclient)\n\t\techo client\n\t\t;;\n\t\t#\t\thybrid)\n\t\t#\t\t\techo hybrid\n\t\t#\t\t;;\n\t*)\n\t\techo default\n\t\t;;\n\tesac\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tcase \"$mode\" in\n\tclient)\n\t\techo client\n\t\t;;\n\t\t#\t\thybrid)\n\t\t#\t\t\techo hybrid\n\t\t#\t\t;;\n\t*)\n\t\techo default\n\t\t;;\n\tesac\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3832,14 +3612,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if [ -z \"$ARCH\" ]; then\n  case \"$( uname -m )\" in\n#    i?86) ARCH=i586 ;;\n    arm*) ARCH=arm ;;\n  esac\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\t#    i?86) ARCH=i586 ;;\n\tarm*) ARCH=arm ;;\n\tesac\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\t#    i?86) ARCH=i586 ;;\n\tarm*) ARCH=arm ;;\n\tesac\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3847,14 +3626,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if [ -z \"$ARCH\" ]; then\n  case \"$( uname -m )\" in\n    i?86) ARCH=i586 ;;\n#    arm*) ARCH=arm ;;\n    *)    ARCH=$( uname -m ) ;;\n  esac\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\ti?86) ARCH=i586 ;;\n\t\t#    arm*) ARCH=arm ;;\n\t*) ARCH=$(uname -m) ;;\n\tesac\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\ti?86) ARCH=i586 ;;\n\t\t#    arm*) ARCH=arm ;;\n\t*) ARCH=$(uname -m) ;;\n\tesac\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3862,14 +3640,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case \"$ext\" in\n          #.envrc)  cd \"$dirname\" && direnv allow .\n           .envrc)  shellcheck \"$basename\"\n                    ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$ext\" in\n#.envrc)  cd \"$dirname\" && direnv allow .\n.envrc)\n\tshellcheck \"$basename\"\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$ext\" in\n#.envrc)  cd \"$dirname\" && direnv allow .\n.envrc)\n\tshellcheck \"$basename\"\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3877,14 +3654,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  case \"$ext\" in\n               # this command does not fail when missing\n               #.vimrc)  if ! vim -c \"source $basename\" -c \"q\"; then\n               .vimrc)  echo ok\n                        ;;\n  esac\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tcase \"$ext\" in\n\t# this command does not fail when missing\n\t#.vimrc)  if ! vim -c \"source $basename\" -c \"q\"; then\n\t.vimrc)\n\t\techo ok\n\t\t;;\n\tesac\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tcase \"$ext\" in\n\t# this command does not fail when missing\n\t#.vimrc)  if ! vim -c \"source $basename\" -c \"q\"; then\n\t.vimrc)\n\t\techo ok\n\t\t;;\n\tesac\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3892,14 +3668,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case \"$GUI\" in\n    # disabled for now\n    #QT) UI=Qt4\n         #sed -i x\n         #;;\n    QT5) UI=Qt5 ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$GUI\" in\n# disabled for now\n#QT) UI=Qt4\n#sed -i x\n#;;\nQT5) UI=Qt5 ;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$GUI\" in\n# disabled for now\n#QT) UI=Qt4\n#sed -i x\n#;;\nQT5) UI=Qt5 ;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3907,14 +3682,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case ${FUNCTION} in\n      \"equals\")\n          CMP1=$(echo ${SEARCH} | tr '[:upper:]' '[:lower:]')\n          if [ \"${CMP1}\" = \"${CMP1}\" ]; then RETVAL=0; else RETVAL=1; fi\n      ;;\n      #\"not-equal\")   COLOR=$WHITE   ;;\n      #\"lt\" | \"less-than\")  COLOR=$YELLOW  ;;\n      *) echo \"INVALID OPTION USED\"; exit 1 ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case ${FUNCTION} in\n\"equals\")\n\tCMP1=$(echo ${SEARCH} | tr '[:upper:]' '[:lower:]')\n\tif [ \"${CMP1}\" = \"${CMP1}\" ]; then RETVAL=0; else RETVAL=1; fi\n\t;;\n#\"not-equal\")   COLOR=$WHITE   ;;\n#\"lt\" | \"less-than\")  COLOR=$YELLOW  ;;\n*)\n\techo \"INVALID OPTION USED\"\n\texit 1\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case ${FUNCTION} in\n\"equals\")\n\tCMP1=$(echo ${SEARCH} | tr '[:upper:]' '[:lower:]')\n\tif [ \"${CMP1}\" = \"${CMP1}\" ]; then RETVAL=0; else RETVAL=1; fi\n\t;;\n#\"not-equal\")   COLOR=$WHITE   ;;\n#\"lt\" | \"less-than\")  COLOR=$YELLOW  ;;\n*)\n\techo \"INVALID OPTION USED\"\n\texit 1\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3922,11 +3696,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case \"$x\" in\n1)\n# keep\n;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("case \"$x\" in\n1)\n\t# keep\n\t;;\nesac\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$x\" in\n1)\n\t# keep\n\t;;\nesac\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3934,14 +3709,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case \"$LUA\" in\n  # LUA=no: accept and do nothing\n  no) ;;\n  # Anything else is a fail\n  *) echo fail ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$LUA\" in\n# LUA=no: accept and do nothing\nno) ;;\n# Anything else is a fail\n*) echo fail ;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$LUA\" in\n# LUA=no: accept and do nothing\nno) ;;\n# Anything else is a fail\n*) echo fail ;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3949,14 +3723,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "# For 15.0\n# otherwise cater to current\n#\ncase $(cmake --version | head -1) in 3.2*.*)\n  echo old\n  ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "# For 15.0\n# otherwise cater to current\n#\ncase $(cmake --version | head -1) in 3.2*.*)\n\techo old\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "# For 15.0\n# otherwise cater to current\n#\ncase $(cmake --version | head -1) in 3.2*.*)\n\techo old\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3964,14 +3737,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case $key in\nfoo)\n  echo foo\n  ;;\n\n  #if TestValue --function equals --value \"$value\" --search \"1\"; then\n  #     echo \"Found $value\"\n  #else\n  #     echo \"Not found\"\n  #fi\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case $key in\nfoo)\n\techo foo\n\t;;\n\n\t#if TestValue --function equals --value \"$value\" --search \"1\"; then\n\t#     echo \"Found $value\"\n\t#else\n\t#     echo \"Not found\"\n\t#fi\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case $key in\nfoo)\n\techo foo\n\t;;\n\n\t#if TestValue --function equals --value \"$value\" --search \"1\"; then\n\t#     echo \"Found $value\"\n\t#else\n\t#     echo \"Not found\"\n\t#fi\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3979,11 +3751,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case $x in\na)\n\n  echo a\n  ;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("case $x in\na)\n\n\techo a\n\t;;\nesac\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case $x in\na)\n\n\techo a\n\t;;\nesac\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -3991,14 +3764,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case $x in\na)\n  echo a\n  ;;\n# disabled *)\n# note\n*)\n\n  echo default\n  ;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case $x in\na)\n\techo a\n\t;;\n# disabled *)\n# note\n*)\n\n\techo default\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case $x in\na)\n\techo a\n\t;;\n# disabled *)\n# note\n*)\n\n\techo default\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4006,14 +3778,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case \"$1\" in\n  --disable \\\n  | --disable-http \\\n  | --disable-https \\\n  )\n    apache_args+=(\"$1\")\n    ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$1\" in\n--disable | \\\n\t--disable-http | \\\n\t--disable-https)\n\n\tapache_args+=(\"$1\")\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$1\" in\n--disable | \\\n\t--disable-http | \\\n\t--disable-https)\n\n\tapache_args+=(\"$1\")\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4021,14 +3792,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case \"$1\" in\n  *.xsl|\\\n  *.[ch]\\\n      ) pygmentize -f 256 \"$1\"\n      ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$1\" in\n*.xsl | \\\n\t*.[ch])\n\tpygmentize -f 256 \"$1\"\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$1\" in\n*.xsl | \\\n\t*.[ch])\n\tpygmentize -f 256 \"$1\"\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4036,14 +3806,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case \"$1\" in\n  --nginx-additional-configuration \\\n  | --nginx-external-configuration)\n    nginx_args+=(\"$1\")\n    ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$1\" in\n--nginx-additional-configuration | \\\n\t--nginx-external-configuration)\n\tnginx_args+=(\"$1\")\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$1\" in\n--nginx-additional-configuration | \\\n\t--nginx-external-configuration)\n\tnginx_args+=(\"$1\")\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4051,13 +3820,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case $x in\n*)\n  # first\n\n  # second\n  echo a\n  ;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case $x in\n*)\n\t# first\n\n\t# second\n\techo a\n\t;;\nesac\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case $x in\n*)\n\t# first\n\n\t# second\n\techo a\n\t;;\nesac\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4065,11 +3833,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case $x in\na)\n  echo a\n  ;;\n\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("case $x in\na)\n\techo a\n\t;;\n\nesac\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case $x in\na)\n\techo a\n\t;;\n\nesac\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4077,11 +3846,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case $x in\n*) echo \"$x\"\n\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("case $x in\n*) echo \"$x\" ;;\n\nesac\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case $x in\n*) echo \"$x\" ;;\n\nesac\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4089,11 +3859,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case $x in\na)\n  echo a\n\n  ;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("case $x in\na)\n\techo a\n\n\t;;\nesac\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case $x in\na)\n\techo a\n\n\t;;\nesac\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4101,13 +3872,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case $x in\na)\n  echo a\n\n  # note\n  ;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case $x in\na)\n\techo a\n\n\t# note\n\t;;\nesac\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case $x in\na)\n\techo a\n\n\t# note\n\t;;\nesac\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4115,11 +3885,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case $x in\na) echo a ;;\n\nb) echo b ;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4127,11 +3893,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case $x in\n\na) echo a ;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4139,11 +3901,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case $x in\n\n# next\na) echo a ;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4151,11 +3909,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case $x in\na) echo a ;;\n\n# next\nb) echo b ;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4163,13 +3917,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case $x in\n*) # default branch\nbreak ;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case $x in\n*) # default branch\n\tbreak ;;\nesac\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case $x in\n*) # default branch\n\tbreak ;;\nesac\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4181,11 +3934,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             " ".repeat(36)
         );
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(expected)
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_formats_to_with_ast(source, None, &options, expected);
     }
 
     #[test]
@@ -4193,11 +3942,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case $x in\n*) return 0 ;; # not needed\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4205,14 +3950,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case ${PAGE} in\n    \"Folio\") W=612; H=936;;      # 8.5 x 13 in.\n    \"Quarto\") W=612, H=780;;     # 8.5 x 10.8 in.\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case ${PAGE} in\n\"Folio\")\n\tW=612\n\tH=936\n\t;;                       # 8.5 x 13 in.\n\"Quarto\") W=612, H=780 ;; # 8.5 x 10.8 in.\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case ${PAGE} in\n\"Folio\")\n\tW=612\n\tH=936\n\t;;                       # 8.5 x 13 in.\n\"Quarto\") W=612, H=780 ;; # 8.5 x 10.8 in.\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4224,15 +3968,16 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let voip2 = "voip2) _netfilter tc_match_voip_codec '04' ;;";
         let target_column = tcp_with_ack2.len() + 1;
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(format!(
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            format!(
                 "case \"$match\" in\nolsr1) echo \"u32 match $udp match ip dport 698 0xffff\" ;; # UDP dport 698\nolsr2) echo \"u32 match $udp match ip dport 269 0xffff\" ;; # UDP dport 269\ntcp_with_ack) echo \"u32 match $tcp match u8 0x10 0xff at nexthdr+13\" ;;\ntcp_with_ack2) echo \"u32 match $tcp match u8 0x05 0x0f at 0 match u16 0x0000 0xffc0 at 2 match u8 0x10 0xff at 33\" ;; # wondershaper\n{voip1}{}# PCMU\n{voip2}{}# G723\nesac\n",
                 " ".repeat(target_column - voip1.len()),
                 " ".repeat(target_column - voip2.len())
-            ))
+            ),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4240,14 +3985,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case \"$mac\" in\n  19|'6470028b2260') PORT=7534 ;; # first\n  16|'6470028b1ba2') PORT= ;; # second\n  8|'f4ec38c9c32c') PORT=7783 ;; # third\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$mac\" in\n19 | '6470028b2260') PORT=7534 ;; # first\n16 | '6470028b1ba2') PORT= ;;     # second\n8 | 'f4ec38c9c32c') PORT=7783 ;;  # third\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$mac\" in\n19 | '6470028b2260') PORT=7534 ;; # first\n16 | '6470028b1ba2') PORT= ;;     # second\n8 | 'f4ec38c9c32c') PORT=7783 ;;  # third\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4255,11 +3999,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "# 不支持\ncase $x in\n*) echo ok ;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4267,14 +4007,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case $x in\n*) # default branch\n# explain\nif test -n \"$x\"; then\n  echo \"$x\"\nfi\n;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case $x in\n*) # default branch\n\t# explain\n\tif test -n \"$x\"; then\n\t\techo \"$x\"\n\tfi\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case $x in\n*) # default branch\n\t# explain\n\tif test -n \"$x\"; then\n\t\techo \"$x\"\n\tfi\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4282,14 +4021,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case \"$( cut -d';' -f5 \"$FILE\" | md5sum )\" in # hash over costs\n\"$forced_hash\"*)\n  _log ok\n;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$(cut -d';' -f5 \"$FILE\" | md5sum)\" in # hash over costs\n\"$forced_hash\"*)\n\t_log ok\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$(cut -d';' -f5 \"$FILE\" | md5sum)\" in # hash over costs\n\"$forced_hash\"*)\n\t_log ok\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4297,14 +4035,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case $NETWORK in\t\t# new nodes start at $I, with registering until old nodes are in database\nffweimar) I=500 ;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case $NETWORK in # new nodes start at $I, with registering until old nodes are in database\nffweimar) I=500 ;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case $NETWORK in # new nodes start at $I, with registering until old nodes are in database\nffweimar) I=500 ;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4323,14 +4060,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "case \"$x\" in\na)\n  grep x f && { # note\n    {\n      echo\n    } >>\"$file\"\n  } # note\n  ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$x\" in\na)\n\tgrep x f && { # note\n\t\t{\n\t\t\techo\n\t\t} >>\"$file\"\n\t}\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$x\" in\na)\n\tgrep x f && { # note\n\t\t{\n\t\t\techo\n\t\t} >>\"$file\"\n\t}\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4338,14 +4074,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  # before group\n  {\n    # inside group\n    echo ok\n  }\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\t# before group\n\t{\n\t\t# inside group\n\t\techo ok\n\t}\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\t# before group\n\t{\n\t\t# inside group\n\t\techo ok\n\t}\n}\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4353,13 +4087,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  # before group\n  {\n    echo \"$@\"\n  } |\n  cat\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\t# before group\n\t{\n\t\techo \"$@\"\n\t} |\n\t\tcat\n}\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\t# before group\n\t{\n\t\techo \"$@\"\n\t} |\n\t\tcat\n}\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4368,14 +4101,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "f() {\n  {\n    echo left\n  } |\n  {\n  # inside group\n  echo right\n  }\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\t{\n\t\techo left\n\t} |\n\t\t{\n\t\t\t# inside group\n\t\t\techo right\n\t\t}\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\t{\n\t\techo left\n\t} |\n\t\t{\n\t\t\t# inside group\n\t\t\techo right\n\t\t}\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4383,14 +4115,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  {\n    echo body\n  } | {\n    # Header\n    cat\n  } | {\n    # Footer\n    cat\n  }\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\t{\n\t\techo body\n\t} | {\n\t\t# Header\n\t\tcat\n\t} | {\n\t\t# Footer\n\t\tcat\n\t}\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\t{\n\t\techo body\n\t} | {\n\t\t# Header\n\t\tcat\n\t} | {\n\t\t# Footer\n\t\tcat\n\t}\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4398,14 +4129,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  {\n    {\n      echo body\n    } || {\n      echo fallback\n    }\n  } | {\n    # Header\n    cat\n  } | {\n    # Footer\n    cat\n  }\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\t{\n\t\t{\n\t\t\techo body\n\t\t} || {\n\t\t\techo fallback\n\t\t}\n\t} | {\n\t\t# Header\n\t\tcat\n\t} | {\n\t\t# Footer\n\t\tcat\n\t}\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\t{\n\t\t{\n\t\t\techo body\n\t\t} || {\n\t\t\techo fallback\n\t\t}\n\t} | {\n\t\t# Header\n\t\tcat\n\t} | {\n\t\t# Footer\n\t\tcat\n\t}\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4450,14 +4180,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if ok; then\n  (mkdir -p -- \"$cachedir\" &&\n    echo \"$cache_id_line\"$'\\n'\"$output\" >\"$cachefile\") 2>/dev/null\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if ok; then\n\t(mkdir -p -- \"$cachedir\" &&\n\t\techo \"$cache_id_line\"$'\\n'\"$output\" >\"$cachefile\") 2>/dev/null\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ok; then\n\t(mkdir -p -- \"$cachedir\" &&\n\t\techo \"$cache_id_line\"$'\\n'\"$output\" >\"$cachefile\") 2>/dev/null\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4465,14 +4194,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "(cd samples/ && \\\n  find . -name \"build.sh\" -exec chmod 0755 {} \\;\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "(\n\tcd samples/ &&\n\t\tfind . -name \"build.sh\" -exec chmod 0755 {} \\;\n)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "(\n\tcd samples/ &&\n\t\tfind . -name \"build.sh\" -exec chmod 0755 {} \\;\n)\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4480,13 +4208,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  (while sudo -v; do\n    sleep 50\n  done) &\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\t(while sudo -v; do\n\t\tsleep 50\n\tdone) &\n}\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\t(while sudo -v; do\n\t\tsleep 50\n\tdone) &\n}\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4494,11 +4221,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if ready; then\n  ($REGEN_CMD &)\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("if ready; then\n\t($REGEN_CMD &)\nfi\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ready; then\n\t($REGEN_CMD &)\nfi\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4533,14 +4261,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "(\n  echo '#!/usr/bin/wish -f'\n  cat completion.tcl\n  sed '1,5d' $PRGNAM\n) \\\n  >$PKG/usr/bin/$PRGNAM\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "(\n\techo '#!/usr/bin/wish -f'\n\tcat completion.tcl\n\tsed '1,5d' $PRGNAM\n) \\\n\t>$PKG/usr/bin/$PRGNAM\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "(\n\techo '#!/usr/bin/wish -f'\n\tcat completion.tcl\n\tsed '1,5d' $PRGNAM\n) \\\n\t>$PKG/usr/bin/$PRGNAM\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4559,11 +4286,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "foo() {\ncat <<EOF\nbody\nEOF\n} # trailing\nbar() { :; }\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4571,11 +4294,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "\\grep -q foo file\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4583,11 +4302,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "shopt -s expand_aliases\nalias die='EXIT=$? LINE=$LINENO error_exit'\ndie \"A problem occured.\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4595,11 +4310,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "shopt -s expand_aliases\nalias die='EXIT=$? LINE=$LINENO error_exit'\ncase $CLASS in\n*) false || die \"Invalid storage class.\" ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4607,11 +4318,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "x=$'\\n'\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4619,11 +4326,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "local excluded=$'\\ndefault\\n'${prefix//:/foo}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4631,11 +4334,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "echo \"$cache_id_line\"$'\\n'\"$output\" >\"$cachefile\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4643,11 +4342,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "echo $'\\n'\"TERMUX_APP_PACKAGE: \\\"$TERMUX_APP_PACKAGE\\\"\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4655,11 +4350,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "[[ \"$c\" == $'\\r' || \"$c\" == $'\\n' ]]\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4667,11 +4358,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "version_gt() {\n\t[[ \"${1%.*}\" -gt \"${2%.*}\" ]]\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4679,14 +4366,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "function f() {\n  # parse all defined shortcuts ${BASH_IT_DIRS_BKS}\n  if [[ -s x ]]; then\n    echo yes\n  fi\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "function f() {\n\t# parse all defined shortcuts ${BASH_IT_DIRS_BKS}\n\tif [[ -s x ]]; then\n\t\techo yes\n\tfi\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "function f() {\n\t# parse all defined shortcuts ${BASH_IT_DIRS_BKS}\n\tif [[ -s x ]]; then\n\t\techo yes\n\tfi\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4694,11 +4380,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "cat < <(which -a foo)\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4706,14 +4388,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "output=\"$(\n  exec > >(tee /dev/fd/2) 2>&1\n)\"\nlatest=\"$(grep x < <(jq -r '.body' <<< \"$response\"))\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "output=\"$(\n\texec > >(tee /dev/fd/2) 2>&1\n)\"\nlatest=\"$(grep x < <(jq -r '.body' <<<\"$response\"))\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "output=\"$(\n\texec > >(tee /dev/fd/2) 2>&1\n)\"\nlatest=\"$(grep x < <(jq -r '.body' <<<\"$response\"))\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4721,13 +4402,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "read -ra candidates < <(complete words 2> /dev/null)\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "read -ra candidates < <(complete words 2>/dev/null)\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "read -ra candidates < <(complete words 2>/dev/null)\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4735,11 +4415,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "setfacl --restore=<(grep -E -v '^# (owner|group):' \"$tmp_file\")\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4747,11 +4423,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "while read -r line; do\n\techo \"$line\"\ndone < <(comm -23 <(printf \"%s\\n\" \"${left[@]}\" | sort) \\\n\t<(printf \"%s\\n\" \"${right[@]}\" | sort))\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4759,14 +4431,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "unsetall() {\n    while read -r env_var; do\n        unset \"$env_var\"\n    done < <( env |\n        grep -i \"$match\" |\n        sed 's/=.*//' )\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "unsetall() {\n\twhile read -r env_var; do\n\t\tunset \"$env_var\"\n\tdone < <(env |\n\t\tgrep -i \"$match\" |\n\t\tsed 's/=.*//')\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "unsetall() {\n\twhile read -r env_var; do\n\t\tunset \"$env_var\"\n\tdone < <(env |\n\t\tgrep -i \"$match\" |\n\t\tsed 's/=.*//')\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4774,11 +4445,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "_sqlmap() {\n\tif [[ \"$cur\" == * ]]; then\n\t\twhile IFS='' read -r line; do COMPREPLY+=(\"$line\"); done < <(\n\t\t\tcompgen -W '-h --help \\\n\t\t\t--data --cookie \\\n\t\t\t--wizard' -- \"$cur\"\n\t\t)\n\tfi\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4786,14 +4453,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "while read x; do\n  :\ndone < <(cmd | \\\n        awk 'BEGIN {x=0} /Sink/ {\n                 x=$1\n             }'\n        )\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "while read x; do\n\t:\ndone < <(\n\tcmd |\n\t\tawk 'BEGIN {x=0} /Sink/ {\n                 x=$1\n             }'\n)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while read x; do\n\t:\ndone < <(\n\tcmd |\n\t\tawk 'BEGIN {x=0} /Sink/ {\n                 x=$1\n             }'\n)\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4801,11 +4467,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "curl -d @<(cat <<EOF\nbody\nEOF\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("curl -d @<(\n\tcat <<EOF\nbody\nEOF\n)\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "curl -d @<(\n\tcat <<EOF\nbody\nEOF\n)\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4813,11 +4480,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "while read -r line; do\n\techo \"$line\"\ndone < <(\n\tprintf \"%s\\n\" \"${items[@]}\"\n)\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -4826,14 +4489,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "while read -r line; do\n    echo \"$line\"\ndone < <(\n    produce_items\n)\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "while read -r line; do\n\techo \"$line\"\ndone < <(\n\tproduce_items\n)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while read -r line; do\n\techo \"$line\"\ndone < <(\n\tproduce_items\n)\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4842,14 +4503,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "while read game; do\n    echo \"$game\"\ndone < <(_get_opts; echo -e \"a\\nb\")\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "while read game; do\n\techo \"$game\"\ndone < <(\n\t_get_opts\n\techo -e \"a\\nb\"\n)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while read game; do\n\techo \"$game\"\ndone < <(\n\t_get_opts\n\techo -e \"a\\nb\"\n)\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4857,13 +4517,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if ok; then\n   cat < <(produce; consume)\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if ok; then\n\tcat < <(\n\t\tproduce\n\t\tconsume\n\t)\nfi\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ok; then\n\tcat < <(\n\t\tproduce\n\t\tconsume\n\t)\nfi\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4871,14 +4530,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "while read -r line; do\n    menu+=(\"$line\")\ndone < <( { echo \"$a\"; echo \"$b\"; } | sort -u )\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "while read -r line; do\n\tmenu+=(\"$line\")\ndone < <({\n\techo \"$a\"\n\techo \"$b\"\n} | sort -u)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while read -r line; do\n\tmenu+=(\"$line\")\ndone < <({\n\techo \"$a\"\n\techo \"$b\"\n} | sort -u)\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4886,14 +4544,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "while read -r item; do\n    echo \"$item\"\ndone < <(\n    # note\n    produce_items\n) |\nconsume_items\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "while read -r item; do\n\techo \"$item\"\ndone < <(\n\t# note\n\tproduce_items\n) |\n\tconsume_items\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while read -r item; do\n\techo \"$item\"\ndone < <(\n\t# note\n\tproduce_items\n) |\n\tconsume_items\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4901,14 +4558,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "cat < <(\n    produce_items |\n    # keep this filter documented\n    filter_items |\n    sort_items\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "cat < <(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\tfilter_items |\n\t\tsort_items\n)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "cat < <(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\tfilter_items |\n\t\tsort_items\n)\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4916,14 +4572,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "cat < <(\n    produce_items |\n    filter_items |\n    # keep this filter documented\n    normalize_items |\n    sort_items\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "cat < <(\n\tproduce_items |\n\t\tfilter_items |\n\t\t# keep this filter documented\n\t\tnormalize_items |\n\t\tsort_items\n)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "cat < <(\n\tproduce_items |\n\t\tfilter_items |\n\t\t# keep this filter documented\n\t\tnormalize_items |\n\t\tsort_items\n)\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4931,14 +4586,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "cat < <(\n    produce_items |\n    # keep this filter documented\n    { filter_items || : ; } |\n    sort_items\n)\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "cat < <(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\t{ filter_items || :; } |\n\t\tsort_items\n)\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "cat < <(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\t{ filter_items || :; } |\n\t\tsort_items\n)\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4946,14 +4600,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "urls=\"$(\n    while read -r filename; do\n        # keep comment with raw block path\n        { grep -E \"$url_regex\" \"$filename\" || : ; } |\n        if [ -n \"${URL_LINKS_IGNORED:-}\" ]; then\n            grep -Eivf <(\n                tr '[:space:]' '\\n' <<< \"$URL_LINKS_IGNORED\" |\n                sed 's/^[[:space:]]*//;\n                     s/[[:space:]]*$//;\n                     /^[[:space:]]*$/d'\n            )\n        else\n            cat\n        fi\n    done |\n    sort -uf\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "urls=\"$(\n\twhile read -r filename; do\n\t\t# keep comment with raw block path\n\t\t{ grep -E \"$url_regex\" \"$filename\" || :; } |\n\t\t\tif [ -n \"${URL_LINKS_IGNORED:-}\" ]; then\n\t\t\t\tgrep -Eivf <(\n\t\t\t\t\ttr '[:space:]' '\\n' <<<\"$URL_LINKS_IGNORED\" |\n\t\t\t\t\t\tsed 's/^[[:space:]]*//;\n                     s/[[:space:]]*$//;\n                     /^[[:space:]]*$/d'\n\t\t\t\t)\n\t\t\telse\n\t\t\t\tcat\n\t\t\tfi\n\tdone |\n\t\tsort -uf\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "urls=\"$(\n\twhile read -r filename; do\n\t\t# keep comment with raw block path\n\t\t{ grep -E \"$url_regex\" \"$filename\" || :; } |\n\t\t\tif [ -n \"${URL_LINKS_IGNORED:-}\" ]; then\n\t\t\t\tgrep -Eivf <(\n\t\t\t\t\ttr '[:space:]' '\\n' <<<\"$URL_LINKS_IGNORED\" |\n\t\t\t\t\t\tsed 's/^[[:space:]]*//;\n                     s/[[:space:]]*$//;\n                     /^[[:space:]]*$/d'\n\t\t\t\t)\n\t\t\telse\n\t\t\t\tcat\n\t\t\tfi\n\tdone |\n\t\tsort -uf\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4961,14 +4614,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "cmd \\\n<(\n    produce |\n    sort #|\n    # keep the sorted stream documented\n    # before the process substitution closes\n) \\\n<(\n    # describe target stream\n    consume\n) |\nsed 's/x/y/'\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "cmd \\\n\t<(\n\t\tproduce |\n\t\t\tsort #|\n\t\t# keep the sorted stream documented\n\t\t# before the process substitution closes\n\t) \\\n\t<(\n\t\t# describe target stream\n\t\tconsume\n\t) |\n\tsed 's/x/y/'\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "cmd \\\n\t<(\n\t\tproduce |\n\t\t\tsort #|\n\t\t# keep the sorted stream documented\n\t\t# before the process substitution closes\n\t) \\\n\t<(\n\t\t# describe target stream\n\t\tconsume\n\t) |\n\tsed 's/x/y/'\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4976,14 +4628,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "value=\"$(\n    produce_items |\n    sed '\n        s/a/b ;\n    ' |\n    consume_items\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "value=\"$(\n\tproduce_items |\n\t\tsed '\n        s/a/b ;\n    ' |\n\t\tconsume_items\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "value=\"$(\n\tproduce_items |\n\t\tsed '\n        s/a/b ;\n    ' |\n\t\tconsume_items\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -4991,14 +4642,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "value=\"$(\n    produce_items |\n    # keep this filter documented\n    while read -r item; do\n        consume_item \"$item\"\n    done || :\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "value=\"$(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\twhile read -r item; do\n\t\t\tconsume_item \"$item\"\n\t\tdone || :\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "value=\"$(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\twhile read -r item; do\n\t\t\tconsume_item \"$item\"\n\t\tdone || :\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5006,11 +4656,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "cmd 2>&$fd\ncmd 1>&/dev/null\ncmd >&file\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -5018,11 +4664,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "exec \"${SHELL:-sh}\" -i 3<<EOF 4<&0 <&3\n  set +e\nEOF\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -5030,11 +4672,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "cmd 2>&-\nexec <&-\nexec {ACCEPT_FD}>&-\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -5042,11 +4680,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "exec 99>&1\nexec 99>&-\nread 42<&0\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -5054,11 +4688,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "cmd &>>/dev/null\ncmd &>>log <input\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -5066,11 +4696,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "echo \"Usage\" 1&>2\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("echo \"Usage\" 1 &>2\n".to_string())
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_formats_to_with_ast(source, None, &options, "echo \"Usage\" 1 &>2\n".to_string());
     }
 
     #[test]
@@ -5078,11 +4704,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "cat 1>&2 <<EOF\nhi\nEOF\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -5090,11 +4712,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "echo >&2 \"bad news\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -5102,14 +4720,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "curl -sSf >\"$jar\" \"$url\"\ncmd a >out b 2>err c\ncmd >out a 2>err b\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "curl -sSf \"$url\" >\"$jar\"\ncmd a b c >out 2>err\ncmd >out a b 2>err\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "curl -sSf \"$url\" >\"$jar\"\ncmd a b c >out 2>err\ncmd >out a b 2>err\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5117,14 +4733,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "time nice ffmpeg -i \"$filepath\" \"$mp4_filepath\" < /dev/null  # note\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "time nice ffmpeg -i \"$filepath\" \"$mp4_filepath\" </dev/null # note\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "time nice ffmpeg -i \"$filepath\" \"$mp4_filepath\" </dev/null # note\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5132,11 +4746,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "[[ \"$x\" =~ \"git version \"([^ ]*).* ]]\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -5144,14 +4754,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if [[ $line =~ \\<(target|extension-point)[[:space:]].*name=[\\\"\\']([^\\\"\\']+) ]]; then\n  echo \"${BASH_REMATCH[2]}\"\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if [[ $line =~ \\<(target|extension-point)[[:space:]].*name=[\\\"\\']([^\\\"\\']+) ]]; then\n\techo \"${BASH_REMATCH[2]}\"\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if [[ $line =~ \\<(target|extension-point)[[:space:]].*name=[\\\"\\']([^\\\"\\']+) ]]; then\n\techo \"${BASH_REMATCH[2]}\"\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5159,14 +4768,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "if [[ \"$line\" =~ ^=\\  ]]; then\n  echo ok\nfi\nif [[ ! \"$line\" =~ ^=\\  ]] && [[ \"$n\" -gt 20 ]]; then\n  break\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if [[ \"$line\" =~ ^=\\  ]]; then\n\techo ok\nfi\nif [[ ! \"$line\" =~ ^=\\  ]] && [[ \"$n\" -gt 20 ]]; then\n\tbreak\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if [[ \"$line\" =~ ^=\\  ]]; then\n\techo ok\nfi\nif [[ ! \"$line\" =~ ^=\\  ]] && [[ \"$n\" -gt 20 ]]; then\n\tbreak\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5189,14 +4797,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "f() {\n  [[ ! -f \"$cert_file\" ||\n    \"$cert_file\" -ot /one ||\n    \"$cert_file\" -ot /two\n  ]] || (( ${force:-0} > 0 ))\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\t[[ ! -f \"$cert_file\" ||\n\t\t\"$cert_file\" -ot /one ||\n\t\t\"$cert_file\" -ot /two ]] ||\n\t\t((${force:-0} > 0))\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\t[[ ! -f \"$cert_file\" ||\n\t\t\"$cert_file\" -ot /one ||\n\t\t\"$cert_file\" -ot /two ]] ||\n\t\t((${force:-0} > 0))\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5205,14 +4812,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "f() {\n  [[ \"${show:-}\" != true ||\n    -z \"$(which todo.sh)\" ]] && return\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\t[[ \"${show:-}\" != true ||\n\t\t-z \"$(which todo.sh)\" ]] && return\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\t[[ \"${show:-}\" != true ||\n\t\t-z \"$(which todo.sh)\" ]] && return\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5221,14 +4827,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "_command_exists goenv \\\n  || [[ -x \"$GOENV_ROOT/bin/goenv\" ]] \\\n  || return 0\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "_command_exists goenv ||\n\t[[ -x \"$GOENV_ROOT/bin/goenv\" ]] ||\n\treturn 0\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "_command_exists goenv ||\n\t[[ -x \"$GOENV_ROOT/bin/goenv\" ]] ||\n\treturn 0\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5261,11 +4866,7 @@ function R() {
 "#;
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -5273,14 +4874,13 @@ function R() {
         let source = "while [[ -n \"$x\" ]] &&\n  ! {\n    [[ -d \"$x\" ]] &&\n      [[ -f \"$x\" ]]\n  } && {\n    {\n      [[ \"$x\" =~ ^/ ]] &&\n        [[ \"$x\" != / ]]\n    } || {\n      [[ \"$x\" != /tmp ]]\n    }\n  }; do\n  x=\"${x%/*}\"\ndone\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "while [[ -n \"$x\" ]] &&\n\t! {\n\t\t[[ -d \"$x\" ]] &&\n\t\t\t[[ -f \"$x\" ]]\n\t} && {\n\t{\n\t\t[[ \"$x\" =~ ^/ ]] &&\n\t\t\t[[ \"$x\" != / ]]\n\t} || {\n\t\t[[ \"$x\" != /tmp ]]\n\t}\n}; do\n\tx=\"${x%/*}\"\ndone\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while [[ -n \"$x\" ]] &&\n\t! {\n\t\t[[ -d \"$x\" ]] &&\n\t\t\t[[ -f \"$x\" ]]\n\t} && {\n\t{\n\t\t[[ \"$x\" =~ ^/ ]] &&\n\t\t\t[[ \"$x\" != / ]]\n\t} || {\n\t\t[[ \"$x\" != /tmp ]]\n\t}\n}; do\n\tx=\"${x%/*}\"\ndone\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5351,10 +4951,11 @@ function R() {
 "#;
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                r#"_genkernel() {
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            r#"_genkernel() {
 	declare args rhs
 	args=($(case $args in
 		'<0-5>') compgen -W "$(echo {1..5})" -- "$rhs" ;;
@@ -5364,10 +4965,8 @@ function R() {
 		esac))
 }
 "#
-                .to_string()
-            )
+            .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5375,14 +4974,13 @@ function R() {
         let source = "kubectl get secrets |\n  grep -v '^NAME[[:space:]]' |\n  awk '{print $1}'\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "kubectl get secrets |\n\tgrep -v '^NAME[[:space:]]' |\n\tawk '{print $1}'\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "kubectl get secrets |\n\tgrep -v '^NAME[[:space:]]' |\n\tawk '{print $1}'\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5405,14 +5003,13 @@ function R() {
             "produce_json |\n\n#if disabled; then\n#  old_filter\n#fi\n\njq -r '.items[]'\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "produce_json |\n\n\t#if disabled; then\n\t#  old_filter\n\t#fi\n\tjq -r '.items[]'\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "produce_json |\n\n\t#if disabled; then\n\t#  old_filter\n\t#fi\n\tjq -r '.items[]'\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5420,14 +5017,13 @@ function R() {
         let source = "while read -r value; do\n  echo \"$value\"\ndone |\n# keep alternate implementation note\nif type -P helper >/dev/null; then\n  helper\nelse\n  cat\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "while read -r value; do\n\techo \"$value\"\ndone |\n\t# keep alternate implementation note\n\tif type -P helper >/dev/null; then\n\t\thelper\n\telse\n\t\tcat\n\tfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while read -r value; do\n\techo \"$value\"\ndone |\n\t# keep alternate implementation note\n\tif type -P helper >/dev/null; then\n\t\thelper\n\telse\n\t\tcat\n\tfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5435,13 +5031,12 @@ function R() {
         let source = "find $PKG -print0 | xargs -0 file | grep ELF \\\n  | cut -f 1 -d : | xargs strip --strip-unneeded 2> /dev/null || true\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "find $PKG -print0 | xargs -0 file | grep ELF |\n\tcut -f 1 -d : | xargs strip --strip-unneeded 2>/dev/null || true\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "find $PKG -print0 | xargs -0 file | grep ELF |\n\tcut -f 1 -d : | xargs strip --strip-unneeded 2>/dev/null || true\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5449,14 +5044,13 @@ function R() {
         let source = "if true; then\n  ffmpeg \\\n    && convert GIF:- \\\n    | gifsicle > out || return 2\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\tffmpeg &&\n\t\tconvert GIF:- |\n\t\tgifsicle >out || return 2\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if true; then\n\tffmpeg &&\n\t\tconvert GIF:- |\n\t\tgifsicle >out || return 2\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5464,11 +5058,12 @@ function R() {
         let source = "sed s/x/y/ in > \\\n  out\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("sed s/x/y/ in > \\\n\tout\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "sed s/x/y/ in > \\\n\tout\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5476,14 +5071,13 @@ function R() {
         let source = "for net_mount in \\\n  ${HOST_MOUNTS_RO} ${HOST_MOUNTS} \\\n  '/dev' '/proc'; do\n  echo \"$net_mount\"\ndone\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "for net_mount in \\\n\t${HOST_MOUNTS_RO} ${HOST_MOUNTS} \\\n\t'/dev' '/proc'; do\n\techo \"$net_mount\"\ndone\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "for net_mount in \\\n\t${HOST_MOUNTS_RO} ${HOST_MOUNTS} \\\n\t'/dev' '/proc'; do\n\techo \"$net_mount\"\ndone\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5491,11 +5085,7 @@ function R() {
         let source = "pass=\"$(for i in $(eval \"echo {1..$length}\"); do pickfrom /usr/share/dict/words; done)\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -5503,14 +5093,13 @@ function R() {
         let source = "f() {\n  title=\"$(curl -sS --fail \"$url\" | { head -n1 | sed 's/^#*//'; cat >/dev/null; } )\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\ttitle=\"$(curl -sS --fail \"$url\" | {\n\t\thead -n1 | sed 's/^#*//'\n\t\tcat >/dev/null\n\t})\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\ttitle=\"$(curl -sS --fail \"$url\" | {\n\t\thead -n1 | sed 's/^#*//'\n\t\tcat >/dev/null\n\t})\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5518,14 +5107,13 @@ function R() {
         let source = "for J in \"${I}\"/*; do  # iterate over folders in a safe way\n  FIND=$(echo \"${J}\")\n  if [ -f \"${J}\" ]; then\n    echo \"${FIND}\"\n  fi\ndone\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "for J in \"${I}\"/*; do # iterate over folders in a safe way\n\tFIND=$(echo \"${J}\")\n\tif [ -f \"${J}\" ]; then\n\t\techo \"${FIND}\"\n\tfi\ndone\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "for J in \"${I}\"/*; do # iterate over folders in a safe way\n\tFIND=$(echo \"${J}\")\n\tif [ -f \"${J}\" ]; then\n\t\techo \"${FIND}\"\n\tfi\ndone\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5534,14 +5122,13 @@ function R() {
             "for ITEM in ${LIST}; do if DirectoryExists ${ITEM}; then FOUND=1; break; fi; done\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "for ITEM in ${LIST}; do if DirectoryExists ${ITEM}; then\n\tFOUND=1\n\tbreak\nfi; done\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "for ITEM in ${LIST}; do if DirectoryExists ${ITEM}; then\n\tFOUND=1\n\tbreak\nfi; done\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5550,11 +5137,7 @@ function R() {
             "if [ -n \"${TMPFILE}\" ]; then if [ -f ${TMPFILE} ]; then rm -f ${TMPFILE}; fi; fi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -5562,14 +5145,13 @@ function R() {
         let source = "link=$(cat \"${postdetailslog}\" | {\n  nc -w 3 termbin.com 9999\n  echo $? > /tmp/nc_exit_status\n} | tr -d '\\n\\0')\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "link=$(cat \"${postdetailslog}\" | {\n\tnc -w 3 termbin.com 9999\n\techo $? >/tmp/nc_exit_status\n} | tr -d '\\n\\0')\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "link=$(cat \"${postdetailslog}\" | {\n\tnc -w 3 termbin.com 9999\n\techo $? >/tmp/nc_exit_status\n} | tr -d '\\n\\0')\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5577,14 +5159,13 @@ function R() {
         let source = "items=\"$(\n    {\n    # primary items\n    produce_items |\n    sort_items\n    }\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "items=\"$(\n\t{\n\t\t# primary items\n\t\tproduce_items |\n\t\t\tsort_items\n\t}\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "items=\"$(\n\t{\n\t\t# primary items\n\t\tproduce_items |\n\t\t\tsort_items\n\t}\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5592,14 +5173,12 @@ function R() {
         let source = "url=\"$(\n    git remote -v |\n    awk '{print $2}' |\n    head -n 1\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "url=\"$(\n\tgit remote -v |\n\t\tawk '{print $2}' |\n\t\thead -n 1\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "url=\"$(\n\tgit remote -v |\n\t\tawk '{print $2}' |\n\t\thead -n 1\n)\"\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5607,14 +5186,13 @@ function R() {
         let source = "if ok; then\n    url=\"$(\n        git remote -v |\n        awk '{print $2}' |\n        perl -pe \"\n            s/foo/bar/\n        \"\n    )\"\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if ok; then\n\turl=\"$(\n\t\tgit remote -v |\n\t\t\tawk '{print $2}' |\n\t\t\tperl -pe \"\n            s/foo/bar/\n        \"\n\t)\"\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ok; then\n\turl=\"$(\n\t\tgit remote -v |\n\t\t\tawk '{print $2}' |\n\t\t\tperl -pe \"\n            s/foo/bar/\n        \"\n\t)\"\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5622,14 +5200,13 @@ function R() {
         let source = "value=\"$(\n    {\n    sort |\n    uniq -d\n    } |\n    grep -vi $(IFS=$'\\n'; for line in $ignored_lines_regex; do [[ \"$line\" =~ ^[[:space:]]*$ ]] && continue; printf \"%s\" \" -e '$line'\"; done)\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "value=\"$(\n\t{\n\t\tsort |\n\t\t\tuniq -d\n\t} |\n\t\tgrep -vi $(\n\t\t\tIFS=$'\\n'\n\t\t\tfor line in $ignored_lines_regex; do\n\t\t\t\t[[ \"$line\" =~ ^[[:space:]]*$ ]] && continue\n\t\t\t\tprintf \"%s\" \" -e '$line'\"\n\t\t\tdone\n\t\t)\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "value=\"$(\n\t{\n\t\tsort |\n\t\t\tuniq -d\n\t} |\n\t\tgrep -vi $(\n\t\t\tIFS=$'\\n'\n\t\t\tfor line in $ignored_lines_regex; do\n\t\t\t\t[[ \"$line\" =~ ^[[:space:]]*$ ]] && continue\n\t\t\t\tprintf \"%s\" \" -e '$line'\"\n\t\t\tdone\n\t\t)\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5637,14 +5214,13 @@ function R() {
         let source = "f() {\n  result=\"$(\n    add --content \"$(\n      printf \"%b\\\\n\" \"$body\" \\\n        | tr -d $'\\r'\n    )\" --skip\n  )\"\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tresult=\"$(\n\t\tadd --content \"$(\n\t\t\tprintf \"%b\\\\n\" \"$body\" |\n\t\t\t\ttr -d $'\\r'\n\t\t)\" --skip\n\t)\"\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tresult=\"$(\n\t\tadd --content \"$(\n\t\t\tprintf \"%b\\\\n\" \"$body\" |\n\t\t\t\ttr -d $'\\r'\n\t\t)\" --skip\n\t)\"\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5652,14 +5228,13 @@ function R() {
         let source = "urls=\"$(\n    find files |\n    if [ -n \"$filter\" ]; then\n        grep \"$filter\" || :\n    else\n        cat\n    fi |\n    while read -r file; do\n        [ -f \"$file\" ] || continue\n        grep \"$file\" |\n        if [ -n \"$ignored\" ]; then\n            grep -v \"$ignored\"\n        else\n            cat\n        fi\n    done |\n    sort -u\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "urls=\"$(\n\tfind files |\n\t\tif [ -n \"$filter\" ]; then\n\t\t\tgrep \"$filter\" || :\n\t\telse\n\t\t\tcat\n\t\tfi |\n\t\twhile read -r file; do\n\t\t\t[ -f \"$file\" ] || continue\n\t\t\tgrep \"$file\" |\n\t\t\t\tif [ -n \"$ignored\" ]; then\n\t\t\t\t\tgrep -v \"$ignored\"\n\t\t\t\telse\n\t\t\t\t\tcat\n\t\t\t\tfi\n\t\tdone |\n\t\tsort -u\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "urls=\"$(\n\tfind files |\n\t\tif [ -n \"$filter\" ]; then\n\t\t\tgrep \"$filter\" || :\n\t\telse\n\t\t\tcat\n\t\tfi |\n\t\twhile read -r file; do\n\t\t\t[ -f \"$file\" ] || continue\n\t\t\tgrep \"$file\" |\n\t\t\t\tif [ -n \"$ignored\" ]; then\n\t\t\t\t\tgrep -v \"$ignored\"\n\t\t\t\telse\n\t\t\t\t\tcat\n\t\t\t\tfi\n\t\tdone |\n\t\tsort -u\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5667,14 +5242,13 @@ function R() {
         let source = "playlist_id=\"$(producer |\n    if [ \"$x\" ]; then\n        # keep exact match\n        while read -r id name; do\n            if [[ \"$name\" = \"$playlist_name\" ]]; then\n               echo \"$id\"\n               break\n            fi\n        done\n    else\n        grep -Fi \"$playlist_name\" |\n        awk '{print $1}'\n    fi || :\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "playlist_id=\"$(\n\tproducer |\n\t\tif [ \"$x\" ]; then\n\t\t\t# keep exact match\n\t\t\twhile read -r id name; do\n\t\t\t\tif [[ \"$name\" = \"$playlist_name\" ]]; then\n\t\t\t\t\techo \"$id\"\n\t\t\t\t\tbreak\n\t\t\t\tfi\n\t\t\tdone\n\t\telse\n\t\t\tgrep -Fi \"$playlist_name\" |\n\t\t\t\tawk '{print $1}'\n\t\tfi || :\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "playlist_id=\"$(\n\tproducer |\n\t\tif [ \"$x\" ]; then\n\t\t\t# keep exact match\n\t\t\twhile read -r id name; do\n\t\t\t\tif [[ \"$name\" = \"$playlist_name\" ]]; then\n\t\t\t\t\techo \"$id\"\n\t\t\t\t\tbreak\n\t\t\t\tfi\n\t\t\tdone\n\t\telse\n\t\t\tgrep -Fi \"$playlist_name\" |\n\t\t\t\tawk '{print $1}'\n\t\tfi || :\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5682,14 +5256,13 @@ function R() {
         let source = "for workflow_name in $workflows; do\n  {\n    output=\"$(printf '%s\\n' \"$workflow_name\")\"\n    echo \"$output\"\n  } &\ndone |\nsort\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "for workflow_name in $workflows; do\n\t{\n\t\toutput=\"$(printf '%s\\n' \"$workflow_name\")\"\n\t\techo \"$output\"\n\t} &\ndone |\n\tsort\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "for workflow_name in $workflows; do\n\t{\n\t\toutput=\"$(printf '%s\\n' \"$workflow_name\")\"\n\t\techo \"$output\"\n\t} &\ndone |\n\tsort\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5697,11 +5270,7 @@ function R() {
         let source = "if ok; then\n\tfor item in $(printenv |\n\t\t# keep env names\n\t\tgrep '^APP_'); do\n\t\techo \"$item\"\n\tdone\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -5709,11 +5278,7 @@ function R() {
         let source = "if ok; then\n\titems=$(\n\t\t# keep generated names\n\t\tfind . -type f |\n\t\t\tsort\n\t)\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -5721,14 +5286,13 @@ function R() {
         let source = "tests=\"$(\n    for filename in $filelist; do\n        # expensive filter\n        echo \"check $filename\"\n    done\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "tests=\"$(\n\tfor filename in $filelist; do\n\t\t# expensive filter\n\t\techo \"check $filename\"\n\tdone\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "tests=\"$(\n\tfor filename in $filelist; do\n\t\t# expensive filter\n\t\techo \"check $filename\"\n\tdone\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5736,14 +5300,13 @@ function R() {
         let source = "snapshots=\"$(\n    tmutil listlocalsnapshots \"$path\" |\n    tail -n +2 |\n    # update snapshots can't be deleted so just take the date timestamped ones:\n    #\n    #                  2026-02-14-041148\n    command ggrep -oP '\\d{4}-\\d\\d-\\d\\d-\\d+'\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "snapshots=\"$(\n\ttmutil listlocalsnapshots \"$path\" |\n\t\ttail -n +2 |\n\t\t# update snapshots can't be deleted so just take the date timestamped ones:\n\t\t#\n\t\t#                  2026-02-14-041148\n\t\tcommand ggrep -oP '\\d{4}-\\d\\d-\\d\\d-\\d+'\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "snapshots=\"$(\n\ttmutil listlocalsnapshots \"$path\" |\n\t\ttail -n +2 |\n\t\t# update snapshots can't be deleted so just take the date timestamped ones:\n\t\t#\n\t\t#                  2026-02-14-041148\n\t\tcommand ggrep -oP '\\d{4}-\\d\\d-\\d\\d-\\d+'\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5751,14 +5314,13 @@ function R() {
         let source = "resources=\"$(\n    kubectl api-resources |\n    tail -n +2 || :  # ignore incomplete API discovery\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "resources=\"$(\n\tkubectl api-resources |\n\t\ttail -n +2 || : # ignore incomplete API discovery\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "resources=\"$(\n\tkubectl api-resources |\n\t\ttail -n +2 || : # ignore incomplete API discovery\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5766,14 +5328,13 @@ function R() {
         let source = "matches=\"$(git grep -Ei \\\n    -e a \\\n    | grep -Fv x \\\n    || :\n    # note\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "matches=\"$(\n\tgit grep -Ei \\\n\t\t-e a |\n\t\tgrep -Fv x ||\n\t\t:\n\t# note\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "matches=\"$(\n\tgit grep -Ei \\\n\t\t-e a |\n\t\tgrep -Fv x ||\n\t\t:\n\t# note\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5781,14 +5342,13 @@ function R() {
         let source = "matches=\"$(git grep -Ei \\\n    -e first \\\n    -e second \\\n    -e third \\\n    | grep -Fv skip \\\n    || :\n    # note\n)\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "matches=\"$(\n\tgit grep -Ei \\\n\t\t-e first \\\n\t\t-e second \\\n\t\t-e third |\n\t\tgrep -Fv skip ||\n\t\t:\n\t# note\n)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "matches=\"$(\n\tgit grep -Ei \\\n\t\t-e first \\\n\t\t-e second \\\n\t\t-e third |\n\t\tgrep -Fv skip ||\n\t\t:\n\t# note\n)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5796,14 +5356,13 @@ function R() {
         let source = "LIBS=\"$(pkg-config --libs openssl)\" \\\nCFLAGS=\"$SLKCFLAGS -Wl,-s -I$(pwd)/lib\" \\\n./configure \\\n--prefix=/usr\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "LIBS=\"$(pkg-config --libs openssl)\" \\\nCFLAGS=\"$SLKCFLAGS -Wl,-s -I$(pwd)/lib\" \\\n\t./configure \\\n\t--prefix=/usr\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "LIBS=\"$(pkg-config --libs openssl)\" \\\nCFLAGS=\"$SLKCFLAGS -Wl,-s -I$(pwd)/lib\" \\\n\t./configure \\\n\t--prefix=/usr\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5811,11 +5370,12 @@ function R() {
         let source = "A=$(pwd) \\\nB=1 \\\nC=2 \\\ncmd\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("A=$(pwd) \\\nB=1 \\\nC=2 \\\n\tcmd\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "A=$(pwd) \\\nB=1 \\\nC=2 \\\n\tcmd\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5823,11 +5383,12 @@ function R() {
         let source = "A=1 \\\nB=$(pwd) \\\nC=2 \\\ncmd\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("A=1 \\\n\tB=$(pwd) \\\n\tC=2 \\\n\tcmd\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "A=1 \\\n\tB=$(pwd) \\\n\tC=2 \\\n\tcmd\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5835,14 +5396,13 @@ function R() {
         let source = "case $prev in\n--warnings)\n  local cats=(cross gnu obsolete override portability syntax\n    unsupported)\n  return\n  ;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case $prev in\n--warnings)\n\tlocal cats=(cross gnu obsolete override portability syntax\n\t\tunsupported)\n\treturn\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case $prev in\n--warnings)\n\tlocal cats=(cross gnu obsolete override portability syntax\n\t\tunsupported)\n\treturn\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5850,13 +5410,12 @@ function R() {
         let source = "f() {\n  local commands=(\n    build\n    version\n  )\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tlocal commands=(\n\t\tbuild\n\t\tversion\n\t)\n}\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tlocal commands=(\n\t\tbuild\n\t\tversion\n\t)\n}\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5864,13 +5423,12 @@ function R() {
         let source = "short=1 # first\nmuch_longer=2 # second\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "short=1       # first\nmuch_longer=2 # second\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "short=1       # first\nmuch_longer=2 # second\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5878,11 +5436,12 @@ function R() {
         let source = "x=() # first\nyyy=() # second\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("x=()   # first\nyyy=() # second\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "x=()   # first\nyyy=() # second\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5890,14 +5449,13 @@ function R() {
         let source = "args=( \"${args[@]/%/ }\" )\t\t\t# add space to all\nargs=( \"${args[@]/%$slash /$slash}\" )\t# remove space from dirs\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "args=(\"${args[@]/%/ }\")             # add space to all\nargs=(\"${args[@]/%$slash /$slash}\") # remove space from dirs\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "args=(\"${args[@]/%/ }\")             # add space to all\nargs=(\"${args[@]/%$slash /$slash}\") # remove space from dirs\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5905,14 +5463,13 @@ function R() {
         let source = "border=$(( $(_system uptime days) * 3 )) # normally\nborder=$(( border + basecount ))         # later\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "border=$(($(_system uptime days) * 3)) # normally\nborder=$((border + basecount))         # later\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "border=$(($(_system uptime days) * 3)) # normally\nborder=$((border + basecount))         # later\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5920,14 +5477,13 @@ function R() {
         let source = "SPACER1=\"$(_sanitizer run \"$MAX1 $LOCAL\"  add_length_diff_with_spaces)\" # one\nSPACER2=\"$(_sanitizer run \"$MAX2 $REMOTE\" add_length_diff_with_spaces)\" # two\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "SPACER1=\"$(_sanitizer run \"$MAX1 $LOCAL\" add_length_diff_with_spaces)\"  # one\nSPACER2=\"$(_sanitizer run \"$MAX2 $REMOTE\" add_length_diff_with_spaces)\" # two\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "SPACER1=\"$(_sanitizer run \"$MAX1 $LOCAL\" add_length_diff_with_spaces)\"  # one\nSPACER2=\"$(_sanitizer run \"$MAX2 $REMOTE\" add_length_diff_with_spaces)\" # two\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5935,14 +5491,13 @@ function R() {
         let source = "while read line; do\n  line=${line%%#*}   # Remove comments\n  line=${line//:/ }  # Change colon delimiter to space\n  line=${line//,/ }  # Change comma delimiter to space\ndone\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "while read line; do\n\tline=${line%%#*}  # Remove comments\n\tline=${line//:/ } # Change colon delimiter to space\n\tline=${line//,/ } # Change comma delimiter to space\ndone\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while read line; do\n\tline=${line%%#*}  # Remove comments\n\tline=${line//:/ } # Change colon delimiter to space\n\tline=${line//,/ } # Change comma delimiter to space\ndone\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5950,14 +5505,13 @@ function R() {
         let source = "MAINVER=\"${VERSION//_*}\"  # e.g. 1.8.0_9 => 1.8.0\nDEBVER=\"${VERSION//*_}\"   # e.g. 1.8.0_9 => 9\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "MAINVER=\"${VERSION//_*/}\" # e.g. 1.8.0_9 => 1.8.0\nDEBVER=\"${VERSION//*_/}\"  # e.g. 1.8.0_9 => 9\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "MAINVER=\"${VERSION//_*/}\" # e.g. 1.8.0_9 => 1.8.0\nDEBVER=\"${VERSION//*_/}\"  # e.g. 1.8.0_9 => 9\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5980,14 +5534,13 @@ function R() {
         let source = "BUILD_TNC=${BUILD_TNC:-true}           ; # build tnc XML validator module\nBUILD_TDOMHTML=${BUILD_TDOMHTML:-true} ; # build tdomhtml html generation module\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "BUILD_TNC=${BUILD_TNC:-true}           # build tnc XML validator module\nBUILD_TDOMHTML=${BUILD_TDOMHTML:-true} # build tdomhtml html generation module\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "BUILD_TNC=${BUILD_TNC:-true}           # build tnc XML validator module\nBUILD_TDOMHTML=${BUILD_TDOMHTML:-true} # build tdomhtml html generation module\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -5995,14 +5548,13 @@ function R() {
         let source = "if ok; then\n  rm -f /tmp/OLSR/meshrdf_neighs* 2>/dev/null    # enforce rewrite some lines later\n  echo >>$SCHEDULER \"_wifi speed check $gateway\" # will only test once\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if ok; then\n\trm -f /tmp/OLSR/meshrdf_neighs* 2>/dev/null    # enforce rewrite some lines later\n\techo >>$SCHEDULER \"_wifi speed check $gateway\" # will only test once\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ok; then\n\trm -f /tmp/OLSR/meshrdf_neighs* 2>/dev/null    # enforce rewrite some lines later\n\techo >>$SCHEDULER \"_wifi speed check $gateway\" # will only test once\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6010,14 +5562,13 @@ function R() {
         let source = "cp -ar SlackBuild $PKG/opt/$PRGNAM/          # Copy the SlackBuild script\ncat $PRGNAM.sh > $PKG/opt/$PRGNAM/$PRGNAM.sh # Copy the launcher script\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "cp -ar SlackBuild $PKG/opt/$PRGNAM/         # Copy the SlackBuild script\ncat $PRGNAM.sh >$PKG/opt/$PRGNAM/$PRGNAM.sh # Copy the launcher script\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "cp -ar SlackBuild $PKG/opt/$PRGNAM/         # Copy the SlackBuild script\ncat $PRGNAM.sh >$PKG/opt/$PRGNAM/$PRGNAM.sh # Copy the launcher script\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6025,14 +5576,13 @@ function R() {
         let source = "netint=$(${ipcommand} -o addr | grep \"${ip}\" | awk '{print $2}')                      # e.g eth0\nnetlink=$(${ethtoolcommand} \"${netint}\" 2> /dev/null | grep Speed | awk '{print $2}') # e.g 1000Mb/s\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "netint=$(${ipcommand} -o addr | grep \"${ip}\" | awk '{print $2}')                     # e.g eth0\nnetlink=$(${ethtoolcommand} \"${netint}\" 2>/dev/null | grep Speed | awk '{print $2}') # e.g 1000Mb/s\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "netint=$(${ipcommand} -o addr | grep \"${ip}\" | awk '{print $2}')                     # e.g eth0\nnetlink=$(${ethtoolcommand} \"${netint}\" 2>/dev/null | grep Speed | awk '{print $2}') # e.g 1000Mb/s\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6040,14 +5590,13 @@ function R() {
         let source = "case $mode in\nprompt)\n  if\n    [[ -n ${ZSH_VERSION:-} ]]\n  then\n    echo zsh\n  fi\n  ;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case $mode in\nprompt)\n\tif\n\t\t[[ -n ${ZSH_VERSION:-} ]]\n\tthen\n\t\techo zsh\n\tfi\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case $mode in\nprompt)\n\tif\n\t\t[[ -n ${ZSH_VERSION:-} ]]\n\tthen\n\t\techo zsh\n\tfi\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6055,14 +5604,13 @@ function R() {
         let source = "f() {\n  if curl -X PUT -k \"${@:2}\"\n    \"$url\" \\\n      -H x \\\n      -d y; then\n    echo ok\n  fi\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tif\n\t\tcurl -X PUT -k \"${@:2}\"\n\t\t\"$url\" \\\n\t\t\t-H x \\\n\t\t\t-d y\n\tthen\n\t\techo ok\n\tfi\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tif\n\t\tcurl -X PUT -k \"${@:2}\"\n\t\t\"$url\" \\\n\t\t\t-H x \\\n\t\t\t-d y\n\tthen\n\t\techo ok\n\tfi\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6070,14 +5618,13 @@ function R() {
         let source = "f() {\n  if [ -z \"${EDITOR:-}\" ]\n  then\n    EDITOR=vi\n  elif grep -q \"$cur\" <<<'-g'\n  then\n    COMPREPLY+=(\"-g\")\n  fi\n  if ! ContainsString \"lock\" \"$value\"\n  then\n    FOUND=1\n  fi\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tif [ -z \"${EDITOR:-}\" ]; then\n\t\tEDITOR=vi\n\telif grep -q \"$cur\" <<<'-g'; then\n\t\tCOMPREPLY+=(\"-g\")\n\tfi\n\tif ! ContainsString \"lock\" \"$value\"; then\n\t\tFOUND=1\n\tfi\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tif [ -z \"${EDITOR:-}\" ]; then\n\t\tEDITOR=vi\n\telif grep -q \"$cur\" <<<'-g'; then\n\t\tCOMPREPLY+=(\"-g\")\n\tfi\n\tif ! ContainsString \"lock\" \"$value\"; then\n\t\tFOUND=1\n\tfi\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6085,14 +5632,13 @@ function R() {
         let source = "case \"$ext\" in\n.vimrc) if vim -c \"\n    if !filereadable('$basename') |\n        cquit 1\n    endif\n    \" -c \"q\"; then\n  echo ok\nfi\n;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$ext\" in\n.vimrc)\n\tif vim -c \"\n    if !filereadable('$basename') |\n        cquit 1\n    endif\n    \" -c \"q\"; then\n\t\techo ok\n\tfi\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$ext\" in\n.vimrc)\n\tif vim -c \"\n    if !filereadable('$basename') |\n        cquit 1\n    endif\n    \" -c \"q\"; then\n\t\techo ok\n\tfi\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6100,14 +5646,13 @@ function R() {
         let source = "f() {\n  if type -p perl >/dev/null; then\n    perl -pe decode\n  elif type -p python3 >/dev/null &&\n    log \"using python\"\n    python3 -c 'import html' >/dev/null; then\n    python3 -c decode\n  elif type -p xmlstarlet >/dev/null; then\n    xmlstarlet unesc\n  fi\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tif type -p perl >/dev/null; then\n\t\tperl -pe decode\n\telif\n\t\ttype -p python3 >/dev/null &&\n\t\t\tlog \"using python\"\n\t\tpython3 -c 'import html' >/dev/null\n\tthen\n\t\tpython3 -c decode\n\telif type -p xmlstarlet >/dev/null; then\n\t\txmlstarlet unesc\n\tfi\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tif type -p perl >/dev/null; then\n\t\tperl -pe decode\n\telif\n\t\ttype -p python3 >/dev/null &&\n\t\t\tlog \"using python\"\n\t\tpython3 -c 'import html' >/dev/null\n\tthen\n\t\tpython3 -c decode\n\telif type -p xmlstarlet >/dev/null; then\n\t\txmlstarlet unesc\n\tfi\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6115,14 +5660,13 @@ function R() {
         let source = "while read mac; read name; do\n  printf '%s\\n' \"$mac:$name\"\ndone\nuntil poll; sleep 1; do\n  :\ndone\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "while\n\tread mac\n\tread name\ndo\n\tprintf '%s\\n' \"$mac:$name\"\ndone\nuntil\n\tpoll\n\tsleep 1\ndo\n\t:\ndone\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while\n\tread mac\n\tread name\ndo\n\tprintf '%s\\n' \"$mac:$name\"\ndone\nuntil\n\tpoll\n\tsleep 1\ndo\n\t:\ndone\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6130,11 +5674,7 @@ function R() {
         let source = "f() {\n\tif\n\t\t[[ -z \"${remote:-}\" ]]\n\tthen\n\t\techo missing\n\telif\n\t\tfile_exists_at_url \"$remote\"\n\tthen\n\t\techo remote\n\telse\n\t\techo none\n\tfi\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -6142,14 +5682,13 @@ function R() {
         let source = "check_restart() {\n\tif [ $percent -gt 300 -a $OPENWRT_REV -gt 0 ]; then\t# seems busy\n\t\treturn 1\t\t# sometimes high\n\tfi\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "check_restart() {\n\tif [ $percent -gt 300 -a $OPENWRT_REV -gt 0 ]; then # seems busy\n\t\treturn 1                                           # sometimes high\n\tfi\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "check_restart() {\n\tif [ $percent -gt 300 -a $OPENWRT_REV -gt 0 ]; then # seems busy\n\t\treturn 1                                           # sometimes high\n\tfi\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6157,14 +5696,13 @@ function R() {
         let source = "search() {\n        if ok\n        then\n          ag                      \\\n            --filename            \\\n            --hidden              \\\n            --ignore \".git\"       \\\n            --ignore-case         \\\n            --noheading           \\\n            \"${_search_args[@]}\"  \\\n            \"${_query}\"           \\\n            \"${_search_paths[@]}\" \\\n              || return 0 # Don't fail out within a single scope.\n        elif _search_with \"ack\" \"${_search_utility:-}\"\n        then # ack is available.\n          :\n        fi\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "search() {\n\tif ok; then\n\t\tag \\\n\t\t\t--filename \\\n\t\t\t--hidden \\\n\t\t\t--ignore \".git\" \\\n\t\t\t--ignore-case \\\n\t\t\t--noheading \\\n\t\t\t\"${_search_args[@]}\" \\\n\t\t\t\"${_query}\" \\\n\t\t\t\"${_search_paths[@]}\" ||\n\t\t\treturn 0                                           # Don't fail out within a single scope.\n\telif _search_with \"ack\" \"${_search_utility:-}\"; then # ack is available.\n\t\t:\n\tfi\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "search() {\n\tif ok; then\n\t\tag \\\n\t\t\t--filename \\\n\t\t\t--hidden \\\n\t\t\t--ignore \".git\" \\\n\t\t\t--ignore-case \\\n\t\t\t--noheading \\\n\t\t\t\"${_search_args[@]}\" \\\n\t\t\t\"${_query}\" \\\n\t\t\t\"${_search_paths[@]}\" ||\n\t\t\treturn 0                                           # Don't fail out within a single scope.\n\telif _search_with \"ack\" \"${_search_utility:-}\"; then # ack is available.\n\t\t:\n\tfi\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6172,14 +5710,13 @@ function R() {
         let source = "search() {\n  for __target_path in \"${_target_paths[@]:-}\"\n  do\n    {\n      if _search_with \"ag\" \"${_search_utility:-}\"\n      then\n        ag                      \\\n          --filename            \\\n          --hidden              \\\n          --ignore \".git\"       \\\n          --ignore-case         \\\n          --noheading           \\\n          \"${_search_args[@]}\"  \\\n          \"${_query}\"           \\\n          \"${_search_paths[@]}\" \\\n            || return 0 # Don't fail out within a single scope.\n      elif _search_with \"ack\" \"${_search_utility:-}\"\n      then # ack is available.\n        :\n      fi\n    }\n  done\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "search() {\n\tfor __target_path in \"${_target_paths[@]:-}\"; do\n\t\t{\n\t\t\tif _search_with \"ag\" \"${_search_utility:-}\"; then\n\t\t\t\tag \\\n\t\t\t\t\t--filename \\\n\t\t\t\t\t--hidden \\\n\t\t\t\t\t--ignore \".git\" \\\n\t\t\t\t\t--ignore-case \\\n\t\t\t\t\t--noheading \\\n\t\t\t\t\t\"${_search_args[@]}\" \\\n\t\t\t\t\t\"${_query}\" \\\n\t\t\t\t\t\"${_search_paths[@]}\" ||\n\t\t\t\t\treturn 0                                           # Don't fail out within a single scope.\n\t\t\telif _search_with \"ack\" \"${_search_utility:-}\"; then # ack is available.\n\t\t\t\t:\n\t\t\tfi\n\t\t}\n\tdone\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "search() {\n\tfor __target_path in \"${_target_paths[@]:-}\"; do\n\t\t{\n\t\t\tif _search_with \"ag\" \"${_search_utility:-}\"; then\n\t\t\t\tag \\\n\t\t\t\t\t--filename \\\n\t\t\t\t\t--hidden \\\n\t\t\t\t\t--ignore \".git\" \\\n\t\t\t\t\t--ignore-case \\\n\t\t\t\t\t--noheading \\\n\t\t\t\t\t\"${_search_args[@]}\" \\\n\t\t\t\t\t\"${_query}\" \\\n\t\t\t\t\t\"${_search_paths[@]}\" ||\n\t\t\t\t\treturn 0                                           # Don't fail out within a single scope.\n\t\t\telif _search_with \"ack\" \"${_search_utility:-}\"; then # ack is available.\n\t\t\t\t:\n\t\t\tfi\n\t\t}\n\tdone\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6187,14 +5724,13 @@ function R() {
         let source = "show() {\n  if outer\n  then\n      if ok\n      then\n        rm -f \"${_rendered_temp_file_path:?}\"\n    else # default\n      if ((_print_output))\n      then # `show --print [--no-color]`\n        if ((_COLOR_ENABLED))\n        then # `show --print`\n          _highlight_syntax_if_available \"${_target_path}\"\n        else # `show --print --no-color`\n          cat \"${_target_path}\"\n        fi\n      fi\n    fi\n  fi\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "show() {\n\tif outer; then\n\t\tif ok; then\n\t\t\trm -f \"${_rendered_temp_file_path:?}\"\n\t\telse                          # default\n\t\t\tif ((_print_output)); then   # `show --print [--no-color]`\n\t\t\t\tif ((_COLOR_ENABLED)); then # `show --print`\n\t\t\t\t\t_highlight_syntax_if_available \"${_target_path}\"\n\t\t\t\telse # `show --print --no-color`\n\t\t\t\t\tcat \"${_target_path}\"\n\t\t\t\tfi\n\t\t\tfi\n\t\tfi\n\tfi\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "show() {\n\tif outer; then\n\t\tif ok; then\n\t\t\trm -f \"${_rendered_temp_file_path:?}\"\n\t\telse                          # default\n\t\t\tif ((_print_output)); then   # `show --print [--no-color]`\n\t\t\t\tif ((_COLOR_ENABLED)); then # `show --print`\n\t\t\t\t\t_highlight_syntax_if_available \"${_target_path}\"\n\t\t\t\telse # `show --print --no-color`\n\t\t\t\t\tcat \"${_target_path}\"\n\t\t\t\tfi\n\t\t\tfi\n\t\tfi\n\tfi\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6205,13 +5741,14 @@ function R() {
         let elif_prefix = "\t\t\telif [ \"$zram_memusage\" -lt 320000 ]; then ";
         let alarm_padding = " ".repeat(elif_prefix.len() - alarm_prefix.len());
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(format!(
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            format!(
                 "cell_ram() {{\n\tcase \"$ram_size\" in\n\t12* | 13*)\n\t\tif [ ${{#ram_size}} -eq 5 ]; then # size\n\t\t\tif [ -z \"$zram_memusage\" ]; then\n{alarm_prefix}{alarm_padding}# disabled\n\t\t\telif [ \"$zram_memusage\" -lt 320000 ]; then # pppoe\n\t\t\t\tbgcolor=\"$color_lightgreen\"\n\t\t\tfi\n\t\tfi\n\t\t;;\n\tesac\n}}\n"
-            ))
+            ),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6219,14 +5756,13 @@ function R() {
         let source = "scan() {\n       if IsRunning \"sentineld\"; then SENTINELONE_SCANNER_RUNNING=1; fi # macOS\n       if IsRunning \"s1-agent\"; then SENTINELONE_SCANNER_RUNNING=1; fi # Linux\n       if IsRunning \"SentinelAgent\"; then SENTINELONE_SCANNER_RUNNING=1; fi # Windows\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "scan() {\n\tif IsRunning \"sentineld\"; then SENTINELONE_SCANNER_RUNNING=1; fi     # macOS\n\tif IsRunning \"s1-agent\"; then SENTINELONE_SCANNER_RUNNING=1; fi      # Linux\n\tif IsRunning \"SentinelAgent\"; then SENTINELONE_SCANNER_RUNNING=1; fi # Windows\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "scan() {\n\tif IsRunning \"sentineld\"; then SENTINELONE_SCANNER_RUNNING=1; fi     # macOS\n\tif IsRunning \"s1-agent\"; then SENTINELONE_SCANNER_RUNNING=1; fi      # Linux\n\tif IsRunning \"SentinelAgent\"; then SENTINELONE_SCANNER_RUNNING=1; fi # Windows\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6234,14 +5770,13 @@ function R() {
         let source = "#!/bin/sh\n\nif [ \"$1\" = --query ]; then\n\n  cat <<EOF\nquery\nEOF\n\nelif\n  [ \"$1\" = --listmonitors ]\nthen\n\n  cat <<EOF\nmonitors\nEOF\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Posix);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "#!/bin/sh\n\nif [ \"$1\" = --query ]; then\n\n\tcat <<EOF\nquery\nEOF\n\nelif\n\t[ \"$1\" = --listmonitors ]\nthen\n\n\tcat <<EOF\nmonitors\nEOF\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "#!/bin/sh\n\nif [ \"$1\" = --query ]; then\n\n\tcat <<EOF\nquery\nEOF\n\nelif\n\t[ \"$1\" = --listmonitors ]\nthen\n\n\tcat <<EOF\nmonitors\nEOF\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6249,11 +5784,12 @@ function R() {
         let source = "if true; then\n\n  echo yes\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("if true; then\n\n\techo yes\nfi\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if true; then\n\n\techo yes\nfi\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6261,13 +5797,12 @@ function R() {
         let source = "if [[ -s ./bin/rails ]]; then # binstub\n\n  ruby ./bin/rails\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if [[ -s ./bin/rails ]]; then # binstub\n\n\truby ./bin/rails\nfi\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if [[ -s ./bin/rails ]]; then # binstub\n\n\truby ./bin/rails\nfi\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6275,14 +5810,13 @@ function R() {
         let source = "if [[ \"${#_test_line}\" -gt \"${_COLUMNS}\" ]]\nthen # wrap to next line\n  # Use the existing value.\n  echo yes\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if [[ \"${#_test_line}\" -gt \"${_COLUMNS}\" ]]; then # wrap to next line\n\t# Use the existing value.\n\techo yes\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if [[ \"${#_test_line}\" -gt \"${_COLUMNS}\" ]]; then # wrap to next line\n\t# Use the existing value.\n\techo yes\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6291,14 +5825,13 @@ function R() {
             "if true; then\n  if other; then\n    echo yes\n  else\n    echo no\n  fi\n\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\tif other; then\n\t\techo yes\n\telse\n\t\techo no\n\tfi\n\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if true; then\n\tif other; then\n\t\techo yes\n\telse\n\t\techo no\n\tfi\n\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6306,11 +5839,12 @@ function R() {
         let source = "if true; then\n  echo yes\n\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("if true; then\n\techo yes\n\nfi\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if true; then\n\techo yes\n\nfi\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6318,13 +5852,12 @@ function R() {
         let source = "if true; then\n  echo yes\n\n  # disabled\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\techo yes\n\n\t# disabled\nfi\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if true; then\n\techo yes\n\n\t# disabled\nfi\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6333,14 +5866,13 @@ function R() {
             "if true; then\n  echo yes\n\nelif false; then\n  echo no\n\nelse\n  echo maybe\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\techo yes\n\nelif false; then\n\techo no\n\nelse\n\techo maybe\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if true; then\n\techo yes\n\nelif false; then\n\techo no\n\nelse\n\techo maybe\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6349,14 +5881,13 @@ function R() {
             "if true; then\n  echo yes\n\n# try the fallback\nelif false; then\n  echo no\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\techo yes\n\n# try the fallback\nelif false; then\n\techo no\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if true; then\n\techo yes\n\n# try the fallback\nelif false; then\n\techo no\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6364,13 +5895,12 @@ function R() {
         let source = "if true; then\n  echo yes\nelif false; then\n  echo no\n\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\techo yes\nelif false; then\n\techo no\n\nfi\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if true; then\n\techo yes\nelif false; then\n\techo no\n\nfi\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6378,13 +5908,12 @@ function R() {
         let source = "# setup\n\nif true; then yes; else\n  no\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "# setup\n\nif true; then yes; else\n\tno\nfi\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "# setup\n\nif true; then yes; else\n\tno\nfi\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6392,13 +5921,12 @@ function R() {
         let source = "while read -r dep; do\n\n  ver=${dep#*=}\ndone\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "while read -r dep; do\n\n\tver=${dep#*=}\ndone\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while read -r dep; do\n\n\tver=${dep#*=}\ndone\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6406,11 +5934,7 @@ function R() {
         let source = "f() {\n\twhile\n\t\t[[ ! -r \"$target\" && \"$target\" != \"\" ]]\n\tdo\n\t\tchmod ugo+rX \"$target\"\n\t\ttarget=\"${target%/*}\"\n\tdone\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -6418,11 +5942,12 @@ function R() {
         let source = "while true; do\n  echo yes\n\ndone\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("while true; do\n\techo yes\n\ndone\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while true; do\n\techo yes\n\ndone\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6430,13 +5955,12 @@ function R() {
         let source = "while true; do\n  echo ok\n# buffered input\ndone\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "while true; do\n\techo ok\n\t# buffered input\ndone\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while true; do\n\techo ok\n\t# buffered input\ndone\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6444,13 +5968,12 @@ function R() {
         let source = "if true; then\n  [ -n \"$x\" ] && {\n\n    echo yes\n  }\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\t[ -n \"$x\" ] && {\n\n\t\techo yes\n\t}\nfi\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if true; then\n\t[ -n \"$x\" ] && {\n\n\t\techo yes\n\t}\nfi\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6458,13 +5981,12 @@ function R() {
         let source = "if true; then\n  [ -n \"$x\" ] || { # note\n\n    echo yes\n  }\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\t[ -n \"$x\" ] || { # note\n\n\t\techo yes\n\t}\nfi\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if true; then\n\t[ -n \"$x\" ] || { # note\n\n\t\techo yes\n\t}\nfi\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6475,14 +5997,15 @@ function R() {
         let assignment_line = "LASTSEEN=\"$(($LOCALUNIXTIME - $(stat -c \"%Y\" \"$FILE\")))\"";
         let target_column = assignment_line.len() + 2;
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(format!(
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            format!(
                 "if true; then\n\t{open_line}{}# 97 hours\n\t\t{assignment_line} # Y = last modification time\n\t}}\nfi\n",
                 " ".repeat(target_column - open_line.len())
-            ))
+            ),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6491,14 +6014,13 @@ function R() {
             "if ok; then\n  {\n    echo yes\n  } | cat\nelse\n  {\n    echo no\n  } | cat\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if ok; then\n\t{\n\t\techo yes\n\t} | cat\nelse\n\t{\n\t\techo no\n\t} | cat\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if ok; then\n\t{\n\t\techo yes\n\t} | cat\nelse\n\t{\n\t\techo no\n\t} | cat\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6506,13 +6028,12 @@ function R() {
         let source = "while read -r line; do {\n  echo \"$line\"\n\n} done <file\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "while read -r line; do {\n\techo \"$line\"\n\n}; done <file\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while read -r line; do {\n\techo \"$line\"\n\n}; done <file\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6520,14 +6041,13 @@ function R() {
         let source = "while read -r line; do {\n  [ -n \"$line\" ] && {\n    echo \"$line\"\n  }\n\n} done <file\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "while read -r line; do {\n\t[ -n \"$line\" ] && {\n\t\techo \"$line\"\n\t}\n\n}; done <file\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "while read -r line; do {\n\t[ -n \"$line\" ] && {\n\t\techo \"$line\"\n\t}\n\n}; done <file\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6535,14 +6055,13 @@ function R() {
         let source = "if true; then\n  ((\n  I++,\n  IDX = 16\n  + R * 5\n  + G * 6\n  ))\nelse\n  echo no\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\t((\\\n\tI++, \\\n\tIDX = 16 + \\\n\tR * 5 + \\\n\tG * 6))\n\nelse\n\techo no\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if true; then\n\t((\\\n\tI++, \\\n\tIDX = 16 + \\\n\tR * 5 + \\\n\tG * 6))\n\nelse\n\techo no\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6554,14 +6073,13 @@ function R() {
 ))\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "_auto_limit_amount=\"$((\\\n\t${_available_lines:-1} - \\\n\t${_header_and_footer_line_count:-0} + \\\n\t${_auto_limit_adjustment:-0}))\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "_auto_limit_amount=\"$((\\\n\t${_available_lines:-1} - \\\n\t${_header_and_footer_line_count:-0} + \\\n\t${_auto_limit_adjustment:-0}))\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6569,11 +6087,12 @@ function R() {
         let source = "ln -s foo bar \\\n  ;\nrm bar\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("ln -s foo bar \\\n\t;\nrm bar\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "ln -s foo bar \\\n\t;\nrm bar\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6581,14 +6100,13 @@ function R() {
         let source = "cat \"$@\" |\n  python -c '\nfrom __future__ import print_function\nprint(\"ok\")\n'\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "cat \"$@\" |\n\tpython -c '\nfrom __future__ import print_function\nprint(\"ok\")\n'\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "cat \"$@\" |\n\tpython -c '\nfrom __future__ import print_function\nprint(\"ok\")\n'\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6596,11 +6114,7 @@ function R() {
         let source = "echo >>$TOOLS 'x=$( uptime_in_seconds )'\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -6608,11 +6122,12 @@ function R() {
         let source = "if true; then\n  section+=\"\n$line\"\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("if true; then\n\tsection+=\"\n$line\"\nfi\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if true; then\n\tsection+=\"\n$line\"\nfi\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6620,11 +6135,12 @@ function R() {
         let source = "packages=$one\\\n$two\\\n$three\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("packages=$one$two$three\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "packages=$one$two$three\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6632,14 +6148,13 @@ function R() {
         let source = "if true; then\n  INCLUDE_TESTS=\"boot_services kernel \\\n                           filesystems usb \\\n                           hardening\"\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\tINCLUDE_TESTS=\"boot_services kernel \\\n                           filesystems usb \\\n                           hardening\"\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if true; then\n\tINCLUDE_TESTS=\"boot_services kernel \\\n                           filesystems usb \\\n                           hardening\"\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6647,11 +6162,7 @@ function R() {
         let source = "result_command=\"${result_command}\n\t--label \\\"manager=distrobox\\\"\n\t--env \\\"SHELL=$(basename \"${SHELL:-\"/bin/bash\"}\")\\\"\n\t--env \\\"HOME=${container_user_home}\\\"\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -6659,11 +6170,7 @@ function R() {
         let source = "result_command=\"${result_command}\n\t\t$(printenv | grep '=' |\n\t\tgrep -Ev '^_' |\n\t\tsed 's/x/y/')\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -6671,14 +6178,13 @@ function R() {
         let source = "_comp_compgen_split -- \"$(\"$1\" -watchdog help 2>&1 |\n                _comp_awk '{print $1}')\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "_comp_compgen_split -- \"$(\"$1\" -watchdog help 2>&1 |\n\t_comp_awk '{print $1}')\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "_comp_compgen_split -- \"$(\"$1\" -watchdog help 2>&1 |\n\t_comp_awk '{print $1}')\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6686,14 +6192,13 @@ function R() {
         let source = "f() {\n  for fl in \"$HOME/.ssh/config\" \\\n    $(grep \"^\\s*Include\" \"$HOME/.ssh/config\" |\n      awk '{for (i=2; i<=NF; i++) print $i}' |\n      sed -Ee \"s|^([^/~])|$HOME/.ssh/\\1|\"); do\n    echo \"$fl\"\n  done\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tfor fl in \"$HOME/.ssh/config\" \\\n\t\t$(grep \"^\\s*Include\" \"$HOME/.ssh/config\" |\n\t\t\tawk '{for (i=2; i<=NF; i++) print $i}' |\n\t\t\tsed -Ee \"s|^([^/~])|$HOME/.ssh/\\1|\"); do\n\t\techo \"$fl\"\n\tdone\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tfor fl in \"$HOME/.ssh/config\" \\\n\t\t$(grep \"^\\s*Include\" \"$HOME/.ssh/config\" |\n\t\t\tawk '{for (i=2; i<=NF; i++) print $i}' |\n\t\t\tsed -Ee \"s|^([^/~])|$HOME/.ssh/\\1|\"); do\n\t\techo \"$fl\"\n\tdone\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6701,14 +6206,13 @@ function R() {
         let source = "binary_files=\"$(grep -rl \"# distrobox_binary\" \"${HOME}/.local/bin\" 2> /dev/null | sed 's/./\\\\&/g' |\n\txargs -I{} grep -le \"# name: ${container_name}$\" \"{}\" | sed 's/./\\\\&/g' |\n\txargs -I{} printf \"%s¤\" \"{}\" 2> /dev/null || :)\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "binary_files=\"$(grep -rl \"# distrobox_binary\" \"${HOME}/.local/bin\" 2>/dev/null | sed 's/./\\\\&/g' |\n\txargs -I{} grep -le \"# name: ${container_name}$\" \"{}\" | sed 's/./\\\\&/g' |\n\txargs -I{} printf \"%s¤\" \"{}\" 2>/dev/null || :)\"\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "binary_files=\"$(grep -rl \"# distrobox_binary\" \"${HOME}/.local/bin\" 2>/dev/null | sed 's/./\\\\&/g' |\n\txargs -I{} grep -le \"# name: ${container_name}$\" \"{}\" | sed 's/./\\\\&/g' |\n\txargs -I{} printf \"%s¤\" \"{}\" 2>/dev/null || :)\"\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6716,14 +6220,13 @@ function R() {
         let source = "f() {\n\tdesktop_files=$(\n\t\t# keep this with the nested command\n\t\tfind \"$dir\" -type f 2> /dev/null | sed 's/./\\\\&/g' |\n\t\t\txargs printf '%s\\n'\n\t)\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tdesktop_files=$(\n\t\t# keep this with the nested command\n\t\tfind \"$dir\" -type f 2>/dev/null | sed 's/./\\\\&/g' |\n\t\t\txargs printf '%s\\n'\n\t)\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tdesktop_files=$(\n\t\t# keep this with the nested command\n\t\tfind \"$dir\" -type f 2>/dev/null | sed 's/./\\\\&/g' |\n\t\t\txargs printf '%s\\n'\n\t)\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6731,14 +6234,13 @@ function R() {
         let source = "case $mode in\ndocs)\n  CMD=(zsh -ilsc\n    'sudo chown /src &&\n     make -C /src doc')\n  ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case $mode in\ndocs)\n\tCMD=(zsh -ilsc\n\t\t'sudo chown /src &&\n     make -C /src doc')\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case $mode in\ndocs)\n\tCMD=(zsh -ilsc\n\t\t'sudo chown /src &&\n     make -C /src doc')\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6746,14 +6248,13 @@ function R() {
         let source = "f() {\n  local options=(\n    1 \"Short\"\n    \"First line\n\nliteral continuation\"\n  )\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tlocal options=(\n\t\t1 \"Short\"\n\t\t\"First line\n\nliteral continuation\"\n\t)\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "f() {\n\tlocal options=(\n\t\t1 \"Short\"\n\t\t\"First line\n\nliteral continuation\"\n\t)\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6773,14 +6274,12 @@ function R() {
         let source = "case $mode in\nnew)\n  cat >$file <<-EOF\nbody\nEOF\n  ;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case $mode in\nnew)\n\tcat >$file <<-EOF\n\t\tbody\n\tEOF\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case $mode in\nnew)\n\tcat >$file <<-EOF\n\t\tbody\n\tEOF\n\t;;\nesac\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6832,14 +6331,13 @@ function R() {
         let source = "if case \"${icon_name}\" in \"/\"*) true ;; *) false ;; esac &&\n  [ -e \"${icon_name}\" ]; then\n  echo yes\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if case \"${icon_name}\" in \"/\"*) true ;; *) false ;; esac &&\n\t[ -e \"${icon_name}\" ]; then\n\techo yes\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "if case \"${icon_name}\" in \"/\"*) true ;; *) false ;; esac &&\n\t[ -e \"${icon_name}\" ]; then\n\techo yes\nfi\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6847,14 +6345,13 @@ function R() {
         let source = "for src in $source; do\n  case \"$src\" in */*) continue ;; esac\n  echo \"$src\"\ndone\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "for src in $source; do\n\tcase \"$src\" in */*) continue ;; esac\n\techo \"$src\"\ndone\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "for src in $source; do\n\tcase \"$src\" in */*) continue ;; esac\n\techo \"$src\"\ndone\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6862,11 +6359,7 @@ function R() {
         let source = "case ${1:-} in '' | *[!0-9]*) return 1 ;; esac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
@@ -6874,14 +6367,13 @@ function R() {
         let source = "shellspec_is_number() {\n  case ${1:-} in ( '' | *[!0-9]* ) return 1; esac\n  return 0\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "shellspec_is_number() {\n\tcase ${1:-} in '' | *[!0-9]*) return 1 ;; esac\n\treturn 0\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "shellspec_is_number() {\n\tcase ${1:-} in '' | *[!0-9]*) return 1 ;; esac\n\treturn 0\n}\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6889,14 +6381,13 @@ function R() {
         let source = "case \"$name\" in\nFastfile) if [[ \"$path\" =~ /fastlane/Fastfile ]]; then\n  ruby -c \"$name\"\nfi ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$name\" in\nFastfile) if [[ \"$path\" =~ /fastlane/Fastfile ]]; then\n\truby -c \"$name\"\nfi ;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$name\" in\nFastfile) if [[ \"$path\" =~ /fastlane/Fastfile ]]; then\n\truby -c \"$name\"\nfi ;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6904,14 +6395,13 @@ function R() {
         let source = "case \"$RETROARCH\" in\n*) if [ -x /usr/share/games/retroarch ]; then\n    build_ra=yes\nelse\n    build_ra=no\nfi ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$RETROARCH\" in\n*) if [ -x /usr/share/games/retroarch ]; then\n\tbuild_ra=yes\nelse\n\tbuild_ra=no\nfi ;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$RETROARCH\" in\n*) if [ -x /usr/share/games/retroarch ]; then\n\tbuild_ra=yes\nelse\n\tbuild_ra=no\nfi ;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6919,14 +6409,13 @@ function R() {
         let source = "value=\"$(\n  while read -r key; do\n    case \"$key\" in\n    A) echo A ;;\n    B) echo B ;;\n    esac\n  done\n)\"\n\n# later comment\nnext() { :; }\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "value=\"$(\n\twhile read -r key; do\n\t\tcase \"$key\" in\n\t\tA) echo A ;;\n\t\tB) echo B ;;\n\t\tesac\n\tdone\n)\"\n\n# later comment\nnext() { :; }\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "value=\"$(\n\twhile read -r key; do\n\t\tcase \"$key\" in\n\t\tA) echo A ;;\n\t\tB) echo B ;;\n\t\tesac\n\tdone\n)\"\n\n# later comment\nnext() { :; }\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6934,14 +6423,12 @@ function R() {
         let source = "case $x in\na) case $y in\nb) echo b ;; esac # note\n;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case $x in\na)\n\tcase $y in\n\tb) echo b ;; esac # note\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case $x in\na)\n\tcase $y in\n\tb) echo b ;; esac # note\n\t;;\nesac\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6949,13 +6436,12 @@ function R() {
         let source = "case \"$x\" in\n-h|--help)  usage\n            ;;\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$x\" in\n-h | --help)\n\tusage\n\t;;\nesac\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$x\" in\n-h | --help)\n\tusage\n\t;;\nesac\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6963,11 +6449,12 @@ function R() {
         let source = "case \"$x\" in\n*)  usage\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("case \"$x\" in\n*) usage ;;\nesac\n".to_string())
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$x\" in\n*) usage ;;\nesac\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6975,13 +6462,12 @@ function R() {
         let source = "case \"$mode\" in a) ;; b) ;; c)\n  echo c\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$mode\" in a) ;; b) ;; c)\n\techo c\n\t;;\nesac\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$mode\" in a) ;; b) ;; c)\n\techo c\n\t;;\nesac\n".to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -6989,14 +6475,13 @@ function R() {
         let source = "case \"$line\" in\n\"status-filtered \"*) # ignore other status-filtered lines\n  ;;\n\"#\"*) # allow for comments\n  ;;\nesac\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$line\" in\n\"status-filtered \"*) # ignore other status-filtered lines\n\t;;\n\"#\"*) # allow for comments\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$line\" in\n\"status-filtered \"*) # ignore other status-filtered lines\n\t;;\n\"#\"*) # allow for comments\n\t;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -7004,14 +6489,13 @@ function R() {
         let source = "case \"$x\" in\n*) value= && for item in $items; do {\n  echo \"$item\"\n} done\nesac\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "case \"$x\" in\n*) value= && for item in $items; do {\n\techo \"$item\"\n}; done ;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "case \"$x\" in\n*) value= && for item in $items; do {\n\techo \"$item\"\n}; done ;;\nesac\n"
+                .to_string(),
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -7195,11 +6679,7 @@ print hidden &!
             "[[ -v assoc[\"k\"] ]]\n",
             "declare -A assoc=([\"key\"]=v ['alt']+=w)\n",
         ] {
-            assert_eq!(
-                format_source(source, None, &options).unwrap(),
-                FormattedSource::Unchanged
-            );
-            assert_source_and_ast_paths_match(source, None, &options);
+            assert_unchanged_with_ast(source, None, &options);
         }
     }
 
@@ -7208,11 +6688,7 @@ print hidden &!
         let source = "printf '%s\\n' \"${!prefix@}\" \"${!prefix*}\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, None, &options);
+        assert_unchanged_with_ast(source, None, &options);
     }
 
     #[test]
