@@ -188,6 +188,26 @@ pub(crate) fn close_suffix_comment_offsets(
     Some((comment_start, comment_end))
 }
 
+pub(crate) fn redirect_operator_end(bytes: &[u8], start: usize) -> Option<usize> {
+    match bytes.get(start).copied()? {
+        b'>' => Some(match bytes.get(start + 1).copied() {
+            Some(b'>' | b'|' | b'&') => start + 2,
+            _ => start + 1,
+        }),
+        b'<' => Some(match bytes.get(start + 1).copied() {
+            Some(b'<' | b'>' | b'&') => {
+                if bytes.get(start + 2) == Some(&b'<') {
+                    start + 3
+                } else {
+                    start + 2
+                }
+            }
+            _ => start + 1,
+        }),
+        _ => None,
+    }
+}
+
 pub(crate) fn loop_open_keyword_at(source: &str, offset: usize, upper: usize) -> bool {
     ["for", "select", "while", "until", "foreach", "repeat"]
         .iter()

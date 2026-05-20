@@ -33,7 +33,7 @@ use crate::scan::{
     branch_keyword_offset, close_suffix_comment_offsets, last_uncommented_shell_keyword_before,
     line_indent_before_offset, matching_done_close_start, matching_if_close_start,
     normalized_close_keyword_span,
-    operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line,
+    operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line, redirect_operator_end,
     shell_keyword_boundaries_match, skip_double_quoted, skip_single_quoted,
 };
 use crate::word::{
@@ -7747,7 +7747,7 @@ fn trim_redirect_padding_for_alignment(text: &str) -> String {
             while operator_start < bytes.len() && bytes[operator_start].is_ascii_digit() {
                 operator_start += 1;
             }
-            if let Some(operator_end) = alignment_redirect_operator_end(bytes, operator_start)
+            if let Some(operator_end) = redirect_operator_end(bytes, operator_start)
                 && let Some(target_start) = redirect_target_start_after_padding(bytes, operator_end)
             {
                 rendered.push_str(&text[last..operator_end]);
@@ -7763,7 +7763,7 @@ fn trim_redirect_padding_for_alignment(text: &str) -> String {
             && !in_double_quotes
             && matches!(byte, b'<' | b'>')
             && !alignment_operator_is_inside_test_expression(text, index)
-            && let Some(operator_end) = alignment_redirect_operator_end(bytes, index)
+            && let Some(operator_end) = redirect_operator_end(bytes, index)
             && let Some(target_start) = redirect_target_start_after_padding(bytes, operator_end)
         {
             rendered.push_str(&text[last..operator_end]);
@@ -7821,26 +7821,6 @@ fn redirect_target_start_after_padding(bytes: &[u8], operator_end: usize) -> Opt
         && target_start < bytes.len()
         && !matches!(bytes[target_start], b'<' | b'>' | b'&'))
     .then_some(target_start)
-}
-
-fn alignment_redirect_operator_end(bytes: &[u8], start: usize) -> Option<usize> {
-    match bytes.get(start).copied()? {
-        b'>' => Some(match bytes.get(start + 1).copied() {
-            Some(b'>' | b'|' | b'&') => start + 2,
-            _ => start + 1,
-        }),
-        b'<' => Some(match bytes.get(start + 1).copied() {
-            Some(b'<' | b'>' | b'&') => {
-                if bytes.get(start + 2) == Some(&b'<') {
-                    start + 3
-                } else {
-                    start + 2
-                }
-            }
-            _ => start + 1,
-        }),
-        _ => None,
-    }
 }
 
 fn trim_arithmetic_expansion_padding_for_alignment(text: &str) -> String {

@@ -14,7 +14,9 @@ use crate::command::stmt_seq_has_heredoc;
 use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
-use crate::scan::{leading_shell_indent as line_leading_shell_indent, refine_common_indent};
+use crate::scan::{
+    leading_shell_indent as line_leading_shell_indent, redirect_operator_end, refine_common_indent,
+};
 use crate::streaming::format_stmt_sequence_streaming_to_buf;
 
 pub(crate) fn word_gap_end_before_trailing_continuation(word: &Word, source: &str) -> usize {
@@ -4513,7 +4515,7 @@ fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, lin
             while operator_start < bytes.len() && bytes[operator_start].is_ascii_digit() {
                 operator_start += 1;
             }
-            if let Some(operator_end) = raw_redirect_operator_end(bytes, operator_start) {
+            if let Some(operator_end) = redirect_operator_end(bytes, operator_start) {
                 let mut target_start = operator_end;
                 while target_start < bytes.len()
                     && matches!(bytes[target_start], b' ' | b'\t' | b'\r')
@@ -4534,7 +4536,7 @@ fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, lin
         if !in_single_quotes
             && !in_double_quotes
             && matches!(byte, b'<' | b'>')
-            && let Some(operator_end) = raw_redirect_operator_end(bytes, index)
+            && let Some(operator_end) = redirect_operator_end(bytes, index)
         {
             let mut target_start = operator_end;
             while target_start < bytes.len() && matches!(bytes[target_start], b' ' | b'\t' | b'\r')
@@ -4666,26 +4668,6 @@ fn raw_line_closes_inline_brace_group_before_pipeline(content: &str) -> bool {
     before_operator
         .trim_end_matches([' ', '\t', '\r'])
         .ends_with('}')
-}
-
-fn raw_redirect_operator_end(bytes: &[u8], start: usize) -> Option<usize> {
-    match bytes.get(start).copied()? {
-        b'>' => Some(match bytes.get(start + 1).copied() {
-            Some(b'>' | b'|' | b'&') => start + 2,
-            _ => start + 1,
-        }),
-        b'<' => Some(match bytes.get(start + 1).copied() {
-            Some(b'<' | b'>' | b'&') => {
-                if bytes.get(start + 2) == Some(&b'<') {
-                    start + 3
-                } else {
-                    start + 2
-                }
-            }
-            _ => start + 1,
-        }),
-        _ => None,
-    }
 }
 
 fn raw_redirect_target_spacing_can_be_stripped(
