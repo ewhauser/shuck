@@ -1487,8 +1487,7 @@ fn render_word_part(
             operand.as_ref(),
             *colon_variant,
             Some(span),
-            source,
-            options,
+            env,
         )?,
         WordPart::Length(reference) | WordPart::ArrayLength(reference) => {
             push_braced_var_ref(rendered, "#", reference, source, options);
@@ -5814,8 +5813,7 @@ fn push_parameter_word(
                 operand.as_ref(),
                 *colon_variant,
                 Some(parameter.span),
-                source,
-                options,
+                WordRenderEnv::new(source, options, None, None),
             )?;
         }
         BourneParameterExpansion::Transformation {
@@ -5973,9 +5971,10 @@ fn render_parameter_expansion(
     operand: Option<&shuck_ast::SourceText>,
     colon_variant: bool,
     raw_parameter_span: Option<shuck_ast::Span>,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    env: WordRenderEnv<'_, '_>,
 ) -> Result<(), std::fmt::Error> {
+    let (source, options) = (env.source, env.options);
+
     rendered.push_str("${");
     push_var_ref(rendered, reference, source, options);
     match operator {
