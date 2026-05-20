@@ -2264,11 +2264,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.write_text("else");
                 self.format_else_branch_body(command, body, fi_upper_bound)?;
             }
-            if self.if_final_branch_has_blank_line_before_fi(command, then_upper_bound) {
-                self.newline();
-            }
-            self.newline();
-            self.write_if_close("fi", fi_span);
+            self.finish_multiline_if_close(command, then_upper_bound, fi_span);
             return Ok(());
         }
 
@@ -2310,11 +2306,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.write_text("else");
                 self.format_else_branch_body(command, body, fi_upper_bound)?;
             }
-            if self.if_final_branch_has_blank_line_before_fi(command, then_upper_bound) {
-                self.newline();
-            }
-            self.newline();
-            self.write_if_close("fi", fi_span);
+            self.finish_multiline_if_close(command, then_upper_bound, fi_span);
             return Ok(());
         }
 
@@ -2376,11 +2368,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_text("; else");
             self.format_else_branch_body(command, else_branch, fi_upper_bound)?;
             let then_upper_bound = if_branch_upper_bound(command, 0, source, self.source_map());
-            if self.if_final_branch_has_blank_line_before_fi(command, then_upper_bound) {
-                self.newline();
-            }
-            self.newline();
-            self.write_if_close("fi", fi_span);
+            self.finish_multiline_if_close(command, then_upper_bound, fi_span);
             return Ok(());
         }
         if command.elif_branches.is_empty()
@@ -2465,13 +2453,22 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if self.options().compact_layout() {
             self.write_if_close("; fi", fi_span);
         } else {
-            if self.if_final_branch_has_blank_line_before_fi(command, then_upper_bound) {
-                self.newline();
-            }
-            self.newline();
-            self.write_if_close("fi", fi_span);
+            self.finish_multiline_if_close(command, then_upper_bound, fi_span);
         }
         Ok(())
+    }
+
+    fn finish_multiline_if_close(
+        &mut self,
+        command: &IfCommand,
+        then_upper_bound: usize,
+        fi_span: Span,
+    ) {
+        if self.if_final_branch_has_blank_line_before_fi(command, then_upper_bound) {
+            self.newline();
+        }
+        self.newline();
+        self.write_if_close("fi", fi_span);
     }
 
     fn write_if_close(&mut self, close_text: &str, fi_span: Span) {
