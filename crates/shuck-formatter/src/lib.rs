@@ -913,12 +913,10 @@ mod tests {
         assert_default_idempotent("cat <<'EOF_264'\ndelta\nEOF_264\n", "quoted_heredoc.sh");
     }
 
-    #[test]
-    fn formats_decl_heredoc_heads_structurally() {
-        assert_formats(
-            "declare -x foo=1<<EOF\nhi\nEOF\n",
-            "declare -x foo=1 <<EOF\nhi\nEOF\n",
-        );
+    default_format_cases! {
+        formats_decl_heredoc_heads_structurally:
+            "declare -x foo=1<<EOF\nhi\nEOF\n"
+            => "declare -x foo=1 <<EOF\nhi\nEOF\n";
     }
 
     default_unchanged_cases! {
@@ -928,12 +926,10 @@ mod tests {
             "set -u\n\nfoo\n";
     }
 
-    #[test]
-    fn collapses_extra_blank_lines_between_items() {
-        assert_formats(
-            "set -u\n\n\n# ready\n\n\nfoo\n",
-            "set -u\n\n# ready\n\nfoo\n",
-        );
+    default_format_cases! {
+        collapses_extra_blank_lines_between_items:
+            "set -u\n\n\n# ready\n\n\nfoo\n"
+            => "set -u\n\n# ready\n\nfoo\n";
     }
 
     #[test]
@@ -954,18 +950,16 @@ mod tests {
             "#!/usr/bin/env bash\n\nset -u\n";
     }
 
-    #[test]
-    fn trims_trailing_comment_whitespace() {
-        assert_formats("# note \nfoo # bar\t\n", "# note\nfoo # bar\n");
+    default_format_cases! {
+        trims_trailing_comment_whitespace:
+            "# note \nfoo # bar\t\n"
+            => "# note\nfoo # bar\n";
     }
 
-    #[test]
-    fn preserves_final_comment_backslash_when_adding_trailing_newline() {
-        let source = "aws logs filter-log-events \\\n                           \"$@\"\n                           #--max-items 1 \\\n                           #--end-time \"$(date '+%s')000\" \\\n";
-        assert_bash_formats_with_ast(
-            source,
-            "aws logs filter-log-events \\\n\t\"$@\"\n#--max-items 1 \\\n#--end-time \"$(date '+%s')000\" \\\n",
-        );
+    bash_format_ast_cases! {
+        preserves_final_comment_backslash_when_adding_trailing_newline:
+            "aws logs filter-log-events \\\n                           \"$@\"\n                           #--max-items 1 \\\n                           #--end-time \"$(date '+%s')000\" \\\n"
+            => "aws logs filter-log-events \\\n\t\"$@\"\n#--max-items 1 \\\n#--end-time \"$(date '+%s')000\" \\\n";
     }
 
     #[test]
@@ -1001,13 +995,10 @@ mod tests {
             "_link=\"<a href=\\\"${target//' '/%20}\\\">[[${label:-}]]</a>\"\n";
     }
 
-    #[test]
-    fn normalizes_backtick_escaped_dollar_literals_once() {
-        let source = "XDGPATH=`echo \"foreach dir [split [::tcl::tm::path list]] {puts \\\\$dir}\" | tclsh | tail -n1`\n";
-        assert_formats_default_with_ast(
-            source,
-            "XDGPATH=$(echo \"foreach dir [split [::tcl::tm::path list]] {puts \\$dir}\" | tclsh | tail -n1)\n",
-        );
+    default_format_ast_cases! {
+        normalizes_backtick_escaped_dollar_literals_once:
+            "XDGPATH=`echo \"foreach dir [split [::tcl::tm::path list]] {puts \\\\$dir}\" | tclsh | tail -n1`\n"
+            => "XDGPATH=$(echo \"foreach dir [split [::tcl::tm::path list]] {puts \\$dir}\" | tclsh | tail -n1)\n";
     }
 
     #[test]
