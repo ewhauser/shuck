@@ -3615,100 +3615,46 @@ function R() {
         );
     }
 
-    #[test]
-    fn preserves_command_substitution_assignment_continuation_alignment() {
-        let source = "LIBS=\"$(pkg-config --libs openssl)\" \\\nCFLAGS=\"$SLKCFLAGS -Wl,-s -I$(pwd)/lib\" \\\n./configure \\\n--prefix=/usr\n";
-        assert_formats_default_with_ast(
-            source,
-            "LIBS=\"$(pkg-config --libs openssl)\" \\\nCFLAGS=\"$SLKCFLAGS -Wl,-s -I$(pwd)/lib\" \\\n\t./configure \\\n\t--prefix=/usr\n",
-        );
+    default_format_ast_cases! {
+        preserves_command_substitution_assignment_continuation_alignment:
+            "LIBS=\"$(pkg-config --libs openssl)\" \\\nCFLAGS=\"$SLKCFLAGS -Wl,-s -I$(pwd)/lib\" \\\n./configure \\\n--prefix=/usr\n"
+            => "LIBS=\"$(pkg-config --libs openssl)\" \\\nCFLAGS=\"$SLKCFLAGS -Wl,-s -I$(pwd)/lib\" \\\n\t./configure \\\n\t--prefix=/usr\n";
+        keeps_leading_command_substitution_assignment_continuations_flush_left:
+            "A=$(pwd) \\\nB=1 \\\nC=2 \\\ncmd\n"
+            => "A=$(pwd) \\\nB=1 \\\nC=2 \\\n\tcmd\n";
+        indents_assignment_continuations_after_nonleading_command_substitution:
+            "A=1 \\\nB=$(pwd) \\\nC=2 \\\ncmd\n"
+            => "A=1 \\\n\tB=$(pwd) \\\n\tC=2 \\\n\tcmd\n";
+        preserves_multiline_decl_compound_assignment_lines:
+            "case $prev in\n--warnings)\n  local cats=(cross gnu obsolete override portability syntax\n    unsupported)\n  return\n  ;;\nesac\n"
+            => "case $prev in\n--warnings)\n\tlocal cats=(cross gnu obsolete override portability syntax\n\t\tunsupported)\n\treturn\n\t;;\nesac\n";
+        preserves_expanded_decl_compound_assignment_delimiters:
+            "f() {\n  local commands=(\n    build\n    version\n  )\n}\n"
+            => "f() {\n\tlocal commands=(\n\t\tbuild\n\t\tversion\n\t)\n}\n";
+        aligns_runs_of_trailing_comments:
+            "short=1 # first\nmuch_longer=2 # second\n"
+            => "short=1       # first\nmuch_longer=2 # second\n";
+        aligns_trailing_comments_after_empty_array_assignments:
+            "x=() # first\nyyy=() # second\n"
+            => "x=()   # first\nyyy=() # second\n";
+        aligns_trailing_comments_after_normalized_arithmetic_assignments:
+            "border=$(( $(_system uptime days) * 3 )) # normally\nborder=$(( border + basecount ))         # later\n"
+            => "border=$(($(_system uptime days) * 3)) # normally\nborder=$((border + basecount))         # later\n";
+        aligns_trailing_comments_after_normalized_command_substitutions:
+            "SPACER1=\"$(_sanitizer run \"$MAX1 $LOCAL\"  add_length_diff_with_spaces)\" # one\nSPACER2=\"$(_sanitizer run \"$MAX2 $REMOTE\" add_length_diff_with_spaces)\" # two\n"
+            => "SPACER1=\"$(_sanitizer run \"$MAX1 $LOCAL\" add_length_diff_with_spaces)\"  # one\nSPACER2=\"$(_sanitizer run \"$MAX2 $REMOTE\" add_length_diff_with_spaces)\" # two\n";
+        aligns_trailing_comments_after_parameter_replacements:
+            "while read line; do\n  line=${line%%#*}   # Remove comments\n  line=${line//:/ }  # Change colon delimiter to space\n  line=${line//,/ }  # Change comma delimiter to space\ndone\n"
+            => "while read line; do\n\tline=${line%%#*}  # Remove comments\n\tline=${line//:/ } # Change colon delimiter to space\n\tline=${line//,/ } # Change comma delimiter to space\ndone\n";
     }
 
-    #[test]
-    fn keeps_leading_command_substitution_assignment_continuations_flush_left() {
-        let source = "A=$(pwd) \\\nB=1 \\\nC=2 \\\ncmd\n";
-        assert_formats_default_with_ast(source, "A=$(pwd) \\\nB=1 \\\nC=2 \\\n\tcmd\n");
-    }
-
-    #[test]
-    fn indents_assignment_continuations_after_nonleading_command_substitution() {
-        let source = "A=1 \\\nB=$(pwd) \\\nC=2 \\\ncmd\n";
-        assert_formats_default_with_ast(source, "A=1 \\\n\tB=$(pwd) \\\n\tC=2 \\\n\tcmd\n");
-    }
-
-    #[test]
-    fn preserves_multiline_decl_compound_assignment_lines() {
-        let source = "case $prev in\n--warnings)\n  local cats=(cross gnu obsolete override portability syntax\n    unsupported)\n  return\n  ;;\nesac\n";
-        assert_formats_default_with_ast(
-            source,
-            "case $prev in\n--warnings)\n\tlocal cats=(cross gnu obsolete override portability syntax\n\t\tunsupported)\n\treturn\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn preserves_expanded_decl_compound_assignment_delimiters() {
-        let source = "f() {\n  local commands=(\n    build\n    version\n  )\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "f() {\n\tlocal commands=(\n\t\tbuild\n\t\tversion\n\t)\n}\n",
-        );
-    }
-
-    #[test]
-    fn aligns_runs_of_trailing_comments() {
-        let source = "short=1 # first\nmuch_longer=2 # second\n";
-        assert_formats_default_with_ast(source, "short=1       # first\nmuch_longer=2 # second\n");
-    }
-
-    #[test]
-    fn aligns_trailing_comments_after_empty_array_assignments() {
-        let source = "x=() # first\nyyy=() # second\n";
-        assert_formats_default_with_ast(source, "x=()   # first\nyyy=() # second\n");
-    }
-
-    #[test]
-    fn aligns_trailing_comments_after_normalized_array_assignments() {
-        let source = "args=( \"${args[@]/%/ }\" )\t\t\t# add space to all\nargs=( \"${args[@]/%$slash /$slash}\" )\t# remove space from dirs\n";
-        assert_bash_formats_with_ast(
-            source,
-            "args=(\"${args[@]/%/ }\")             # add space to all\nargs=(\"${args[@]/%$slash /$slash}\") # remove space from dirs\n",
-        );
-    }
-
-    #[test]
-    fn aligns_trailing_comments_after_normalized_arithmetic_assignments() {
-        let source = "border=$(( $(_system uptime days) * 3 )) # normally\nborder=$(( border + basecount ))         # later\n";
-        assert_formats_default_with_ast(
-            source,
-            "border=$(($(_system uptime days) * 3)) # normally\nborder=$((border + basecount))         # later\n",
-        );
-    }
-
-    #[test]
-    fn aligns_trailing_comments_after_normalized_command_substitutions() {
-        let source = "SPACER1=\"$(_sanitizer run \"$MAX1 $LOCAL\"  add_length_diff_with_spaces)\" # one\nSPACER2=\"$(_sanitizer run \"$MAX2 $REMOTE\" add_length_diff_with_spaces)\" # two\n";
-        assert_formats_default_with_ast(
-            source,
-            "SPACER1=\"$(_sanitizer run \"$MAX1 $LOCAL\" add_length_diff_with_spaces)\"  # one\nSPACER2=\"$(_sanitizer run \"$MAX2 $REMOTE\" add_length_diff_with_spaces)\" # two\n",
-        );
-    }
-
-    #[test]
-    fn aligns_trailing_comments_after_parameter_replacements() {
-        let source = "while read line; do\n  line=${line%%#*}   # Remove comments\n  line=${line//:/ }  # Change colon delimiter to space\n  line=${line//,/ }  # Change comma delimiter to space\ndone\n";
-        assert_formats_default_with_ast(
-            source,
-            "while read line; do\n\tline=${line%%#*}  # Remove comments\n\tline=${line//:/ } # Change colon delimiter to space\n\tline=${line//,/ } # Change comma delimiter to space\ndone\n",
-        );
-    }
-
-    #[test]
-    fn aligns_trailing_comments_after_empty_parameter_replacements() {
-        let source = "MAINVER=\"${VERSION//_*}\"  # e.g. 1.8.0_9 => 1.8.0\nDEBVER=\"${VERSION//*_}\"   # e.g. 1.8.0_9 => 9\n";
-        assert_bash_formats_with_ast(
-            source,
-            "MAINVER=\"${VERSION//_*/}\" # e.g. 1.8.0_9 => 1.8.0\nDEBVER=\"${VERSION//*_/}\"  # e.g. 1.8.0_9 => 9\n",
-        );
+    bash_format_ast_cases! {
+        aligns_trailing_comments_after_normalized_array_assignments:
+            "args=( \"${args[@]/%/ }\" )\t\t\t# add space to all\nargs=( \"${args[@]/%$slash /$slash}\" )\t# remove space from dirs\n"
+            => "args=(\"${args[@]/%/ }\")             # add space to all\nargs=(\"${args[@]/%$slash /$slash}\") # remove space from dirs\n";
+        aligns_trailing_comments_after_empty_parameter_replacements:
+            "MAINVER=\"${VERSION//_*}\"  # e.g. 1.8.0_9 => 1.8.0\nDEBVER=\"${VERSION//*_}\"   # e.g. 1.8.0_9 => 9\n"
+            => "MAINVER=\"${VERSION//_*/}\" # e.g. 1.8.0_9 => 1.8.0\nDEBVER=\"${VERSION//*_/}\"  # e.g. 1.8.0_9 => 9\n";
     }
 
     #[test]
@@ -3724,67 +3670,31 @@ function R() {
         );
     }
 
-    #[test]
-    fn aligns_trailing_comments_after_removed_semicolons() {
-        let source = "BUILD_TNC=${BUILD_TNC:-true}           ; # build tnc XML validator module\nBUILD_TDOMHTML=${BUILD_TDOMHTML:-true} ; # build tdomhtml html generation module\n";
-        assert_bash_formats_with_ast(
-            source,
-            "BUILD_TNC=${BUILD_TNC:-true}           # build tnc XML validator module\nBUILD_TDOMHTML=${BUILD_TDOMHTML:-true} # build tdomhtml html generation module\n",
-        );
+    default_format_ast_cases! {
+        aligns_trailing_comments_after_adjacent_redirect_commands:
+            "if ok; then\n  rm -f /tmp/OLSR/meshrdf_neighs* 2>/dev/null    # enforce rewrite some lines later\n  echo >>$SCHEDULER \"_wifi speed check $gateway\" # will only test once\nfi\n"
+            => "if ok; then\n\trm -f /tmp/OLSR/meshrdf_neighs* 2>/dev/null    # enforce rewrite some lines later\n\techo >>$SCHEDULER \"_wifi speed check $gateway\" # will only test once\nfi\n";
+        aligns_trailing_comments_after_normalized_redirect_spacing:
+            "netint=$(${ipcommand} -o addr | grep \"${ip}\" | awk '{print $2}')                      # e.g eth0\nnetlink=$(${ethtoolcommand} \"${netint}\" 2> /dev/null | grep Speed | awk '{print $2}') # e.g 1000Mb/s\n"
+            => "netint=$(${ipcommand} -o addr | grep \"${ip}\" | awk '{print $2}')                     # e.g eth0\nnetlink=$(${ethtoolcommand} \"${netint}\" 2>/dev/null | grep Speed | awk '{print $2}') # e.g 1000Mb/s\n";
+        preserves_if_condition_on_own_line:
+            "case $mode in\nprompt)\n  if\n    [[ -n ${ZSH_VERSION:-} ]]\n  then\n    echo zsh\n  fi\n  ;;\nesac\n"
+            => "case $mode in\nprompt)\n\tif\n\t\t[[ -n ${ZSH_VERSION:-} ]]\n\tthen\n\t\techo zsh\n\tfi\n\t;;\nesac\n";
     }
 
-    #[test]
-    fn aligns_trailing_comments_after_adjacent_redirect_commands() {
-        let source = "if ok; then\n  rm -f /tmp/OLSR/meshrdf_neighs* 2>/dev/null    # enforce rewrite some lines later\n  echo >>$SCHEDULER \"_wifi speed check $gateway\" # will only test once\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if ok; then\n\trm -f /tmp/OLSR/meshrdf_neighs* 2>/dev/null    # enforce rewrite some lines later\n\techo >>$SCHEDULER \"_wifi speed check $gateway\" # will only test once\nfi\n",
-        );
-    }
-
-    #[test]
-    fn aligns_trailing_comments_after_bare_redirect_spacing() {
-        let source = "cp -ar SlackBuild $PKG/opt/$PRGNAM/          # Copy the SlackBuild script\ncat $PRGNAM.sh > $PKG/opt/$PRGNAM/$PRGNAM.sh # Copy the launcher script\n";
-        assert_bash_formats_with_ast(
-            source,
-            "cp -ar SlackBuild $PKG/opt/$PRGNAM/         # Copy the SlackBuild script\ncat $PRGNAM.sh >$PKG/opt/$PRGNAM/$PRGNAM.sh # Copy the launcher script\n",
-        );
-    }
-
-    #[test]
-    fn aligns_trailing_comments_after_normalized_redirect_spacing() {
-        let source = "netint=$(${ipcommand} -o addr | grep \"${ip}\" | awk '{print $2}')                      # e.g eth0\nnetlink=$(${ethtoolcommand} \"${netint}\" 2> /dev/null | grep Speed | awk '{print $2}') # e.g 1000Mb/s\n";
-        assert_formats_default_with_ast(
-            source,
-            "netint=$(${ipcommand} -o addr | grep \"${ip}\" | awk '{print $2}')                     # e.g eth0\nnetlink=$(${ethtoolcommand} \"${netint}\" 2>/dev/null | grep Speed | awk '{print $2}') # e.g 1000Mb/s\n",
-        );
-    }
-
-    #[test]
-    fn preserves_if_condition_on_own_line() {
-        let source = "case $mode in\nprompt)\n  if\n    [[ -n ${ZSH_VERSION:-} ]]\n  then\n    echo zsh\n  fi\n  ;;\nesac\n";
-        assert_formats_default_with_ast(
-            source,
-            "case $mode in\nprompt)\n\tif\n\t\t[[ -n ${ZSH_VERSION:-} ]]\n\tthen\n\t\techo zsh\n\tfi\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn splits_multistatement_if_conditions_like_shfmt() {
-        let source = "f() {\n  if curl -X PUT -k \"${@:2}\"\n    \"$url\" \\\n      -H x \\\n      -d y; then\n    echo ok\n  fi\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tif\n\t\tcurl -X PUT -k \"${@:2}\"\n\t\t\"$url\" \\\n\t\t\t-H x \\\n\t\t\t-d y\n\tthen\n\t\techo ok\n\tfi\n}\n",
-        );
-    }
-
-    #[test]
-    fn collapses_then_on_next_line_after_simple_if_conditions_like_shfmt() {
-        let source = "f() {\n  if [ -z \"${EDITOR:-}\" ]\n  then\n    EDITOR=vi\n  elif grep -q \"$cur\" <<<'-g'\n  then\n    COMPREPLY+=(\"-g\")\n  fi\n  if ! ContainsString \"lock\" \"$value\"\n  then\n    FOUND=1\n  fi\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tif [ -z \"${EDITOR:-}\" ]; then\n\t\tEDITOR=vi\n\telif grep -q \"$cur\" <<<'-g'; then\n\t\tCOMPREPLY+=(\"-g\")\n\tfi\n\tif ! ContainsString \"lock\" \"$value\"; then\n\t\tFOUND=1\n\tfi\n}\n",
-        );
+    bash_format_ast_cases! {
+        aligns_trailing_comments_after_removed_semicolons:
+            "BUILD_TNC=${BUILD_TNC:-true}           ; # build tnc XML validator module\nBUILD_TDOMHTML=${BUILD_TDOMHTML:-true} ; # build tdomhtml html generation module\n"
+            => "BUILD_TNC=${BUILD_TNC:-true}           # build tnc XML validator module\nBUILD_TDOMHTML=${BUILD_TDOMHTML:-true} # build tdomhtml html generation module\n";
+        aligns_trailing_comments_after_bare_redirect_spacing:
+            "cp -ar SlackBuild $PKG/opt/$PRGNAM/          # Copy the SlackBuild script\ncat $PRGNAM.sh > $PKG/opt/$PRGNAM/$PRGNAM.sh # Copy the launcher script\n"
+            => "cp -ar SlackBuild $PKG/opt/$PRGNAM/         # Copy the SlackBuild script\ncat $PRGNAM.sh >$PKG/opt/$PRGNAM/$PRGNAM.sh # Copy the launcher script\n";
+        splits_multistatement_if_conditions_like_shfmt:
+            "f() {\n  if curl -X PUT -k \"${@:2}\"\n    \"$url\" \\\n      -H x \\\n      -d y; then\n    echo ok\n  fi\n}\n"
+            => "f() {\n\tif\n\t\tcurl -X PUT -k \"${@:2}\"\n\t\t\"$url\" \\\n\t\t\t-H x \\\n\t\t\t-d y\n\tthen\n\t\techo ok\n\tfi\n}\n";
+        collapses_then_on_next_line_after_simple_if_conditions_like_shfmt:
+            "f() {\n  if [ -z \"${EDITOR:-}\" ]\n  then\n    EDITOR=vi\n  elif grep -q \"$cur\" <<<'-g'\n  then\n    COMPREPLY+=(\"-g\")\n  fi\n  if ! ContainsString \"lock\" \"$value\"\n  then\n    FOUND=1\n  fi\n}\n"
+            => "f() {\n\tif [ -z \"${EDITOR:-}\" ]; then\n\t\tEDITOR=vi\n\telif grep -q \"$cur\" <<<'-g'; then\n\t\tCOMPREPLY+=(\"-g\")\n\tfi\n\tif ! ContainsString \"lock\" \"$value\"; then\n\t\tFOUND=1\n\tfi\n}\n";
     }
 
     #[test]
