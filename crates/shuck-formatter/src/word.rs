@@ -2073,29 +2073,7 @@ fn render_command_substitution(
         });
 
     match layout {
-        CommandSubstitutionLayout::Inline => {
-            rendered.push_str("$(");
-            let trimmed = trim_inline_command_substitution_padding(trimmed);
-            if let Some(body) =
-                restore_trailing_escaped_horizontal_whitespace(trimmed, trailing_escaped_whitespace)
-            {
-                push_command_substitution_inline_body(
-                    rendered,
-                    &body,
-                    options,
-                    inline_continuation_indent_levels,
-                );
-            } else {
-                push_command_substitution_inline_body(
-                    rendered,
-                    trimmed,
-                    options,
-                    inline_continuation_indent_levels,
-                );
-            }
-            rendered.push(')');
-        }
-        CommandSubstitutionLayout::InlineContinued => {
+        CommandSubstitutionLayout::Inline | CommandSubstitutionLayout::InlineContinued => {
             rendered.push_str("$(");
             let trimmed = trim_inline_command_substitution_padding(trimmed);
             if let Some(body) =
