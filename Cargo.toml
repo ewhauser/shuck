@@ -5,7 +5,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.metadata.cargo-shear]
-ignored = ["shuck-benchmark", "shuck-format"]
+ignored = ["shuck-benchmark"]
 
 [workspace.package]
 version = "0.0.40"
@@ -26,7 +26,6 @@ shuck-benchmark = { path = "crates/shuck-benchmark" }
 shuck-cache = { path = "crates/shuck-cache", version = "0.0.40" }
 shuck-config = { path = "crates/shuck-config", version = "0.0.40" }
 shuck-discover = { path = "crates/shuck-discover", version = "0.0.40" }
-shuck-format = { path = "crates/shuck-format", version = "0.0.40" }
 shuck-formatter = { path = "crates/shuck-formatter", version = "0.0.40" }
 shuck-indexer = { path = "crates/shuck-indexer", version = "0.0.40" }
 shuck-linter = { path = "crates/shuck-linter", version = "0.0.40" }

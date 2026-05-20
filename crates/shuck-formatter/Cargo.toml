@@ -17,7 +17,6 @@ benchmarking = []
 [dependencies]
 memchr = { workspace = true }
 shuck-ast = { workspace = true }
-shuck-format = { workspace = true }
 shuck-indexer = { workspace = true }
 shuck-parser = { workspace = true }
 

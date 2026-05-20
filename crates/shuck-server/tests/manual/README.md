@@ -50,6 +50,6 @@ The runner builds `target/debug/shuck`, stages `fixtures/workspace/` into a
 temporary workspace, launches `nvim --headless`, and exits non-zero if either
 the Neovim-side assertions or the server transport fail.
 
-The formatting scenario currently verifies request round-trip behavior only.
-`shuck-formatter` is still a no-op stub, so the expected result today is an
-empty edit list rather than rewritten buffer contents.
+The formatting scenario verifies that a real `textDocument/formatting` request
+is routed through `shuck-formatter` and applies the returned text edit to the
+buffer.

@@ -231,7 +231,6 @@ CLI fuzzer failures are minimized automatically and written under `fuzz/artifact
 | `shuck-extract` | Embedded shell extraction for supported host files such as GitHub Actions workflows |
 | `shuck-cache` | SHA-256 keyed file-level result caching |
 | `shuck-formatter` | Shell script formatter |
-| `shuck-format` | Low-level formatting document and printer primitives |
 | `shuck-benchmark` | Shared benchmark fixtures and benchmark harness helpers |
 
 ## Adding a Lint Rule

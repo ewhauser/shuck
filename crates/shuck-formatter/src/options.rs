@@ -1,7 +1,20 @@
 use std::path::Path;
 
-use shuck_format::{FormatOptions, IndentStyle, LineEnding, PrinterOptions};
 use shuck_parser::ShellDialect as ParseDialect;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum IndentStyle {
+    #[default]
+    Tab,
+    Space,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LineEnding {
+    #[default]
+    Lf,
+    CrLf,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShellDialect {
@@ -218,17 +231,6 @@ impl ResolvedShellFormatOptions {
     pub(crate) fn with_line_ending(mut self, line_ending: LineEnding) -> Self {
         self.line_ending = line_ending;
         self
-    }
-}
-
-impl FormatOptions for ResolvedShellFormatOptions {
-    fn as_print_options(&self) -> PrinterOptions {
-        PrinterOptions {
-            indent_style: self.indent_style(),
-            indent_width: self.indent_width(),
-            line_width: 80,
-            line_ending: self.line_ending,
-        }
     }
 }
 

@@ -1,18 +1,6 @@
 use std::fmt::Write as _;
 use std::mem;
 
-use shuck_ast::{
-    AlwaysCommand, AnonymousFunctionCommand, ArithmeticCommand, ArithmeticForCommand, ArrayElem,
-    Assignment, AssignmentValue, BinaryCommand, BinaryOp, BuiltinCommand, CaseCommand, CaseItem,
-    Command, CompoundCommand, ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand,
-    ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, CoprocCommand,
-    DeclClause, DeclOperand, File, ForCommand, ForSyntax, ForeachCommand, ForeachSyntax,
-    FunctionDef, HeredocBody, HeredocBodyPart, IfCommand, IfSyntax, Pattern, PatternPart, Redirect,
-    RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand, Span, Stmt, StmtSeq,
-    StmtTerminator, TimeCommand, UntilCommand, VarRef, WhileCommand, Word, WordPart,
-};
-use shuck_format::{IndentStyle, LineEnding};
-
 use crate::Result;
 use crate::command::{
     array_elem_parts, binary_operator, branch_open_keyword_start, builtin_like_parts,
@@ -32,7 +20,7 @@ use crate::command::{
 };
 use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
-use crate::options::ResolvedShellFormatOptions;
+use crate::options::{IndentStyle, LineEnding, ResolvedShellFormatOptions};
 use crate::scan::{
     BranchPrefixComment, heredoc_start, last_shell_keyword_end, last_shell_keyword_start,
     last_shell_keyword_start_between, line_without_continuation_backslash, redirect_operator_end,
@@ -46,6 +34,16 @@ use crate::word::{
     render_pattern_syntax_to_buf, render_word_syntax_with_facts_to_buf,
     word_gap_end_before_trailing_continuation, word_has_multiline_literal_source,
     word_is_quoted_command_substitution_only, word_is_quoted_formattable_command_substitution_only,
+};
+use shuck_ast::{
+    AlwaysCommand, AnonymousFunctionCommand, ArithmeticCommand, ArithmeticForCommand, ArrayElem,
+    Assignment, AssignmentValue, BinaryCommand, BinaryOp, BuiltinCommand, CaseCommand, CaseItem,
+    Command, CompoundCommand, ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand,
+    ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, CoprocCommand,
+    DeclClause, DeclOperand, File, ForCommand, ForSyntax, ForeachCommand, ForeachSyntax,
+    FunctionDef, HeredocBody, HeredocBodyPart, IfCommand, IfSyntax, Pattern, PatternPart, Redirect,
+    RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand, Span, Stmt, StmtSeq,
+    StmtTerminator, TimeCommand, UntilCommand, VarRef, WhileCommand, Word, WordPart,
 };
 
 enum StreamOutput<'source> {

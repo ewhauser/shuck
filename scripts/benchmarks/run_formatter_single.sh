@@ -11,5 +11,5 @@ hyperfine \
     --ignore-failure \
     --warmup 5 \
     --runs 20 \
-    -n "shuck-format" "$timeout_runner $timeout_secs $shuck format --check --no-cache --dialect bash $file" \
+    -n "shuck-formatter" "$timeout_runner $timeout_secs $shuck format --check --no-cache --dialect bash $file" \
     -n "shfmt" "$timeout_runner $timeout_secs shfmt -l -ln=bash $file"

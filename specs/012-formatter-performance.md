@@ -6,7 +6,7 @@ Partially Implemented
 
 ## Summary
 
-A staged refactor plan for `crates/shuck-formatter` that closes the remaining wall-time gap against `shfmt` without changing Shuck's public formatter API or relaxing its correctness guarantees. The plan targets the measured bottlenecks that remain after Phase 1: the document/printer fallback for nested `$()` formatting, repeated late-stage span and comment attachment heuristics, and secondary parser/CLI setup costs.
+A staged refactor plan for `crates/shuck-formatter` that closes the remaining wall-time gap against `shfmt` without changing Shuck's public formatter API or relaxing its correctness guarantees. The plan targets measured bottlenecks in nested `$()` formatting, repeated late-stage span and comment attachment heuristics, and secondary parser/CLI setup costs.
 
 The plan keeps `format_source(source, path, options) -> Result<FormattedSource>` and `format_file_ast(source, file, path, options)` as the public entry points. It intentionally prioritizes changes by impact and risk rather than architectural neatness: direct-write rendering landed first, nested formatter unification comes next, parser-integrated comment anchoring follows once the hot path is cheaper, and parser/CLI reuse cleanup comes last.
 
@@ -61,7 +61,7 @@ By contrast, `shfmt` reuses parser and printer objects, attaches comments during
 
 | Bottleneck | Evidence | Why it hurts |
 |---|---|---|
-| Nested `$()` formatting still uses the old document/printer path | `render_command_substitution` in `word.rs` builds a fresh `ShellFormatContext`, generic `Formatter`, and printer result for each substitution | Expensive on large scripts with many substitutions; `nvm.sh` contains hundreds of `$()` sites |
+| Nested `$()` formatting used a separate formatting path | `render_command_substitution` in `word.rs` previously formatted substitution bodies through a second formatter stack | Expensive on large scripts with many substitutions; `nvm.sh` contains hundreds of `$()` sites |
 | Late comment and span heuristics still run during formatting | `streaming.rs` builds attachment spans, calls `attach_sequence`, checks ambiguity, and derives some inline-layout decisions while formatting | Keeps span analysis in inner loops and repeats work across nested sequences |
 | Parser and CLI setup costs are not amortized | Parser creation, path/config resolution, and file-mode orchestration still repeat per file | Smaller than the main formatter cost, but increasingly visible once Phases 1 and 2 are done |
 
@@ -123,15 +123,17 @@ This phase reduced allocation pressure without changing the parser or comment mo
 
 #### Phase 2: Remove the Nested Document/Printer Fallback for `$()`
 
+Status: Implemented.
+
 This phase unifies nested formatting under the streaming engine.
 
 ##### Current State
 
-`render_command_substitution` in `crates/shuck-formatter/src/word.rs` still formats substitution bodies by creating a fresh `ShellFormatContext`, running the generic document formatter, printing the result, trimming trailing newlines, and then wrapping or indenting the rendered text. That means normal `$()` formatting still pays for a second formatter stack inside the streaming formatter.
+`render_command_substitution` in `crates/shuck-formatter/src/word.rs` now formats substitution bodies through the same streaming-oriented formatter path. The old separate nested formatter stack has been removed.
 
 ##### Changes
 
-- Replace the current command substitution path that creates a separate `ShellFormatContext`, generic `Formatter`, and printer result.
+- Replace the command substitution path that created a separate nested formatter stack.
 - Add a streaming subformatter path for `$()` bodies that:
   - formats nested statement sequences with the same formatter engine,
   - writes into a temporary nested output buffer only once,
@@ -146,7 +148,7 @@ fn format_command_substitution(
 ) -> Result<()>;
 ```
 
-- If borrow-checking makes in-place nested formatting awkward, add a scoped nested-buffer helper rather than reviving the full document/printer stack.
+- If borrow-checking makes in-place nested formatting awkward, add a scoped nested-buffer helper rather than reviving a second formatter stack.
 - Keep a correctness fallback only for constructs that the streaming engine still cannot handle structurally.
 
 ##### Constraints
@@ -167,7 +169,7 @@ fn format_command_substitution(
 ##### Acceptance Criteria
 
 - The largest improvements appear on `$()`-heavy fixtures such as `nvm`.
-- The normal `$()` path no longer creates the generic document/printer pipeline.
+- The normal `$()` path no longer creates a second formatter pipeline.
 - Existing formatter output stays stable aside from already-accepted parity differences.
 - Regressions cover:
   - empty substitutions,
