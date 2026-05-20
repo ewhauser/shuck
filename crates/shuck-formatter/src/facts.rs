@@ -20,7 +20,8 @@ use crate::command::{
 use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_window};
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    branch_keyword_offset, branch_prefix_first_comment_offset, last_shell_keyword_start,
+    branch_keyword_offset, branch_prefix_first_comment_offset,
+    has_newline_between_offsets as has_newline_between, last_shell_keyword_start,
     last_uncommented_shell_keyword_before, operator_starts_or_ends_line,
 };
 
@@ -1296,14 +1297,6 @@ fn collect_pipeline_stmt<'a>(
     } else {
         statements.push(stmt);
     }
-}
-
-fn has_newline_between(source: &str, start: usize, end: usize) -> bool {
-    let lower = start.min(end).min(source.len());
-    let upper = start.max(end).min(source.len());
-    source
-        .get(lower..upper)
-        .is_some_and(|between| between.contains('\n'))
 }
 
 fn branch_open_suffix_span(

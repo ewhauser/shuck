@@ -33,9 +33,9 @@ use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
     BranchPrefixComment, branch_keyword_offset, branch_prefix_comments,
-    close_suffix_comment_offsets, last_shell_keyword_end, last_shell_keyword_start,
-    last_shell_keyword_start_between, last_uncommented_shell_keyword_before,
-    line_indent_before_offset,
+    close_suffix_comment_offsets, has_newline_between_offsets, last_shell_keyword_end,
+    last_shell_keyword_start, last_shell_keyword_start_between,
+    last_uncommented_shell_keyword_before, line_indent_before_offset,
     operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line,
     own_line_comments_in_region as scan_own_line_comments_in_region, redirect_operator_end,
     shell_keyword_at, skip_double_quoted, skip_single_quoted,
@@ -8525,14 +8525,6 @@ fn final_pipe_operator_is_unquoted(text: &str) -> bool {
     }
 
     false
-}
-
-fn has_newline_between_offsets(source: &str, start: usize, end: usize) -> bool {
-    let lower = start.min(end).min(source.len());
-    let upper = start.max(end).min(source.len());
-    source
-        .get(lower..upper)
-        .is_some_and(|between| between.contains('\n'))
 }
 
 fn conditional_binary_has_explicit_rhs_break(
