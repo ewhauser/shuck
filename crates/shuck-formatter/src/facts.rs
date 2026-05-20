@@ -1291,6 +1291,25 @@ mod tests {
         (file, facts)
     }
 
+    fn first_brace_group(file: &shuck_ast::File) -> &StmtSeq {
+        match &file.body[0].command {
+            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
+            _ => panic!("expected brace group"),
+        }
+    }
+
+    fn group_attachment_source<'source>(
+        source: &'source str,
+        facts: &FormatterFacts<'source>,
+        commands: &StmtSeq,
+        open: char,
+        close: char,
+    ) -> &'source str {
+        group_attachment_span(commands.as_slice(), facts.source_map(), open, close)
+            .expect("expected group attachment span")
+            .slice(source)
+    }
+
     #[test]
     fn builds_branch_comment_sequence_facts() {
         let source =
@@ -1440,15 +1459,10 @@ mod tests {
         let source = "{\n  echo ${value}\n}\n# outside\nprintf '%s\\n' done\n";
         let (file, facts) = build_facts(source);
 
-        let brace_group = match &file.body[0].command {
-            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
-            _ => panic!("expected brace group"),
-        };
-        let attachment_span =
-            group_attachment_span(brace_group.as_slice(), facts.source_map(), '{', '}')
-                .expect("expected brace group attachment span");
+        let attachment =
+            group_attachment_source(source, &facts, first_brace_group(&file), '{', '}');
 
-        assert_eq!(attachment_span.slice(source), "{\n  echo ${value}\n}");
+        assert_eq!(attachment, "{\n  echo ${value}\n}");
     }
 
     #[test]
@@ -1500,15 +1514,10 @@ mod tests {
         let source = "{\n  echo ok; # inside\n}\n# outside\nprintf '%s\\n' done\n";
         let (file, facts) = build_facts(source);
 
-        let brace_group = match &file.body[0].command {
-            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
-            _ => panic!("expected brace group"),
-        };
-        let attachment_span =
-            group_attachment_span(brace_group.as_slice(), facts.source_map(), '{', '}')
-                .expect("expected brace group attachment span");
+        let attachment =
+            group_attachment_source(source, &facts, first_brace_group(&file), '{', '}');
 
-        assert_eq!(attachment_span.slice(source), "{\n  echo ok; # inside\n}");
+        assert_eq!(attachment, "{\n  echo ok; # inside\n}");
     }
 
     #[test]
@@ -1516,18 +1525,10 @@ mod tests {
         let source = "{\n  cat <<EOF\npayload\nEOF\n}\n# outside\nprintf '%s\\n' done\n";
         let (file, facts) = build_facts(source);
 
-        let brace_group = match &file.body[0].command {
-            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
-            _ => panic!("expected brace group"),
-        };
-        let attachment_span =
-            group_attachment_span(brace_group.as_slice(), facts.source_map(), '{', '}')
-                .expect("expected brace group attachment span");
+        let attachment =
+            group_attachment_source(source, &facts, first_brace_group(&file), '{', '}');
 
-        assert_eq!(
-            attachment_span.slice(source),
-            "{\n  cat <<EOF\npayload\nEOF\n}"
-        );
+        assert_eq!(attachment, "{\n  cat <<EOF\npayload\nEOF\n}");
     }
 
     #[test]
@@ -1535,15 +1536,10 @@ mod tests {
         let source = "{ echo ok; \\\n}\n# outside\nprintf '%s\\n' done\n";
         let (file, facts) = build_facts(source);
 
-        let brace_group = match &file.body[0].command {
-            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
-            _ => panic!("expected brace group"),
-        };
-        let attachment_span =
-            group_attachment_span(brace_group.as_slice(), facts.source_map(), '{', '}')
-                .expect("expected brace group attachment span");
+        let brace_group = first_brace_group(&file);
+        let attachment = group_attachment_source(source, &facts, brace_group, '{', '}');
 
         assert!(!facts.group_was_inline_in_source(brace_group));
-        assert_eq!(attachment_span.slice(source), "{ echo ok; \\\n}");
+        assert_eq!(attachment, "{ echo ok; \\\n}");
     }
 }
