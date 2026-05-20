@@ -1387,39 +1387,27 @@ fn render_word_part(
                                 rendered_start,
                                 raw,
                             );
-                        } else if push_inline_raw_command_substitution_as_block(
-                            rendered, raw, options,
-                        ) {
-                        } else if command_substitution_source_starts_with_body_line(raw)
-                            && !stmt_seq_has_heredoc(body)
-                        {
-                            push_raw_block_command_substitution_without_outer_indent(
+                        } else {
+                            push_raw_command_substitution_comment_fallback(
                                 rendered,
                                 raw,
+                                body,
                                 source,
                                 span.start.offset,
                                 options,
+                                false,
                             );
-                        } else {
-                            push_raw_shell_text_with_normalized_redirect_spacing(rendered, raw);
                         }
-                    } else if push_inline_raw_command_substitution_as_block(rendered, raw, options)
-                    {
-                    } else if command_substitution_source_starts_with_body_line(raw)
-                        && !stmt_seq_has_heredoc(body)
-                    {
-                        push_raw_block_command_substitution_without_outer_indent(
+                    } else {
+                        push_raw_command_substitution_comment_fallback(
                             rendered,
                             raw,
+                            body,
                             source,
                             span.start.offset,
                             options,
+                            true,
                         );
-                    } else if push_inline_raw_command_substitution_with_normalized_body(
-                        rendered, raw, options,
-                    ) {
-                    } else {
-                        push_raw_shell_text_with_normalized_redirect_spacing(rendered, raw);
                     }
                 } else if let Some(block) =
                     render_inline_raw_command_substitution_as_block(raw, options)
@@ -2034,6 +2022,32 @@ fn compound_contains_comments(command: &CompoundCommand) -> bool {
         CompoundCommand::Coproc(command) => stmt_contains_comments(&command.body),
         CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => false,
     }
+}
+
+fn push_raw_command_substitution_comment_fallback(
+    rendered: &mut String,
+    raw: &str,
+    body: &shuck_ast::StmtSeq,
+    source: &str,
+    span_start: usize,
+    options: &ResolvedShellFormatOptions,
+    try_normalized_body: bool,
+) {
+    if push_inline_raw_command_substitution_as_block(rendered, raw, options) {
+        return;
+    }
+    if command_substitution_source_starts_with_body_line(raw) && !stmt_seq_has_heredoc(body) {
+        push_raw_block_command_substitution_without_outer_indent(
+            rendered, raw, source, span_start, options,
+        );
+        return;
+    }
+    if try_normalized_body
+        && push_inline_raw_command_substitution_with_normalized_body(rendered, raw, options)
+    {
+        return;
+    }
+    push_raw_shell_text_with_normalized_redirect_spacing(rendered, raw);
 }
 
 #[allow(clippy::too_many_arguments)]
