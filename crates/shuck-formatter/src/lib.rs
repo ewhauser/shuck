@@ -620,6 +620,30 @@ mod tests {
         };
     }
 
+    macro_rules! format_cases_with_options {
+        ($($name:ident: $options:expr, $source:expr $(,)? => $expected:expr;)+) => {
+            $(
+                #[test]
+                fn $name() {
+                    let options = $options;
+                    assert_formats_to($source, None, &options, $expected);
+                }
+            )+
+        };
+    }
+
+    macro_rules! unchanged_cases_with_options {
+        ($($name:ident: $options:expr, $source:expr $(,)?;)+) => {
+            $(
+                #[test]
+                fn $name() {
+                    let options = $options;
+                    assert_unchanged($source, None, &options);
+                }
+            )+
+        };
+    }
+
     fn lint_source_posix_strict(source: &str, path: &Path) -> Vec<Diagnostic> {
         let parse_result = Parser::with_dialect(source, ParseShellDialect::Posix).parse();
         assert!(
@@ -908,9 +932,10 @@ mod tests {
             => "if true; then\n\tcat <<EOF | openssl req -new -key \"$key\" \\\n\t\t-x509 \\\n\t\t-out \"$cert\"\nbody\nEOF\nfi\n";
     }
 
-    #[test]
-    fn preserves_quoted_heredoc_delimiters_idempotently() {
-        assert_default_idempotent("cat <<'EOF_264'\ndelta\nEOF_264\n", "quoted_heredoc.sh");
+    default_idempotent_cases! {
+        preserves_quoted_heredoc_delimiters_idempotently:
+            "cat <<'EOF_264'\ndelta\nEOF_264\n",
+            "quoted_heredoc.sh";
     }
 
     default_format_cases! {
@@ -1518,16 +1543,10 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "echo $(($(echo \"$speed\" | cut -d'k' -f1) * 1024))\nborder=$(($(_system uptime days) * 3)) # daily\n";
     }
 
-    #[test]
-    fn keeps_array_subscript_arithmetic_compact_like_shfmt() {
-        let source = "x=${arr[$REPLY-1]}\ny=${arr[$(shuf -i 0-${#arr[@]} -n1) - 1]}\necho $((arr[i+1]*2))\necho $((a-1))\n";
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &ShellFormatOptions::default(),
-            "x=${arr[$REPLY-1]}\ny=${arr[$(shuf -i 0-${#arr[@]} -n1)-1]}\necho $((arr[i+1] * 2))\necho $((a - 1))\n",
-        );
+    default_format_ast_cases! {
+        keeps_array_subscript_arithmetic_compact_like_shfmt:
+            "x=${arr[$REPLY-1]}\ny=${arr[$(shuf -i 0-${#arr[@]} -n1) - 1]}\necho $((arr[i+1]*2))\necho $((a-1))\n"
+            => "x=${arr[$REPLY-1]}\ny=${arr[$(shuf -i 0-${#arr[@]} -n1)-1]}\necho $((arr[i+1] * 2))\necho $((a - 1))\n";
     }
 
     bash_format_ast_cases! {
@@ -2696,16 +2715,11 @@ function R() {
             => "f() {\n\tlocal options=(\n\t\t1 \"Short\"\n\t\t\"First line\n\nliteral continuation\"\n\t)\n}\n";
     }
 
-    #[test]
-    fn binary_next_line_pipeline_keeps_heredoc_body_unindented() {
-        let options = ShellFormatOptions::default().with_binary_next_line(true);
-
-        assert_formats_to(
+    format_cases_with_options! {
+        binary_next_line_pipeline_keeps_heredoc_body_unindented:
+            ShellFormatOptions::default().with_binary_next_line(true),
             "cat foo | \\\ncat<<EOF\nhello\nEOF\n",
-            None,
-            &options,
-            "cat foo \\\n\t| cat <<EOF\nhello\nEOF\n",
-        );
+            => "cat foo \\\n\t| cat <<EOF\nhello\nEOF\n";
     }
 
     default_format_ast_cases! {
@@ -2714,31 +2728,21 @@ function R() {
             => "case $mode in\nnew)\n\tcat >$file <<-EOF\n\t\tbody\n\tEOF\n\t;;\nesac\n";
     }
 
-    #[test]
-    fn binary_next_line_does_not_force_single_line_pipelines_to_wrap() {
-        let options = ShellFormatOptions::default().with_binary_next_line(true);
-
-        assert_unchanged("cat foo | cat bar\n", None, &options);
+    unchanged_cases_with_options! {
+        binary_next_line_does_not_force_single_line_pipelines_to_wrap:
+            ShellFormatOptions::default().with_binary_next_line(true),
+            "cat foo | cat bar\n";
     }
 
-    #[test]
-    fn honors_function_next_line_option() {
-        let source = "foo(){\necho hi\n}\n";
-        let options = ShellFormatOptions::default().with_function_next_line(true);
-
-        assert_formats_to(source, None, &options, "foo()\n{\n\techo hi\n}\n");
-    }
-
-    #[test]
-    fn minify_drops_comments_but_preserves_shebang() {
-        let options = ShellFormatOptions::default().with_minify(true);
-
-        assert_formats_to(
+    format_cases_with_options! {
+        honors_function_next_line_option:
+            ShellFormatOptions::default().with_function_next_line(true),
+            "foo(){\necho hi\n}\n"
+            => "foo()\n{\n\techo hi\n}\n";
+        minify_drops_comments_but_preserves_shebang:
+            ShellFormatOptions::default().with_minify(true),
             "#!/bin/bash\necho hi # note\n",
-            None,
-            &options,
-            "#!/bin/bash\necho hi\n",
-        );
+            => "#!/bin/bash\necho hi\n";
     }
 
     default_format_cases! {
@@ -2794,31 +2798,21 @@ function R() {
             "case ${1:-} in '' | *[!0-9]*) return 1 ;; esac\n";
     }
 
-    #[test]
-    fn switch_case_indent_indents_patterns_and_bodies() {
-        let source = "case $x in\na) echo a;;\nesac\n";
-        let options = ShellFormatOptions::default().with_switch_case_indent(true);
-
-        assert_formats_to(
-            source,
-            None,
-            &options,
-            "case $x in\n\ta)\n\t\techo a\n\t\t;;\nesac\n",
-        );
+    format_cases_with_options! {
+        switch_case_indent_indents_patterns_and_bodies:
+            ShellFormatOptions::default().with_switch_case_indent(true),
+            "case $x in\na) echo a;;\nesac\n"
+            => "case $x in\n\ta)\n\t\techo a\n\t\t;;\nesac\n";
+        space_redirects_insert_spaces_between_operator_and_target:
+            ShellFormatOptions::default().with_space_redirects(true),
+            "echo hi>out\n"
+            => "echo hi > out\n";
     }
 
-    #[test]
-    fn space_redirects_insert_spaces_between_operator_and_target() {
-        let options = ShellFormatOptions::default().with_space_redirects(true);
-
-        assert_formats_to("echo hi>out\n", None, &options, "echo hi > out\n");
-    }
-
-    #[test]
-    fn keep_padding_preserves_safe_verbatim_regions() {
-        let options = ShellFormatOptions::default().with_keep_padding(true);
-
-        assert_unchanged("a=1  b=2\n", None, &options);
+    unchanged_cases_with_options! {
+        keep_padding_preserves_safe_verbatim_regions:
+            ShellFormatOptions::default().with_keep_padding(true),
+            "a=1  b=2\n";
     }
 
     #[test]
@@ -2843,16 +2837,11 @@ function R() {
         assert!(!source_is_formatted(source, Some(Path::new("test.sh")), &options).unwrap());
     }
 
-    #[test]
-    fn never_split_prefers_compact_layouts() {
-        let options = ShellFormatOptions::default().with_never_split(true);
-
-        assert_formats_to(
+    format_cases_with_options! {
+        never_split_prefers_compact_layouts:
+            ShellFormatOptions::default().with_never_split(true),
             "if true; then\necho hi\nfi\n",
-            None,
-            &options,
-            "if true; then echo hi; fi\n",
-        );
+            => "if true; then echo hi; fi\n";
     }
 
     #[test]
@@ -2916,15 +2905,10 @@ print hidden &!
         assert_unchanged_with_ast(source, Some(Path::new("script.zsh")), &options);
     }
 
-    #[test]
-    fn mksh_dialect_formats_select_commands() {
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Mksh);
-
-        assert_unchanged(
-            "select name in foo; do echo \"$name\"; done\n",
-            None,
-            &options,
-        );
+    unchanged_cases_with_options! {
+        mksh_dialect_formats_select_commands:
+            ShellFormatOptions::default().with_dialect(ShellDialect::Mksh),
+            "select name in foo; do echo \"$name\"; done\n";
     }
 
     #[test]
@@ -2953,10 +2937,9 @@ print hidden &!
         }
     }
 
-    #[test]
-    fn preserves_prefix_match_selector_kind_when_formatting() {
-        let source = "printf '%s\\n' \"${!prefix@}\" \"${!prefix*}\"\n";
-        assert_default_unchanged_with_ast(source);
+    default_unchanged_ast_cases! {
+        preserves_prefix_match_selector_kind_when_formatting:
+            "printf '%s\\n' \"${!prefix@}\" \"${!prefix*}\"\n";
     }
 
     #[test]
