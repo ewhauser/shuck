@@ -10,7 +10,7 @@ use shuck_ast::{
 };
 use shuck_ast::{TextRange, TextSize};
 use shuck_format::LineEnding;
-use shuck_indexer::{CommentIndex, IndexedComment, Indexer, LineIndex};
+use shuck_indexer::{CommentIndex, IndexedComment, Indexer, IndexerOptions, LineIndex};
 
 use crate::command::{
     array_elem_parts, branch_open_keyword_start, builtin_like_parts, case_item_body_upper_bound,
@@ -163,7 +163,11 @@ impl<'source> FormatterFacts<'source> {
         file: &File,
         options: &ResolvedShellFormatOptions,
     ) -> Self {
-        let indexer = Indexer::for_file(source, file);
+        let indexer = Indexer::for_file_with_options(
+            source,
+            file,
+            IndexerOptions::new().with_source_layout_indexes(true),
+        );
         FormatterFactsBuilder::new(source, options, indexer).build(file)
     }
 
