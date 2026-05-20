@@ -96,47 +96,41 @@ fn rewrite_file_source_texts(
 }
 
 fn rewrite_conditionals(file: &mut File, source: &str) -> usize {
-    walk_stmts(file, source, &mut |stmt, source| match &mut stmt.command {
-        Command::Compound(CompoundCommand::Conditional(conditional)) => {
-            simplify_conditional_command(conditional, source)
-        }
-        _ => 0,
-    })
+    walk_stmt_seq(
+        &mut file.body,
+        source,
+        &mut |stmt, source| match &mut stmt.command {
+            Command::Compound(CompoundCommand::Conditional(conditional)) => {
+                simplify_conditional_command(conditional, source)
+            }
+            _ => 0,
+        },
+        &mut |_| 0,
+    )
 }
 
 fn rewrite_nested_subshells(file: &mut File, source: &str) -> usize {
-    walk_stmts(file, source, &mut |stmt, source| {
-        let mut changes = 0;
-        if let Command::Compound(CompoundCommand::Subshell(commands)) = &mut stmt.command
-            && !stmt.negated
-            && stmt.redirects.is_empty()
-            && stmt.terminator.is_none()
-        {
-            changes += collapse_nested_subshell_sequence(commands);
-        }
-
-        changes += rewrite_stmt_words(stmt, source, &mut |word, _source| {
-            let mut word_changes = 0;
-            for part in &mut word.parts {
-                match &mut part.kind {
-                    WordPart::CommandSubstitution { body, .. }
-                    | WordPart::ProcessSubstitution { body, .. } => {
-                        word_changes += collapse_nested_subshell_sequence(body);
-                    }
-                    _ => {}
-                }
+    walk_stmt_seq(
+        &mut file.body,
+        source,
+        &mut |stmt, _source| {
+            let mut changes = 0;
+            if let Command::Compound(CompoundCommand::Subshell(commands)) = &mut stmt.command
+                && !stmt.negated
+                && stmt.redirects.is_empty()
+                && stmt.terminator.is_none()
+            {
+                changes += collapse_nested_subshell_sequence(commands);
             }
-            word_changes
-        });
-        changes
-    })
+            changes
+        },
+        &mut collapse_nested_subshells_in_word,
+    )
 }
 
 fn rewrite_quote_tightening(file: &mut File, source: &str) -> usize {
-    walk_stmts(file, source, &mut |stmt, source| {
-        rewrite_stmt_words(stmt, source, &mut |word, source| {
-            tighten_literal_quotes(word, source)
-        })
+    walk_stmt_seq(&mut file.body, source, &mut |_, _| 0, &mut |word| {
+        tighten_literal_quotes(word, source)
     })
 }
 
@@ -167,12 +161,15 @@ fn collapse_nested_subshell_sequence(commands: &mut StmtSeq) -> usize {
     changes
 }
 
-fn walk_stmts(
-    file: &mut File,
-    source: &str,
-    visitor: &mut impl FnMut(&mut Stmt, &str) -> usize,
-) -> usize {
-    walk_stmt_seq(&mut file.body, source, visitor, &mut |_| 0)
+fn collapse_nested_subshells_in_word(word: &mut Word) -> usize {
+    word.parts
+        .iter_mut()
+        .map(|part| match &mut part.kind {
+            WordPart::CommandSubstitution { body, .. }
+            | WordPart::ProcessSubstitution { body, .. } => collapse_nested_subshell_sequence(body),
+            _ => 0,
+        })
+        .sum()
 }
 
 fn walk_stmt_seq(
@@ -433,16 +430,6 @@ fn walk_redirect(
                 + walk_heredoc_body(&mut heredoc.body, source, word_visitor)
         }
     }
-}
-
-fn rewrite_stmt_words(
-    stmt: &mut Stmt,
-    source: &str,
-    visitor: &mut impl FnMut(&mut Word, &str) -> usize,
-) -> usize {
-    let mut stmt_visitor = |_: &mut Stmt, _: &str| 0;
-    let mut word_visitor = |word: &mut Word| visitor(word, source);
-    walk_stmt(stmt, source, &mut stmt_visitor, &mut word_visitor)
 }
 
 fn walk_var_ref(
