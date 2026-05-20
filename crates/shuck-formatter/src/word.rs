@@ -1505,19 +1505,13 @@ fn render_word_part(
             options,
         )?,
         WordPart::Length(reference) | WordPart::ArrayLength(reference) => {
-            rendered.push_str("${#");
-            push_var_ref(rendered, reference, source, options);
-            rendered.push('}');
+            push_braced_var_ref(rendered, "#", reference, source, options);
         }
         WordPart::ArrayAccess(reference) => {
-            rendered.push_str("${");
-            push_var_ref(rendered, reference, source, options);
-            rendered.push('}');
+            push_braced_var_ref(rendered, "", reference, source, options);
         }
         WordPart::ArrayIndices(reference) => {
-            rendered.push_str("${!");
-            push_var_ref(rendered, reference, source, options);
-            rendered.push('}');
+            push_braced_var_ref(rendered, "!", reference, source, options);
         }
         WordPart::Substring {
             reference,
@@ -1580,6 +1574,19 @@ fn render_word_part(
     }
 
     Ok(())
+}
+
+fn push_braced_var_ref(
+    rendered: &mut String,
+    prefix: &str,
+    reference: &VarRef,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+) {
+    rendered.push_str("${");
+    rendered.push_str(prefix);
+    push_var_ref(rendered, reference, source, options);
+    rendered.push('}');
 }
 
 fn literal_ends_with_line_indent_for_word_part(literal: &str) -> bool {
@@ -5749,19 +5756,13 @@ fn push_parameter_word(
 
     match syntax {
         BourneParameterExpansion::Access { reference } => {
-            rendered.push_str("${");
-            push_var_ref(rendered, reference, source, options);
-            rendered.push('}');
+            push_braced_var_ref(rendered, "", reference, source, options);
         }
         BourneParameterExpansion::Length { reference } => {
-            rendered.push_str("${#");
-            push_var_ref(rendered, reference, source, options);
-            rendered.push('}');
+            push_braced_var_ref(rendered, "#", reference, source, options);
         }
         BourneParameterExpansion::Indices { reference } => {
-            rendered.push_str("${!");
-            push_var_ref(rendered, reference, source, options);
-            rendered.push('}');
+            push_braced_var_ref(rendered, "!", reference, source, options);
         }
         BourneParameterExpansion::Indirect {
             reference,
@@ -6004,20 +6005,18 @@ fn render_parameter_expansion(
                 push_parameter_operand(rendered, operand, source, options);
             }
         }
-        ParameterOp::RemovePrefixShort { pattern } => {
-            rendered.push('#');
-            render_pattern_syntax_to_buf(pattern, source, options, rendered);
-        }
-        ParameterOp::RemovePrefixLong { pattern } => {
-            rendered.push_str("##");
-            render_pattern_syntax_to_buf(pattern, source, options, rendered);
-        }
-        ParameterOp::RemoveSuffixShort { pattern } => {
-            rendered.push('%');
-            render_pattern_syntax_to_buf(pattern, source, options, rendered);
-        }
-        ParameterOp::RemoveSuffixLong { pattern } => {
-            rendered.push_str("%%");
+        ParameterOp::RemovePrefixShort { pattern }
+        | ParameterOp::RemovePrefixLong { pattern }
+        | ParameterOp::RemoveSuffixShort { pattern }
+        | ParameterOp::RemoveSuffixLong { pattern } => {
+            let removal_operator = match operator {
+                ParameterOp::RemovePrefixShort { .. } => "#",
+                ParameterOp::RemovePrefixLong { .. } => "##",
+                ParameterOp::RemoveSuffixShort { .. } => "%",
+                ParameterOp::RemoveSuffixLong { .. } => "%%",
+                _ => unreachable!(),
+            };
+            rendered.push_str(removal_operator);
             render_pattern_syntax_to_buf(pattern, source, options, rendered);
         }
         ParameterOp::ReplaceFirst {
