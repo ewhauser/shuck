@@ -13,11 +13,12 @@ use shuck_indexer::Indexer;
 
 use crate::command::{
     array_elem_parts, case_item_body_upper_bound, case_item_was_inline_in_source,
-    command_group_commands, done_close_span, group_attachment_span, group_open_suffix,
-    group_was_inline_in_source, if_close_span, if_next_branch_region_with_body_end,
-    matching_group_close, rendered_stmt_end_line, should_render_verbatim, stmt_attachment_span,
-    stmt_format_span, stmt_has_trailing_comment, stmt_render_start_line, stmt_span,
-    stmt_start_after_operator, stmt_verbatim_span_with_source_map,
+    collect_pipeline_parts, command_group_commands, done_close_span, group_attachment_span,
+    group_open_suffix, group_was_inline_in_source, if_close_span,
+    if_next_branch_region_with_body_end, matching_group_close, rendered_stmt_end_line,
+    should_render_verbatim, stmt_attachment_span, stmt_format_span, stmt_has_trailing_comment,
+    stmt_render_start_line, stmt_span, stmt_start_after_operator,
+    stmt_verbatim_span_with_source_map,
 };
 use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_window};
 use crate::options::ResolvedShellFormatOptions;
@@ -1213,7 +1214,9 @@ fn pipeline_has_explicit_line_break(
 ) -> bool {
     let mut statements = Vec::new();
     let mut operators = Vec::new();
-    collect_pipeline(pipeline, &mut statements, &mut operators);
+    collect_pipeline_parts(pipeline, &mut statements, &mut operators, &|command| {
+        command.op_span
+    });
 
     for (statement, operator_span) in statements.iter().skip(1).zip(operators.iter()) {
         let next_start =
@@ -1226,33 +1229,6 @@ fn pipeline_has_explicit_line_break(
     }
 
     false
-}
-
-fn collect_pipeline<'a>(
-    command: &'a BinaryCommand,
-    statements: &mut Vec<&'a Stmt>,
-    operators: &mut Vec<Span>,
-) {
-    collect_pipeline_stmt(command.left.as_ref(), statements, operators);
-    operators.push(command.op_span);
-    collect_pipeline_stmt(command.right.as_ref(), statements, operators);
-}
-
-fn collect_pipeline_stmt<'a>(
-    stmt: &'a Stmt,
-    statements: &mut Vec<&'a Stmt>,
-    operators: &mut Vec<Span>,
-) {
-    if let Command::Binary(binary) = &stmt.command
-        && stmt.redirects.is_empty()
-        && !stmt.negated
-        && stmt.terminator.is_none()
-        && matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll)
-    {
-        collect_pipeline(binary, statements, operators);
-    } else {
-        statements.push(stmt);
-    }
 }
 
 fn branch_open_suffix_span(

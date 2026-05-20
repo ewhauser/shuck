@@ -16,8 +16,9 @@ use shuck_format::{IndentStyle, LineEnding};
 use crate::Result;
 use crate::command::{
     array_elem_parts, binary_operator, case_item_body_upper_bound, case_terminator,
-    command_format_span, command_group_commands, done_close_span as command_done_close_span,
-    format_arithmetic_command_source, format_arithmetic_for_clause_source, group_attachment_span,
+    collect_pipeline_parts, command_format_span, command_group_commands,
+    done_close_span as command_done_close_span, format_arithmetic_command_source,
+    format_arithmetic_for_clause_source, group_attachment_span,
     if_close_span as command_if_close_span, if_next_branch_region_with_body_end,
     line_gap_break_count, line_has_unclosed_command_substitution_open, matching_group_close,
     multiline_compound_assignment_command_substitution_body_prefix,
@@ -2066,7 +2067,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     fn format_pipeline(&mut self, pipeline: &BinaryCommand) -> Result<()> {
         let mut statements = Vec::new();
         let mut operators = Vec::new();
-        collect_pipeline(pipeline, &mut statements, &mut operators);
+        collect_pipeline_parts(pipeline, &mut statements, &mut operators, &|command| {
+            (command.op, command.op_span)
+        });
 
         let mut operator_breaks =
             pipeline_operator_breaks(&statements, &operators, self.source(), self.source_map());
@@ -7577,33 +7580,6 @@ fn starts_with_outdent_preserving_close_keyword(text: &str) -> bool {
                 .is_none_or(|ch| !ch.is_ascii_alphanumeric() && ch != '_')
         })
     })
-}
-
-fn collect_pipeline<'a>(
-    command: &'a BinaryCommand,
-    statements: &mut Vec<&'a Stmt>,
-    operators: &mut Vec<(BinaryOp, Span)>,
-) {
-    collect_pipeline_stmt(&command.left, statements, operators);
-    operators.push((command.op, command.op_span));
-    collect_pipeline_stmt(&command.right, statements, operators);
-}
-
-fn collect_pipeline_stmt<'a>(
-    stmt: &'a Stmt,
-    statements: &mut Vec<&'a Stmt>,
-    operators: &mut Vec<(BinaryOp, Span)>,
-) {
-    if let Command::Binary(binary) = &stmt.command
-        && stmt.redirects.is_empty()
-        && !stmt.negated
-        && stmt.terminator.is_none()
-        && matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll)
-    {
-        collect_pipeline(binary, statements, operators);
-    } else {
-        statements.push(stmt);
-    }
 }
 
 fn stmt_is_pipeline(stmt: &Stmt) -> bool {

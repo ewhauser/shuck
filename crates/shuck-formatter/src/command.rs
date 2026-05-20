@@ -13,10 +13,10 @@ use crate::word::{
 };
 use shuck_ast::{
     AnonymousFunctionCommand, ArithmeticExprNode, ArrayElem, Assignment, AssignmentValue,
-    BackgroundOperator, BuiltinCommand, CaseItem, CaseTerminator, Command, CompoundCommand,
-    DeclClause, DeclOperand, ForSyntax, ForeachSyntax, FunctionDef, IfCommand, IfSyntax, Redirect,
-    RedirectKind, RepeatSyntax, SimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator,
-    Subscript, VarRef, Word, WordPart,
+    BackgroundOperator, BinaryCommand, BuiltinCommand, CaseItem, CaseTerminator, Command,
+    CompoundCommand, DeclClause, DeclOperand, ForSyntax, ForeachSyntax, FunctionDef, IfCommand,
+    IfSyntax, Redirect, RedirectKind, RepeatSyntax, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
+    StmtTerminator, Subscript, VarRef, Word, WordPart,
 };
 
 pub(crate) fn array_elem_parts(element: &ArrayElem) -> (Option<&Subscript>, &Word, &'static str) {
@@ -1087,6 +1087,46 @@ pub(crate) fn if_next_branch_region_with_body_end(
                     .unwrap_or(body.span.start.offset);
             (current_branch_end, keyword)
         })
+    } else {
+        None
+    }
+}
+
+pub(crate) fn collect_pipeline_parts<'a, T>(
+    command: &'a BinaryCommand,
+    statements: &mut Vec<&'a Stmt>,
+    operators: &mut Vec<T>,
+    operator_for: &impl Fn(&BinaryCommand) -> T,
+) {
+    collect_pipeline_stmt_parts(command.left.as_ref(), statements, operators, operator_for);
+    operators.push(operator_for(command));
+    collect_pipeline_stmt_parts(command.right.as_ref(), statements, operators, operator_for);
+}
+
+fn collect_pipeline_stmt_parts<'a, T>(
+    stmt: &'a Stmt,
+    statements: &mut Vec<&'a Stmt>,
+    operators: &mut Vec<T>,
+    operator_for: &impl Fn(&BinaryCommand) -> T,
+) {
+    if let Some(binary) = stmt_plain_pipeline_binary(stmt) {
+        collect_pipeline_parts(binary, statements, operators, operator_for);
+    } else {
+        statements.push(stmt);
+    }
+}
+
+fn stmt_plain_pipeline_binary(stmt: &Stmt) -> Option<&BinaryCommand> {
+    if let Command::Binary(binary) = &stmt.command
+        && stmt.redirects.is_empty()
+        && !stmt.negated
+        && stmt.terminator.is_none()
+        && matches!(
+            binary.op,
+            shuck_ast::BinaryOp::Pipe | shuck_ast::BinaryOp::PipeAll
+        )
+    {
+        Some(binary)
     } else {
         None
     }
