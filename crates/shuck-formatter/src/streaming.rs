@@ -3288,47 +3288,38 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn format_while(&mut self, command: &WhileCommand) -> Result<()> {
-        let close_span =
-            command_done_close_span(self.source(), self.source_map(), command.span, None);
-        if loop_condition_starts_after_keyword(&command.condition, command.span)
-            || loop_condition_has_multiple_commands(&command.condition)
-        {
-            self.write_text("while");
-            self.newline();
-            let condition_upper_bound =
-                branch_open_keyword_start(&command.body, self.source(), "do");
-            self.with_indent(|formatter| {
-                formatter.format_stmt_sequence(&command.condition, condition_upper_bound)
-            })?;
-            self.newline();
-            return self.format_split_do_done_body(&command.body, command.span, close_span, "done");
-        }
-
-        self.write_text("while ");
-        self.format_inline_stmts(&command.condition)?;
-        self.format_do_done_body(&command.body, command.span, close_span, "done")
+        self.format_loop("while", &command.condition, &command.body, command.span)
     }
 
     fn format_until(&mut self, command: &UntilCommand) -> Result<()> {
-        let close_span =
-            command_done_close_span(self.source(), self.source_map(), command.span, None);
-        if loop_condition_starts_after_keyword(&command.condition, command.span)
-            || loop_condition_has_multiple_commands(&command.condition)
+        self.format_loop("until", &command.condition, &command.body, command.span)
+    }
+
+    fn format_loop(
+        &mut self,
+        keyword: &'static str,
+        condition: &StmtSeq,
+        body: &StmtSeq,
+        span: Span,
+    ) -> Result<()> {
+        let close_span = command_done_close_span(self.source(), self.source_map(), span, None);
+        if loop_condition_starts_after_keyword(condition, span)
+            || loop_condition_has_multiple_commands(condition)
         {
-            self.write_text("until");
+            self.write_text(keyword);
             self.newline();
-            let condition_upper_bound =
-                branch_open_keyword_start(&command.body, self.source(), "do");
+            let condition_upper_bound = branch_open_keyword_start(body, self.source(), "do");
             self.with_indent(|formatter| {
-                formatter.format_stmt_sequence(&command.condition, condition_upper_bound)
+                formatter.format_stmt_sequence(condition, condition_upper_bound)
             })?;
             self.newline();
-            return self.format_split_do_done_body(&command.body, command.span, close_span, "done");
+            return self.format_split_do_done_body(body, span, close_span, "done");
         }
 
-        self.write_text("until ");
-        self.format_inline_stmts(&command.condition)?;
-        self.format_do_done_body(&command.body, command.span, close_span, "done")
+        self.write_text(keyword);
+        self.write_space();
+        self.format_inline_stmts(condition)?;
+        self.format_do_done_body(body, span, close_span, "done")
     }
 
     fn format_case(&mut self, command: &CaseCommand) -> Result<()> {

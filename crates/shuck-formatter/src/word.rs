@@ -10,7 +10,7 @@ use shuck_ast::{
 };
 use shuck_format::IndentStyle;
 
-use crate::command::stmt_seq_has_heredoc;
+use crate::command::{stmt_seq_has_heredoc, trim_unescaped_trailing_whitespace};
 use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
@@ -6525,29 +6525,4 @@ fn raw_contains_double_backslash_outside_single_quotes(raw: &str) -> bool {
     }
 
     false
-}
-
-fn trim_unescaped_trailing_whitespace(text: &str) -> &str {
-    let mut end = text.len();
-    while end > 0 {
-        let Some((whitespace_start, ch)) = text[..end].char_indices().next_back() else {
-            break;
-        };
-        if !ch.is_whitespace() {
-            break;
-        }
-
-        let backslash_count = text.as_bytes()[..whitespace_start]
-            .iter()
-            .rev()
-            .take_while(|byte| **byte == b'\\')
-            .count();
-        if backslash_count % 2 == 1 {
-            break;
-        }
-
-        end = whitespace_start;
-    }
-
-    &text[..end]
 }
