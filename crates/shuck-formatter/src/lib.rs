@@ -711,14 +711,10 @@ mod tests {
     #[test]
     fn preserves_comments_inside_elif_bodies() {
         let source = "foo() {\nif a; then\none\nelif b; then\n# note\n two\nfi\n}\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "foo() {\n\tif a; then\n\t\tone\n\telif b; then\n\t\t# note\n\t\ttwo\n\tfi\n}\n"
-                    .to_string()
-            )
+        assert_formats(
+            source,
+            "foo() {\n\tif a; then\n\t\tone\n\telif b; then\n\t\t# note\n\t\ttwo\n\tfi\n}\n",
         );
     }
 
@@ -727,10 +723,7 @@ mod tests {
         let source = "f() {\n\tif\n\t\t[[ -n \"${GEM_HOME:-}\" ]]\n\tthen\n\t\tcase \"$PATH:\" in\n\t\t$GEM_HOME/bin:*) true ;; # all fine\n\t\t*)\n\t\t\t# body note\n\t\t\twarn\n\t\t\t;;\n\t\tesac\n\tfi\n}\n\n# marker\ng() { :; }\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
+        assert_unchanged(source, None, &options);
         assert_source_and_ast_paths_match(source, None, &options);
     }
 
@@ -740,12 +733,11 @@ mod tests {
             "if [ $size != scalable ]; then\n  ex=png\n  size=${size}x${size}\nelse ex=svg; fi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if [ $size != scalable ]; then\n\tex=png\n\tsize=${size}x${size}\nelse ex=svg; fi\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "if [ $size != scalable ]; then\n\tex=png\n\tsize=${size}x${size}\nelse ex=svg; fi\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -755,12 +747,11 @@ mod tests {
         let source = "if a; then\none\n# next branch\n# still next branch\nelif b; then\ntwo\n# final branch\nelse\nthree\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if a; then\n\tone\n# next branch\n# still next branch\nelif b; then\n\ttwo\n# final branch\nelse\n\tthree\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "if a; then\n\tone\n# next branch\n# still next branch\nelif b; then\n\ttwo\n# final branch\nelse\n\tthree\nfi\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -770,12 +761,11 @@ mod tests {
         let source = "if foo; then\n  :\nelse # branch\n  if [[ \"$x\" =~ y ]]\n  then # nested\n    :\n  fi\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if foo; then\n\t:\nelse                      # branch\n\tif [[ \"$x\" =~ y ]]; then # nested\n\t\t:\n\tfi\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "if foo; then\n\t:\nelse                      # branch\n\tif [[ \"$x\" =~ y ]]; then # nested\n\t\t:\n\tfi\nfi\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -785,12 +775,11 @@ mod tests {
         let source = "if a; then\n  one\nelse\n# disabled pre\n#if b; then\n#else\n  two\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if a; then\n\tone\nelse\n\t# disabled pre\n\t#if b; then\n\t#else\n\ttwo\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "if a; then\n\tone\nelse\n\t# disabled pre\n\t#if b; then\n\t#else\n\ttwo\nfi\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -800,11 +789,11 @@ mod tests {
         let source = "if a; then\none\n  # still body context\nelif b; then\ntwo\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if a; then\n\tone\n\t# still body context\nelif b; then\n\ttwo\nfi\n".to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "if a; then\n\tone\n\t# still body context\nelif b; then\n\ttwo\nfi\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -814,12 +803,11 @@ mod tests {
         let source = "if a; then\none\n\n#elif disabled; then\n    #cmd one\n    # note\n    #cmd two\n\nelif b; then\ntwo\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if a; then\n\tone\n\n\t#elif disabled; then\n\t#cmd one\n\t# note\n\t#cmd two\n\nelif b; then\n\ttwo\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "if a; then\n\tone\n\n\t#elif disabled; then\n\t#cmd one\n\t# note\n\t#cmd two\n\nelif b; then\n\ttwo\nfi\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -829,12 +817,11 @@ mod tests {
         let source = "if [ -d \"$source_dir\" ]; then\n  if ! mkdir -p \"$target_dir\"; then\n    return 1\n  fi\n# if instead it is a file\nelif [ -f \"$source_dir\" ]; then\n  touch \"$target_dir\"\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if [ -d \"$source_dir\" ]; then\n\tif ! mkdir -p \"$target_dir\"; then\n\t\treturn 1\n\tfi\n# if instead it is a file\nelif [ -f \"$source_dir\" ]; then\n\ttouch \"$target_dir\"\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "if [ -d \"$source_dir\" ]; then\n\tif ! mkdir -p \"$target_dir\"; then\n\t\treturn 1\n\tfi\n# if instead it is a file\nelif [ -f \"$source_dir\" ]; then\n\ttouch \"$target_dir\"\nfi\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -844,29 +831,20 @@ mod tests {
         let source = "if a; then\none\nelif\n# explain\n [[ b ]]; then\ntwo\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if a; then\n\tone\nelif\n\t# explain\n\t[[ b ]]\nthen\n\ttwo\nfi\n".to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "if a; then\n\tone\nelif\n\t# explain\n\t[[ b ]]\nthen\n\ttwo\nfi\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
     fn preserves_comments_after_if_blocks() {
-        let formatted = format_source(
+        assert_formats(
             "if true; then\necho hi\nfi\n# after\necho bye\n",
-            None,
-            &ShellFormatOptions::default(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "if true; then\n\techo hi\nfi\n# after\necho bye\n".to_string()
-            )
+            "if true; then\n\techo hi\nfi\n# after\necho bye\n",
         );
     }
 
@@ -876,12 +854,11 @@ mod tests {
             "if true; then\n  ls today && {\n    log done\n#\t\tcontinue\n  }\n\n  rm next\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\tls today && {\n\t\tlog done\n\t\t#\t\tcontinue\n\t}\n\n\trm next\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "if true; then\n\tls today && {\n\t\tlog done\n\t\t#\t\tcontinue\n\t}\n\n\trm next\nfi\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -891,11 +868,11 @@ mod tests {
         let source = "main() {\n  [[ ! -f $ok ]] && {\n    err missing\n  }\n  next\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "main() {\n\t[[ ! -f $ok ]] && {\n\t\terr missing\n\t}\n\tnext\n}\n".to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "main() {\n\t[[ ! -f $ok ]] && {\n\t\terr missing\n\t}\n\tnext\n}\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -906,12 +883,11 @@ mod tests {
             "if [[ -n $DEBUG ]]; then\n  {\n    # one\n    # two\n    echo hi\n  } >&2\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if [[ -n $DEBUG ]]; then\n\t{\n\t\t# one\n\t\t# two\n\t\techo hi\n\t} >&2\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "if [[ -n $DEBUG ]]; then\n\t{\n\t\t# one\n\t\t# two\n\t\techo hi\n\t} >&2\nfi\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -921,25 +897,20 @@ mod tests {
         let source = "[ $ok ] && {\t\t# ready\n  echo hi\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("[ $ok ] && { # ready\n\techo hi\n}\n".to_string())
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "[ $ok ] && { # ready\n\techo hi\n}\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
     fn preserves_comments_after_function_blocks() {
-        let formatted = format_source(
+        assert_formats(
             "foo() {\necho hi\n}\n# after\nbar\n",
-            None,
-            &ShellFormatOptions::default(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("foo() {\n\techo hi\n}\n# after\nbar\n".to_string())
+            "foo() {\n\techo hi\n}\n# after\nbar\n",
         );
     }
 
@@ -948,9 +919,11 @@ mod tests {
         let source = "foo() # header comment\n{\n  echo hi\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("foo() { # header comment\n\techo hi\n}\n".to_string())
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "foo() { # header comment\n\techo hi\n}\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -960,9 +933,11 @@ mod tests {
         let source = "foo()\t\t# header comment\n{\n  echo hi\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("foo() { # header comment\n\techo hi\n}\n".to_string())
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "foo() { # header comment\n\techo hi\n}\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -972,12 +947,11 @@ mod tests {
         let source = "_olsr_uptime()\t\t\t# in seconds\n{\n  local option=\"$1\"\t# string option\n  local funcname='olsr_uptime'\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "_olsr_uptime() {   # in seconds\n\tlocal option=\"$1\" # string option\n\tlocal funcname='olsr_uptime'\n}\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "_olsr_uptime() {   # in seconds\n\tlocal option=\"$1\" # string option\n\tlocal funcname='olsr_uptime'\n}\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -987,12 +961,11 @@ mod tests {
         let source = "foo()\t\t# header\n{\n#\tlocal mac=\"$1\"\n\tlocal minute=\"${MINUTE:-$( date +%H )}\"\t\t# built during taskplanner: 00...23\n\tlocal hour=\"${HOUR:-$( date +%M )}\"\t\t# built during taskplanner: 00...59\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "foo() { # header\n\t#\tlocal mac=\"$1\"\n\tlocal minute=\"${MINUTE:-$(date +%H)}\" # built during taskplanner: 00...23\n\tlocal hour=\"${HOUR:-$(date +%M)}\"     # built during taskplanner: 00...59\n}\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "foo() { # header\n\t#\tlocal mac=\"$1\"\n\tlocal minute=\"${MINUTE:-$(date +%H)}\" # built during taskplanner: 00...23\n\tlocal hour=\"${HOUR:-$(date +%M)}\"     # built during taskplanner: 00...59\n}\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -1002,9 +975,11 @@ mod tests {
         let source = "foo () # header\n{\n  a=1 # body\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("foo() { # header\n\ta=1    # body\n}\n".to_string())
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "foo() { # header\n\ta=1    # body\n}\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -1014,11 +989,11 @@ mod tests {
         let source = "foo() # header comment\n{ # body comment\n  echo hi\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "foo() { # header comment\n\t# body comment\n\techo hi\n}\n".to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "foo() { # header comment\n\t# body comment\n\techo hi\n}\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -1028,12 +1003,11 @@ mod tests {
         let source = "function is_integer() { # helper function for todo-txt-count\n  [ \"$1\" -eq \"$1\" ] > /dev/null 2>&1\n  return $?\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "function is_integer() { # helper function for todo-txt-count\n\t[ \"$1\" -eq \"$1\" ] >/dev/null 2>&1\n\treturn $?\n}\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "function is_integer() { # helper function for todo-txt-count\n\t[ \"$1\" -eq \"$1\" ] >/dev/null 2>&1\n\treturn $?\n}\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -1043,12 +1017,11 @@ mod tests {
         let source = "foo() # header\n{ # body comment\n  local FILE='/tmp/OLSR/LINKS.sh' # see build_tables()\n  local json=\"$TMPDIR/links.json\" # FIXME! add _speedtest_stats()\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "foo() { # header\n\t# body comment\n\tlocal FILE='/tmp/OLSR/LINKS.sh' # see build_tables()\n\tlocal json=\"$TMPDIR/links.json\" # FIXME! add _speedtest_stats()\n}\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "foo() { # header\n\t# body comment\n\tlocal FILE='/tmp/OLSR/LINKS.sh' # see build_tables()\n\tlocal json=\"$TMPDIR/links.json\" # FIXME! add _speedtest_stats()\n}\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -1058,23 +1031,22 @@ mod tests {
         let source = "foo() {\necho hi\n}\n\n# ex: filetype=sh\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted("foo() {\n\techo hi\n}\n\n# ex: filetype=sh\n".to_string())
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "foo() {\n\techo hi\n}\n\n# ex: filetype=sh\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
     fn preserves_heredoc_trailing_comments_without_duplication() {
-        let formatted = format_source(
+        assert_unchanged(
             "cat <<EOF # note\nhi\nEOF\n",
             None,
             &ShellFormatOptions::default(),
-        )
-        .unwrap();
-
-        assert_eq!(formatted, FormattedSource::Unchanged);
+        );
     }
 
     #[test]
@@ -1083,12 +1055,11 @@ mod tests {
             "f(){\n    cat <<EOF |\nbody\n# heredoc comment\nEOF\n    python #|\n    #sed x\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "f() {\n\tcat <<EOF |\nbody\n# heredoc comment\nEOF\n\t\tpython #|\n\t#sed x\n}\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "f() {\n\tcat <<EOF |\nbody\n# heredoc comment\nEOF\n\t\tpython #|\n\t#sed x\n}\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -1098,12 +1069,11 @@ mod tests {
         let source = "if true; then\ncat << EOF | openssl req -new -key \"$key\" \\\n -x509 \\\n -out \"$cert\"\nbody\nEOF\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\tcat <<EOF | openssl req -new -key \"$key\" \\\n\t\t-x509 \\\n\t\t-out \"$cert\"\nbody\nEOF\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "if true; then\n\tcat <<EOF | openssl req -new -key \"$key\" \\\n\t\t-x509 \\\n\t\t-out \"$cert\"\nbody\nEOF\nfi\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
