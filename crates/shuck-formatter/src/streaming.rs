@@ -453,21 +453,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_indent();
         }
 
-        match self.options.indent_style() {
-            IndentStyle::Tab => {
-                for _ in 0..levels {
-                    self.push_output_char('\t');
-                }
-            }
-            IndentStyle::Space => {
-                for _ in 0..(levels * usize::from(self.options.indent_width())) {
-                    self.push_output_char(' ');
-                }
-            }
-        }
-
-        self.line_indent_column = self.column;
-        self.line_start = false;
+        self.write_indent_columns(self.indent_column_for_level(levels));
     }
 
     fn write_text(&mut self, text: &str) {
@@ -819,21 +805,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return;
         }
 
-        match self.options.indent_style() {
-            IndentStyle::Tab => {
-                for _ in 0..self.indent_level {
-                    self.push_output_char('\t');
-                }
-            }
-            IndentStyle::Space => {
-                for _ in 0..(self.indent_level * usize::from(self.options.indent_width())) {
-                    self.push_output_char(' ');
-                }
-            }
-        }
-
-        self.line_indent_column = self.column;
-        self.line_start = false;
+        self.write_indent_columns(self.indent_column_for_level(self.indent_level));
     }
 
     fn write_indent_to_column(&mut self, column: usize) {
@@ -841,14 +813,18 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return;
         }
 
+        self.write_indent_columns(column);
+    }
+
+    fn write_indent_columns(&mut self, columns: usize) {
         match self.options.indent_style() {
             IndentStyle::Tab => {
-                for _ in 0..column {
+                for _ in 0..columns {
                     self.push_output_char('\t');
                 }
             }
             IndentStyle::Space => {
-                for _ in 0..column {
+                for _ in 0..columns {
                     self.push_output_char(' ');
                 }
             }
