@@ -2386,8 +2386,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.newline();
             }
             self.newline();
-            self.write_text("fi");
-            self.write_close_suffix_after_span(Some(fi_span));
+            self.write_if_close("fi", fi_span);
             return Ok(());
         }
 
@@ -2439,8 +2438,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.newline();
             }
             self.newline();
-            self.write_text("fi");
-            self.write_close_suffix_after_span(Some(fi_span));
+            self.write_if_close("fi", fi_span);
             return Ok(());
         }
 
@@ -2458,8 +2456,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_text(then_separator);
             self.write_space();
             self.format_inline_stmts(&command.then_branch)?;
-            self.write_text("; fi");
-            self.write_close_suffix_after_span(Some(fi_span));
+            self.write_if_close("; fi", fi_span);
             return Ok(());
         }
         if command.elif_branches.is_empty()
@@ -2480,8 +2477,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.format_inline_stmts(&command.then_branch)?;
             self.write_text("; else ");
             self.format_inline_stmts(else_branch)?;
-            self.write_text("; fi");
-            self.write_close_suffix_after_span(Some(fi_span));
+            self.write_if_close("; fi", fi_span);
             return Ok(());
         }
         if command.elif_branches.is_empty()
@@ -2514,8 +2510,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.newline();
             }
             self.newline();
-            self.write_text("fi");
-            self.write_close_suffix_after_span(Some(fi_span));
+            self.write_if_close("fi", fi_span);
             return Ok(());
         }
         if command.elif_branches.is_empty()
@@ -2525,8 +2520,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_text(then_separator);
             self.write_space();
             self.format_stmt(&command.then_branch[0])?;
-            self.write_text("; fi");
-            self.write_close_suffix_after_span(Some(fi_span));
+            self.write_if_close("; fi", fi_span);
             return Ok(());
         }
         if self.can_inline_if_chain(command, fi_span) {
@@ -2544,8 +2538,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.write_text("; else ");
                 self.format_inline_stmts(else_branch)?;
             }
-            self.write_text("; fi");
-            self.write_close_suffix_after_span(Some(fi_span));
+            self.write_if_close("; fi", fi_span);
             return Ok(());
         }
 
@@ -2592,8 +2585,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 if self.can_inline_else_branch_close(command, body, fi_span) {
                     self.write_text("else ");
                     self.format_inline_stmts(body)?;
-                    self.write_text("; fi");
-                    self.write_close_suffix_after_span(Some(fi_span));
+                    self.write_if_close("; fi", fi_span);
                     return Ok(());
                 }
                 self.write_text("else");
@@ -2607,17 +2599,20 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             )?;
         }
         if self.options().compact_layout() {
-            self.write_text("; fi");
-            self.write_close_suffix_after_span(Some(fi_span));
+            self.write_if_close("; fi", fi_span);
         } else {
             if self.if_final_branch_has_blank_line_before_fi(command, then_upper_bound) {
                 self.newline();
             }
             self.newline();
-            self.write_text("fi");
-            self.write_close_suffix_after_span(Some(fi_span));
+            self.write_if_close("fi", fi_span);
         }
         Ok(())
+    }
+
+    fn write_if_close(&mut self, close_text: &str, fi_span: Span) {
+        self.write_text(close_text);
+        self.write_close_suffix_after_span(Some(fi_span));
     }
 
     fn can_inline_else_branch_close(
