@@ -767,7 +767,7 @@ fn comment_is_claimed(claimed: Option<&[bool]>, base_index: usize, index: usize)
         .unwrap_or(false)
 }
 
-fn span_contains_comment(span: Span, comment: SourceComment<'_>) -> bool {
+pub(crate) fn span_contains_comment(span: Span, comment: SourceComment<'_>) -> bool {
     span.start.offset <= comment.span.start.offset && comment.span.end.offset <= span.end.offset
 }
 

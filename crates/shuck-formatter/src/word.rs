@@ -5844,7 +5844,7 @@ fn push_parameter_replacement_text(
     }
 }
 
-fn parameter_defaulting_operator(operator: &ParameterOp) -> &'static str {
+pub(crate) fn parameter_defaulting_operator(operator: &ParameterOp) -> &'static str {
     match operator {
         ParameterOp::UseDefault => "-",
         ParameterOp::AssignDefault => "=",

@@ -21,7 +21,9 @@ use crate::command::{
     stmt_render_start_line, stmt_span, stmt_start_after_operator,
     stmt_verbatim_span_with_source_map,
 };
-use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_window};
+use crate::comments::{
+    SourceComment, SourceMap, inspect_sequence_comments_in_window, span_contains_comment,
+};
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
     branch_prefix_first_comment_offset, has_newline_between_offsets as has_newline_between,
@@ -1230,10 +1232,6 @@ fn if_close_start(command: &IfCommand, source_map: &SourceMap<'_>) -> usize {
     if_close_span(command, source_map.source(), source_map)
         .start
         .offset
-}
-
-fn span_contains_comment(span: Span, comment: SourceComment<'_>) -> bool {
-    span.start.offset <= comment.span().start.offset && comment.span().end.offset <= span.end.offset
 }
 
 fn if_branch_upper_bound(

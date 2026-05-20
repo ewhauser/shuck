@@ -9,6 +9,7 @@ use shuck_ast::{
 };
 
 use crate::command::{array_elem_value_word_mut, render_var_ref_to_buf};
+use crate::word::parameter_defaulting_operator;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimplifyReport {
@@ -1104,7 +1105,7 @@ fn render_bourne_parameter_raw_body(syntax: &BourneParameterExpansion, source: &
                 if *colon_variant {
                     rendered.push(':');
                 }
-                rendered.push_str(parameter_op_operator_text(operator));
+                rendered.push_str(parameter_defaulting_operator(operator));
                 if let Some(operand) = operand {
                     rendered.push_str(operand.slice(source));
                 }
@@ -1147,7 +1148,7 @@ fn render_bourne_parameter_raw_body(syntax: &BourneParameterExpansion, source: &
                     if *colon_variant {
                         rendered.push(':');
                     }
-                    rendered.push_str(parameter_op_operator_text(operator));
+                    rendered.push_str(parameter_defaulting_operator(operator));
                     if let Some(operand) = operand {
                         rendered.push_str(operand.slice(source));
                     }
@@ -1313,16 +1314,6 @@ fn render_var_ref_syntax(reference: &VarRef, source: &str) -> String {
     let mut rendered = String::new();
     render_var_ref_to_buf(reference, source, &mut rendered);
     rendered
-}
-
-fn parameter_op_operator_text(operator: &ParameterOp) -> &'static str {
-    match operator {
-        ParameterOp::UseDefault => "-",
-        ParameterOp::AssignDefault => "=",
-        ParameterOp::UseReplacement => "+",
-        ParameterOp::Error => "?",
-        _ => "",
-    }
 }
 
 fn rewrite_parameter_op_source_texts(
