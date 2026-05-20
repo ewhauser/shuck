@@ -1109,16 +1109,11 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             => "if { true; } &&\n\tcommand &&\n\t{\n\t\t# inside group\n\t\t[[ -t 1 ]] ||\n\t\t\ttrue\n\t}; then\n\t:\nfi\n";
     }
 
-    #[test]
-    fn preserves_grouped_if_conditions_before_then() {
-        let source = "if {\n\t[ -n \"${SUDO_USER}\" ] || [ -n \"${DOAS_USER}\" ]\n} && [ \"$(id -ru)\" -eq 0 ]; then\n\tprintf '%s\\n' denied\nfi\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn normalizes_nested_grouped_if_condition_indentation() {
-        let source = "setup() {\n\tif {\n\t\t[ -d \"/etc/dpkg/dpkg.cfg.d/\" ] || [ -d \"/usr/share/libalpm/scripts\" ]\n\t} && [ \"${init}\" -eq 0 ]; then\n\t\tsetup_hooks\n\tfi\n}\n";
-        assert_default_unchanged_with_ast(source);
+    default_unchanged_ast_cases! {
+        preserves_grouped_if_conditions_before_then:
+            "if {\n\t[ -n \"${SUDO_USER}\" ] || [ -n \"${DOAS_USER}\" ]\n} && [ \"$(id -ru)\" -eq 0 ]; then\n\tprintf '%s\\n' denied\nfi\n";
+        normalizes_nested_grouped_if_condition_indentation:
+            "setup() {\n\tif {\n\t\t[ -d \"/etc/dpkg/dpkg.cfg.d/\" ] || [ -d \"/usr/share/libalpm/scripts\" ]\n\t} && [ \"${init}\" -eq 0 ]; then\n\t\tsetup_hooks\n\tfi\n}\n";
     }
 
     default_format_ast_cases! {
@@ -1224,13 +1219,10 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "result=$()\n";
     }
 
-    #[test]
-    fn formats_commented_inline_subshell_here_string_targets() {
-        let source = "f() {\n\tIFS=\" \" read -r -a COMPREPLY <<< \"$( (\n\t\twhile read -r -d ' ' i; do\n\t\t\t[[ -z \"$i\" ]] && continue\n\t\t\t# flatten array with spaces on either side,\n\t\t\t# otherwise we cannot grep on word boundaries of\n\t\t\t# first and last word\n\t\t\tCOMPREPLYSTR=\" ${COMPREPLY[*]} \"\n\t\t\t# remove word from list of completions\n\t\t\tIFS=\" \" read -r -a COMPREPLY <<< \"${COMPREPLYSTR/ ${i%% *} / }\"\n\t\tdone\n\t\tprintf '%s ' \"${COMPREPLY[@]}\"\n\t) <<< \"${COMP_WORDS[@]}\")\"\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tIFS=\" \" read -r -a COMPREPLY <<<\"$( (\n\t\twhile read -r -d ' ' i; do\n\t\t\t[[ -z \"$i\" ]] && continue\n\t\t\t# flatten array with spaces on either side,\n\t\t\t# otherwise we cannot grep on word boundaries of\n\t\t\t# first and last word\n\t\t\tCOMPREPLYSTR=\" ${COMPREPLY[*]} \"\n\t\t\t# remove word from list of completions\n\t\t\tIFS=\" \" read -r -a COMPREPLY <<<\"${COMPREPLYSTR/ ${i%% *} / }\"\n\t\tdone\n\t\tprintf '%s ' \"${COMPREPLY[@]}\"\n\t) <<<\"${COMP_WORDS[@]}\")\"\n}\n",
-        );
+    bash_format_ast_cases! {
+        formats_commented_inline_subshell_here_string_targets:
+            "f() {\n\tIFS=\" \" read -r -a COMPREPLY <<< \"$( (\n\t\twhile read -r -d ' ' i; do\n\t\t\t[[ -z \"$i\" ]] && continue\n\t\t\t# flatten array with spaces on either side,\n\t\t\t# otherwise we cannot grep on word boundaries of\n\t\t\t# first and last word\n\t\t\tCOMPREPLYSTR=\" ${COMPREPLY[*]} \"\n\t\t\t# remove word from list of completions\n\t\t\tIFS=\" \" read -r -a COMPREPLY <<< \"${COMPREPLYSTR/ ${i%% *} / }\"\n\t\tdone\n\t\tprintf '%s ' \"${COMPREPLY[@]}\"\n\t) <<< \"${COMP_WORDS[@]}\")\"\n}\n"
+            => "f() {\n\tIFS=\" \" read -r -a COMPREPLY <<<\"$( (\n\t\twhile read -r -d ' ' i; do\n\t\t\t[[ -z \"$i\" ]] && continue\n\t\t\t# flatten array with spaces on either side,\n\t\t\t# otherwise we cannot grep on word boundaries of\n\t\t\t# first and last word\n\t\t\tCOMPREPLYSTR=\" ${COMPREPLY[*]} \"\n\t\t\t# remove word from list of completions\n\t\t\tIFS=\" \" read -r -a COMPREPLY <<<\"${COMPREPLYSTR/ ${i%% *} / }\"\n\t\tdone\n\t\tprintf '%s ' \"${COMPREPLY[@]}\"\n\t) <<<\"${COMP_WORDS[@]}\")\"\n}\n";
     }
 
     bash_unchanged_ast_cases! {
