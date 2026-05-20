@@ -3590,26 +3590,13 @@ fn raw_parameter_command_spacing_would_change(raw: &str) -> bool {
 }
 
 fn raw_command_substitution_needs_structural_spacing(raw: &str) -> bool {
-    let bytes = raw.as_bytes();
     let mut index = 0usize;
 
-    while index + 1 < bytes.len() {
-        if bytes[index] == b'$'
-            && bytes[index + 1] == b'('
-            && index
-                .checked_sub(1)
-                .and_then(|previous| bytes.get(previous))
-                .is_none_or(|byte| *byte != b'\\')
-            && bytes.get(index + 2).is_none_or(|byte| *byte != b'(')
-            && let Some(close_offset) = matching_raw_command_substitution_close(raw, index + 2)
-        {
-            if raw_shell_body_needs_structural_spacing(&raw[index + 2..close_offset]) {
-                return true;
-            }
-            index = close_offset + 1;
-            continue;
+    while let Some((open_offset, close_offset)) = next_raw_command_substitution(raw, index) {
+        if raw_shell_body_needs_structural_spacing(&raw[open_offset + 2..close_offset]) {
+            return true;
         }
-        index += 1;
+        index = close_offset + 1;
     }
 
     false
@@ -3714,43 +3701,30 @@ fn raw_shell_body_needs_structural_spacing(body: &str) -> bool {
 }
 
 fn normalize_raw_command_substitution_padding(raw: &str) -> Option<String> {
-    let bytes = raw.as_bytes();
     let mut rendered = String::with_capacity(raw.len());
     let mut cursor = 0usize;
     let mut index = 0usize;
     let mut changed = false;
 
-    while index + 1 < bytes.len() {
-        if bytes[index] == b'$'
-            && bytes[index + 1] == b'('
-            && index
-                .checked_sub(1)
-                .and_then(|previous| bytes.get(previous))
-                .is_none_or(|byte| *byte != b'\\')
-            && bytes.get(index + 2).is_none_or(|byte| *byte != b'(')
-            && let Some(close_offset) = matching_raw_command_substitution_close(raw, index + 2)
-        {
-            let body = &raw[index + 2..close_offset];
-            if !body.contains('\n') {
-                let trimmed = trim_raw_command_substitution_horizontal_padding(body);
-                let normalized_body = normalize_raw_command_substitution_padding(trimmed)
-                    .unwrap_or_else(|| trimmed.to_string());
-                if trimmed.len() != body.len() || normalized_body != trimmed {
-                    rendered.push_str(&raw[cursor..index]);
-                    rendered.push_str("$(");
-                    if normalized_body.starts_with('(') {
-                        rendered.push(' ');
-                    }
-                    rendered.push_str(&normalized_body);
-                    rendered.push(')');
-                    cursor = close_offset + 1;
-                    changed = true;
+    while let Some((open_offset, close_offset)) = next_raw_command_substitution(raw, index) {
+        let body = &raw[open_offset + 2..close_offset];
+        if !body.contains('\n') {
+            let trimmed = trim_raw_command_substitution_horizontal_padding(body);
+            let normalized_body = normalize_raw_command_substitution_padding(trimmed)
+                .unwrap_or_else(|| trimmed.to_string());
+            if trimmed.len() != body.len() || normalized_body != trimmed {
+                rendered.push_str(&raw[cursor..open_offset]);
+                rendered.push_str("$(");
+                if normalized_body.starts_with('(') {
+                    rendered.push(' ');
                 }
+                rendered.push_str(&normalized_body);
+                rendered.push(')');
+                cursor = close_offset + 1;
+                changed = true;
             }
-            index = close_offset + 1;
-            continue;
         }
-        index += 1;
+        index = close_offset + 1;
     }
 
     finish_raw_rewrite(rendered, raw, cursor, changed)
@@ -5678,11 +5652,33 @@ fn normalize_inline_command_substitutions_in_parameter_operand(
     raw: &str,
     options: &ResolvedShellFormatOptions,
 ) -> Option<String> {
-    let bytes = raw.as_bytes();
     let mut rendered = String::with_capacity(raw.len());
     let mut cursor = 0usize;
     let mut index = 0usize;
     let mut changed = false;
+
+    while let Some((open_offset, close_offset)) = next_raw_command_substitution(raw, index) {
+        let body = &raw[open_offset + 2..close_offset];
+        if !body.contains('\n')
+            && let Some(normalized_body) =
+                normalize_inline_parameter_command_substitution_body(body, options)
+            && normalized_body != body
+        {
+            rendered.push_str(&raw[cursor..open_offset]);
+            rendered.push_str("$(");
+            rendered.push_str(&normalized_body);
+            rendered.push(')');
+            cursor = close_offset + 1;
+            changed = true;
+        }
+        index = close_offset + 1;
+    }
+
+    finish_raw_rewrite(rendered, raw, cursor, changed)
+}
+
+fn next_raw_command_substitution(raw: &str, mut index: usize) -> Option<(usize, usize)> {
+    let bytes = raw.as_bytes();
 
     while index + 1 < bytes.len() {
         if bytes[index] == b'$'
@@ -5694,26 +5690,12 @@ fn normalize_inline_command_substitutions_in_parameter_operand(
             && bytes.get(index + 2).is_none_or(|byte| *byte != b'(')
             && let Some(close_offset) = matching_raw_command_substitution_close(raw, index + 2)
         {
-            let body = &raw[index + 2..close_offset];
-            if !body.contains('\n')
-                && let Some(normalized_body) =
-                    normalize_inline_parameter_command_substitution_body(body, options)
-                && normalized_body != body
-            {
-                rendered.push_str(&raw[cursor..index]);
-                rendered.push_str("$(");
-                rendered.push_str(&normalized_body);
-                rendered.push(')');
-                cursor = close_offset + 1;
-                changed = true;
-            }
-            index = close_offset + 1;
-            continue;
+            return Some((index, close_offset));
         }
         index += 1;
     }
 
-    finish_raw_rewrite(rendered, raw, cursor, changed)
+    None
 }
 
 fn finish_raw_rewrite(
