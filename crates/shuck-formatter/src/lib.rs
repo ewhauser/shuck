@@ -1159,120 +1159,49 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn preserves_multiline_double_quoted_argument_alignment() {
-        let source = "if true; then\n  gcloud secrets list \\\n      --filter=\"labels.kubernetes-cluster=$current_cluster \\\n                AND NOT \\\n                labels.foo ~ .\" |\n  while read -r secret; do\n    echo \"$secret\"\n  done\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if true; then\n\tgcloud secrets list \\\n\t\t--filter=\"labels.kubernetes-cluster=$current_cluster \\\n                AND NOT \\\n                labels.foo ~ .\" |\n\t\twhile read -r secret; do\n\t\t\techo \"$secret\"\n\t\tdone\nfi\n",
-        );
+    default_format_ast_cases! {
+        preserves_multiline_double_quoted_argument_alignment:
+            "if true; then\n  gcloud secrets list \\\n      --filter=\"labels.kubernetes-cluster=$current_cluster \\\n                AND NOT \\\n                labels.foo ~ .\" |\n  while read -r secret; do\n    echo \"$secret\"\n  done\nfi\n"
+            => "if true; then\n\tgcloud secrets list \\\n\t\t--filter=\"labels.kubernetes-cluster=$current_cluster \\\n                AND NOT \\\n                labels.foo ~ .\" |\n\t\twhile read -r secret; do\n\t\t\techo \"$secret\"\n\t\tdone\nfi\n";
+        preserves_background_terminator_at_if_branch_boundary:
+            "if [ -z \"$SUBIT\" ]; then\n  eval $CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\nelse\n  $SUBIT \"$CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\"\nfi\n"
+            => "if [ -z \"$SUBIT\" ]; then\n\teval $CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\nelse\n\t$SUBIT \"$CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\"\nfi\n";
+        preserves_comment_after_then_without_raw_body_fallback:
+            "if ! type -P wget &>/dev/null ||\n  type -P apk; then # Alpine built-in wget is not enough\n  \"$srcdir/../packages/install_packages.sh\" wget\nfi\n"
+            => "if ! type -P wget &>/dev/null ||\n\ttype -P apk; then # Alpine built-in wget is not enough\n\t\"$srcdir/../packages/install_packages.sh\" wget\nfi\n";
+        ignores_branch_keywords_inside_leading_comments:
+            "f() {\n  if [ -f .iterate ]; then\n    #ls ./*/.git &>/dev/null; then  # note\n    hr\n  fi\n}\n"
+            => "f() {\n\tif [ -f .iterate ]; then\n\t\t#ls ./*/.git &>/dev/null; then  # note\n\t\thr\n\tfi\n}\n";
+        keeps_inline_case_conditions_before_then:
+            "if case \"$@\" in *--usecwd*) true ;; *) false ;; esac then\n  USE_CWD=1\nfi\n"
+            => "if case \"$@\" in *--usecwd*) true ;; *) false ;; esac then\n\tUSE_CWD=1\nfi\n";
     }
 
-    #[test]
-    fn preserves_background_terminator_at_if_branch_boundary() {
-        let source = "if [ -z \"$SUBIT\" ]; then\n  eval $CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\nelse\n  $SUBIT \"$CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\"\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if [ -z \"$SUBIT\" ]; then\n\teval $CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\nelse\n\t$SUBIT \"$CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\"\nfi\n",
-        );
-    }
-
-    #[test]
-    fn splits_redirect_only_statement_after_background() {
-        let source = "if ok; then\n  run --flag & 2>/dev/null\nfi\n";
-        assert_bash_formats_with_ast(source, "if ok; then\n\trun --flag &\n\t2>/dev/null\nfi\n");
-    }
-
-    #[test]
-    fn splits_following_statement_after_background() {
-        let source = "if ok; then\n  run --flag 2>&1 & echo $! >\"$PIDFILE\"\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if ok; then\n\trun --flag 2>&1 &\n\techo $! >\"$PIDFILE\"\nfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_eval_conditional_syntax_as_arguments() {
-        let source = "if eval ! [[ \"$env_var\" =~ ^[[:digit:]]+$ ]]; then\n  echo ok\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if eval ! [[ \"$env_var\" =~ ^[[:digit:]]+$ ]]; then\n\techo ok\nfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_comment_after_then_without_raw_body_fallback() {
-        let source = "if ! type -P wget &>/dev/null ||\n  type -P apk; then # Alpine built-in wget is not enough\n  \"$srcdir/../packages/install_packages.sh\" wget\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if ! type -P wget &>/dev/null ||\n\ttype -P apk; then # Alpine built-in wget is not enough\n\t\"$srcdir/../packages/install_packages.sh\" wget\nfi\n",
-        );
-    }
-
-    #[test]
-    fn keeps_assignment_command_substitution_condition_suffix_comment_after_then() {
-        let source =
-            "if ! out=\"$(\n     stat -c %Y \"$path\" 2>/dev/null\n   )\" # GNU\nthen\n  :\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if ! out=\"$(\n\tstat -c %Y \"$path\" 2>/dev/null\n)\"; then # GNU\n\t:\nfi\n",
-        );
-    }
-
-    #[test]
-    fn collapses_negated_condition_continuation_before_pipeline() {
-        let source = "while read -r module; do\n    if ! \\\n        git grep \"needle\" |\n        grep -v requirements.txt |\n        grep -q .; then\n        echo \"$module\"\n    fi\ndone\n";
-        assert_bash_formats_with_ast(
-            source,
-            "while read -r module; do\n\tif ! git grep \"needle\" |\n\t\tgrep -v requirements.txt |\n\t\tgrep -q .; then\n\t\techo \"$module\"\n\tfi\ndone\n",
-        );
-    }
-
-    #[test]
-    fn preserves_comment_between_list_operator_and_rhs() {
-        let source = "if [ -z \"$jar\" ] ||\n  # incomplete download, resume it\n  ! jar tf \"$jar\" &>/dev/null; then\n  echo fetch\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if [ -z \"$jar\" ] ||\n\t# incomplete download, resume it\n\t! jar tf \"$jar\" &>/dev/null; then\n\techo fetch\nfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_comment_between_list_operator_and_brace_group() {
-        let source = "docker-compose exec -T jenkins-server install-plugins.sh ||\n  # New: later switch to\n  {\n    docker-compose cp plugins.txt jenkins-server:/\n  } || :\n";
-        assert_bash_formats_with_ast(
-            source,
-            "docker-compose exec -T jenkins-server install-plugins.sh ||\n\t# New: later switch to\n\t{\n\t\tdocker-compose cp plugins.txt jenkins-server:/\n\t} || :\n",
-        );
-    }
-
-    #[test]
-    fn keeps_command_list_rhs_brace_group_body_comments_inside_group() {
-        let source = "if { true; } &&\n   command &&\n   {\n     # inside group\n     [[ -t 1 ]] ||\n     true\n   }\nthen\n  :\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if { true; } &&\n\tcommand &&\n\t{\n\t\t# inside group\n\t\t[[ -t 1 ]] ||\n\t\t\ttrue\n\t}; then\n\t:\nfi\n",
-        );
-    }
-
-    #[test]
-    fn ignores_branch_keywords_inside_leading_comments() {
-        let source = "f() {\n  if [ -f .iterate ]; then\n    #ls ./*/.git &>/dev/null; then  # note\n    hr\n  fi\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "f() {\n\tif [ -f .iterate ]; then\n\t\t#ls ./*/.git &>/dev/null; then  # note\n\t\thr\n\tfi\n}\n",
-        );
-    }
-
-    #[test]
-    fn keeps_inline_case_conditions_before_then() {
-        let source =
-            "if case \"$@\" in *--usecwd*) true ;; *) false ;; esac then\n  USE_CWD=1\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if case \"$@\" in *--usecwd*) true ;; *) false ;; esac then\n\tUSE_CWD=1\nfi\n",
-        );
+    bash_format_ast_cases! {
+        splits_redirect_only_statement_after_background:
+            "if ok; then\n  run --flag & 2>/dev/null\nfi\n"
+            => "if ok; then\n\trun --flag &\n\t2>/dev/null\nfi\n";
+        splits_following_statement_after_background:
+            "if ok; then\n  run --flag 2>&1 & echo $! >\"$PIDFILE\"\nfi\n"
+            => "if ok; then\n\trun --flag 2>&1 &\n\techo $! >\"$PIDFILE\"\nfi\n";
+        preserves_eval_conditional_syntax_as_arguments:
+            "if eval ! [[ \"$env_var\" =~ ^[[:digit:]]+$ ]]; then\n  echo ok\nfi\n"
+            => "if eval ! [[ \"$env_var\" =~ ^[[:digit:]]+$ ]]; then\n\techo ok\nfi\n";
+        keeps_assignment_command_substitution_condition_suffix_comment_after_then:
+            "if ! out=\"$(\n     stat -c %Y \"$path\" 2>/dev/null\n   )\" # GNU\nthen\n  :\nfi\n"
+            => "if ! out=\"$(\n\tstat -c %Y \"$path\" 2>/dev/null\n)\"; then # GNU\n\t:\nfi\n";
+        collapses_negated_condition_continuation_before_pipeline:
+            "while read -r module; do\n    if ! \\\n        git grep \"needle\" |\n        grep -v requirements.txt |\n        grep -q .; then\n        echo \"$module\"\n    fi\ndone\n"
+            => "while read -r module; do\n\tif ! git grep \"needle\" |\n\t\tgrep -v requirements.txt |\n\t\tgrep -q .; then\n\t\techo \"$module\"\n\tfi\ndone\n";
+        preserves_comment_between_list_operator_and_rhs:
+            "if [ -z \"$jar\" ] ||\n  # incomplete download, resume it\n  ! jar tf \"$jar\" &>/dev/null; then\n  echo fetch\nfi\n"
+            => "if [ -z \"$jar\" ] ||\n\t# incomplete download, resume it\n\t! jar tf \"$jar\" &>/dev/null; then\n\techo fetch\nfi\n";
+        preserves_comment_between_list_operator_and_brace_group:
+            "docker-compose exec -T jenkins-server install-plugins.sh ||\n  # New: later switch to\n  {\n    docker-compose cp plugins.txt jenkins-server:/\n  } || :\n"
+            => "docker-compose exec -T jenkins-server install-plugins.sh ||\n\t# New: later switch to\n\t{\n\t\tdocker-compose cp plugins.txt jenkins-server:/\n\t} || :\n";
+        keeps_command_list_rhs_brace_group_body_comments_inside_group:
+            "if { true; } &&\n   command &&\n   {\n     # inside group\n     [[ -t 1 ]] ||\n     true\n   }\nthen\n  :\nfi\n"
+            => "if { true; } &&\n\tcommand &&\n\t{\n\t\t# inside group\n\t\t[[ -t 1 ]] ||\n\t\t\ttrue\n\t}; then\n\t:\nfi\n";
     }
 
     #[test]
@@ -1287,94 +1216,46 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         assert_default_unchanged_with_ast(source);
     }
 
-    #[test]
-    fn collapses_then_after_multiline_grouped_if_conditions() {
-        let source = "if {\n     [[ \"$group\" -eq 2 ]] &&\n       contains first\n   } || {\n     [[ \"$group\" -eq 3 ]] &&\n     ! contains second\n   }\nthen\n  return 0\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if {\n\t[[ \"$group\" -eq 2 ]] &&\n\t\tcontains first\n} || {\n\t[[ \"$group\" -eq 3 ]] &&\n\t\t! contains second\n}; then\n\treturn 0\nfi\n",
-        );
+    default_format_ast_cases! {
+        preserves_inline_brace_group_loop_bodies:
+            "while read -r line; do {\n  echo \"$line\"\n}; done\n"
+            => "while read -r line; do {\n\techo \"$line\"\n}; done\n";
     }
 
-    #[test]
-    fn keeps_wrapped_inline_brace_group_conditions_attached() {
-        let source = "if ! { [[ -d \"${status_file%/*}\" ]] \\\n  && [[ -r \"${status_file}\" ]]; }; then\n  echo \"\"\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if ! { [[ -d \"${status_file%/*}\" ]] &&\n\t[[ -r \"${status_file}\" ]]; }; then\n\techo \"\"\nfi\n",
-        );
+    bash_format_ast_cases! {
+        collapses_then_after_multiline_grouped_if_conditions:
+            "if {\n     [[ \"$group\" -eq 2 ]] &&\n       contains first\n   } || {\n     [[ \"$group\" -eq 3 ]] &&\n     ! contains second\n   }\nthen\n  return 0\nfi\n"
+            => "if {\n\t[[ \"$group\" -eq 2 ]] &&\n\t\tcontains first\n} || {\n\t[[ \"$group\" -eq 3 ]] &&\n\t\t! contains second\n}; then\n\treturn 0\nfi\n";
+        keeps_wrapped_inline_brace_group_conditions_attached:
+            "if ! { [[ -d \"${status_file%/*}\" ]] \\\n  && [[ -r \"${status_file}\" ]]; }; then\n  echo \"\"\nfi\n"
+            => "if ! { [[ -d \"${status_file%/*}\" ]] &&\n\t[[ -r \"${status_file}\" ]]; }; then\n\techo \"\"\nfi\n";
     }
 
-    #[test]
-    fn preserves_inline_brace_group_loop_bodies() {
-        let source = "while read -r line; do {\n  echo \"$line\"\n}; done\n";
-        assert_formats_default_with_ast(
-            source,
-            "while read -r line; do {\n\techo \"$line\"\n}; done\n",
-        );
+    default_format_ast_cases! {
+        preserves_legacy_inline_do_brace_group_without_semicolon_before_done:
+            "for item in $items; do {\n  case \"$item\" in\n  a)\n    echo a\n    ;;\n  esac\n} done\n"
+            => "for item in $items; do {\n\tcase \"$item\" in\n\ta)\n\t\techo a\n\t\t;;\n\tesac\n} done\n";
+        preserves_legacy_inline_do_brace_group_ending_in_binary_compound:
+            "for item in $items; do {\n  ok && {\n    case \"$item\" in\n    a)\n      echo a\n      ;;\n    esac\n  }\n} done\n"
+            => "for item in $items; do {\n\tok && {\n\t\tcase \"$item\" in\n\t\ta)\n\t\t\techo a\n\t\t\t;;\n\t\tesac\n\t}\n} done\n";
+        terminates_legacy_inline_do_brace_group_ending_in_if:
+            "while read -r line; do {\n  if ok; then\n    :\n  fi\n} done <file\n"
+            => "while read -r line; do {\n\tif ok; then\n\t\t:\n\tfi\n}; done <file\n";
+        preserves_legacy_inline_do_brace_group_ending_in_loop_case:
+            "for dev in $devs; do {\n  scan \"$dev\" | while read -r line; do {\n    case \"$line\" in\n    a)\n      echo a\n      ;;\n    esac\n  } done\n} done\n"
+            => "for dev in $devs; do {\n\tscan \"$dev\" | while read -r line; do {\n\t\tcase \"$line\" in\n\t\ta)\n\t\t\techo a\n\t\t\t;;\n\t\tesac\n\t} done\n} done\n";
+        preserves_explicit_breaks_inside_conditional_binaries:
+            "[[ $a -le 255 && $b -le 255 &&\n  $c -le 255 && $d -le 255 ]]\n"
+            => "[[ $a -le 255 && $b -le 255 &&\n\t$c -le 255 && $d -le 255 ]]\n";
+        preserves_backslash_breaks_inside_conditional_binaries:
+            "[[ $a -le 255 && $b -le 255 \\\n  && $c -le 255 && $d -le 255 ]]\n"
+            => "[[ $a -le 255 && $b -le 255 &&\n\t$c -le 255 && $d -le 255 ]]\n";
     }
 
-    #[test]
-    fn preserves_legacy_inline_do_brace_group_without_semicolon_before_done() {
-        let source = "for item in $items; do {\n  case \"$item\" in\n  a)\n    echo a\n    ;;\n  esac\n} done\n";
-        assert_formats_default_with_ast(
-            source,
-            "for item in $items; do {\n\tcase \"$item\" in\n\ta)\n\t\techo a\n\t\t;;\n\tesac\n} done\n",
-        );
-    }
-
-    #[test]
-    fn preserves_legacy_inline_do_brace_group_ending_in_binary_compound() {
-        let source = "for item in $items; do {\n  ok && {\n    case \"$item\" in\n    a)\n      echo a\n      ;;\n    esac\n  }\n} done\n";
-        assert_formats_default_with_ast(
-            source,
-            "for item in $items; do {\n\tok && {\n\t\tcase \"$item\" in\n\t\ta)\n\t\t\techo a\n\t\t\t;;\n\t\tesac\n\t}\n} done\n",
-        );
-    }
-
-    #[test]
-    fn terminates_legacy_inline_do_brace_group_ending_in_if() {
-        let source = "while read -r line; do {\n  if ok; then\n    :\n  fi\n} done <file\n";
-        assert_formats_default_with_ast(
-            source,
-            "while read -r line; do {\n\tif ok; then\n\t\t:\n\tfi\n}; done <file\n",
-        );
-    }
-
-    #[test]
-    fn preserves_legacy_inline_do_brace_group_ending_in_loop_case() {
-        let source = "for dev in $devs; do {\n  scan \"$dev\" | while read -r line; do {\n    case \"$line\" in\n    a)\n      echo a\n      ;;\n    esac\n  } done\n} done\n";
-        assert_formats_default_with_ast(
-            source,
-            "for dev in $devs; do {\n\tscan \"$dev\" | while read -r line; do {\n\t\tcase \"$line\" in\n\t\ta)\n\t\t\techo a\n\t\t\t;;\n\t\tesac\n\t} done\n} done\n",
-        );
-    }
-
-    #[test]
-    fn preserves_explicit_breaks_inside_conditional_binaries() {
-        let source = "[[ $a -le 255 && $b -le 255 &&\n  $c -le 255 && $d -le 255 ]]\n";
-        assert_formats_default_with_ast(
-            source,
-            "[[ $a -le 255 && $b -le 255 &&\n\t$c -le 255 && $d -le 255 ]]\n",
-        );
-    }
-
-    #[test]
-    fn preserves_backslash_breaks_inside_conditional_binaries() {
-        let source = "[[ $a -le 255 && $b -le 255 \\\n  && $c -le 255 && $d -le 255 ]]\n";
-        assert_formats_default_with_ast(
-            source,
-            "[[ $a -le 255 && $b -le 255 &&\n\t$c -le 255 && $d -le 255 ]]\n",
-        );
-    }
-
-    #[test]
-    fn collapses_backslash_breaks_inside_conditional_comparisons() {
-        let source = "rename() {\n  if [[ -n  \"${_remote_head_branch:-}\"                            ]] &&\n     [[     \"${_remote_branch_name:-\"${_current_branch}\"}\" ==     \\\n              \"${_remote_head_branch:-}\"                          ]]\n  then\n    _exit_1 printf \"Only orphan branches can be renamed.\\\\n\"\n  fi\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "rename() {\n\tif [[ -n \"${_remote_head_branch:-}\" ]] &&\n\t\t[[ \"${_remote_branch_name:-\"${_current_branch}\"}\" == \"${_remote_head_branch:-}\" ]]; then\n\t\t_exit_1 printf \"Only orphan branches can be renamed.\\\\n\"\n\tfi\n}\n",
-        );
+    bash_format_ast_cases! {
+        collapses_backslash_breaks_inside_conditional_comparisons:
+            "rename() {\n  if [[ -n  \"${_remote_head_branch:-}\"                            ]] &&\n     [[     \"${_remote_branch_name:-\"${_current_branch}\"}\" ==     \\\n              \"${_remote_head_branch:-}\"                          ]]\n  then\n    _exit_1 printf \"Only orphan branches can be renamed.\\\\n\"\n  fi\n}\n"
+            => "rename() {\n\tif [[ -n \"${_remote_head_branch:-}\" ]] &&\n\t\t[[ \"${_remote_branch_name:-\"${_current_branch}\"}\" == \"${_remote_head_branch:-}\" ]]; then\n\t\t_exit_1 printf \"Only orphan branches can be renamed.\\\\n\"\n\tfi\n}\n";
     }
 
     default_unchanged_cases! {
