@@ -1543,13 +1543,13 @@ fn push_unquoted_literal(rendered: &mut String, literal: &str) {
 
     let mut chars = literal.chars().peekable();
     while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            if let Some(skipped_indent) = consume_escaped_newline_indent(&mut chars) {
-                if skipped_indent {
-                    rendered.push(' ');
-                }
-                continue;
+        if ch == '\\'
+            && let Some(skipped_indent) = consume_escaped_newline_indent(&mut chars)
+        {
+            if skipped_indent {
+                rendered.push(' ');
             }
+            continue;
         }
         rendered.push(ch);
     }
@@ -1576,20 +1576,22 @@ pub(crate) fn normalize_raw_unquoted_word_continuations(raw: &str) -> Option<Str
             normalized.push(ch);
             continue;
         }
-        if ch == '\\' && !in_single_quotes && !in_double_quotes {
-            if let Some(skipped_indent) = consume_escaped_newline_indent(&mut chars) {
-                changed = true;
-                if chars
-                    .peek()
-                    .is_some_and(|next| matches!(next, '|' | '&' | ';' | '<' | '>' | '(' | ')'))
-                {
-                    return None;
-                }
-                if skipped_indent {
-                    normalized.push(' ');
-                }
-                continue;
+        if ch == '\\'
+            && !in_single_quotes
+            && !in_double_quotes
+            && let Some(skipped_indent) = consume_escaped_newline_indent(&mut chars)
+        {
+            changed = true;
+            if chars
+                .peek()
+                .is_some_and(|next| matches!(next, '|' | '&' | ';' | '<' | '>' | '(' | ')'))
+            {
+                return None;
             }
+            if skipped_indent {
+                normalized.push(' ');
+            }
+            continue;
         }
         normalized.push(ch);
     }
@@ -3712,14 +3714,37 @@ pub(crate) fn normalize_raw_empty_parameter_replacement_delimiters(raw: &str) ->
     let mut cursor = 0usize;
     let mut index = 0usize;
     let mut changed = false;
+    let mut in_single_quotes = false;
+    let mut escaped = false;
 
     while index + 1 < bytes.len() {
+        let ch = raw[index..].chars().next()?;
+        let next_index = index + ch.len_utf8();
+        if in_single_quotes {
+            if ch == '\'' {
+                in_single_quotes = false;
+            }
+            index = next_index;
+            continue;
+        }
+        if escaped {
+            escaped = false;
+            index = next_index;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            index = next_index;
+            continue;
+        }
+        if ch == '\'' {
+            in_single_quotes = true;
+            index = next_index;
+            continue;
+        }
+
         if bytes[index] == b'$'
             && bytes[index + 1] == b'{'
-            && index
-                .checked_sub(1)
-                .and_then(|previous| bytes.get(previous))
-                .is_none_or(|byte| *byte != b'\\')
             && let Some(close_offset) = matching_raw_parameter_expansion_close(raw, index + 2)
         {
             let body = &raw[index + 2..close_offset];
@@ -3732,7 +3757,7 @@ pub(crate) fn normalize_raw_empty_parameter_replacement_delimiters(raw: &str) ->
             index = close_offset + 1;
             continue;
         }
-        index += 1;
+        index = next_index;
     }
 
     finish_raw_rewrite(rendered, raw, cursor, changed)
@@ -5593,20 +5618,43 @@ fn normalize_inline_command_substitutions_in_parameter_operand(
 
 fn next_raw_command_substitution(raw: &str, mut index: usize) -> Option<(usize, usize)> {
     let bytes = raw.as_bytes();
+    let mut in_single_quotes = false;
+    let mut escaped = false;
 
     while index + 1 < bytes.len() {
+        let ch = raw[index..].chars().next()?;
+        let next_index = index + ch.len_utf8();
+        if in_single_quotes {
+            if ch == '\'' {
+                in_single_quotes = false;
+            }
+            index = next_index;
+            continue;
+        }
+        if escaped {
+            escaped = false;
+            index = next_index;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            index = next_index;
+            continue;
+        }
+        if ch == '\'' {
+            in_single_quotes = true;
+            index = next_index;
+            continue;
+        }
+
         if bytes[index] == b'$'
             && bytes[index + 1] == b'('
-            && index
-                .checked_sub(1)
-                .and_then(|previous| bytes.get(previous))
-                .is_none_or(|byte| *byte != b'\\')
             && bytes.get(index + 2).is_none_or(|byte| *byte != b'(')
             && let Some(close_offset) = matching_raw_command_substitution_close(raw, index + 2)
         {
             return Some((index, close_offset));
         }
-        index += 1;
+        index = next_index;
     }
 
     None

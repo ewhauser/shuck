@@ -383,17 +383,42 @@ pub(crate) fn redirect_operator_end(bytes: &[u8], start: usize) -> Option<usize>
     }
 }
 
-pub(crate) fn loop_open_keyword_at(source: &str, offset: usize, upper: usize) -> bool {
-    ["for", "select", "while", "until", "foreach", "repeat"]
-        .iter()
-        .any(|keyword| shell_keyword_at(source, offset, upper, keyword))
-}
-
 pub(crate) fn shell_keyword_at(source: &str, offset: usize, upper: usize, keyword: &str) -> bool {
     let end = offset.saturating_add(keyword.len());
     end <= upper
         && source.get(offset..end) == Some(keyword)
         && shell_keyword_boundaries_match(source, offset, end)
+}
+
+fn shell_control_keyword_at(source: &str, offset: usize, upper: usize, keyword: &str) -> bool {
+    shell_keyword_at(source, offset, upper, keyword)
+        && shell_keyword_has_command_prefix(source, offset)
+}
+
+fn shell_keyword_has_command_prefix(source: &str, offset: usize) -> bool {
+    let prefix = &source[..offset];
+    let Some((previous_offset, previous)) = prefix
+        .char_indices()
+        .rev()
+        .find(|(_, ch)| !matches!(ch, ' ' | '\t' | '\r'))
+    else {
+        return true;
+    };
+
+    if previous == '\n' || matches!(previous, ';' | '&' | '|' | '(' | ')' | '{' | '!') {
+        return true;
+    }
+
+    let word_end = previous_offset + previous.len_utf8();
+    let word_start = prefix[..word_end]
+        .char_indices()
+        .rev()
+        .find(|(_, ch)| !is_shell_keyword_char(*ch))
+        .map_or(0, |(index, ch)| index + ch.len_utf8());
+    matches!(
+        &prefix[word_start..word_end],
+        "do" | "then" | "else" | "elif" | "time" | "coproc"
+    )
 }
 
 pub(crate) fn shell_keyword_boundaries_match(text: &str, start: usize, end: usize) -> bool {
@@ -481,19 +506,22 @@ pub(crate) fn normalized_close_keyword_span(
 
 pub(crate) fn matching_if_close_start(source: &str, span: Span) -> Option<usize> {
     matching_close_keyword_start(source, span, "fi", |source, offset, upper| {
-        shell_keyword_at(source, offset, upper, "if").then_some("if".len())
+        shell_control_keyword_at(source, offset, upper, "if").then_some("if".len())
     })
 }
 
 pub(crate) fn matching_done_close_start(source: &str, span: Span) -> Option<usize> {
     matching_close_keyword_start(source, span, "done", |source, offset, upper| {
-        loop_open_keyword_at(source, offset, upper).then(|| {
-            source[offset..]
-                .chars()
-                .take_while(char::is_ascii_alphabetic)
-                .map(char::len_utf8)
-                .sum()
-        })
+        ["for", "select", "while", "until", "foreach", "repeat"]
+            .iter()
+            .find(|keyword| shell_control_keyword_at(source, offset, upper, keyword))
+            .map(|_| {
+                source[offset..]
+                    .chars()
+                    .take_while(char::is_ascii_alphabetic)
+                    .map(char::len_utf8)
+                    .sum()
+            })
     })
 }
 
@@ -518,7 +546,7 @@ fn matching_close_keyword_start(
             offset += open_len;
             continue;
         }
-        if shell_keyword_at(source, offset, upper, close_keyword) {
+        if shell_control_keyword_at(source, offset, upper, close_keyword) {
             if depth > 0 {
                 depth -= 1;
                 if depth == 0 {

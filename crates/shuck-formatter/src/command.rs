@@ -366,13 +366,37 @@ pub(crate) fn multiline_compound_assignment_layout(
 
 fn trim_inline_command_substitution_open_padding(line: &str) -> String {
     let mut rendered = String::with_capacity(line.len());
-    let mut rest = line;
-    while let Some(open) = rest.find("$(") {
-        rendered.push_str(&rest[..open + 2]);
-        rest = &rest[open + 2..];
-        rest = rest.trim_start_matches([' ', '\t']);
+    let mut cursor = 0usize;
+    let mut index = 0usize;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut escaped = false;
+
+    while index < line.len() {
+        let Some(ch) = line[index..].chars().next() else {
+            break;
+        };
+        let next_index = index + ch.len_utf8();
+        if escaped {
+            escaped = false;
+        } else if ch == '\\' && !in_single_quotes {
+            escaped = true;
+        } else if ch == '\'' && !in_double_quotes {
+            in_single_quotes = !in_single_quotes;
+        } else if ch == '"' && !in_single_quotes {
+            in_double_quotes = !in_double_quotes;
+        } else if !in_single_quotes && line[index..].starts_with("$(") {
+            rendered.push_str(&line[cursor..index + 2]);
+            index += 2;
+            while line[index..].starts_with([' ', '\t']) {
+                index += 1;
+            }
+            cursor = index;
+            continue;
+        }
+        index = next_index;
     }
-    rendered.push_str(rest);
+    rendered.push_str(&line[cursor..]);
     rendered
 }
 

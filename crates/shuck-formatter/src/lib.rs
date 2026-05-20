@@ -28,7 +28,6 @@ mod streaming;
 mod word;
 
 use std::path::Path;
-use std::process::{Command, Stdio};
 
 use shuck_ast::File;
 use shuck_format::LineEnding;
@@ -111,9 +110,6 @@ pub fn format_source(
     options: &ShellFormatOptions,
 ) -> Result<FormattedSource> {
     let resolved = options.resolve(source, path);
-    if let Some(output) = format_with_external_shfmt(source, path, &resolved)? {
-        return Ok(formatted_source_from_output(source, output));
-    }
 
     let dialect = resolved.dialect();
     let parsed = Parser::with_dialect(source, dialect).parse();
@@ -131,9 +127,6 @@ pub fn source_is_formatted(
     options: &ShellFormatOptions,
 ) -> Result<bool> {
     let resolved = options.resolve(source, path);
-    if let Some(output) = format_with_external_shfmt(source, path, &resolved)? {
-        return Ok(output == source);
-    }
 
     let dialect = resolved.dialect();
     let parsed = Parser::with_dialect(source, dialect).parse();
@@ -193,90 +186,6 @@ fn formatted_source_from_output(source: &str, output: String) -> FormattedSource
         FormattedSource::Unchanged
     } else {
         FormattedSource::Formatted(output)
-    }
-}
-
-fn format_with_external_shfmt(
-    source: &str,
-    path: Option<&Path>,
-    resolved: &ResolvedShellFormatOptions,
-) -> Result<Option<String>> {
-    if std::env::var_os("SHUCK_FORMAT_USE_SHFMT").is_none() {
-        return Ok(None);
-    }
-
-    let Some(language) = shfmt_language_flag(resolved.dialect()) else {
-        return Ok(None);
-    };
-
-    let mut command = Command::new("shfmt");
-    command
-        .arg("-filename")
-        .arg(path.unwrap_or(Path::new("script.sh")));
-    command.arg(format!("-ln={language}"));
-    if matches!(resolved.indent_style(), IndentStyle::Space) {
-        command.arg(format!("-i={}", resolved.indent_width()));
-    }
-    if resolved.binary_next_line() {
-        command.arg("-bn");
-    }
-    if resolved.switch_case_indent() {
-        command.arg("-ci");
-    }
-    if resolved.space_redirects() {
-        command.arg("-sr");
-    }
-    if resolved.keep_padding() {
-        command.arg("-kp");
-    }
-    if resolved.function_next_line() {
-        command.arg("-fn");
-    }
-    if resolved.never_split() {
-        command.arg("-ns");
-    }
-    if resolved.simplify() {
-        command.arg("-s");
-    }
-    if resolved.minify() {
-        command.arg("-mn");
-    }
-    command.stdin(Stdio::piped()).stdout(Stdio::piped());
-
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(FormatError::Internal(error.to_string())),
-    };
-    {
-        use std::io::Write;
-        let stdin = child
-            .stdin
-            .as_mut()
-            .ok_or_else(|| FormatError::Internal("failed to open shfmt stdin".to_string()))?;
-        stdin
-            .write_all(source.as_bytes())
-            .map_err(|error| FormatError::Internal(error.to_string()))?;
-    }
-
-    let output = child
-        .wait_with_output()
-        .map_err(|error| FormatError::Internal(error.to_string()))?;
-    if !output.status.success() {
-        return Ok(None);
-    }
-
-    String::from_utf8(output.stdout)
-        .map(Some)
-        .map_err(|error| FormatError::Internal(error.to_string()))
-}
-
-fn shfmt_language_flag(dialect: shuck_parser::ShellDialect) -> Option<&'static str> {
-    match dialect {
-        shuck_parser::ShellDialect::Bash => Some("bash"),
-        shuck_parser::ShellDialect::Posix => Some("posix"),
-        shuck_parser::ShellDialect::Mksh => Some("mksh"),
-        shuck_parser::ShellDialect::Zsh => Some("zsh"),
     }
 }
 
@@ -349,12 +258,10 @@ fn trailing_backslash_is_in_comment(text: &str) -> bool {
     let mut in_single_quotes = false;
     let mut in_double_quotes = false;
     let mut escaped = false;
-    let mut previous = None;
 
-    for ch in line.chars() {
+    for (index, ch) in line.char_indices() {
         if escaped {
             escaped = false;
-            previous = Some(ch);
             continue;
         }
         match ch {
@@ -369,13 +276,12 @@ fn trailing_backslash_is_in_comment(text: &str) -> bool {
             }
             '#' if !in_single_quotes
                 && !in_double_quotes
-                && previous.is_none_or(char::is_whitespace) =>
+                && scan::shell_comment_can_start(line, index) =>
             {
                 return true;
             }
             _ => {}
         }
-        previous = Some(ch);
     }
 
     false
@@ -681,6 +587,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         keeps_loop_and_case_close_suffix_comments_on_close_keywords:
             "while ok; do\n  case $cmd in\n    run) : ;;\n  esac # command\n  :\ndone # loop\n"
             => "while ok; do\n\tcase $cmd in\n\trun) : ;;\n\tesac # command\n\t:\ndone # loop\n";
+        keeps_loop_close_comments_after_literal_done_arguments:
+            "while ok; do\n  echo done\n  # close note\ndone\n"
+            => "while ok; do\n\techo done\n\t# close note\ndone\n";
+        keeps_if_close_comments_after_literal_fi_arguments:
+            "if ok; then\n  echo fi\n  # close note\nfi\n"
+            => "if ok; then\n\techo fi\n\t# close note\nfi\n";
         keeps_inline_case_close_suffix_comment_on_esac:
             "case \"$IP\" in fe80::*) exit 0 ;; esac\t# ignore IPv6 linklocal, ip2dev() does not work here reliable anyway\n"
             => "case \"$IP\" in fe80::*) exit 0 ;; esac # ignore IPv6 linklocal, ip2dev() does not work here reliable anyway\n";
@@ -910,6 +822,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         trims_trailing_comment_whitespace:
             "# note \nfoo # bar\t\n"
             => "# note\nfoo # bar\n";
+    }
+
+    #[test]
+    fn trailing_newline_preserves_operator_prefixed_comment_backslash() {
+        let mut output = "echo ok;#note\\".to_string();
+        ensure_single_trailing_newline(&mut output, LineEnding::Lf);
+        assert_eq!(output, "echo ok;#note\\\n");
     }
 
     bash_format_ast_cases! {
@@ -1333,6 +1252,10 @@ $WHITE\$ $NO_COLOUR "
     default_unchanged_ast_cases! {
         preserves_quoted_replacements_with_escaped_delimiters:
             "query=\"${query//\\\"/\\\\\\\"}\"\nurl_path=\"${url_path//https:\\\\/\\\\/api.openai.com\\/v1}\"\n";
+        preserves_single_quoted_parameter_replacement_literals:
+            "echo '${v/pat}'\n";
+        preserves_single_quoted_parameter_operand_command_literals:
+            "value=${value:-'$(cmd 2>/dev/null||true)'}\n";
     }
 
     default_format_ast_cases! {
@@ -1605,6 +1528,9 @@ $WHITE\$ $NO_COLOUR "
         normalizes_multiline_command_substitution_array_elements:
             "items=(\nfirst\n    $(\n        for item in $items; do\n            echo \"$item\"\n        done\n    )\n\n)\n"
             => "items=(\n\tfirst\n\t$(\n\t\tfor item in $items; do\n\t\t\techo \"$item\"\n\t\tdone\n\t)\n\n)\n";
+        keeps_single_quoted_command_substitution_literal_spacing_in_arrays:
+            "items=(\n  '$(  template )'\n)\n"
+            => "items=(\n\t'$(  template )'\n)\n";
         normalizes_array_command_substitution_elements_like_shfmt:
             "options=( \n  config_file \"$(\n     [[ \"$config\" == *.cfg ]] && echo ok\n  )\"\n  enabled \"$( [[ -n \"$flag\" ]] && echo true || echo false)\"\n)\n"
             => "options=(\n\tconfig_file \"$(\n\t\t[[ \"$config\" == *.cfg ]] && echo ok\n\t)\"\n\tenabled \"$([[ -n \"$flag\" ]] && echo true || echo false)\"\n)\n";
