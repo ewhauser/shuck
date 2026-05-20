@@ -2372,16 +2372,20 @@ mod tests {
         Parser::new(source).parse().unwrap().file
     }
 
-    #[test]
-    fn group_verbatim_span_keeps_wrapper_comments_with_semicolon_terminated_body() {
-        let source = "{ # note\n  echo ok; # inside\n}\n";
+    fn first_brace_group_verbatim_span(source: &str) -> Span {
         let file = parse(source);
         let brace_group = match &file.body[0].command {
             Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
             _ => panic!("expected brace group"),
         };
 
-        let span = group_verbatim_span(brace_group.as_slice(), source, '{', '}');
+        group_verbatim_span(brace_group.as_slice(), source, '{', '}')
+    }
+
+    #[test]
+    fn group_verbatim_span_keeps_wrapper_comments_with_semicolon_terminated_body() {
+        let source = "{ # note\n  echo ok; # inside\n}\n";
+        let span = first_brace_group_verbatim_span(source);
 
         assert_eq!(span.slice(source), "{ # note\n  echo ok; # inside\n}");
     }
@@ -2389,13 +2393,7 @@ mod tests {
     #[test]
     fn group_verbatim_span_keeps_wrapper_comments_around_heredoc_bodies() {
         let source = "{ # note\n  cat <<EOF\npayload\nEOF\n}\n";
-        let file = parse(source);
-        let brace_group = match &file.body[0].command {
-            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
-            _ => panic!("expected brace group"),
-        };
-
-        let span = group_verbatim_span(brace_group.as_slice(), source, '{', '}');
+        let span = first_brace_group_verbatim_span(source);
 
         assert_eq!(span.slice(source), "{ # note\n  cat <<EOF\npayload\nEOF\n}");
     }
@@ -2403,13 +2401,7 @@ mod tests {
     #[test]
     fn group_verbatim_span_keeps_wrapper_comments_across_line_continuations() {
         let source = "{ # note\n  echo ok; \\\n}\n";
-        let file = parse(source);
-        let brace_group = match &file.body[0].command {
-            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
-            _ => panic!("expected brace group"),
-        };
-
-        let span = group_verbatim_span(brace_group.as_slice(), source, '{', '}');
+        let span = first_brace_group_verbatim_span(source);
 
         assert_eq!(span.slice(source), "{ # note\n  echo ok; \\\n}");
     }
