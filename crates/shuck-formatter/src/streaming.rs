@@ -80,6 +80,13 @@ impl SimpleCommandPart<'_> {
             Self::Redirect(redirect) => redirect.span.end.offset,
         }
     }
+
+    fn bare_command_gap_end(&self, command: &SimpleCommand, source: &str) -> usize {
+        match self {
+            Self::Argument(word) => word_gap_end_before_trailing_continuation(word, source),
+            _ => self.end_offset(command),
+        }
+    }
 }
 
 fn move_interspersed_redirects_after_arguments<'a>(parts: &mut Vec<SimpleCommandPart<'a>>) {
@@ -1081,21 +1088,6 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         });
     }
 
-    fn write_rendered_name_if_nonempty(
-        &mut self,
-        rendered_name: &str,
-        previous_end: Option<usize>,
-        name_span: Span,
-    ) -> Option<usize> {
-        if rendered_name.is_empty() {
-            previous_end
-        } else {
-            self.write_command_gap(previous_end, name_span.start.offset);
-            self.write_rendered_name_text(rendered_name);
-            Some(name_span.end.offset)
-        }
-    }
-
     fn write_rendered_name_text(&mut self, rendered_name: &str) {
         if rendered_shell_text_has_heredoc_tail(rendered_name)
             && rendered_text_has_shell_substitution(rendered_name)
@@ -1492,47 +1484,18 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn format_simple_command(&mut self, command: &SimpleCommand) -> Result<()> {
-        let source = self.source();
         let mut rendered_name = self.take_scratch_buffer();
         self.render_word_with_facts_to_buffer(&command.name, &mut rendered_name);
         if command.args.is_empty()
             && command.assignments.len() == 1
             && rendered_name.is_empty()
-            && multiline_compound_assignment_lines(&command.assignments[0], source).is_some()
+            && multiline_compound_assignment_lines(&command.assignments[0], self.source()).is_some()
         {
             self.restore_scratch_buffer(rendered_name);
             return self.format_standalone_multiline_compound_assignment(&command.assignments[0]);
         }
 
-        let mut previous_end = None;
-        let keep_assignment_continuations_flush_left =
-            command.assignments.first().is_some_and(|assignment| {
-                assignment_source_has_command_substitution(assignment, source)
-            });
-        for assignment in &command.assignments {
-            if keep_assignment_continuations_flush_left
-                && previous_end.is_some_and(|previous_end| {
-                    has_newline_between_offsets(source, previous_end, assignment.span.start.offset)
-                })
-            {
-                self.line_continuation();
-            } else {
-                self.write_command_gap(previous_end, assignment.span.start.offset);
-            }
-            self.write_assignment(assignment);
-            previous_end = Some(assignment.span.end.offset);
-        }
-        previous_end =
-            self.write_rendered_name_if_nonempty(&rendered_name, previous_end, command.name.span);
-        self.restore_scratch_buffer(rendered_name);
-        for argument in &command.args {
-            self.write_command_gap(previous_end, argument.span.start.offset);
-            self.write_word(argument);
-            previous_end = Some(word_gap_end_before_trailing_continuation(
-                argument,
-                self.source(),
-            ));
-        }
+        self.format_simple_command_parts(command, &[], rendered_name);
         Ok(())
     }
 
@@ -1541,10 +1504,18 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         command: &SimpleCommand,
         redirects: &[Redirect],
     ) {
-        let source = self.source();
         let mut rendered_name = self.take_scratch_buffer();
         self.render_word_with_facts_to_buffer(&command.name, &mut rendered_name);
+        self.format_simple_command_parts(command, redirects, rendered_name);
+    }
 
+    fn format_simple_command_parts(
+        &mut self,
+        command: &SimpleCommand,
+        redirects: &[Redirect],
+        rendered_name: String,
+    ) {
+        let source = self.source();
         let mut parts = Vec::with_capacity(
             command.assignments.len()
                 + usize::from(!rendered_name.is_empty())
@@ -1589,7 +1560,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             } else {
                 self.write_command_gap(previous_end, part.start_offset(command));
             }
-            let end_offset = part.end_offset(command);
+            let end_offset = if redirects.is_empty() {
+                part.bare_command_gap_end(command, source)
+            } else {
+                part.end_offset(command)
+            };
             match part {
                 SimpleCommandPart::Assignment(assignment) => self.write_assignment(assignment),
                 SimpleCommandPart::Name => self.write_rendered_name_text(&rendered_name),
