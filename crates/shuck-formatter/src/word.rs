@@ -15,7 +15,9 @@ use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    leading_shell_indent as line_leading_shell_indent, redirect_operator_end, refine_common_indent,
+    leading_shell_indent as line_leading_shell_indent,
+    line_indent_before_offset as line_indent_before_source_offset, redirect_operator_end,
+    refine_common_indent,
 };
 use crate::streaming::format_stmt_sequence_streaming_to_buf;
 
@@ -4688,19 +4690,6 @@ fn raw_redirect_target_spacing_can_be_stripped(
         .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
 
-fn line_indent_before_source_offset(source: &str, offset: usize) -> Option<&str> {
-    let line_start = source
-        .get(..offset)?
-        .rfind('\n')
-        .map_or(0, |index| index + 1);
-    let line = source.get(line_start..offset)?;
-    let indent_end = line
-        .char_indices()
-        .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
-        .map_or(line.len(), |(index, _)| index);
-    line.get(..indent_end)
-}
-
 fn source_indent_units_before_offset(
     source: &str,
     offset: usize,
@@ -4709,15 +4698,7 @@ fn source_indent_units_before_offset(
     let Some(indent) = line_indent_before_source_offset(source, offset) else {
         return 0;
     };
-    let normalized = normalized_raw_shell_indent(indent, options);
-    let width = usize::from(options.indent_width()).max(1);
-    match options.indent_style() {
-        IndentStyle::Tab => {
-            normalized.chars().filter(|ch| *ch == '\t').count()
-                + normalized.chars().filter(|ch| *ch == ' ').count() / width
-        }
-        IndentStyle::Space => normalized.len() / width,
-    }
+    raw_indent_units(indent, options)
 }
 
 fn raw_indent_units(indent: &str, options: &ResolvedShellFormatOptions) -> usize {
