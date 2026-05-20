@@ -1496,6 +1496,16 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
     }
 
+    fn format_assignments(&mut self, assignments: &[Assignment]) -> Option<usize> {
+        let mut previous_end = None;
+        for assignment in assignments {
+            self.write_command_gap(previous_end, assignment.span.start.offset);
+            self.write_assignment(assignment);
+            previous_end = Some(assignment.span.end.offset);
+        }
+        previous_end
+    }
+
     fn format_simple_command(&mut self, command: &SimpleCommand) -> Result<()> {
         let source = self.source();
         let mut rendered_name = self.take_scratch_buffer();
@@ -1686,12 +1696,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         primary: Option<&Word>,
         extra_args: &[Word],
     ) -> Result<()> {
-        let mut previous_end = None;
-        for assignment in assignments {
-            self.write_command_gap(previous_end, assignment.span.start.offset);
-            self.write_assignment(assignment);
-            previous_end = Some(assignment.span.end.offset);
-        }
+        let mut previous_end = self.format_assignments(assignments);
         let name_span = Span::from_positions(start, start.advanced_by(name));
         self.write_command_gap(previous_end, name_span.start.offset);
         self.write_text(name);
@@ -1710,12 +1715,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn format_decl_clause(&mut self, command: &DeclClause) -> Result<()> {
-        let mut previous_end = None;
-        for assignment in &command.assignments {
-            self.write_command_gap(previous_end, assignment.span.start.offset);
-            self.write_assignment(assignment);
-            previous_end = Some(assignment.span.end.offset);
-        }
+        let mut previous_end = self.format_assignments(&command.assignments);
         self.write_command_gap(previous_end, command.variant_span.start.offset);
         self.write_text(command.variant.as_ref());
         previous_end = Some(command.variant_span.end.offset);
@@ -1745,10 +1745,6 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         } else {
             self.write_space();
         }
-    }
-
-    fn write_word_list_preserving_breaks(&mut self, words: &[Word]) {
-        self.write_word_list_preserving_breaks_after(words, None);
     }
 
     fn write_word_list_preserving_breaks_after(
@@ -3117,8 +3113,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.format_brace_group(&command.body, Some(command.span.end.offset))?;
             }
             ForeachSyntax::InDoDone { done_span, .. } => {
-                self.write_text(" in");
-                self.write_word_list_preserving_breaks(&command.words);
+                self.write_for_in_words(Some(&command.words), None);
                 self.format_done_body(&command.body, command.span, Some(done_span))?;
             }
         }
@@ -3128,8 +3123,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     fn format_select(&mut self, command: &SelectCommand) -> Result<()> {
         self.write_text("select ");
         self.write_text(command.variable.as_ref());
-        self.write_text(" in");
-        self.write_word_list_preserving_breaks(&command.words);
+        self.write_for_in_words(Some(&command.words), None);
         self.format_done_body(&command.body, command.span, None)?;
         Ok(())
     }
