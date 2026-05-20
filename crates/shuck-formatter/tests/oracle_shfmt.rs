@@ -33,6 +33,17 @@ const LARGE_CORPUS_STATIC_IGNORE_SUFFIXES: &[&str] = &[
     "moovweb__gvm__examples__native__ltmain.sh",
     "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh",
 ];
+const LARGE_CORPUS_IGNORED_EXTENSIONS: &[&str] = &["fish"];
+const LARGE_CORPUS_IGNORED_FILE_PREFIXES: &[&str] = &["._"];
+const LARGE_CORPUS_IGNORED_FILE_SUFFIXES: &[&str] = &[
+    ".sample",
+    ".patch",
+    ".diff",
+    ".dpatch",
+    ".guess",
+    "config.sub",
+];
+const LARGE_CORPUS_IGNORED_FILE_CONTAINS: &[&str] = &["__.git__"];
 
 struct OracleCase {
     name: &'static str,
@@ -691,13 +702,13 @@ fn collect_large_corpus_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
 
 fn fixture_path_is_supported(path: &Path) -> bool {
     !(path_is_statically_ignored_large_corpus_fixture(path)
-        || path_is_sample_file(path)
-        || path_is_fish_file(path)
-        || path_is_patch_file(path)
-        || path_is_appledouble_file(path)
-        || path_is_guess_file(path)
-        || path_is_config_sub_file(path)
-        || path_is_repo_git_entry(path))
+        || path_extension_matches(path, LARGE_CORPUS_IGNORED_EXTENSIONS)
+        || path_file_name_matches(
+            path,
+            LARGE_CORPUS_IGNORED_FILE_PREFIXES,
+            LARGE_CORPUS_IGNORED_FILE_SUFFIXES,
+            LARGE_CORPUS_IGNORED_FILE_CONTAINS,
+        ))
 }
 
 fn path_matches_large_corpus_suffix(path: &Path, suffixes: &[&str]) -> bool {
@@ -709,45 +720,30 @@ fn path_is_statically_ignored_large_corpus_fixture(path: &Path) -> bool {
     path_matches_large_corpus_suffix(path, LARGE_CORPUS_STATIC_IGNORE_SUFFIXES)
 }
 
-fn path_is_sample_file(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.ends_with(".sample"))
-}
-
-fn path_is_patch_file(path: &Path) -> bool {
-    let path = path.to_string_lossy().to_lowercase();
-    path.ends_with(".patch") || path.ends_with(".diff") || path.ends_with(".dpatch")
-}
-
-fn path_is_fish_file(path: &Path) -> bool {
+fn path_extension_matches(path: &Path, extensions: &[&str]) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("fish"))
+        .is_some_and(|ext| {
+            extensions
+                .iter()
+                .any(|ignored| ext.eq_ignore_ascii_case(ignored))
+        })
 }
 
-fn path_is_appledouble_file(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.starts_with("._"))
-}
+fn path_file_name_matches(
+    path: &Path,
+    prefixes: &[&str],
+    suffixes: &[&str],
+    contains: &[&str],
+) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
 
-fn path_is_guess_file(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.to_ascii_lowercase().ends_with(".guess"))
-}
-
-fn path_is_config_sub_file(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.to_ascii_lowercase().ends_with("config.sub"))
-}
-
-fn path_is_repo_git_entry(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.contains("__.git__"))
+    let lower_name = name.to_ascii_lowercase();
+    prefixes.iter().any(|prefix| name.starts_with(prefix))
+        || suffixes.iter().any(|suffix| lower_name.ends_with(suffix))
+        || contains.iter().any(|needle| name.contains(needle))
 }
 
 fn select_large_corpus_fixtures(
