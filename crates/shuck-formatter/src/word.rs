@@ -6,7 +6,7 @@ use shuck_ast::{
     Assignment, AssignmentValue, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command,
     CommandSubstitutionSyntax, CompoundCommand, ConditionalExpr, HeredocBody, HeredocBodyPart,
     ParameterOp, Pattern, PatternPart, Redirect, Stmt, StmtSeq, SubscriptSelector, VarRef, Word,
-    WordPart,
+    WordPart, WordPartNode,
 };
 use shuck_format::IndentStyle;
 
@@ -63,6 +63,20 @@ fn source_fragment_is_line_continuation_padding(fragment: &str) -> bool {
         return false;
     };
     after_newline.chars().all(|ch| matches!(ch, ' ' | '\t'))
+}
+
+fn word_part_nodes_any(
+    parts: &[WordPartNode],
+    predicate: &mut impl FnMut(&WordPartNode) -> bool,
+) -> bool {
+    parts.iter().any(|part| {
+        predicate(part)
+            || matches!(
+                &part.kind,
+                WordPart::DoubleQuoted { parts, .. }
+                    if word_part_nodes_any(parts.as_slice(), predicate)
+            )
+    })
 }
 
 pub(crate) fn render_word_syntax(
@@ -131,9 +145,9 @@ pub(crate) fn word_has_multiline_literal_source(word: &Word, source: &str) -> bo
         return true;
     }
 
-    word.parts
-        .iter()
-        .any(|part| word_part_has_multiline_literal_source(&part.kind, part.span, source))
+    word_part_nodes_any(&word.parts, &mut |part| {
+        word_part_has_multiline_literal_source(&part.kind, part.span, source)
+    })
 }
 
 fn word_part_has_multiline_literal_source(
@@ -150,9 +164,6 @@ fn word_part_has_multiline_literal_source(
                 value.slice(source).contains('\n')
             }
         }
-        WordPart::DoubleQuoted { parts, .. } => parts
-            .iter()
-            .any(|part| word_part_has_multiline_literal_source(&part.kind, part.span, source)),
         WordPart::CommandSubstitution { body, .. } => {
             stmt_seq_has_multiline_literal_source(body, source)
                 || (stmt_seq_contains_comments(body)
@@ -587,9 +598,9 @@ fn word_has_escaped_command_substitution(word: &Word, source: &str) -> bool {
         return true;
     }
 
-    word.parts
-        .iter()
-        .any(|part| word_part_has_escaped_command_substitution(&part.kind, part.span, source))
+    word_part_nodes_any(&word.parts, &mut |part| {
+        word_part_has_escaped_command_substitution(&part.kind, part.span, source)
+    })
 }
 
 fn raw_word_has_escaped_command_substitution(raw: &str) -> bool {
@@ -613,9 +624,6 @@ fn word_part_has_escaped_command_substitution(
                         .is_some_and(|prefix| prefix.ends_with('\\'))
             }
         },
-        WordPart::DoubleQuoted { parts, .. } => parts
-            .iter()
-            .any(|part| word_part_has_escaped_command_substitution(&part.kind, part.span, source)),
         _ => false,
     }
 }
@@ -640,9 +648,9 @@ fn raw_single_line_escaped_quote_command_substitution_should_preserve(raw: &str)
 }
 
 fn word_needs_special_rendering(word: &Word) -> bool {
-    word.parts
-        .iter()
-        .any(|part| part_needs_special_rendering(&part.kind))
+    word_part_nodes_any(&word.parts, &mut |part| {
+        part_needs_special_rendering(&part.kind)
+    })
 }
 
 fn word_has_parameter_raw_subscript_needs_compaction(
@@ -650,7 +658,7 @@ fn word_has_parameter_raw_subscript_needs_compaction(
     source: &str,
     options: &ResolvedShellFormatOptions,
 ) -> bool {
-    word.parts.iter().any(|part| {
+    word_part_nodes_any(&word.parts, &mut |part| {
         word_part_has_parameter_raw_subscript_needs_compaction(&part.kind, source, options)
     })
 }
@@ -664,9 +672,6 @@ fn word_part_has_parameter_raw_subscript_needs_compaction(
         WordPart::Parameter(parameter) => {
             parameter_raw_subscript_needs_compaction(parameter, source, options)
         }
-        WordPart::DoubleQuoted { parts, .. } => parts.iter().any(|part| {
-            word_part_has_parameter_raw_subscript_needs_compaction(&part.kind, source, options)
-        }),
         _ => false,
     }
 }
@@ -675,7 +680,7 @@ fn word_has_parameter_command_redirect_spacing_needs_normalization(
     word: &Word,
     source: &str,
 ) -> bool {
-    word.parts.iter().any(|part| {
+    word_part_nodes_any(&word.parts, &mut |part| {
         word_part_has_parameter_command_redirect_spacing_needs_normalization(
             &part.kind, part.span, source,
         )
@@ -691,19 +696,14 @@ fn word_part_has_parameter_command_redirect_spacing_needs_normalization(
         WordPart::Parameter(_) | WordPart::ParameterExpansion { .. } => {
             raw_source_slice(span, source).is_some_and(raw_parameter_command_spacing_would_change)
         }
-        WordPart::DoubleQuoted { parts, .. } => parts.iter().any(|part| {
-            word_part_has_parameter_command_redirect_spacing_needs_normalization(
-                &part.kind, part.span, source,
-            )
-        }),
         _ => false,
     }
 }
 
 fn word_has_arithmetic_expansion_source_needs_trim(word: &Word, source: &str) -> bool {
-    word.parts
-        .iter()
-        .any(|part| word_part_has_arithmetic_expansion_source_needs_trim(&part.kind, source))
+    word_part_nodes_any(&word.parts, &mut |part| {
+        word_part_has_arithmetic_expansion_source_needs_trim(&part.kind, source)
+    })
 }
 
 fn word_part_has_arithmetic_expansion_source_needs_trim(part: &WordPart, source: &str) -> bool {
@@ -712,16 +712,13 @@ fn word_part_has_arithmetic_expansion_source_needs_trim(part: &WordPart, source:
             let raw = expression.slice(source);
             raw.trim_matches([' ', '\t', '\r']).len() != raw.len()
         }
-        WordPart::DoubleQuoted { parts, .. } => parts
-            .iter()
-            .any(|part| word_part_has_arithmetic_expansion_source_needs_trim(&part.kind, source)),
         _ => false,
     }
 }
 
 fn word_has_multiline_double_quoted_source(word: &Word, source: &str) -> bool {
-    word.parts.iter().any(|part| {
-        matches!(part.kind, WordPart::DoubleQuoted { .. })
+    word_part_nodes_any(&word.parts, &mut |part| {
+        matches!(&part.kind, WordPart::DoubleQuoted { .. })
             && raw_source_slice(part.span, source).is_some_and(|raw| raw.contains('\n'))
     })
 }
@@ -770,9 +767,7 @@ fn quoted_command_substitution_only_body(word: &Word) -> Option<&StmtSeq> {
 fn part_needs_special_rendering(part: &WordPart) -> bool {
     match part {
         WordPart::SingleQuoted { dollar: true, .. } => true,
-        WordPart::DoubleQuoted { parts, .. } => parts
-            .iter()
-            .any(|part| part_needs_special_rendering(&part.kind)),
+        WordPart::DoubleQuoted { .. } => false,
         WordPart::ArithmeticExpansion { expression_ast, .. } => expression_ast.is_some(),
         WordPart::Parameter(parameter) => parameter_needs_special_rendering(parameter),
         WordPart::ParameterExpansion { operator, .. } => matches!(
