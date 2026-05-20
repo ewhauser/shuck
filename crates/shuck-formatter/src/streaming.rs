@@ -1806,33 +1806,31 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             .sequence(body, Some(body_upper_bound))
             .group_open_suffix_span()
             .is_some();
-        if !has_open_suffix
-            && self.can_inline_body_with_upper_bound(body, enclosing_span, Some(body_upper_bound))
-        {
-            self.write_text("; do ");
-            self.format_inline_stmts(body)?;
-            self.write_text("; ");
-            self.write_text(close);
-            self.write_close_suffix_after_span(close_span);
-            return Ok(());
-        }
+        if !has_open_suffix {
+            if self.can_inline_body_with_upper_bound(body, enclosing_span, Some(body_upper_bound)) {
+                self.write_text("; do ");
+                self.format_inline_stmts(body)?;
+                self.write_text("; ");
+                self.write_text(close);
+                self.write_close_suffix_after_span(close_span);
+                return Ok(());
+            }
 
-        if !has_open_suffix && self.body_starts_with_inline_do_brace_group(body) {
-            self.write_text("; do ");
-            self.format_stmt(&body[0])?;
-            self.write_text(self.inline_do_brace_group_done_separator(body, enclosing_span));
-            self.write_text(close);
-            self.write_close_suffix_after_span(close_span);
-            return Ok(());
-        }
-
-        if !has_open_suffix && self.body_starts_with_inline_do_if(body) {
-            self.write_text("; do ");
-            self.format_stmt(&body[0])?;
-            self.write_text("; ");
-            self.write_text(close);
-            self.write_close_suffix_after_span(close_span);
-            return Ok(());
+            let single_stmt_separator = if self.body_starts_with_inline_do_brace_group(body) {
+                Some(self.inline_do_brace_group_done_separator(body, enclosing_span))
+            } else if self.body_starts_with_inline_do_if(body) {
+                Some("; ")
+            } else {
+                None
+            };
+            if let Some(separator) = single_stmt_separator {
+                self.write_text("; do ");
+                self.format_stmt(&body[0])?;
+                self.write_text(separator);
+                self.write_text(close);
+                self.write_close_suffix_after_span(close_span);
+                return Ok(());
+            }
         }
 
         self.format_multiline_do_done_body(body, enclosing_span, close_span, close, "; do")
