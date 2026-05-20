@@ -1168,7 +1168,7 @@ mod tests {
             source,
             None,
             &options,
-            "aws logs filter-log-events \\\n\t\"$@\"\n#--max-items 1 \\\n#--end-time \"$(date '+%s')000\" \\\n".to_string(),
+            "aws logs filter-log-events \\\n\t\"$@\"\n#--max-items 1 \\\n#--end-time \"$(date '+%s')000\" \\\n",
         );
     }
 
@@ -1235,8 +1235,7 @@ mod tests {
             source,
             None,
             &options,
-            "XDGPATH=$(echo \"foreach dir [split [::tcl::tm::path list]] {puts \\$dir}\" | tclsh | tail -n1)\n"
-                .to_string(),
+            "XDGPATH=$(echo \"foreach dir [split [::tcl::tm::path list]] {puts \\$dir}\" | tclsh | tail -n1)\n",
         );
     }
 
@@ -1309,8 +1308,7 @@ $YELLOW-$LIGHT_BLUE-(\
 $(__tonka_clock)\
 $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
 }
-"##
-            .to_string(),
+"##,
         );
     }
 
@@ -1323,8 +1321,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if true; then\n\tgcloud secrets list \\\n\t\t--filter=\"labels.kubernetes-cluster=$current_cluster \\\n                AND NOT \\\n                labels.foo ~ .\" |\n\t\twhile read -r secret; do\n\t\t\techo \"$secret\"\n\t\tdone\nfi\n"
-                .to_string(),
+            "if true; then\n\tgcloud secrets list \\\n\t\t--filter=\"labels.kubernetes-cluster=$current_cluster \\\n                AND NOT \\\n                labels.foo ~ .\" |\n\t\twhile read -r secret; do\n\t\t\techo \"$secret\"\n\t\tdone\nfi\n",
         );
     }
 
@@ -1337,8 +1334,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if [ -z \"$SUBIT\" ]; then\n\teval $CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\nelse\n\t$SUBIT \"$CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\"\nfi\n"
-                .to_string(),
+            "if [ -z \"$SUBIT\" ]; then\n\teval $CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\nelse\n\t$SUBIT \"$CMD_START_STANDALONE >${JBOSS_CONSOLE} 2>&1 &\"\nfi\n",
         );
     }
 
@@ -1351,7 +1347,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if ok; then\n\trun --flag &\n\t2>/dev/null\nfi\n".to_string(),
+            "if ok; then\n\trun --flag &\n\t2>/dev/null\nfi\n",
         );
     }
 
@@ -1364,7 +1360,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if ok; then\n\trun --flag 2>&1 &\n\techo $! >\"$PIDFILE\"\nfi\n".to_string(),
+            "if ok; then\n\trun --flag 2>&1 &\n\techo $! >\"$PIDFILE\"\nfi\n",
         );
     }
 
@@ -1377,7 +1373,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if eval ! [[ \"$env_var\" =~ ^[[:digit:]]+$ ]]; then\n\techo ok\nfi\n".to_string(),
+            "if eval ! [[ \"$env_var\" =~ ^[[:digit:]]+$ ]]; then\n\techo ok\nfi\n",
         );
     }
 
@@ -1390,8 +1386,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if ! type -P wget &>/dev/null ||\n\ttype -P apk; then # Alpine built-in wget is not enough\n\t\"$srcdir/../packages/install_packages.sh\" wget\nfi\n"
-                .to_string(),
+            "if ! type -P wget &>/dev/null ||\n\ttype -P apk; then # Alpine built-in wget is not enough\n\t\"$srcdir/../packages/install_packages.sh\" wget\nfi\n",
         );
     }
 
@@ -1405,8 +1400,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if ! out=\"$(\n\tstat -c %Y \"$path\" 2>/dev/null\n)\"; then # GNU\n\t:\nfi\n"
-                .to_string(),
+            "if ! out=\"$(\n\tstat -c %Y \"$path\" 2>/dev/null\n)\"; then # GNU\n\t:\nfi\n",
         );
     }
 
@@ -1419,8 +1413,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "while read -r module; do\n\tif ! git grep \"needle\" |\n\t\tgrep -v requirements.txt |\n\t\tgrep -q .; then\n\t\techo \"$module\"\n\tfi\ndone\n"
-                .to_string(),
+            "while read -r module; do\n\tif ! git grep \"needle\" |\n\t\tgrep -v requirements.txt |\n\t\tgrep -q .; then\n\t\techo \"$module\"\n\tfi\ndone\n",
         );
     }
 
@@ -1433,8 +1426,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if [ -z \"$jar\" ] ||\n\t# incomplete download, resume it\n\t! jar tf \"$jar\" &>/dev/null; then\n\techo fetch\nfi\n"
-                .to_string(),
+            "if [ -z \"$jar\" ] ||\n\t# incomplete download, resume it\n\t! jar tf \"$jar\" &>/dev/null; then\n\techo fetch\nfi\n",
         );
     }
 
@@ -1447,8 +1439,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "docker-compose exec -T jenkins-server install-plugins.sh ||\n\t# New: later switch to\n\t{\n\t\tdocker-compose cp plugins.txt jenkins-server:/\n\t} || :\n"
-                .to_string(),
+            "docker-compose exec -T jenkins-server install-plugins.sh ||\n\t# New: later switch to\n\t{\n\t\tdocker-compose cp plugins.txt jenkins-server:/\n\t} || :\n",
         );
     }
 
@@ -1461,8 +1452,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if { true; } &&\n\tcommand &&\n\t{\n\t\t# inside group\n\t\t[[ -t 1 ]] ||\n\t\t\ttrue\n\t}; then\n\t:\nfi\n"
-                .to_string(),
+            "if { true; } &&\n\tcommand &&\n\t{\n\t\t# inside group\n\t\t[[ -t 1 ]] ||\n\t\t\ttrue\n\t}; then\n\t:\nfi\n",
         );
     }
 
@@ -1475,8 +1465,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tif [ -f .iterate ]; then\n\t\t#ls ./*/.git &>/dev/null; then  # note\n\t\thr\n\tfi\n}\n"
-                .to_string(),
+            "f() {\n\tif [ -f .iterate ]; then\n\t\t#ls ./*/.git &>/dev/null; then  # note\n\t\thr\n\tfi\n}\n",
         );
     }
 
@@ -1490,8 +1479,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if case \"$@\" in *--usecwd*) true ;; *) false ;; esac then\n\tUSE_CWD=1\nfi\n"
-                .to_string(),
+            "if case \"$@\" in *--usecwd*) true ;; *) false ;; esac then\n\tUSE_CWD=1\nfi\n",
         );
     }
 
@@ -1520,8 +1508,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if {\n\t[[ \"$group\" -eq 2 ]] &&\n\t\tcontains first\n} || {\n\t[[ \"$group\" -eq 3 ]] &&\n\t\t! contains second\n}; then\n\treturn 0\nfi\n"
-                .to_string(),
+            "if {\n\t[[ \"$group\" -eq 2 ]] &&\n\t\tcontains first\n} || {\n\t[[ \"$group\" -eq 3 ]] &&\n\t\t! contains second\n}; then\n\treturn 0\nfi\n",
         );
     }
 
@@ -1534,8 +1521,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if ! { [[ -d \"${status_file%/*}\" ]] &&\n\t[[ -r \"${status_file}\" ]]; }; then\n\techo \"\"\nfi\n"
-                .to_string(),
+            "if ! { [[ -d \"${status_file%/*}\" ]] &&\n\t[[ -r \"${status_file}\" ]]; }; then\n\techo \"\"\nfi\n",
         );
     }
 
@@ -1548,7 +1534,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "while read -r line; do {\n\techo \"$line\"\n}; done\n".to_string(),
+            "while read -r line; do {\n\techo \"$line\"\n}; done\n",
         );
     }
 
@@ -1561,8 +1547,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "for item in $items; do {\n\tcase \"$item\" in\n\ta)\n\t\techo a\n\t\t;;\n\tesac\n} done\n"
-                .to_string(),
+            "for item in $items; do {\n\tcase \"$item\" in\n\ta)\n\t\techo a\n\t\t;;\n\tesac\n} done\n",
         );
     }
 
@@ -1575,8 +1560,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "for item in $items; do {\n\tok && {\n\t\tcase \"$item\" in\n\t\ta)\n\t\t\techo a\n\t\t\t;;\n\t\tesac\n\t}\n} done\n"
-                .to_string(),
+            "for item in $items; do {\n\tok && {\n\t\tcase \"$item\" in\n\t\ta)\n\t\t\techo a\n\t\t\t;;\n\t\tesac\n\t}\n} done\n",
         );
     }
 
@@ -1589,7 +1573,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "while read -r line; do {\n\tif ok; then\n\t\t:\n\tfi\n}; done <file\n".to_string(),
+            "while read -r line; do {\n\tif ok; then\n\t\t:\n\tfi\n}; done <file\n",
         );
     }
 
@@ -1602,8 +1586,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "for dev in $devs; do {\n\tscan \"$dev\" | while read -r line; do {\n\t\tcase \"$line\" in\n\t\ta)\n\t\t\techo a\n\t\t\t;;\n\t\tesac\n\t} done\n} done\n"
-                .to_string(),
+            "for dev in $devs; do {\n\tscan \"$dev\" | while read -r line; do {\n\t\tcase \"$line\" in\n\t\ta)\n\t\t\techo a\n\t\t\t;;\n\t\tesac\n\t} done\n} done\n",
         );
     }
 
@@ -1616,7 +1599,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "[[ $a -le 255 && $b -le 255 &&\n\t$c -le 255 && $d -le 255 ]]\n".to_string(),
+            "[[ $a -le 255 && $b -le 255 &&\n\t$c -le 255 && $d -le 255 ]]\n",
         );
     }
 
@@ -1629,7 +1612,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "[[ $a -le 255 && $b -le 255 &&\n\t$c -le 255 && $d -le 255 ]]\n".to_string(),
+            "[[ $a -le 255 && $b -le 255 &&\n\t$c -le 255 && $d -le 255 ]]\n",
         );
     }
 
@@ -1642,8 +1625,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "rename() {\n\tif [[ -n \"${_remote_head_branch:-}\" ]] &&\n\t\t[[ \"${_remote_branch_name:-\"${_current_branch}\"}\" == \"${_remote_head_branch:-}\" ]]; then\n\t\t_exit_1 printf \"Only orphan branches can be renamed.\\\\n\"\n\tfi\n}\n"
-                .to_string(),
+            "rename() {\n\tif [[ -n \"${_remote_head_branch:-}\" ]] &&\n\t\t[[ \"${_remote_branch_name:-\"${_current_branch}\"}\" == \"${_remote_head_branch:-}\" ]]; then\n\t\t_exit_1 printf \"Only orphan branches can be renamed.\\\\n\"\n\tfi\n}\n",
         );
     }
 
@@ -1679,7 +1661,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if $(! /sbin/pidof $PRGNAM >/dev/null 2>&1); then\n\techo stale\nfi\n".to_string(),
+            "if $(! /sbin/pidof $PRGNAM >/dev/null 2>&1); then\n\techo stale\nfi\n",
         );
     }
 
@@ -1692,8 +1674,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "host_sockets=\"$(find /run/host/run \\\n\t-xdev \\\n\t2>/dev/null || :)\"\n"
-                .to_string(),
+            "host_sockets=\"$(find /run/host/run \\\n\t-xdev \\\n\t2>/dev/null || :)\"\n",
         );
     }
 
@@ -1707,8 +1688,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "value=\"$(declare -f list_all |\n\tsed 's/list_all/list_all_without_hub/')\"\n"
-                .to_string(),
+            "value=\"$(declare -f list_all |\n\tsed 's/list_all/list_all_without_hub/')\"\n",
         );
     }
 
@@ -1721,7 +1701,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "value=\"$(\n\t# note\n\tfoo |\n\tbar |\n\tbaz\n)\"\n".to_string(),
+            "value=\"$(\n\t# note\n\tfoo |\n\tbar |\n\tbaz\n)\"\n",
         );
     }
 
@@ -1734,8 +1714,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tvalue=\"$(\n\t\t# note\n\t\tdocker-compose \\\n\t\t\tlogs service |\n\t\t\tgrep token |\n\t\t\tawk '{print $1}' || :\n\t)\"\n}\n"
-                .to_string(),
+            "f() {\n\tvalue=\"$(\n\t\t# note\n\t\tdocker-compose \\\n\t\t\tlogs service |\n\t\t\tgrep token |\n\t\t\tawk '{print $1}' || :\n\t)\"\n}\n",
         );
     }
 
@@ -1748,8 +1727,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "while read -r line; do :; done < <(\n\tcat clean_files.txt |\n\t\tgrep -v '^#'\n)\n"
-                .to_string(),
+            "while read -r line; do :; done < <(\n\tcat clean_files.txt |\n\t\tgrep -v '^#'\n)\n",
         );
     }
 
@@ -1762,8 +1740,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if true; then\n\tif [[ $a != \"$(cat x)\" ||\n\t$b == c ]]; then\n\t\techo yes\n\tfi\nfi\n"
-                .to_string(),
+            "if true; then\n\tif [[ $a != \"$(cat x)\" ||\n\t$b == c ]]; then\n\t\techo yes\n\tfi\nfi\n",
         );
     }
 
@@ -1776,7 +1753,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "[[ -t 1 && \"${CLICOLOR:=$(tput colors 2>/dev/null)}\" -ge 8 ]]\n".to_string(),
+            "[[ -t 1 && \"${CLICOLOR:=$(tput colors 2>/dev/null)}\" -ge 8 ]]\n",
         );
     }
 
@@ -1789,7 +1766,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "value=${value:-$(printf x | tr x y)}\n".to_string(),
+            "value=${value:-$(printf x | tr x y)}\n",
         );
     }
 
@@ -1802,7 +1779,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "[[ $versions = \"$(sort -V <<<\"$versions\")\" ]]\n".to_string(),
+            "[[ $versions = \"$(sort -V <<<\"$versions\")\" ]]\n",
         );
     }
 
@@ -1815,7 +1792,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "value=\"$(\n\t# keep comment\n\tcat <<<\"$payload\"\n)\"\n".to_string(),
+            "value=\"$(\n\t# keep comment\n\tcat <<<\"$payload\"\n)\"\n",
         );
     }
 
@@ -1824,12 +1801,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "sort -V <<< \"$versions\"\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "sort -V <<<\"$versions\"\n".to_string(),
-        );
+        assert_formats_to_with_ast(source, None, &options, "sort -V <<<\"$versions\"\n");
     }
 
     #[test]
@@ -1841,8 +1813,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case $kind in\nservice)\n\tcat >$unit <<<\"\n[Unit]\nDescription=$name\n\n[Service]\nExecStart=$bin\n\"\n\t;;\nesac\n"
-                .to_string(),
+            "case $kind in\nservice)\n\tcat >$unit <<<\"\n[Unit]\nDescription=$name\n\n[Service]\nExecStart=$bin\n\"\n\t;;\nesac\n",
         );
     }
 
@@ -1856,8 +1827,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tIFS=' ' read -ra tags <<<\"$(\n\t\tget_tags \"$1\" \"$2\"\n\t)\"\n}\n"
-                .to_string(),
+            "f() {\n\tIFS=' ' read -ra tags <<<\"$(\n\t\tget_tags \"$1\" \"$2\"\n\t)\"\n}\n",
         );
     }
 
@@ -1878,8 +1848,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tIFS=\" \" read -r -a COMPREPLY <<<\"$( (\n\t\twhile read -r -d ' ' i; do\n\t\t\t[[ -z \"$i\" ]] && continue\n\t\t\t# flatten array with spaces on either side,\n\t\t\t# otherwise we cannot grep on word boundaries of\n\t\t\t# first and last word\n\t\t\tCOMPREPLYSTR=\" ${COMPREPLY[*]} \"\n\t\t\t# remove word from list of completions\n\t\t\tIFS=\" \" read -r -a COMPREPLY <<<\"${COMPREPLYSTR/ ${i%% *} / }\"\n\t\tdone\n\t\tprintf '%s ' \"${COMPREPLY[@]}\"\n\t) <<<\"${COMP_WORDS[@]}\")\"\n}\n"
-                .to_string(),
+            "f() {\n\tIFS=\" \" read -r -a COMPREPLY <<<\"$( (\n\t\twhile read -r -d ' ' i; do\n\t\t\t[[ -z \"$i\" ]] && continue\n\t\t\t# flatten array with spaces on either side,\n\t\t\t# otherwise we cannot grep on word boundaries of\n\t\t\t# first and last word\n\t\t\tCOMPREPLYSTR=\" ${COMPREPLY[*]} \"\n\t\t\t# remove word from list of completions\n\t\t\tIFS=\" \" read -r -a COMPREPLY <<<\"${COMPREPLYSTR/ ${i%% *} / }\"\n\t\tdone\n\t\tprintf '%s ' \"${COMPREPLY[@]}\"\n\t) <<<\"${COMP_WORDS[@]}\")\"\n}\n",
         );
     }
 
@@ -1900,8 +1869,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "find_dig=$(which dig 2>/dev/null | grep -v \"no [^ ]* in\")\ncontext_id=\"$(jq_debug_pipe_dump <<<\"$output\" | jq -r \".items[] | select(.name == \\\"$context_name\\\") | .id\")\"\nurl=\"$(jq -r \"limit(1; .[] | select(.title == \\\"$selected\\\" or .animal == \\\"$selected\\\") ) | .cover_src\" <\"$json\")\"\nCOMPREPLY=($(compgen -W \"$(awk -F ':' 'BEGIN {print_line = 0}; /^[^ ]/ {print_line = 0}' <${MASTER_CONFIG})\" -- \"${cur}\"))\n"
-                .to_string(),
+            "find_dig=$(which dig 2>/dev/null | grep -v \"no [^ ]* in\")\ncontext_id=\"$(jq_debug_pipe_dump <<<\"$output\" | jq -r \".items[] | select(.name == \\\"$context_name\\\") | .id\")\"\nurl=\"$(jq -r \"limit(1; .[] | select(.title == \\\"$selected\\\" or .animal == \\\"$selected\\\") ) | .cover_src\" <\"$json\")\"\nCOMPREPLY=($(compgen -W \"$(awk -F ':' 'BEGIN {print_line = 0}; /^[^ ]/ {print_line = 0}' <${MASTER_CONFIG})\" -- \"${cur}\"))\n",
         );
     }
 
@@ -1914,8 +1882,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "echo \"MD5SUM=\\\"$(md5sum file | cut -d' ' -f1)\\\"\"\nlocal minute=\"${MINUTE:-$(date +%H)}\"\noutput=$(ls packages 2>/dev/null | grep pattern)\n"
-                .to_string(),
+            "echo \"MD5SUM=\\\"$(md5sum file | cut -d' ' -f1)\\\"\"\nlocal minute=\"${MINUTE:-$(date +%H)}\"\noutput=$(ls packages 2>/dev/null | grep pattern)\n",
         );
     }
 
@@ -1928,7 +1895,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "_pre=\"$(echo $(du -hs \"$directory/\"))\"\n".to_string(),
+            "_pre=\"$(echo $(du -hs \"$directory/\"))\"\n",
         );
     }
 
@@ -1941,7 +1908,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "id=$( (\n\techo hi\n\techo there\n) | checksum)\n".to_string(),
+            "id=$( (\n\techo hi\n\techo there\n) | checksum)\n",
         );
     }
 
@@ -1954,7 +1921,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "run() {\n\t( (echo hi) 2>&1 | (cat)) 5>&1\n}\n".to_string(),
+            "run() {\n\t( (echo hi) 2>&1 | (cat)) 5>&1\n}\n",
         );
     }
 
@@ -1967,8 +1934,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "nlq=\"$(_sanitizer run \"$nlq\" numeric)\"\nline=$(head -n 2 $file | tail -n 1)\nfile2patch=\"$(echo \"$line\" | cut -d' ' -f2 | cut -f1)\"\nmsg=\"Welcome Hari - your last access was $(last | head -n2 | tail -n1 | sed 's/[^ ]\\+ \\+[^ ]\\+ \\+[^ ]\\+ \\+//;s/ *$//')\"\n"
-                .to_string(),
+            "nlq=\"$(_sanitizer run \"$nlq\" numeric)\"\nline=$(head -n 2 $file | tail -n 1)\nfile2patch=\"$(echo \"$line\" | cut -d' ' -f2 | cut -f1)\"\nmsg=\"Welcome Hari - your last access was $(last | head -n2 | tail -n1 | sed 's/[^ ]\\+ \\+[^ ]\\+ \\+[^ ]\\+ \\+//;s/ *$//')\"\n",
         );
     }
 
@@ -1981,7 +1947,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "result=$(\n\techo foo\n\techo bar\n)\n".to_string(),
+            "result=$(\n\techo foo\n\techo bar\n)\n",
         );
     }
 
@@ -1994,8 +1960,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "size=$(\n\tstat -f\"%z\" \"$tmpFile\" 2>/dev/null # OS X `stat`\n\tstat -c\"%s\" \"$tmpFile\" 2>/dev/null # GNU `stat`\n)\n"
-                .to_string(),
+            "size=$(\n\tstat -f\"%z\" \"$tmpFile\" 2>/dev/null # OS X `stat`\n\tstat -c\"%s\" \"$tmpFile\" 2>/dev/null # GNU `stat`\n)\n",
         );
     }
 
@@ -2008,7 +1973,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "output=\"$(\n\tfoo |\n\t\tbar\n)\"\n".to_string(),
+            "output=\"$(\n\tfoo |\n\t\tbar\n)\"\n",
         );
     }
 
@@ -2021,8 +1986,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "tag=\"$(\n\tgrep '\"tag_name.*\"'\".*$version\" \"$json\" |\n\t\thead -1 |\n\t\tsed 's,.*\"\\(gm'\"$version\"'[^\\\"]*\\)\".*,\\1,'\n)\"\n"
-                .to_string(),
+            "tag=\"$(\n\tgrep '\"tag_name.*\"'\".*$version\" \"$json\" |\n\t\thead -1 |\n\t\tsed 's,.*\"\\(gm'\"$version\"'[^\\\"]*\\)\".*,\\1,'\n)\"\n",
         );
     }
 
@@ -2035,7 +1999,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "result=$(\n\tif foo; then\n\t\techo hi\n\telse\n\t\techo bye\n\tfi\n)\n".to_string(),
+            "result=$(\n\tif foo; then\n\t\techo hi\n\telse\n\t\techo bye\n\tfi\n)\n",
         );
     }
 
@@ -2048,8 +2012,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "start() {\n\tCHOICE=$(whiptail --title x --menu \\\n\t\tfoo 14 58 2 \\\n\t\tyes \" \" no \" \" 3>&2 2>&1 1>&3)\n}\n"
-                .to_string(),
+            "start() {\n\tCHOICE=$(whiptail --title x --menu \\\n\t\tfoo 14 58 2 \\\n\t\tyes \" \" no \" \" 3>&2 2>&1 1>&3)\n}\n",
         );
     }
 
@@ -2062,8 +2025,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "icons() {\n\ticon_files=\"${icon_files}¤$(find \\\n\t\t/usr/share/icons \\\n\t\t/usr/share/pixmaps \\\n\t\t/var/lib/flatpak/exports/share/icons -iname \"*${icon}*\" \\\n\t\t-printf \"%p¤\" 2>/dev/null || :)\"\n}\n"
-                .to_string(),
+            "icons() {\n\ticon_files=\"${icon_files}¤$(find \\\n\t\t/usr/share/icons \\\n\t\t/usr/share/pixmaps \\\n\t\t/var/lib/flatpak/exports/share/icons -iname \"*${icon}*\" \\\n\t\t-printf \"%p¤\" 2>/dev/null || :)\"\n}\n",
         );
     }
 
@@ -2076,8 +2038,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "_npm_completion() {\n\tcompadd -- $(COMP_CWORD=$((CURRENT - 1)) \\\n\t\tCOMP_LINE=$BUFFER \\\n\t\tCOMP_POINT=0 \\\n\t\tnpm completion -- \"${words[@]}\" \\\n\t\t2>/dev/null)\n}\n"
-                .to_string(),
+            "_npm_completion() {\n\tcompadd -- $(COMP_CWORD=$((CURRENT - 1)) \\\n\t\tCOMP_LINE=$BUFFER \\\n\t\tCOMP_POINT=0 \\\n\t\tnpm completion -- \"${words[@]}\" \\\n\t\t2>/dev/null)\n}\n",
         );
     }
 
@@ -2090,8 +2051,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "get_pr_url() {\n\tlocal existing_pr\n\texisting_pr=\"$(gh pr list -R \"$owner/$repo\" \\\n\t\t--json baseRefName,changedFiles \\\n\t\t-q \".[] |\n            select(.baseRefName == \\\"$base\\\")\n    \")\"\n}\n"
-                .to_string(),
+            "get_pr_url() {\n\tlocal existing_pr\n\texisting_pr=\"$(gh pr list -R \"$owner/$repo\" \\\n\t\t--json baseRefName,changedFiles \\\n\t\t-q \".[] |\n            select(.baseRefName == \\\"$base\\\")\n    \")\"\n}\n",
         );
     }
 
@@ -2112,8 +2072,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tcase $prev in\n\t-soundhw)\n\t\t_comp_compgen_split -- \"$(\"$1\" -soundhw help | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}') all\"\n\t\t;;\n\tesac\n}\n"
-                .to_string(),
+            "f() {\n\tcase $prev in\n\t-soundhw)\n\t\t_comp_compgen_split -- \"$(\"$1\" -soundhw help | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}') all\"\n\t\t;;\n\tesac\n}\n",
         );
     }
 
@@ -2134,8 +2093,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "_SCOPED=\"$(\n\t# selected notebook flag\n\tif [[ \"$a\" != \"$b\" ]]; then\n\t\tprintf \"1\\\\n\"\n\telse\n\t\tprintf \"0\\\\n\"\n\tfi\n)\"\n"
-                .to_string(),
+            "_SCOPED=\"$(\n\t# selected notebook flag\n\tif [[ \"$a\" != \"$b\" ]]; then\n\t\tprintf \"1\\\\n\"\n\telse\n\t\tprintf \"0\\\\n\"\n\tfi\n)\"\n",
         );
     }
 
@@ -2148,8 +2106,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "response=\"$(\n\tdownload --flag \\\n\t\t\"https://example.test?url=${target}\" |\n\t\tLC_ALL=C sed -E \"s/.*\\\"url\\\": \\\"([^\\\"]+)\\\".*/\\1/g\" || printf \"\"\n)\"\n"
-                .to_string(),
+            "response=\"$(\n\tdownload --flag \\\n\t\t\"https://example.test?url=${target}\" |\n\t\tLC_ALL=C sed -E \"s/.*\\\"url\\\": \\\"([^\\\"]+)\\\".*/\\1/g\" || printf \"\"\n)\"\n",
         );
     }
 
@@ -2162,8 +2119,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "content=\"$(\n\t{\n\t\tcat \"$file\"\n\t} | {\n\t\tif [[ \"$tool\" =~ readab ]] &&\n\t\t\tcommand -v readable; then # readability-cli\n\t\t\treadable \\\n\t\t\t\t--base \"$url\" \\\n\t\t\t\t--quiet \\\n\t\t\t\t2>/dev/null || cat\n\t\telse\n\t\t\tcat\n\t\tfi\n\t}\n)\"\n"
-                .to_string(),
+            "content=\"$(\n\t{\n\t\tcat \"$file\"\n\t} | {\n\t\tif [[ \"$tool\" =~ readab ]] &&\n\t\t\tcommand -v readable; then # readability-cli\n\t\t\treadable \\\n\t\t\t\t--base \"$url\" \\\n\t\t\t\t--quiet \\\n\t\t\t\t2>/dev/null || cat\n\t\telse\n\t\t\tcat\n\t\tfi\n\t}\n)\"\n",
         );
     }
 
@@ -2176,8 +2132,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "result=\"$(\n\tgrep -En pattern \"$script\" |\n\t\tgrep -Ev -e skip\n\t# keep this filter documented\n)\"\n"
-                .to_string(),
+            "result=\"$(\n\tgrep -En pattern \"$script\" |\n\t\tgrep -Ev -e skip\n\t# keep this filter documented\n)\"\n",
         );
     }
 
@@ -2190,8 +2145,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "version=$(\n\t# keep the sourced version local\n\tsource ./version.sh\n\techo \"$VERSION\"\n)\n"
-                .to_string(),
+            "version=$(\n\t# keep the sourced version local\n\tsource ./version.sh\n\techo \"$VERSION\"\n)\n",
         );
     }
 
@@ -2204,7 +2158,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "result=$(\n\tcat <<EOF\nhello\nEOF\n)\n".to_string(),
+            "result=$(\n\tcat <<EOF\nhello\nEOF\n)\n",
         );
     }
 
@@ -2217,8 +2171,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if ok; then\n\tupload --policy \"$(\n\t\tcat <<EOF\n{\n  \"items\": [\n$(\n\t\t\t\tfor item in \"${items[@]}\"; do\n\t\t\t\t\tprintf '\"%s\",\\n' \"$item\"\n\t\t\t\tdone |\n\t\t\t\t\tsed '$ s/,$//'\n\t\t\t)\n  ]\n}\nEOF\n\t)\"\nfi\n"
-                .to_string(),
+            "if ok; then\n\tupload --policy \"$(\n\t\tcat <<EOF\n{\n  \"items\": [\n$(\n\t\t\t\tfor item in \"${items[@]}\"; do\n\t\t\t\t\tprintf '\"%s\",\\n' \"$item\"\n\t\t\t\tdone |\n\t\t\t\t\tsed '$ s/,$//'\n\t\t\t)\n  ]\n}\nEOF\n\t)\"\nfi\n",
         );
     }
 
@@ -2231,7 +2184,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if true; then\n\tjson+=$(\n\t\tcat <<EOF\n\t\t\t\t,\nEOF\n\t)\nfi\n".to_string(),
+            "if true; then\n\tjson+=$(\n\t\tcat <<EOF\n\t\t\t\t,\nEOF\n\t)\nfi\n",
         );
     }
 
@@ -2244,7 +2197,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "json=$(\n\tcat <<EOF\n{\n\t\"ok\": true\n}\nEOF\n)\n".to_string(),
+            "json=$(\n\tcat <<EOF\n{\n\t\"ok\": true\n}\nEOF\n)\n",
         );
     }
 
@@ -2257,7 +2210,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "x=\"$(\n\tif ok; then\n\t\tcat <<-EOF\n\t\t\tbody\n\t\tEOF\n\tfi\n)\"\n".to_string(),
+            "x=\"$(\n\tif ok; then\n\t\tcat <<-EOF\n\t\t\tbody\n\t\tEOF\n\tfi\n)\"\n",
         );
     }
 
@@ -2270,8 +2223,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "sed_script=\"$(\n\tfor prefix in $prefixes; do\n\t\techo \"s|${prefix}\\\\>|$prefix|g;\"\n\tdone\n)\"\n"
-                .to_string(),
+            "sed_script=\"$(\n\tfor prefix in $prefixes; do\n\t\techo \"s|${prefix}\\\\>|$prefix|g;\"\n\tdone\n)\"\n",
         );
     }
 
@@ -2284,8 +2236,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "sed_script=\"$(\n\twhile read -r directory prefix; do\n\t\tif [ -z \"$directory\" ]; then\n\t\t\tcontinue\n\t\tfi\n\t\t# catch whole scripts\n\t\techo \"s|${prefix}\\\\>|$directory/${prefix}|g;\"\n\tdone <<<\"$mappings\"\n)\"\n"
-                .to_string(),
+            "sed_script=\"$(\n\twhile read -r directory prefix; do\n\t\tif [ -z \"$directory\" ]; then\n\t\t\tcontinue\n\t\tfi\n\t\t# catch whole scripts\n\t\techo \"s|${prefix}\\\\>|$directory/${prefix}|g;\"\n\tdone <<<\"$mappings\"\n)\"\n",
         );
     }
 
@@ -2298,8 +2249,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if ok; then\n\tresponse=\"$(\n\t\tnc <<EOF || :\nHTTP/1.1 200 OK\n\naccepted\nEOF\n\t)\"\nfi\n"
-                .to_string(),
+            "if ok; then\n\tresponse=\"$(\n\t\tnc <<EOF || :\nHTTP/1.1 200 OK\n\naccepted\nEOF\n\t)\"\nfi\n",
         );
     }
 
@@ -2312,7 +2262,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "(\n\t$(\n\t\tcat <<HERE\nHERE\n\t)\n)\n".to_string(),
+            "(\n\t$(\n\t\tcat <<HERE\nHERE\n\t)\n)\n",
         );
     }
 
@@ -2326,8 +2276,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if ok; then\n\tresult=$(OPENSSL_CONF=<(\n\t\tcat <<EOF\nbody\nEOF\n\t) curl url)\nfi\n"
-                .to_string(),
+            "if ok; then\n\tresult=$(OPENSSL_CONF=<(\n\t\tcat <<EOF\nbody\nEOF\n\t) curl url)\nfi\n",
         );
     }
 
@@ -2340,8 +2289,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if ok; then\n\toutput=\"$(\n\t\tNO_TOKEN_AUTH=1 \\\n\t\t\tUSERNAME=\"$SPOTIFY_ID\" \\\n\t\t\tPASSWORD=\"$SPOTIFY_SECRET\" \\\n\t\t\t-d code=\"$code\"\n\t\t#-d code_verifier=\"$code_verifier\"\n\t)\"\nfi\n"
-                .to_string(),
+            "if ok; then\n\toutput=\"$(\n\t\tNO_TOKEN_AUTH=1 \\\n\t\t\tUSERNAME=\"$SPOTIFY_ID\" \\\n\t\t\tPASSWORD=\"$SPOTIFY_SECRET\" \\\n\t\t\t-d code=\"$code\"\n\t\t#-d code_verifier=\"$code_verifier\"\n\t)\"\nfi\n",
         );
     }
 
@@ -2354,7 +2302,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "cat <<EOF >script\n#!/bin/bash\nexec $(which dart) \"\\$@\"\nEOF\n".to_string(),
+            "cat <<EOF >script\n#!/bin/bash\nexec $(which dart) \"\\$@\"\nEOF\n",
         );
     }
 
@@ -2375,8 +2323,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if ok; then\n\tcat <<EOF\nx $(date +%F |\n\t\t# comment\n\t\tsed 's/-/--/g') y\nEOF\nfi\n"
-                .to_string(),
+            "if ok; then\n\tcat <<EOF\nx $(date +%F |\n\t\t# comment\n\t\tsed 's/-/--/g') y\nEOF\nfi\n",
         );
     }
 
@@ -2397,7 +2344,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "value=$(cmd \\\n\targ) || echo no\n".to_string(),
+            "value=$(cmd \\\n\targ) || echo no\n",
         );
     }
 
@@ -2458,8 +2405,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if [ \"$package_url\" != \"${package_url/\\#/}\" ]; then\n\techo \"${arg:$index:1}\"\n\tlocal fetch_args=(\"$package_name\" \"${@:1:$package_type_nargs}\")\n\tlocal y=${charmap:$((RANDOM % ${#charmap})):1}\n\tfor arg in \"${@:$(($package_type_nargs + 1))}\"; do\n\t\techo \"$arg\"\n\tdone\nfi\n"
-                .to_string(),
+            "if [ \"$package_url\" != \"${package_url/\\#/}\" ]; then\n\techo \"${arg:$index:1}\"\n\tlocal fetch_args=(\"$package_name\" \"${@:1:$package_type_nargs}\")\n\tlocal y=${charmap:$((RANDOM % ${#charmap})):1}\n\tfor arg in \"${@:$(($package_type_nargs + 1))}\"; do\n\t\techo \"$arg\"\n\tdone\nfi\n",
         );
     }
 
@@ -2472,7 +2418,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "title=\"${title//\\\"/}\"\nlocal profile=\"${1// /}\"\n".to_string(),
+            "title=\"${title//\\\"/}\"\nlocal profile=\"${1// /}\"\n",
         );
     }
 
@@ -2494,8 +2440,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "playlist=\"${playlist//\\\\\"/\\\\\\\\\"/}\"\nplaylist=\"${playlist//'/\\\\'/}\"\n"
-                .to_string(),
+            "playlist=\"${playlist//\\\\\"/\\\\\\\\\"/}\"\nplaylist=\"${playlist//'/\\\\'/}\"\n",
         );
     }
 
@@ -2508,7 +2453,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if [ \"${filename: -5}\" != .orig ]; then\n\techo no\nfi\n".to_string(),
+            "if [ \"${filename: -5}\" != .orig ]; then\n\techo no\nfi\n",
         );
     }
 
@@ -2529,8 +2474,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "major_minor() {\n\techo \"${1%%.*}.$(\n\t\tx=\"${1#*.}\"\n\t\techo \"${x%%.*}\"\n\t)\"\n}\n"
-                .to_string(),
+            "major_minor() {\n\techo \"${1%%.*}.$(\n\t\tx=\"${1#*.}\"\n\t\techo \"${x%%.*}\"\n\t)\"\n}\n",
         );
     }
 
@@ -2543,8 +2487,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "ARGS=$(\n\tnvm_echo \"$@\" | command sed \"\n    s/--progress-bar /--progress=bar /\n    s/-s /-q /\n  \"\n)\n"
-                .to_string(),
+            "ARGS=$(\n\tnvm_echo \"$@\" | command sed \"\n    s/--progress-bar /--progress=bar /\n    s/-s /-q /\n  \"\n)\n",
         );
     }
 
@@ -2557,8 +2500,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tdeclare -i -r test_jobs_effective=\"$(\n\t\tif [[ \"${TEST_JOBS:-detect}\" = \"detect\" ]] &&\n\t\t\tcommand -v nproc &>/dev/null; then\n\t\t\tnproc\n\t\tfi\n\t)\"\n}\n"
-                .to_string(),
+            "f() {\n\tdeclare -i -r test_jobs_effective=\"$(\n\t\tif [[ \"${TEST_JOBS:-detect}\" = \"detect\" ]] &&\n\t\t\tcommand -v nproc &>/dev/null; then\n\t\t\tnproc\n\t\tfi\n\t)\"\n}\n",
         );
     }
 
@@ -2571,8 +2513,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tbranchName=\"$(git symbolic-ref --quiet --short HEAD 2>/dev/null ||\n\t\tgit rev-parse --short HEAD 2>/dev/null ||\n\t\techo '(unknown)')\"\n}\n"
-                .to_string(),
+            "f() {\n\tbranchName=\"$(git symbolic-ref --quiet --short HEAD 2>/dev/null ||\n\t\tgit rev-parse --short HEAD 2>/dev/null ||\n\t\techo '(unknown)')\"\n}\n",
         );
     }
 
@@ -2585,8 +2526,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tcertText=$(echo \"${tmp}\" |\n\t\topenssl x509 -text -certopt \"no_header, no_serial, \\\n\t\tno_signame\")\n}\n"
-                .to_string(),
+            "f() {\n\tcertText=$(echo \"${tmp}\" |\n\t\topenssl x509 -text -certopt \"no_header, no_serial, \\\n\t\tno_signame\")\n}\n",
         );
     }
 
@@ -2600,8 +2540,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tproviders=\"$(find . |\n\t\tsed -e 's/^a/b/' \\\n\t\t\t-e 's/^c/d/')\"\n}\n"
-                .to_string(),
+            "f() {\n\tproviders=\"$(find . |\n\t\tsed -e 's/^a/b/' \\\n\t\t\t-e 's/^c/d/')\"\n}\n",
         );
     }
 
@@ -2614,8 +2553,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\twhile ok; do\n\t\tprotected_branches=\"$protected_branches\n                            $(jq_debug_pipe_dump <<<\"$output\" |\n\t\t\tjq -r '.[] | select(.protected == true)')\"\n\tdone\n}\n"
-                .to_string(),
+            "f() {\n\twhile ok; do\n\t\tprotected_branches=\"$protected_branches\n                            $(jq_debug_pipe_dump <<<\"$output\" |\n\t\t\tjq -r '.[] | select(.protected == true)')\"\n\tdone\n}\n",
         );
     }
 
@@ -2628,8 +2566,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tallowed=\"$(sed 's/#.*//;\n                        s/^[[:space:]]*//;\n                        /^[[:space:]]*$/d;' \\\n\t\t\"$file\")\"\n}\n"
-                .to_string(),
+            "f() {\n\tallowed=\"$(sed 's/#.*//;\n                        s/^[[:space:]]*//;\n                        /^[[:space:]]*$/d;' \\\n\t\t\"$file\")\"\n}\n",
         );
     }
 
@@ -2642,8 +2579,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if [ \"$version\" = latest ]; then\n\tversion=\"$(gh api \"repos/$owner_repo/tags\" \\\n\t\t--jq '\n                    .[] |\n                    select(.name | test(\"^go[0-9]\")) |\n                    .name\n                ' --paginate |\n\t\thead -n1 |\n\t\tsed 's/^go//' || :)\"\nfi\n"
-                .to_string(),
+            "if [ \"$version\" = latest ]; then\n\tversion=\"$(gh api \"repos/$owner_repo/tags\" \\\n\t\t--jq '\n                    .[] |\n                    select(.name | test(\"^go[0-9]\")) |\n                    .name\n                ' --paginate |\n\t\thead -n1 |\n\t\tsed 's/^go//' || :)\"\nfi\n",
         );
     }
 
@@ -2656,8 +2592,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "backups=\"$(\n\twhile read -r mountpoint; do\n\t\tls -t \"$mountpoint\" |\n\t\t\tsed '\n            s|\\.backup/*$||;\n        '\n\tdone <<<\"$mountpoints\" |\n\t\tsort -r\n)\"\n"
-                .to_string(),
+            "backups=\"$(\n\twhile read -r mountpoint; do\n\t\tls -t \"$mountpoint\" |\n\t\t\tsed '\n            s|\\.backup/*$||;\n        '\n\tdone <<<\"$mountpoints\" |\n\t\tsort -r\n)\"\n",
         );
     }
 
@@ -2670,8 +2605,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "versions=\"$(\n\tgrep rpm <<<\"$downloads_page\" |\n\t\tsed '\n        s/^.*basic[[:alpha:]]*-//;\n        s/linuxx64//;\n    ' |\n\t\tsort -Vur\n)\"\n"
-                .to_string(),
+            "versions=\"$(\n\tgrep rpm <<<\"$downloads_page\" |\n\t\tsed '\n        s/^.*basic[[:alpha:]]*-//;\n        s/linuxx64//;\n    ' |\n\t\tsort -Vur\n)\"\n",
         );
     }
 
@@ -2684,8 +2618,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "artist_id=\"$(\n\tSEARCH_TYPE=artist \\\n\t\tSEARCH_LIMIT=50 \\\n\t\t\"$srcdir/search.sh\" \"$artist\" |\n\t\tjq -r \"\n        .items[] |\n        .id\n    \" |\n\t\thead -n1\n)\"\n"
-                .to_string(),
+            "artist_id=\"$(\n\tSEARCH_TYPE=artist \\\n\t\tSEARCH_LIMIT=50 \\\n\t\t\"$srcdir/search.sh\" \"$artist\" |\n\t\tjq -r \"\n        .items[] |\n        .id\n    \" |\n\t\thead -n1\n)\"\n",
         );
     }
 
@@ -2698,8 +2631,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tpackages=\"$(\n\t\tsed 's/#.*//;\n         s/[<>=].*//;\n         /^[[:space:]]*$/d;' $package_files |\n\t\t\tsort |\n\t\t\tuniq -d\n\t)\"\n}\n"
-                .to_string(),
+            "f() {\n\tpackages=\"$(\n\t\tsed 's/#.*//;\n         s/[<>=].*//;\n         /^[[:space:]]*$/d;' $package_files |\n\t\t\tsort |\n\t\t\tuniq -d\n\t)\"\n}\n",
         );
     }
 
@@ -2712,8 +2644,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\t_comp_compgen_split -- \"$(cmd | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}')\"\n}\n"
-                .to_string(),
+            "f() {\n\t_comp_compgen_split -- \"$(cmd | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}')\"\n}\n",
         );
     }
 
@@ -2726,8 +2657,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tgw=\"$(\n\t\tnetstat -rn |\n\t\t\tawk '\n            /^default/ { print $2 }\n        '\n\t)\"\n}\n"
-                .to_string(),
+            "f() {\n\tgw=\"$(\n\t\tnetstat -rn |\n\t\t\tawk '\n            /^default/ { print $2 }\n        '\n\t)\"\n}\n",
         );
     }
 
@@ -2770,8 +2700,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if ! ((\\\nBASH_VERSINFO[0] > 4 || \\\nBASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 2)); then\n\texit 1\nfi\n"
-                .to_string(),
+            "if ! ((\\\nBASH_VERSINFO[0] > 4 || \\\nBASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 2)); then\n\texit 1\nfi\n",
         );
     }
 
@@ -2784,7 +2713,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "for ((i = 1; i < limit; ++i)); do\n\techo \"$i\"\ndone\nfor ((j = 1; ; j++)); do\n\techo \"$j\"\ndone\n".to_string(),
+            "for ((i = 1; i < limit; ++i)); do\n\techo \"$i\"\ndone\nfor ((j = 1; ; j++)); do\n\techo \"$j\"\ndone\n",
         );
     }
 
@@ -2797,8 +2726,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "((count += 1))\n((total = count + 1))\n((y = x + 1))\nif ((${value:=0} == 1)); then\n\treturn 0\nfi\n"
-                .to_string(),
+            "((count += 1))\n((total = count + 1))\n((y = x + 1))\nif ((${value:=0} == 1)); then\n\treturn 0\nfi\n",
         );
     }
 
@@ -2838,7 +2766,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "printf \"%s\\n\" \"$(($(foo) - bar))\"\n".to_string(),
+            "printf \"%s\\n\" \"$(($(foo) - bar))\"\n",
         );
     }
 
@@ -2851,8 +2779,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "echo $(($(echo \"$speed\" | cut -d'k' -f1) * 1024))\nborder=$(($(_system uptime days) * 3)) # daily\n"
-                .to_string(),
+            "echo $(($(echo \"$speed\" | cut -d'k' -f1) * 1024))\nborder=$(($(_system uptime days) * 3)) # daily\n",
         );
     }
 
@@ -2865,8 +2792,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "echo \"$(($(_system date unixtime) - DIFF))\"\necho \"lasts $(($t2 - $t1)) seconds ($((($t2 - $t1) / 60)) minutes)\"\n"
-                .to_string(),
+            "echo \"$(($(_system date unixtime) - DIFF))\"\necho \"lasts $(($t2 - $t1)) seconds ($((($t2 - $t1) / 60)) minutes)\"\n",
         );
     }
 
@@ -2894,7 +2820,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "color=${AVAILABLE_COLORS[$RANDOM%${#AVAILABLE_COLORS[@]}]}\n".to_string(),
+            "color=${AVAILABLE_COLORS[$RANDOM%${#AVAILABLE_COLORS[@]}]}\n",
         );
     }
 
@@ -2907,7 +2833,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "echo ${options[$((choice * 2 + 1))]}\n".to_string(),
+            "echo ${options[$((choice * 2 + 1))]}\n",
         );
     }
 
@@ -2920,8 +2846,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "echo ${arr[(($i + 1))]}\necho ${arr[((i + 1))]}\necho ${arr[(i + 1)]}\necho ${arr[($i + 1)]}\necho ${arr[$i+1]}\n"
-                .to_string(),
+            "echo ${arr[(($i + 1))]}\necho ${arr[((i + 1))]}\necho ${arr[(i + 1)]}\necho ${arr[($i + 1)]}\necho ${arr[$i+1]}\n",
         );
     }
 
@@ -2934,7 +2859,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            ": \"${BASH_IT_BASHRC:=${BASH_SOURCE[${#BASH_SOURCE[@]}-1]}}\"\n".to_string(),
+            ": \"${BASH_IT_BASHRC:=${BASH_SOURCE[${#BASH_SOURCE[@]}-1]}}\"\n",
         );
     }
 
@@ -2947,7 +2872,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "prev=\"${COMP_WORDS[COMP_CWORD-1]}\"\n".to_string(),
+            "prev=\"${COMP_WORDS[COMP_CWORD-1]}\"\n",
         );
     }
 
@@ -2960,7 +2885,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "source \"${_files[_file-__array_offset]}\"\n".to_string(),
+            "source \"${_files[_file-__array_offset]}\"\n",
         );
     }
 
@@ -3013,7 +2938,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "eval printf \"\\\"$name -> $$(echo \"${env_var}_DEFAULT\") => \\\"\"\n".to_string(),
+            "eval printf \"\\\"$name -> $$(echo \"${env_var}_DEFAULT\") => \\\"\"\n",
         );
     }
 
@@ -3207,8 +3132,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if ok; then\n\tparams+=(-Done=true -Dtwo=false\n\t\t-Dthree=false\n\t\t-Dfour=true)\nfi\n"
-                .to_string(),
+            "if ok; then\n\tparams+=(-Done=true -Dtwo=false\n\t\t-Dthree=false\n\t\t-Dfour=true)\nfi\n",
         );
     }
 
@@ -3221,8 +3145,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "show() {\n\titems+=(\"\\\n    $(printf \" ---------\")\n     Text.\n\n     $(\n\t\tfor x in a b; do\n\t\t\techo \"$x\"\n\t\tdone\n\t)\")\n}\n"
-                .to_string(),
+            "show() {\n\titems+=(\"\\\n    $(printf \" ---------\")\n     Text.\n\n     $(\n\t\tfor x in a b; do\n\t\t\techo \"$x\"\n\t\tdone\n\t)\")\n}\n",
         );
     }
 
@@ -3235,7 +3158,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "cmd=(\n\tgrep -s\n\t-e \"^<${url}>\"\n\t-e \"^##\"\n)\n".to_string(),
+            "cmd=(\n\tgrep -s\n\t-e \"^<${url}>\"\n\t-e \"^##\"\n)\n",
         );
     }
 
@@ -3248,8 +3171,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "x=($(find . -not \\( -path ./x -prune \\) -not -name lib \\\n\t-not -name other | sort))\n"
-                .to_string(),
+            "x=($(find . -not \\( -path ./x -prune \\) -not -name lib \\\n\t-not -name other | sort))\n",
         );
     }
 
@@ -3262,8 +3184,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "local cmd=(dialog --title \"Select\" --default-item \"$default\"\n\t--menu \"Choose\" 18 50 9)\n"
-                .to_string(),
+            "local cmd=(dialog --title \"Select\" --default-item \"$default\"\n\t--menu \"Choose\" 18 50 9)\n",
         );
     }
 
@@ -3276,7 +3197,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "options=(\n\t1 \"1080p\" \"Set 1080p\"\n\t2 \"720p\" \"Set 720p\"\n)\n".to_string(),
+            "options=(\n\t1 \"1080p\" \"Set 1080p\"\n\t2 \"720p\" \"Set 720p\"\n)\n",
         );
     }
 
@@ -3290,7 +3211,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "versions=(1.16.0\n\t# Match the server package.\n\t21.1.16)\n".to_string(),
+            "versions=(1.16.0\n\t# Match the server package.\n\t21.1.16)\n",
         );
     }
 
@@ -3303,7 +3224,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "args=(\n\tone\n\n\t# group\n\ttwo\n\n\tthree\n)\n".to_string(),
+            "args=(\n\tone\n\n\t# group\n\ttwo\n\n\tthree\n)\n",
         );
     }
 
@@ -3317,7 +3238,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "declare -A map=(\n\t[up]=one\n\t[down]=two\n\n\t[left]=three\n)\n".to_string(),
+            "declare -A map=(\n\t[up]=one\n\t[down]=two\n\n\t[left]=three\n)\n",
         );
     }
 
@@ -3330,8 +3251,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "items=(\n\tfirst\n\t$(\n\t\tfor item in $items; do\n\t\t\techo \"$item\"\n\t\tdone\n\t)\n\n)\n"
-                .to_string(),
+            "items=(\n\tfirst\n\t$(\n\t\tfor item in $items; do\n\t\t\techo \"$item\"\n\t\tdone\n\t)\n\n)\n",
         );
     }
 
@@ -3344,8 +3264,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "options=(\n\tconfig_file \"$(\n\t\t[[ \"$config\" == *.cfg ]] && echo ok\n\t)\"\n\tenabled \"$([[ -n \"$flag\" ]] && echo true || echo false)\"\n)\n"
-                .to_string(),
+            "options=(\n\tconfig_file \"$(\n\t\t[[ \"$config\" == *.cfg ]] && echo ok\n\t)\"\n\tenabled \"$([[ -n \"$flag\" ]] && echo true || echo false)\"\n)\n",
         );
     }
 
@@ -3358,7 +3277,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tif ok; then\n\t\topts+=(\"$(\n\t\t\tget x\n\t\t)\")\n\tfi\n}\n".to_string(),
+            "f() {\n\tif ok; then\n\t\topts+=(\"$(\n\t\t\tget x\n\t\t)\")\n\tfi\n}\n",
         );
     }
 
@@ -3371,8 +3290,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "options=(path frozen without\n\tssl_verify_mode system_bindir user_agent)\n"
-                .to_string(),
+            "options=(path frozen without\n\tssl_verify_mode system_bindir user_agent)\n",
         );
     }
 
@@ -3385,8 +3303,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tcase \"$prev\" in\n\t-a)\n\t\tCOMPREPLY=($(compgen -W \"$(\n\t\t\tsalt-key -l un --no-color\n\t\t\tsalt-key -l rej --no-color\n\t\t)\" -- \"${cur}\"))\n\t\t;;\n\tesac\n}\n"
-                .to_string(),
+            "f() {\n\tcase \"$prev\" in\n\t-a)\n\t\tCOMPREPLY=($(compgen -W \"$(\n\t\t\tsalt-key -l un --no-color\n\t\t\tsalt-key -l rej --no-color\n\t\t)\" -- \"${cur}\"))\n\t\t;;\n\tesac\n}\n",
         );
     }
 
@@ -3399,8 +3316,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\t_files=($(\n\t\twhile [[ \"$PWD\" != \"/\" ]]; do\n\t\t\t_file=\"$PWD/.env\"\n\t\t\tif [[ -e \"${_file}\" ]]; then\n\t\t\t\techo \"${_file}\"\n\t\t\tfi\n\t\t\tbuiltin cd .. || true\n\t\tdone\n\t))\n}\n"
-                .to_string(),
+            "f() {\n\t_files=($(\n\t\twhile [[ \"$PWD\" != \"/\" ]]; do\n\t\t\t_file=\"$PWD/.env\"\n\t\t\tif [[ -e \"${_file}\" ]]; then\n\t\t\t\techo \"${_file}\"\n\t\t\tfi\n\t\t\tbuiltin cd .. || true\n\t\tdone\n\t))\n}\n",
         );
     }
 
@@ -3413,8 +3329,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\t_remote_branches=($(\n\t\tgit -C \"$path\" ls-remote --heads \"$url\" 2>/dev/null |\n\t\t\tLC_ALL=C sed \"s/.*\\///g\"\n\t))\n\t_diff=($(\n\t\tprintf \"%s\\n\" \\\n\t\t\t\"${_index_list[@]:-}\" \\\n\t\t\t\"${_file_list[@]:-}\" |\n\t\t\tsort |\n\t\t\tuniq -u\n\t))\n}\n"
-                .to_string(),
+            "f() {\n\t_remote_branches=($(\n\t\tgit -C \"$path\" ls-remote --heads \"$url\" 2>/dev/null |\n\t\t\tLC_ALL=C sed \"s/.*\\///g\"\n\t))\n\t_diff=($(\n\t\tprintf \"%s\\n\" \\\n\t\t\t\"${_index_list[@]:-}\" \\\n\t\t\t\"${_file_list[@]:-}\" |\n\t\t\tsort |\n\t\t\tuniq -u\n\t))\n}\n",
         );
     }
 
@@ -3427,8 +3342,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tx=(\n\t\t$(printf \"%s\\n\" \"${xs[@]}\" |\n\t\t\tsort |\n\t\t\tcut -d: -f1 ||\n\t\t\ttrue))\n}\n"
-                .to_string(),
+            "f() {\n\tx=(\n\t\t$(printf \"%s\\n\" \"${xs[@]}\" |\n\t\t\tsort |\n\t\t\tcut -d: -f1 ||\n\t\t\ttrue))\n}\n",
         );
     }
 
@@ -3441,8 +3355,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\t_remote_branches=($(\n\t\tgit -C \"$path\" ls-remote \\\n\t\t\t--heads \"$url\" \\\n\t\t\t2>/dev/null |\n\t\t\tLC_ALL=C sed \"s/.*\\///g\" || :\n\t))\n}\n"
-                .to_string(),
+            "f() {\n\t_remote_branches=($(\n\t\tgit -C \"$path\" ls-remote \\\n\t\t\t--heads \"$url\" \\\n\t\t\t2>/dev/null |\n\t\t\tLC_ALL=C sed \"s/.*\\///g\" || :\n\t))\n}\n",
         );
     }
 
@@ -3455,8 +3368,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tlocal -A ver=(\n\t\t[libx11]=\"$(\n\t\t\t. \"${TERMUX_SCRIPTDIR}/packages/libx11/build.sh\"\n\t\t\techo \"${TERMUX_PKG_VERSION}\"\n\t\t)\"\n\t)\n}\n"
-                .to_string(),
+            "f() {\n\tlocal -A ver=(\n\t\t[libx11]=\"$(\n\t\t\t. \"${TERMUX_SCRIPTDIR}/packages/libx11/build.sh\"\n\t\t\techo \"${TERMUX_PKG_VERSION}\"\n\t\t)\"\n\t)\n}\n",
         );
     }
 
@@ -3465,12 +3377,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         let source = "x=$(cd /tmp ; ls | wc -l )\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "x=$(\n\tcd /tmp\n\tls | wc -l\n)\n".to_string(),
-        );
+        assert_formats_to_with_ast(source, None, &options, "x=$(\n\tcd /tmp\n\tls | wc -l\n)\n");
     }
 
     #[test]
@@ -3482,8 +3389,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\teval \"$(\n\t\tfor key in a b; do\n\t\t\tawk -F= \"/$key/\" <<<\"$profile_data\"\n\t\tdone\n\t)\"\n}\n"
-                .to_string(),
+            "f() {\n\teval \"$(\n\t\tfor key in a b; do\n\t\t\tawk -F= \"/$key/\" <<<\"$profile_data\"\n\t\tdone\n\t)\"\n}\n",
         );
     }
 
@@ -3496,8 +3402,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tvalue=\"$(\n\t\tdocker-compose -f file.yml \\\n\t\t\texec -T service cat secret </dev/null\n\t\t# keep this note with the command\n\t)\"\n}\n"
-                .to_string(),
+            "f() {\n\tvalue=\"$(\n\t\tdocker-compose -f file.yml \\\n\t\t\texec -T service cat secret </dev/null\n\t\t# keep this note with the command\n\t)\"\n}\n",
         );
     }
 
@@ -3510,8 +3415,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tvalue=\"$(\n\t\taws service call \\\n\t\t\t--query 'Items[]{\n                        \"Name\": Name\n                    }' \\\n\t\t\t--output json |\n\t\t\tjq -r \"\n            .[]\n        \"\n\t)\"\n}\n"
-                .to_string(),
+            "f() {\n\tvalue=\"$(\n\t\taws service call \\\n\t\t\t--query 'Items[]{\n                        \"Name\": Name\n                    }' \\\n\t\t\t--output json |\n\t\t\tjq -r \"\n            .[]\n        \"\n\t)\"\n}\n",
         );
     }
 
@@ -3524,8 +3428,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "regions=\"$(\n\t# choose enabled regions by default\n\tif [ -n \"${ALL_REGIONS:-}\" ]; then\n\t\tlist_regions --all\n\telse\n\t\tlist_regions\n\tfi |\n\t\tjq -r '.Regions[] | .Name'\n)\"\n"
-                .to_string(),
+            "regions=\"$(\n\t# choose enabled regions by default\n\tif [ -n \"${ALL_REGIONS:-}\" ]; then\n\t\tlist_regions --all\n\telse\n\t\tlist_regions\n\tfi |\n\t\tjq -r '.Regions[] | .Name'\n)\"\n",
         );
     }
 
@@ -3546,8 +3449,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case \"$arg\" in\n--squash-msg)\n\tSQUASH_MSG=1\n\t;;\n*)\n\t# set the argument back\n\tset -- \"$@\" \"$arg\"\n\t;;\nesac\n"
-                .to_string(),
+            "case \"$arg\" in\n--squash-msg)\n\tSQUASH_MSG=1\n\t;;\n*)\n\t# set the argument back\n\tset -- \"$@\" \"$arg\"\n\t;;\nesac\n",
         );
     }
 
@@ -3560,8 +3462,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case \"$1\" in\n# Fetch config\n--xsel | -b)\n\tINIT_CONFIG_VAL=$(xsel -b)\n\t;;\n# Additional env vars\n-e | --env)\n\tCONTAINER_ENV+=(\"$2\")\n\t;;\nesac\n"
-                .to_string(),
+            "case \"$1\" in\n# Fetch config\n--xsel | -b)\n\tINIT_CONFIG_VAL=$(xsel -b)\n\t;;\n# Additional env vars\n-e | --env)\n\tCONTAINER_ENV+=(\"$2\")\n\t;;\nesac\n",
         );
     }
 
@@ -3574,8 +3475,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tcase \"$prev\" in\n\t-G)\n\t\techo grains\n\t\t;;\n\t\t# FIXME\n\t-R)\n\t\techo range\n\t\t;;\n\tesac\n}\n"
-                .to_string(),
+            "f() {\n\tcase \"$prev\" in\n\t-G)\n\t\techo grains\n\t\t;;\n\t\t# FIXME\n\t-R)\n\t\techo range\n\t\t;;\n\tesac\n}\n",
         );
     }
 
@@ -3588,8 +3488,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\tarm*)\n\t\tARCH=arm\n\t\tNO_ASM=1\n\t\t;;\n\t\t# comment\n\t*) ARCH=$(uname -m) ;;\n\tesac\nfi\n"
-                .to_string(),
+            "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\tarm*)\n\t\tARCH=arm\n\t\tNO_ASM=1\n\t\t;;\n\t\t# comment\n\t*) ARCH=$(uname -m) ;;\n\tesac\nfi\n",
         );
     }
 
@@ -3602,8 +3501,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tcase \"$mode\" in\n\tclient)\n\t\techo client\n\t\t;;\n\t\t#\t\thybrid)\n\t\t#\t\t\techo hybrid\n\t\t#\t\t;;\n\t*)\n\t\techo default\n\t\t;;\n\tesac\n}\n"
-                .to_string(),
+            "f() {\n\tcase \"$mode\" in\n\tclient)\n\t\techo client\n\t\t;;\n\t\t#\t\thybrid)\n\t\t#\t\t\techo hybrid\n\t\t#\t\t;;\n\t*)\n\t\techo default\n\t\t;;\n\tesac\n}\n",
         );
     }
 
@@ -3616,8 +3514,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\t#    i?86) ARCH=i586 ;;\n\tarm*) ARCH=arm ;;\n\tesac\nfi\n"
-                .to_string(),
+            "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\t#    i?86) ARCH=i586 ;;\n\tarm*) ARCH=arm ;;\n\tesac\nfi\n",
         );
     }
 
@@ -3630,8 +3527,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\ti?86) ARCH=i586 ;;\n\t\t#    arm*) ARCH=arm ;;\n\t*) ARCH=$(uname -m) ;;\n\tesac\nfi\n"
-                .to_string(),
+            "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\ti?86) ARCH=i586 ;;\n\t\t#    arm*) ARCH=arm ;;\n\t*) ARCH=$(uname -m) ;;\n\tesac\nfi\n",
         );
     }
 
@@ -3644,8 +3540,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case \"$ext\" in\n#.envrc)  cd \"$dirname\" && direnv allow .\n.envrc)\n\tshellcheck \"$basename\"\n\t;;\nesac\n"
-                .to_string(),
+            "case \"$ext\" in\n#.envrc)  cd \"$dirname\" && direnv allow .\n.envrc)\n\tshellcheck \"$basename\"\n\t;;\nesac\n",
         );
     }
 
@@ -3658,8 +3553,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\tcase \"$ext\" in\n\t# this command does not fail when missing\n\t#.vimrc)  if ! vim -c \"source $basename\" -c \"q\"; then\n\t.vimrc)\n\t\techo ok\n\t\t;;\n\tesac\n}\n"
-                .to_string(),
+            "f() {\n\tcase \"$ext\" in\n\t# this command does not fail when missing\n\t#.vimrc)  if ! vim -c \"source $basename\" -c \"q\"; then\n\t.vimrc)\n\t\techo ok\n\t\t;;\n\tesac\n}\n",
         );
     }
 
@@ -3672,8 +3566,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case \"$GUI\" in\n# disabled for now\n#QT) UI=Qt4\n#sed -i x\n#;;\nQT5) UI=Qt5 ;;\nesac\n"
-                .to_string(),
+            "case \"$GUI\" in\n# disabled for now\n#QT) UI=Qt4\n#sed -i x\n#;;\nQT5) UI=Qt5 ;;\nesac\n",
         );
     }
 
@@ -3686,8 +3579,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case ${FUNCTION} in\n\"equals\")\n\tCMP1=$(echo ${SEARCH} | tr '[:upper:]' '[:lower:]')\n\tif [ \"${CMP1}\" = \"${CMP1}\" ]; then RETVAL=0; else RETVAL=1; fi\n\t;;\n#\"not-equal\")   COLOR=$WHITE   ;;\n#\"lt\" | \"less-than\")  COLOR=$YELLOW  ;;\n*)\n\techo \"INVALID OPTION USED\"\n\texit 1\n\t;;\nesac\n"
-                .to_string(),
+            "case ${FUNCTION} in\n\"equals\")\n\tCMP1=$(echo ${SEARCH} | tr '[:upper:]' '[:lower:]')\n\tif [ \"${CMP1}\" = \"${CMP1}\" ]; then RETVAL=0; else RETVAL=1; fi\n\t;;\n#\"not-equal\")   COLOR=$WHITE   ;;\n#\"lt\" | \"less-than\")  COLOR=$YELLOW  ;;\n*)\n\techo \"INVALID OPTION USED\"\n\texit 1\n\t;;\nesac\n",
         );
     }
 
@@ -3700,7 +3592,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case \"$x\" in\n1)\n\t# keep\n\t;;\nesac\n".to_string(),
+            "case \"$x\" in\n1)\n\t# keep\n\t;;\nesac\n",
         );
     }
 
@@ -3713,8 +3605,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case \"$LUA\" in\n# LUA=no: accept and do nothing\nno) ;;\n# Anything else is a fail\n*) echo fail ;;\nesac\n"
-                .to_string(),
+            "case \"$LUA\" in\n# LUA=no: accept and do nothing\nno) ;;\n# Anything else is a fail\n*) echo fail ;;\nesac\n",
         );
     }
 
@@ -3727,8 +3618,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "# For 15.0\n# otherwise cater to current\n#\ncase $(cmake --version | head -1) in 3.2*.*)\n\techo old\n\t;;\nesac\n"
-                .to_string(),
+            "# For 15.0\n# otherwise cater to current\n#\ncase $(cmake --version | head -1) in 3.2*.*)\n\techo old\n\t;;\nesac\n",
         );
     }
 
@@ -3741,8 +3631,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case $key in\nfoo)\n\techo foo\n\t;;\n\n\t#if TestValue --function equals --value \"$value\" --search \"1\"; then\n\t#     echo \"Found $value\"\n\t#else\n\t#     echo \"Not found\"\n\t#fi\nesac\n"
-                .to_string(),
+            "case $key in\nfoo)\n\techo foo\n\t;;\n\n\t#if TestValue --function equals --value \"$value\" --search \"1\"; then\n\t#     echo \"Found $value\"\n\t#else\n\t#     echo \"Not found\"\n\t#fi\nesac\n",
         );
     }
 
@@ -3755,7 +3644,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case $x in\na)\n\n\techo a\n\t;;\nesac\n".to_string(),
+            "case $x in\na)\n\n\techo a\n\t;;\nesac\n",
         );
     }
 
@@ -3768,8 +3657,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case $x in\na)\n\techo a\n\t;;\n# disabled *)\n# note\n*)\n\n\techo default\n\t;;\nesac\n"
-                .to_string(),
+            "case $x in\na)\n\techo a\n\t;;\n# disabled *)\n# note\n*)\n\n\techo default\n\t;;\nesac\n",
         );
     }
 
@@ -3782,8 +3670,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case \"$1\" in\n--disable | \\\n\t--disable-http | \\\n\t--disable-https)\n\n\tapache_args+=(\"$1\")\n\t;;\nesac\n"
-                .to_string(),
+            "case \"$1\" in\n--disable | \\\n\t--disable-http | \\\n\t--disable-https)\n\n\tapache_args+=(\"$1\")\n\t;;\nesac\n",
         );
     }
 
@@ -3796,8 +3683,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case \"$1\" in\n*.xsl | \\\n\t*.[ch])\n\tpygmentize -f 256 \"$1\"\n\t;;\nesac\n"
-                .to_string(),
+            "case \"$1\" in\n*.xsl | \\\n\t*.[ch])\n\tpygmentize -f 256 \"$1\"\n\t;;\nesac\n",
         );
     }
 
@@ -3810,8 +3696,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case \"$1\" in\n--nginx-additional-configuration | \\\n\t--nginx-external-configuration)\n\tnginx_args+=(\"$1\")\n\t;;\nesac\n"
-                .to_string(),
+            "case \"$1\" in\n--nginx-additional-configuration | \\\n\t--nginx-external-configuration)\n\tnginx_args+=(\"$1\")\n\t;;\nesac\n",
         );
     }
 
@@ -3824,7 +3709,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case $x in\n*)\n\t# first\n\n\t# second\n\techo a\n\t;;\nesac\n".to_string(),
+            "case $x in\n*)\n\t# first\n\n\t# second\n\techo a\n\t;;\nesac\n",
         );
     }
 
@@ -3837,7 +3722,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case $x in\na)\n\techo a\n\t;;\n\nesac\n".to_string(),
+            "case $x in\na)\n\techo a\n\t;;\n\nesac\n",
         );
     }
 
@@ -3850,7 +3735,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case $x in\n*) echo \"$x\" ;;\n\nesac\n".to_string(),
+            "case $x in\n*) echo \"$x\" ;;\n\nesac\n",
         );
     }
 
@@ -3863,7 +3748,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case $x in\na)\n\techo a\n\n\t;;\nesac\n".to_string(),
+            "case $x in\na)\n\techo a\n\n\t;;\nesac\n",
         );
     }
 
@@ -3876,7 +3761,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case $x in\na)\n\techo a\n\n\t# note\n\t;;\nesac\n".to_string(),
+            "case $x in\na)\n\techo a\n\n\t# note\n\t;;\nesac\n",
         );
     }
 
@@ -3921,7 +3806,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case $x in\n*) # default branch\n\tbreak ;;\nesac\n".to_string(),
+            "case $x in\n*) # default branch\n\tbreak ;;\nesac\n",
         );
     }
 
@@ -3954,8 +3839,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case ${PAGE} in\n\"Folio\")\n\tW=612\n\tH=936\n\t;;                       # 8.5 x 13 in.\n\"Quarto\") W=612, H=780 ;; # 8.5 x 10.8 in.\nesac\n"
-                .to_string(),
+            "case ${PAGE} in\n\"Folio\")\n\tW=612\n\tH=936\n\t;;                       # 8.5 x 13 in.\n\"Quarto\") W=612, H=780 ;; # 8.5 x 10.8 in.\nesac\n",
         );
     }
 
@@ -3989,8 +3873,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case \"$mac\" in\n19 | '6470028b2260') PORT=7534 ;; # first\n16 | '6470028b1ba2') PORT= ;;     # second\n8 | 'f4ec38c9c32c') PORT=7783 ;;  # third\nesac\n"
-                .to_string(),
+            "case \"$mac\" in\n19 | '6470028b2260') PORT=7534 ;; # first\n16 | '6470028b1ba2') PORT= ;;     # second\n8 | 'f4ec38c9c32c') PORT=7783 ;;  # third\nesac\n",
         );
     }
 
@@ -4011,8 +3894,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case $x in\n*) # default branch\n\t# explain\n\tif test -n \"$x\"; then\n\t\techo \"$x\"\n\tfi\n\t;;\nesac\n"
-                .to_string(),
+            "case $x in\n*) # default branch\n\t# explain\n\tif test -n \"$x\"; then\n\t\techo \"$x\"\n\tfi\n\t;;\nesac\n",
         );
     }
 
@@ -4025,8 +3907,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case \"$(cut -d';' -f5 \"$FILE\" | md5sum)\" in # hash over costs\n\"$forced_hash\"*)\n\t_log ok\n\t;;\nesac\n"
-                .to_string(),
+            "case \"$(cut -d';' -f5 \"$FILE\" | md5sum)\" in # hash over costs\n\"$forced_hash\"*)\n\t_log ok\n\t;;\nesac\n",
         );
     }
 
@@ -4039,8 +3920,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case $NETWORK in # new nodes start at $I, with registering until old nodes are in database\nffweimar) I=500 ;;\nesac\n"
-                .to_string(),
+            "case $NETWORK in # new nodes start at $I, with registering until old nodes are in database\nffweimar) I=500 ;;\nesac\n",
         );
     }
 
@@ -4064,8 +3944,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "case \"$x\" in\na)\n\tgrep x f && { # note\n\t\t{\n\t\t\techo\n\t\t} >>\"$file\"\n\t}\n\t;;\nesac\n"
-                .to_string(),
+            "case \"$x\" in\na)\n\tgrep x f && { # note\n\t\t{\n\t\t\techo\n\t\t} >>\"$file\"\n\t}\n\t;;\nesac\n",
         );
     }
 
@@ -4078,7 +3957,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\t# before group\n\t{\n\t\t# inside group\n\t\techo ok\n\t}\n}\n".to_string(),
+            "f() {\n\t# before group\n\t{\n\t\t# inside group\n\t\techo ok\n\t}\n}\n",
         );
     }
 
@@ -4091,7 +3970,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\t# before group\n\t{\n\t\techo \"$@\"\n\t} |\n\t\tcat\n}\n".to_string(),
+            "f() {\n\t# before group\n\t{\n\t\techo \"$@\"\n\t} |\n\t\tcat\n}\n",
         );
     }
 
@@ -4105,8 +3984,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\t{\n\t\techo left\n\t} |\n\t\t{\n\t\t\t# inside group\n\t\t\techo right\n\t\t}\n}\n"
-                .to_string(),
+            "f() {\n\t{\n\t\techo left\n\t} |\n\t\t{\n\t\t\t# inside group\n\t\t\techo right\n\t\t}\n}\n",
         );
     }
 
@@ -4119,8 +3997,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\t{\n\t\techo body\n\t} | {\n\t\t# Header\n\t\tcat\n\t} | {\n\t\t# Footer\n\t\tcat\n\t}\n}\n"
-                .to_string(),
+            "f() {\n\t{\n\t\techo body\n\t} | {\n\t\t# Header\n\t\tcat\n\t} | {\n\t\t# Footer\n\t\tcat\n\t}\n}\n",
         );
     }
 
@@ -4133,8 +4010,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\t{\n\t\t{\n\t\t\techo body\n\t\t} || {\n\t\t\techo fallback\n\t\t}\n\t} | {\n\t\t# Header\n\t\tcat\n\t} | {\n\t\t# Footer\n\t\tcat\n\t}\n}\n"
-                .to_string(),
+            "f() {\n\t{\n\t\t{\n\t\t\techo body\n\t\t} || {\n\t\t\techo fallback\n\t\t}\n\t} | {\n\t\t# Header\n\t\tcat\n\t} | {\n\t\t# Footer\n\t\tcat\n\t}\n}\n",
         );
     }
 
@@ -4184,8 +4060,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if ok; then\n\t(mkdir -p -- \"$cachedir\" &&\n\t\techo \"$cache_id_line\"$'\\n'\"$output\" >\"$cachefile\") 2>/dev/null\nfi\n"
-                .to_string(),
+            "if ok; then\n\t(mkdir -p -- \"$cachedir\" &&\n\t\techo \"$cache_id_line\"$'\\n'\"$output\" >\"$cachefile\") 2>/dev/null\nfi\n",
         );
     }
 
@@ -4198,8 +4073,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "(\n\tcd samples/ &&\n\t\tfind . -name \"build.sh\" -exec chmod 0755 {} \\;\n)\n"
-                .to_string(),
+            "(\n\tcd samples/ &&\n\t\tfind . -name \"build.sh\" -exec chmod 0755 {} \\;\n)\n",
         );
     }
 
@@ -4212,7 +4086,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\t(while sudo -v; do\n\t\tsleep 50\n\tdone) &\n}\n".to_string(),
+            "f() {\n\t(while sudo -v; do\n\t\tsleep 50\n\tdone) &\n}\n",
         );
     }
 
@@ -4225,7 +4099,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if ready; then\n\t($REGEN_CMD &)\nfi\n".to_string(),
+            "if ready; then\n\t($REGEN_CMD &)\nfi\n",
         );
     }
 
@@ -4265,8 +4139,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "(\n\techo '#!/usr/bin/wish -f'\n\tcat completion.tcl\n\tsed '1,5d' $PRGNAM\n) \\\n\t>$PKG/usr/bin/$PRGNAM\n"
-                .to_string(),
+            "(\n\techo '#!/usr/bin/wish -f'\n\tcat completion.tcl\n\tsed '1,5d' $PRGNAM\n) \\\n\t>$PKG/usr/bin/$PRGNAM\n",
         );
     }
 
@@ -4370,8 +4243,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "function f() {\n\t# parse all defined shortcuts ${BASH_IT_DIRS_BKS}\n\tif [[ -s x ]]; then\n\t\techo yes\n\tfi\n}\n"
-                .to_string(),
+            "function f() {\n\t# parse all defined shortcuts ${BASH_IT_DIRS_BKS}\n\tif [[ -s x ]]; then\n\t\techo yes\n\tfi\n}\n",
         );
     }
 
@@ -4392,8 +4264,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "output=\"$(\n\texec > >(tee /dev/fd/2) 2>&1\n)\"\nlatest=\"$(grep x < <(jq -r '.body' <<<\"$response\"))\"\n"
-                .to_string(),
+            "output=\"$(\n\texec > >(tee /dev/fd/2) 2>&1\n)\"\nlatest=\"$(grep x < <(jq -r '.body' <<<\"$response\"))\"\n",
         );
     }
 
@@ -4406,7 +4277,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "read -ra candidates < <(complete words 2>/dev/null)\n".to_string(),
+            "read -ra candidates < <(complete words 2>/dev/null)\n",
         );
     }
 
@@ -4435,8 +4306,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "unsetall() {\n\twhile read -r env_var; do\n\t\tunset \"$env_var\"\n\tdone < <(env |\n\t\tgrep -i \"$match\" |\n\t\tsed 's/=.*//')\n}\n"
-                .to_string(),
+            "unsetall() {\n\twhile read -r env_var; do\n\t\tunset \"$env_var\"\n\tdone < <(env |\n\t\tgrep -i \"$match\" |\n\t\tsed 's/=.*//')\n}\n",
         );
     }
 
@@ -4457,8 +4327,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "while read x; do\n\t:\ndone < <(\n\tcmd |\n\t\tawk 'BEGIN {x=0} /Sink/ {\n                 x=$1\n             }'\n)\n"
-                .to_string(),
+            "while read x; do\n\t:\ndone < <(\n\tcmd |\n\t\tawk 'BEGIN {x=0} /Sink/ {\n                 x=$1\n             }'\n)\n",
         );
     }
 
@@ -4471,7 +4340,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "curl -d @<(\n\tcat <<EOF\nbody\nEOF\n)\n".to_string(),
+            "curl -d @<(\n\tcat <<EOF\nbody\nEOF\n)\n",
         );
     }
 
@@ -4493,7 +4362,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "while read -r line; do\n\techo \"$line\"\ndone < <(\n\tproduce_items\n)\n".to_string(),
+            "while read -r line; do\n\techo \"$line\"\ndone < <(\n\tproduce_items\n)\n",
         );
     }
 
@@ -4507,8 +4376,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "while read game; do\n\techo \"$game\"\ndone < <(\n\t_get_opts\n\techo -e \"a\\nb\"\n)\n"
-                .to_string(),
+            "while read game; do\n\techo \"$game\"\ndone < <(\n\t_get_opts\n\techo -e \"a\\nb\"\n)\n",
         );
     }
 
@@ -4521,7 +4389,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if ok; then\n\tcat < <(\n\t\tproduce\n\t\tconsume\n\t)\nfi\n".to_string(),
+            "if ok; then\n\tcat < <(\n\t\tproduce\n\t\tconsume\n\t)\nfi\n",
         );
     }
 
@@ -4534,8 +4402,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "while read -r line; do\n\tmenu+=(\"$line\")\ndone < <({\n\techo \"$a\"\n\techo \"$b\"\n} | sort -u)\n"
-                .to_string(),
+            "while read -r line; do\n\tmenu+=(\"$line\")\ndone < <({\n\techo \"$a\"\n\techo \"$b\"\n} | sort -u)\n",
         );
     }
 
@@ -4548,8 +4415,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "while read -r item; do\n\techo \"$item\"\ndone < <(\n\t# note\n\tproduce_items\n) |\n\tconsume_items\n"
-                .to_string(),
+            "while read -r item; do\n\techo \"$item\"\ndone < <(\n\t# note\n\tproduce_items\n) |\n\tconsume_items\n",
         );
     }
 
@@ -4562,8 +4428,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "cat < <(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\tfilter_items |\n\t\tsort_items\n)\n"
-                .to_string(),
+            "cat < <(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\tfilter_items |\n\t\tsort_items\n)\n",
         );
     }
 
@@ -4576,8 +4441,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "cat < <(\n\tproduce_items |\n\t\tfilter_items |\n\t\t# keep this filter documented\n\t\tnormalize_items |\n\t\tsort_items\n)\n"
-                .to_string(),
+            "cat < <(\n\tproduce_items |\n\t\tfilter_items |\n\t\t# keep this filter documented\n\t\tnormalize_items |\n\t\tsort_items\n)\n",
         );
     }
 
@@ -4590,8 +4454,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "cat < <(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\t{ filter_items || :; } |\n\t\tsort_items\n)\n"
-                .to_string(),
+            "cat < <(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\t{ filter_items || :; } |\n\t\tsort_items\n)\n",
         );
     }
 
@@ -4604,8 +4467,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "urls=\"$(\n\twhile read -r filename; do\n\t\t# keep comment with raw block path\n\t\t{ grep -E \"$url_regex\" \"$filename\" || :; } |\n\t\t\tif [ -n \"${URL_LINKS_IGNORED:-}\" ]; then\n\t\t\t\tgrep -Eivf <(\n\t\t\t\t\ttr '[:space:]' '\\n' <<<\"$URL_LINKS_IGNORED\" |\n\t\t\t\t\t\tsed 's/^[[:space:]]*//;\n                     s/[[:space:]]*$//;\n                     /^[[:space:]]*$/d'\n\t\t\t\t)\n\t\t\telse\n\t\t\t\tcat\n\t\t\tfi\n\tdone |\n\t\tsort -uf\n)\"\n"
-                .to_string(),
+            "urls=\"$(\n\twhile read -r filename; do\n\t\t# keep comment with raw block path\n\t\t{ grep -E \"$url_regex\" \"$filename\" || :; } |\n\t\t\tif [ -n \"${URL_LINKS_IGNORED:-}\" ]; then\n\t\t\t\tgrep -Eivf <(\n\t\t\t\t\ttr '[:space:]' '\\n' <<<\"$URL_LINKS_IGNORED\" |\n\t\t\t\t\t\tsed 's/^[[:space:]]*//;\n                     s/[[:space:]]*$//;\n                     /^[[:space:]]*$/d'\n\t\t\t\t)\n\t\t\telse\n\t\t\t\tcat\n\t\t\tfi\n\tdone |\n\t\tsort -uf\n)\"\n",
         );
     }
 
@@ -4618,8 +4480,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "cmd \\\n\t<(\n\t\tproduce |\n\t\t\tsort #|\n\t\t# keep the sorted stream documented\n\t\t# before the process substitution closes\n\t) \\\n\t<(\n\t\t# describe target stream\n\t\tconsume\n\t) |\n\tsed 's/x/y/'\n"
-                .to_string(),
+            "cmd \\\n\t<(\n\t\tproduce |\n\t\t\tsort #|\n\t\t# keep the sorted stream documented\n\t\t# before the process substitution closes\n\t) \\\n\t<(\n\t\t# describe target stream\n\t\tconsume\n\t) |\n\tsed 's/x/y/'\n",
         );
     }
 
@@ -4632,8 +4493,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "value=\"$(\n\tproduce_items |\n\t\tsed '\n        s/a/b ;\n    ' |\n\t\tconsume_items\n)\"\n"
-                .to_string(),
+            "value=\"$(\n\tproduce_items |\n\t\tsed '\n        s/a/b ;\n    ' |\n\t\tconsume_items\n)\"\n",
         );
     }
 
@@ -4646,8 +4506,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "value=\"$(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\twhile read -r item; do\n\t\t\tconsume_item \"$item\"\n\t\tdone || :\n)\"\n"
-                .to_string(),
+            "value=\"$(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\twhile read -r item; do\n\t\t\tconsume_item \"$item\"\n\t\tdone || :\n)\"\n",
         );
     }
 
@@ -4724,7 +4583,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "curl -sSf \"$url\" >\"$jar\"\ncmd a b c >out 2>err\ncmd >out a b 2>err\n".to_string(),
+            "curl -sSf \"$url\" >\"$jar\"\ncmd a b c >out 2>err\ncmd >out a b 2>err\n",
         );
     }
 
@@ -4737,7 +4596,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "time nice ffmpeg -i \"$filepath\" \"$mp4_filepath\" </dev/null # note\n".to_string(),
+            "time nice ffmpeg -i \"$filepath\" \"$mp4_filepath\" </dev/null # note\n",
         );
     }
 
@@ -4758,8 +4617,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if [[ $line =~ \\<(target|extension-point)[[:space:]].*name=[\\\"\\']([^\\\"\\']+) ]]; then\n\techo \"${BASH_REMATCH[2]}\"\nfi\n"
-                .to_string(),
+            "if [[ $line =~ \\<(target|extension-point)[[:space:]].*name=[\\\"\\']([^\\\"\\']+) ]]; then\n\techo \"${BASH_REMATCH[2]}\"\nfi\n",
         );
     }
 
@@ -4772,8 +4630,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "if [[ \"$line\" =~ ^=\\  ]]; then\n\techo ok\nfi\nif [[ ! \"$line\" =~ ^=\\  ]] && [[ \"$n\" -gt 20 ]]; then\n\tbreak\nfi\n"
-                .to_string(),
+            "if [[ \"$line\" =~ ^=\\  ]]; then\n\techo ok\nfi\nif [[ ! \"$line\" =~ ^=\\  ]] && [[ \"$n\" -gt 20 ]]; then\n\tbreak\nfi\n",
         );
     }
 
@@ -4801,8 +4658,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\t[[ ! -f \"$cert_file\" ||\n\t\t\"$cert_file\" -ot /one ||\n\t\t\"$cert_file\" -ot /two ]] ||\n\t\t((${force:-0} > 0))\n}\n"
-                .to_string(),
+            "f() {\n\t[[ ! -f \"$cert_file\" ||\n\t\t\"$cert_file\" -ot /one ||\n\t\t\"$cert_file\" -ot /two ]] ||\n\t\t((${force:-0} > 0))\n}\n",
         );
     }
 
@@ -4816,8 +4672,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "f() {\n\t[[ \"${show:-}\" != true ||\n\t\t-z \"$(which todo.sh)\" ]] && return\n}\n"
-                .to_string(),
+            "f() {\n\t[[ \"${show:-}\" != true ||\n\t\t-z \"$(which todo.sh)\" ]] && return\n}\n",
         );
     }
 
@@ -4831,8 +4686,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             source,
             None,
             &options,
-            "_command_exists goenv ||\n\t[[ -x \"$GOENV_ROOT/bin/goenv\" ]] ||\n\treturn 0\n"
-                .to_string(),
+            "_command_exists goenv ||\n\t[[ -x \"$GOENV_ROOT/bin/goenv\" ]] ||\n\treturn 0\n",
         );
     }
 
@@ -4878,8 +4732,7 @@ function R() {
             source,
             None,
             &options,
-            "while [[ -n \"$x\" ]] &&\n\t! {\n\t\t[[ -d \"$x\" ]] &&\n\t\t\t[[ -f \"$x\" ]]\n\t} && {\n\t{\n\t\t[[ \"$x\" =~ ^/ ]] &&\n\t\t\t[[ \"$x\" != / ]]\n\t} || {\n\t\t[[ \"$x\" != /tmp ]]\n\t}\n}; do\n\tx=\"${x%/*}\"\ndone\n"
-                .to_string(),
+            "while [[ -n \"$x\" ]] &&\n\t! {\n\t\t[[ -d \"$x\" ]] &&\n\t\t\t[[ -f \"$x\" ]]\n\t} && {\n\t{\n\t\t[[ \"$x\" =~ ^/ ]] &&\n\t\t\t[[ \"$x\" != / ]]\n\t} || {\n\t\t[[ \"$x\" != /tmp ]]\n\t}\n}; do\n\tx=\"${x%/*}\"\ndone\n",
         );
     }
 
@@ -4964,8 +4817,7 @@ function R() {
 		*) compgen -o bashdefault -- "$rhs" ;; # punt
 		esac))
 }
-"#
-            .to_string(),
+"#,
         );
     }
 
@@ -4978,8 +4830,7 @@ function R() {
             source,
             None,
             &options,
-            "kubectl get secrets |\n\tgrep -v '^NAME[[:space:]]' |\n\tawk '{print $1}'\n"
-                .to_string(),
+            "kubectl get secrets |\n\tgrep -v '^NAME[[:space:]]' |\n\tawk '{print $1}'\n",
         );
     }
 
@@ -5007,8 +4858,7 @@ function R() {
             source,
             None,
             &options,
-            "produce_json |\n\n\t#if disabled; then\n\t#  old_filter\n\t#fi\n\tjq -r '.items[]'\n"
-                .to_string(),
+            "produce_json |\n\n\t#if disabled; then\n\t#  old_filter\n\t#fi\n\tjq -r '.items[]'\n",
         );
     }
 
@@ -5021,8 +4871,7 @@ function R() {
             source,
             None,
             &options,
-            "while read -r value; do\n\techo \"$value\"\ndone |\n\t# keep alternate implementation note\n\tif type -P helper >/dev/null; then\n\t\thelper\n\telse\n\t\tcat\n\tfi\n"
-                .to_string(),
+            "while read -r value; do\n\techo \"$value\"\ndone |\n\t# keep alternate implementation note\n\tif type -P helper >/dev/null; then\n\t\thelper\n\telse\n\t\tcat\n\tfi\n",
         );
     }
 
@@ -5035,7 +4884,7 @@ function R() {
             source,
             None,
             &options,
-            "find $PKG -print0 | xargs -0 file | grep ELF |\n\tcut -f 1 -d : | xargs strip --strip-unneeded 2>/dev/null || true\n".to_string(),
+            "find $PKG -print0 | xargs -0 file | grep ELF |\n\tcut -f 1 -d : | xargs strip --strip-unneeded 2>/dev/null || true\n",
         );
     }
 
@@ -5048,8 +4897,7 @@ function R() {
             source,
             None,
             &options,
-            "if true; then\n\tffmpeg &&\n\t\tconvert GIF:- |\n\t\tgifsicle >out || return 2\nfi\n"
-                .to_string(),
+            "if true; then\n\tffmpeg &&\n\t\tconvert GIF:- |\n\t\tgifsicle >out || return 2\nfi\n",
         );
     }
 
@@ -5058,12 +4906,7 @@ function R() {
         let source = "sed s/x/y/ in > \\\n  out\n";
         let options = ShellFormatOptions::default();
 
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "sed s/x/y/ in > \\\n\tout\n".to_string(),
-        );
+        assert_formats_to_with_ast(source, None, &options, "sed s/x/y/ in > \\\n\tout\n");
     }
 
     #[test]
@@ -5075,8 +4918,7 @@ function R() {
             source,
             None,
             &options,
-            "for net_mount in \\\n\t${HOST_MOUNTS_RO} ${HOST_MOUNTS} \\\n\t'/dev' '/proc'; do\n\techo \"$net_mount\"\ndone\n"
-                .to_string(),
+            "for net_mount in \\\n\t${HOST_MOUNTS_RO} ${HOST_MOUNTS} \\\n\t'/dev' '/proc'; do\n\techo \"$net_mount\"\ndone\n",
         );
     }
 
@@ -5097,8 +4939,7 @@ function R() {
             source,
             None,
             &options,
-            "f() {\n\ttitle=\"$(curl -sS --fail \"$url\" | {\n\t\thead -n1 | sed 's/^#*//'\n\t\tcat >/dev/null\n\t})\"\n}\n"
-                .to_string(),
+            "f() {\n\ttitle=\"$(curl -sS --fail \"$url\" | {\n\t\thead -n1 | sed 's/^#*//'\n\t\tcat >/dev/null\n\t})\"\n}\n",
         );
     }
 
@@ -5111,8 +4952,7 @@ function R() {
             source,
             None,
             &options,
-            "for J in \"${I}\"/*; do # iterate over folders in a safe way\n\tFIND=$(echo \"${J}\")\n\tif [ -f \"${J}\" ]; then\n\t\techo \"${FIND}\"\n\tfi\ndone\n"
-                .to_string(),
+            "for J in \"${I}\"/*; do # iterate over folders in a safe way\n\tFIND=$(echo \"${J}\")\n\tif [ -f \"${J}\" ]; then\n\t\techo \"${FIND}\"\n\tfi\ndone\n",
         );
     }
 
@@ -5126,8 +4966,7 @@ function R() {
             source,
             None,
             &options,
-            "for ITEM in ${LIST}; do if DirectoryExists ${ITEM}; then\n\tFOUND=1\n\tbreak\nfi; done\n"
-                .to_string(),
+            "for ITEM in ${LIST}; do if DirectoryExists ${ITEM}; then\n\tFOUND=1\n\tbreak\nfi; done\n",
         );
     }
 
@@ -5149,8 +4988,7 @@ function R() {
             source,
             None,
             &options,
-            "link=$(cat \"${postdetailslog}\" | {\n\tnc -w 3 termbin.com 9999\n\techo $? >/tmp/nc_exit_status\n} | tr -d '\\n\\0')\n"
-                .to_string(),
+            "link=$(cat \"${postdetailslog}\" | {\n\tnc -w 3 termbin.com 9999\n\techo $? >/tmp/nc_exit_status\n} | tr -d '\\n\\0')\n",
         );
     }
 
@@ -5163,8 +5001,7 @@ function R() {
             source,
             None,
             &options,
-            "items=\"$(\n\t{\n\t\t# primary items\n\t\tproduce_items |\n\t\t\tsort_items\n\t}\n)\"\n"
-                .to_string(),
+            "items=\"$(\n\t{\n\t\t# primary items\n\t\tproduce_items |\n\t\t\tsort_items\n\t}\n)\"\n",
         );
     }
 
@@ -5177,7 +5014,7 @@ function R() {
             source,
             None,
             &options,
-            "url=\"$(\n\tgit remote -v |\n\t\tawk '{print $2}' |\n\t\thead -n 1\n)\"\n".to_string(),
+            "url=\"$(\n\tgit remote -v |\n\t\tawk '{print $2}' |\n\t\thead -n 1\n)\"\n",
         );
     }
 
@@ -5190,8 +5027,7 @@ function R() {
             source,
             None,
             &options,
-            "if ok; then\n\turl=\"$(\n\t\tgit remote -v |\n\t\t\tawk '{print $2}' |\n\t\t\tperl -pe \"\n            s/foo/bar/\n        \"\n\t)\"\nfi\n"
-                .to_string(),
+            "if ok; then\n\turl=\"$(\n\t\tgit remote -v |\n\t\t\tawk '{print $2}' |\n\t\t\tperl -pe \"\n            s/foo/bar/\n        \"\n\t)\"\nfi\n",
         );
     }
 
@@ -5204,8 +5040,7 @@ function R() {
             source,
             None,
             &options,
-            "value=\"$(\n\t{\n\t\tsort |\n\t\t\tuniq -d\n\t} |\n\t\tgrep -vi $(\n\t\t\tIFS=$'\\n'\n\t\t\tfor line in $ignored_lines_regex; do\n\t\t\t\t[[ \"$line\" =~ ^[[:space:]]*$ ]] && continue\n\t\t\t\tprintf \"%s\" \" -e '$line'\"\n\t\t\tdone\n\t\t)\n)\"\n"
-                .to_string(),
+            "value=\"$(\n\t{\n\t\tsort |\n\t\t\tuniq -d\n\t} |\n\t\tgrep -vi $(\n\t\t\tIFS=$'\\n'\n\t\t\tfor line in $ignored_lines_regex; do\n\t\t\t\t[[ \"$line\" =~ ^[[:space:]]*$ ]] && continue\n\t\t\t\tprintf \"%s\" \" -e '$line'\"\n\t\t\tdone\n\t\t)\n)\"\n",
         );
     }
 
@@ -5218,8 +5053,7 @@ function R() {
             source,
             None,
             &options,
-            "f() {\n\tresult=\"$(\n\t\tadd --content \"$(\n\t\t\tprintf \"%b\\\\n\" \"$body\" |\n\t\t\t\ttr -d $'\\r'\n\t\t)\" --skip\n\t)\"\n}\n"
-                .to_string(),
+            "f() {\n\tresult=\"$(\n\t\tadd --content \"$(\n\t\t\tprintf \"%b\\\\n\" \"$body\" |\n\t\t\t\ttr -d $'\\r'\n\t\t)\" --skip\n\t)\"\n}\n",
         );
     }
 
@@ -5232,8 +5066,7 @@ function R() {
             source,
             None,
             &options,
-            "urls=\"$(\n\tfind files |\n\t\tif [ -n \"$filter\" ]; then\n\t\t\tgrep \"$filter\" || :\n\t\telse\n\t\t\tcat\n\t\tfi |\n\t\twhile read -r file; do\n\t\t\t[ -f \"$file\" ] || continue\n\t\t\tgrep \"$file\" |\n\t\t\t\tif [ -n \"$ignored\" ]; then\n\t\t\t\t\tgrep -v \"$ignored\"\n\t\t\t\telse\n\t\t\t\t\tcat\n\t\t\t\tfi\n\t\tdone |\n\t\tsort -u\n)\"\n"
-                .to_string(),
+            "urls=\"$(\n\tfind files |\n\t\tif [ -n \"$filter\" ]; then\n\t\t\tgrep \"$filter\" || :\n\t\telse\n\t\t\tcat\n\t\tfi |\n\t\twhile read -r file; do\n\t\t\t[ -f \"$file\" ] || continue\n\t\t\tgrep \"$file\" |\n\t\t\t\tif [ -n \"$ignored\" ]; then\n\t\t\t\t\tgrep -v \"$ignored\"\n\t\t\t\telse\n\t\t\t\t\tcat\n\t\t\t\tfi\n\t\tdone |\n\t\tsort -u\n)\"\n",
         );
     }
 
@@ -5246,8 +5079,7 @@ function R() {
             source,
             None,
             &options,
-            "playlist_id=\"$(\n\tproducer |\n\t\tif [ \"$x\" ]; then\n\t\t\t# keep exact match\n\t\t\twhile read -r id name; do\n\t\t\t\tif [[ \"$name\" = \"$playlist_name\" ]]; then\n\t\t\t\t\techo \"$id\"\n\t\t\t\t\tbreak\n\t\t\t\tfi\n\t\t\tdone\n\t\telse\n\t\t\tgrep -Fi \"$playlist_name\" |\n\t\t\t\tawk '{print $1}'\n\t\tfi || :\n)\"\n"
-                .to_string(),
+            "playlist_id=\"$(\n\tproducer |\n\t\tif [ \"$x\" ]; then\n\t\t\t# keep exact match\n\t\t\twhile read -r id name; do\n\t\t\t\tif [[ \"$name\" = \"$playlist_name\" ]]; then\n\t\t\t\t\techo \"$id\"\n\t\t\t\t\tbreak\n\t\t\t\tfi\n\t\t\tdone\n\t\telse\n\t\t\tgrep -Fi \"$playlist_name\" |\n\t\t\t\tawk '{print $1}'\n\t\tfi || :\n)\"\n",
         );
     }
 
@@ -5260,8 +5092,7 @@ function R() {
             source,
             None,
             &options,
-            "for workflow_name in $workflows; do\n\t{\n\t\toutput=\"$(printf '%s\\n' \"$workflow_name\")\"\n\t\techo \"$output\"\n\t} &\ndone |\n\tsort\n"
-                .to_string(),
+            "for workflow_name in $workflows; do\n\t{\n\t\toutput=\"$(printf '%s\\n' \"$workflow_name\")\"\n\t\techo \"$output\"\n\t} &\ndone |\n\tsort\n",
         );
     }
 
@@ -5290,8 +5121,7 @@ function R() {
             source,
             None,
             &options,
-            "tests=\"$(\n\tfor filename in $filelist; do\n\t\t# expensive filter\n\t\techo \"check $filename\"\n\tdone\n)\"\n"
-                .to_string(),
+            "tests=\"$(\n\tfor filename in $filelist; do\n\t\t# expensive filter\n\t\techo \"check $filename\"\n\tdone\n)\"\n",
         );
     }
 
@@ -5304,8 +5134,7 @@ function R() {
             source,
             None,
             &options,
-            "snapshots=\"$(\n\ttmutil listlocalsnapshots \"$path\" |\n\t\ttail -n +2 |\n\t\t# update snapshots can't be deleted so just take the date timestamped ones:\n\t\t#\n\t\t#                  2026-02-14-041148\n\t\tcommand ggrep -oP '\\d{4}-\\d\\d-\\d\\d-\\d+'\n)\"\n"
-                .to_string(),
+            "snapshots=\"$(\n\ttmutil listlocalsnapshots \"$path\" |\n\t\ttail -n +2 |\n\t\t# update snapshots can't be deleted so just take the date timestamped ones:\n\t\t#\n\t\t#                  2026-02-14-041148\n\t\tcommand ggrep -oP '\\d{4}-\\d\\d-\\d\\d-\\d+'\n)\"\n",
         );
     }
 
@@ -5318,8 +5147,7 @@ function R() {
             source,
             None,
             &options,
-            "resources=\"$(\n\tkubectl api-resources |\n\t\ttail -n +2 || : # ignore incomplete API discovery\n)\"\n"
-                .to_string(),
+            "resources=\"$(\n\tkubectl api-resources |\n\t\ttail -n +2 || : # ignore incomplete API discovery\n)\"\n",
         );
     }
 
@@ -5332,8 +5160,7 @@ function R() {
             source,
             None,
             &options,
-            "matches=\"$(\n\tgit grep -Ei \\\n\t\t-e a |\n\t\tgrep -Fv x ||\n\t\t:\n\t# note\n)\"\n"
-                .to_string(),
+            "matches=\"$(\n\tgit grep -Ei \\\n\t\t-e a |\n\t\tgrep -Fv x ||\n\t\t:\n\t# note\n)\"\n",
         );
     }
 
@@ -5346,8 +5173,7 @@ function R() {
             source,
             None,
             &options,
-            "matches=\"$(\n\tgit grep -Ei \\\n\t\t-e first \\\n\t\t-e second \\\n\t\t-e third |\n\t\tgrep -Fv skip ||\n\t\t:\n\t# note\n)\"\n"
-                .to_string(),
+            "matches=\"$(\n\tgit grep -Ei \\\n\t\t-e first \\\n\t\t-e second \\\n\t\t-e third |\n\t\tgrep -Fv skip ||\n\t\t:\n\t# note\n)\"\n",
         );
     }
 
@@ -5360,8 +5186,7 @@ function R() {
             source,
             None,
             &options,
-            "LIBS=\"$(pkg-config --libs openssl)\" \\\nCFLAGS=\"$SLKCFLAGS -Wl,-s -I$(pwd)/lib\" \\\n\t./configure \\\n\t--prefix=/usr\n"
-                .to_string(),
+            "LIBS=\"$(pkg-config --libs openssl)\" \\\nCFLAGS=\"$SLKCFLAGS -Wl,-s -I$(pwd)/lib\" \\\n\t./configure \\\n\t--prefix=/usr\n",
         );
     }
 
@@ -5374,7 +5199,7 @@ function R() {
             source,
             None,
             &options,
-            "A=$(pwd) \\\nB=1 \\\nC=2 \\\n\tcmd\n".to_string(),
+            "A=$(pwd) \\\nB=1 \\\nC=2 \\\n\tcmd\n",
         );
     }
 
@@ -5387,7 +5212,7 @@ function R() {
             source,
             None,
             &options,
-            "A=1 \\\n\tB=$(pwd) \\\n\tC=2 \\\n\tcmd\n".to_string(),
+            "A=1 \\\n\tB=$(pwd) \\\n\tC=2 \\\n\tcmd\n",
         );
     }
 
@@ -5400,8 +5225,7 @@ function R() {
             source,
             None,
             &options,
-            "case $prev in\n--warnings)\n\tlocal cats=(cross gnu obsolete override portability syntax\n\t\tunsupported)\n\treturn\n\t;;\nesac\n"
-                .to_string(),
+            "case $prev in\n--warnings)\n\tlocal cats=(cross gnu obsolete override portability syntax\n\t\tunsupported)\n\treturn\n\t;;\nesac\n",
         );
     }
 
@@ -5414,7 +5238,7 @@ function R() {
             source,
             None,
             &options,
-            "f() {\n\tlocal commands=(\n\t\tbuild\n\t\tversion\n\t)\n}\n".to_string(),
+            "f() {\n\tlocal commands=(\n\t\tbuild\n\t\tversion\n\t)\n}\n",
         );
     }
 
@@ -5427,7 +5251,7 @@ function R() {
             source,
             None,
             &options,
-            "short=1       # first\nmuch_longer=2 # second\n".to_string(),
+            "short=1       # first\nmuch_longer=2 # second\n",
         );
     }
 
@@ -5436,12 +5260,7 @@ function R() {
         let source = "x=() # first\nyyy=() # second\n";
         let options = ShellFormatOptions::default();
 
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "x=()   # first\nyyy=() # second\n".to_string(),
-        );
+        assert_formats_to_with_ast(source, None, &options, "x=()   # first\nyyy=() # second\n");
     }
 
     #[test]
@@ -5453,8 +5272,7 @@ function R() {
             source,
             None,
             &options,
-            "args=(\"${args[@]/%/ }\")             # add space to all\nargs=(\"${args[@]/%$slash /$slash}\") # remove space from dirs\n"
-                .to_string(),
+            "args=(\"${args[@]/%/ }\")             # add space to all\nargs=(\"${args[@]/%$slash /$slash}\") # remove space from dirs\n",
         );
     }
 
@@ -5467,8 +5285,7 @@ function R() {
             source,
             None,
             &options,
-            "border=$(($(_system uptime days) * 3)) # normally\nborder=$((border + basecount))         # later\n"
-                .to_string(),
+            "border=$(($(_system uptime days) * 3)) # normally\nborder=$((border + basecount))         # later\n",
         );
     }
 
@@ -5481,8 +5298,7 @@ function R() {
             source,
             None,
             &options,
-            "SPACER1=\"$(_sanitizer run \"$MAX1 $LOCAL\" add_length_diff_with_spaces)\"  # one\nSPACER2=\"$(_sanitizer run \"$MAX2 $REMOTE\" add_length_diff_with_spaces)\" # two\n"
-                .to_string(),
+            "SPACER1=\"$(_sanitizer run \"$MAX1 $LOCAL\" add_length_diff_with_spaces)\"  # one\nSPACER2=\"$(_sanitizer run \"$MAX2 $REMOTE\" add_length_diff_with_spaces)\" # two\n",
         );
     }
 
@@ -5495,8 +5311,7 @@ function R() {
             source,
             None,
             &options,
-            "while read line; do\n\tline=${line%%#*}  # Remove comments\n\tline=${line//:/ } # Change colon delimiter to space\n\tline=${line//,/ } # Change comma delimiter to space\ndone\n"
-                .to_string(),
+            "while read line; do\n\tline=${line%%#*}  # Remove comments\n\tline=${line//:/ } # Change colon delimiter to space\n\tline=${line//,/ } # Change comma delimiter to space\ndone\n",
         );
     }
 
@@ -5509,8 +5324,7 @@ function R() {
             source,
             None,
             &options,
-            "MAINVER=\"${VERSION//_*/}\" # e.g. 1.8.0_9 => 1.8.0\nDEBVER=\"${VERSION//*_/}\"  # e.g. 1.8.0_9 => 9\n"
-                .to_string(),
+            "MAINVER=\"${VERSION//_*/}\" # e.g. 1.8.0_9 => 1.8.0\nDEBVER=\"${VERSION//*_/}\"  # e.g. 1.8.0_9 => 9\n",
         );
     }
 
@@ -5538,8 +5352,7 @@ function R() {
             source,
             None,
             &options,
-            "BUILD_TNC=${BUILD_TNC:-true}           # build tnc XML validator module\nBUILD_TDOMHTML=${BUILD_TDOMHTML:-true} # build tdomhtml html generation module\n"
-                .to_string(),
+            "BUILD_TNC=${BUILD_TNC:-true}           # build tnc XML validator module\nBUILD_TDOMHTML=${BUILD_TDOMHTML:-true} # build tdomhtml html generation module\n",
         );
     }
 
@@ -5552,8 +5365,7 @@ function R() {
             source,
             None,
             &options,
-            "if ok; then\n\trm -f /tmp/OLSR/meshrdf_neighs* 2>/dev/null    # enforce rewrite some lines later\n\techo >>$SCHEDULER \"_wifi speed check $gateway\" # will only test once\nfi\n"
-                .to_string(),
+            "if ok; then\n\trm -f /tmp/OLSR/meshrdf_neighs* 2>/dev/null    # enforce rewrite some lines later\n\techo >>$SCHEDULER \"_wifi speed check $gateway\" # will only test once\nfi\n",
         );
     }
 
@@ -5566,8 +5378,7 @@ function R() {
             source,
             None,
             &options,
-            "cp -ar SlackBuild $PKG/opt/$PRGNAM/         # Copy the SlackBuild script\ncat $PRGNAM.sh >$PKG/opt/$PRGNAM/$PRGNAM.sh # Copy the launcher script\n"
-                .to_string(),
+            "cp -ar SlackBuild $PKG/opt/$PRGNAM/         # Copy the SlackBuild script\ncat $PRGNAM.sh >$PKG/opt/$PRGNAM/$PRGNAM.sh # Copy the launcher script\n",
         );
     }
 
@@ -5580,8 +5391,7 @@ function R() {
             source,
             None,
             &options,
-            "netint=$(${ipcommand} -o addr | grep \"${ip}\" | awk '{print $2}')                     # e.g eth0\nnetlink=$(${ethtoolcommand} \"${netint}\" 2>/dev/null | grep Speed | awk '{print $2}') # e.g 1000Mb/s\n"
-                .to_string(),
+            "netint=$(${ipcommand} -o addr | grep \"${ip}\" | awk '{print $2}')                     # e.g eth0\nnetlink=$(${ethtoolcommand} \"${netint}\" 2>/dev/null | grep Speed | awk '{print $2}') # e.g 1000Mb/s\n",
         );
     }
 
@@ -5594,8 +5404,7 @@ function R() {
             source,
             None,
             &options,
-            "case $mode in\nprompt)\n\tif\n\t\t[[ -n ${ZSH_VERSION:-} ]]\n\tthen\n\t\techo zsh\n\tfi\n\t;;\nesac\n"
-                .to_string(),
+            "case $mode in\nprompt)\n\tif\n\t\t[[ -n ${ZSH_VERSION:-} ]]\n\tthen\n\t\techo zsh\n\tfi\n\t;;\nesac\n",
         );
     }
 
@@ -5608,8 +5417,7 @@ function R() {
             source,
             None,
             &options,
-            "f() {\n\tif\n\t\tcurl -X PUT -k \"${@:2}\"\n\t\t\"$url\" \\\n\t\t\t-H x \\\n\t\t\t-d y\n\tthen\n\t\techo ok\n\tfi\n}\n"
-                .to_string(),
+            "f() {\n\tif\n\t\tcurl -X PUT -k \"${@:2}\"\n\t\t\"$url\" \\\n\t\t\t-H x \\\n\t\t\t-d y\n\tthen\n\t\techo ok\n\tfi\n}\n",
         );
     }
 
@@ -5622,8 +5430,7 @@ function R() {
             source,
             None,
             &options,
-            "f() {\n\tif [ -z \"${EDITOR:-}\" ]; then\n\t\tEDITOR=vi\n\telif grep -q \"$cur\" <<<'-g'; then\n\t\tCOMPREPLY+=(\"-g\")\n\tfi\n\tif ! ContainsString \"lock\" \"$value\"; then\n\t\tFOUND=1\n\tfi\n}\n"
-                .to_string(),
+            "f() {\n\tif [ -z \"${EDITOR:-}\" ]; then\n\t\tEDITOR=vi\n\telif grep -q \"$cur\" <<<'-g'; then\n\t\tCOMPREPLY+=(\"-g\")\n\tfi\n\tif ! ContainsString \"lock\" \"$value\"; then\n\t\tFOUND=1\n\tfi\n}\n",
         );
     }
 
@@ -5636,8 +5443,7 @@ function R() {
             source,
             None,
             &options,
-            "case \"$ext\" in\n.vimrc)\n\tif vim -c \"\n    if !filereadable('$basename') |\n        cquit 1\n    endif\n    \" -c \"q\"; then\n\t\techo ok\n\tfi\n\t;;\nesac\n"
-                .to_string(),
+            "case \"$ext\" in\n.vimrc)\n\tif vim -c \"\n    if !filereadable('$basename') |\n        cquit 1\n    endif\n    \" -c \"q\"; then\n\t\techo ok\n\tfi\n\t;;\nesac\n",
         );
     }
 
@@ -5650,8 +5456,7 @@ function R() {
             source,
             None,
             &options,
-            "f() {\n\tif type -p perl >/dev/null; then\n\t\tperl -pe decode\n\telif\n\t\ttype -p python3 >/dev/null &&\n\t\t\tlog \"using python\"\n\t\tpython3 -c 'import html' >/dev/null\n\tthen\n\t\tpython3 -c decode\n\telif type -p xmlstarlet >/dev/null; then\n\t\txmlstarlet unesc\n\tfi\n}\n"
-                .to_string(),
+            "f() {\n\tif type -p perl >/dev/null; then\n\t\tperl -pe decode\n\telif\n\t\ttype -p python3 >/dev/null &&\n\t\t\tlog \"using python\"\n\t\tpython3 -c 'import html' >/dev/null\n\tthen\n\t\tpython3 -c decode\n\telif type -p xmlstarlet >/dev/null; then\n\t\txmlstarlet unesc\n\tfi\n}\n",
         );
     }
 
@@ -5664,8 +5469,7 @@ function R() {
             source,
             None,
             &options,
-            "while\n\tread mac\n\tread name\ndo\n\tprintf '%s\\n' \"$mac:$name\"\ndone\nuntil\n\tpoll\n\tsleep 1\ndo\n\t:\ndone\n"
-                .to_string(),
+            "while\n\tread mac\n\tread name\ndo\n\tprintf '%s\\n' \"$mac:$name\"\ndone\nuntil\n\tpoll\n\tsleep 1\ndo\n\t:\ndone\n",
         );
     }
 
@@ -5686,8 +5490,7 @@ function R() {
             source,
             None,
             &options,
-            "check_restart() {\n\tif [ $percent -gt 300 -a $OPENWRT_REV -gt 0 ]; then # seems busy\n\t\treturn 1                                           # sometimes high\n\tfi\n}\n"
-                .to_string(),
+            "check_restart() {\n\tif [ $percent -gt 300 -a $OPENWRT_REV -gt 0 ]; then # seems busy\n\t\treturn 1                                           # sometimes high\n\tfi\n}\n",
         );
     }
 
@@ -5700,8 +5503,7 @@ function R() {
             source,
             None,
             &options,
-            "search() {\n\tif ok; then\n\t\tag \\\n\t\t\t--filename \\\n\t\t\t--hidden \\\n\t\t\t--ignore \".git\" \\\n\t\t\t--ignore-case \\\n\t\t\t--noheading \\\n\t\t\t\"${_search_args[@]}\" \\\n\t\t\t\"${_query}\" \\\n\t\t\t\"${_search_paths[@]}\" ||\n\t\t\treturn 0                                           # Don't fail out within a single scope.\n\telif _search_with \"ack\" \"${_search_utility:-}\"; then # ack is available.\n\t\t:\n\tfi\n}\n"
-                .to_string(),
+            "search() {\n\tif ok; then\n\t\tag \\\n\t\t\t--filename \\\n\t\t\t--hidden \\\n\t\t\t--ignore \".git\" \\\n\t\t\t--ignore-case \\\n\t\t\t--noheading \\\n\t\t\t\"${_search_args[@]}\" \\\n\t\t\t\"${_query}\" \\\n\t\t\t\"${_search_paths[@]}\" ||\n\t\t\treturn 0                                           # Don't fail out within a single scope.\n\telif _search_with \"ack\" \"${_search_utility:-}\"; then # ack is available.\n\t\t:\n\tfi\n}\n",
         );
     }
 
@@ -5714,8 +5516,7 @@ function R() {
             source,
             None,
             &options,
-            "search() {\n\tfor __target_path in \"${_target_paths[@]:-}\"; do\n\t\t{\n\t\t\tif _search_with \"ag\" \"${_search_utility:-}\"; then\n\t\t\t\tag \\\n\t\t\t\t\t--filename \\\n\t\t\t\t\t--hidden \\\n\t\t\t\t\t--ignore \".git\" \\\n\t\t\t\t\t--ignore-case \\\n\t\t\t\t\t--noheading \\\n\t\t\t\t\t\"${_search_args[@]}\" \\\n\t\t\t\t\t\"${_query}\" \\\n\t\t\t\t\t\"${_search_paths[@]}\" ||\n\t\t\t\t\treturn 0                                           # Don't fail out within a single scope.\n\t\t\telif _search_with \"ack\" \"${_search_utility:-}\"; then # ack is available.\n\t\t\t\t:\n\t\t\tfi\n\t\t}\n\tdone\n}\n"
-                .to_string(),
+            "search() {\n\tfor __target_path in \"${_target_paths[@]:-}\"; do\n\t\t{\n\t\t\tif _search_with \"ag\" \"${_search_utility:-}\"; then\n\t\t\t\tag \\\n\t\t\t\t\t--filename \\\n\t\t\t\t\t--hidden \\\n\t\t\t\t\t--ignore \".git\" \\\n\t\t\t\t\t--ignore-case \\\n\t\t\t\t\t--noheading \\\n\t\t\t\t\t\"${_search_args[@]}\" \\\n\t\t\t\t\t\"${_query}\" \\\n\t\t\t\t\t\"${_search_paths[@]}\" ||\n\t\t\t\t\treturn 0                                           # Don't fail out within a single scope.\n\t\t\telif _search_with \"ack\" \"${_search_utility:-}\"; then # ack is available.\n\t\t\t\t:\n\t\t\tfi\n\t\t}\n\tdone\n}\n",
         );
     }
 
@@ -5728,8 +5529,7 @@ function R() {
             source,
             None,
             &options,
-            "show() {\n\tif outer; then\n\t\tif ok; then\n\t\t\trm -f \"${_rendered_temp_file_path:?}\"\n\t\telse                          # default\n\t\t\tif ((_print_output)); then   # `show --print [--no-color]`\n\t\t\t\tif ((_COLOR_ENABLED)); then # `show --print`\n\t\t\t\t\t_highlight_syntax_if_available \"${_target_path}\"\n\t\t\t\telse # `show --print --no-color`\n\t\t\t\t\tcat \"${_target_path}\"\n\t\t\t\tfi\n\t\t\tfi\n\t\tfi\n\tfi\n}\n"
-                .to_string(),
+            "show() {\n\tif outer; then\n\t\tif ok; then\n\t\t\trm -f \"${_rendered_temp_file_path:?}\"\n\t\telse                          # default\n\t\t\tif ((_print_output)); then   # `show --print [--no-color]`\n\t\t\t\tif ((_COLOR_ENABLED)); then # `show --print`\n\t\t\t\t\t_highlight_syntax_if_available \"${_target_path}\"\n\t\t\t\telse # `show --print --no-color`\n\t\t\t\t\tcat \"${_target_path}\"\n\t\t\t\tfi\n\t\t\tfi\n\t\tfi\n\tfi\n}\n",
         );
     }
 
@@ -5760,8 +5560,7 @@ function R() {
             source,
             None,
             &options,
-            "scan() {\n\tif IsRunning \"sentineld\"; then SENTINELONE_SCANNER_RUNNING=1; fi     # macOS\n\tif IsRunning \"s1-agent\"; then SENTINELONE_SCANNER_RUNNING=1; fi      # Linux\n\tif IsRunning \"SentinelAgent\"; then SENTINELONE_SCANNER_RUNNING=1; fi # Windows\n}\n"
-                .to_string(),
+            "scan() {\n\tif IsRunning \"sentineld\"; then SENTINELONE_SCANNER_RUNNING=1; fi     # macOS\n\tif IsRunning \"s1-agent\"; then SENTINELONE_SCANNER_RUNNING=1; fi      # Linux\n\tif IsRunning \"SentinelAgent\"; then SENTINELONE_SCANNER_RUNNING=1; fi # Windows\n}\n",
         );
     }
 
@@ -5774,8 +5573,7 @@ function R() {
             source,
             None,
             &options,
-            "#!/bin/sh\n\nif [ \"$1\" = --query ]; then\n\n\tcat <<EOF\nquery\nEOF\n\nelif\n\t[ \"$1\" = --listmonitors ]\nthen\n\n\tcat <<EOF\nmonitors\nEOF\nfi\n"
-                .to_string(),
+            "#!/bin/sh\n\nif [ \"$1\" = --query ]; then\n\n\tcat <<EOF\nquery\nEOF\n\nelif\n\t[ \"$1\" = --listmonitors ]\nthen\n\n\tcat <<EOF\nmonitors\nEOF\nfi\n",
         );
     }
 
@@ -5784,12 +5582,7 @@ function R() {
         let source = "if true; then\n\n  echo yes\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "if true; then\n\n\techo yes\nfi\n".to_string(),
-        );
+        assert_formats_to_with_ast(source, None, &options, "if true; then\n\n\techo yes\nfi\n");
     }
 
     #[test]
@@ -5801,7 +5594,7 @@ function R() {
             source,
             None,
             &options,
-            "if [[ -s ./bin/rails ]]; then # binstub\n\n\truby ./bin/rails\nfi\n".to_string(),
+            "if [[ -s ./bin/rails ]]; then # binstub\n\n\truby ./bin/rails\nfi\n",
         );
     }
 
@@ -5814,8 +5607,7 @@ function R() {
             source,
             None,
             &options,
-            "if [[ \"${#_test_line}\" -gt \"${_COLUMNS}\" ]]; then # wrap to next line\n\t# Use the existing value.\n\techo yes\nfi\n"
-                .to_string(),
+            "if [[ \"${#_test_line}\" -gt \"${_COLUMNS}\" ]]; then # wrap to next line\n\t# Use the existing value.\n\techo yes\nfi\n",
         );
     }
 
@@ -5829,8 +5621,7 @@ function R() {
             source,
             None,
             &options,
-            "if true; then\n\tif other; then\n\t\techo yes\n\telse\n\t\techo no\n\tfi\n\nfi\n"
-                .to_string(),
+            "if true; then\n\tif other; then\n\t\techo yes\n\telse\n\t\techo no\n\tfi\n\nfi\n",
         );
     }
 
@@ -5839,12 +5630,7 @@ function R() {
         let source = "if true; then\n  echo yes\n\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "if true; then\n\techo yes\n\nfi\n".to_string(),
-        );
+        assert_formats_to_with_ast(source, None, &options, "if true; then\n\techo yes\n\nfi\n");
     }
 
     #[test]
@@ -5856,7 +5642,7 @@ function R() {
             source,
             None,
             &options,
-            "if true; then\n\techo yes\n\n\t# disabled\nfi\n".to_string(),
+            "if true; then\n\techo yes\n\n\t# disabled\nfi\n",
         );
     }
 
@@ -5870,8 +5656,7 @@ function R() {
             source,
             None,
             &options,
-            "if true; then\n\techo yes\n\nelif false; then\n\techo no\n\nelse\n\techo maybe\nfi\n"
-                .to_string(),
+            "if true; then\n\techo yes\n\nelif false; then\n\techo no\n\nelse\n\techo maybe\nfi\n",
         );
     }
 
@@ -5885,8 +5670,7 @@ function R() {
             source,
             None,
             &options,
-            "if true; then\n\techo yes\n\n# try the fallback\nelif false; then\n\techo no\nfi\n"
-                .to_string(),
+            "if true; then\n\techo yes\n\n# try the fallback\nelif false; then\n\techo no\nfi\n",
         );
     }
 
@@ -5899,7 +5683,7 @@ function R() {
             source,
             None,
             &options,
-            "if true; then\n\techo yes\nelif false; then\n\techo no\n\nfi\n".to_string(),
+            "if true; then\n\techo yes\nelif false; then\n\techo no\n\nfi\n",
         );
     }
 
@@ -5912,7 +5696,7 @@ function R() {
             source,
             None,
             &options,
-            "# setup\n\nif true; then yes; else\n\tno\nfi\n".to_string(),
+            "# setup\n\nif true; then yes; else\n\tno\nfi\n",
         );
     }
 
@@ -5925,7 +5709,7 @@ function R() {
             source,
             None,
             &options,
-            "while read -r dep; do\n\n\tver=${dep#*=}\ndone\n".to_string(),
+            "while read -r dep; do\n\n\tver=${dep#*=}\ndone\n",
         );
     }
 
@@ -5946,7 +5730,7 @@ function R() {
             source,
             None,
             &options,
-            "while true; do\n\techo yes\n\ndone\n".to_string(),
+            "while true; do\n\techo yes\n\ndone\n",
         );
     }
 
@@ -5959,7 +5743,7 @@ function R() {
             source,
             None,
             &options,
-            "while true; do\n\techo ok\n\t# buffered input\ndone\n".to_string(),
+            "while true; do\n\techo ok\n\t# buffered input\ndone\n",
         );
     }
 
@@ -5972,7 +5756,7 @@ function R() {
             source,
             None,
             &options,
-            "if true; then\n\t[ -n \"$x\" ] && {\n\n\t\techo yes\n\t}\nfi\n".to_string(),
+            "if true; then\n\t[ -n \"$x\" ] && {\n\n\t\techo yes\n\t}\nfi\n",
         );
     }
 
@@ -5985,7 +5769,7 @@ function R() {
             source,
             None,
             &options,
-            "if true; then\n\t[ -n \"$x\" ] || { # note\n\n\t\techo yes\n\t}\nfi\n".to_string(),
+            "if true; then\n\t[ -n \"$x\" ] || { # note\n\n\t\techo yes\n\t}\nfi\n",
         );
     }
 
@@ -6018,8 +5802,7 @@ function R() {
             source,
             None,
             &options,
-            "if ok; then\n\t{\n\t\techo yes\n\t} | cat\nelse\n\t{\n\t\techo no\n\t} | cat\nfi\n"
-                .to_string(),
+            "if ok; then\n\t{\n\t\techo yes\n\t} | cat\nelse\n\t{\n\t\techo no\n\t} | cat\nfi\n",
         );
     }
 
@@ -6032,7 +5815,7 @@ function R() {
             source,
             None,
             &options,
-            "while read -r line; do {\n\techo \"$line\"\n\n}; done <file\n".to_string(),
+            "while read -r line; do {\n\techo \"$line\"\n\n}; done <file\n",
         );
     }
 
@@ -6045,8 +5828,7 @@ function R() {
             source,
             None,
             &options,
-            "while read -r line; do {\n\t[ -n \"$line\" ] && {\n\t\techo \"$line\"\n\t}\n\n}; done <file\n"
-                .to_string(),
+            "while read -r line; do {\n\t[ -n \"$line\" ] && {\n\t\techo \"$line\"\n\t}\n\n}; done <file\n",
         );
     }
 
@@ -6059,8 +5841,7 @@ function R() {
             source,
             None,
             &options,
-            "if true; then\n\t((\\\n\tI++, \\\n\tIDX = 16 + \\\n\tR * 5 + \\\n\tG * 6))\n\nelse\n\techo no\nfi\n"
-                .to_string(),
+            "if true; then\n\t((\\\n\tI++, \\\n\tIDX = 16 + \\\n\tR * 5 + \\\n\tG * 6))\n\nelse\n\techo no\nfi\n",
         );
     }
 
@@ -6077,8 +5858,7 @@ function R() {
             source,
             None,
             &options,
-            "_auto_limit_amount=\"$((\\\n\t${_available_lines:-1} - \\\n\t${_header_and_footer_line_count:-0} + \\\n\t${_auto_limit_adjustment:-0}))\"\n"
-                .to_string(),
+            "_auto_limit_amount=\"$((\\\n\t${_available_lines:-1} - \\\n\t${_header_and_footer_line_count:-0} + \\\n\t${_auto_limit_adjustment:-0}))\"\n",
         );
     }
 
@@ -6087,12 +5867,7 @@ function R() {
         let source = "ln -s foo bar \\\n  ;\nrm bar\n";
         let options = ShellFormatOptions::default();
 
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "ln -s foo bar \\\n\t;\nrm bar\n".to_string(),
-        );
+        assert_formats_to_with_ast(source, None, &options, "ln -s foo bar \\\n\t;\nrm bar\n");
     }
 
     #[test]
@@ -6104,8 +5879,7 @@ function R() {
             source,
             None,
             &options,
-            "cat \"$@\" |\n\tpython -c '\nfrom __future__ import print_function\nprint(\"ok\")\n'\n"
-                .to_string(),
+            "cat \"$@\" |\n\tpython -c '\nfrom __future__ import print_function\nprint(\"ok\")\n'\n",
         );
     }
 
@@ -6126,7 +5900,7 @@ function R() {
             source,
             None,
             &options,
-            "if true; then\n\tsection+=\"\n$line\"\nfi\n".to_string(),
+            "if true; then\n\tsection+=\"\n$line\"\nfi\n",
         );
     }
 
@@ -6135,12 +5909,7 @@ function R() {
         let source = "packages=$one\\\n$two\\\n$three\n";
         let options = ShellFormatOptions::default();
 
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "packages=$one$two$three\n".to_string(),
-        );
+        assert_formats_to_with_ast(source, None, &options, "packages=$one$two$three\n");
     }
 
     #[test]
@@ -6152,8 +5921,7 @@ function R() {
             source,
             None,
             &options,
-            "if true; then\n\tINCLUDE_TESTS=\"boot_services kernel \\\n                           filesystems usb \\\n                           hardening\"\nfi\n"
-                .to_string(),
+            "if true; then\n\tINCLUDE_TESTS=\"boot_services kernel \\\n                           filesystems usb \\\n                           hardening\"\nfi\n",
         );
     }
 
@@ -6182,8 +5950,7 @@ function R() {
             source,
             None,
             &options,
-            "_comp_compgen_split -- \"$(\"$1\" -watchdog help 2>&1 |\n\t_comp_awk '{print $1}')\"\n"
-                .to_string(),
+            "_comp_compgen_split -- \"$(\"$1\" -watchdog help 2>&1 |\n\t_comp_awk '{print $1}')\"\n",
         );
     }
 
@@ -6196,8 +5963,7 @@ function R() {
             source,
             None,
             &options,
-            "f() {\n\tfor fl in \"$HOME/.ssh/config\" \\\n\t\t$(grep \"^\\s*Include\" \"$HOME/.ssh/config\" |\n\t\t\tawk '{for (i=2; i<=NF; i++) print $i}' |\n\t\t\tsed -Ee \"s|^([^/~])|$HOME/.ssh/\\1|\"); do\n\t\techo \"$fl\"\n\tdone\n}\n"
-                .to_string(),
+            "f() {\n\tfor fl in \"$HOME/.ssh/config\" \\\n\t\t$(grep \"^\\s*Include\" \"$HOME/.ssh/config\" |\n\t\t\tawk '{for (i=2; i<=NF; i++) print $i}' |\n\t\t\tsed -Ee \"s|^([^/~])|$HOME/.ssh/\\1|\"); do\n\t\techo \"$fl\"\n\tdone\n}\n",
         );
     }
 
@@ -6210,8 +5976,7 @@ function R() {
             source,
             None,
             &options,
-            "binary_files=\"$(grep -rl \"# distrobox_binary\" \"${HOME}/.local/bin\" 2>/dev/null | sed 's/./\\\\&/g' |\n\txargs -I{} grep -le \"# name: ${container_name}$\" \"{}\" | sed 's/./\\\\&/g' |\n\txargs -I{} printf \"%s¤\" \"{}\" 2>/dev/null || :)\"\n"
-                .to_string(),
+            "binary_files=\"$(grep -rl \"# distrobox_binary\" \"${HOME}/.local/bin\" 2>/dev/null | sed 's/./\\\\&/g' |\n\txargs -I{} grep -le \"# name: ${container_name}$\" \"{}\" | sed 's/./\\\\&/g' |\n\txargs -I{} printf \"%s¤\" \"{}\" 2>/dev/null || :)\"\n",
         );
     }
 
@@ -6224,8 +5989,7 @@ function R() {
             source,
             None,
             &options,
-            "f() {\n\tdesktop_files=$(\n\t\t# keep this with the nested command\n\t\tfind \"$dir\" -type f 2>/dev/null | sed 's/./\\\\&/g' |\n\t\t\txargs printf '%s\\n'\n\t)\n}\n"
-                .to_string(),
+            "f() {\n\tdesktop_files=$(\n\t\t# keep this with the nested command\n\t\tfind \"$dir\" -type f 2>/dev/null | sed 's/./\\\\&/g' |\n\t\t\txargs printf '%s\\n'\n\t)\n}\n",
         );
     }
 
@@ -6238,8 +6002,7 @@ function R() {
             source,
             None,
             &options,
-            "case $mode in\ndocs)\n\tCMD=(zsh -ilsc\n\t\t'sudo chown /src &&\n     make -C /src doc')\n\t;;\nesac\n"
-                .to_string(),
+            "case $mode in\ndocs)\n\tCMD=(zsh -ilsc\n\t\t'sudo chown /src &&\n     make -C /src doc')\n\t;;\nesac\n",
         );
     }
 
@@ -6252,8 +6015,7 @@ function R() {
             source,
             None,
             &options,
-            "f() {\n\tlocal options=(\n\t\t1 \"Short\"\n\t\t\"First line\n\nliteral continuation\"\n\t)\n}\n"
-                .to_string(),
+            "f() {\n\tlocal options=(\n\t\t1 \"Short\"\n\t\t\"First line\n\nliteral continuation\"\n\t)\n}\n",
         );
     }
 
@@ -6278,7 +6040,7 @@ function R() {
             source,
             None,
             &options,
-            "case $mode in\nnew)\n\tcat >$file <<-EOF\n\t\tbody\n\tEOF\n\t;;\nesac\n".to_string(),
+            "case $mode in\nnew)\n\tcat >$file <<-EOF\n\t\tbody\n\tEOF\n\t;;\nesac\n",
         );
     }
 
@@ -6335,8 +6097,7 @@ function R() {
             source,
             None,
             &options,
-            "if case \"${icon_name}\" in \"/\"*) true ;; *) false ;; esac &&\n\t[ -e \"${icon_name}\" ]; then\n\techo yes\nfi\n"
-                .to_string(),
+            "if case \"${icon_name}\" in \"/\"*) true ;; *) false ;; esac &&\n\t[ -e \"${icon_name}\" ]; then\n\techo yes\nfi\n",
         );
     }
 
@@ -6349,8 +6110,7 @@ function R() {
             source,
             None,
             &options,
-            "for src in $source; do\n\tcase \"$src\" in */*) continue ;; esac\n\techo \"$src\"\ndone\n"
-                .to_string(),
+            "for src in $source; do\n\tcase \"$src\" in */*) continue ;; esac\n\techo \"$src\"\ndone\n",
         );
     }
 
@@ -6371,8 +6131,7 @@ function R() {
             source,
             None,
             &options,
-            "shellspec_is_number() {\n\tcase ${1:-} in '' | *[!0-9]*) return 1 ;; esac\n\treturn 0\n}\n"
-                .to_string(),
+            "shellspec_is_number() {\n\tcase ${1:-} in '' | *[!0-9]*) return 1 ;; esac\n\treturn 0\n}\n",
         );
     }
 
@@ -6385,8 +6144,7 @@ function R() {
             source,
             None,
             &options,
-            "case \"$name\" in\nFastfile) if [[ \"$path\" =~ /fastlane/Fastfile ]]; then\n\truby -c \"$name\"\nfi ;;\nesac\n"
-                .to_string(),
+            "case \"$name\" in\nFastfile) if [[ \"$path\" =~ /fastlane/Fastfile ]]; then\n\truby -c \"$name\"\nfi ;;\nesac\n",
         );
     }
 
@@ -6399,8 +6157,7 @@ function R() {
             source,
             None,
             &options,
-            "case \"$RETROARCH\" in\n*) if [ -x /usr/share/games/retroarch ]; then\n\tbuild_ra=yes\nelse\n\tbuild_ra=no\nfi ;;\nesac\n"
-                .to_string(),
+            "case \"$RETROARCH\" in\n*) if [ -x /usr/share/games/retroarch ]; then\n\tbuild_ra=yes\nelse\n\tbuild_ra=no\nfi ;;\nesac\n",
         );
     }
 
@@ -6413,8 +6170,7 @@ function R() {
             source,
             None,
             &options,
-            "value=\"$(\n\twhile read -r key; do\n\t\tcase \"$key\" in\n\t\tA) echo A ;;\n\t\tB) echo B ;;\n\t\tesac\n\tdone\n)\"\n\n# later comment\nnext() { :; }\n"
-                .to_string(),
+            "value=\"$(\n\twhile read -r key; do\n\t\tcase \"$key\" in\n\t\tA) echo A ;;\n\t\tB) echo B ;;\n\t\tesac\n\tdone\n)\"\n\n# later comment\nnext() { :; }\n",
         );
     }
 
@@ -6427,7 +6183,7 @@ function R() {
             source,
             None,
             &options,
-            "case $x in\na)\n\tcase $y in\n\tb) echo b ;; esac # note\n\t;;\nesac\n".to_string(),
+            "case $x in\na)\n\tcase $y in\n\tb) echo b ;; esac # note\n\t;;\nesac\n",
         );
     }
 
@@ -6440,7 +6196,7 @@ function R() {
             source,
             None,
             &options,
-            "case \"$x\" in\n-h | --help)\n\tusage\n\t;;\nesac\n".to_string(),
+            "case \"$x\" in\n-h | --help)\n\tusage\n\t;;\nesac\n",
         );
     }
 
@@ -6453,7 +6209,7 @@ function R() {
             source,
             None,
             &options,
-            "case \"$x\" in\n*) usage ;;\nesac\n".to_string(),
+            "case \"$x\" in\n*) usage ;;\nesac\n",
         );
     }
 
@@ -6466,7 +6222,7 @@ function R() {
             source,
             None,
             &options,
-            "case \"$mode\" in a) ;; b) ;; c)\n\techo c\n\t;;\nesac\n".to_string(),
+            "case \"$mode\" in a) ;; b) ;; c)\n\techo c\n\t;;\nesac\n",
         );
     }
 
@@ -6479,8 +6235,7 @@ function R() {
             source,
             None,
             &options,
-            "case \"$line\" in\n\"status-filtered \"*) # ignore other status-filtered lines\n\t;;\n\"#\"*) # allow for comments\n\t;;\nesac\n"
-                .to_string(),
+            "case \"$line\" in\n\"status-filtered \"*) # ignore other status-filtered lines\n\t;;\n\"#\"*) # allow for comments\n\t;;\nesac\n",
         );
     }
 
@@ -6493,8 +6248,7 @@ function R() {
             source,
             None,
             &options,
-            "case \"$x\" in\n*) value= && for item in $items; do {\n\techo \"$item\"\n}; done ;;\nesac\n"
-                .to_string(),
+            "case \"$x\" in\n*) value= && for item in $items; do {\n\techo \"$item\"\n}; done ;;\nesac\n",
         );
     }
 
