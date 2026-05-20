@@ -490,18 +490,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.write_indent();
             }
 
-            match remaining.find('\n') {
-                Some(index) => {
-                    let end = index + 1;
-                    self.push_output_str(&remaining[..end]);
-                    self.line_start = true;
-                    remaining = &remaining[end..];
-                }
-                None => {
-                    self.push_output_str(remaining);
-                    self.line_start = false;
-                    break;
-                }
+            let (line, next, had_newline) = split_first_line_including_newline(remaining);
+            self.push_output_str(line);
+            self.line_start = had_newline;
+            if had_newline {
+                remaining = next;
+            } else {
+                break;
             }
         }
     }
@@ -530,10 +525,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let mut active_heredoc: Option<RenderedHeredocTail> = None;
         let mut remaining = text;
         while !remaining.is_empty() {
-            let (line, next, had_newline) = match remaining.find('\n') {
-                Some(index) => (&remaining[..index], &remaining[index + 1..], true),
-                None => (remaining, "", false),
-            };
+            let (line, next, had_newline) = split_first_line(remaining);
 
             if let Some(heredoc) = active_heredoc.as_ref() {
                 if heredoc.strip_tabs {
@@ -621,107 +613,92 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.write_indent_to_column(base_indent_column);
             }
 
-            match remaining.find('\n') {
-                Some(index) => {
-                    let end = index + 1;
-                    let line = &remaining[..end];
-                    let line = if pipeline_stage_indent {
-                        line.trim_start_matches([' ', '\t'])
-                    } else if add_context_indent && strip_context_indent {
-                        strip_assignment_context_indent(line, base_indent_column, self.options())
-                    } else {
-                        line
-                    };
-                    let adjusted_block_pipeline_stage;
-                    let line = if starts_with_block_command_substitution
-                        && next_block_line_is_pipeline_stage
-                        && next_block_line_aligns_with_command_continuation
-                        && !pipeline_stage_indent
-                        && let Some(shell_indent_column) = active_shell_pipeline_indent_column
-                    {
-                        let target_column = shell_indent_column.saturating_sub(base_indent_column);
-                        let line_indent_column = rendered_line_indent_column(line, self.options());
-                        if line_indent_column > target_column {
-                            adjusted_block_pipeline_stage = Some(rendered_line_with_indent_column(
-                                line,
-                                target_column,
-                                self.options(),
-                            ));
-                            adjusted_block_pipeline_stage.as_deref().unwrap_or(line)
-                        } else {
-                            line
-                        }
-                    } else {
-                        line
-                    };
-                    let emitted_indent_column = emitted_line_indent_column(
-                        line,
-                        pipeline_indent_column,
-                        add_context_indent,
-                        base_indent_column,
-                        self.options(),
-                    );
-                    if let Some(shell_indent_column) = command_substitution_shell_text_indent_column(
-                        line,
-                        pipeline_quote_state.in_quote(),
-                        emitted_indent_column,
-                        base_indent_column,
-                        indent_unit,
-                    ) {
-                        active_shell_pipeline_indent_column = Some(shell_indent_column);
-                        active_shell_line_was_pipeline_stage =
-                            pipeline_stage_indent || next_block_line_is_pipeline_stage;
-                        next_block_line_is_pipeline_stage = false;
-                        next_block_line_aligns_with_command_continuation = false;
-                    }
-                    self.push_output_str(line);
-                    let line_continues_command = !pipeline_quote_state.in_quote()
-                        && line_has_trailing_continuation_backslash(line);
-                    let continuation = command_substitution_pipeline_stage_continuation(
-                        line,
-                        pipeline_stage_indent,
-                        &mut pipeline_quote_state,
-                    );
-                    next_pipeline_indent_column = next_command_substitution_pipeline_indent_column(
-                        continuation,
-                        starts_with_block_command_substitution,
-                        inline_pipeline_indent_column,
-                        active_shell_pipeline_indent_column,
-                        active_shell_line_was_pipeline_stage,
-                        indent_unit,
-                        pipeline_indent_column,
-                    );
-                    if matches!(
-                        continuation,
-                        CommandSubstitutionPipelineContinuation::StructuralPipe {
-                            line_started_in_quote: false
-                        }
-                    ) && starts_with_block_command_substitution
-                    {
-                        next_block_line_is_pipeline_stage = true;
-                        next_block_line_aligns_with_command_continuation =
-                            line_started_as_command_continuation;
-                    }
-                    command_continuation_active = line_continues_command;
-                    self.line_start = true;
-                    remaining = &remaining[end..];
-                }
-                None => {
-                    let line = if pipeline_stage_indent {
-                        remaining.trim_start_matches([' ', '\t'])
-                    } else if add_context_indent && strip_context_indent {
-                        strip_assignment_context_indent(
-                            remaining,
-                            base_indent_column,
+            let (line, next, had_newline) = split_first_line_including_newline(remaining);
+            let line = if pipeline_stage_indent {
+                line.trim_start_matches([' ', '\t'])
+            } else if add_context_indent && strip_context_indent {
+                strip_assignment_context_indent(line, base_indent_column, self.options())
+            } else {
+                line
+            };
+            if had_newline {
+                let adjusted_block_pipeline_stage;
+                let line = if starts_with_block_command_substitution
+                    && next_block_line_is_pipeline_stage
+                    && next_block_line_aligns_with_command_continuation
+                    && !pipeline_stage_indent
+                    && let Some(shell_indent_column) = active_shell_pipeline_indent_column
+                {
+                    let target_column = shell_indent_column.saturating_sub(base_indent_column);
+                    let line_indent_column = rendered_line_indent_column(line, self.options());
+                    if line_indent_column > target_column {
+                        adjusted_block_pipeline_stage = Some(rendered_line_with_indent_column(
+                            line,
+                            target_column,
                             self.options(),
-                        )
+                        ));
+                        adjusted_block_pipeline_stage.as_deref().unwrap_or(line)
                     } else {
-                        remaining
-                    };
-                    self.push_output_str(line);
-                    self.line_start = false;
-                    break;
+                        line
+                    }
+                } else {
+                    line
+                };
+                let emitted_indent_column = emitted_line_indent_column(
+                    line,
+                    pipeline_indent_column,
+                    add_context_indent,
+                    base_indent_column,
+                    self.options(),
+                );
+                if let Some(shell_indent_column) = command_substitution_shell_text_indent_column(
+                    line,
+                    pipeline_quote_state.in_quote(),
+                    emitted_indent_column,
+                    base_indent_column,
+                    indent_unit,
+                ) {
+                    active_shell_pipeline_indent_column = Some(shell_indent_column);
+                    active_shell_line_was_pipeline_stage =
+                        pipeline_stage_indent || next_block_line_is_pipeline_stage;
+                    next_block_line_is_pipeline_stage = false;
+                    next_block_line_aligns_with_command_continuation = false;
                 }
+                self.push_output_str(line);
+                let line_continues_command = !pipeline_quote_state.in_quote()
+                    && line_has_trailing_continuation_backslash(line);
+                let continuation = command_substitution_pipeline_stage_continuation(
+                    line,
+                    pipeline_stage_indent,
+                    &mut pipeline_quote_state,
+                );
+                next_pipeline_indent_column = next_command_substitution_pipeline_indent_column(
+                    continuation,
+                    starts_with_block_command_substitution,
+                    inline_pipeline_indent_column,
+                    active_shell_pipeline_indent_column,
+                    active_shell_line_was_pipeline_stage,
+                    indent_unit,
+                    pipeline_indent_column,
+                );
+                if matches!(
+                    continuation,
+                    CommandSubstitutionPipelineContinuation::StructuralPipe {
+                        line_started_in_quote: false
+                    }
+                ) && starts_with_block_command_substitution
+                {
+                    next_block_line_is_pipeline_stage = true;
+                    next_block_line_aligns_with_command_continuation =
+                        line_started_as_command_continuation;
+                }
+                command_continuation_active = line_continues_command;
+                self.line_start = true;
+                remaining = next;
+            } else {
+                self.push_output_str(line);
+                self.line_start = false;
+                break;
             }
         }
     }
@@ -758,10 +735,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let mut rest = text;
 
         while !rest.is_empty() {
-            let (line, next, had_newline) = match rest.find('\n') {
-                Some(index) => (&rest[..index], &rest[index + 1..], true),
-                None => (rest, "", false),
-            };
+            let (line, next, had_newline) = split_first_line(rest);
 
             if let Some(heredoc) = active_heredoc.as_ref() {
                 self.write_verbatim(heredoc.body_line(line));
@@ -831,17 +805,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn write_indent_columns(&mut self, columns: usize) {
-        match self.options.indent_style() {
-            IndentStyle::Tab => {
-                for _ in 0..columns {
-                    self.push_output_char('\t');
-                }
-            }
-            IndentStyle::Space => {
-                for _ in 0..columns {
-                    self.push_output_char(' ');
-                }
-            }
+        let ch = match self.options.indent_style() {
+            IndentStyle::Tab => '\t',
+            IndentStyle::Space => ' ',
+        };
+        for _ in 0..columns {
+            self.push_output_char(ch);
         }
 
         self.line_indent_column = self.column;
@@ -888,10 +857,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         };
         let mut rest = text;
         while !rest.is_empty() {
-            let (line, next) = match rest.find('\n') {
-                Some(index) => rest.split_at(index + 1),
-                None => (rest, ""),
-            };
+            let (line, next, _) = split_first_line_including_newline(rest);
             let content = line.trim_end_matches(['\r', '\n']);
             if !content.is_empty() {
                 match self.options.indent_style() {
@@ -5013,6 +4979,23 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
 fn heredoc_body_needs_separator(body: &str) -> bool {
     !body.is_empty() && !body.ends_with('\n') && !body.ends_with('\r')
+}
+
+fn split_first_line(text: &str) -> (&str, &str, bool) {
+    match text.find('\n') {
+        Some(index) => (&text[..index], &text[index + 1..], true),
+        None => (text, "", false),
+    }
+}
+
+fn split_first_line_including_newline(text: &str) -> (&str, &str, bool) {
+    match text.find('\n') {
+        Some(index) => {
+            let (line, next) = text.split_at(index + 1);
+            (line, next, true)
+        }
+        None => (text, "", false),
+    }
 }
 
 fn minimum_leading_tabs_in_non_empty_lines(text: &str) -> usize {
