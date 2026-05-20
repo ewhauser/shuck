@@ -819,7 +819,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             } else {
                 self.write_verbatim(&heredoc.body);
             }
-            if heredoc_body_needs_separator(&heredoc.body) {
+            if !heredoc.body.is_empty()
+                && !heredoc.body.ends_with('\n')
+                && !heredoc.body.ends_with('\r')
+            {
                 self.push_output_str(self.line_ending());
                 self.line_start = true;
             }
@@ -836,7 +839,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let indent_level = self.indent_level.saturating_add(1);
         let prefix = self.options.indent_prefix(indent_level);
         let base_tabs = if matches!(self.options.indent_style(), IndentStyle::Tab) {
-            minimum_leading_tabs_in_non_empty_lines(text)
+            text.lines()
+                .filter(|line| !line.is_empty())
+                .map(|line| line.bytes().take_while(|byte| *byte == b'\t').count())
+                .min()
+                .unwrap_or(0)
         } else {
             0
         };
@@ -4308,7 +4315,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             if wrote_redirect {
                 self.write_space();
             }
-            if append_both_redirect_matches_source(redirects, index, source) {
+            if redirects.get(index + 1).is_some_and(|next| {
+                append_both_redirect_pair_matches_source(&redirects[index], next, source)
+            }) {
                 self.format_append_both_redirect(&redirects[index]);
                 index += 2;
                 wrote_redirect = true;
@@ -4877,10 +4886,6 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 }
 
-fn heredoc_body_needs_separator(body: &str) -> bool {
-    !body.is_empty() && !body.ends_with('\n') && !body.ends_with('\r')
-}
-
 fn split_first_line(text: &str) -> (&str, &str, bool) {
     text.split_once('\n')
         .map_or((text, "", false), |(line, rest)| (line, rest, true))
@@ -4891,14 +4896,6 @@ fn split_first_line_including_newline(text: &str) -> (&str, &str, bool) {
         let (line, next) = text.split_at(index + 1);
         (line, next, true)
     })
-}
-
-fn minimum_leading_tabs_in_non_empty_lines(text: &str) -> usize {
-    text.lines()
-        .filter(|line| !line.is_empty())
-        .map(|line| line.bytes().take_while(|byte| *byte == b'\t').count())
-        .min()
-        .unwrap_or(0)
 }
 
 fn assignment_contains_command_heredoc(assignment: &Assignment) -> bool {
@@ -5056,16 +5053,6 @@ fn should_preserve_raw_redirect(raw: &str) -> bool {
         || raw.contains("<&-")
         || raw.contains(">&/")
         || raw.contains("<&/")
-}
-
-fn append_both_redirect_matches_source(redirects: &[Redirect], index: usize, source: &str) -> bool {
-    let Some(redirect) = redirects.get(index) else {
-        return false;
-    };
-    let Some(next) = redirects.get(index + 1) else {
-        return false;
-    };
-    append_both_redirect_pair_matches_source(redirect, next, source)
 }
 
 fn append_both_redirect_pair_matches_source(

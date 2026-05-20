@@ -2317,7 +2317,8 @@ fn indent_inline_pipeline_continuations(
         let continues_pipeline_operand = previous_ends_pipeline || pipeline_comment_continuation;
         if !used_continuation_indent
             && continues_pipeline_operand
-            && line_needs_inline_pipeline_indent(line)
+            && !line.is_empty()
+            && !line.starts_with([' ', '\t'])
         {
             rendered_line.push_str(&prefix);
             rendered_line.push_str(line);
@@ -2355,10 +2356,6 @@ fn indent_inline_pipeline_continuations(
     }
 
     changed.then_some(rendered)
-}
-
-fn line_needs_inline_pipeline_indent(line: &str) -> bool {
-    !line.is_empty() && !line.starts_with([' ', '\t'])
 }
 
 fn line_ends_with_pipeline_operator(line: &str) -> bool {
