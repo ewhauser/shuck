@@ -2209,12 +2209,17 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let first = collect_command_list_first(list, &mut rest);
         self.format_stmt(first)?;
         for item in &rest {
-            self.format_list_item(item)?;
+            self.format_command_list_item(item, Self::format_stmt, true)?;
         }
         Ok(())
     }
 
-    fn format_list_item(&mut self, item: &BinaryListItem<'_>) -> Result<()> {
+    fn format_command_list_item(
+        &mut self,
+        item: &BinaryListItem<'_>,
+        format_stmt: fn(&mut Self, &Stmt) -> Result<()>,
+        pipeline_indent: bool,
+    ) -> Result<()> {
         if self
             .facts()
             .list_item_has_explicit_line_break(item.operator_span)
@@ -2224,17 +2229,17 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.with_indent(|formatter| {
                 let emitted_interstitial_comments = formatter
                     .emit_command_list_interstitial_comments(item.stmt, item.operator_span);
-                if stmt_is_pipeline(item.stmt) {
+                if pipeline_indent && stmt_is_pipeline(item.stmt) {
                     formatter.with_pipeline_continuation_indent(0, |formatter| {
                         formatter.with_group_body_leading_filter(
                             emitted_interstitial_comments,
-                            |formatter| formatter.format_stmt(item.stmt),
+                            |formatter| format_stmt(formatter, item.stmt),
                         )
                     })
                 } else {
                     formatter.with_group_body_leading_filter(
                         emitted_interstitial_comments,
-                        |formatter| formatter.format_stmt(item.stmt),
+                        |formatter| format_stmt(formatter, item.stmt),
                     )
                 }
             })?;
@@ -2242,7 +2247,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
 
         self.write_text(list_item_separator(item.operator, true));
-        self.format_stmt(item.stmt)
+        format_stmt(self, item.stmt)
     }
 
     fn emit_command_list_interstitial_comments(
@@ -4121,24 +4126,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let first = collect_command_list_first(list, &mut rest);
         self.format_inline_stmt(first)?;
         for item in &rest {
-            if self
-                .facts()
-                .list_item_has_explicit_line_break(item.operator_span)
-            {
-                self.write_text(list_item_separator(item.operator, false));
-                self.newline();
-                self.with_indent(|formatter| {
-                    let emitted_interstitial_comments = formatter
-                        .emit_command_list_interstitial_comments(item.stmt, item.operator_span);
-                    formatter.with_group_body_leading_filter(
-                        emitted_interstitial_comments,
-                        |formatter| formatter.format_inline_stmt(item.stmt),
-                    )
-                })?;
-                continue;
-            }
-            self.write_text(list_item_separator(item.operator, true));
-            self.format_inline_stmt(item.stmt)?;
+            self.format_command_list_item(item, Self::format_inline_stmt, false)?;
         }
         Ok(())
     }
