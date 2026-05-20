@@ -198,13 +198,22 @@ fn run_format_with_cwd(
             Ok(())
         })?;
 
-        let results = pending
-            .into_par_iter()
-            .map(|pending| format_pending_file(pending, &settings, mode))
-            .collect::<Vec<_>>();
+        let batch_size = pending_format_batch_size();
+        let mut pending = pending.into_iter();
+        loop {
+            let batch = pending.by_ref().take(batch_size).collect::<Vec<_>>();
+            if batch.is_empty() {
+                break;
+            }
 
-        for result in results {
-            handle_format_outcome(result?, &mut run.cache, &mut report)?;
+            let results = batch
+                .into_par_iter()
+                .map(|pending| format_pending_file(pending, &settings, mode))
+                .collect::<Vec<_>>();
+
+            for result in results {
+                handle_format_outcome(result?, &mut run.cache, &mut report)?;
+            }
         }
 
         run.persist_cache()?;
@@ -219,6 +228,10 @@ fn run_format_with_cwd(
     });
 
     Ok(report)
+}
+
+fn pending_format_batch_size() -> usize {
+    rayon::current_num_threads().max(1)
 }
 
 fn format_pending_file(
