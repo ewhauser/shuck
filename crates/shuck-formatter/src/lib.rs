@@ -565,6 +565,28 @@ mod tests {
         };
     }
 
+    macro_rules! default_unchanged_ast_cases {
+        ($($name:ident: $source:expr;)+) => {
+            $(
+                #[test]
+                fn $name() {
+                    assert_default_unchanged_with_ast($source);
+                }
+            )+
+        };
+    }
+
+    macro_rules! bash_unchanged_ast_cases {
+        ($($name:ident: $source:expr;)+) => {
+            $(
+                #[test]
+                fn $name() {
+                    assert_bash_unchanged_with_ast($source);
+                }
+            )+
+        };
+    }
+
     fn lint_source_posix_strict(source: &str, path: &Path) -> Vec<Diagnostic> {
         let parse_result = Parser::with_dialect(source, ParseShellDialect::Posix).parse();
         assert!(
@@ -3054,64 +3076,30 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         assert_formats(source, "foo() {\n\techo hi\n} # trailing\nbar\n");
     }
 
-    #[test]
-    fn heredoc_function_close_suffix_keeps_closing_brace() {
-        let source = "foo() {\ncat <<EOF\nbody\nEOF\n} # trailing\nbar() { :; }\n";
-        assert_bash_unchanged_with_ast(source);
+    default_unchanged_ast_cases! {
+        preserves_escaped_command_names:
+            "\\grep -q foo file\n";
+        preserves_ansi_c_quoted_assignment_values:
+            "x=$'\\n'\n";
+        preserves_concatenated_ansi_c_quoted_assignment_values:
+            "local excluded=$'\\ndefault\\n'${prefix//:/foo}\n";
+        preserves_concatenated_ansi_c_quoted_arguments:
+            "echo \"$cache_id_line\"$'\\n'\"$output\" >\"$cachefile\"\n";
+        preserves_concatenated_ansi_c_and_escaped_double_quoted_arguments:
+            "echo $'\\n'\"TERMUX_APP_PACKAGE: \\\"$TERMUX_APP_PACKAGE\\\"\"\n";
+        preserves_ansi_c_quoted_condition_patterns:
+            "[[ \"$c\" == $'\\r' || \"$c\" == $'\\n' ]]\n";
+        preserves_multiline_function_bodies:
+            "version_gt() {\n\t[[ \"${1%.*}\" -gt \"${2%.*}\" ]]\n}\n";
     }
 
-    #[test]
-    fn preserves_escaped_command_names() {
-        let source = "\\grep -q foo file\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_alias_expanded_simple_commands_verbatim() {
-        let source = "shopt -s expand_aliases\nalias die='EXIT=$? LINE=$LINENO error_exit'\ndie \"A problem occured.\"\n";
-        assert_bash_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_alias_expanded_commands_before_case_terminators() {
-        let source = "shopt -s expand_aliases\nalias die='EXIT=$? LINE=$LINENO error_exit'\ncase $CLASS in\n*) false || die \"Invalid storage class.\" ;;\nesac\n";
-        assert_bash_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_ansi_c_quoted_assignment_values() {
-        let source = "x=$'\\n'\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_concatenated_ansi_c_quoted_assignment_values() {
-        let source = "local excluded=$'\\ndefault\\n'${prefix//:/foo}\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_concatenated_ansi_c_quoted_arguments() {
-        let source = "echo \"$cache_id_line\"$'\\n'\"$output\" >\"$cachefile\"\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_concatenated_ansi_c_and_escaped_double_quoted_arguments() {
-        let source = "echo $'\\n'\"TERMUX_APP_PACKAGE: \\\"$TERMUX_APP_PACKAGE\\\"\"\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_ansi_c_quoted_condition_patterns() {
-        let source = "[[ \"$c\" == $'\\r' || \"$c\" == $'\\n' ]]\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_multiline_function_bodies() {
-        let source = "version_gt() {\n\t[[ \"${1%.*}\" -gt \"${2%.*}\" ]]\n}\n";
-        assert_default_unchanged_with_ast(source);
+    bash_unchanged_ast_cases! {
+        heredoc_function_close_suffix_keeps_closing_brace:
+            "foo() {\ncat <<EOF\nbody\nEOF\n} # trailing\nbar() { :; }\n";
+        preserves_alias_expanded_simple_commands_verbatim:
+            "shopt -s expand_aliases\nalias die='EXIT=$? LINE=$LINENO error_exit'\ndie \"A problem occured.\"\n";
+        preserves_alias_expanded_commands_before_case_terminators:
+            "shopt -s expand_aliases\nalias die='EXIT=$? LINE=$LINENO error_exit'\ncase $CLASS in\n*) false || die \"Invalid storage class.\" ;;\nesac\n";
     }
 
     #[test]
@@ -3123,10 +3111,9 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn preserves_process_substitution_redirect_spacing() {
-        let source = "cat < <(which -a foo)\n";
-        assert_default_unchanged_with_ast(source);
+    default_unchanged_ast_cases! {
+        preserves_process_substitution_redirect_spacing:
+            "cat < <(which -a foo)\n";
     }
 
     #[test]
@@ -3147,16 +3134,11 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn preserves_process_substitution_attached_after_equals() {
-        let source = "setfacl --restore=<(grep -E -v '^# (owner|group):' \"$tmp_file\")\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_inline_multiline_process_substitution_continuations() {
-        let source = "while read -r line; do\n\techo \"$line\"\ndone < <(comm -23 <(printf \"%s\\n\" \"${left[@]}\" | sort) \\\n\t<(printf \"%s\\n\" \"${right[@]}\" | sort))\n";
-        assert_default_unchanged_with_ast(source);
+    default_unchanged_ast_cases! {
+        preserves_process_substitution_attached_after_equals:
+            "setfacl --restore=<(grep -E -v '^# (owner|group):' \"$tmp_file\")\n";
+        preserves_inline_multiline_process_substitution_continuations:
+            "while read -r line; do\n\techo \"$line\"\ndone < <(comm -23 <(printf \"%s\\n\" \"${left[@]}\" | sort) \\\n\t<(printf \"%s\\n\" \"${right[@]}\" | sort))\n";
     }
 
     #[test]
@@ -3168,10 +3150,9 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn aligns_multiline_single_quoted_process_substitution_words() {
-        let source = "_sqlmap() {\n\tif [[ \"$cur\" == * ]]; then\n\t\twhile IFS='' read -r line; do COMPREPLY+=(\"$line\"); done < <(\n\t\t\tcompgen -W '-h --help \\\n\t\t\t--data --cookie \\\n\t\t\t--wizard' -- \"$cur\"\n\t\t)\n\tfi\n}\n";
-        assert_bash_unchanged_with_ast(source);
+    bash_unchanged_ast_cases! {
+        aligns_multiline_single_quoted_process_substitution_words:
+            "_sqlmap() {\n\tif [[ \"$cur\" == * ]]; then\n\t\twhile IFS='' read -r line; do COMPREPLY+=(\"$line\"); done < <(\n\t\t\tcompgen -W '-h --help \\\n\t\t\t--data --cookie \\\n\t\t\t--wizard' -- \"$cur\"\n\t\t)\n\tfi\n}\n";
     }
 
     #[test]
@@ -3189,10 +3170,9 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         assert_bash_formats_with_ast(source, "curl -d @<(\n\tcat <<EOF\nbody\nEOF\n)\n");
     }
 
-    #[test]
-    fn preserves_block_process_substitution_source_indentation() {
-        let source = "while read -r line; do\n\techo \"$line\"\ndone < <(\n\tprintf \"%s\\n\" \"${items[@]}\"\n)\n";
-        assert_default_unchanged_with_ast(source);
+    default_unchanged_ast_cases! {
+        preserves_block_process_substitution_source_indentation:
+            "while read -r line; do\n\techo \"$line\"\ndone < <(\n\tprintf \"%s\\n\" \"${items[@]}\"\n)\n";
     }
 
     #[test]
