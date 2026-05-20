@@ -34,10 +34,10 @@ use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    BranchPrefixComment, branch_prefix_comments, close_suffix_comment_offsets,
-    has_newline_between_offsets, heredoc_start, last_shell_keyword_end, last_shell_keyword_start,
-    last_shell_keyword_start_between, line_indent_before_offset,
-    line_without_continuation_backslash,
+    BranchPrefixComment, branch_prefix_comments, branch_prefix_first_comment_offset,
+    close_suffix_comment_offsets, has_newline_between_offsets, heredoc_start,
+    last_shell_keyword_end, last_shell_keyword_start, last_shell_keyword_start_between,
+    line_indent_before_offset, line_without_continuation_backslash,
     operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line,
     own_line_comments_in_region as scan_own_line_comments_in_region, redirect_operator_end,
     shell_keyword_at, skip_double_quoted, skip_single_quoted, source_between_offsets,
@@ -8026,10 +8026,7 @@ fn if_branch_upper_bound(
     source_map: &SourceMap<'_>,
 ) -> usize {
     if let Some((start, end)) = if_next_branch_region(command, branch_index, source) {
-        branch_prefix_comments(source, start, end)
-            .first()
-            .map(|comment| comment.offset)
-            .unwrap_or(end)
+        branch_prefix_first_comment_offset(source, start, end).unwrap_or(end)
     } else {
         command_if_close_span(command, source, source_map)
             .start
@@ -8043,10 +8040,7 @@ fn if_next_branch_has_blank_line_before_keyword(
     source: &str,
 ) -> bool {
     if_next_branch_region(command, branch_index, source).is_some_and(|(start, end)| {
-        let first_prefix = branch_prefix_comments(source, start, end)
-            .first()
-            .map(|comment| comment.offset)
-            .unwrap_or(end);
+        let first_prefix = branch_prefix_first_comment_offset(source, start, end).unwrap_or(end);
         gap_has_empty_physical_line(source, start, first_prefix)
     })
 }
