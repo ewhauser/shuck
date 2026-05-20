@@ -7988,10 +7988,7 @@ fn normalize_literal_assignment_command_substitution_pipelines(
     let mut rest = text;
 
     while !rest.is_empty() {
-        let (line, next, had_newline) = match rest.find('\n') {
-            Some(index) => (&rest[..index], &rest[index + 1..], true),
-            None => (rest, "", false),
-        };
+        let (line, next, had_newline) = split_first_line(rest);
 
         let trimmed_start = line.trim_start_matches([' ', '\t']);
         let is_continuation_comment = indent_next && trimmed_start.starts_with('#');
