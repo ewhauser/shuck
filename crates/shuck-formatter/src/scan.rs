@@ -70,6 +70,12 @@ pub(crate) fn common_nonempty_shell_indent<'a>(lines: impl IntoIterator<Item = &
     common.unwrap_or_default()
 }
 
+pub(crate) fn line_without_continuation_backslash(line: &str) -> Option<&str> {
+    let trimmed = line.trim_end_matches([' ', '\t', '\r']);
+    let prefix = trimmed.strip_suffix('\\')?;
+    Some(prefix.trim_end_matches([' ', '\t', '\r']))
+}
+
 pub(crate) fn operator_starts_or_ends_line(source: &str, operator_span: Span) -> bool {
     let start = operator_span.start.offset;
     let end = operator_span.end.offset;

@@ -19,8 +19,9 @@ use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
     common_nonempty_shell_indent, heredoc_start, leading_shell_indent as line_leading_shell_indent,
-    line_indent_before_offset as line_indent_before_source_offset, redirect_operator_end,
-    refine_common_indent, shell_comment_can_start,
+    line_indent_before_offset as line_indent_before_source_offset,
+    line_without_continuation_backslash, redirect_operator_end, refine_common_indent,
+    shell_comment_can_start,
 };
 use crate::streaming::format_stmt_sequence_streaming_to_buf;
 
@@ -3269,12 +3270,6 @@ fn normalize_raw_leading_pipe_continuations(text: &str) -> Option<String> {
 fn line_without_trailing_pipe_continuation(line: &str) -> Option<&str> {
     let prefix = line_without_continuation_backslash(line)?;
     line_ends_with_raw_continuation_operator(prefix).then_some(prefix)
-}
-
-fn line_without_continuation_backslash(line: &str) -> Option<&str> {
-    let trimmed = line.trim_end_matches([' ', '\t', '\r']);
-    let prefix = trimmed.strip_suffix('\\')?;
-    Some(prefix.trim_end_matches([' ', '\t', '\r']))
 }
 
 fn leading_pipe_continuation(line: &str) -> Option<(&str, &'static str, &str)> {

@@ -37,6 +37,7 @@ use crate::scan::{
     BranchPrefixComment, branch_prefix_comments, close_suffix_comment_offsets,
     has_newline_between_offsets, heredoc_start, last_shell_keyword_end, last_shell_keyword_start,
     last_shell_keyword_start_between, line_indent_before_offset,
+    line_without_continuation_backslash,
     operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line,
     own_line_comments_in_region as scan_own_line_comments_in_region, redirect_operator_end,
     shell_keyword_at, skip_double_quoted, skip_single_quoted, source_between_offsets,
@@ -5371,18 +5372,11 @@ fn leading_list_operator_line_parts(line: &str) -> Option<(&'static str, &str)> 
 }
 
 fn remove_trailing_continuation_backslash(line: &mut String) -> bool {
-    let trimmed_len = line.trim_end_matches([' ', '\t', '\r']).len();
-    let Some(prefix) = line.get(..trimmed_len) else {
+    let Some(prefix) = line_without_continuation_backslash(line) else {
         return false;
     };
-    if !prefix.ends_with('\\') {
-        return false;
-    }
-
-    let without_backslash = prefix[..prefix.len().saturating_sub(1)]
-        .trim_end_matches([' ', '\t', '\r'])
-        .len();
-    line.truncate(without_backslash);
+    let len = prefix.len();
+    line.truncate(len);
     true
 }
 
@@ -7465,8 +7459,7 @@ fn multiline_literal_quote_state_after_line(
 }
 
 fn line_has_trailing_continuation_backslash(line: &str) -> bool {
-    line.trim_end_matches([' ', '\t', '\r', '\n'])
-        .ends_with('\\')
+    line_without_continuation_backslash(line.trim_end_matches('\n')).is_some()
 }
 
 fn pipeline_operator_breaks(
