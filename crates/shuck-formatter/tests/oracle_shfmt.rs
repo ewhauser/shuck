@@ -2,9 +2,11 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use rayon::prelude::*;
 use shuck_formatter::{FormattedSource, ShellDialect, ShellFormatOptions, format_file_ast};
 use shuck_parser::parser::Parser;
 use similar::TextDiff;
@@ -60,6 +62,35 @@ struct LargeCorpusFixture {
 struct FormatterOracleConfig {
     shfmt_language: &'static str,
     options: ShellFormatOptions,
+}
+
+#[derive(Debug)]
+struct LargeCorpusFixtureResult {
+    filename: String,
+    elapsed: Duration,
+    comparison: LargeCorpusComparison,
+}
+
+#[derive(Debug)]
+enum LargeCorpusComparison {
+    Matched,
+    Mismatch(String),
+    ShuckError(String),
+    ShfmtSkip,
+    UnsupportedDialect,
+    NonUtf8,
+}
+
+#[derive(Default)]
+struct LargeCorpusProgress {
+    processed: AtomicUsize,
+    compared: AtomicUsize,
+    matched: AtomicUsize,
+    mismatches: AtomicUsize,
+    shuck_errors: AtomicUsize,
+    shfmt_skips: AtomicUsize,
+    unsupported_dialects: AtomicUsize,
+    non_utf8: AtomicUsize,
 }
 
 #[test]
@@ -132,6 +163,21 @@ fn large_corpus_matches_shfmt() {
         "no large-corpus fixtures selected from {}",
         cfg.corpus_dir.join("scripts").display()
     );
+    eprintln!(
+        "large corpus shfmt oracle using Rayon: fixtures={} workers={}",
+        fixtures.len(),
+        rayon::current_num_threads()
+    );
+
+    let progress = LargeCorpusProgress::default();
+    let results = fixtures
+        .par_iter()
+        .map(|fixture| {
+            let result = compare_large_corpus_fixture(fixture);
+            progress.observe(&result, fixtures.len());
+            result
+        })
+        .collect::<Vec<_>>();
 
     let mut compared = 0usize;
     let mut matched = 0usize;
@@ -141,64 +187,31 @@ fn large_corpus_matches_shfmt() {
     let mut shuck_errors = Vec::new();
     let mut mismatches = Vec::new();
 
-    for (fixture_index, fixture) in fixtures.iter().enumerate() {
-        let fixture_started = Instant::now();
-        let filename = fixture.cache_rel_path.to_string_lossy();
-        let processed = fixture_index + 1;
-        if processed % LARGE_CORPUS_PROGRESS_INTERVAL == 0 {
-            eprintln!(
-                "large corpus shfmt oracle progress: processed={processed}/{} compared={compared} matched={matched} mismatches={} shuck_errors={} shfmt_skips={} unsupported_dialects={} non_utf8={}",
-                fixtures.len(),
-                mismatches.len(),
-                shuck_errors.len(),
-                shfmt_skips,
-                unsupported_dialects,
-                non_utf8,
-            );
-        }
-
-        let source = match fs::read_to_string(&fixture.path) {
-            Ok(source) => source,
-            Err(_) => {
-                non_utf8 += 1;
-                continue;
+    for result in results {
+        report_slow_large_corpus_fixture(&result.filename, result.elapsed);
+        match result.comparison {
+            LargeCorpusComparison::Matched => {
+                compared += 1;
+                matched += 1;
             }
-        };
-        let Some(format_config) = formatter_oracle_config(&source, &fixture.path) else {
-            unsupported_dialects += 1;
-            continue;
-        };
-
-        let shfmt = match try_run_shfmt(&source, &filename, format_config.shfmt_language) {
-            Ok(output) => output,
-            Err(_) => {
+            LargeCorpusComparison::Mismatch(mismatch) => {
+                compared += 1;
+                mismatches.push(mismatch);
+            }
+            LargeCorpusComparison::ShuckError(error) => {
+                compared += 1;
+                shuck_errors.push(error);
+            }
+            LargeCorpusComparison::ShfmtSkip => {
                 shfmt_skips += 1;
-                report_slow_large_corpus_fixture(&filename, fixture_started.elapsed());
-                continue;
             }
-        };
-        compared += 1;
-
-        let shuck = match try_run_shuck_formatter(&source, &filename, &format_config.options) {
-            Ok(FormattedSource::Unchanged) => source.clone(),
-            Ok(FormattedSource::Formatted(formatted)) => formatted,
-            Err(error) => {
-                shuck_errors.push(format!(
-                    "{}: {error}",
-                    fixture.cache_rel_path.to_string_lossy()
-                ));
-                report_slow_large_corpus_fixture(&filename, fixture_started.elapsed());
-                continue;
+            LargeCorpusComparison::UnsupportedDialect => {
+                unsupported_dialects += 1;
             }
-        };
-
-        if let Some(mismatch) = render_oracle_mismatch(&filename, &filename, &shfmt, &shuck) {
-            mismatches.push(mismatch);
-        } else {
-            matched += 1;
+            LargeCorpusComparison::NonUtf8 => {
+                non_utf8 += 1;
+            }
         }
-
-        report_slow_large_corpus_fixture(&filename, fixture_started.elapsed());
     }
 
     eprintln!(
@@ -221,6 +234,104 @@ fn large_corpus_matches_shfmt() {
         format_failure_list("shuck formatter errors", &shuck_errors),
         format_failure_list("formatter mismatches", &mismatches),
     );
+}
+
+impl LargeCorpusProgress {
+    fn observe(&self, result: &LargeCorpusFixtureResult, total: usize) {
+        match &result.comparison {
+            LargeCorpusComparison::Matched => {
+                self.compared.fetch_add(1, Ordering::Relaxed);
+                self.matched.fetch_add(1, Ordering::Relaxed);
+            }
+            LargeCorpusComparison::Mismatch(_) => {
+                self.compared.fetch_add(1, Ordering::Relaxed);
+                self.mismatches.fetch_add(1, Ordering::Relaxed);
+            }
+            LargeCorpusComparison::ShuckError(_) => {
+                self.compared.fetch_add(1, Ordering::Relaxed);
+                self.shuck_errors.fetch_add(1, Ordering::Relaxed);
+            }
+            LargeCorpusComparison::ShfmtSkip => {
+                self.shfmt_skips.fetch_add(1, Ordering::Relaxed);
+            }
+            LargeCorpusComparison::UnsupportedDialect => {
+                self.unsupported_dialects.fetch_add(1, Ordering::Relaxed);
+            }
+            LargeCorpusComparison::NonUtf8 => {
+                self.non_utf8.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        let processed = self.processed.fetch_add(1, Ordering::Relaxed) + 1;
+        if processed.is_multiple_of(LARGE_CORPUS_PROGRESS_INTERVAL) {
+            eprintln!(
+                "large corpus shfmt oracle progress: processed={processed}/{total} compared={} matched={} mismatches={} shuck_errors={} shfmt_skips={} unsupported_dialects={} non_utf8={}",
+                self.compared.load(Ordering::Relaxed),
+                self.matched.load(Ordering::Relaxed),
+                self.mismatches.load(Ordering::Relaxed),
+                self.shuck_errors.load(Ordering::Relaxed),
+                self.shfmt_skips.load(Ordering::Relaxed),
+                self.unsupported_dialects.load(Ordering::Relaxed),
+                self.non_utf8.load(Ordering::Relaxed),
+            );
+        }
+    }
+}
+
+fn compare_large_corpus_fixture(fixture: &LargeCorpusFixture) -> LargeCorpusFixtureResult {
+    let fixture_started = Instant::now();
+    let filename = fixture.cache_rel_path.to_string_lossy().into_owned();
+
+    let source = match fs::read_to_string(&fixture.path) {
+        Ok(source) => source,
+        Err(_) => {
+            return LargeCorpusFixtureResult {
+                filename,
+                elapsed: fixture_started.elapsed(),
+                comparison: LargeCorpusComparison::NonUtf8,
+            };
+        }
+    };
+    let Some(format_config) = formatter_oracle_config(&source, &fixture.path) else {
+        return LargeCorpusFixtureResult {
+            filename,
+            elapsed: fixture_started.elapsed(),
+            comparison: LargeCorpusComparison::UnsupportedDialect,
+        };
+    };
+
+    let shfmt = match try_run_shfmt(&source, &filename, format_config.shfmt_language) {
+        Ok(output) => output,
+        Err(_) => {
+            return LargeCorpusFixtureResult {
+                filename,
+                elapsed: fixture_started.elapsed(),
+                comparison: LargeCorpusComparison::ShfmtSkip,
+            };
+        }
+    };
+
+    let shuck = match try_run_shuck_formatter(&source, &filename, &format_config.options) {
+        Ok(FormattedSource::Unchanged) => source.clone(),
+        Ok(FormattedSource::Formatted(formatted)) => formatted,
+        Err(error) => {
+            return LargeCorpusFixtureResult {
+                filename: filename.clone(),
+                elapsed: fixture_started.elapsed(),
+                comparison: LargeCorpusComparison::ShuckError(format!("{filename}: {error}")),
+            };
+        }
+    };
+
+    let comparison = render_oracle_mismatch(&filename, &filename, &shfmt, &shuck)
+        .map(LargeCorpusComparison::Mismatch)
+        .unwrap_or(LargeCorpusComparison::Matched);
+
+    LargeCorpusFixtureResult {
+        filename,
+        elapsed: fixture_started.elapsed(),
+        comparison,
+    }
 }
 
 impl OracleCase {

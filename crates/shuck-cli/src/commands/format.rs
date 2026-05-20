@@ -3,6 +3,7 @@ use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use shuck_cache::{FileCacheKey, PackageCache};
 use shuck_config::ConfigArguments;
@@ -84,6 +85,16 @@ struct ParseCacheFailure {
     column: usize,
 }
 
+#[derive(Debug)]
+struct PendingFormatOutcome {
+    relative_path: PathBuf,
+    cached_key: FileCacheKey,
+    cached_result: Option<FormatCacheData>,
+    error: Option<DisplayedFormatError>,
+    changed_path: Option<PathBuf>,
+    diff: Option<String>,
+}
+
 pub(crate) fn format(
     args: FormatCommand,
     config_arguments: &ConfigArguments,
@@ -150,7 +161,7 @@ fn run_format_with_cwd(
         extend_exclude_patterns: args.file_selection.extend_exclude.clone(),
         respect_gitignore: args.respect_gitignore(),
         force_exclude: args.force_exclude(),
-        parallel: false,
+        parallel: true,
         cache_root: Some(cache_root.to_path_buf()),
         use_config_roots: config_arguments.use_config_roots(),
     };
@@ -187,8 +198,22 @@ fn run_format_with_cwd(
             Ok(())
         })?;
 
-        for pending in pending {
-            handle_pending_file(pending, &settings, mode, &mut run.cache, &mut report)?;
+        let batch_size = pending_format_batch_size();
+        let mut pending = pending.into_iter();
+        loop {
+            let batch = pending.by_ref().take(batch_size).collect::<Vec<_>>();
+            if batch.is_empty() {
+                break;
+            }
+
+            let results = batch
+                .into_par_iter()
+                .map(|pending| format_pending_file(pending, &settings, mode))
+                .collect::<Vec<_>>();
+
+            for result in results {
+                handle_format_outcome(result?, &mut run.cache, &mut report)?;
+            }
         }
 
         run.persist_cache()?;
@@ -205,100 +230,120 @@ fn run_format_with_cwd(
     Ok(report)
 }
 
-fn handle_pending_file(
+fn pending_format_batch_size() -> usize {
+    rayon::current_num_threads().max(1)
+}
+
+fn format_pending_file(
     pending: PendingProjectFile,
     settings: &ShellFormatOptions,
     mode: FormatMode,
-    cache: &mut Option<PackageCache<FormatCacheData>>,
-    report: &mut FormatReport,
-) -> Result<()> {
+) -> Result<PendingFormatOutcome> {
     let PendingProjectFile { file, file_key } = pending;
     let source = fs::read_to_string(&file.absolute_path)?;
-    let (cached_result, cached_key) = if matches!(mode, FormatMode::Check) {
+
+    let mut outcome = PendingFormatOutcome {
+        relative_path: file.relative_path,
+        cached_key: file_key.clone(),
+        cached_result: None,
+        error: None,
+        changed_path: None,
+        diff: None,
+    };
+
+    if matches!(mode, FormatMode::Check) {
         match source_is_formatted(&source, Some(&file.absolute_path), settings) {
-            Ok(true) => (Some(FormatCacheData::Unchanged), file_key.clone()),
+            Ok(true) => {
+                outcome.cached_result = Some(FormatCacheData::Unchanged);
+            }
             Ok(false) => {
-                report.changed_files.push(file.display_path.clone());
-                (None, file_key.clone())
+                outcome.changed_path = Some(file.display_path);
             }
             Err(FormatError::Parse {
                 message,
                 line,
                 column,
             }) => {
-                report.errors.push(DisplayedFormatError {
+                outcome.error = Some(DisplayedFormatError {
                     path: file.display_path.clone(),
                     line,
                     column,
                     message: message.clone(),
                 });
 
-                (
-                    Some(FormatCacheData::ParseError(ParseCacheFailure {
-                        message,
-                        line,
-                        column,
-                    })),
-                    file_key.clone(),
-                )
+                outcome.cached_result = Some(FormatCacheData::ParseError(ParseCacheFailure {
+                    message,
+                    line,
+                    column,
+                }));
             }
             Err(FormatError::Internal(message)) => return Err(anyhow!(message)),
         }
     } else {
         match format_source(&source, Some(&file.absolute_path), settings) {
-            Ok(FormattedSource::Unchanged) => (Some(FormatCacheData::Unchanged), file_key.clone()),
+            Ok(FormattedSource::Unchanged) => {
+                outcome.cached_result = Some(FormatCacheData::Unchanged);
+            }
             Ok(FormattedSource::Formatted(formatted)) => {
-                report.changed_files.push(file.display_path.clone());
+                outcome.changed_path = Some(file.display_path.clone());
                 match mode {
                     FormatMode::Write => fs::write(&file.absolute_path, formatted.as_bytes())?,
                     FormatMode::Check => {}
                     FormatMode::Diff => {
-                        let mut stdout = io::stdout().lock();
-                        write!(
-                            &mut stdout,
-                            "{}",
-                            unified_diff(&file.display_path, &source, &formatted)
-                        )?;
+                        outcome.diff = Some(unified_diff(&file.display_path, &source, &formatted));
                     }
                 }
 
-                let cache_key = if mode.is_write() {
-                    FileCacheKey::from_path(&file.absolute_path)?
-                } else {
-                    file_key.clone()
-                };
-                let cache_result = mode.is_write().then_some(FormatCacheData::Unchanged);
-                (cache_result, cache_key)
+                if mode.is_write() {
+                    outcome.cached_key = FileCacheKey::from_path(&file.absolute_path)?;
+                    outcome.cached_result = Some(FormatCacheData::Unchanged);
+                }
             }
             Err(FormatError::Parse {
                 message,
                 line,
                 column,
             }) => {
-                report.errors.push(DisplayedFormatError {
+                outcome.error = Some(DisplayedFormatError {
                     path: file.display_path.clone(),
                     line,
                     column,
                     message: message.clone(),
                 });
 
-                (
-                    Some(FormatCacheData::ParseError(ParseCacheFailure {
-                        message,
-                        line,
-                        column,
-                    })),
-                    file_key.clone(),
-                )
+                outcome.cached_result = Some(FormatCacheData::ParseError(ParseCacheFailure {
+                    message,
+                    line,
+                    column,
+                }));
             }
             Err(FormatError::Internal(message)) => return Err(anyhow!(message)),
         }
     };
 
+    Ok(outcome)
+}
+
+fn handle_format_outcome(
+    outcome: PendingFormatOutcome,
+    cache: &mut Option<PackageCache<FormatCacheData>>,
+    report: &mut FormatReport,
+) -> Result<()> {
+    if let Some(error) = outcome.error {
+        report.errors.push(error);
+    }
+    if let Some(path) = outcome.changed_path {
+        report.changed_files.push(path);
+    }
+    if let Some(diff) = outcome.diff {
+        let mut stdout = io::stdout().lock();
+        write!(&mut stdout, "{diff}")?;
+    }
+
     if let Some(cache) = cache.as_mut()
-        && let Some(cached_result) = cached_result
+        && let Some(cached_result) = outcome.cached_result
     {
-        cache.insert(file.relative_path, cached_key, cached_result);
+        cache.insert(outcome.relative_path, outcome.cached_key, cached_result);
     }
     report.cache_misses += 1;
     Ok(())

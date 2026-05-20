@@ -20,5 +20,6 @@ shuck-format = { workspace = true }
 shuck-parser = { workspace = true }
 
 [dev-dependencies]
+rayon = { workspace = true }
 shuck-linter = { workspace = true }
 similar = { workspace = true }
