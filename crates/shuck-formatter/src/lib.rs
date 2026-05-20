@@ -461,6 +461,32 @@ mod tests {
         assert_eq!(once, twice);
     }
 
+    #[track_caller]
+    fn assert_formats_to(
+        source: &str,
+        path: Option<&Path>,
+        options: &ShellFormatOptions,
+        expected: impl Into<String>,
+    ) {
+        assert_eq!(
+            format_source(source, path, options).unwrap(),
+            FormattedSource::Formatted(expected.into())
+        );
+    }
+
+    #[track_caller]
+    fn assert_formats(source: &str, expected: impl Into<String>) {
+        assert_formats_to(source, None, &ShellFormatOptions::default(), expected);
+    }
+
+    #[track_caller]
+    fn assert_unchanged(source: &str, path: Option<&Path>, options: &ShellFormatOptions) {
+        assert_eq!(
+            format_source(source, path, options).unwrap(),
+            FormattedSource::Unchanged
+        );
+    }
+
     fn lint_source_posix_strict(source: &str, path: &Path) -> Vec<Diagnostic> {
         let parse_result = Parser::with_dialect(source, ParseShellDialect::Posix).parse();
         assert!(
@@ -498,115 +524,72 @@ mod tests {
 
     #[test]
     fn formats_simple_command_with_tabs_by_default() {
-        let formatted = format_source(
-            "#!/bin/bash\n echo   hi\n",
-            None,
-            &ShellFormatOptions::default(),
-        )
-        .unwrap();
+        let source = "#!/bin/bash\n echo   hi\n";
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("#!/bin/bash\necho hi\n".to_string())
-        );
-        assert!(
-            !source_is_formatted(
-                "#!/bin/bash\n echo   hi\n",
-                None,
-                &ShellFormatOptions::default()
-            )
-            .unwrap()
-        );
+        assert_formats(source, "#!/bin/bash\necho hi\n");
+        assert!(!source_is_formatted(source, None, &ShellFormatOptions::default()).unwrap());
     }
 
     #[test]
     fn preserves_inline_comments() {
-        let formatted =
-            format_source("echo hi    # note\n", None, &ShellFormatOptions::default()).unwrap();
-
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("echo hi # note\n".to_string())
-        );
+        assert_formats("echo hi    # note\n", "echo hi # note\n");
     }
 
     #[test]
     fn keeps_if_close_suffix_comment_on_outer_close() {
         let source = "if outer; then\n  if inner; then\n    :\n  fi\nfi # outer\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "if outer; then\n\tif inner; then\n\t\t:\n\tfi\nfi # outer\n".to_string()
-            )
+        assert_formats(
+            source,
+            "if outer; then\n\tif inner; then\n\t\t:\n\tfi\nfi # outer\n",
         );
     }
 
     #[test]
     fn keeps_inline_if_close_suffix_comment_on_fi() {
         let source = "if ok; then good; fi    # done\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("if ok; then good; fi # done\n".to_string())
-        );
+        assert_formats(source, "if ok; then good; fi # done\n");
     }
 
     #[test]
     fn keeps_loop_and_case_close_suffix_comments_on_close_keywords() {
         let source =
             "while ok; do\n  case $cmd in\n    run) : ;;\n  esac # command\n  :\ndone # loop\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "while ok; do\n\tcase $cmd in\n\trun) : ;;\n\tesac # command\n\t:\ndone # loop\n"
-                    .to_string()
-            )
+        assert_formats(
+            source,
+            "while ok; do\n\tcase $cmd in\n\trun) : ;;\n\tesac # command\n\t:\ndone # loop\n",
         );
     }
 
     #[test]
     fn keeps_inline_case_close_suffix_comment_on_esac() {
         let source = "case \"$IP\" in fe80::*) exit 0 ;; esac\t# ignore IPv6 linklocal, ip2dev() does not work here reliable anyway\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "case \"$IP\" in fe80::*) exit 0 ;; esac # ignore IPv6 linklocal, ip2dev() does not work here reliable anyway\n"
-                    .to_string()
-            )
+        assert_formats(
+            source,
+            "case \"$IP\" in fe80::*) exit 0 ;; esac # ignore IPv6 linklocal, ip2dev() does not work here reliable anyway\n",
         );
     }
 
     #[test]
     fn aligns_nested_close_suffix_comments_by_column() {
         let source = "if outer; then\n\tif inner; then\n\t\tcase $cmd in\n\t\t*) : ;;\n\t\tesac # case\n\tfi # inner\nfi # outer\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "if outer; then\n\tif inner; then\n\t\tcase $cmd in\n\t\t*) : ;;\n\t\tesac # case\n\tfi    # inner\nfi     # outer\n"
-                    .to_string()
-            )
+        assert_formats(
+            source,
+            "if outer; then\n\tif inner; then\n\t\tcase $cmd in\n\t\t*) : ;;\n\t\tesac # case\n\tfi    # inner\nfi     # outer\n",
         );
     }
 
     #[test]
     fn aligns_space_indented_close_suffix_comments_by_column() {
         let source = "if outer; then\n  if inner; then\n    :\n  fi # inner\nfi # outer\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "if outer; then\n\tif inner; then\n\t\t:\n\tfi # inner\nfi  # outer\n".to_string()
-            )
+        assert_formats(
+            source,
+            "if outer; then\n\tif inner; then\n\t\t:\n\tfi # inner\nfi  # outer\n",
         );
     }
 
@@ -624,31 +607,14 @@ mod tests {
 
     #[test]
     fn formats_heredoc_command_heads_structurally() {
-        let formatted = format_source(
-            "cat<<EOF\nhello\nEOF\n",
-            None,
-            &ShellFormatOptions::default(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("cat <<EOF\nhello\nEOF\n".to_string())
-        );
+        assert_formats("cat<<EOF\nhello\nEOF\n", "cat <<EOF\nhello\nEOF\n");
     }
 
     #[test]
     fn formats_nested_heredoc_commands_without_indenting_body() {
-        let formatted = format_source(
+        assert_formats(
             "if true; then\ncat<<EOF\nhello\nEOF\nfi\n",
-            None,
-            &ShellFormatOptions::default(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("if true; then\n\tcat <<EOF\nhello\nEOF\nfi\n".to_string())
+            "if true; then\n\tcat <<EOF\nhello\nEOF\nfi\n",
         );
     }
 
@@ -658,12 +624,11 @@ mod tests {
             "if true; then\n  cat >run <<-EOF\n\t\t#!/bin/sh\n\n\t\texec 2>&1\n\tEOF\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\tcat >run <<-EOF\n\t\t#!/bin/sh\n\n\t\texec 2>&1\n\tEOF\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "if true; then\n\tcat >run <<-EOF\n\t\t#!/bin/sh\n\n\t\texec 2>&1\n\tEOF\nfi\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -673,11 +638,11 @@ mod tests {
         let source = "if true; then\n\tcat >&2 <<-EOF\n\t* package moved\n\tEOF\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\tcat >&2 <<-EOF\n\t\t* package moved\n\tEOF\nfi\n".to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "if true; then\n\tcat >&2 <<-EOF\n\t\t* package moved\n\tEOF\nfi\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -687,12 +652,11 @@ mod tests {
         let source = "if true; then\n  if ok; then\n\tcat <<-EOF\n\tbody\n\tEOF\n  fi\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if true; then\n\tif ok; then\n\t\tcat <<-EOF\n\t\t\tbody\n\t\tEOF\n\tfi\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "if true; then\n\tif ok; then\n\t\tcat <<-EOF\n\t\t\tbody\n\t\tEOF\n\tfi\nfi\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
@@ -702,28 +666,20 @@ mod tests {
         let source = "build() {\n\tcat <<-EOF >./prerm\n\t#!$PREFIX/bin/bash\n\tif [ -d $PREFIX/etc ]; then\n\t\techo ok\n\t\trm -f file\n\tfi\n\texit 0\n\tEOF\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "build() {\n\tcat <<-EOF >./prerm\n\t\t#!$PREFIX/bin/bash\n\t\tif [ -d $PREFIX/etc ]; then\n\t\t\techo ok\n\t\t\trm -f file\n\t\tfi\n\t\texit 0\n\tEOF\n}\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "build() {\n\tcat <<-EOF >./prerm\n\t\t#!$PREFIX/bin/bash\n\t\tif [ -d $PREFIX/etc ]; then\n\t\t\techo ok\n\t\t\trm -f file\n\t\tfi\n\t\texit 0\n\tEOF\n}\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
     fn preserves_multiline_if_body_comments() {
-        let formatted = format_source(
+        assert_formats(
             "if true; then\n# note\necho hi\nfi\n",
-            None,
-            &ShellFormatOptions::default(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("if true; then\n\t# note\n\techo hi\nfi\n".to_string())
+            "if true; then\n\t# note\n\techo hi\nfi\n",
         );
     }
 
@@ -733,10 +689,7 @@ mod tests {
             "if [ -n \"$REPORTFILE\" ]; then PREQS_MET=\"YES\"; else PREQS_MET=\"NO\"; fi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Unchanged
-        );
+        assert_unchanged(source, None, &options);
         assert_source_and_ast_paths_match(source, None, &options);
     }
 
@@ -746,12 +699,11 @@ mod tests {
             "if [ -n \"$REPORTFILE\" ]; then PREQS_MET=\"YES\"; else\n  PREQS_MET=\"NO\"\nfi\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "if [ -n \"$REPORTFILE\" ]; then PREQS_MET=\"YES\"; else\n\tPREQS_MET=\"NO\"\nfi\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "if [ -n \"$REPORTFILE\" ]; then PREQS_MET=\"YES\"; else\n\tPREQS_MET=\"NO\"\nfi\n",
         );
         assert_source_and_ast_paths_match(source, None, &options);
     }
