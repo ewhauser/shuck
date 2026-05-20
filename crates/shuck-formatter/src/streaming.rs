@@ -30,8 +30,8 @@ use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    branch_keyword_offset, line_has_shell_comment_before, matching_done_close_start,
-    matching_if_close_start, normalized_close_keyword_span,
+    branch_keyword_offset, last_uncommented_shell_keyword_before, line_indent_before_offset,
+    matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
     operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line,
     shell_keyword_boundaries_match, skip_double_quoted, skip_single_quoted,
 };
@@ -6282,18 +6282,7 @@ fn condition_keyword_on_previous_non_empty_line(
 
 fn branch_open_keyword_start(sequence: &StmtSeq, source: &str, keyword: &str) -> Option<usize> {
     let first = sequence.first()?;
-    let first_start = stmt_span(first).start.offset;
-    let mut search_end = first_start.min(source.len());
-    loop {
-        let offset = source[..search_end].rfind(keyword)?;
-        let end = offset + keyword.len();
-        if shell_keyword_boundaries_match(source, offset, end)
-            && !line_has_shell_comment_before(source, offset)
-        {
-            return Some(offset);
-        }
-        search_end = offset;
-    }
+    last_uncommented_shell_keyword_before(source, stmt_span(first).start.offset, keyword)
 }
 
 fn raw_grouped_if_condition<'a>(
@@ -9096,21 +9085,6 @@ fn own_line_comments_in_region(source: &str, start: usize, end: usize) -> Vec<Br
         offset += line.len();
     }
     comments
-}
-
-fn line_indent_before_offset(source: &str, offset: usize) -> Option<&str> {
-    let offset = offset.min(source.len());
-    let bytes = source.as_bytes();
-    let mut line_start = offset;
-    while line_start > 0 && bytes.get(line_start - 1) != Some(&b'\n') {
-        line_start -= 1;
-    }
-    let line = source.get(line_start..offset)?;
-    let indent_end = line
-        .char_indices()
-        .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
-        .map_or(line.len(), |(index, _)| index);
-    line.get(..indent_end)
 }
 
 fn unmodeled_branch_background_operator(

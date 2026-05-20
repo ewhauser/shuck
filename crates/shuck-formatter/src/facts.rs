@@ -20,9 +20,9 @@ use crate::command::{
 use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_window};
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    branch_keyword_offset, line_has_shell_comment_before, matching_done_close_start,
-    matching_if_close_start, normalized_close_keyword_span, operator_starts_or_ends_line,
-    shell_keyword_boundaries_match,
+    branch_keyword_offset, last_uncommented_shell_keyword_before, line_indent_before_offset,
+    matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
+    operator_starts_or_ends_line, shell_keyword_boundaries_match,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1333,18 +1333,7 @@ fn branch_open_keyword_start(
 ) -> Option<usize> {
     let source = source_map.source();
     let first = sequence.first()?;
-    let first_start = stmt_span(first).start.offset;
-    let mut search_end = first_start.min(source.len());
-    loop {
-        let offset = source[..search_end].rfind(keyword)?;
-        let end = offset + keyword.len();
-        if shell_keyword_boundaries_match(source, offset, end)
-            && !line_has_shell_comment_before(source, offset)
-        {
-            return Some(offset);
-        }
-        search_end = offset;
-    }
+    last_uncommented_shell_keyword_before(source, stmt_span(first).start.offset, keyword)
 }
 
 fn sequence_comment_lower_bound(sequence: &StmtSeq, source_map: &SourceMap<'_>) -> usize {
@@ -1551,21 +1540,6 @@ fn branch_prefix_first_comment_offset(source: &str, start: usize, end: usize) ->
         offset += line.len();
     }
     None
-}
-
-fn line_indent_before_offset(source: &str, offset: usize) -> Option<&str> {
-    let offset = offset.min(source.len());
-    let bytes = source.as_bytes();
-    let mut line_start = offset;
-    while line_start > 0 && bytes.get(line_start - 1) != Some(&b'\n') {
-        line_start -= 1;
-    }
-    let line = source.get(line_start..offset)?;
-    let indent_end = line
-        .char_indices()
-        .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
-        .map_or(line.len(), |(index, _)| index);
-    line.get(..indent_end)
 }
 
 #[cfg(test)]

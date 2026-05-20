@@ -122,6 +122,39 @@ fn branch_keyword_candidate_matches(line: &str, start: usize, end: usize) -> boo
     before.is_empty() || before.ends_with(';') || before.ends_with('&')
 }
 
+pub(crate) fn last_uncommented_shell_keyword_before(
+    source: &str,
+    search_end: usize,
+    keyword: &str,
+) -> Option<usize> {
+    let mut search_end = search_end.min(source.len());
+    loop {
+        let offset = source[..search_end].rfind(keyword)?;
+        let end = offset + keyword.len();
+        if shell_keyword_boundaries_match(source, offset, end)
+            && !line_has_shell_comment_before(source, offset)
+        {
+            return Some(offset);
+        }
+        search_end = offset;
+    }
+}
+
+pub(crate) fn line_indent_before_offset(source: &str, offset: usize) -> Option<&str> {
+    let offset = offset.min(source.len());
+    let bytes = source.as_bytes();
+    let mut line_start = offset;
+    while line_start > 0 && bytes.get(line_start - 1) != Some(&b'\n') {
+        line_start -= 1;
+    }
+    let line = source.get(line_start..offset)?;
+    let indent_end = line
+        .char_indices()
+        .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
+        .map_or(line.len(), |(index, _)| index);
+    line.get(..indent_end)
+}
+
 pub(crate) fn loop_open_keyword_at(source: &str, offset: usize, upper: usize) -> bool {
     ["for", "select", "while", "until", "foreach", "repeat"]
         .iter()
