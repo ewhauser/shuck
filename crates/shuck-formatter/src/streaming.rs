@@ -4450,8 +4450,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             };
             // The opening redirection keeps delimiter quoting, but the closing
             // marker line uses the cooked delimiter text after quote removal.
-            let delimiter = heredoc_closing_marker_source(heredoc, source)
-                .map(str::to_string)
+            let delimiter = heredoc_closing_marker_bounds(heredoc, source)
+                .and_then(|(start, line_end)| source.get(start..line_end))
+                .map(str::to_owned)
                 .unwrap_or_else(|| heredoc.delimiter.cooked.to_string());
             self.pending_heredocs.push(PendingHeredoc {
                 body,
@@ -5017,11 +5018,6 @@ fn normalize_rendered_heredoc_start_spacing(line: &str) -> Option<String> {
     normalized.push_str(&line[..operator_end]);
     normalized.push_str(&line[target_start..]);
     Some(normalized)
-}
-
-fn heredoc_closing_marker_source<'a>(heredoc: &Heredoc, source: &'a str) -> Option<&'a str> {
-    let (start, line_end) = heredoc_closing_marker_bounds(heredoc, source)?;
-    source.get(start..line_end)
 }
 
 fn heredoc_closing_marker_bounds(heredoc: &Heredoc, source: &str) -> Option<(usize, usize)> {

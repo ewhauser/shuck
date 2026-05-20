@@ -15,7 +15,7 @@ use shuck_ast::{
     AnonymousFunctionCommand, ArithmeticExprNode, ArrayElem, Assignment, AssignmentValue,
     BackgroundOperator, BinaryCommand, BinaryOp, BuiltinCommand, CaseItem, CaseTerminator, Command,
     CompoundCommand, DeclClause, DeclOperand, ForSyntax, ForeachSyntax, FunctionDef, IfCommand,
-    IfSyntax, Redirect, RedirectKind, RepeatSyntax, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
+    IfSyntax, RedirectKind, RepeatSyntax, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
     StmtTerminator, Subscript, VarRef, Word, WordPart,
 };
 
@@ -210,7 +210,8 @@ fn render_assignment_inner(
             rendered.push(')');
         }
     }
-    trim_unescaped_trailing_whitespace_in_place(rendered, start);
+    let end = start + trim_unescaped_trailing_whitespace(&rendered[start..]).len();
+    rendered.truncate(end);
 }
 
 fn render_array_elem_to_buf(
@@ -847,11 +848,6 @@ pub(crate) fn render_source_text_to_buf(text: &SourceText, source: &str, rendere
     }
 }
 
-fn trim_unescaped_trailing_whitespace_in_place(text: &mut String, start: usize) {
-    let end = start + trim_unescaped_trailing_whitespace(&text[start..]).len();
-    text.truncate(end);
-}
-
 pub(crate) fn has_heredoc(stmt: &Stmt) -> bool {
     stmt.redirects.iter().any(|redirect| {
         matches!(
@@ -956,7 +952,13 @@ fn stmt_verbatim_span_impl(stmt: &Stmt, source: &str, source_map: Option<&Source
     } else {
         command_verbatim_span(&stmt.command, source, source_map)
     };
-    let mut span = merge_redirect_heredoc_spans(command_span, &stmt.redirects, source);
+    let mut span = command_span;
+    for redirect in &stmt.redirects {
+        span = merge_non_empty_span(span, redirect.span);
+        if let Some(heredoc) = redirect.heredoc() {
+            span = span.merge(extend_heredoc_body_span(heredoc.body.span, source));
+        }
+    }
     if stmt.negated {
         span = merge_non_empty_span(stmt.span, span);
     }
@@ -1160,16 +1162,6 @@ fn stmt_group_base_span(
         matching_group_close(open),
     )
     .unwrap_or_else(|| stmt_span(stmt))
-}
-
-fn merge_redirect_heredoc_spans(mut span: Span, redirects: &[Redirect], source: &str) -> Span {
-    for redirect in redirects {
-        span = merge_non_empty_span(span, redirect.span);
-        if let Some(heredoc) = redirect.heredoc() {
-            span = span.merge(extend_heredoc_body_span(heredoc.body.span, source));
-        }
-    }
-    span
 }
 
 pub(crate) fn stmt_span(stmt: &Stmt) -> Span {
@@ -1975,9 +1967,14 @@ fn extend_compound_close_suffix_attachment_span(
     let Some(close_span) = stmt_compound_close_span(stmt, source, source_map) else {
         return span;
     };
-    close_suffix_comment_span(source, source_map, close_span).map_or(span, |comment_span| {
-        merge_non_empty_span(span, comment_span)
-    })
+    if let Some((comment_start, comment_end)) = close_suffix_comment_offsets(source, close_span) {
+        merge_non_empty_span(
+            span,
+            source_map.span_for_offsets(comment_start, comment_end),
+        )
+    } else {
+        span
+    }
 }
 
 fn stmt_compound_close_span(
@@ -2037,15 +2034,6 @@ fn normalized_brace_close_span(
     span: Span,
 ) -> Option<Span> {
     Some(normalized_close_keyword_span(source, source_map, span, "}"))
-}
-
-fn close_suffix_comment_span(
-    source: &str,
-    source_map: &crate::comments::SourceMap<'_>,
-    close_span: Span,
-) -> Option<Span> {
-    let (comment_start, comment_end) = close_suffix_comment_offsets(source, close_span)?;
-    Some(source_map.span_for_offsets(comment_start, comment_end))
 }
 
 pub(crate) fn if_close_span(

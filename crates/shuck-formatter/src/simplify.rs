@@ -1,11 +1,11 @@
 use shuck_ast::{
     ArrayElem, Assignment, AssignmentValue, BourneParameterExpansion, BuiltinCommand, Command,
-    CompoundCommand, ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand,
-    ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, DeclClause,
-    DeclOperand, File, FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode,
-    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Redirect,
-    RedirectTarget, SourceText, Stmt, StmtSeq, VarRef, Word, WordPart, WordPartNode,
-    ZshExpansionOperation, ZshExpansionTarget,
+    CompoundCommand, ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalExpr,
+    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, DeclClause, DeclOperand, File,
+    FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, ParameterExpansion,
+    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Redirect, RedirectTarget,
+    SourceText, Stmt, StmtSeq, VarRef, Word, WordPart, WordPartNode, ZshExpansionOperation,
+    ZshExpansionTarget,
 };
 
 use crate::command::{array_elem_value_word_mut, render_var_ref_to_buf};
@@ -101,7 +101,7 @@ fn rewrite_conditionals(file: &mut File, source: &str) -> usize {
         source,
         &mut |stmt, source| match &mut stmt.command {
             Command::Compound(CompoundCommand::Conditional(conditional)) => {
-                simplify_conditional_command(conditional, source)
+                simplify_conditional_expr(&mut conditional.expression, source)
             }
             _ => 0,
         },
@@ -1470,10 +1470,6 @@ fn arithmetic_parameter_is_safe(text: &str) -> bool {
         && text
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '[' | ']'))
-}
-
-fn simplify_conditional_command(command: &mut ConditionalCommand, source: &str) -> usize {
-    simplify_conditional_expr(&mut command.expression, source)
 }
 
 fn simplify_conditional_expr(expression: &mut ConditionalExpr, source: &str) -> usize {
