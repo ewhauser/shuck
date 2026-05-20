@@ -380,13 +380,8 @@ fn normalize_multiline_compound_assignment_command_substitutions(
 ) -> Vec<String> {
     let mut index = 0;
     while index < lines.len() {
-        if !line_has_unclosed_command_substitution_open(&lines[index]) {
-            index += 1;
-            continue;
-        }
-
-        let Some(close_index) =
-            multiline_compound_assignment_command_substitution_close_index(&lines, index)
+        let Some((close_index, body_end, close_line_is_standalone)) =
+            multiline_compound_assignment_command_substitution_range(&lines, index)
         else {
             index += 1;
             continue;
@@ -405,14 +400,6 @@ fn normalize_multiline_compound_assignment_command_substitutions(
             continue;
         }
 
-        let close_line_is_standalone = lines[close_index]
-            .trim_start_matches([' ', '\t'])
-            .starts_with(')');
-        let body_end = if close_line_is_standalone {
-            close_index
-        } else {
-            close_index + 1
-        };
         let common_indent = common_command_substitution_body_indent(&lines[index + 1..body_end]);
         for line in &mut lines[index + 1..body_end] {
             if line.trim().is_empty() {
@@ -436,6 +423,27 @@ fn normalize_multiline_compound_assignment_command_substitutions(
     lines
 }
 
+fn multiline_compound_assignment_command_substitution_range<T: AsRef<str>>(
+    lines: &[T],
+    open_index: usize,
+) -> Option<(usize, usize, bool)> {
+    if !line_has_unclosed_command_substitution_open(lines.get(open_index)?.as_ref()) {
+        return None;
+    }
+    let close_index =
+        multiline_compound_assignment_command_substitution_close_index(lines, open_index)?;
+    let close_line_is_standalone = lines[close_index]
+        .as_ref()
+        .trim_start_matches([' ', '\t'])
+        .starts_with(')');
+    let body_end = if close_line_is_standalone {
+        close_index
+    } else {
+        close_index + 1
+    };
+    Some((close_index, body_end, close_line_is_standalone))
+}
+
 fn multiline_compound_assignment_command_substitution_close_index<T: AsRef<str>>(
     lines: &[T],
     open_index: usize,
@@ -456,26 +464,13 @@ fn multiline_compound_assignment_command_substitution_body_lines(raw_lines: &[&s
     let mut body_lines = vec![false; raw_lines.len()];
     let mut index = 0;
     while index < raw_lines.len() {
-        if !line_has_unclosed_command_substitution_open(raw_lines[index]) {
-            index += 1;
-            continue;
-        }
-
-        let Some(close_index) =
-            multiline_compound_assignment_command_substitution_close_index(raw_lines, index)
+        let Some((close_index, body_end, _)) =
+            multiline_compound_assignment_command_substitution_range(raw_lines, index)
         else {
             index += 1;
             continue;
         };
 
-        let close_line_is_standalone = raw_lines[close_index]
-            .trim_start_matches([' ', '\t'])
-            .starts_with(')');
-        let body_end = if close_line_is_standalone {
-            close_index
-        } else {
-            close_index + 1
-        };
         for body_line in &mut body_lines[index + 1..body_end] {
             *body_line = true;
         }
