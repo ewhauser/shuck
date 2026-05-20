@@ -6024,34 +6024,21 @@ fn render_parameter_expansion(
             pattern,
             replacement,
             ..
-        } => {
-            rendered.push('/');
-            if let Some((raw_pattern, raw_replacement)) = raw_parameter_replacement_parts(
-                raw_parameter_span,
-                reference,
-                false,
-                source,
-                options,
-            ) {
-                rendered.push_str(raw_pattern);
-                rendered.push('/');
-                rendered.push_str(raw_replacement);
-            } else {
-                render_parameter_replacement_pattern(rendered, pattern, source, options);
-                rendered.push('/');
-                push_parameter_replacement_text(rendered, replacement, source);
-            }
         }
-        ParameterOp::ReplaceAll {
+        | ParameterOp::ReplaceAll {
             pattern,
             replacement,
             ..
         } => {
-            rendered.push_str("//");
+            let replace_all = matches!(operator, ParameterOp::ReplaceAll { .. });
+            rendered.push('/');
+            if replace_all {
+                rendered.push('/');
+            }
             if let Some((raw_pattern, raw_replacement)) = raw_parameter_replacement_parts(
                 raw_parameter_span,
                 reference,
-                true,
+                replace_all,
                 source,
                 options,
             ) {
