@@ -82,6 +82,17 @@ macro_rules! option_builders {
     };
 }
 
+macro_rules! resolved_option_getters {
+    ($($method:ident: $field:ident -> $ty:ty;)+) => {
+        $(
+            #[must_use]
+            pub fn $method(&self) -> $ty {
+                self.options.$field
+            }
+        )+
+    };
+}
+
 impl ShellFormatOptions {
     option_getters! {
         dialect: dialect -> ShellDialect;
@@ -118,18 +129,11 @@ impl ShellFormatOptions {
 
     #[must_use]
     pub fn resolve(&self, source: &str, path: Option<&Path>) -> ResolvedShellFormatOptions {
+        let mut options = self.clone();
+        options.indent_width = options.indent_width.max(1);
         ResolvedShellFormatOptions {
             dialect: self.dialect.resolve(source, path),
-            indent_style: self.indent_style,
-            indent_width: self.indent_width.max(1),
-            binary_next_line: self.binary_next_line,
-            switch_case_indent: self.switch_case_indent,
-            space_redirects: self.space_redirects,
-            keep_padding: self.keep_padding,
-            function_next_line: self.function_next_line,
-            never_split: self.never_split,
-            simplify: self.simplify,
-            minify: self.minify,
+            options,
             line_ending: detect_line_ending(source),
         }
     }
@@ -137,23 +141,17 @@ impl ShellFormatOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedShellFormatOptions {
+    options: ShellFormatOptions,
     dialect: ParseDialect,
-    indent_style: IndentStyle,
-    indent_width: u8,
-    binary_next_line: bool,
-    switch_case_indent: bool,
-    space_redirects: bool,
-    keep_padding: bool,
-    function_next_line: bool,
-    never_split: bool,
-    simplify: bool,
-    minify: bool,
     line_ending: LineEnding,
 }
 
 impl ResolvedShellFormatOptions {
     option_getters! {
         dialect: dialect -> ParseDialect;
+    }
+
+    resolved_option_getters! {
         indent_style: indent_style -> IndentStyle;
         indent_width: indent_width -> u8;
     }
@@ -187,7 +185,7 @@ impl ResolvedShellFormatOptions {
         prefix
     }
 
-    option_getters! {
+    resolved_option_getters! {
         binary_next_line: binary_next_line -> bool;
         switch_case_indent: switch_case_indent -> bool;
         space_redirects: space_redirects -> bool;
@@ -200,7 +198,7 @@ impl ResolvedShellFormatOptions {
 
     #[must_use]
     pub fn compact_layout(&self) -> bool {
-        self.minify || self.never_split
+        self.minify() || self.never_split()
     }
 
     option_getters! {
@@ -211,8 +209,8 @@ impl ResolvedShellFormatOptions {
 impl FormatOptions for ResolvedShellFormatOptions {
     fn as_print_options(&self) -> PrinterOptions {
         PrinterOptions {
-            indent_style: self.indent_style,
-            indent_width: self.indent_width,
+            indent_style: self.indent_style(),
+            indent_width: self.indent_width(),
             line_width: 80,
             line_ending: self.line_ending,
         }
