@@ -985,16 +985,7 @@ fn stmt_verbatim_span_impl(stmt: &Stmt, source: &str, source_map: Option<&Source
     if stmt.negated {
         span = merge_non_empty_span(stmt.span, span);
     }
-    if matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
-        && let Some(terminator_span) = stmt.terminator_span
-    {
-        span = merge_non_empty_span(span, terminator_span);
-    }
-    if span == Span::new() {
-        stmt_span(stmt)
-    } else {
-        span
-    }
+    non_empty_or_stmt_span(stmt, merge_stmt_background_span(stmt, span))
 }
 
 fn command_verbatim_span(
@@ -1207,16 +1198,38 @@ fn merge_redirect_heredoc_spans(mut span: Span, redirects: &[Redirect], source: 
 }
 
 pub(crate) fn stmt_span(stmt: &Stmt) -> Span {
-    let mut span = stmt.span;
+    merge_stmt_background_span(stmt, merge_stmt_redirect_spans(stmt, stmt.span))
+}
+
+fn complete_stmt_span(stmt: &Stmt, span: Span) -> Span {
+    non_empty_or_stmt_span(
+        stmt,
+        merge_stmt_background_span(stmt, merge_stmt_redirect_spans(stmt, span)),
+    )
+}
+
+fn merge_stmt_redirect_spans(stmt: &Stmt, mut span: Span) -> Span {
     for redirect in &stmt.redirects {
         span = merge_non_empty_span(span, redirect.span);
     }
+    span
+}
+
+fn merge_stmt_background_span(stmt: &Stmt, mut span: Span) -> Span {
     if matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
         && let Some(terminator_span) = stmt.terminator_span
     {
         span = merge_non_empty_span(span, terminator_span);
     }
     span
+}
+
+fn non_empty_or_stmt_span(stmt: &Stmt, span: Span) -> Span {
+    if span == Span::new() {
+        stmt_span(stmt)
+    } else {
+        span
+    }
 }
 
 fn compound_span(command: &CompoundCommand) -> Span {
@@ -1790,24 +1803,12 @@ pub(crate) fn compound_format_span(command: &CompoundCommand) -> Span {
 }
 
 pub(crate) fn stmt_format_span(stmt: &Stmt) -> Span {
-    let mut span = if stmt.negated {
+    let span = if stmt.negated {
         stmt.span
     } else {
         command_format_span(&stmt.command)
     };
-    for redirect in &stmt.redirects {
-        span = merge_non_empty_span(span, redirect.span);
-    }
-    if matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
-        && let Some(terminator_span) = stmt.terminator_span
-    {
-        span = merge_non_empty_span(span, terminator_span);
-    }
-    if span == Span::new() {
-        stmt_span(stmt)
-    } else {
-        span
-    }
+    complete_stmt_span(stmt, span)
 }
 
 pub(crate) fn merge_non_empty_span(current: Span, next: Span) -> Span {
@@ -2013,20 +2014,10 @@ pub(crate) fn stmt_attachment_span(
             |span, redirect| span.merge(redirect.span),
         )
     } else {
-        let mut span = command_attachment_span(&stmt.command, source, source_map, options);
-        for redirect in &stmt.redirects {
-            span = merge_non_empty_span(span, redirect.span);
-        }
-        if matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
-            && let Some(terminator_span) = stmt.terminator_span
-        {
-            span = merge_non_empty_span(span, terminator_span);
-        }
-        if span == Span::new() {
-            stmt_span(stmt)
-        } else {
-            span
-        }
+        complete_stmt_span(
+            stmt,
+            command_attachment_span(&stmt.command, source, source_map, options),
+        )
     };
     extend_compound_close_suffix_attachment_span(span, stmt, source, source_map)
 }
