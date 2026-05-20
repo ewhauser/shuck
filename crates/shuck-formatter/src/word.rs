@@ -990,31 +990,23 @@ fn push_raw_command_substitution_with_normalized_spacing(
             let indent = line_leading_shell_indent(&line);
             let content = &line[indent.len()..];
             let carried_pipeline_indent = previous_pipeline_indent.clone();
-            let mut adjusted_line = None;
             if let Some(previous_indent) = carried_pipeline_indent.as_deref()
                 && !content.trim().is_empty()
                 && raw_indent_units(indent, options) < raw_indent_units(previous_indent, options)
             {
-                adjusted_line = Some(format!("{previous_indent}{content}"));
-            }
-            if let Some(adjusted) = adjusted_line {
-                line = adjusted;
+                line = format!("{previous_indent}{content}");
             }
             let indent = line_leading_shell_indent(&line);
             let content = &line[indent.len()..];
             let closes_substitution_wrapper = raw_line_closes_substitution_wrapper(content)
                 && raw_block_line_is_outer_substitution_close(lines, line_index);
-            let mut continuation_adjusted_line = None;
             if let Some(previous_indent) = continuation_indent.as_deref()
                 && !content.trim().is_empty()
                 && !content.starts_with('#')
                 && !closes_substitution_wrapper
                 && normalized_raw_shell_indent(indent, options) != previous_indent
             {
-                continuation_adjusted_line = Some(format!("{previous_indent}{content}"));
-            }
-            if let Some(adjusted) = continuation_adjusted_line {
-                line = adjusted;
+                line = format!("{previous_indent}{content}");
             }
             let indent = line_leading_shell_indent(&line);
             let content = &line[indent.len()..];
@@ -1023,16 +1015,12 @@ fn push_raw_command_substitution_with_normalized_spacing(
                     && !raw_line_closes_compound(content, compound.close_keyword)
                     && !raw_line_is_compound_mid_keyword(content)
             });
-            let mut compound_adjusted_line = None;
             if in_compound_body
                 && let Some(compound) = compound_comment_indents.last()
                 && raw_indent_units(indent, options)
                     < raw_indent_units(&compound.child_indent, options)
             {
-                compound_adjusted_line = Some(format!("{}{content}", compound.child_indent));
-            }
-            if let Some(adjusted) = compound_adjusted_line {
-                line = adjusted;
+                line = format!("{}{content}", compound.child_indent);
             }
             let indent = line_leading_shell_indent(&line);
             let content = &line[indent.len()..];
