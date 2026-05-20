@@ -3584,13 +3584,61 @@ fn raw_command_substitution_needs_structural_spacing(raw: &str) -> bool {
     false
 }
 
+#[derive(Default)]
+struct RawQuoteState {
+    quote: Option<char>,
+    escaped: bool,
+}
+
+impl RawQuoteState {
+    fn consume(&mut self, ch: char, include_backticks: bool) -> bool {
+        if self.escaped {
+            self.escaped = false;
+            return true;
+        }
+
+        match self.quote {
+            Some('\'') => {
+                if ch == '\'' {
+                    self.quote = None;
+                }
+                true
+            }
+            Some('"') => {
+                if ch == '"' {
+                    self.quote = None;
+                } else if ch == '\\' {
+                    self.escaped = true;
+                }
+                true
+            }
+            Some('`') if include_backticks => {
+                if ch == '`' {
+                    self.quote = None;
+                } else if ch == '\\' {
+                    self.escaped = true;
+                }
+                true
+            }
+            _ if ch == '\\' => {
+                self.escaped = true;
+                true
+            }
+            _ if ch == '\'' || ch == '"' || (include_backticks && ch == '`') => {
+                self.quote = Some(ch);
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
 fn raw_shell_body_needs_structural_spacing(body: &str) -> bool {
     let body = body.trim_matches([' ', '\t']);
     if raw_body_contains_pipeline_multistatement_brace_group(body) {
         return true;
     }
-    let mut quote: Option<char> = None;
-    let mut escaped = false;
+    let mut quote = RawQuoteState::default();
     let mut horizontal_run = 0usize;
     let mut index = 0usize;
 
@@ -3601,79 +3649,51 @@ fn raw_shell_body_needs_structural_spacing(body: &str) -> bool {
         };
         let next_index = index + ch.len_utf8();
 
-        if escaped {
-            escaped = false;
+        if quote.consume(ch, true) {
+            horizontal_run = 0;
             index = next_index;
             continue;
         }
 
-        match quote {
-            Some('\'') => {
-                if ch == '\'' {
-                    quote = None;
-                }
+        if rest.starts_with("$(")
+            && !rest.starts_with("$((")
+            && let Some(close_offset) = matching_raw_command_substitution_close(body, index + 2)
+        {
+            if raw_shell_body_needs_structural_spacing(&body[index + 2..close_offset]) {
+                return true;
             }
-            Some('"') => match ch {
-                '"' => quote = None,
-                '\\' => escaped = true,
-                _ => {}
-            },
-            Some('`') => match ch {
-                '`' => quote = None,
-                '\\' => escaped = true,
-                _ => {}
-            },
-            _ => {
-                if rest.starts_with("$(")
-                    && !rest.starts_with("$((")
-                    && let Some(close_offset) =
-                        matching_raw_command_substitution_close(body, index + 2)
-                {
-                    if raw_shell_body_needs_structural_spacing(&body[index + 2..close_offset]) {
-                        return true;
-                    }
-                    horizontal_run = 0;
-                    index = close_offset + 1;
-                    continue;
-                }
+            horizontal_run = 0;
+            index = close_offset + 1;
+            continue;
+        }
 
-                match ch {
-                    '\\' => {
-                        escaped = true;
-                        horizontal_run = 0;
-                    }
-                    '\'' | '"' | '`' => {
-                        quote = Some(ch);
-                        horizontal_run = 0;
-                    }
-                    ' ' | '\t' | '\r' => {
-                        if ch != ' ' {
-                            return true;
-                        }
-                        horizontal_run += 1;
-                        if horizontal_run > 1 {
-                            return true;
-                        }
-                    }
-                    '|' if !rest.starts_with("||") => {
-                        let op_len = if rest.starts_with("|&") { 2 } else { 1 };
-                        let previous_is_space = body[..index]
-                            .chars()
-                            .next_back()
-                            .is_some_and(|previous| matches!(previous, ' ' | '\t' | '\r'));
-                        let next_is_space = body[index + op_len..]
-                            .chars()
-                            .next()
-                            .is_some_and(|next| matches!(next, ' ' | '\t' | '\r'));
-                        if !previous_is_space || !next_is_space {
-                            return true;
-                        }
-                        horizontal_run = 0;
-                    }
-                    ';' if !rest.starts_with(";;") => return true,
-                    _ => horizontal_run = 0,
+        match ch {
+            ' ' | '\t' | '\r' => {
+                if ch != ' ' {
+                    return true;
+                }
+                horizontal_run += 1;
+                if horizontal_run > 1 {
+                    return true;
                 }
             }
+            '|' if !rest.starts_with("||") => {
+                let op_len = if rest.starts_with("|&") { 2 } else { 1 };
+                let previous_is_space = body[..index]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|previous| matches!(previous, ' ' | '\t' | '\r'));
+                let next_is_space = body[index + op_len..]
+                    .chars()
+                    .next()
+                    .is_some_and(|next| matches!(next, ' ' | '\t' | '\r'));
+                if !previous_is_space || !next_is_space {
+                    return true;
+                }
+                horizontal_run = 0;
+            }
+            ';' if !rest.starts_with(";;") => return true,
+            _ => horizontal_run = 0,
         }
 
         index = next_index;
@@ -3957,8 +3977,7 @@ fn normalize_raw_arithmetic_expansion_padding(raw: &str) -> Option<String> {
 }
 
 fn matching_raw_arithmetic_expansion_close(raw: &str, body_start: usize) -> Option<usize> {
-    let mut quote: Option<char> = None;
-    let mut escaped = false;
+    let mut quote = RawQuoteState::default();
     let mut paren_depth = 0usize;
     let mut index = body_start;
 
@@ -3966,47 +3985,24 @@ fn matching_raw_arithmetic_expansion_close(raw: &str, body_start: usize) -> Opti
         let rest = &raw[index..];
         let ch = rest.chars().next()?;
         let next_index = index + ch.len_utf8();
-        if escaped {
-            escaped = false;
+        if quote.consume(ch, true) {
             index = next_index;
             continue;
         }
 
-        match quote {
-            Some('\'') => {
-                if ch == '\'' {
-                    quote = None;
-                }
-            }
-            Some('"') => match ch {
-                '"' => quote = None,
-                '\\' => escaped = true,
-                _ => {}
-            },
-            Some('`') => match ch {
-                '`' => quote = None,
-                '\\' => escaped = true,
-                _ => {}
-            },
-            _ => {
-                if rest.starts_with("$(")
-                    && !rest.starts_with("$((")
-                    && let Some(close_offset) =
-                        matching_raw_command_substitution_close(raw, index + 2)
-                {
-                    index = close_offset + 1;
-                    continue;
-                }
+        if rest.starts_with("$(")
+            && !rest.starts_with("$((")
+            && let Some(close_offset) = matching_raw_command_substitution_close(raw, index + 2)
+        {
+            index = close_offset + 1;
+            continue;
+        }
 
-                match ch {
-                    '\\' => escaped = true,
-                    '\'' | '"' | '`' => quote = Some(ch),
-                    '(' => paren_depth += 1,
-                    ')' if rest.starts_with("))") && paren_depth == 0 => return Some(index),
-                    ')' if paren_depth > 0 => paren_depth -= 1,
-                    _ => {}
-                }
-            }
+        match ch {
+            '(' => paren_depth += 1,
+            ')' if rest.starts_with("))") && paren_depth == 0 => return Some(index),
+            ')' if paren_depth > 0 => paren_depth -= 1,
+            _ => {}
         }
 
         index = next_index;
@@ -4019,43 +4015,27 @@ pub(crate) fn matching_raw_command_substitution_close(
     raw: &str,
     body_start: usize,
 ) -> Option<usize> {
-    let mut quote: Option<char> = None;
-    let mut escaped = false;
+    let mut quote = RawQuoteState::default();
     let mut paren_depth = 0usize;
     let mut index = body_start;
 
     while index < raw.len() {
         let ch = raw[index..].chars().next()?;
         let next_index = index + ch.len_utf8();
-        if escaped {
-            escaped = false;
+        if quote.consume(ch, false) {
             index = next_index;
             continue;
         }
 
-        match quote {
-            Some('\'') => {
-                if ch == '\'' {
-                    quote = None;
+        match ch {
+            '(' => paren_depth += 1,
+            ')' => {
+                if paren_depth == 0 {
+                    return Some(index);
                 }
+                paren_depth -= 1;
             }
-            Some('"') => match ch {
-                '"' => quote = None,
-                '\\' => escaped = true,
-                _ => {}
-            },
-            _ => match ch {
-                '\\' => escaped = true,
-                '\'' | '"' => quote = Some(ch),
-                '(' => paren_depth += 1,
-                ')' => {
-                    if paren_depth == 0 {
-                        return Some(index);
-                    }
-                    paren_depth -= 1;
-                }
-                _ => {}
-            },
+            _ => {}
         }
 
         index = next_index;
