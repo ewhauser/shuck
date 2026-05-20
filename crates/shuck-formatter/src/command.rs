@@ -2012,12 +2012,7 @@ fn stmt_compound_close_span(
             }
             | ForSyntax::ParenBrace {
                 right_brace_span, ..
-            } => Some(normalized_close_keyword_span(
-                source,
-                source_map,
-                right_brace_span,
-                "}",
-            )),
+            } => normalized_brace_close_span(source, source_map, right_brace_span),
             ForSyntax::InDirect { .. } | ForSyntax::ParenDirect { .. } => None,
         },
         CompoundCommand::Repeat(command) => match command.syntax {
@@ -2026,12 +2021,7 @@ fn stmt_compound_close_span(
             }
             RepeatSyntax::Brace {
                 right_brace_span, ..
-            } => Some(normalized_close_keyword_span(
-                source,
-                source_map,
-                right_brace_span,
-                "}",
-            )),
+            } => normalized_brace_close_span(source, source_map, right_brace_span),
             RepeatSyntax::Direct => None,
         },
         CompoundCommand::Foreach(command) => match command.syntax {
@@ -2040,12 +2030,7 @@ fn stmt_compound_close_span(
             }
             ForeachSyntax::ParenBrace {
                 right_brace_span, ..
-            } => Some(normalized_close_keyword_span(
-                source,
-                source_map,
-                right_brace_span,
-                "}",
-            )),
+            } => normalized_brace_close_span(source, source_map, right_brace_span),
         },
         CompoundCommand::ArithmeticFor(command) => {
             done_close_span(source, source_map, command.span, None)
@@ -2057,6 +2042,14 @@ fn stmt_compound_close_span(
             .map(|start| source_map.span_for_offsets(start, start + "esac".len())),
         _ => None,
     }
+}
+
+fn normalized_brace_close_span(
+    source: &str,
+    source_map: &crate::comments::SourceMap<'_>,
+    span: Span,
+) -> Option<Span> {
+    Some(normalized_close_keyword_span(source, source_map, span, "}"))
 }
 
 fn close_suffix_comment_span(
