@@ -885,17 +885,10 @@ fn rewrite_word_source_texts(
     source: &str,
     visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
 ) -> usize {
-    let mut count = 0;
-    for part in &mut word.parts {
-        count += match &mut part.kind {
-            WordPart::DoubleQuoted { parts, .. } => parts
-                .iter_mut()
-                .map(|part| rewrite_word_part_source_texts(part, source, visitor))
-                .sum(),
-            _ => rewrite_word_part_source_texts(part, source, visitor),
-        };
-    }
-    count
+    word.parts
+        .iter_mut()
+        .map(|part| rewrite_word_part_source_texts(part, source, visitor))
+        .sum()
 }
 
 fn rewrite_heredoc_body_source_texts(
