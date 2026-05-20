@@ -4447,6 +4447,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             // The opening redirection keeps delimiter quoting, but the closing
             // marker line uses the cooked delimiter text after quote removal.
             let delimiter = heredoc_closing_marker_source(heredoc, source)
+                .map(str::to_string)
                 .unwrap_or_else(|| heredoc.delimiter.cooked.to_string());
             self.pending_heredocs.push(PendingHeredoc {
                 body,
@@ -4921,16 +4922,13 @@ fn compound_assignment_is_single_case_command_substitution(assignment: &Assignme
     let WordPart::CommandSubstitution { body, .. } = &part.kind else {
         return false;
     };
-    stmt_seq_is_single_case_command(body)
-}
-
-fn stmt_seq_is_single_case_command(body: &StmtSeq) -> bool {
-    let [stmt] = body.as_slice() else {
-        return false;
-    };
-    !stmt.negated
-        && stmt.redirects.is_empty()
-        && matches!(&stmt.command, Command::Compound(CompoundCommand::Case(_)))
+    matches!(
+        body.as_slice(),
+        [stmt]
+            if !stmt.negated
+                && stmt.redirects.is_empty()
+                && matches!(&stmt.command, Command::Compound(CompoundCommand::Case(_)))
+    )
 }
 
 fn word_contains_command_heredoc(word: &Word) -> bool {
@@ -5017,10 +5015,9 @@ fn normalize_rendered_heredoc_start_spacing(line: &str) -> Option<String> {
     Some(normalized)
 }
 
-fn heredoc_closing_marker_source(heredoc: &Heredoc, source: &str) -> Option<String> {
+fn heredoc_closing_marker_source<'a>(heredoc: &Heredoc, source: &'a str) -> Option<&'a str> {
     let (start, line_end) = heredoc_closing_marker_bounds(heredoc, source)?;
-    let line = source.get(start..line_end)?;
-    (line.trim_start_matches('\t') == heredoc.delimiter.cooked.as_str()).then(|| line.to_string())
+    source.get(start..line_end)
 }
 
 fn heredoc_closing_marker_bounds(heredoc: &Heredoc, source: &str) -> Option<(usize, usize)> {

@@ -856,18 +856,20 @@ fn trim_unescaped_trailing_whitespace_in_place(text: &mut String, start: usize) 
 }
 
 pub(crate) fn has_heredoc(stmt: &Stmt) -> bool {
-    stmt.redirects.iter().any(is_heredoc)
-        || match &stmt.command {
-            Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => false,
-            Command::Binary(command) => has_heredoc(&command.left) || has_heredoc(&command.right),
-            Command::Compound(command) => compound_has_heredoc(command),
-            Command::Function(function) => has_heredoc(&function.body),
-            Command::AnonymousFunction(function) => has_heredoc(&function.body),
+    stmt.redirects.iter().any(|redirect| {
+        matches!(
+            redirect.kind,
+            RedirectKind::HereDoc | RedirectKind::HereDocStrip
+        )
+    }) || match &stmt.command {
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => false,
+        Command::Binary(command) => has_heredoc(&command.left) || has_heredoc(&command.right),
+        Command::Compound(command) => {
+            compound_contains_child(command, has_heredoc, stmt_seq_has_heredoc)
         }
-}
-
-fn compound_has_heredoc(command: &CompoundCommand) -> bool {
-    compound_contains_child(command, has_heredoc, stmt_seq_has_heredoc)
+        Command::Function(function) => has_heredoc(&function.body),
+        Command::AnonymousFunction(function) => has_heredoc(&function.body),
+    }
 }
 
 pub(crate) fn compound_contains_child(
@@ -943,13 +945,6 @@ fn for_each_compound_child(command: &CompoundCommand, mut visitor: impl FnMut(Co
 
 pub(crate) fn stmt_seq_has_heredoc(commands: &StmtSeq) -> bool {
     commands.iter().any(has_heredoc)
-}
-
-fn is_heredoc(redirect: &shuck_ast::Redirect) -> bool {
-    matches!(
-        redirect.kind,
-        RedirectKind::HereDoc | RedirectKind::HereDocStrip
-    )
 }
 
 pub(crate) fn stmt_verbatim_span_with_source_map(stmt: &Stmt, source_map: &SourceMap<'_>) -> Span {
