@@ -231,51 +231,46 @@ fn command_has_multiline_literal_source(command: &Command, source: &str) -> bool
 
 fn builtin_has_multiline_literal_source(command: &BuiltinCommand, source: &str) -> bool {
     match command {
-        BuiltinCommand::Break(command) => {
-            optional_word_has_multiline_literal_source(command.depth.as_ref(), source)
-                || command
-                    .extra_args
-                    .iter()
-                    .any(|word| word_has_multiline_literal_source(word, source))
-                || command
-                    .assignments
-                    .iter()
-                    .any(|assignment| assignment_has_multiline_literal_source(assignment, source))
-        }
-        BuiltinCommand::Continue(command) => {
-            optional_word_has_multiline_literal_source(command.depth.as_ref(), source)
-                || command
-                    .extra_args
-                    .iter()
-                    .any(|word| word_has_multiline_literal_source(word, source))
-                || command
-                    .assignments
-                    .iter()
-                    .any(|assignment| assignment_has_multiline_literal_source(assignment, source))
-        }
-        BuiltinCommand::Return(command) => {
-            optional_word_has_multiline_literal_source(command.code.as_ref(), source)
-                || command
-                    .extra_args
-                    .iter()
-                    .any(|word| word_has_multiline_literal_source(word, source))
-                || command
-                    .assignments
-                    .iter()
-                    .any(|assignment| assignment_has_multiline_literal_source(assignment, source))
-        }
-        BuiltinCommand::Exit(command) => {
-            optional_word_has_multiline_literal_source(command.code.as_ref(), source)
-                || command
-                    .extra_args
-                    .iter()
-                    .any(|word| word_has_multiline_literal_source(word, source))
-                || command
-                    .assignments
-                    .iter()
-                    .any(|assignment| assignment_has_multiline_literal_source(assignment, source))
-        }
+        BuiltinCommand::Break(command) => builtin_args_have_multiline_literal_source(
+            command.depth.as_ref(),
+            &command.extra_args,
+            &command.assignments,
+            source,
+        ),
+        BuiltinCommand::Continue(command) => builtin_args_have_multiline_literal_source(
+            command.depth.as_ref(),
+            &command.extra_args,
+            &command.assignments,
+            source,
+        ),
+        BuiltinCommand::Return(command) => builtin_args_have_multiline_literal_source(
+            command.code.as_ref(),
+            &command.extra_args,
+            &command.assignments,
+            source,
+        ),
+        BuiltinCommand::Exit(command) => builtin_args_have_multiline_literal_source(
+            command.code.as_ref(),
+            &command.extra_args,
+            &command.assignments,
+            source,
+        ),
     }
+}
+
+fn builtin_args_have_multiline_literal_source(
+    primary: Option<&Word>,
+    extra_args: &[Word],
+    assignments: &[Assignment],
+    source: &str,
+) -> bool {
+    optional_word_has_multiline_literal_source(primary, source)
+        || extra_args
+            .iter()
+            .any(|word| word_has_multiline_literal_source(word, source))
+        || assignments
+            .iter()
+            .any(|assignment| assignment_has_multiline_literal_source(assignment, source))
 }
 
 fn optional_word_has_multiline_literal_source(word: Option<&Word>, source: &str) -> bool {
