@@ -8,7 +8,7 @@ use shuck_ast::{
     ZshExpansionOperation, ZshExpansionTarget,
 };
 
-use crate::command::array_elem_value_word_mut;
+use crate::command::{array_elem_value_word_mut, render_var_ref_to_buf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimplifyReport {
@@ -78,20 +78,20 @@ pub fn simplify_file(file: &mut File, source: &str) -> SimplifyReport {
 }
 
 fn rewrite_paren_cleanup(file: &mut File, source: &str) -> usize {
-    walk_stmts(file, source, &mut |stmt, source| {
-        let mut changes = 0;
-        changes += rewrite_stmt_source_texts(stmt, source, &mut |text, source| {
-            transform_source_text(text, source, strip_single_outer_parens)
-        });
-        changes
-    })
+    rewrite_file_source_texts(file, source, strip_single_outer_parens)
 }
 
 fn rewrite_arithmetic_variables(file: &mut File, source: &str) -> usize {
-    walk_stmts(file, source, &mut |stmt, source| {
-        rewrite_stmt_source_texts(stmt, source, &mut |text, source| {
-            transform_source_text(text, source, simplify_arithmetic_variables_text)
-        })
+    rewrite_file_source_texts(file, source, simplify_arithmetic_variables_text)
+}
+
+fn rewrite_file_source_texts(
+    file: &mut File,
+    source: &str,
+    transform: fn(&str) -> Option<String>,
+) -> usize {
+    rewrite_stmt_seq_source_texts(&mut file.body, source, &mut |text, source| {
+        transform_source_text(text, source, transform)
     })
 }
 
@@ -775,7 +775,7 @@ fn rewrite_compound_source_texts(
             rewrite_stmt_source_texts(command, source, visitor)
         }),
         CompoundCommand::Conditional(command) => {
-            rewrite_conditional_source_texts(command, source, visitor)
+            rewrite_conditional_expr_source_texts(&mut command.expression, source, visitor)
         }
         CompoundCommand::Coproc(command) => {
             rewrite_stmt_source_texts(command.body.as_mut(), source, visitor)
@@ -796,14 +796,6 @@ fn rewrite_stmt_seq_source_texts(
         .iter_mut()
         .map(|command| rewrite_stmt_source_texts(command, source, visitor))
         .sum()
-}
-
-fn rewrite_conditional_source_texts(
-    command: &mut ConditionalCommand,
-    source: &str,
-    visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
-) -> usize {
-    rewrite_conditional_expr_source_texts(&mut command.expression, source, visitor)
 }
 
 fn rewrite_conditional_expr_source_texts(
@@ -1410,12 +1402,8 @@ fn render_zsh_parameter_raw_body(
 }
 
 fn render_var_ref_syntax(reference: &VarRef, source: &str) -> String {
-    let mut rendered = reference.name.to_string();
-    if let Some(subscript) = &reference.subscript {
-        rendered.push('[');
-        rendered.push_str(subscript.syntax_text(source));
-        rendered.push(']');
-    }
+    let mut rendered = String::new();
+    render_var_ref_to_buf(reference, source, &mut rendered);
     rendered
 }
 
