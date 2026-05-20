@@ -2189,9 +2189,9 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             => "_command_exists goenv ||\n\t[[ -x \"$GOENV_ROOT/bin/goenv\" ]] ||\n\treturn 0\n";
     }
 
-    #[test]
-    fn keeps_inline_list_operator_before_multiline_brace_group() {
-        let source = r#"function S() {
+    bash_unchanged_ast_cases! {
+        keeps_inline_list_operator_before_multiline_brace_group:
+            r#"function S() {
 	about 'save a bookmark'
 	param '1: bookmark name'
 	example '$ S mybkmrk'
@@ -2217,16 +2217,12 @@ function R() {
 	}
 }
 "#;
-        assert_bash_unchanged_with_ast(source);
     }
 
-    #[test]
-    fn keeps_multiline_condition_list_operator_before_brace_group() {
-        let source = "while [[ -n \"$x\" ]] &&\n  ! {\n    [[ -d \"$x\" ]] &&\n      [[ -f \"$x\" ]]\n  } && {\n    {\n      [[ \"$x\" =~ ^/ ]] &&\n        [[ \"$x\" != / ]]\n    } || {\n      [[ \"$x\" != /tmp ]]\n    }\n  }; do\n  x=\"${x%/*}\"\ndone\n";
-        assert_bash_formats_with_ast(
-            source,
-            "while [[ -n \"$x\" ]] &&\n\t! {\n\t\t[[ -d \"$x\" ]] &&\n\t\t\t[[ -f \"$x\" ]]\n\t} && {\n\t{\n\t\t[[ \"$x\" =~ ^/ ]] &&\n\t\t\t[[ \"$x\" != / ]]\n\t} || {\n\t\t[[ \"$x\" != /tmp ]]\n\t}\n}; do\n\tx=\"${x%/*}\"\ndone\n",
-        );
+    bash_format_ast_cases! {
+        keeps_multiline_condition_list_operator_before_brace_group:
+            "while [[ -n \"$x\" ]] &&\n  ! {\n    [[ -d \"$x\" ]] &&\n      [[ -f \"$x\" ]]\n  } && {\n    {\n      [[ \"$x\" =~ ^/ ]] &&\n        [[ \"$x\" != / ]]\n    } || {\n      [[ \"$x\" != /tmp ]]\n    }\n  }; do\n  x=\"${x%/*}\"\ndone\n"
+            => "while [[ -n \"$x\" ]] &&\n\t! {\n\t\t[[ -d \"$x\" ]] &&\n\t\t\t[[ -f \"$x\" ]]\n\t} && {\n\t{\n\t\t[[ \"$x\" =~ ^/ ]] &&\n\t\t\t[[ \"$x\" != / ]]\n\t} || {\n\t\t[[ \"$x\" != /tmp ]]\n\t}\n}; do\n\tx=\"${x%/*}\"\ndone\n";
     }
 
     #[test]
@@ -2282,9 +2278,9 @@ function R() {
         );
     }
 
-    #[test]
-    fn formats_case_command_substitution_array_assignment_like_shfmt() {
-        let source = r#"_genkernel() {
+    bash_format_ast_cases! {
+        formats_case_command_substitution_array_assignment_like_shfmt:
+            r#"_genkernel() {
 	declare args rhs
 	args=( $(case $args in
 	('<0-5>') compgen -W "$(echo {1..5})" -- "$rhs" ;;
@@ -2293,10 +2289,8 @@ function R() {
 	(*) compgen -o bashdefault -- "$rhs" ;; # punt
     esac) )
 }
-"#;
-        assert_bash_formats_with_ast(
-            source,
-            r#"_genkernel() {
+"#
+            => r#"_genkernel() {
 	declare args rhs
 	args=($(case $args in
 		'<0-5>') compgen -W "$(echo {1..5})" -- "$rhs" ;;
@@ -2305,8 +2299,7 @@ function R() {
 		*) compgen -o bashdefault -- "$rhs" ;; # punt
 		esac))
 }
-"#,
-        );
+"#;
     }
 
     default_format_ast_cases! {
@@ -2651,17 +2644,14 @@ function R() {
             => "if true; then\n\t((\\\n\tI++, \\\n\tIDX = 16 + \\\n\tR * 5 + \\\n\tG * 6))\n\nelse\n\techo no\nfi\n";
     }
 
-    #[test]
-    fn formats_multiline_arithmetic_expansions_with_continuations() {
-        let source = "_auto_limit_amount=\"$((
+    bash_format_ast_cases! {
+        formats_multiline_arithmetic_expansions_with_continuations:
+            "_auto_limit_amount=\"$((
   ${_available_lines:-1}                -
     ${_header_and_footer_line_count:-0} +
     ${_auto_limit_adjustment:-0}
-))\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "_auto_limit_amount=\"$((\\\n\t${_available_lines:-1} - \\\n\t${_header_and_footer_line_count:-0} + \\\n\t${_auto_limit_adjustment:-0}))\"\n",
-        );
+))\"\n"
+            => "_auto_limit_amount=\"$((\\\n\t${_available_lines:-1} - \\\n\t${_header_and_footer_line_count:-0} + \\\n\t${_auto_limit_adjustment:-0}))\"\n";
     }
 
     default_format_ast_cases! {
