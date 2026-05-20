@@ -220,59 +220,50 @@ fn walk_stmt(
 
 fn walk_builtin(command: &mut BuiltinCommand, source: &str) -> usize {
     match command {
-        BuiltinCommand::Break(command) => {
-            let mut count = 0;
-            for assignment in &mut command.assignments {
-                count += walk_assignment(assignment, source, &mut |_| 0, &mut |_| 0);
-            }
-            if let Some(depth) = &mut command.depth {
-                count += walk_word(depth, source, &mut |_| 0);
-            }
-            for argument in &mut command.extra_args {
-                count += walk_word(argument, source, &mut |_| 0);
-            }
-            count
-        }
-        BuiltinCommand::Continue(command) => {
-            let mut count = 0;
-            for assignment in &mut command.assignments {
-                count += walk_assignment(assignment, source, &mut |_| 0, &mut |_| 0);
-            }
-            if let Some(depth) = &mut command.depth {
-                count += walk_word(depth, source, &mut |_| 0);
-            }
-            for argument in &mut command.extra_args {
-                count += walk_word(argument, source, &mut |_| 0);
-            }
-            count
-        }
-        BuiltinCommand::Return(command) => {
-            let mut count = 0;
-            for assignment in &mut command.assignments {
-                count += walk_assignment(assignment, source, &mut |_| 0, &mut |_| 0);
-            }
-            if let Some(code) = &mut command.code {
-                count += walk_word(code, source, &mut |_| 0);
-            }
-            for argument in &mut command.extra_args {
-                count += walk_word(argument, source, &mut |_| 0);
-            }
-            count
-        }
-        BuiltinCommand::Exit(command) => {
-            let mut count = 0;
-            for assignment in &mut command.assignments {
-                count += walk_assignment(assignment, source, &mut |_| 0, &mut |_| 0);
-            }
-            if let Some(code) = &mut command.code {
-                count += walk_word(code, source, &mut |_| 0);
-            }
-            for argument in &mut command.extra_args {
-                count += walk_word(argument, source, &mut |_| 0);
-            }
-            count
-        }
+        BuiltinCommand::Break(command) => walk_builtin_like(
+            &mut command.assignments,
+            command.depth.as_mut(),
+            &mut command.extra_args,
+            source,
+        ),
+        BuiltinCommand::Continue(command) => walk_builtin_like(
+            &mut command.assignments,
+            command.depth.as_mut(),
+            &mut command.extra_args,
+            source,
+        ),
+        BuiltinCommand::Return(command) => walk_builtin_like(
+            &mut command.assignments,
+            command.code.as_mut(),
+            &mut command.extra_args,
+            source,
+        ),
+        BuiltinCommand::Exit(command) => walk_builtin_like(
+            &mut command.assignments,
+            command.code.as_mut(),
+            &mut command.extra_args,
+            source,
+        ),
     }
+}
+
+fn walk_builtin_like(
+    assignments: &mut [Assignment],
+    primary: Option<&mut Word>,
+    extra_args: &mut [Word],
+    source: &str,
+) -> usize {
+    let mut count = 0;
+    for assignment in assignments {
+        count += walk_assignment(assignment, source, &mut |_| 0, &mut |_| 0);
+    }
+    if let Some(primary) = primary {
+        count += walk_word(primary, source, &mut |_| 0);
+    }
+    for argument in extra_args {
+        count += walk_word(argument, source, &mut |_| 0);
+    }
+    count
 }
 
 fn walk_decl_clause(command: &mut DeclClause, source: &str) -> usize {
