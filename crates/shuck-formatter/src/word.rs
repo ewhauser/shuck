@@ -10,7 +10,10 @@ use shuck_ast::{
 };
 use shuck_format::IndentStyle;
 
-use crate::command::{array_elem_parts, stmt_seq_has_heredoc, trim_unescaped_trailing_whitespace};
+use crate::command::{
+    array_elem_parts, compound_contains_child, stmt_seq_has_heredoc,
+    trim_unescaped_trailing_whitespace,
+};
 use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
@@ -1925,49 +1928,7 @@ fn command_contains_comments(command: &Command) -> bool {
 }
 
 fn compound_contains_comments(command: &CompoundCommand) -> bool {
-    match command {
-        CompoundCommand::If(command) => {
-            stmt_seq_contains_comments(&command.condition)
-                || stmt_seq_contains_comments(&command.then_branch)
-                || command.elif_branches.iter().any(|(condition, body)| {
-                    stmt_seq_contains_comments(condition) || stmt_seq_contains_comments(body)
-                })
-                || command
-                    .else_branch
-                    .as_ref()
-                    .is_some_and(stmt_seq_contains_comments)
-        }
-        CompoundCommand::For(command) => stmt_seq_contains_comments(&command.body),
-        CompoundCommand::Repeat(command) => stmt_seq_contains_comments(&command.body),
-        CompoundCommand::Foreach(command) => stmt_seq_contains_comments(&command.body),
-        CompoundCommand::ArithmeticFor(command) => stmt_seq_contains_comments(&command.body),
-        CompoundCommand::While(command) => {
-            stmt_seq_contains_comments(&command.condition)
-                || stmt_seq_contains_comments(&command.body)
-        }
-        CompoundCommand::Until(command) => {
-            stmt_seq_contains_comments(&command.condition)
-                || stmt_seq_contains_comments(&command.body)
-        }
-        CompoundCommand::Case(command) => command
-            .cases
-            .iter()
-            .any(|case| stmt_seq_contains_comments(&case.body)),
-        CompoundCommand::Select(command) => stmt_seq_contains_comments(&command.body),
-        CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
-            stmt_seq_contains_comments(body)
-        }
-        CompoundCommand::Always(command) => {
-            stmt_seq_contains_comments(&command.body)
-                || stmt_seq_contains_comments(&command.always_body)
-        }
-        CompoundCommand::Time(command) => command
-            .command
-            .as_ref()
-            .is_some_and(|stmt| stmt_contains_comments(stmt)),
-        CompoundCommand::Coproc(command) => stmt_contains_comments(&command.body),
-        CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => false,
-    }
+    compound_contains_child(command, stmt_contains_comments, stmt_seq_contains_comments)
 }
 
 fn push_raw_command_substitution_comment_fallback(

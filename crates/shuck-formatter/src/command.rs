@@ -888,41 +888,48 @@ pub(crate) fn has_heredoc(stmt: &Stmt) -> bool {
 }
 
 fn compound_has_heredoc(command: &CompoundCommand) -> bool {
+    compound_contains_child(command, has_heredoc, stmt_seq_has_heredoc)
+}
+
+pub(crate) fn compound_contains_child(
+    command: &CompoundCommand,
+    mut stmt_predicate: impl FnMut(&Stmt) -> bool,
+    mut seq_predicate: impl FnMut(&StmtSeq) -> bool,
+) -> bool {
     match command {
         CompoundCommand::If(command) => {
-            stmt_seq_has_heredoc(&command.condition)
-                || stmt_seq_has_heredoc(&command.then_branch)
-                || command.elif_branches.iter().any(|(condition, body)| {
-                    stmt_seq_has_heredoc(condition) || stmt_seq_has_heredoc(body)
-                })
+            seq_predicate(&command.condition)
+                || seq_predicate(&command.then_branch)
                 || command
-                    .else_branch
-                    .as_ref()
-                    .is_some_and(stmt_seq_has_heredoc)
+                    .elif_branches
+                    .iter()
+                    .any(|(condition, body)| seq_predicate(condition) || seq_predicate(body))
+                || command.else_branch.as_ref().is_some_and(seq_predicate)
         }
-        CompoundCommand::For(command) => stmt_seq_has_heredoc(&command.body),
-        CompoundCommand::Repeat(command) => stmt_seq_has_heredoc(&command.body),
-        CompoundCommand::Foreach(command) => stmt_seq_has_heredoc(&command.body),
-        CompoundCommand::ArithmeticFor(command) => stmt_seq_has_heredoc(&command.body),
+        CompoundCommand::For(command) => seq_predicate(&command.body),
+        CompoundCommand::Repeat(command) => seq_predicate(&command.body),
+        CompoundCommand::Foreach(command) => seq_predicate(&command.body),
+        CompoundCommand::ArithmeticFor(command) => seq_predicate(&command.body),
         CompoundCommand::While(command) => {
-            stmt_seq_has_heredoc(&command.condition) || stmt_seq_has_heredoc(&command.body)
+            seq_predicate(&command.condition) || seq_predicate(&command.body)
         }
         CompoundCommand::Until(command) => {
-            stmt_seq_has_heredoc(&command.condition) || stmt_seq_has_heredoc(&command.body)
+            seq_predicate(&command.condition) || seq_predicate(&command.body)
         }
-        CompoundCommand::Case(command) => command
-            .cases
-            .iter()
-            .any(|item| stmt_seq_has_heredoc(&item.body)),
-        CompoundCommand::Select(command) => stmt_seq_has_heredoc(&command.body),
+        CompoundCommand::Case(command) => {
+            command.cases.iter().any(|item| seq_predicate(&item.body))
+        }
+        CompoundCommand::Select(command) => seq_predicate(&command.body),
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            stmt_seq_has_heredoc(commands)
+            seq_predicate(commands)
         }
         CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => false,
-        CompoundCommand::Time(command) => command.command.as_deref().is_some_and(has_heredoc),
-        CompoundCommand::Coproc(command) => has_heredoc(&command.body),
+        CompoundCommand::Time(command) => {
+            command.command.as_deref().is_some_and(&mut stmt_predicate)
+        }
+        CompoundCommand::Coproc(command) => stmt_predicate(&command.body),
         CompoundCommand::Always(command) => {
-            stmt_seq_has_heredoc(&command.body) || stmt_seq_has_heredoc(&command.always_body)
+            seq_predicate(&command.body) || seq_predicate(&command.always_body)
         }
     }
 }
