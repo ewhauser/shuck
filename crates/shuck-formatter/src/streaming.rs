@@ -1134,6 +1134,33 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
     }
 
+    fn stmt_rendered_end_line(&self, stmt: &Stmt) -> usize {
+        stmt_rendered_end_line_after_format(
+            stmt,
+            self.source(),
+            self.source_map(),
+            self.facts().stmt(stmt).rendered_end_line(),
+        )
+    }
+
+    fn stmt_sequence_next_start_line(
+        &self,
+        statements: &StmtSeq,
+        index: usize,
+        attachments: Option<&crate::facts::SequenceFacts<'source>>,
+    ) -> usize {
+        attachments
+            .map(|attachment| attachment.first_rendered_line_for(index + 1))
+            .unwrap_or_else(|| {
+                stmt_render_start_line(
+                    &statements[index + 1],
+                    self.source(),
+                    self.source_map(),
+                    self.options(),
+                )
+            })
+    }
+
     fn maybe_preserve_dangling_comment_outdent(&mut self, comment: &SourceComment<'_>) {
         if !self.line_start {
             return;
@@ -1246,21 +1273,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
             if index + 1 < statements.len() {
                 if matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
-                    let current_end = stmt_rendered_end_line_after_format(
-                        stmt,
-                        source,
-                        self.source_map(),
-                        self.facts().stmt(stmt).rendered_end_line(),
-                    );
-                    let next_start = attachments
-                        .as_ref()
-                        .map(|attachment| attachment.first_rendered_line_for(index + 1))
-                        .unwrap_or(stmt_render_start_line(
-                            &statements[index + 1],
-                            self.source(),
-                            self.source_map(),
-                            self.options(),
-                        ));
+                    let current_end = self.stmt_rendered_end_line(stmt);
+                    let next_start =
+                        self.stmt_sequence_next_start_line(statements, index, attachments.as_ref());
                     let breaks = if stmt_is_redirect_only(&statements[index + 1], source)
                         || !self.facts().background_has_explicit_line_break(stmt)
                     {
@@ -1272,21 +1287,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 } else if compact {
                     self.write_text("; ");
                 } else {
-                    let current_end = stmt_rendered_end_line_after_format(
-                        stmt,
-                        source,
-                        self.source_map(),
-                        self.facts().stmt(stmt).rendered_end_line(),
-                    );
-                    let next_start = attachments
-                        .as_ref()
-                        .map(|attachment| attachment.first_rendered_line_for(index + 1))
-                        .unwrap_or(stmt_render_start_line(
-                            &statements[index + 1],
-                            self.source(),
-                            self.source_map(),
-                            self.options(),
-                        ));
+                    let current_end = self.stmt_rendered_end_line(stmt);
+                    let next_start =
+                        self.stmt_sequence_next_start_line(statements, index, attachments.as_ref());
                     self.write_line_breaks(line_gap_break_count(current_end, next_start));
                 }
             }
@@ -1295,14 +1298,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.flush_pending_heredocs();
 
         if let Some(attachment) = attachments.as_ref() {
-            let previous_line = statements.last().map(|stmt| {
-                stmt_rendered_end_line_after_format(
-                    stmt,
-                    source,
-                    self.source_map(),
-                    self.facts().stmt(stmt).rendered_end_line(),
-                )
-            });
+            let previous_line = statements
+                .last()
+                .map(|stmt| self.stmt_rendered_end_line(stmt));
             self.emit_dangling_comments_after(attachment.dangling(), previous_line);
         }
         Ok(())
