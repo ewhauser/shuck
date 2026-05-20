@@ -35,44 +35,22 @@ pub struct RewriteApplication {
     pub changes: usize,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct SimplifyRewrite {
-    pub name: &'static str,
-    pub apply: fn(&mut File, &str) -> usize,
-}
+pub type SimplifyRewrite = (&'static str, fn(&mut File, &str) -> usize);
 
 pub const REWRITES: &[SimplifyRewrite] = &[
-    SimplifyRewrite {
-        name: "paren-cleanup",
-        apply: rewrite_paren_cleanup,
-    },
-    SimplifyRewrite {
-        name: "arithmetic-vars",
-        apply: rewrite_arithmetic_variables,
-    },
-    SimplifyRewrite {
-        name: "conditionals",
-        apply: rewrite_conditionals,
-    },
-    SimplifyRewrite {
-        name: "nested-subshells",
-        apply: rewrite_nested_subshells,
-    },
-    SimplifyRewrite {
-        name: "quote-tightening",
-        apply: rewrite_quote_tightening,
-    },
+    ("paren-cleanup", rewrite_paren_cleanup),
+    ("arithmetic-vars", rewrite_arithmetic_variables),
+    ("conditionals", rewrite_conditionals),
+    ("nested-subshells", rewrite_nested_subshells),
+    ("quote-tightening", rewrite_quote_tightening),
 ];
 
 pub fn simplify_file(file: &mut File, source: &str) -> SimplifyReport {
     let mut applied = Vec::new();
-    for rewrite in REWRITES {
-        let changes = (rewrite.apply)(file, source);
+    for &(name, apply) in REWRITES {
+        let changes = apply(file, source);
         if changes > 0 {
-            applied.push(RewriteApplication {
-                name: rewrite.name,
-                changes,
-            });
+            applied.push(RewriteApplication { name, changes });
         }
     }
     SimplifyReport { applied }
@@ -1655,16 +1633,16 @@ mod tests {
     fn rewrite_by_name(name: &str) -> SimplifyRewrite {
         *REWRITES
             .iter()
-            .find(|rewrite| rewrite.name == name)
+            .find(|(rewrite_name, _)| *rewrite_name == name)
             .unwrap_or_else(|| panic!("missing rewrite {name}"))
     }
 
     fn format_after_rewrite(source: &str, rewrite: &str) -> String {
         let parsed = Parser::new(source).parse().unwrap();
         let mut file = parsed.file.clone();
-        let rewrite = rewrite_by_name(rewrite);
-        let changes = (rewrite.apply)(&mut file, source);
-        assert!(changes > 0, "expected rewrite `{rewrite:?}` to apply");
+        let (rewrite_name, apply) = rewrite_by_name(rewrite);
+        let changes = apply(&mut file, source);
+        assert!(changes > 0, "expected rewrite `{rewrite_name}` to apply");
 
         match crate::format_file_ast(
             source,
