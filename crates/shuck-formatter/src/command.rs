@@ -1046,12 +1046,10 @@ fn function_body_verbatim_span(
     span
 }
 
-fn command_group_commands(command: &Command) -> Option<(&[Stmt], char)> {
+pub(crate) fn command_group_commands(command: &Command) -> Option<(&StmtSeq, char)> {
     match command {
-        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
-            Some((commands.as_slice(), '{'))
-        }
-        Command::Compound(CompoundCommand::Subshell(commands)) => Some((commands.as_slice(), '(')),
+        Command::Compound(CompoundCommand::BraceGroup(commands)) => Some((commands, '{')),
+        Command::Compound(CompoundCommand::Subshell(commands)) => Some((commands, '(')),
         _ => None,
     }
 }
@@ -1061,7 +1059,12 @@ fn command_group_attachment_span(
     source_map: &crate::comments::SourceMap<'_>,
 ) -> Option<Span> {
     let (commands, open) = command_group_commands(command)?;
-    group_attachment_span(commands, source_map, open, matching_group_close(open))
+    group_attachment_span(
+        commands.as_slice(),
+        source_map,
+        open,
+        matching_group_close(open),
+    )
 }
 
 fn stmt_group_attachment_or_verbatim_span(
@@ -1070,19 +1073,29 @@ fn stmt_group_attachment_or_verbatim_span(
 ) -> Option<Span> {
     let (commands, open) = command_group_commands(&stmt.command)?;
     Some(
-        group_attachment_span(commands, source_map, open, matching_group_close(open))
-            .unwrap_or_else(|| stmt_verbatim_span_with_source_map(stmt, source_map)),
+        group_attachment_span(
+            commands.as_slice(),
+            source_map,
+            open,
+            matching_group_close(open),
+        )
+        .unwrap_or_else(|| stmt_verbatim_span_with_source_map(stmt, source_map)),
     )
 }
 
 fn stmt_group_base_span(
     stmt: &Stmt,
-    commands: &[Stmt],
+    commands: &StmtSeq,
     source_map: &crate::comments::SourceMap<'_>,
     open: char,
 ) -> Span {
-    group_attachment_span(commands, source_map, open, matching_group_close(open))
-        .unwrap_or_else(|| stmt_span(stmt))
+    group_attachment_span(
+        commands.as_slice(),
+        source_map,
+        open,
+        matching_group_close(open),
+    )
+    .unwrap_or_else(|| stmt_span(stmt))
 }
 
 fn merge_redirect_heredoc_spans(mut span: Span, redirects: &[Redirect], source: &str) -> Span {
@@ -2047,7 +2060,7 @@ pub(crate) fn stmt_render_start_line(
     options: &crate::options::ResolvedShellFormatOptions,
 ) -> usize {
     if let Some((commands, open)) = command_group_commands(&stmt.command) {
-        group_render_start_line(stmt, commands, source, source_map, open, options)
+        group_render_start_line(stmt, commands.as_slice(), source, source_map, open, options)
     } else {
         stmt_attachment_span(stmt, source, source_map, options)
             .start
@@ -2076,7 +2089,7 @@ fn group_render_start_line(
         })
 }
 
-fn matching_group_close(open: char) -> char {
+pub(crate) fn matching_group_close(open: char) -> char {
     match open {
         '{' => '}',
         '(' => ')',

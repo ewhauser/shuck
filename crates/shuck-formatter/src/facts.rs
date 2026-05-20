@@ -12,11 +12,11 @@ use shuck_ast::{
 use shuck_indexer::Indexer;
 
 use crate::command::{
-    array_elem_parts, case_item_was_inline_in_source, done_close_span, group_attachment_span,
-    group_open_suffix, group_was_inline_in_source, if_close_span, rendered_stmt_end_line,
-    should_render_verbatim, stmt_attachment_span, stmt_format_span, stmt_has_trailing_comment,
-    stmt_render_start_line, stmt_span, stmt_start_after_operator,
-    stmt_verbatim_span_with_source_map,
+    array_elem_parts, case_item_was_inline_in_source, command_group_commands, done_close_span,
+    group_attachment_span, group_open_suffix, group_was_inline_in_source, if_close_span,
+    matching_group_close, rendered_stmt_end_line, should_render_verbatim, stmt_attachment_span,
+    stmt_format_span, stmt_has_trailing_comment, stmt_render_start_line, stmt_span,
+    stmt_start_after_operator, stmt_verbatim_span_with_source_map,
 };
 use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_window};
 use crate::options::ResolvedShellFormatOptions;
@@ -469,24 +469,18 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             self.visit_redirect(redirect);
         }
 
-        match &stmt.command {
-            Command::Compound(CompoundCommand::BraceGroup(commands)) => {
-                if group_was_inline_in_source(commands.as_slice(), self.source_map(), '{', '}') {
-                    self.facts
-                        .inline_group_sequences
-                        .insert(FactSpan::from(commands.span));
-                }
-                self.visit_sequence(commands, Some(stmt_span(stmt).end.offset), Some('{'));
+        if let Some((commands, open)) = command_group_commands(&stmt.command) {
+            if group_was_inline_in_source(
+                commands.as_slice(),
+                self.source_map(),
+                open,
+                matching_group_close(open),
+            ) {
+                self.facts
+                    .inline_group_sequences
+                    .insert(FactSpan::from(commands.span));
             }
-            Command::Compound(CompoundCommand::Subshell(commands)) => {
-                if group_was_inline_in_source(commands.as_slice(), self.source_map(), '(', ')') {
-                    self.facts
-                        .inline_group_sequences
-                        .insert(FactSpan::from(commands.span));
-                }
-                self.visit_sequence(commands, Some(stmt_span(stmt).end.offset), Some('('));
-            }
-            _ => {}
+            self.visit_sequence(commands, Some(stmt_span(stmt).end.offset), Some(open));
         }
 
         self.visit_command(&stmt.command);
@@ -961,26 +955,19 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_function_body(&mut self, body: &Stmt, function_end_offset: usize) {
-        match body {
-            Stmt {
-                command: Command::Compound(CompoundCommand::BraceGroup(commands)),
-                negated: false,
-                redirects,
-                terminator: None,
-                ..
-            } if redirects.is_empty() => {
-                self.visit_function_group_body(commands, function_end_offset, '{', '}');
-            }
-            Stmt {
-                command: Command::Compound(CompoundCommand::Subshell(commands)),
-                negated: false,
-                redirects,
-                terminator: None,
-                ..
-            } if redirects.is_empty() => {
-                self.visit_function_group_body(commands, function_end_offset, '(', ')');
-            }
-            body => self.visit_stmt(body),
+        if !body.negated
+            && body.redirects.is_empty()
+            && body.terminator.is_none()
+            && let Some((commands, open)) = command_group_commands(&body.command)
+        {
+            self.visit_function_group_body(
+                commands,
+                function_end_offset,
+                open,
+                matching_group_close(open),
+            );
+        } else {
+            self.visit_stmt(body);
         }
     }
 

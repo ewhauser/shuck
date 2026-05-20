@@ -16,10 +16,10 @@ use shuck_format::{IndentStyle, LineEnding};
 use crate::Result;
 use crate::command::{
     array_elem_parts, binary_operator, case_terminator, command_format_span,
-    done_close_span as command_done_close_span, format_arithmetic_command_source,
-    format_arithmetic_for_clause_source, group_attachment_span,
+    command_group_commands, done_close_span as command_done_close_span,
+    format_arithmetic_command_source, format_arithmetic_for_clause_source, group_attachment_span,
     if_close_span as command_if_close_span, line_gap_break_count,
-    line_has_unclosed_command_substitution_open,
+    line_has_unclosed_command_substitution_open, matching_group_close,
     multiline_compound_assignment_command_substitution_body_prefix,
     multiline_compound_assignment_layout, multiline_compound_assignment_lines,
     render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
@@ -5700,30 +5700,22 @@ fn stmt_rendered_end_line_after_format(
                 fallback,
             );
         }
-        Command::Compound(CompoundCommand::BraceGroup(commands))
-            if stmt.redirects.is_empty() && stmt.terminator.is_none() =>
-        {
-            if let Some(span) = group_attachment_span(commands.as_slice(), source_map, '{', '}') {
+        _ if stmt.redirects.is_empty() && stmt.terminator.is_none() => {
+            if let Some((commands, open)) = command_group_commands(&stmt.command)
+                && let Some(span) = group_attachment_span(
+                    commands.as_slice(),
+                    source_map,
+                    open,
+                    matching_group_close(open),
+                )
+            {
+                let close = matching_group_close(open);
                 let close_offset = group_close_offset(
                     source,
                     span,
                     Some(stmt_span(stmt).end.offset),
-                    '}',
-                    '}'.len_utf8(),
-                );
-                return source_map.line_number_for_offset(close_offset);
-            }
-        }
-        Command::Compound(CompoundCommand::Subshell(commands))
-            if stmt.redirects.is_empty() && stmt.terminator.is_none() =>
-        {
-            if let Some(span) = group_attachment_span(commands.as_slice(), source_map, '(', ')') {
-                let close_offset = group_close_offset(
-                    source,
-                    span,
-                    Some(stmt_span(stmt).end.offset),
-                    ')',
-                    ')'.len_utf8(),
+                    close,
+                    close.len_utf8(),
                 );
                 return source_map.line_number_for_offset(close_offset);
             }
@@ -6066,28 +6058,25 @@ fn sequence_first_content_offset(commands: &StmtSeq, source_map: &SourceMap<'_>)
 fn stmt_first_content_offset(stmt: &Stmt, source_map: &SourceMap<'_>) -> usize {
     match &stmt.command {
         Command::Binary(command) => stmt_first_content_offset(&command.left, source_map),
-        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
-            group_attachment_span(commands.as_slice(), source_map, '{', '}')
-                .map(|span| span.start.offset)
-                .unwrap_or_else(|| {
-                    stmt_verbatim_span_with_source_map(stmt, source_map)
-                        .start
-                        .offset
-                })
-        }
-        Command::Compound(CompoundCommand::Subshell(commands)) => {
-            group_attachment_span(commands.as_slice(), source_map, '(', ')')
-                .map(|span| span.start.offset)
-                .unwrap_or_else(|| {
-                    stmt_verbatim_span_with_source_map(stmt, source_map)
-                        .start
-                        .offset
-                })
-        }
         _ => {
-            stmt_verbatim_span_with_source_map(stmt, source_map)
-                .start
-                .offset
+            if let Some((commands, open)) = command_group_commands(&stmt.command) {
+                group_attachment_span(
+                    commands.as_slice(),
+                    source_map,
+                    open,
+                    matching_group_close(open),
+                )
+                .map(|span| span.start.offset)
+                .unwrap_or_else(|| {
+                    stmt_verbatim_span_with_source_map(stmt, source_map)
+                        .start
+                        .offset
+                })
+            } else {
+                stmt_verbatim_span_with_source_map(stmt, source_map)
+                    .start
+                    .offset
+            }
         }
     }
 }
