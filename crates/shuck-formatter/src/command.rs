@@ -2041,7 +2041,7 @@ fn close_suffix_comment_span(
     Some(source_map.span_for_offsets(comment_start, comment_end))
 }
 
-fn if_close_span(
+pub(crate) fn if_close_span(
     command: &IfCommand,
     source: &str,
     source_map: &crate::comments::SourceMap<'_>,
@@ -2058,7 +2058,7 @@ fn if_close_span(
         .unwrap_or(syntax_close)
 }
 
-fn done_close_span(
+pub(crate) fn done_close_span(
     source: &str,
     source_map: &crate::comments::SourceMap<'_>,
     span: Span,

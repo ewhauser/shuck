@@ -12,8 +12,8 @@ use shuck_ast::{
 use shuck_indexer::Indexer;
 
 use crate::command::{
-    case_item_was_inline_in_source, group_attachment_span, group_open_suffix,
-    group_was_inline_in_source, rendered_stmt_end_line, should_render_verbatim,
+    case_item_was_inline_in_source, done_close_span, group_attachment_span, group_open_suffix,
+    group_was_inline_in_source, if_close_span, rendered_stmt_end_line, should_render_verbatim,
     stmt_attachment_span, stmt_format_span, stmt_has_trailing_comment, stmt_render_start_line,
     stmt_span, stmt_start_after_operator, stmt_verbatim_span_with_source_map,
 };
@@ -21,8 +21,7 @@ use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_win
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
     branch_keyword_offset, branch_prefix_first_comment_offset, last_shell_keyword_start,
-    last_uncommented_shell_keyword_before, matching_done_close_start, matching_if_close_start,
-    normalized_close_keyword_span, operator_starts_or_ends_line,
+    last_uncommented_shell_keyword_before, operator_starts_or_ends_line,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1373,25 +1372,20 @@ fn case_body_fallback_upper_bound(command: &CaseCommand, source_map: &SourceMap<
 }
 
 fn done_body_upper_bound(source_map: &SourceMap<'_>, span: Span) -> usize {
-    done_close_span(source_map, span, None).map_or(span.end.offset, |close| close.start.offset)
-}
-
-fn done_close_span(source_map: &SourceMap<'_>, span: Span, fallback: Option<Span>) -> Option<Span> {
-    let source = source_map.source();
-    matching_done_close_start(source, span)
-        .map(|start| source_map.span_for_offsets(start, start + "done".len()))
-        .or_else(|| {
-            fallback.map(|span| normalized_close_keyword_span(source, source_map, span, "done"))
-        })
+    done_close_span(source_map.source(), source_map, span, None)
+        .map_or(span.end.offset, |close| close.start.offset)
 }
 
 fn for_body_upper_bound(command: &ForCommand, source_map: &SourceMap<'_>) -> usize {
     match command.syntax {
         shuck_ast::ForSyntax::InDoDone { done_span, .. }
-        | shuck_ast::ForSyntax::ParenDoDone { done_span, .. } => {
-            done_close_span(source_map, command.span, Some(done_span))
-                .map_or(done_span.start.offset, |span| span.start.offset)
-        }
+        | shuck_ast::ForSyntax::ParenDoDone { done_span, .. } => done_close_span(
+            source_map.source(),
+            source_map,
+            command.span,
+            Some(done_span),
+        )
+        .map_or(done_span.start.offset, |span| span.start.offset),
         shuck_ast::ForSyntax::InBrace {
             right_brace_span, ..
         }
@@ -1406,10 +1400,13 @@ fn for_body_upper_bound(command: &ForCommand, source_map: &SourceMap<'_>) -> usi
 
 fn foreach_body_upper_bound(command: &ForeachCommand, source_map: &SourceMap<'_>) -> usize {
     match command.syntax {
-        shuck_ast::ForeachSyntax::InDoDone { done_span, .. } => {
-            done_close_span(source_map, command.span, Some(done_span))
-                .map_or(done_span.start.offset, |span| span.start.offset)
-        }
+        shuck_ast::ForeachSyntax::InDoDone { done_span, .. } => done_close_span(
+            source_map.source(),
+            source_map,
+            command.span,
+            Some(done_span),
+        )
+        .map_or(done_span.start.offset, |span| span.start.offset),
         shuck_ast::ForeachSyntax::ParenBrace {
             right_brace_span, ..
         } => right_brace_span.start.offset,
@@ -1418,10 +1415,13 @@ fn foreach_body_upper_bound(command: &ForeachCommand, source_map: &SourceMap<'_>
 
 fn repeat_body_upper_bound(command: &RepeatCommand, source_map: &SourceMap<'_>) -> usize {
     match command.syntax {
-        shuck_ast::RepeatSyntax::DoDone { done_span, .. } => {
-            done_close_span(source_map, command.span, Some(done_span))
-                .map_or(done_span.start.offset, |span| span.start.offset)
-        }
+        shuck_ast::RepeatSyntax::DoDone { done_span, .. } => done_close_span(
+            source_map.source(),
+            source_map,
+            command.span,
+            Some(done_span),
+        )
+        .map_or(done_span.start.offset, |span| span.start.offset),
         shuck_ast::RepeatSyntax::Brace {
             right_brace_span, ..
         } => right_brace_span.start.offset,
@@ -1429,22 +1429,10 @@ fn repeat_body_upper_bound(command: &RepeatCommand, source_map: &SourceMap<'_>) 
     }
 }
 
-fn if_close_span(command: &IfCommand, source_map: &SourceMap<'_>) -> Span {
-    let source = source_map.source();
-    let (syntax_close, keyword) = match command.syntax {
-        shuck_ast::IfSyntax::ThenFi { fi_span, .. } => (fi_span, "fi"),
-        shuck_ast::IfSyntax::Brace {
-            right_brace_span, ..
-        } => (right_brace_span, "}"),
-    };
-    let syntax_close = normalized_close_keyword_span(source, source_map, syntax_close, keyword);
-    matching_if_close_start(source, command.span)
-        .map(|start| source_map.span_for_offsets(start, start + keyword.len()))
-        .unwrap_or(syntax_close)
-}
-
 fn if_close_start(command: &IfCommand, source_map: &SourceMap<'_>) -> usize {
-    if_close_span(command, source_map).start.offset
+    if_close_span(command, source_map.source(), source_map)
+        .start
+        .offset
 }
 
 fn span_contains_comment(span: Span, comment: SourceComment<'_>) -> bool {
