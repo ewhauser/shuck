@@ -2344,7 +2344,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             .facts()
             .list_item_has_explicit_line_break(item.operator_span)
         {
-            self.write_text(list_item_multiline_separator(item.operator));
+            self.write_text(list_item_separator(item.operator, false));
             self.newline();
             self.with_indent(|formatter| {
                 let emitted_interstitial_comments = formatter
@@ -2366,7 +2366,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return Ok(());
         }
 
-        self.write_text(list_item_inline_separator(item.operator));
+        self.write_text(list_item_separator(item.operator, true));
         self.format_stmt(item.stmt)
     }
 
@@ -4429,7 +4429,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 .facts()
                 .list_item_has_explicit_line_break(item.operator_span)
             {
-                self.write_text(list_item_multiline_separator(item.operator));
+                self.write_text(list_item_separator(item.operator, false));
                 self.newline();
                 self.with_indent(|formatter| {
                     let emitted_interstitial_comments = formatter
@@ -4441,7 +4441,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 })?;
                 continue;
             }
-            self.write_text(list_item_inline_separator(item.operator));
+            self.write_text(list_item_separator(item.operator, true));
             self.format_inline_stmt(item.stmt)?;
         }
         Ok(())
@@ -8702,19 +8702,14 @@ fn collect_command_list_first<'a>(
     first
 }
 
-fn list_item_inline_separator(operator: BinaryOp) -> &'static str {
-    match operator {
-        BinaryOp::And => " && ",
-        BinaryOp::Or => " || ",
-        BinaryOp::Pipe | BinaryOp::PipeAll => "; ",
-    }
-}
-
-fn list_item_multiline_separator(operator: BinaryOp) -> &'static str {
-    match operator {
-        BinaryOp::And => " &&",
-        BinaryOp::Or => " ||",
-        BinaryOp::Pipe | BinaryOp::PipeAll => ";",
+fn list_item_separator(operator: BinaryOp, inline: bool) -> &'static str {
+    match (operator, inline) {
+        (BinaryOp::And, true) => " && ",
+        (BinaryOp::And, false) => " &&",
+        (BinaryOp::Or, true) => " || ",
+        (BinaryOp::Or, false) => " ||",
+        (BinaryOp::Pipe | BinaryOp::PipeAll, true) => "; ",
+        (BinaryOp::Pipe | BinaryOp::PipeAll, false) => ";",
     }
 }
 

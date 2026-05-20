@@ -655,17 +655,8 @@ fn word_has_parameter_raw_subscript_needs_compaction(
     source: &str,
     options: &ResolvedShellFormatOptions,
 ) -> bool {
-    word.parts.iter().any(|part| match &part.kind {
-        WordPart::Parameter(parameter) => {
-            parameter_raw_subscript_needs_compaction(parameter, source, options)
-        }
-        WordPart::DoubleQuoted { parts, .. } => parts.iter().any(|part| match &part.kind {
-            WordPart::Parameter(parameter) => {
-                parameter_raw_subscript_needs_compaction(parameter, source, options)
-            }
-            _ => false,
-        }),
-        _ => false,
+    word.parts.iter().any(|part| {
+        word_part_has_parameter_raw_subscript_needs_compaction(&part.kind, source, options)
     })
 }
 
