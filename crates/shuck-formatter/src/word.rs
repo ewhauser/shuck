@@ -3753,12 +3753,7 @@ fn normalize_raw_command_substitution_padding(raw: &str) -> Option<String> {
         index += 1;
     }
 
-    if changed {
-        rendered.push_str(&raw[cursor..]);
-        Some(rendered)
-    } else {
-        None
-    }
+    finish_raw_rewrite(rendered, raw, cursor, changed)
 }
 
 fn trim_raw_command_substitution_horizontal_padding(body: &str) -> &str {
@@ -3798,12 +3793,7 @@ pub(crate) fn normalize_raw_empty_parameter_replacement_delimiters(raw: &str) ->
         index += 1;
     }
 
-    if changed {
-        rendered.push_str(&raw[cursor..]);
-        Some(rendered)
-    } else {
-        None
-    }
+    finish_raw_rewrite(rendered, raw, cursor, changed)
 }
 
 fn matching_raw_parameter_expansion_close(raw: &str, body_start: usize) -> Option<usize> {
@@ -4007,12 +3997,7 @@ fn normalize_raw_arithmetic_expansion_padding(raw: &str) -> Option<String> {
         index += ch.len_utf8();
     }
 
-    if changed {
-        rendered.push_str(&raw[cursor..]);
-        Some(rendered)
-    } else {
-        None
-    }
+    finish_raw_rewrite(rendered, raw, cursor, changed)
 }
 
 fn matching_raw_arithmetic_expansion_close(raw: &str, body_start: usize) -> Option<usize> {
@@ -5728,12 +5713,19 @@ fn normalize_inline_command_substitutions_in_parameter_operand(
         index += 1;
     }
 
-    if changed {
+    finish_raw_rewrite(rendered, raw, cursor, changed)
+}
+
+fn finish_raw_rewrite(
+    mut rendered: String,
+    raw: &str,
+    cursor: usize,
+    changed: bool,
+) -> Option<String> {
+    changed.then(|| {
         rendered.push_str(&raw[cursor..]);
-        Some(rendered)
-    } else {
-        None
-    }
+        rendered
+    })
 }
 
 fn normalize_inline_parameter_command_substitution_body(
