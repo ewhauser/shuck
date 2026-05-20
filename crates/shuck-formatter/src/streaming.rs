@@ -954,10 +954,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         {
             self.write_shell_text_with_heredoc_tails(&scratch, true);
         } else if scratch.contains('\n')
-            && word_is_quoted_formattable_command_substitution_only(word, self.source())
+            && (word_is_quoted_formattable_command_substitution_only(word, self.source())
+                || word_contains_process_substitution(word))
         {
-            self.write_text_preserving_current_line_indent(&scratch);
-        } else if scratch.contains('\n') && word_contains_process_substitution(word) {
             self.write_text_preserving_current_line_indent(&scratch);
         } else if word_has_multiline_literal_source(word, self.source()) {
             if scratch.contains('\n')
@@ -5218,7 +5217,6 @@ fn rendered_heredoc_tail_start(line: &str) -> Option<RenderedHeredocTail> {
         (false, after_marker)
     };
     let delimiter = after_marker
-        .trim_start()
         .split_whitespace()
         .next()?
         .trim_matches(['\'', '"'])
@@ -8363,7 +8361,6 @@ fn word_part_contains_substitution(part: &WordPart, kind: WordSubstitutionKind) 
             expression_word_ast,
             ..
         } => word_contains_substitution(expression_word_ast, kind),
-        WordPart::Parameter(_) => false,
         WordPart::ParameterExpansion {
             operand_word_ast, ..
         } => operand_word_ast
@@ -8568,8 +8565,12 @@ fn branch_prefix_comments_use_disabled_body_indent(comments: &[BranchPrefixComme
 
 fn time_inner_stmt_needs_trailing_comment(stmt: &Stmt) -> bool {
     match &stmt.command {
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => true,
-        Command::Compound(CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_)) => true,
+        Command::Simple(_)
+        | Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Compound(CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_)) => {
+            true
+        }
         Command::Binary(command) => time_inner_stmt_needs_trailing_comment(&command.right),
         _ => false,
     }
@@ -8600,7 +8601,7 @@ fn unmodeled_branch_background_operator(
         .min(source.len());
     let end = upper_bound.min(source.len());
     let between = source.get(start..end)?;
-    let trimmed = between.trim_start_matches(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n'));
+    let trimmed = between.trim_start_matches([' ', '\t', '\r', '\n']);
     let (operator, rest) = if let Some(rest) = trimmed.strip_prefix("&|") {
         ("&|", rest)
     } else if let Some(rest) = trimmed.strip_prefix("&!") {
@@ -8618,7 +8619,7 @@ fn unmodeled_branch_background_operator(
 }
 
 fn trailing_unmodeled_background_operator(text: &str) -> Option<&'static str> {
-    let trimmed = text.trim_end_matches(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n'));
+    let trimmed = text.trim_end_matches([' ', '\t', '\r', '\n']);
     if trimmed.ends_with("&|") {
         Some("&|")
     } else if trimmed.ends_with("&!") {

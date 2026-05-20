@@ -738,16 +738,17 @@ fn quoted_command_substitution_only_body(word: &Word) -> Option<&StmtSeq> {
 
 fn part_needs_special_rendering(part: &WordPart) -> bool {
     match part {
-        WordPart::SingleQuoted { dollar: true, .. } => true,
-        WordPart::DoubleQuoted { .. } => false,
         WordPart::ArithmeticExpansion { expression_ast, .. } => expression_ast.is_some(),
         WordPart::Parameter(parameter) => parameter_needs_special_rendering(parameter),
         WordPart::ParameterExpansion { operator, .. } => matches!(
             operator.as_ref(),
             ParameterOp::ReplaceFirst { .. } | ParameterOp::ReplaceAll { .. }
         ),
-        WordPart::Substring { .. } | WordPart::ArraySlice { .. } => true,
-        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => true,
+        WordPart::SingleQuoted { dollar: true, .. }
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ProcessSubstitution { .. } => true,
         _ => false,
     }
 }
@@ -1505,18 +1506,13 @@ fn render_word_part(
             source,
             options,
         )?,
-        WordPart::Length(reference) => {
+        WordPart::Length(reference) | WordPart::ArrayLength(reference) => {
             rendered.push_str("${#");
             push_var_ref(rendered, reference, source, options);
             rendered.push('}');
         }
         WordPart::ArrayAccess(reference) => {
             rendered.push_str("${");
-            push_var_ref(rendered, reference, source, options);
-            rendered.push('}');
-        }
-        WordPart::ArrayLength(reference) => {
-            rendered.push_str("${#");
             push_var_ref(rendered, reference, source, options);
             rendered.push('}');
         }
@@ -5342,10 +5338,7 @@ fn arithmetic_needs_parentheses(expr: &ArithmeticExprNode, context: ArithmeticCo
         ArithmeticContext::TopLevel
         | ArithmeticContext::Subscript
         | ArithmeticContext::ConditionalCondition => false,
-        ArithmeticContext::Unary => {
-            expr_prec < arithmetic_precedence_value(ArithmeticBinaryOp::Power)
-        }
-        ArithmeticContext::Postfix => {
+        ArithmeticContext::Unary | ArithmeticContext::Postfix => {
             expr_prec < arithmetic_precedence_value(ArithmeticBinaryOp::Power)
         }
         ArithmeticContext::Assignment => expr_prec <= 2,

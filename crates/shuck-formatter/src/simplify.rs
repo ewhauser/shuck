@@ -517,15 +517,7 @@ fn walk_heredoc_body(
 
 fn walk_word_part(part: &mut WordPartNode) -> usize {
     match &mut part.kind {
-        WordPart::ZshQualifiedGlob(_) => 0,
-        WordPart::DoubleQuoted { parts, .. } => {
-            let mut count = 0;
-            for part in parts {
-                count += walk_word_part(part);
-            }
-            count
-        }
-        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => 0,
+        WordPart::DoubleQuoted { parts, .. } => parts.iter_mut().map(walk_word_part).sum(),
         _ => 0,
     }
 }
@@ -567,10 +559,8 @@ fn walk_conditional_words(
             walk_conditional_words(left, source, visitor)
                 + walk_conditional_words(right, source, visitor)
         }
-        ConditionalExpr::Unary(ConditionalUnaryExpr { expr, .. }) => {
-            walk_conditional_words(expr, source, visitor)
-        }
-        ConditionalExpr::Parenthesized(ConditionalParenExpr { expr, .. }) => {
+        ConditionalExpr::Unary(ConditionalUnaryExpr { expr, .. })
+        | ConditionalExpr::Parenthesized(ConditionalParenExpr { expr, .. }) => {
             walk_conditional_words(expr, source, visitor)
         }
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
@@ -945,7 +935,6 @@ fn rewrite_word_part_source_texts(
     visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
 ) -> usize {
     match &mut part.kind {
-        WordPart::Literal(_) | WordPart::Variable(_) => 0,
         WordPart::ZshQualifiedGlob(glob) => {
             glob.segments
                 .iter_mut()
@@ -960,7 +949,6 @@ fn rewrite_word_part_source_texts(
             .iter_mut()
             .map(|part| rewrite_word_part_source_texts(part, source, visitor))
             .sum(),
-        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => 0,
         WordPart::ArithmeticExpansion { expression, .. } => visitor(expression, source),
         WordPart::Parameter(parameter) => {
             rewrite_parameter_source_texts(parameter, source, visitor)
@@ -1014,7 +1002,11 @@ fn rewrite_word_part_source_texts(
                     rewrite_parameter_op_source_texts(operator, source, visitor)
                 })
         }
-        WordPart::PrefixMatch { .. } => 0,
+        WordPart::Literal(_)
+        | WordPart::Variable(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::PrefixMatch { .. } => 0,
     }
 }
 
@@ -1024,8 +1016,9 @@ fn rewrite_heredoc_body_part_source_texts(
     visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
 ) -> usize {
     match &mut part.kind {
-        HeredocBodyPart::Literal(_) | HeredocBodyPart::Variable(_) => 0,
-        HeredocBodyPart::CommandSubstitution { .. } => 0,
+        HeredocBodyPart::Literal(_)
+        | HeredocBodyPart::Variable(_)
+        | HeredocBodyPart::CommandSubstitution { .. } => 0,
         HeredocBodyPart::ArithmeticExpansion { expression, .. } => visitor(expression, source),
         HeredocBodyPart::Parameter(parameter) => {
             rewrite_parameter_source_texts(parameter, source, visitor)
