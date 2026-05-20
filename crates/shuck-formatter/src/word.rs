@@ -1594,22 +1594,7 @@ fn push_unquoted_literal(rendered: &mut String, literal: &str) {
     let mut chars = literal.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '\\' {
-            let mut probe = chars.clone();
-            let newline_len = match probe.next() {
-                Some('\n') => Some(1),
-                Some('\r') if probe.next().is_some_and(|next| next == '\n') => Some(2),
-                _ => None,
-            };
-
-            if let Some(newline_len) = newline_len {
-                for _ in 0..newline_len {
-                    chars.next();
-                }
-                let mut skipped_indent = false;
-                while chars.peek().is_some_and(|next| matches!(next, ' ' | '\t')) {
-                    skipped_indent = true;
-                    chars.next();
-                }
+            if let Some(skipped_indent) = consume_escaped_newline_indent(&mut chars) {
                 if skipped_indent {
                     rendered.push(' ');
                 }
@@ -1642,23 +1627,8 @@ pub(crate) fn normalize_raw_unquoted_word_continuations(raw: &str) -> Option<Str
             continue;
         }
         if ch == '\\' && !in_single_quotes && !in_double_quotes {
-            let mut probe = chars.clone();
-            let newline_len = match probe.next() {
-                Some('\n') => Some(1),
-                Some('\r') if probe.next().is_some_and(|next| next == '\n') => Some(2),
-                _ => None,
-            };
-
-            if let Some(newline_len) = newline_len {
+            if let Some(skipped_indent) = consume_escaped_newline_indent(&mut chars) {
                 changed = true;
-                for _ in 0..newline_len {
-                    chars.next();
-                }
-                let mut skipped_indent = false;
-                while chars.peek().is_some_and(|next| matches!(next, ' ' | '\t')) {
-                    skipped_indent = true;
-                    chars.next();
-                }
                 if chars
                     .peek()
                     .is_some_and(|next| matches!(next, '|' | '&' | ';' | '<' | '>' | '(' | ')'))
@@ -1675,6 +1645,27 @@ pub(crate) fn normalize_raw_unquoted_word_continuations(raw: &str) -> Option<Str
     }
 
     changed.then_some(normalized)
+}
+
+fn consume_escaped_newline_indent(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+) -> Option<bool> {
+    let mut probe = chars.clone();
+    let newline_len = match probe.next() {
+        Some('\n') => 1,
+        Some('\r') if probe.next().is_some_and(|next| next == '\n') => 2,
+        _ => return None,
+    };
+
+    for _ in 0..newline_len {
+        chars.next();
+    }
+    let mut skipped_indent = false;
+    while chars.peek().is_some_and(|next| matches!(next, ' ' | '\t')) {
+        skipped_indent = true;
+        chars.next();
+    }
+    Some(skipped_indent)
 }
 
 fn normalize_raw_compound_assignment_word_continuations(raw: &str) -> Option<String> {
