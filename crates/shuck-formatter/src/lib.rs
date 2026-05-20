@@ -2751,16 +2751,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn keeps_array_subscript_arithmetic_compact_like_shfmt() {
         let source = "x=${arr[$REPLY-1]}\ny=${arr[$(shuf -i 0-${#arr[@]} -n1) - 1]}\necho $((arr[i+1]*2))\necho $((a-1))\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "x=${arr[$REPLY-1]}\ny=${arr[$(shuf -i 0-${#arr[@]} -n1)-1]}\necho $((arr[i+1] * 2))\necho $((a - 1))\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &ShellFormatOptions::default(),
+            "x=${arr[$REPLY-1]}\ny=${arr[$(shuf -i 0-${#arr[@]} -n1)-1]}\necho $((arr[i+1] * 2))\necho $((a - 1))\n",
         );
-        assert_source_and_ast_paths_match(source, None, &ShellFormatOptions::default());
     }
 
     #[test]
@@ -2844,40 +2841,28 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn formats_braced_shell_style_variables_inside_arithmetic_expansions_like_shfmt() {
         let source = "echo $(( ${ver[0]}*100 + ${ver[1]} ))\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("echo $((${ver[0]} * 100 + ${ver[1]}))\n".to_string())
-        );
+        assert_formats(source, "echo $((${ver[0]} * 100 + ${ver[1]}))\n");
     }
 
     #[test]
     fn formats_arithmetic_expansions_from_pyenv_python_build() {
         let source =
             "for arg in \"${@:$(( $package_type_nargs + 1 ))}\"; do\n  echo \"$arg\"\ndone\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "for arg in \"${@:$(($package_type_nargs + 1))}\"; do\n\techo \"$arg\"\ndone\n"
-                    .to_string()
-            )
+        assert_formats(
+            source,
+            "for arg in \"${@:$(($package_type_nargs + 1))}\"; do\n\techo \"$arg\"\ndone\n",
         );
     }
 
     #[test]
     fn normalizes_backtick_command_substitutions_to_dollar_paren() {
         let source = "local computed_checksum=`echo \"$($checksum_command < \"$filename\")\" | tr [A-Z] [a-z]`\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "local computed_checksum=$(echo \"$($checksum_command <\"$filename\")\" | tr [A-Z] [a-z])\n"
-                    .to_string()
-            )
+        assert_formats(
+            source,
+            "local computed_checksum=$(echo \"$($checksum_command <\"$filename\")\" | tr [A-Z] [a-z])\n",
         );
     }
 
@@ -2903,43 +2888,35 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_backslash_continued_simple_commands_from_fzf_install() {
         let source = "create_file \"$bind_file\" \\\n  'function fish_user_key_bindings' \\\n  '  fzf --fish | source' \\\n  'end'\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "create_file \"$bind_file\" \\\n\t'function fish_user_key_bindings' \\\n\t'  fzf --fish | source' \\\n\t'end'\n"
-                    .to_string()
-            )
+        assert_formats(
+            source,
+            "create_file \"$bind_file\" \\\n\t'function fish_user_key_bindings' \\\n\t'  fzf --fish | source' \\\n\t'end'\n",
         );
     }
 
     #[test]
     fn normalizes_indented_word_continuations_like_shfmt() {
         let source = "cp -a \\\n  docs README LICENSE\\\n  $PKG/usr/doc\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "cp -a \\\n\tdocs README LICENSE $PKG/usr/doc\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &ShellFormatOptions::default(),
+            "cp -a \\\n\tdocs README LICENSE $PKG/usr/doc\n",
         );
-        assert_source_and_ast_paths_match(source, None, &ShellFormatOptions::default());
     }
 
     #[test]
     fn preserves_word_continuation_without_space_before_backslash() {
         let source = "printf '%s\\n' \\\n  'ime' 'desc'\\\n  'help' ''\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "printf '%s\\n' \\\n\t'ime' 'desc' \\\n\t'help' ''\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &ShellFormatOptions::default(),
+            "printf '%s\\n' \\\n\t'ime' 'desc' \\\n\t'help' ''\n",
         );
-        assert_source_and_ast_paths_match(source, None, &ShellFormatOptions::default());
     }
 
     #[test]
@@ -2953,126 +2930,92 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_backslash_continued_simple_commands_from_homebrew_install() {
         let source = "\"$1\" --enable-frozen-string-literal --disable=gems,did_you_mean,rubyopt -rrubygems -e \\\n    \"abort if Gem::Version.new(RUBY_VERSION) < \\\n              Gem::Version.new('${REQUIRED_RUBY_VERSION}')\" 2>/dev/null\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "\"$1\" --enable-frozen-string-literal --disable=gems,did_you_mean,rubyopt -rrubygems -e \\\n\t\"abort if Gem::Version.new(RUBY_VERSION) < \\\n              Gem::Version.new('${REQUIRED_RUBY_VERSION}')\" 2>/dev/null\n"
-                    .to_string()
-            )
+        assert_formats(
+            source,
+            "\"$1\" --enable-frozen-string-literal --disable=gems,did_you_mean,rubyopt -rrubygems -e \\\n\t\"abort if Gem::Version.new(RUBY_VERSION) < \\\n              Gem::Version.new('${REQUIRED_RUBY_VERSION}')\" 2>/dev/null\n",
         );
     }
 
     #[test]
     fn preserves_leading_redirect_placement_in_nvm_err_helpers() {
         let source = "nvm_err() {\n  >&2 nvm_echo \"$@\"\n}\n\nnvm_err_with_colors() {\n  >&2 nvm_echo_with_colors \"$@\"\n}\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "nvm_err() {\n\t>&2 nvm_echo \"$@\"\n}\n\nnvm_err_with_colors() {\n\t>&2 nvm_echo_with_colors \"$@\"\n}\n"
-                    .to_string()
-            )
+        assert_formats(
+            source,
+            "nvm_err() {\n\t>&2 nvm_echo \"$@\"\n}\n\nnvm_err_with_colors() {\n\t>&2 nvm_echo_with_colors \"$@\"\n}\n",
         );
     }
 
     #[test]
     fn preserves_inline_negated_subshell_conditions() {
         let source = "if ! (try_curl \"$url\" || try_wget \"$url\"); then\n\treturn 1\nfi\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(formatted, FormattedSource::Unchanged);
+        assert_unchanged_default(source);
     }
 
     #[test]
     fn negated_subshell_conditions_do_not_capture_later_file_comments() {
         let source = "download() {\n  local url\n  url=https://github.com/junegunn/fzf/releases/download/v$version/${1}\n  set -o pipefail\n  if ! (try_curl $url || try_wget $url); then\n    set +o pipefail\n    binary_error=\"Failed to download with curl and wget\"\n    return\n  fi\n  set +o pipefail\n}\n\n# Try to download binary executable\narchi=$(uname -smo 2> /dev/null || uname -sm)\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "download() {\n\tlocal url\n\turl=https://github.com/junegunn/fzf/releases/download/v$version/${1}\n\tset -o pipefail\n\tif ! (try_curl $url || try_wget $url); then\n\t\tset +o pipefail\n\t\tbinary_error=\"Failed to download with curl and wget\"\n\t\treturn\n\tfi\n\tset +o pipefail\n}\n\n# Try to download binary executable\narchi=$(uname -smo 2>/dev/null || uname -sm)\n"
-                    .to_string()
-            )
+        assert_formats(
+            source,
+            "download() {\n\tlocal url\n\turl=https://github.com/junegunn/fzf/releases/download/v$version/${1}\n\tset -o pipefail\n\tif ! (try_curl $url || try_wget $url); then\n\t\tset +o pipefail\n\t\tbinary_error=\"Failed to download with curl and wget\"\n\t\treturn\n\tfi\n\tset +o pipefail\n}\n\n# Try to download binary executable\narchi=$(uname -smo 2>/dev/null || uname -sm)\n",
         );
     }
 
     #[test]
     fn preserves_else_branch_comments_inside_the_branch() {
         let source = "if foo; then\n  bar\nelse\n  # branch comment\n  baz\nfi\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "if foo; then\n\tbar\nelse\n\t# branch comment\n\tbaz\nfi\n".to_string()
-            )
+        assert_formats(
+            source,
+            "if foo; then\n\tbar\nelse\n\t# branch comment\n\tbaz\nfi\n",
         );
     }
 
     #[test]
     fn preserves_outdented_else_branch_leading_comments() {
         let source = "if foo; then\n  bar\nelse\n  baz=\n# disabled\nfi\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "if foo; then\n\tbar\nelse\n\tbaz=\n# disabled\nfi\n".to_string()
-            )
+        assert_formats(
+            source,
+            "if foo; then\n\tbar\nelse\n\tbaz=\n# disabled\nfi\n",
         );
     }
 
     #[test]
     fn preserves_outdented_dangling_comments_before_fi() {
         let source = "if outer; then\n\tif inner; then\n\t\tok\n\telse\n\t\tfallback\n\t# disabled\n\t# exit\n\tfi\nfi\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(formatted, FormattedSource::Unchanged);
+        assert_unchanged_default(source);
     }
 
     #[test]
     fn preserves_space_indented_dangling_comments_before_fi() {
         let source = "add_keys() {\n    if [ \"$file\" = - ]; then\n        file=/dev/stdin\n    # sed reports this already\n    #elif ! [ -f \"$file\" ]; then\n    #    die \"missing: $file\"\n    fi\n}\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "add_keys() {\n\tif [ \"$file\" = - ]; then\n\t\tfile=/dev/stdin\n\t# sed reports this already\n\t#elif ! [ -f \"$file\" ]; then\n\t#    die \"missing: $file\"\n\tfi\n}\n"
-                    .to_string()
-            )
+        assert_formats(
+            source,
+            "add_keys() {\n\tif [ \"$file\" = - ]; then\n\t\tfile=/dev/stdin\n\t# sed reports this already\n\t#elif ! [ -f \"$file\" ]; then\n\t#    die \"missing: $file\"\n\tfi\n}\n",
         );
     }
 
     #[test]
     fn normalizes_underindented_dangling_comments_inside_case_bodies() {
         let source = "case $x in\na)\nif outer; then\n\tif inner; then\n\t\tok\n\telse\n\t\t:\n\t\t# disabled\n\tfi\nfi\n;;\nesac\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "case $x in\na)\n\tif outer; then\n\t\tif inner; then\n\t\t\tok\n\t\telse\n\t\t\t:\n\t\t\t# disabled\n\t\tfi\n\tfi\n\t;;\nesac\n"
-                    .to_string()
-            )
+        assert_formats(
+            source,
+            "case $x in\na)\n\tif outer; then\n\t\tif inner; then\n\t\t\tok\n\t\telse\n\t\t\t:\n\t\t\t# disabled\n\t\tfi\n\tfi\n\t;;\nesac\n",
         );
     }
 
     #[test]
     fn formats_multiline_compound_assignments_structurally() {
         let source = "directories=(\n  bin\n  etc\n  Frameworks\n)\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "directories=(\n\tbin\n\tetc\n\tFrameworks\n)\n".to_string()
-            )
-        );
+        assert_formats(source, "directories=(\n\tbin\n\tetc\n\tFrameworks\n)\n");
     }
 
     #[test]
