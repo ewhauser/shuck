@@ -608,18 +608,10 @@ fn compute_sequence_attachment<'a>(
             }
 
             match (prev, next) {
-                (Some(prev_idx), Some(next_idx))
-                    if prev_idx + 1 == next_idx
+                (Some(prev_idx), next_idx)
+                    if next_idx.is_none_or(|next_idx| prev_idx + 1 == next_idx)
                         && child_spans[prev_idx].end.line == comment.line =>
                 {
-                    attachment.trailing[prev_idx].push(comment);
-                    record_claimed_index(
-                        &mut claimed_indices,
-                        track_claimed_indices,
-                        base_index + index,
-                    );
-                }
-                (Some(prev_idx), None) if child_spans[prev_idx].end.line == comment.line => {
                     attachment.trailing[prev_idx].push(comment);
                     record_claimed_index(
                         &mut claimed_indices,
