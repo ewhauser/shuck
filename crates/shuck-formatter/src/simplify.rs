@@ -13,20 +13,7 @@ use crate::word::parameter_defaulting_operator;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimplifyReport {
-    applied: Vec<RewriteApplication>,
-}
-
-#[allow(dead_code)]
-impl SimplifyReport {
-    #[must_use]
-    pub fn applied(&self) -> &[RewriteApplication] {
-        &self.applied
-    }
-
-    #[must_use]
-    pub fn total_changes(&self) -> usize {
-        self.applied.iter().map(|entry| entry.changes).sum()
-    }
+    pub applied: Vec<RewriteApplication>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1751,10 +1738,11 @@ mod tests {
         let parsed = Parser::new("echo $(( $a + ${b} ))\n").parse().unwrap();
         let mut file = parsed.file.clone();
         let report = simplify_file(&mut file, "echo $(( $a + ${b} ))\n");
+        let total_changes: usize = report.applied.iter().map(|entry| entry.changes).sum();
 
-        assert_eq!(report.total_changes(), 1);
-        assert_eq!(report.applied().len(), 1);
-        assert_eq!(report.applied()[0].name, "arithmetic-vars");
-        assert_eq!(report.applied()[0].changes, 1);
+        assert_eq!(total_changes, 1);
+        assert_eq!(report.applied.len(), 1);
+        assert_eq!(report.applied[0].name, "arithmetic-vars");
+        assert_eq!(report.applied[0].changes, 1);
     }
 }
