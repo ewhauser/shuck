@@ -1559,41 +1559,22 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             => "source \"${_files[_file-__array_offset]}\"\n";
     }
 
-    #[test]
-    fn formats_braced_shell_style_variables_inside_arithmetic_expansions_like_shfmt() {
-        let source = "echo $(( ${ver[0]}*100 + ${ver[1]} ))\n";
-
-        assert_formats(source, "echo $((${ver[0]} * 100 + ${ver[1]}))\n");
+    default_format_cases! {
+        formats_braced_shell_style_variables_inside_arithmetic_expansions_like_shfmt:
+            "echo $(( ${ver[0]}*100 + ${ver[1]} ))\n"
+            => "echo $((${ver[0]} * 100 + ${ver[1]}))\n";
+        formats_arithmetic_expansions_from_pyenv_python_build:
+            "for arg in \"${@:$(( $package_type_nargs + 1 ))}\"; do\n  echo \"$arg\"\ndone\n"
+            => "for arg in \"${@:$(($package_type_nargs + 1))}\"; do\n\techo \"$arg\"\ndone\n";
+        normalizes_backtick_command_substitutions_to_dollar_paren:
+            "local computed_checksum=`echo \"$($checksum_command < \"$filename\")\" | tr [A-Z] [a-z]`\n"
+            => "local computed_checksum=$(echo \"$($checksum_command <\"$filename\")\" | tr [A-Z] [a-z])\n";
     }
 
-    #[test]
-    fn formats_arithmetic_expansions_from_pyenv_python_build() {
-        let source =
-            "for arg in \"${@:$(( $package_type_nargs + 1 ))}\"; do\n  echo \"$arg\"\ndone\n";
-
-        assert_formats(
-            source,
-            "for arg in \"${@:$(($package_type_nargs + 1))}\"; do\n\techo \"$arg\"\ndone\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_backtick_command_substitutions_to_dollar_paren() {
-        let source = "local computed_checksum=`echo \"$($checksum_command < \"$filename\")\" | tr [A-Z] [a-z]`\n";
-
-        assert_formats(
-            source,
-            "local computed_checksum=$(echo \"$($checksum_command <\"$filename\")\" | tr [A-Z] [a-z])\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_backticks_inside_preserved_escaped_quote_words() {
-        let source = "eval printf \"\\\"$name -> $`echo \"${env_var}_DEFAULT\"` => \\\"\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "eval printf \"\\\"$name -> $$(echo \"${env_var}_DEFAULT\") => \\\"\"\n",
-        );
+    bash_format_ast_cases! {
+        normalizes_backticks_inside_preserved_escaped_quote_words:
+            "eval printf \"\\\"$name -> $`echo \"${env_var}_DEFAULT\"` => \\\"\"\n"
+            => "eval printf \"\\\"$name -> $$(echo \"${env_var}_DEFAULT\") => \\\"\"\n";
     }
 
     #[test]
@@ -1602,64 +1583,33 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         assert_idempotent(source, None, &ShellFormatOptions::default());
     }
 
-    #[test]
-    fn preserves_backslash_continued_simple_commands_from_fzf_install() {
-        let source = "create_file \"$bind_file\" \\\n  'function fish_user_key_bindings' \\\n  '  fzf --fish | source' \\\n  'end'\n";
-
-        assert_formats(
-            source,
-            "create_file \"$bind_file\" \\\n\t'function fish_user_key_bindings' \\\n\t'  fzf --fish | source' \\\n\t'end'\n",
-        );
+    default_format_cases! {
+        preserves_backslash_continued_simple_commands_from_fzf_install:
+            "create_file \"$bind_file\" \\\n  'function fish_user_key_bindings' \\\n  '  fzf --fish | source' \\\n  'end'\n"
+            => "create_file \"$bind_file\" \\\n\t'function fish_user_key_bindings' \\\n\t'  fzf --fish | source' \\\n\t'end'\n";
     }
 
-    #[test]
-    fn normalizes_indented_word_continuations_like_shfmt() {
-        let source = "cp -a \\\n  docs README LICENSE\\\n  $PKG/usr/doc\n";
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &ShellFormatOptions::default(),
-            "cp -a \\\n\tdocs README LICENSE $PKG/usr/doc\n",
-        );
+    default_format_ast_cases! {
+        normalizes_indented_word_continuations_like_shfmt:
+            "cp -a \\\n  docs README LICENSE\\\n  $PKG/usr/doc\n"
+            => "cp -a \\\n\tdocs README LICENSE $PKG/usr/doc\n";
+        preserves_word_continuation_without_space_before_backslash:
+            "printf '%s\\n' \\\n  'ime' 'desc'\\\n  'help' ''\n"
+            => "printf '%s\\n' \\\n\t'ime' 'desc' \\\n\t'help' ''\n";
     }
 
-    #[test]
-    fn preserves_word_continuation_without_space_before_backslash() {
-        let source = "printf '%s\\n' \\\n  'ime' 'desc'\\\n  'help' ''\n";
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &ShellFormatOptions::default(),
-            "printf '%s\\n' \\\n\t'ime' 'desc' \\\n\t'help' ''\n",
-        );
+    bash_unchanged_ast_cases! {
+        preserves_escaped_trailing_space_arguments:
+            "ARCH=$(uname -a | cut -f12 -d\\ )\n";
     }
 
-    #[test]
-    fn preserves_escaped_trailing_space_arguments() {
-        let source = "ARCH=$(uname -a | cut -f12 -d\\ )\n";
-        assert_bash_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_backslash_continued_simple_commands_from_homebrew_install() {
-        let source = "\"$1\" --enable-frozen-string-literal --disable=gems,did_you_mean,rubyopt -rrubygems -e \\\n    \"abort if Gem::Version.new(RUBY_VERSION) < \\\n              Gem::Version.new('${REQUIRED_RUBY_VERSION}')\" 2>/dev/null\n";
-
-        assert_formats(
-            source,
-            "\"$1\" --enable-frozen-string-literal --disable=gems,did_you_mean,rubyopt -rrubygems -e \\\n\t\"abort if Gem::Version.new(RUBY_VERSION) < \\\n              Gem::Version.new('${REQUIRED_RUBY_VERSION}')\" 2>/dev/null\n",
-        );
-    }
-
-    #[test]
-    fn preserves_leading_redirect_placement_in_nvm_err_helpers() {
-        let source = "nvm_err() {\n  >&2 nvm_echo \"$@\"\n}\n\nnvm_err_with_colors() {\n  >&2 nvm_echo_with_colors \"$@\"\n}\n";
-
-        assert_formats(
-            source,
-            "nvm_err() {\n\t>&2 nvm_echo \"$@\"\n}\n\nnvm_err_with_colors() {\n\t>&2 nvm_echo_with_colors \"$@\"\n}\n",
-        );
+    default_format_cases! {
+        preserves_backslash_continued_simple_commands_from_homebrew_install:
+            "\"$1\" --enable-frozen-string-literal --disable=gems,did_you_mean,rubyopt -rrubygems -e \\\n    \"abort if Gem::Version.new(RUBY_VERSION) < \\\n              Gem::Version.new('${REQUIRED_RUBY_VERSION}')\" 2>/dev/null\n"
+            => "\"$1\" --enable-frozen-string-literal --disable=gems,did_you_mean,rubyopt -rrubygems -e \\\n\t\"abort if Gem::Version.new(RUBY_VERSION) < \\\n              Gem::Version.new('${REQUIRED_RUBY_VERSION}')\" 2>/dev/null\n";
+        preserves_leading_redirect_placement_in_nvm_err_helpers:
+            "nvm_err() {\n  >&2 nvm_echo \"$@\"\n}\n\nnvm_err_with_colors() {\n  >&2 nvm_echo_with_colors \"$@\"\n}\n"
+            => "nvm_err() {\n\t>&2 nvm_echo \"$@\"\n}\n\nnvm_err_with_colors() {\n\t>&2 nvm_echo_with_colors \"$@\"\n}\n";
     }
 
     default_unchanged_cases! {
@@ -1667,34 +1617,16 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "if ! (try_curl \"$url\" || try_wget \"$url\"); then\n\treturn 1\nfi\n";
     }
 
-    #[test]
-    fn negated_subshell_conditions_do_not_capture_later_file_comments() {
-        let source = "download() {\n  local url\n  url=https://github.com/junegunn/fzf/releases/download/v$version/${1}\n  set -o pipefail\n  if ! (try_curl $url || try_wget $url); then\n    set +o pipefail\n    binary_error=\"Failed to download with curl and wget\"\n    return\n  fi\n  set +o pipefail\n}\n\n# Try to download binary executable\narchi=$(uname -smo 2> /dev/null || uname -sm)\n";
-
-        assert_formats(
-            source,
-            "download() {\n\tlocal url\n\turl=https://github.com/junegunn/fzf/releases/download/v$version/${1}\n\tset -o pipefail\n\tif ! (try_curl $url || try_wget $url); then\n\t\tset +o pipefail\n\t\tbinary_error=\"Failed to download with curl and wget\"\n\t\treturn\n\tfi\n\tset +o pipefail\n}\n\n# Try to download binary executable\narchi=$(uname -smo 2>/dev/null || uname -sm)\n",
-        );
-    }
-
-    #[test]
-    fn preserves_else_branch_comments_inside_the_branch() {
-        let source = "if foo; then\n  bar\nelse\n  # branch comment\n  baz\nfi\n";
-
-        assert_formats(
-            source,
-            "if foo; then\n\tbar\nelse\n\t# branch comment\n\tbaz\nfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_outdented_else_branch_leading_comments() {
-        let source = "if foo; then\n  bar\nelse\n  baz=\n# disabled\nfi\n";
-
-        assert_formats(
-            source,
-            "if foo; then\n\tbar\nelse\n\tbaz=\n# disabled\nfi\n",
-        );
+    default_format_cases! {
+        negated_subshell_conditions_do_not_capture_later_file_comments:
+            "download() {\n  local url\n  url=https://github.com/junegunn/fzf/releases/download/v$version/${1}\n  set -o pipefail\n  if ! (try_curl $url || try_wget $url); then\n    set +o pipefail\n    binary_error=\"Failed to download with curl and wget\"\n    return\n  fi\n  set +o pipefail\n}\n\n# Try to download binary executable\narchi=$(uname -smo 2> /dev/null || uname -sm)\n"
+            => "download() {\n\tlocal url\n\turl=https://github.com/junegunn/fzf/releases/download/v$version/${1}\n\tset -o pipefail\n\tif ! (try_curl $url || try_wget $url); then\n\t\tset +o pipefail\n\t\tbinary_error=\"Failed to download with curl and wget\"\n\t\treturn\n\tfi\n\tset +o pipefail\n}\n\n# Try to download binary executable\narchi=$(uname -smo 2>/dev/null || uname -sm)\n";
+        preserves_else_branch_comments_inside_the_branch:
+            "if foo; then\n  bar\nelse\n  # branch comment\n  baz\nfi\n"
+            => "if foo; then\n\tbar\nelse\n\t# branch comment\n\tbaz\nfi\n";
+        preserves_outdented_else_branch_leading_comments:
+            "if foo; then\n  bar\nelse\n  baz=\n# disabled\nfi\n"
+            => "if foo; then\n\tbar\nelse\n\tbaz=\n# disabled\nfi\n";
     }
 
     default_unchanged_cases! {
@@ -1702,24 +1634,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "if outer; then\n\tif inner; then\n\t\tok\n\telse\n\t\tfallback\n\t# disabled\n\t# exit\n\tfi\nfi\n";
     }
 
-    #[test]
-    fn preserves_space_indented_dangling_comments_before_fi() {
-        let source = "add_keys() {\n    if [ \"$file\" = - ]; then\n        file=/dev/stdin\n    # sed reports this already\n    #elif ! [ -f \"$file\" ]; then\n    #    die \"missing: $file\"\n    fi\n}\n";
-
-        assert_formats(
-            source,
-            "add_keys() {\n\tif [ \"$file\" = - ]; then\n\t\tfile=/dev/stdin\n\t# sed reports this already\n\t#elif ! [ -f \"$file\" ]; then\n\t#    die \"missing: $file\"\n\tfi\n}\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_underindented_dangling_comments_inside_case_bodies() {
-        let source = "case $x in\na)\nif outer; then\n\tif inner; then\n\t\tok\n\telse\n\t\t:\n\t\t# disabled\n\tfi\nfi\n;;\nesac\n";
-
-        assert_formats(
-            source,
-            "case $x in\na)\n\tif outer; then\n\t\tif inner; then\n\t\t\tok\n\t\telse\n\t\t\t:\n\t\t\t# disabled\n\t\tfi\n\tfi\n\t;;\nesac\n",
-        );
+    default_format_cases! {
+        preserves_space_indented_dangling_comments_before_fi:
+            "add_keys() {\n    if [ \"$file\" = - ]; then\n        file=/dev/stdin\n    # sed reports this already\n    #elif ! [ -f \"$file\" ]; then\n    #    die \"missing: $file\"\n    fi\n}\n"
+            => "add_keys() {\n\tif [ \"$file\" = - ]; then\n\t\tfile=/dev/stdin\n\t# sed reports this already\n\t#elif ! [ -f \"$file\" ]; then\n\t#    die \"missing: $file\"\n\tfi\n}\n";
+        normalizes_underindented_dangling_comments_inside_case_bodies:
+            "case $x in\na)\nif outer; then\n\tif inner; then\n\t\tok\n\telse\n\t\t:\n\t\t# disabled\n\tfi\nfi\n;;\nesac\n"
+            => "case $x in\na)\n\tif outer; then\n\t\tif inner; then\n\t\t\tok\n\t\telse\n\t\t\t:\n\t\t\t# disabled\n\t\tfi\n\tfi\n\t;;\nesac\n";
     }
 
     default_format_cases! {
