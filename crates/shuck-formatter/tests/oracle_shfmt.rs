@@ -697,42 +697,35 @@ fn collect_large_corpus_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
 
 fn fixture_path_is_supported(path: &Path) -> bool {
     let path_text = path.to_string_lossy();
-    !(LARGE_CORPUS_STATIC_IGNORE_SUFFIXES
+    if LARGE_CORPUS_STATIC_IGNORE_SUFFIXES
         .iter()
         .any(|suffix| path_text.ends_with(suffix))
-        || path_extension_matches(path, LARGE_CORPUS_IGNORED_EXTENSIONS)
-        || path_file_name_matches(
-            path,
-            LARGE_CORPUS_IGNORED_FILE_PREFIXES,
-            LARGE_CORPUS_IGNORED_FILE_SUFFIXES,
-            LARGE_CORPUS_IGNORED_FILE_CONTAINS,
-        ))
-}
-
-fn path_extension_matches(path: &Path, extensions: &[&str]) -> bool {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| {
-            extensions
-                .iter()
-                .any(|ignored| ext.eq_ignore_ascii_case(ignored))
-        })
-}
-
-fn path_file_name_matches(
-    path: &Path,
-    prefixes: &[&str],
-    suffixes: &[&str],
-    contains: &[&str],
-) -> bool {
-    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        || path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| {
+                LARGE_CORPUS_IGNORED_EXTENSIONS
+                    .iter()
+                    .any(|ignored| ext.eq_ignore_ascii_case(ignored))
+            })
+    {
         return false;
+    }
+
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return true;
     };
 
     let lower_name = name.to_ascii_lowercase();
-    prefixes.iter().any(|prefix| name.starts_with(prefix))
-        || suffixes.iter().any(|suffix| lower_name.ends_with(suffix))
-        || contains.iter().any(|needle| name.contains(needle))
+    !(LARGE_CORPUS_IGNORED_FILE_PREFIXES
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+        || LARGE_CORPUS_IGNORED_FILE_SUFFIXES
+            .iter()
+            .any(|suffix| lower_name.ends_with(suffix))
+        || LARGE_CORPUS_IGNORED_FILE_CONTAINS
+            .iter()
+            .any(|needle| name.contains(needle)))
 }
 
 fn shard_fixtures(
@@ -758,26 +751,16 @@ fn sample_fixtures(
 
     fixtures
         .into_iter()
-        .filter(|fixture| fixture_selected_for_sample(fixture, sample_percent))
+        .filter(|fixture| {
+            let key = fixture.cache_rel_path.to_string_lossy();
+            let mut hash = 0xcbf29ce484222325u64;
+            for byte in key.as_bytes() {
+                hash ^= u64::from(*byte);
+                hash = hash.wrapping_mul(0x100000001b3);
+            }
+            hash % 100 < sample_percent as u64
+        })
         .collect()
-}
-
-fn fixture_selected_for_sample(fixture: &LargeCorpusFixture, sample_percent: usize) -> bool {
-    if sample_percent >= 100 {
-        return true;
-    }
-
-    let key = fixture.cache_rel_path.to_string_lossy();
-    stable_sample_hash(&key) % 100 < sample_percent as u64
-}
-
-fn stable_sample_hash(value: &str) -> u64 {
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in value.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    hash
 }
 
 fn format_failure_list(title: &str, failures: &[String]) -> String {
