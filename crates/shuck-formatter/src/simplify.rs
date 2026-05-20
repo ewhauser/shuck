@@ -1089,44 +1089,16 @@ fn rewrite_parameter_source_texts(
                     + rewrite_parameter_op_source_texts(operator, source, visitor)
             }
         },
-        ParameterExpansionSyntax::Zsh(syntax) => {
-            let mut count = match &mut syntax.target {
-                ZshExpansionTarget::Reference(reference) => {
-                    rewrite_var_ref_source_texts(reference, source, visitor)
-                }
-                ZshExpansionTarget::Word(word) => rewrite_word_source_texts(word, source, visitor),
-                ZshExpansionTarget::Nested(parameter) => {
-                    rewrite_parameter_source_texts(parameter, source, visitor)
-                }
-                ZshExpansionTarget::Empty => 0,
-            };
-            if let Some(operation) = &mut syntax.operation {
-                count += match operation {
-                    ZshExpansionOperation::PatternOperation { operand, .. }
-                    | ZshExpansionOperation::Defaulting { operand, .. }
-                    | ZshExpansionOperation::TrimOperation { operand, .. } => {
-                        let _ = operand;
-                        0
-                    }
-                    ZshExpansionOperation::ReplacementOperation {
-                        pattern,
-                        replacement,
-                        ..
-                    } => {
-                        let _ = pattern;
-                        let _ = replacement;
-                        0
-                    }
-                    ZshExpansionOperation::Slice { offset, length, .. } => {
-                        let _ = offset;
-                        let _ = length;
-                        0
-                    }
-                    ZshExpansionOperation::Unknown { .. } => 0,
-                };
+        ParameterExpansionSyntax::Zsh(syntax) => match &mut syntax.target {
+            ZshExpansionTarget::Reference(reference) => {
+                rewrite_var_ref_source_texts(reference, source, visitor)
             }
-            count
-        }
+            ZshExpansionTarget::Word(word) => rewrite_word_source_texts(word, source, visitor),
+            ZshExpansionTarget::Nested(parameter) => {
+                rewrite_parameter_source_texts(parameter, source, visitor)
+            }
+            ZshExpansionTarget::Empty => 0,
+        },
     };
 
     if count > 0 {
