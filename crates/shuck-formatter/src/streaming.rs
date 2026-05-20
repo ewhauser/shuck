@@ -2027,29 +2027,43 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         for element in &array.elements {
             self.newline();
             self.write_indent_units(1);
-            self.write_array_element(element);
+            self.write_array_element(element, false);
         }
         self.newline();
         self.write_text(")");
     }
 
-    fn write_array_element(&mut self, element: &ArrayElem) {
+    fn write_array_element(&mut self, element: &ArrayElem, escaped_multiline_indent: bool) {
         let (key, value, op) = array_elem_parts(element);
         if let Some(key) = key {
-            self.write_keyed_array_element(key, value, op);
+            self.write_keyed_array_element(key, value, op, escaped_multiline_indent);
         } else {
-            self.write_word(value);
+            self.write_array_element_value(value, escaped_multiline_indent);
         }
     }
 
-    fn write_keyed_array_element(&mut self, key: &shuck_ast::Subscript, value: &Word, op: &str) {
+    fn write_keyed_array_element(
+        &mut self,
+        key: &shuck_ast::Subscript,
+        value: &Word,
+        op: &str,
+        escaped_multiline_indent: bool,
+    ) {
         self.write_text("[");
         self.write_rendered(|scratch, source, _| {
             render_subscript_to_buf(key, source, scratch);
         });
         self.write_text("]");
         self.write_text(op);
-        self.write_word(value);
+        self.write_array_element_value(value, escaped_multiline_indent);
+    }
+
+    fn write_array_element_value(&mut self, value: &Word, escaped_multiline_indent: bool) {
+        if escaped_multiline_indent {
+            self.write_word_with_escaped_multiline_substitution_indent(value);
+        } else {
+            self.write_word(value);
+        }
     }
 
     fn write_standalone_multiline_compound_assignment_layout(
@@ -4805,39 +4819,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.newline();
                 self.write_indent_units(1);
             }
-            self.write_array_element_with_escaped_multiline_substitution_indent(element);
+            self.write_array_element(element, true);
         }
         self.write_text(")");
         true
-    }
-
-    fn write_array_element_with_escaped_multiline_substitution_indent(
-        &mut self,
-        element: &ArrayElem,
-    ) {
-        let (key, value, op) = array_elem_parts(element);
-        if let Some(key) = key {
-            self.write_keyed_array_element_with_escaped_multiline_substitution_indent(
-                key, value, op,
-            );
-        } else {
-            self.write_word_with_escaped_multiline_substitution_indent(value);
-        }
-    }
-
-    fn write_keyed_array_element_with_escaped_multiline_substitution_indent(
-        &mut self,
-        key: &shuck_ast::Subscript,
-        value: &Word,
-        op: &str,
-    ) {
-        self.write_text("[");
-        self.write_rendered(|scratch, source, _| {
-            render_subscript_to_buf(key, source, scratch);
-        });
-        self.write_text("]");
-        self.write_text(op);
-        self.write_word_with_escaped_multiline_substitution_indent(value);
     }
 
     fn write_word_with_escaped_multiline_substitution_indent(&mut self, word: &Word) {
