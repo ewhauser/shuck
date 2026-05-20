@@ -20,8 +20,9 @@ use crate::command::{
 use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_window};
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    loop_open_keyword_at, shell_comment_can_start, shell_keyword_at,
-    shell_keyword_boundaries_match, skip_double_quoted, skip_single_quoted,
+    matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
+    shell_comment_can_start, shell_keyword_boundaries_match, skip_double_quoted,
+    skip_single_quoted,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1443,7 +1444,9 @@ fn done_close_span(source_map: &SourceMap<'_>, span: Span, fallback: Option<Span
     let source = source_map.source();
     matching_done_close_start(source, span)
         .map(|start| source_map.span_for_offsets(start, start + "done".len()))
-        .or_else(|| fallback.map(|span| normalized_close_keyword_span(source_map, span, "done")))
+        .or_else(|| {
+            fallback.map(|span| normalized_close_keyword_span(source, source_map, span, "done"))
+        })
 }
 
 fn for_body_upper_bound(command: &ForCommand, source_map: &SourceMap<'_>) -> usize {
@@ -1498,7 +1501,7 @@ fn if_close_span(command: &IfCommand, source_map: &SourceMap<'_>) -> Span {
             right_brace_span, ..
         } => (right_brace_span, "}"),
     };
-    let syntax_close = normalized_close_keyword_span(source_map, syntax_close, keyword);
+    let syntax_close = normalized_close_keyword_span(source, source_map, syntax_close, keyword);
     matching_if_close_start(source, command.span)
         .map(|start| source_map.span_for_offsets(start, start + keyword.len()))
         .unwrap_or(syntax_close)
@@ -1506,109 +1509,6 @@ fn if_close_span(command: &IfCommand, source_map: &SourceMap<'_>) -> Span {
 
 fn if_close_start(command: &IfCommand, source_map: &SourceMap<'_>) -> usize {
     if_close_span(command, source_map).start.offset
-}
-
-fn normalized_close_keyword_span(source_map: &SourceMap<'_>, span: Span, keyword: &str) -> Span {
-    let source = source_map.source();
-    let start = span.start.offset.min(source.len());
-    let end = start.saturating_add(keyword.len()).min(source.len());
-    if source.get(start..end) == Some(keyword) {
-        source_map.span_for_offsets(start, end)
-    } else {
-        span
-    }
-}
-
-fn matching_if_close_start(source: &str, span: Span) -> Option<usize> {
-    let upper = span.end.offset.min(source.len());
-    let mut offset = span.start.offset.min(upper);
-    let mut depth = 0usize;
-    while offset < upper {
-        let ch = source[offset..].chars().next()?;
-        match ch {
-            '\'' => {
-                offset = skip_single_quoted(source, offset + ch.len_utf8(), upper);
-                continue;
-            }
-            '"' => {
-                offset = skip_double_quoted(source, offset + ch.len_utf8(), upper);
-                continue;
-            }
-            '#' if shell_comment_can_start(source, offset) => {
-                offset = source[offset..]
-                    .find('\n')
-                    .map_or(upper, |newline| offset + newline + 1);
-                continue;
-            }
-            _ => {}
-        }
-
-        if shell_keyword_at(source, offset, upper, "if") {
-            depth = depth.saturating_add(1);
-            offset += "if".len();
-            continue;
-        }
-        if shell_keyword_at(source, offset, upper, "fi") {
-            if depth > 0 {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(offset);
-                }
-            }
-            offset += "fi".len();
-            continue;
-        }
-        offset += ch.len_utf8();
-    }
-    None
-}
-
-fn matching_done_close_start(source: &str, span: Span) -> Option<usize> {
-    let upper = span.end.offset.min(source.len());
-    let mut offset = span.start.offset.min(upper);
-    let mut depth = 0usize;
-    while offset < upper {
-        let ch = source[offset..].chars().next()?;
-        match ch {
-            '\'' => {
-                offset = skip_single_quoted(source, offset + ch.len_utf8(), upper);
-                continue;
-            }
-            '"' => {
-                offset = skip_double_quoted(source, offset + ch.len_utf8(), upper);
-                continue;
-            }
-            '#' if shell_comment_can_start(source, offset) => {
-                offset = source[offset..]
-                    .find('\n')
-                    .map_or(upper, |newline| offset + newline + 1);
-                continue;
-            }
-            _ => {}
-        }
-
-        if loop_open_keyword_at(source, offset, upper) {
-            depth = depth.saturating_add(1);
-            offset += source[offset..]
-                .chars()
-                .take_while(|ch| ch.is_ascii_alphabetic())
-                .map(char::len_utf8)
-                .sum::<usize>();
-            continue;
-        }
-        if shell_keyword_at(source, offset, upper, "done") {
-            if depth > 0 {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(offset);
-                }
-            }
-            offset += "done".len();
-            continue;
-        }
-        offset += ch.len_utf8();
-    }
-    None
 }
 
 fn last_shell_keyword_start(

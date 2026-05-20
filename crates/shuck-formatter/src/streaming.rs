@@ -30,8 +30,9 @@ use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    loop_open_keyword_at, shell_comment_can_start, shell_keyword_at,
-    shell_keyword_boundaries_match, skip_double_quoted, skip_single_quoted,
+    matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
+    shell_comment_can_start, shell_keyword_boundaries_match, skip_double_quoted,
+    skip_single_quoted,
 };
 use crate::word::{
     normalize_raw_unquoted_word_continuations, render_arithmetic_expr_to_buf,
@@ -6602,111 +6603,14 @@ fn done_close_span(
     })
 }
 
-fn normalized_close_keyword_span(
-    source: &str,
-    source_map: &SourceMap<'_>,
-    span: Span,
-    keyword: &str,
-) -> Span {
-    let start = span.start.offset.min(source.len());
-    let end = start.saturating_add(keyword.len()).min(source.len());
-    if source.get(start..end) == Some(keyword) {
-        source_map.span_for_offsets(start, end)
-    } else {
-        span
-    }
-}
-
 fn matching_if_close_span(source: &str, source_map: &SourceMap<'_>, span: Span) -> Option<Span> {
-    let upper = span.end.offset.min(source.len());
-    let mut offset = span.start.offset.min(upper);
-    let mut depth = 0usize;
-    while offset < upper {
-        let ch = source[offset..].chars().next()?;
-        match ch {
-            '\'' => {
-                offset = skip_single_quoted(source, offset + ch.len_utf8(), upper);
-                continue;
-            }
-            '"' => {
-                offset = skip_double_quoted(source, offset + ch.len_utf8(), upper);
-                continue;
-            }
-            '#' if shell_comment_can_start(source, offset) => {
-                offset = source[offset..]
-                    .find('\n')
-                    .map_or(upper, |newline| offset + newline + 1);
-                continue;
-            }
-            _ => {}
-        }
-
-        if shell_keyword_at(source, offset, upper, "if") {
-            depth = depth.saturating_add(1);
-            offset += "if".len();
-            continue;
-        }
-        if shell_keyword_at(source, offset, upper, "fi") {
-            if depth > 0 {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(source_map.span_for_offsets(offset, offset + 2));
-                }
-            }
-            offset += "fi".len();
-            continue;
-        }
-        offset += ch.len_utf8();
-    }
-    None
+    matching_if_close_start(source, span)
+        .map(|start| source_map.span_for_offsets(start, start + "fi".len()))
 }
 
 fn matching_done_close_span(source: &str, source_map: &SourceMap<'_>, span: Span) -> Option<Span> {
-    let upper = span.end.offset.min(source.len());
-    let mut offset = span.start.offset.min(upper);
-    let mut depth = 0usize;
-    while offset < upper {
-        let ch = source[offset..].chars().next()?;
-        match ch {
-            '\'' => {
-                offset = skip_single_quoted(source, offset + ch.len_utf8(), upper);
-                continue;
-            }
-            '"' => {
-                offset = skip_double_quoted(source, offset + ch.len_utf8(), upper);
-                continue;
-            }
-            '#' if shell_comment_can_start(source, offset) => {
-                offset = source[offset..]
-                    .find('\n')
-                    .map_or(upper, |newline| offset + newline + 1);
-                continue;
-            }
-            _ => {}
-        }
-
-        if loop_open_keyword_at(source, offset, upper) {
-            depth = depth.saturating_add(1);
-            offset += source[offset..]
-                .chars()
-                .take_while(|ch| ch.is_ascii_alphabetic())
-                .map(char::len_utf8)
-                .sum::<usize>();
-            continue;
-        }
-        if shell_keyword_at(source, offset, upper, "done") {
-            if depth > 0 {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(source_map.span_for_offsets(offset, offset + 4));
-                }
-            }
-            offset += "done".len();
-            continue;
-        }
-        offset += ch.len_utf8();
-    }
-    None
+    matching_done_close_start(source, span)
+        .map(|start| source_map.span_for_offsets(start, start + "done".len()))
 }
 
 fn gap_has_blank_line(source: &str, start: usize, end: usize) -> bool {
