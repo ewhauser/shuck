@@ -6574,18 +6574,13 @@ fn close_suffix_comment_alignment_entries(
         previous_start = start;
     }
 
-    let mut next_start = line_end
-        .checked_add(1)
-        .filter(|offset| *offset < source.len());
-    while let Some(start) = next_start {
-        let end = source[start..]
-            .find('\n')
-            .map_or(source.len(), |offset| start + offset);
+    let mut next_line = next_line_bounds(source, line_end);
+    while let Some((start, end)) = next_line {
         let Some(entry) = close_suffix_alignment_entry(source, start, end, None) else {
             break;
         };
         entries.push(entry);
-        next_start = end.checked_add(1).filter(|offset| *offset < source.len());
+        next_line = next_line_bounds(source, end);
     }
 
     Some(entries)
@@ -6664,13 +6659,8 @@ fn trailing_comment_alignment_column(
         previous_start = start;
     }
 
-    let mut next_start = line_end
-        .checked_add(1)
-        .filter(|offset| *offset < source.len());
-    while let Some(start) = next_start {
-        let end = source[start..]
-            .find('\n')
-            .map_or(source.len(), |offset| start + offset);
+    let mut next_line = next_line_bounds(source, line_end);
+    while let Some((start, end)) = next_line {
         let Some(width) = inline_comment_code_width(source, start, end, None) else {
             if let Some((width, suffix_end)) = multiline_header_suffix_comment_width(
                 source,
@@ -6680,15 +6670,13 @@ fn trailing_comment_alignment_column(
                 current_indent_column,
             ) {
                 widths.push(width);
-                next_start = suffix_end
-                    .checked_add(1)
-                    .filter(|offset| *offset < source.len());
+                next_line = next_line_bounds(source, suffix_end);
                 continue;
             }
             break;
         };
         widths.push(width);
-        next_start = end.checked_add(1).filter(|offset| *offset < source.len());
+        next_line = next_line_bounds(source, end);
     }
 
     (widths.len() > 1).then(|| widths.into_iter().max().unwrap_or(0) + 1)
@@ -6731,13 +6719,8 @@ fn trailing_comment_tab_indent_adjust(source: &str, comment: &SourceComment<'_>)
         break;
     }
 
-    let mut next_start = line_end
-        .checked_add(1)
-        .filter(|offset| *offset < source.len());
-    while let Some(start) = next_start {
-        let end = source[start..]
-            .find('\n')
-            .map_or(source.len(), |offset| start + offset);
+    let mut next_line = next_line_bounds(source, line_end);
+    while let Some((start, end)) = next_line {
         if inline_comment_code_width(source, start, end, None).is_some() {
             return source
                 .get(start..end)
@@ -6754,7 +6737,7 @@ fn trailing_comment_tab_indent_adjust(source: &str, comment: &SourceComment<'_>)
             .get(start..end)
             .is_some_and(line_is_skippable_alignment_opener)
         {
-            next_start = end.checked_add(1).filter(|offset| *offset < source.len());
+            next_line = next_line_bounds(source, end);
             continue;
         }
         break;
@@ -6796,6 +6779,16 @@ fn previous_line_bounds(source: &str, line_start: usize) -> Option<(usize, usize
     let start = source[..end]
         .rfind('\n')
         .map_or(0, |index| index.saturating_add(1));
+    Some((start, end))
+}
+
+fn next_line_bounds(source: &str, line_end: usize) -> Option<(usize, usize)> {
+    let start = line_end
+        .checked_add(1)
+        .filter(|offset| *offset < source.len())?;
+    let end = source[start..]
+        .find('\n')
+        .map_or(source.len(), |offset| start + offset);
     Some((start, end))
 }
 
