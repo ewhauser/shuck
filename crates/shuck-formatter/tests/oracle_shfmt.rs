@@ -851,27 +851,24 @@ fn env_truthy(name: &str, default: bool) -> bool {
         .unwrap_or(default)
 }
 
-fn positive_env_int(name: &str, default: usize) -> usize {
+fn filtered_env_int(name: &str, default: usize, predicate: impl Fn(usize) -> bool) -> usize {
     std::env::var(name)
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
-        .filter(|value| *value > 0)
+        .filter(|value| predicate(*value))
         .unwrap_or(default)
+}
+
+fn positive_env_int(name: &str, default: usize) -> usize {
+    filtered_env_int(name, default, |value| value > 0)
 }
 
 fn non_negative_env_int(name: &str, default: usize) -> usize {
-    std::env::var(name)
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or(default)
+    filtered_env_int(name, default, |_| true)
 }
 
 fn percentage_env_int(name: &str, default: usize) -> usize {
-    std::env::var(name)
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .filter(|value| (1..=100).contains(value))
-        .unwrap_or(default)
+    filtered_env_int(name, default, |value| (1..=100).contains(&value))
 }
 
 fn oracle_cases() -> Vec<OracleCase> {
