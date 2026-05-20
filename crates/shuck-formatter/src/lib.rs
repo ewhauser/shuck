@@ -1971,143 +1971,60 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             => "regions=\"$(\n\t# choose enabled regions by default\n\tif [ -n \"${ALL_REGIONS:-}\" ]; then\n\t\tlist_regions --all\n\telse\n\t\tlist_regions\n\tfi |\n\t\tjq -r '.Regions[] | .Name'\n)\"\n";
     }
 
-    #[test]
-    fn preserves_case_pattern_escapes() {
-        let source = "case \"$archi\" in\nDarwin\\ arm64*) download foo ;;\nesac\n";
-
-        assert_unchanged_default(source);
+    default_unchanged_cases! {
+        preserves_case_pattern_escapes:
+            "case \"$archi\" in\nDarwin\\ arm64*) download foo ;;\nesac\n";
     }
 
-    #[test]
-    fn case_item_comments_do_not_leak_to_previous_arm() {
-        let source = "case \"$arg\" in\n--squash-msg)\n  SQUASH_MSG=1\n  ;;\n*)\n  # set the argument back\n  set -- \"$@\" \"$arg\"\n  ;;\nesac\n";
-        assert_bash_formats_with_ast(
-            source,
-            "case \"$arg\" in\n--squash-msg)\n\tSQUASH_MSG=1\n\t;;\n*)\n\t# set the argument back\n\tset -- \"$@\" \"$arg\"\n\t;;\nesac\n",
-        );
+    default_format_ast_cases! {
+        preserves_comments_in_empty_case_items:
+            "case \"$x\" in\n1)\n# keep\n;;\nesac\n"
+            => "case \"$x\" in\n1)\n\t# keep\n\t;;\nesac\n";
+        preserves_comments_after_final_case_terminator:
+            "case $key in\nfoo)\n  echo foo\n  ;;\n\n  #if TestValue --function equals --value \"$value\" --search \"1\"; then\n  #     echo \"Found $value\"\n  #else\n  #     echo \"Not found\"\n  #fi\nesac\n"
+            => "case $key in\nfoo)\n\techo foo\n\t;;\n\n\t#if TestValue --function equals --value \"$value\" --search \"1\"; then\n\t#     echo \"Found $value\"\n\t#else\n\t#     echo \"Not found\"\n\t#fi\nesac\n";
     }
 
-    #[test]
-    fn preserves_comments_before_case_patterns() {
-        let source = "case \"$1\" in\n# Fetch config\n--xsel | -b)\n  INIT_CONFIG_VAL=$(xsel -b)\n  ;;\n# Additional env vars\n-e | --env)\n  CONTAINER_ENV+=(\"$2\")\n  ;;\nesac\n";
-        assert_bash_formats_with_ast(
-            source,
-            "case \"$1\" in\n# Fetch config\n--xsel | -b)\n\tINIT_CONFIG_VAL=$(xsel -b)\n\t;;\n# Additional env vars\n-e | --env)\n\tCONTAINER_ENV+=(\"$2\")\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn preserves_body_indented_comments_before_case_patterns() {
-        let source = "f() {\n  case \"$prev\" in\n  -G)\n    echo grains\n    ;;\n    # FIXME\n  -R)\n    echo range\n    ;;\n  esac\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tcase \"$prev\" in\n\t-G)\n\t\techo grains\n\t\t;;\n\t\t# FIXME\n\t-R)\n\t\techo range\n\t\t;;\n\tesac\n}\n",
-        );
-    }
-
-    #[test]
-    fn preserves_body_indented_comments_before_overindented_case_patterns() {
-        let source = "if [ -z \"$ARCH\" ]; then\n  case \"$( uname -m )\" in\n    arm*) ARCH=arm\n          NO_ASM=1 ;;\n    # comment\n       *) ARCH=$( uname -m ) ;;\n  esac\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\tarm*)\n\t\tARCH=arm\n\t\tNO_ASM=1\n\t\t;;\n\t\t# comment\n\t*) ARCH=$(uname -m) ;;\n\tesac\nfi\n",
-        );
-    }
-
-    #[test]
-    fn indents_disabled_case_arm_comments_before_next_pattern() {
-        let source = "f() {\n  case \"$mode\" in\n  client)\n    echo client\n    ;;\n#\t\thybrid)\n#\t\t\techo hybrid\n#\t\t;;\n  *)\n    echo default\n    ;;\n  esac\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tcase \"$mode\" in\n\tclient)\n\t\techo client\n\t\t;;\n\t\t#\t\thybrid)\n\t\t#\t\t\techo hybrid\n\t\t#\t\t;;\n\t*)\n\t\techo default\n\t\t;;\n\tesac\n}\n",
-        );
-    }
-
-    #[test]
-    fn keeps_space_disabled_case_pattern_comments_at_pattern_indent() {
-        let source = "if [ -z \"$ARCH\" ]; then\n  case \"$( uname -m )\" in\n#    i?86) ARCH=i586 ;;\n    arm*) ARCH=arm ;;\n  esac\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\t#    i?86) ARCH=i586 ;;\n\tarm*) ARCH=arm ;;\n\tesac\nfi\n",
-        );
-    }
-
-    #[test]
-    fn indents_space_disabled_case_pattern_comments_between_arms() {
-        let source = "if [ -z \"$ARCH\" ]; then\n  case \"$( uname -m )\" in\n    i?86) ARCH=i586 ;;\n#    arm*) ARCH=arm ;;\n    *)    ARCH=$( uname -m ) ;;\n  esac\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\ti?86) ARCH=i586 ;;\n\t\t#    arm*) ARCH=arm ;;\n\t*) ARCH=$(uname -m) ;;\n\tesac\nfi\n",
-        );
-    }
-
-    #[test]
-    fn indents_aligned_disabled_case_arm_comments_before_next_pattern() {
-        let source = "case \"$ext\" in\n          #.envrc)  cd \"$dirname\" && direnv allow .\n           .envrc)  shellcheck \"$basename\"\n                    ;;\nesac\n";
-        assert_bash_formats_with_ast(
-            source,
-            "case \"$ext\" in\n#.envrc)  cd \"$dirname\" && direnv allow .\n.envrc)\n\tshellcheck \"$basename\"\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn keeps_disabled_case_comments_with_explanatory_prefix_comments() {
-        let source = "f() {\n  case \"$ext\" in\n               # this command does not fail when missing\n               #.vimrc)  if ! vim -c \"source $basename\" -c \"q\"; then\n               .vimrc)  echo ok\n                        ;;\n  esac\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tcase \"$ext\" in\n\t# this command does not fail when missing\n\t#.vimrc)  if ! vim -c \"source $basename\" -c \"q\"; then\n\t.vimrc)\n\t\techo ok\n\t\t;;\n\tesac\n}\n",
-        );
-    }
-
-    #[test]
-    fn keeps_disabled_case_arm_body_comments_at_pattern_indent_without_hash_tabs() {
-        let source = "case \"$GUI\" in\n    # disabled for now\n    #QT) UI=Qt4\n         #sed -i x\n         #;;\n    QT5) UI=Qt5 ;;\nesac\n";
-        assert_bash_formats_with_ast(
-            source,
-            "case \"$GUI\" in\n# disabled for now\n#QT) UI=Qt4\n#sed -i x\n#;;\nQT5) UI=Qt5 ;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn keeps_aligned_disabled_case_patterns_at_pattern_indent() {
-        let source = "case ${FUNCTION} in\n      \"equals\")\n          CMP1=$(echo ${SEARCH} | tr '[:upper:]' '[:lower:]')\n          if [ \"${CMP1}\" = \"${CMP1}\" ]; then RETVAL=0; else RETVAL=1; fi\n      ;;\n      #\"not-equal\")   COLOR=$WHITE   ;;\n      #\"lt\" | \"less-than\")  COLOR=$YELLOW  ;;\n      *) echo \"INVALID OPTION USED\"; exit 1 ;;\nesac\n";
-        assert_bash_formats_with_ast(
-            source,
-            "case ${FUNCTION} in\n\"equals\")\n\tCMP1=$(echo ${SEARCH} | tr '[:upper:]' '[:lower:]')\n\tif [ \"${CMP1}\" = \"${CMP1}\" ]; then RETVAL=0; else RETVAL=1; fi\n\t;;\n#\"not-equal\")   COLOR=$WHITE   ;;\n#\"lt\" | \"less-than\")  COLOR=$YELLOW  ;;\n*)\n\techo \"INVALID OPTION USED\"\n\texit 1\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn preserves_comments_in_empty_case_items() {
-        let source = "case \"$x\" in\n1)\n# keep\n;;\nesac\n";
-        assert_formats_default_with_ast(source, "case \"$x\" in\n1)\n\t# keep\n\t;;\nesac\n");
-    }
-
-    #[test]
-    fn preserves_prefix_comments_before_empty_case_items() {
-        let source = "case \"$LUA\" in\n  # LUA=no: accept and do nothing\n  no) ;;\n  # Anything else is a fail\n  *) echo fail ;;\nesac\n";
-        assert_bash_formats_with_ast(
-            source,
-            "case \"$LUA\" in\n# LUA=no: accept and do nothing\nno) ;;\n# Anything else is a fail\n*) echo fail ;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn keeps_case_header_comments_before_inline_first_pattern() {
-        let source = "# For 15.0\n# otherwise cater to current\n#\ncase $(cmake --version | head -1) in 3.2*.*)\n  echo old\n  ;;\nesac\n";
-        assert_bash_formats_with_ast(
-            source,
-            "# For 15.0\n# otherwise cater to current\n#\ncase $(cmake --version | head -1) in 3.2*.*)\n\techo old\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn preserves_comments_after_final_case_terminator() {
-        let source = "case $key in\nfoo)\n  echo foo\n  ;;\n\n  #if TestValue --function equals --value \"$value\" --search \"1\"; then\n  #     echo \"Found $value\"\n  #else\n  #     echo \"Not found\"\n  #fi\nesac\n";
-        assert_formats_default_with_ast(
-            source,
-            "case $key in\nfoo)\n\techo foo\n\t;;\n\n\t#if TestValue --function equals --value \"$value\" --search \"1\"; then\n\t#     echo \"Found $value\"\n\t#else\n\t#     echo \"Not found\"\n\t#fi\nesac\n",
-        );
+    bash_format_ast_cases! {
+        case_item_comments_do_not_leak_to_previous_arm:
+            "case \"$arg\" in\n--squash-msg)\n  SQUASH_MSG=1\n  ;;\n*)\n  # set the argument back\n  set -- \"$@\" \"$arg\"\n  ;;\nesac\n"
+            => "case \"$arg\" in\n--squash-msg)\n\tSQUASH_MSG=1\n\t;;\n*)\n\t# set the argument back\n\tset -- \"$@\" \"$arg\"\n\t;;\nesac\n";
+        preserves_comments_before_case_patterns:
+            "case \"$1\" in\n# Fetch config\n--xsel | -b)\n  INIT_CONFIG_VAL=$(xsel -b)\n  ;;\n# Additional env vars\n-e | --env)\n  CONTAINER_ENV+=(\"$2\")\n  ;;\nesac\n"
+            => "case \"$1\" in\n# Fetch config\n--xsel | -b)\n\tINIT_CONFIG_VAL=$(xsel -b)\n\t;;\n# Additional env vars\n-e | --env)\n\tCONTAINER_ENV+=(\"$2\")\n\t;;\nesac\n";
+        preserves_body_indented_comments_before_case_patterns:
+            "f() {\n  case \"$prev\" in\n  -G)\n    echo grains\n    ;;\n    # FIXME\n  -R)\n    echo range\n    ;;\n  esac\n}\n"
+            => "f() {\n\tcase \"$prev\" in\n\t-G)\n\t\techo grains\n\t\t;;\n\t\t# FIXME\n\t-R)\n\t\techo range\n\t\t;;\n\tesac\n}\n";
+        preserves_body_indented_comments_before_overindented_case_patterns:
+            "if [ -z \"$ARCH\" ]; then\n  case \"$( uname -m )\" in\n    arm*) ARCH=arm\n          NO_ASM=1 ;;\n    # comment\n       *) ARCH=$( uname -m ) ;;\n  esac\nfi\n"
+            => "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\tarm*)\n\t\tARCH=arm\n\t\tNO_ASM=1\n\t\t;;\n\t\t# comment\n\t*) ARCH=$(uname -m) ;;\n\tesac\nfi\n";
+        indents_disabled_case_arm_comments_before_next_pattern:
+            "f() {\n  case \"$mode\" in\n  client)\n    echo client\n    ;;\n#\t\thybrid)\n#\t\t\techo hybrid\n#\t\t;;\n  *)\n    echo default\n    ;;\n  esac\n}\n"
+            => "f() {\n\tcase \"$mode\" in\n\tclient)\n\t\techo client\n\t\t;;\n\t\t#\t\thybrid)\n\t\t#\t\t\techo hybrid\n\t\t#\t\t;;\n\t*)\n\t\techo default\n\t\t;;\n\tesac\n}\n";
+        keeps_space_disabled_case_pattern_comments_at_pattern_indent:
+            "if [ -z \"$ARCH\" ]; then\n  case \"$( uname -m )\" in\n#    i?86) ARCH=i586 ;;\n    arm*) ARCH=arm ;;\n  esac\nfi\n"
+            => "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\t#    i?86) ARCH=i586 ;;\n\tarm*) ARCH=arm ;;\n\tesac\nfi\n";
+        indents_space_disabled_case_pattern_comments_between_arms:
+            "if [ -z \"$ARCH\" ]; then\n  case \"$( uname -m )\" in\n    i?86) ARCH=i586 ;;\n#    arm*) ARCH=arm ;;\n    *)    ARCH=$( uname -m ) ;;\n  esac\nfi\n"
+            => "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\ti?86) ARCH=i586 ;;\n\t\t#    arm*) ARCH=arm ;;\n\t*) ARCH=$(uname -m) ;;\n\tesac\nfi\n";
+        indents_aligned_disabled_case_arm_comments_before_next_pattern:
+            "case \"$ext\" in\n          #.envrc)  cd \"$dirname\" && direnv allow .\n           .envrc)  shellcheck \"$basename\"\n                    ;;\nesac\n"
+            => "case \"$ext\" in\n#.envrc)  cd \"$dirname\" && direnv allow .\n.envrc)\n\tshellcheck \"$basename\"\n\t;;\nesac\n";
+        keeps_disabled_case_comments_with_explanatory_prefix_comments:
+            "f() {\n  case \"$ext\" in\n               # this command does not fail when missing\n               #.vimrc)  if ! vim -c \"source $basename\" -c \"q\"; then\n               .vimrc)  echo ok\n                        ;;\n  esac\n}\n"
+            => "f() {\n\tcase \"$ext\" in\n\t# this command does not fail when missing\n\t#.vimrc)  if ! vim -c \"source $basename\" -c \"q\"; then\n\t.vimrc)\n\t\techo ok\n\t\t;;\n\tesac\n}\n";
+        keeps_disabled_case_arm_body_comments_at_pattern_indent_without_hash_tabs:
+            "case \"$GUI\" in\n    # disabled for now\n    #QT) UI=Qt4\n         #sed -i x\n         #;;\n    QT5) UI=Qt5 ;;\nesac\n"
+            => "case \"$GUI\" in\n# disabled for now\n#QT) UI=Qt4\n#sed -i x\n#;;\nQT5) UI=Qt5 ;;\nesac\n";
+        keeps_aligned_disabled_case_patterns_at_pattern_indent:
+            "case ${FUNCTION} in\n      \"equals\")\n          CMP1=$(echo ${SEARCH} | tr '[:upper:]' '[:lower:]')\n          if [ \"${CMP1}\" = \"${CMP1}\" ]; then RETVAL=0; else RETVAL=1; fi\n      ;;\n      #\"not-equal\")   COLOR=$WHITE   ;;\n      #\"lt\" | \"less-than\")  COLOR=$YELLOW  ;;\n      *) echo \"INVALID OPTION USED\"; exit 1 ;;\nesac\n"
+            => "case ${FUNCTION} in\n\"equals\")\n\tCMP1=$(echo ${SEARCH} | tr '[:upper:]' '[:lower:]')\n\tif [ \"${CMP1}\" = \"${CMP1}\" ]; then RETVAL=0; else RETVAL=1; fi\n\t;;\n#\"not-equal\")   COLOR=$WHITE   ;;\n#\"lt\" | \"less-than\")  COLOR=$YELLOW  ;;\n*)\n\techo \"INVALID OPTION USED\"\n\texit 1\n\t;;\nesac\n";
+        preserves_prefix_comments_before_empty_case_items:
+            "case \"$LUA\" in\n  # LUA=no: accept and do nothing\n  no) ;;\n  # Anything else is a fail\n  *) echo fail ;;\nesac\n"
+            => "case \"$LUA\" in\n# LUA=no: accept and do nothing\nno) ;;\n# Anything else is a fail\n*) echo fail ;;\nesac\n";
+        keeps_case_header_comments_before_inline_first_pattern:
+            "# For 15.0\n# otherwise cater to current\n#\ncase $(cmake --version | head -1) in 3.2*.*)\n  echo old\n  ;;\nesac\n"
+            => "# For 15.0\n# otherwise cater to current\n#\ncase $(cmake --version | head -1) in 3.2*.*)\n\techo old\n\t;;\nesac\n";
     }
 
     default_format_ast_cases! {
