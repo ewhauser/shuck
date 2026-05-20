@@ -2,15 +2,15 @@ use std::fmt::Write as _;
 
 use shuck_ast::{
     ArithmeticAssignOp, ArithmeticBinaryOp, ArithmeticExpansionSyntax, ArithmeticExpr,
-    ArithmeticExprNode, ArithmeticLvalue, ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem,
-    Assignment, AssignmentValue, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command,
+    ArithmeticExprNode, ArithmeticLvalue, ArithmeticPostfixOp, ArithmeticUnaryOp, Assignment,
+    AssignmentValue, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command,
     CommandSubstitutionSyntax, CompoundCommand, ConditionalExpr, HeredocBody, HeredocBodyPart,
     ParameterOp, Pattern, PatternPart, Redirect, Stmt, StmtSeq, SubscriptSelector, VarRef, Word,
     WordPart, WordPartNode,
 };
 use shuck_format::IndentStyle;
 
-use crate::command::{stmt_seq_has_heredoc, trim_unescaped_trailing_whitespace};
+use crate::command::{array_elem_parts, stmt_seq_has_heredoc, trim_unescaped_trailing_whitespace};
 use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
@@ -411,13 +411,10 @@ pub(crate) fn assignment_value_has_multiline_literal_source(
 ) -> bool {
     match &assignment.value {
         AssignmentValue::Scalar(word) => word_has_multiline_literal_source(word, source),
-        AssignmentValue::Compound(array) => array.elements.iter().any(|element| match element {
-            ArrayElem::Sequential(word)
-            | ArrayElem::Keyed { value: word, .. }
-            | ArrayElem::KeyedAppend { value: word, .. } => {
-                word_has_multiline_literal_source(word, source)
-            }
-        }),
+        AssignmentValue::Compound(array) => array
+            .elements
+            .iter()
+            .any(|element| word_has_multiline_literal_source(array_elem_parts(element).1, source)),
     }
 }
 

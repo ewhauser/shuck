@@ -18,6 +18,22 @@ use shuck_ast::{
     Subscript, VarRef, Word, WordPart,
 };
 
+pub(crate) fn array_elem_parts(element: &ArrayElem) -> (Option<&Subscript>, &Word, &'static str) {
+    match element {
+        ArrayElem::Sequential(word) => (None, word, ""),
+        ArrayElem::Keyed { key, value } => (Some(key), value, "="),
+        ArrayElem::KeyedAppend { key, value } => (Some(key), value, "+="),
+    }
+}
+
+pub(crate) fn array_elem_value_word_mut(element: &mut ArrayElem) -> &mut Word {
+    match element {
+        ArrayElem::Sequential(word)
+        | ArrayElem::Keyed { value: word, .. }
+        | ArrayElem::KeyedAppend { value: word, .. } => word,
+    }
+}
+
 pub(crate) fn format_arithmetic_command_source(raw: &str) -> String {
     raw.strip_prefix("((")
         .and_then(|body| body.strip_suffix("))"))
@@ -204,16 +220,15 @@ fn render_array_elem_to_buf(
     facts: Option<&FormatterFacts<'_>>,
     rendered: &mut String,
 ) {
-    match element {
-        ArrayElem::Sequential(word) => render_word_syntax_with_optional_facts_to_buf(
-            word, source, options, source_map, facts, rendered,
-        ),
-        ArrayElem::Keyed { key, value } => render_keyed_array_elem_to_buf(
-            key, value, source, options, source_map, facts, "=", rendered,
-        ),
-        ArrayElem::KeyedAppend { key, value } => render_keyed_array_elem_to_buf(
-            key, value, source, options, source_map, facts, "+=", rendered,
-        ),
+    let (key, value, op) = array_elem_parts(element);
+    if let Some(key) = key {
+        render_keyed_array_elem_to_buf(
+            key, value, source, options, source_map, facts, op, rendered,
+        );
+    } else {
+        render_word_syntax_with_optional_facts_to_buf(
+            value, source, options, source_map, facts, rendered,
+        );
     }
 }
 

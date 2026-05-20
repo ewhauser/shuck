@@ -15,7 +15,7 @@ use shuck_format::{IndentStyle, LineEnding};
 
 use crate::Result;
 use crate::command::{
-    binary_operator, case_terminator, command_format_span,
+    array_elem_parts, binary_operator, case_terminator, command_format_span,
     done_close_span as command_done_close_span, format_arithmetic_command_source,
     format_arithmetic_for_clause_source, group_attachment_span,
     if_close_span as command_if_close_span, line_gap_break_count,
@@ -2025,13 +2025,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return false;
         }
 
-        array.elements.iter().any(|element| match element {
-            ArrayElem::Sequential(word)
-            | ArrayElem::Keyed { value: word, .. }
-            | ArrayElem::KeyedAppend { value: word, .. } => {
-                word_contains_command_substitution(word)
-            }
-        })
+        array
+            .elements
+            .iter()
+            .any(|element| word_contains_command_substitution(array_elem_parts(element).1))
     }
 
     fn format_structural_multiline_compound_assignment(&mut self, assignment: &Assignment) {
@@ -2052,12 +2049,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn write_array_element(&mut self, element: &ArrayElem) {
-        match element {
-            ArrayElem::Sequential(word) => self.write_word(word),
-            ArrayElem::Keyed { key, value } => self.write_keyed_array_element(key, value, "="),
-            ArrayElem::KeyedAppend { key, value } => {
-                self.write_keyed_array_element(key, value, "+=");
-            }
+        let (key, value, op) = array_elem_parts(element);
+        if let Some(key) = key {
+            self.write_keyed_array_element(key, value, op);
+        } else {
+            self.write_word(value);
         }
     }
 
@@ -4850,20 +4846,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         &mut self,
         element: &ArrayElem,
     ) {
-        match element {
-            ArrayElem::Sequential(word) => {
-                self.write_word_with_escaped_multiline_substitution_indent(word);
-            }
-            ArrayElem::Keyed { key, value } => {
-                self.write_keyed_array_element_with_escaped_multiline_substitution_indent(
-                    key, value, "=",
-                );
-            }
-            ArrayElem::KeyedAppend { key, value } => {
-                self.write_keyed_array_element_with_escaped_multiline_substitution_indent(
-                    key, value, "+=",
-                );
-            }
+        let (key, value, op) = array_elem_parts(element);
+        if let Some(key) = key {
+            self.write_keyed_array_element_with_escaped_multiline_substitution_indent(
+                key, value, op,
+            );
+        } else {
+            self.write_word_with_escaped_multiline_substitution_indent(value);
         }
     }
 
@@ -5245,11 +5234,10 @@ fn minimum_leading_tabs_in_non_empty_lines(text: &str) -> usize {
 fn assignment_contains_command_heredoc(assignment: &Assignment) -> bool {
     match &assignment.value {
         AssignmentValue::Scalar(word) => word_contains_command_heredoc(word),
-        AssignmentValue::Compound(array) => array.elements.iter().any(|element| match element {
-            ArrayElem::Sequential(word)
-            | ArrayElem::Keyed { value: word, .. }
-            | ArrayElem::KeyedAppend { value: word, .. } => word_contains_command_heredoc(word),
-        }),
+        AssignmentValue::Compound(array) => array
+            .elements
+            .iter()
+            .any(|element| word_contains_command_heredoc(array_elem_parts(element).1)),
     }
 }
 

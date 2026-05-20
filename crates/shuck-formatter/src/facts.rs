@@ -2,20 +2,21 @@ use std::collections::{HashMap, HashSet};
 
 use shuck_ast::TextSize;
 use shuck_ast::{
-    AnonymousFunctionCommand, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem,
-    Assignment, AssignmentValue, BinaryCommand, BinaryOp, BuiltinCommand, CaseCommand, CaseItem,
-    Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalCommand, ConditionalExpr,
-    DeclClause, DeclOperand, File, ForCommand, ForeachCommand, FunctionDef, HeredocBody,
-    HeredocBodyPart, IfCommand, Pattern, PatternPart, Redirect, RepeatCommand, SelectCommand, Span,
-    Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
+    AnonymousFunctionCommand, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, Assignment,
+    AssignmentValue, BinaryCommand, BinaryOp, BuiltinCommand, CaseCommand, CaseItem, Command,
+    CommandSubstitutionSyntax, CompoundCommand, ConditionalCommand, ConditionalExpr, DeclClause,
+    DeclOperand, File, ForCommand, ForeachCommand, FunctionDef, HeredocBody, HeredocBodyPart,
+    IfCommand, Pattern, PatternPart, Redirect, RepeatCommand, SelectCommand, Span, Stmt, StmtSeq,
+    StmtTerminator, TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
 };
 use shuck_indexer::Indexer;
 
 use crate::command::{
-    case_item_was_inline_in_source, done_close_span, group_attachment_span, group_open_suffix,
-    group_was_inline_in_source, if_close_span, rendered_stmt_end_line, should_render_verbatim,
-    stmt_attachment_span, stmt_format_span, stmt_has_trailing_comment, stmt_render_start_line,
-    stmt_span, stmt_start_after_operator, stmt_verbatim_span_with_source_map,
+    array_elem_parts, case_item_was_inline_in_source, done_close_span, group_attachment_span,
+    group_open_suffix, group_was_inline_in_source, if_close_span, rendered_stmt_end_line,
+    should_render_verbatim, stmt_attachment_span, stmt_format_span, stmt_has_trailing_comment,
+    stmt_render_start_line, stmt_span, stmt_start_after_operator,
+    stmt_verbatim_span_with_source_map,
 };
 use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_window};
 use crate::options::ResolvedShellFormatOptions;
@@ -1033,11 +1034,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             AssignmentValue::Scalar(word) => self.visit_word(word),
             AssignmentValue::Compound(array) => {
                 for element in &array.elements {
-                    match element {
-                        ArrayElem::Sequential(word)
-                        | ArrayElem::Keyed { value: word, .. }
-                        | ArrayElem::KeyedAppend { value: word, .. } => self.visit_word(word),
-                    }
+                    self.visit_word(array_elem_parts(element).1);
                 }
             }
         }

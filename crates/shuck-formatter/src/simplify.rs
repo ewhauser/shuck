@@ -8,6 +8,8 @@ use shuck_ast::{
     ZshExpansionOperation, ZshExpansionTarget,
 };
 
+use crate::command::array_elem_value_word_mut;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimplifyReport {
     applied: Vec<RewriteApplication>,
@@ -469,13 +471,7 @@ fn walk_assignment(
         AssignmentValue::Compound(array) => {
             let mut inner = 0;
             for element in &mut array.elements {
-                match element {
-                    ArrayElem::Sequential(word)
-                    | ArrayElem::Keyed { value: word, .. }
-                    | ArrayElem::KeyedAppend { value: word, .. } => {
-                        inner += walk_word(word, source, word_visitor);
-                    }
-                }
+                inner += walk_word(array_elem_value_word_mut(element), source, word_visitor);
             }
             inner
         }
