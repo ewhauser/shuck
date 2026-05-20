@@ -598,6 +598,17 @@ mod tests {
         };
     }
 
+    macro_rules! default_idempotent_cases {
+        ($($name:ident: $source:expr, $filename:expr;)+) => {
+            $(
+                #[test]
+                fn $name() {
+                    assert_default_idempotent($source, $filename);
+                }
+            )+
+        };
+    }
+
     fn lint_source_posix_strict(source: &str, path: &Path) -> Vec<Diagnostic> {
         let parse_result = Parser::with_dialect(source, ParseShellDialect::Posix).parse();
         assert!(
@@ -4699,62 +4710,31 @@ print hidden &!
         }
     }
 
-    #[test]
-    fn preserves_group_spacing_idempotently_for_nested_subshells() {
-        assert_default_idempotent("foo(foo()) \n", "nested_subshell_spacing.sh");
-    }
-
-    #[test]
-    fn preserves_blank_lines_after_multiline_subshells_idempotently() {
-        assert_default_idempotent(
+    default_idempotent_cases! {
+        preserves_group_spacing_idempotently_for_nested_subshells:
+            "foo(foo()) \n",
+            "nested_subshell_spacing.sh";
+        preserves_blank_lines_after_multiline_subshells_idempotently:
             "(\n\techo hi\n)\n\nfoo() {\n\techo bye\n}\n",
-            "multiline_subshell_gap.sh",
-        );
-    }
-
-    #[test]
-    fn preserves_blank_lines_after_multiline_brace_groups_idempotently() {
-        assert_default_idempotent(
+            "multiline_subshell_gap.sh";
+        preserves_blank_lines_after_multiline_brace_groups_idempotently:
             "{\n\techo hi\n}\n\nfoo() {\n\techo bye\n}\n",
-            "multiline_brace_gap.sh",
-        );
-    }
-
-    #[test]
-    fn preserves_spacing_after_nested_multiline_subshells_before_simple_commands() {
-        assert_default_idempotent(
+            "multiline_brace_gap.sh";
+        preserves_spacing_after_nested_multiline_subshells_before_simple_commands:
             "(\n\t(\n\t\tfalse\n\t)\n)\ngrep \"name delta\"\n",
-            "nested_multiline_subshell_then_stmt.sh",
-        );
-    }
-
-    #[test]
-    fn preserves_spacing_after_nested_multiline_subshells_before_other_groups() {
-        assert_default_idempotent(
+            "nested_multiline_subshell_then_stmt.sh";
+        preserves_spacing_after_nested_multiline_subshells_before_other_groups:
             "(\n\t(\n\t\tfalse\n\t)\n)\n(\n\twhile true; do\n\t\t:\n\tdone\n)\n",
-            "nested_multiline_subshell_then_group.bash",
-        );
-    }
-
-    #[test]
-    fn preserves_spacing_after_subshells_that_end_with_function_definitions() {
-        assert_default_idempotent(
+            "nested_multiline_subshell_then_group.bash";
+        preserves_spacing_after_subshells_that_end_with_function_definitions:
             "foo() {\n\t(\n\t\tbar() {\n\t\t\techo hi\n\t\t}\n\t)\n\n\tprintf x\n}\n",
-            "subshell_function_tail_gap.bash",
-        );
-    }
-
-    #[test]
-    fn preserves_shebang_spacing_before_nested_multiline_groups_idempotently() {
-        assert_default_idempotent(
+            "subshell_function_tail_gap.bash";
+        preserves_shebang_spacing_before_nested_multiline_groups_idempotently:
             "#!/usr/bin/env bash\n\n(\n\t(\n\t\techo hi\n\t)\n)\n",
-            "shebang_nested_groups.bash",
-        );
-    }
-
-    #[test]
-    fn preserves_legacy_bracket_arithmetic_idempotently() {
-        assert_default_idempotent("#!/bin/sh\n\ni=$[$i+1]\n", "legacy_bracket_arithmetic.sh");
+            "shebang_nested_groups.bash";
+        preserves_legacy_bracket_arithmetic_idempotently:
+            "#!/bin/sh\n\ni=$[$i+1]\n",
+            "legacy_bracket_arithmetic.sh";
     }
 
     #[test]
