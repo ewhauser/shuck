@@ -2112,14 +2112,6 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "exec 99>&1\nexec 99>&-\nread 42<&0\n";
     }
 
-    #[test]
-    fn separates_numeric_word_before_output_both_redirects() {
-        let source = "echo \"Usage\" 1&>2\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(source, None, &options, "echo \"Usage\" 1 &>2\n".to_string());
-    }
-
     default_unchanged_ast_cases! {
         preserves_explicit_stdout_fd_on_dup_redirects:
             "cat 1>&2 <<EOF\nhi\nEOF\n";
@@ -2127,22 +2119,16 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "echo >&2 \"bad news\"\n";
     }
 
-    #[test]
-    fn moves_interspersed_simple_command_redirects_after_arguments() {
-        let source = "curl -sSf >\"$jar\" \"$url\"\ncmd a >out b 2>err c\ncmd >out a 2>err b\n";
-        assert_bash_formats_with_ast(
-            source,
-            "curl -sSf \"$url\" >\"$jar\"\ncmd a b c >out 2>err\ncmd >out a b 2>err\n",
-        );
-    }
-
-    #[test]
-    fn preserves_time_command_trailing_comment_after_redirect() {
-        let source = "time nice ffmpeg -i \"$filepath\" \"$mp4_filepath\" < /dev/null  # note\n";
-        assert_bash_formats_with_ast(
-            source,
-            "time nice ffmpeg -i \"$filepath\" \"$mp4_filepath\" </dev/null # note\n",
-        );
+    bash_format_ast_cases! {
+        separates_numeric_word_before_output_both_redirects:
+            "echo \"Usage\" 1&>2\n"
+            => "echo \"Usage\" 1 &>2\n";
+        moves_interspersed_simple_command_redirects_after_arguments:
+            "curl -sSf >\"$jar\" \"$url\"\ncmd a >out b 2>err c\ncmd >out a 2>err b\n"
+            => "curl -sSf \"$url\" >\"$jar\"\ncmd a b c >out 2>err\ncmd >out a b 2>err\n";
+        preserves_time_command_trailing_comment_after_redirect:
+            "time nice ffmpeg -i \"$filepath\" \"$mp4_filepath\" < /dev/null  # note\n"
+            => "time nice ffmpeg -i \"$filepath\" \"$mp4_filepath\" </dev/null # note\n";
     }
 
     default_unchanged_ast_cases! {
@@ -2150,22 +2136,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "[[ \"$x\" =~ \"git version \"([^ ]*).* ]]\n";
     }
 
-    #[test]
-    fn preserves_regex_alternation_operands_in_conditionals() {
-        let source = "if [[ $line =~ \\<(target|extension-point)[[:space:]].*name=[\\\"\\']([^\\\"\\']+) ]]; then\n  echo \"${BASH_REMATCH[2]}\"\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if [[ $line =~ \\<(target|extension-point)[[:space:]].*name=[\\\"\\']([^\\\"\\']+) ]]; then\n\techo \"${BASH_REMATCH[2]}\"\nfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_escaped_spaces_in_conditional_regex_operands() {
-        let source = "if [[ \"$line\" =~ ^=\\  ]]; then\n  echo ok\nfi\nif [[ ! \"$line\" =~ ^=\\  ]] && [[ \"$n\" -gt 20 ]]; then\n  break\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if [[ \"$line\" =~ ^=\\  ]]; then\n\techo ok\nfi\nif [[ ! \"$line\" =~ ^=\\  ]] && [[ \"$n\" -gt 20 ]]; then\n\tbreak\nfi\n",
-        );
+    bash_format_ast_cases! {
+        preserves_regex_alternation_operands_in_conditionals:
+            "if [[ $line =~ \\<(target|extension-point)[[:space:]].*name=[\\\"\\']([^\\\"\\']+) ]]; then\n  echo \"${BASH_REMATCH[2]}\"\nfi\n"
+            => "if [[ $line =~ \\<(target|extension-point)[[:space:]].*name=[\\\"\\']([^\\\"\\']+) ]]; then\n\techo \"${BASH_REMATCH[2]}\"\nfi\n";
+        preserves_escaped_spaces_in_conditional_regex_operands:
+            "if [[ \"$line\" =~ ^=\\  ]]; then\n  echo ok\nfi\nif [[ ! \"$line\" =~ ^=\\  ]] && [[ \"$n\" -gt 20 ]]; then\n  break\nfi\n"
+            => "if [[ \"$line\" =~ ^=\\  ]]; then\n\techo ok\nfi\nif [[ ! \"$line\" =~ ^=\\  ]] && [[ \"$n\" -gt 20 ]]; then\n\tbreak\nfi\n";
     }
 
     #[test]
@@ -2181,33 +2158,16 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn preserves_list_break_after_multiline_condition() {
-        let source = "f() {\n  [[ ! -f \"$cert_file\" ||\n    \"$cert_file\" -ot /one ||\n    \"$cert_file\" -ot /two\n  ]] || (( ${force:-0} > 0 ))\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\t[[ ! -f \"$cert_file\" ||\n\t\t\"$cert_file\" -ot /one ||\n\t\t\"$cert_file\" -ot /two ]] ||\n\t\t((${force:-0} > 0))\n}\n",
-        );
-    }
-
-    #[test]
-    fn keeps_inline_list_rhs_after_wrapped_conditional() {
-        let source =
-            "f() {\n  [[ \"${show:-}\" != true ||\n    -z \"$(which todo.sh)\" ]] && return\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\t[[ \"${show:-}\" != true ||\n\t\t-z \"$(which todo.sh)\" ]] && return\n}\n",
-        );
-    }
-
-    #[test]
-    fn preserves_explicit_line_break_when_list_operator_starts_continued_line() {
-        let source =
-            "_command_exists goenv \\\n  || [[ -x \"$GOENV_ROOT/bin/goenv\" ]] \\\n  || return 0\n";
-        assert_bash_formats_with_ast(
-            source,
-            "_command_exists goenv ||\n\t[[ -x \"$GOENV_ROOT/bin/goenv\" ]] ||\n\treturn 0\n",
-        );
+    bash_format_ast_cases! {
+        preserves_list_break_after_multiline_condition:
+            "f() {\n  [[ ! -f \"$cert_file\" ||\n    \"$cert_file\" -ot /one ||\n    \"$cert_file\" -ot /two\n  ]] || (( ${force:-0} > 0 ))\n}\n"
+            => "f() {\n\t[[ ! -f \"$cert_file\" ||\n\t\t\"$cert_file\" -ot /one ||\n\t\t\"$cert_file\" -ot /two ]] ||\n\t\t((${force:-0} > 0))\n}\n";
+        keeps_inline_list_rhs_after_wrapped_conditional:
+            "f() {\n  [[ \"${show:-}\" != true ||\n    -z \"$(which todo.sh)\" ]] && return\n}\n"
+            => "f() {\n\t[[ \"${show:-}\" != true ||\n\t\t-z \"$(which todo.sh)\" ]] && return\n}\n";
+        preserves_explicit_line_break_when_list_operator_starts_continued_line:
+            "_command_exists goenv \\\n  || [[ -x \"$GOENV_ROOT/bin/goenv\" ]] \\\n  || return 0\n"
+            => "_command_exists goenv ||\n\t[[ -x \"$GOENV_ROOT/bin/goenv\" ]] ||\n\treturn 0\n";
     }
 
     #[test]
