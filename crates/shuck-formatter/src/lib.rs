@@ -1263,140 +1263,60 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "nvm_err \"N/A: version \\\"${PREFIXED_VERSION:-$PROVIDED_VERSION}\\\" is not yet installed.\"\n";
     }
 
-    #[test]
-    fn preserves_default_redirect_spacing_without_space_redirects() {
-        let source = "archi=$(uname -smo 2> /dev/null || uname -sm)\n";
-        assert_formats_default_with_ast(source, "archi=$(uname -smo 2>/dev/null || uname -sm)\n");
+    default_format_ast_cases! {
+        preserves_default_redirect_spacing_without_space_redirects:
+            "archi=$(uname -smo 2> /dev/null || uname -sm)\n"
+            => "archi=$(uname -smo 2>/dev/null || uname -sm)\n";
+        normalizes_redirect_spacing_inside_raw_multiline_command_substitutions:
+            "host_sockets=\"$(find /run/host/run \\\n\t-xdev \\\n\t2> /dev/null || :)\"\n"
+            => "host_sockets=\"$(find /run/host/run \\\n\t-xdev \\\n\t2>/dev/null || :)\"\n";
+        keeps_command_substitution_condition_continuation_at_block_indent:
+            "if true; then\n  if [[ $a != \"$(cat x)\" ||\n  $b == c ]]; then\n    echo yes\n  fi\nfi\n"
+            => "if true; then\n\tif [[ $a != \"$(cat x)\" ||\n\t$b == c ]]; then\n\t\techo yes\n\tfi\nfi\n";
+        normalizes_redirect_spacing_inside_parameter_default_commands:
+            "[[ -t 1 && \"${CLICOLOR:=$(tput colors 2> /dev/null)}\" -ge 8 ]]\n"
+            => "[[ -t 1 && \"${CLICOLOR:=$(tput colors 2>/dev/null)}\" -ge 8 ]]\n";
+        normalizes_pipeline_spacing_inside_parameter_default_commands:
+            "value=${value:-$(printf x|tr x y)}\n"
+            => "value=${value:-$(printf x | tr x y)}\n";
     }
 
-    #[test]
-    fn normalizes_output_redirect_spacing_inside_raw_command_substitutions() {
-        let source = "if $(! /sbin/pidof $PRGNAM > /dev/null 2>&1 ) ; then\n  echo stale\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if $(! /sbin/pidof $PRGNAM >/dev/null 2>&1); then\n\techo stale\nfi\n",
-        );
+    bash_format_ast_cases! {
+        normalizes_output_redirect_spacing_inside_raw_command_substitutions:
+            "if $(! /sbin/pidof $PRGNAM > /dev/null 2>&1 ) ; then\n  echo stale\nfi\n"
+            => "if $(! /sbin/pidof $PRGNAM >/dev/null 2>&1); then\n\techo stale\nfi\n";
+        normalizes_leading_pipe_continuations_inside_raw_command_substitutions:
+            "value=\"$(declare -f list_all \\\n\t| sed 's/list_all/list_all_without_hub/')\"\n"
+            => "value=\"$(declare -f list_all |\n\tsed 's/list_all/list_all_without_hub/')\"\n";
+        normalizes_trailing_pipe_continuations_inside_raw_command_substitutions:
+            "value=\"$(\n  # note\n  foo | \\\n  bar | \\\n  baz\n)\"\n"
+            => "value=\"$(\n\t# note\n\tfoo |\n\tbar |\n\tbaz\n)\"\n";
+        carries_normalized_pipeline_indent_inside_raw_command_substitutions:
+            "f() {\n    value=\"$(\n        # note\n        docker-compose \\\n            logs service | \\\n        grep token | \\\n        awk '{print $1}' || :\n    )\"\n}\n"
+            => "f() {\n\tvalue=\"$(\n\t\t# note\n\t\tdocker-compose \\\n\t\t\tlogs service |\n\t\t\tgrep token |\n\t\t\tawk '{print $1}' || :\n\t)\"\n}\n";
+        normalizes_leading_pipe_continuations_inside_process_substitutions:
+            "while read -r line; do :; done < <(\n\tcat clean_files.txt \\\n\t\t| grep -v '^#'\n)\n"
+            => "while read -r line; do :; done < <(\n\tcat clean_files.txt |\n\t\tgrep -v '^#'\n)\n";
+        normalizes_here_string_spacing_inside_command_substitutions:
+            "[[ $versions = \"$(sort -V <<< \"$versions\")\" ]]\n"
+            => "[[ $versions = \"$(sort -V <<<\"$versions\")\" ]]\n";
+        normalizes_here_string_spacing_in_raw_comment_command_substitutions:
+            "value=\"$(\n\t# keep comment\n\tcat <<< \"$payload\"\n)\"\n"
+            => "value=\"$(\n\t# keep comment\n\tcat <<<\"$payload\"\n)\"\n";
+        normalizes_here_string_spacing:
+            "sort -V <<< \"$versions\"\n"
+            => "sort -V <<<\"$versions\"\n";
+        preserves_multiline_here_string_literal_payload_indent:
+            "case $kind in\n  service)\n    cat >$unit <<<\"\n[Unit]\nDescription=$name\n\n[Service]\nExecStart=$bin\n\"\n    ;;\nesac\n"
+            => "case $kind in\nservice)\n\tcat >$unit <<<\"\n[Unit]\nDescription=$name\n\n[Service]\nExecStart=$bin\n\"\n\t;;\nesac\n";
+        indents_multiline_here_string_command_substitution_targets:
+            "f() {\n  IFS=' ' read -ra tags <<<\"$(\n    get_tags \"$1\" \"$2\"\n  )\"\n}\n"
+            => "f() {\n\tIFS=' ' read -ra tags <<<\"$(\n\t\tget_tags \"$1\" \"$2\"\n\t)\"\n}\n";
     }
 
-    #[test]
-    fn normalizes_redirect_spacing_inside_raw_multiline_command_substitutions() {
-        let source = "host_sockets=\"$(find /run/host/run \\\n\t-xdev \\\n\t2> /dev/null || :)\"\n";
-        assert_formats_default_with_ast(
-            source,
-            "host_sockets=\"$(find /run/host/run \\\n\t-xdev \\\n\t2>/dev/null || :)\"\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_leading_pipe_continuations_inside_raw_command_substitutions() {
-        let source =
-            "value=\"$(declare -f list_all \\\n\t| sed 's/list_all/list_all_without_hub/')\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "value=\"$(declare -f list_all |\n\tsed 's/list_all/list_all_without_hub/')\"\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_trailing_pipe_continuations_inside_raw_command_substitutions() {
-        let source = "value=\"$(\n  # note\n  foo | \\\n  bar | \\\n  baz\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "value=\"$(\n\t# note\n\tfoo |\n\tbar |\n\tbaz\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn carries_normalized_pipeline_indent_inside_raw_command_substitutions() {
-        let source = "f() {\n    value=\"$(\n        # note\n        docker-compose \\\n            logs service | \\\n        grep token | \\\n        awk '{print $1}' || :\n    )\"\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tvalue=\"$(\n\t\t# note\n\t\tdocker-compose \\\n\t\t\tlogs service |\n\t\t\tgrep token |\n\t\t\tawk '{print $1}' || :\n\t)\"\n}\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_leading_pipe_continuations_inside_process_substitutions() {
-        let source = "while read -r line; do :; done < <(\n\tcat clean_files.txt \\\n\t\t| grep -v '^#'\n)\n";
-        assert_bash_formats_with_ast(
-            source,
-            "while read -r line; do :; done < <(\n\tcat clean_files.txt |\n\t\tgrep -v '^#'\n)\n",
-        );
-    }
-
-    #[test]
-    fn keeps_command_substitution_condition_continuation_at_block_indent() {
-        let source = "if true; then\n  if [[ $a != \"$(cat x)\" ||\n  $b == c ]]; then\n    echo yes\n  fi\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if true; then\n\tif [[ $a != \"$(cat x)\" ||\n\t$b == c ]]; then\n\t\techo yes\n\tfi\nfi\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_redirect_spacing_inside_parameter_default_commands() {
-        let source = "[[ -t 1 && \"${CLICOLOR:=$(tput colors 2> /dev/null)}\" -ge 8 ]]\n";
-        assert_formats_default_with_ast(
-            source,
-            "[[ -t 1 && \"${CLICOLOR:=$(tput colors 2>/dev/null)}\" -ge 8 ]]\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_pipeline_spacing_inside_parameter_default_commands() {
-        let source = "value=${value:-$(printf x|tr x y)}\n";
-        assert_formats_default_with_ast(source, "value=${value:-$(printf x | tr x y)}\n");
-    }
-
-    #[test]
-    fn normalizes_here_string_spacing_inside_command_substitutions() {
-        let source = "[[ $versions = \"$(sort -V <<< \"$versions\")\" ]]\n";
-        assert_bash_formats_with_ast(
-            source,
-            "[[ $versions = \"$(sort -V <<<\"$versions\")\" ]]\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_here_string_spacing_in_raw_comment_command_substitutions() {
-        let source = "value=\"$(\n\t# keep comment\n\tcat <<< \"$payload\"\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "value=\"$(\n\t# keep comment\n\tcat <<<\"$payload\"\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_here_string_spacing() {
-        let source = "sort -V <<< \"$versions\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(source, None, &options, "sort -V <<<\"$versions\"\n");
-    }
-
-    #[test]
-    fn preserves_multiline_here_string_literal_payload_indent() {
-        let source = "case $kind in\n  service)\n    cat >$unit <<<\"\n[Unit]\nDescription=$name\n\n[Service]\nExecStart=$bin\n\"\n    ;;\nesac\n";
-        assert_bash_formats_with_ast(
-            source,
-            "case $kind in\nservice)\n\tcat >$unit <<<\"\n[Unit]\nDescription=$name\n\n[Service]\nExecStart=$bin\n\"\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn indents_multiline_here_string_command_substitution_targets() {
-        let source =
-            "f() {\n  IFS=' ' read -ra tags <<<\"$(\n    get_tags \"$1\" \"$2\"\n  )\"\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tIFS=' ' read -ra tags <<<\"$(\n\t\tget_tags \"$1\" \"$2\"\n\t)\"\n}\n",
-        );
-    }
-
-    #[test]
-    fn preserves_empty_command_substitutions() {
-        let source = "result=$()\n";
-        assert_default_unchanged_with_ast(source);
+    default_unchanged_ast_cases! {
+        preserves_empty_command_substitutions:
+            "result=$()\n";
     }
 
     #[test]
@@ -1408,55 +1328,30 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn preserves_unmodeled_command_substitution_bodies() {
-        let source = "themes=$(grep \\{EXTRA_THEMES install.sh | cut -d= -f2 | cut -d} -f1)\n";
-        assert_bash_unchanged_with_ast(source);
+    bash_unchanged_ast_cases! {
+        preserves_unmodeled_command_substitution_bodies:
+            "themes=$(grep \\{EXTRA_THEMES install.sh | cut -d= -f2 | cut -d} -f1)\n";
     }
 
-    #[test]
-    fn normalizes_redirect_spacing_in_raw_command_substitution_fallbacks() {
-        let source = "find_dig=$(which dig 2> /dev/null | grep -v \"no [^ ]* in\")\ncontext_id=\"$(jq_debug_pipe_dump <<< \"$output\" | jq -r \".items[] | select(.name == \\\"$context_name\\\") | .id\")\"\nurl=\"$(jq -r \"limit(1; .[] | select(.title == \\\"$selected\\\" or .animal == \\\"$selected\\\") ) | .cover_src\" < \"$json\")\"\nCOMPREPLY=($(compgen -W \"$(awk -F ':' 'BEGIN {print_line = 0}; /^[^ ]/ {print_line = 0}' < ${MASTER_CONFIG})\" -- \"${cur}\"))\n";
-        assert_bash_formats_with_ast(
-            source,
-            "find_dig=$(which dig 2>/dev/null | grep -v \"no [^ ]* in\")\ncontext_id=\"$(jq_debug_pipe_dump <<<\"$output\" | jq -r \".items[] | select(.name == \\\"$context_name\\\") | .id\")\"\nurl=\"$(jq -r \"limit(1; .[] | select(.title == \\\"$selected\\\" or .animal == \\\"$selected\\\") ) | .cover_src\" <\"$json\")\"\nCOMPREPLY=($(compgen -W \"$(awk -F ':' 'BEGIN {print_line = 0}; /^[^ ]/ {print_line = 0}' <${MASTER_CONFIG})\" -- \"${cur}\"))\n",
-        );
-    }
-
-    #[test]
-    fn trims_inline_command_substitution_padding() {
-        let source = "echo \"MD5SUM=\\\"$( md5sum file | cut -d' ' -f1 )\\\"\"\nlocal minute=\"${MINUTE:-$( date +%H )}\"\noutput=$( ls packages 2> /dev/null | grep pattern )\n";
-        assert_bash_formats_with_ast(
-            source,
-            "echo \"MD5SUM=\\\"$(md5sum file | cut -d' ' -f1)\\\"\"\nlocal minute=\"${MINUTE:-$(date +%H)}\"\noutput=$(ls packages 2>/dev/null | grep pattern)\n",
-        );
-    }
-
-    #[test]
-    fn trims_nested_inline_command_substitution_padding() {
-        let source = "_pre=\"$( echo $( du -hs \"$directory/\" ) )\"\n";
-        assert_bash_formats_with_ast(source, "_pre=\"$(echo $(du -hs \"$directory/\"))\"\n");
-    }
-
-    #[test]
-    fn keeps_subshell_command_substitution_from_becoming_arithmetic() {
-        let source = "id=$( (echo hi ; echo there) | checksum )\n";
-        assert_bash_formats_with_ast(source, "id=$( (\n\techo hi\n\techo there\n) | checksum)\n");
-    }
-
-    #[test]
-    fn keeps_inline_nested_subshells_from_becoming_arithmetic_commands() {
-        let source = "run() {\n  ( ( echo hi ) 2>&1 | ( cat ) ) 5>&1\n}\n";
-        assert_bash_formats_with_ast(source, "run() {\n\t( (echo hi) 2>&1 | (cat)) 5>&1\n}\n");
-    }
-
-    #[test]
-    fn normalizes_inline_command_substitution_internal_spacing() {
-        let source = "nlq=\"$(  _sanitizer run \"$nlq\"  numeric )\"\nline=$( head -n 2 $file|tail -n 1 )\nfile2patch=\"$( echo \"$line\" | cut -d' ' -f2 |cut -f1 )\"\nmsg=\"Welcome Hari - your last access was $(last|head -n2|tail -n1|sed 's/[^ ]\\+ \\+[^ ]\\+ \\+[^ ]\\+ \\+//;s/ *$//')\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "nlq=\"$(_sanitizer run \"$nlq\" numeric)\"\nline=$(head -n 2 $file | tail -n 1)\nfile2patch=\"$(echo \"$line\" | cut -d' ' -f2 | cut -f1)\"\nmsg=\"Welcome Hari - your last access was $(last | head -n2 | tail -n1 | sed 's/[^ ]\\+ \\+[^ ]\\+ \\+[^ ]\\+ \\+//;s/ *$//')\"\n",
-        );
+    bash_format_ast_cases! {
+        normalizes_redirect_spacing_in_raw_command_substitution_fallbacks:
+            "find_dig=$(which dig 2> /dev/null | grep -v \"no [^ ]* in\")\ncontext_id=\"$(jq_debug_pipe_dump <<< \"$output\" | jq -r \".items[] | select(.name == \\\"$context_name\\\") | .id\")\"\nurl=\"$(jq -r \"limit(1; .[] | select(.title == \\\"$selected\\\" or .animal == \\\"$selected\\\") ) | .cover_src\" < \"$json\")\"\nCOMPREPLY=($(compgen -W \"$(awk -F ':' 'BEGIN {print_line = 0}; /^[^ ]/ {print_line = 0}' < ${MASTER_CONFIG})\" -- \"${cur}\"))\n"
+            => "find_dig=$(which dig 2>/dev/null | grep -v \"no [^ ]* in\")\ncontext_id=\"$(jq_debug_pipe_dump <<<\"$output\" | jq -r \".items[] | select(.name == \\\"$context_name\\\") | .id\")\"\nurl=\"$(jq -r \"limit(1; .[] | select(.title == \\\"$selected\\\" or .animal == \\\"$selected\\\") ) | .cover_src\" <\"$json\")\"\nCOMPREPLY=($(compgen -W \"$(awk -F ':' 'BEGIN {print_line = 0}; /^[^ ]/ {print_line = 0}' <${MASTER_CONFIG})\" -- \"${cur}\"))\n";
+        trims_inline_command_substitution_padding:
+            "echo \"MD5SUM=\\\"$( md5sum file | cut -d' ' -f1 )\\\"\"\nlocal minute=\"${MINUTE:-$( date +%H )}\"\noutput=$( ls packages 2> /dev/null | grep pattern )\n"
+            => "echo \"MD5SUM=\\\"$(md5sum file | cut -d' ' -f1)\\\"\"\nlocal minute=\"${MINUTE:-$(date +%H)}\"\noutput=$(ls packages 2>/dev/null | grep pattern)\n";
+        trims_nested_inline_command_substitution_padding:
+            "_pre=\"$( echo $( du -hs \"$directory/\" ) )\"\n"
+            => "_pre=\"$(echo $(du -hs \"$directory/\"))\"\n";
+        keeps_subshell_command_substitution_from_becoming_arithmetic:
+            "id=$( (echo hi ; echo there) | checksum )\n"
+            => "id=$( (\n\techo hi\n\techo there\n) | checksum)\n";
+        keeps_inline_nested_subshells_from_becoming_arithmetic_commands:
+            "run() {\n  ( ( echo hi ) 2>&1 | ( cat ) ) 5>&1\n}\n"
+            => "run() {\n\t( (echo hi) 2>&1 | (cat)) 5>&1\n}\n";
+        normalizes_inline_command_substitution_internal_spacing:
+            "nlq=\"$(  _sanitizer run \"$nlq\"  numeric )\"\nline=$( head -n 2 $file|tail -n 1 )\nfile2patch=\"$( echo \"$line\" | cut -d' ' -f2 |cut -f1 )\"\nmsg=\"Welcome Hari - your last access was $(last|head -n2|tail -n1|sed 's/[^ ]\\+ \\+[^ ]\\+ \\+[^ ]\\+ \\+//;s/ *$//')\"\n"
+            => "nlq=\"$(_sanitizer run \"$nlq\" numeric)\"\nline=$(head -n 2 $file | tail -n 1)\nfile2patch=\"$(echo \"$line\" | cut -d' ' -f2 | cut -f1)\"\nmsg=\"Welcome Hari - your last access was $(last | head -n2 | tail -n1 | sed 's/[^ ]\\+ \\+[^ ]\\+ \\+[^ ]\\+ \\+//;s/ *$//')\"\n";
     }
 
     #[test]
