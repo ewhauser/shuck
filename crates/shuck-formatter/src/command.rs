@@ -400,7 +400,8 @@ fn normalize_multiline_compound_assignment_command_substitutions(
             continue;
         }
 
-        let common_indent = common_command_substitution_body_indent(&lines[index + 1..body_end]);
+        let common_indent =
+            common_nonempty_shell_indent(lines[index + 1..body_end].iter().map(String::as_str));
         for line in &mut lines[index + 1..body_end] {
             if line.trim().is_empty() {
                 continue;
@@ -530,10 +531,6 @@ pub(crate) fn line_has_unclosed_command_substitution_open(line: &str) -> bool {
         return false;
     };
     !line[open + 2..].contains(')')
-}
-
-fn common_command_substitution_body_indent(lines: &[String]) -> String {
-    common_nonempty_shell_indent(lines.iter().map(String::as_str))
 }
 
 fn normalize_multiline_compound_assignment_line(
@@ -1279,11 +1276,6 @@ fn merge_stmt_sequence_verbatim_span(
         span = merge_non_empty_span(span, stmt_verbatim_span_impl(command, source, source_map));
     }
     span
-}
-
-#[cfg(test)]
-fn group_verbatim_span(commands: &[Stmt], source: &str, open: char, close: char) -> Span {
-    group_verbatim_span_impl(commands, source, None, open, close)
 }
 
 fn group_verbatim_span_impl(
@@ -2350,7 +2342,7 @@ mod tests {
             _ => panic!("expected brace group"),
         };
 
-        group_verbatim_span(brace_group.as_slice(), source, '{', '}')
+        group_verbatim_span_impl(brace_group.as_slice(), source, None, '{', '}')
     }
 
     #[test]

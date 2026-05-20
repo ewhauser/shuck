@@ -134,7 +134,11 @@ impl ShellFormatOptions {
         ResolvedShellFormatOptions {
             dialect: self.dialect.resolve(source, path),
             options,
-            line_ending: detect_line_ending(source),
+            line_ending: if source.contains("\r\n") {
+                LineEnding::CrLf
+            } else {
+                LineEnding::Lf
+            },
         }
     }
 }
@@ -228,14 +232,6 @@ fn infer_dialect(source: &str, path: Option<&Path>) -> ParseDialect {
         .and_then(|extension| extension.to_str())
         .map(ParseDialect::from_name)
         .unwrap_or(ParseDialect::Bash)
-}
-
-fn detect_line_ending(source: &str) -> LineEnding {
-    if source.contains("\r\n") {
-        LineEnding::CrLf
-    } else {
-        LineEnding::Lf
-    }
 }
 
 #[cfg(test)]

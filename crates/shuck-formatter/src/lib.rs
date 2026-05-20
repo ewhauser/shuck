@@ -152,14 +152,6 @@ pub fn format_file_ast(
     options: &ShellFormatOptions,
 ) -> Result<FormattedSource> {
     let resolved = options.resolve(source, path);
-    format_file(source, file, resolved)
-}
-
-fn format_file(
-    source: &str,
-    file: File,
-    resolved: ResolvedShellFormatOptions,
-) -> Result<FormattedSource> {
     let output = format_output(source, file, &resolved)?;
 
     Ok(formatted_source_from_output(source, output))
