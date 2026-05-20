@@ -767,15 +767,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         } else {
             normalized.as_deref().unwrap_or(line)
         };
-        self.write_heredoc_tail_line(line, mode);
-        heredoc
-    }
-
-    fn write_heredoc_tail_line(&mut self, line: &str, mode: HeredocTailTextMode) {
         match mode {
             HeredocTailTextMode::Rendered => self.write_text(line),
             HeredocTailTextMode::Assignment => self.write_verbatim(line),
         }
+        heredoc
     }
 
     fn write_verbatim(&mut self, text: &str) {
