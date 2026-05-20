@@ -224,36 +224,8 @@ fn walk_builtin(
     source: &str,
     word_visitor: &mut dyn FnMut(&mut Word) -> usize,
 ) -> usize {
-    match command {
-        BuiltinCommand::Break(command) => walk_builtin_like(
-            &mut command.assignments,
-            command.depth.as_mut(),
-            &mut command.extra_args,
-            source,
-            word_visitor,
-        ),
-        BuiltinCommand::Continue(command) => walk_builtin_like(
-            &mut command.assignments,
-            command.depth.as_mut(),
-            &mut command.extra_args,
-            source,
-            word_visitor,
-        ),
-        BuiltinCommand::Return(command) => walk_builtin_like(
-            &mut command.assignments,
-            command.code.as_mut(),
-            &mut command.extra_args,
-            source,
-            word_visitor,
-        ),
-        BuiltinCommand::Exit(command) => walk_builtin_like(
-            &mut command.assignments,
-            command.code.as_mut(),
-            &mut command.extra_args,
-            source,
-            word_visitor,
-        ),
-    }
+    let (assignments, primary, extra_args) = builtin_like_parts_mut(command);
+    walk_builtin_like(assignments, primary, extra_args, source, word_visitor)
 }
 
 fn walk_builtin_like(
@@ -272,6 +244,33 @@ fn walk_builtin_like(
     }
     count += walk_words(extra_args, source, word_visitor);
     count
+}
+
+fn builtin_like_parts_mut(
+    command: &mut BuiltinCommand,
+) -> (&mut [Assignment], Option<&mut Word>, &mut [Word]) {
+    match command {
+        BuiltinCommand::Break(command) => (
+            &mut command.assignments,
+            command.depth.as_mut(),
+            &mut command.extra_args,
+        ),
+        BuiltinCommand::Continue(command) => (
+            &mut command.assignments,
+            command.depth.as_mut(),
+            &mut command.extra_args,
+        ),
+        BuiltinCommand::Return(command) => (
+            &mut command.assignments,
+            command.code.as_mut(),
+            &mut command.extra_args,
+        ),
+        BuiltinCommand::Exit(command) => (
+            &mut command.assignments,
+            command.code.as_mut(),
+            &mut command.extra_args,
+        ),
+    }
 }
 
 fn walk_decl_clause(
@@ -567,36 +566,10 @@ fn rewrite_stmt_source_texts(
             count += rewrite_words_source_texts(&mut command.args, source, visitor);
             count
         }
-        Command::Builtin(command) => match command {
-            BuiltinCommand::Break(command) => rewrite_builtin_like_source_texts(
-                &mut command.assignments,
-                command.depth.as_mut(),
-                &mut command.extra_args,
-                source,
-                visitor,
-            ),
-            BuiltinCommand::Continue(command) => rewrite_builtin_like_source_texts(
-                &mut command.assignments,
-                command.depth.as_mut(),
-                &mut command.extra_args,
-                source,
-                visitor,
-            ),
-            BuiltinCommand::Return(command) => rewrite_builtin_like_source_texts(
-                &mut command.assignments,
-                command.code.as_mut(),
-                &mut command.extra_args,
-                source,
-                visitor,
-            ),
-            BuiltinCommand::Exit(command) => rewrite_builtin_like_source_texts(
-                &mut command.assignments,
-                command.code.as_mut(),
-                &mut command.extra_args,
-                source,
-                visitor,
-            ),
-        },
+        Command::Builtin(command) => {
+            let (assignments, primary, extra_args) = builtin_like_parts_mut(command);
+            rewrite_builtin_like_source_texts(assignments, primary, extra_args, source, visitor)
+        }
         Command::Decl(command) => {
             let mut count =
                 rewrite_assignments_source_texts(&mut command.assignments, source, visitor);
