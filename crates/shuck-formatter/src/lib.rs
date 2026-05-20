@@ -2854,133 +2854,53 @@ function R() {
             "if [ -n \"${TMPFILE}\" ]; then if [ -f ${TMPFILE} ]; then rm -f ${TMPFILE}; fi; fi\n";
     }
 
-    #[test]
-    fn indents_raw_command_substitution_brace_group_bodies() {
-        let source = "items=\"$(\n    {\n    # primary items\n    produce_items |\n    sort_items\n    }\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "items=\"$(\n\t{\n\t\t# primary items\n\t\tproduce_items |\n\t\t\tsort_items\n\t}\n)\"\n",
-        );
+    bash_format_ast_cases! {
+        indents_raw_command_substitution_brace_group_bodies:
+            "items=\"$(\n    {\n    # primary items\n    produce_items |\n    sort_items\n    }\n)\"\n"
+            => "items=\"$(\n\t{\n\t\t# primary items\n\t\tproduce_items |\n\t\t\tsort_items\n\t}\n)\"\n";
+        indents_raw_command_substitution_pipeline_continuations:
+            "url=\"$(\n    git remote -v |\n    awk '{print $2}' |\n    head -n 1\n)\"\n"
+            => "url=\"$(\n\tgit remote -v |\n\t\tawk '{print $2}' |\n\t\thead -n 1\n)\"\n";
+        indents_raw_command_substitution_pipeline_before_multiline_literal_command:
+            "if ok; then\n    url=\"$(\n        git remote -v |\n        awk '{print $2}' |\n        perl -pe \"\n            s/foo/bar/\n        \"\n    )\"\nfi\n"
+            => "if ok; then\n\turl=\"$(\n\t\tgit remote -v |\n\t\t\tawk '{print $2}' |\n\t\t\tperl -pe \"\n            s/foo/bar/\n        \"\n\t)\"\nfi\n";
+        expands_nested_inline_command_substitutions_inside_raw_blocks:
+            "value=\"$(\n    {\n    sort |\n    uniq -d\n    } |\n    grep -vi $(IFS=$'\\n'; for line in $ignored_lines_regex; do [[ \"$line\" =~ ^[[:space:]]*$ ]] && continue; printf \"%s\" \" -e '$line'\"; done)\n)\"\n"
+            => "value=\"$(\n\t{\n\t\tsort |\n\t\t\tuniq -d\n\t} |\n\t\tgrep -vi $(\n\t\t\tIFS=$'\\n'\n\t\t\tfor line in $ignored_lines_regex; do\n\t\t\t\t[[ \"$line\" =~ ^[[:space:]]*$ ]] && continue\n\t\t\t\tprintf \"%s\" \" -e '$line'\"\n\t\t\tdone\n\t\t)\n)\"\n";
+        normalizes_nested_command_substitution_argument_indent:
+            "f() {\n  result=\"$(\n    add --content \"$(\n      printf \"%b\\\\n\" \"$body\" \\\n        | tr -d $'\\r'\n    )\" --skip\n  )\"\n}\n"
+            => "f() {\n\tresult=\"$(\n\t\tadd --content \"$(\n\t\t\tprintf \"%b\\\\n\" \"$body\" |\n\t\t\t\ttr -d $'\\r'\n\t\t)\" --skip\n\t)\"\n}\n";
+        indents_raw_command_substitution_compound_pipeline_bodies:
+            "urls=\"$(\n    find files |\n    if [ -n \"$filter\" ]; then\n        grep \"$filter\" || :\n    else\n        cat\n    fi |\n    while read -r file; do\n        [ -f \"$file\" ] || continue\n        grep \"$file\" |\n        if [ -n \"$ignored\" ]; then\n            grep -v \"$ignored\"\n        else\n            cat\n        fi\n    done |\n    sort -u\n)\"\n"
+            => "urls=\"$(\n\tfind files |\n\t\tif [ -n \"$filter\" ]; then\n\t\t\tgrep \"$filter\" || :\n\t\telse\n\t\t\tcat\n\t\tfi |\n\t\twhile read -r file; do\n\t\t\t[ -f \"$file\" ] || continue\n\t\t\tgrep \"$file\" |\n\t\t\t\tif [ -n \"$ignored\" ]; then\n\t\t\t\t\tgrep -v \"$ignored\"\n\t\t\t\telse\n\t\t\t\t\tcat\n\t\t\t\tfi\n\t\tdone |\n\t\tsort -u\n)\"\n";
+        indents_inline_raw_command_substitution_compound_pipeline_bodies:
+            "playlist_id=\"$(producer |\n    if [ \"$x\" ]; then\n        # keep exact match\n        while read -r id name; do\n            if [[ \"$name\" = \"$playlist_name\" ]]; then\n               echo \"$id\"\n               break\n            fi\n        done\n    else\n        grep -Fi \"$playlist_name\" |\n        awk '{print $1}'\n    fi || :\n)\"\n"
+            => "playlist_id=\"$(\n\tproducer |\n\t\tif [ \"$x\" ]; then\n\t\t\t# keep exact match\n\t\t\twhile read -r id name; do\n\t\t\t\tif [[ \"$name\" = \"$playlist_name\" ]]; then\n\t\t\t\t\techo \"$id\"\n\t\t\t\t\tbreak\n\t\t\t\tfi\n\t\t\tdone\n\t\telse\n\t\t\tgrep -Fi \"$playlist_name\" |\n\t\t\t\tawk '{print $1}'\n\t\tfi || :\n)\"\n";
+        preserves_loop_body_brace_group_background_before_done:
+            "for workflow_name in $workflows; do\n  {\n    output=\"$(printf '%s\\n' \"$workflow_name\")\"\n    echo \"$output\"\n  } &\ndone |\nsort\n"
+            => "for workflow_name in $workflows; do\n\t{\n\t\toutput=\"$(printf '%s\\n' \"$workflow_name\")\"\n\t\techo \"$output\"\n\t} &\ndone |\n\tsort\n";
+        indents_block_command_substitution_loop_body_comments:
+            "tests=\"$(\n    for filename in $filelist; do\n        # expensive filter\n        echo \"check $filename\"\n    done\n)\"\n"
+            => "tests=\"$(\n\tfor filename in $filelist; do\n\t\t# expensive filter\n\t\techo \"check $filename\"\n\tdone\n)\"\n";
+        indents_block_command_substitution_pipeline_comments_inside_assignments:
+            "snapshots=\"$(\n    tmutil listlocalsnapshots \"$path\" |\n    tail -n +2 |\n    # update snapshots can't be deleted so just take the date timestamped ones:\n    #\n    #                  2026-02-14-041148\n    command ggrep -oP '\\d{4}-\\d\\d-\\d\\d-\\d+'\n)\"\n"
+            => "snapshots=\"$(\n\ttmutil listlocalsnapshots \"$path\" |\n\t\ttail -n +2 |\n\t\t# update snapshots can't be deleted so just take the date timestamped ones:\n\t\t#\n\t\t#                  2026-02-14-041148\n\t\tcommand ggrep -oP '\\d{4}-\\d\\d-\\d\\d-\\d+'\n)\"\n";
+        normalizes_raw_block_command_substitution_inline_comment_padding:
+            "resources=\"$(\n    kubectl api-resources |\n    tail -n +2 || :  # ignore incomplete API discovery\n)\"\n"
+            => "resources=\"$(\n\tkubectl api-resources |\n\t\ttail -n +2 || : # ignore incomplete API discovery\n)\"\n";
+        normalizes_raw_command_substitution_leading_list_operators:
+            "matches=\"$(git grep -Ei \\\n    -e a \\\n    | grep -Fv x \\\n    || :\n    # note\n)\"\n"
+            => "matches=\"$(\n\tgit grep -Ei \\\n\t\t-e a |\n\t\tgrep -Fv x ||\n\t\t:\n\t# note\n)\"\n";
+        preserves_repeated_inline_substitution_continuation_indent:
+            "matches=\"$(git grep -Ei \\\n    -e first \\\n    -e second \\\n    -e third \\\n    | grep -Fv skip \\\n    || :\n    # note\n)\"\n"
+            => "matches=\"$(\n\tgit grep -Ei \\\n\t\t-e first \\\n\t\t-e second \\\n\t\t-e third |\n\t\tgrep -Fv skip ||\n\t\t:\n\t# note\n)\"\n";
     }
 
-    #[test]
-    fn indents_raw_command_substitution_pipeline_continuations() {
-        let source = "url=\"$(\n    git remote -v |\n    awk '{print $2}' |\n    head -n 1\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "url=\"$(\n\tgit remote -v |\n\t\tawk '{print $2}' |\n\t\thead -n 1\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn indents_raw_command_substitution_pipeline_before_multiline_literal_command() {
-        let source = "if ok; then\n    url=\"$(\n        git remote -v |\n        awk '{print $2}' |\n        perl -pe \"\n            s/foo/bar/\n        \"\n    )\"\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if ok; then\n\turl=\"$(\n\t\tgit remote -v |\n\t\t\tawk '{print $2}' |\n\t\t\tperl -pe \"\n            s/foo/bar/\n        \"\n\t)\"\nfi\n",
-        );
-    }
-
-    #[test]
-    fn expands_nested_inline_command_substitutions_inside_raw_blocks() {
-        let source = "value=\"$(\n    {\n    sort |\n    uniq -d\n    } |\n    grep -vi $(IFS=$'\\n'; for line in $ignored_lines_regex; do [[ \"$line\" =~ ^[[:space:]]*$ ]] && continue; printf \"%s\" \" -e '$line'\"; done)\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "value=\"$(\n\t{\n\t\tsort |\n\t\t\tuniq -d\n\t} |\n\t\tgrep -vi $(\n\t\t\tIFS=$'\\n'\n\t\t\tfor line in $ignored_lines_regex; do\n\t\t\t\t[[ \"$line\" =~ ^[[:space:]]*$ ]] && continue\n\t\t\t\tprintf \"%s\" \" -e '$line'\"\n\t\t\tdone\n\t\t)\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_nested_command_substitution_argument_indent() {
-        let source = "f() {\n  result=\"$(\n    add --content \"$(\n      printf \"%b\\\\n\" \"$body\" \\\n        | tr -d $'\\r'\n    )\" --skip\n  )\"\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tresult=\"$(\n\t\tadd --content \"$(\n\t\t\tprintf \"%b\\\\n\" \"$body\" |\n\t\t\t\ttr -d $'\\r'\n\t\t)\" --skip\n\t)\"\n}\n",
-        );
-    }
-
-    #[test]
-    fn indents_raw_command_substitution_compound_pipeline_bodies() {
-        let source = "urls=\"$(\n    find files |\n    if [ -n \"$filter\" ]; then\n        grep \"$filter\" || :\n    else\n        cat\n    fi |\n    while read -r file; do\n        [ -f \"$file\" ] || continue\n        grep \"$file\" |\n        if [ -n \"$ignored\" ]; then\n            grep -v \"$ignored\"\n        else\n            cat\n        fi\n    done |\n    sort -u\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "urls=\"$(\n\tfind files |\n\t\tif [ -n \"$filter\" ]; then\n\t\t\tgrep \"$filter\" || :\n\t\telse\n\t\t\tcat\n\t\tfi |\n\t\twhile read -r file; do\n\t\t\t[ -f \"$file\" ] || continue\n\t\t\tgrep \"$file\" |\n\t\t\t\tif [ -n \"$ignored\" ]; then\n\t\t\t\t\tgrep -v \"$ignored\"\n\t\t\t\telse\n\t\t\t\t\tcat\n\t\t\t\tfi\n\t\tdone |\n\t\tsort -u\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn indents_inline_raw_command_substitution_compound_pipeline_bodies() {
-        let source = "playlist_id=\"$(producer |\n    if [ \"$x\" ]; then\n        # keep exact match\n        while read -r id name; do\n            if [[ \"$name\" = \"$playlist_name\" ]]; then\n               echo \"$id\"\n               break\n            fi\n        done\n    else\n        grep -Fi \"$playlist_name\" |\n        awk '{print $1}'\n    fi || :\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "playlist_id=\"$(\n\tproducer |\n\t\tif [ \"$x\" ]; then\n\t\t\t# keep exact match\n\t\t\twhile read -r id name; do\n\t\t\t\tif [[ \"$name\" = \"$playlist_name\" ]]; then\n\t\t\t\t\techo \"$id\"\n\t\t\t\t\tbreak\n\t\t\t\tfi\n\t\t\tdone\n\t\telse\n\t\t\tgrep -Fi \"$playlist_name\" |\n\t\t\t\tawk '{print $1}'\n\t\tfi || :\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn preserves_loop_body_brace_group_background_before_done() {
-        let source = "for workflow_name in $workflows; do\n  {\n    output=\"$(printf '%s\\n' \"$workflow_name\")\"\n    echo \"$output\"\n  } &\ndone |\nsort\n";
-        assert_bash_formats_with_ast(
-            source,
-            "for workflow_name in $workflows; do\n\t{\n\t\toutput=\"$(printf '%s\\n' \"$workflow_name\")\"\n\t\techo \"$output\"\n\t} &\ndone |\n\tsort\n",
-        );
-    }
-
-    #[test]
-    fn preserves_comment_indentation_inside_inline_command_substitutions() {
-        let source = "if ok; then\n\tfor item in $(printenv |\n\t\t# keep env names\n\t\tgrep '^APP_'); do\n\t\techo \"$item\"\n\tdone\nfi\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn indents_block_command_substitution_comments_inside_assignments() {
-        let source = "if ok; then\n\titems=$(\n\t\t# keep generated names\n\t\tfind . -type f |\n\t\t\tsort\n\t)\nfi\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn indents_block_command_substitution_loop_body_comments() {
-        let source = "tests=\"$(\n    for filename in $filelist; do\n        # expensive filter\n        echo \"check $filename\"\n    done\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "tests=\"$(\n\tfor filename in $filelist; do\n\t\t# expensive filter\n\t\techo \"check $filename\"\n\tdone\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn indents_block_command_substitution_pipeline_comments_inside_assignments() {
-        let source = "snapshots=\"$(\n    tmutil listlocalsnapshots \"$path\" |\n    tail -n +2 |\n    # update snapshots can't be deleted so just take the date timestamped ones:\n    #\n    #                  2026-02-14-041148\n    command ggrep -oP '\\d{4}-\\d\\d-\\d\\d-\\d+'\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "snapshots=\"$(\n\ttmutil listlocalsnapshots \"$path\" |\n\t\ttail -n +2 |\n\t\t# update snapshots can't be deleted so just take the date timestamped ones:\n\t\t#\n\t\t#                  2026-02-14-041148\n\t\tcommand ggrep -oP '\\d{4}-\\d\\d-\\d\\d-\\d+'\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_raw_block_command_substitution_inline_comment_padding() {
-        let source = "resources=\"$(\n    kubectl api-resources |\n    tail -n +2 || :  # ignore incomplete API discovery\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "resources=\"$(\n\tkubectl api-resources |\n\t\ttail -n +2 || : # ignore incomplete API discovery\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_raw_command_substitution_leading_list_operators() {
-        let source = "matches=\"$(git grep -Ei \\\n    -e a \\\n    | grep -Fv x \\\n    || :\n    # note\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "matches=\"$(\n\tgit grep -Ei \\\n\t\t-e a |\n\t\tgrep -Fv x ||\n\t\t:\n\t# note\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn preserves_repeated_inline_substitution_continuation_indent() {
-        let source = "matches=\"$(git grep -Ei \\\n    -e first \\\n    -e second \\\n    -e third \\\n    | grep -Fv skip \\\n    || :\n    # note\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "matches=\"$(\n\tgit grep -Ei \\\n\t\t-e first \\\n\t\t-e second \\\n\t\t-e third |\n\t\tgrep -Fv skip ||\n\t\t:\n\t# note\n)\"\n",
-        );
+    default_unchanged_ast_cases! {
+        preserves_comment_indentation_inside_inline_command_substitutions:
+            "if ok; then\n\tfor item in $(printenv |\n\t\t# keep env names\n\t\tgrep '^APP_'); do\n\t\techo \"$item\"\n\tdone\nfi\n";
+        indents_block_command_substitution_comments_inside_assignments:
+            "if ok; then\n\titems=$(\n\t\t# keep generated names\n\t\tfind . -type f |\n\t\t\tsort\n\t)\nfi\n";
     }
 
     default_format_ast_cases! {
