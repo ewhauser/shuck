@@ -497,6 +497,12 @@ mod tests {
     }
 
     #[track_caller]
+    fn assert_bash_formats_with_ast(source: &str, expected: impl Into<String>) {
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+        assert_formats_to_with_ast(source, None, &options, expected);
+    }
+
+    #[track_caller]
     fn assert_unchanged(source: &str, path: Option<&Path>, options: &ShellFormatOptions) {
         assert_eq!(
             format_source(source, path, options).unwrap(),
@@ -722,12 +728,8 @@ mod tests {
     fn keeps_inline_else_arm_after_multiline_then() {
         let source =
             "if [ $size != scalable ]; then\n  ex=png\n  size=${size}x${size}\nelse ex=svg; fi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if [ $size != scalable ]; then\n\tex=png\n\tsize=${size}x${size}\nelse ex=svg; fi\n",
         );
     }
@@ -735,12 +737,8 @@ mod tests {
     #[test]
     fn aligns_else_suffix_comments_with_nested_multiline_header_suffix_comments() {
         let source = "if foo; then\n  :\nelse # branch\n  if [[ \"$x\" =~ y ]]\n  then # nested\n    :\n  fi\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if foo; then\n\t:\nelse                      # branch\n\tif [[ \"$x\" =~ y ]]; then # nested\n\t\t:\n\tfi\nfi\n",
         );
     }
@@ -766,12 +764,8 @@ mod tests {
     #[test]
     fn preserves_comments_between_elif_and_condition() {
         let source = "if a; then\none\nelif\n# explain\n [[ b ]]; then\ntwo\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if a; then\n\tone\nelif\n\t# explain\n\t[[ b ]]\nthen\n\ttwo\nfi\n",
         );
     }
@@ -797,12 +791,8 @@ mod tests {
     #[test]
     fn binary_brace_group_does_not_gain_blank_before_next_command() {
         let source = "main() {\n  [[ ! -f $ok ]] && {\n    err missing\n  }\n  next\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "main() {\n\t[[ ! -f $ok ]] && {\n\t\terr missing\n\t}\n\tnext\n}\n",
         );
     }
@@ -811,12 +801,8 @@ mod tests {
     fn preserves_leading_comments_inside_redirected_brace_group() {
         let source =
             "if [[ -n $DEBUG ]]; then\n  {\n    # one\n    # two\n    echo hi\n  } >&2\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if [[ -n $DEBUG ]]; then\n\t{\n\t\t# one\n\t\t# two\n\t\techo hi\n\t} >&2\nfi\n",
         );
     }
@@ -875,12 +861,8 @@ mod tests {
     fn formats_heredoc_pipeline_with_trailing_comment_structurally() {
         let source =
             "f(){\n    cat <<EOF |\nbody\n# heredoc comment\nEOF\n    python #|\n    #sed x\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tcat <<EOF |\nbody\n# heredoc comment\nEOF\n\t\tpython #|\n\t#sed x\n}\n",
         );
     }
@@ -888,12 +870,8 @@ mod tests {
     #[test]
     fn defers_heredoc_body_until_continued_pipeline_head_finishes() {
         let source = "if true; then\ncat << EOF | openssl req -new -key \"$key\" \\\n -x509 \\\n -out \"$cert\"\nbody\nEOF\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if true; then\n\tcat <<EOF | openssl req -new -key \"$key\" \\\n\t\t-x509 \\\n\t\t-out \"$cert\"\nbody\nEOF\nfi\n",
         );
     }
@@ -959,12 +937,8 @@ mod tests {
     #[test]
     fn preserves_final_comment_backslash_when_adding_trailing_newline() {
         let source = "aws logs filter-log-events \\\n                           \"$@\"\n                           #--max-items 1 \\\n                           #--end-time \"$(date '+%s')000\" \\\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "aws logs filter-log-events \\\n\t\"$@\"\n#--max-items 1 \\\n#--end-time \"$(date '+%s')000\" \\\n",
         );
     }
@@ -1120,25 +1094,14 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn splits_redirect_only_statement_after_background() {
         let source = "if ok; then\n  run --flag & 2>/dev/null\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "if ok; then\n\trun --flag &\n\t2>/dev/null\nfi\n",
-        );
+        assert_bash_formats_with_ast(source, "if ok; then\n\trun --flag &\n\t2>/dev/null\nfi\n");
     }
 
     #[test]
     fn splits_following_statement_after_background() {
         let source = "if ok; then\n  run --flag 2>&1 & echo $! >\"$PIDFILE\"\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if ok; then\n\trun --flag 2>&1 &\n\techo $! >\"$PIDFILE\"\nfi\n",
         );
     }
@@ -1146,12 +1109,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_eval_conditional_syntax_as_arguments() {
         let source = "if eval ! [[ \"$env_var\" =~ ^[[:digit:]]+$ ]]; then\n  echo ok\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if eval ! [[ \"$env_var\" =~ ^[[:digit:]]+$ ]]; then\n\techo ok\nfi\n",
         );
     }
@@ -1169,12 +1128,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     fn keeps_assignment_command_substitution_condition_suffix_comment_after_then() {
         let source =
             "if ! out=\"$(\n     stat -c %Y \"$path\" 2>/dev/null\n   )\" # GNU\nthen\n  :\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if ! out=\"$(\n\tstat -c %Y \"$path\" 2>/dev/null\n)\"; then # GNU\n\t:\nfi\n",
         );
     }
@@ -1182,12 +1137,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn collapses_negated_condition_continuation_before_pipeline() {
         let source = "while read -r module; do\n    if ! \\\n        git grep \"needle\" |\n        grep -v requirements.txt |\n        grep -q .; then\n        echo \"$module\"\n    fi\ndone\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "while read -r module; do\n\tif ! git grep \"needle\" |\n\t\tgrep -v requirements.txt |\n\t\tgrep -q .; then\n\t\techo \"$module\"\n\tfi\ndone\n",
         );
     }
@@ -1195,12 +1146,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_comment_between_list_operator_and_rhs() {
         let source = "if [ -z \"$jar\" ] ||\n  # incomplete download, resume it\n  ! jar tf \"$jar\" &>/dev/null; then\n  echo fetch\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if [ -z \"$jar\" ] ||\n\t# incomplete download, resume it\n\t! jar tf \"$jar\" &>/dev/null; then\n\techo fetch\nfi\n",
         );
     }
@@ -1208,12 +1155,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_comment_between_list_operator_and_brace_group() {
         let source = "docker-compose exec -T jenkins-server install-plugins.sh ||\n  # New: later switch to\n  {\n    docker-compose cp plugins.txt jenkins-server:/\n  } || :\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "docker-compose exec -T jenkins-server install-plugins.sh ||\n\t# New: later switch to\n\t{\n\t\tdocker-compose cp plugins.txt jenkins-server:/\n\t} || :\n",
         );
     }
@@ -1221,12 +1164,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn keeps_command_list_rhs_brace_group_body_comments_inside_group() {
         let source = "if { true; } &&\n   command &&\n   {\n     # inside group\n     [[ -t 1 ]] ||\n     true\n   }\nthen\n  :\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if { true; } &&\n\tcommand &&\n\t{\n\t\t# inside group\n\t\t[[ -t 1 ]] ||\n\t\t\ttrue\n\t}; then\n\t:\nfi\n",
         );
     }
@@ -1269,12 +1208,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn collapses_then_after_multiline_grouped_if_conditions() {
         let source = "if {\n     [[ \"$group\" -eq 2 ]] &&\n       contains first\n   } || {\n     [[ \"$group\" -eq 3 ]] &&\n     ! contains second\n   }\nthen\n  return 0\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if {\n\t[[ \"$group\" -eq 2 ]] &&\n\t\tcontains first\n} || {\n\t[[ \"$group\" -eq 3 ]] &&\n\t\t! contains second\n}; then\n\treturn 0\nfi\n",
         );
     }
@@ -1282,12 +1217,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn keeps_wrapped_inline_brace_group_conditions_attached() {
         let source = "if ! { [[ -d \"${status_file%/*}\" ]] \\\n  && [[ -r \"${status_file}\" ]]; }; then\n  echo \"\"\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if ! { [[ -d \"${status_file%/*}\" ]] &&\n\t[[ -r \"${status_file}\" ]]; }; then\n\techo \"\"\nfi\n",
         );
     }
@@ -1358,12 +1289,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn collapses_backslash_breaks_inside_conditional_comparisons() {
         let source = "rename() {\n  if [[ -n  \"${_remote_head_branch:-}\"                            ]] &&\n     [[     \"${_remote_branch_name:-\"${_current_branch}\"}\" ==     \\\n              \"${_remote_head_branch:-}\"                          ]]\n  then\n    _exit_1 printf \"Only orphan branches can be renamed.\\\\n\"\n  fi\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "rename() {\n\tif [[ -n \"${_remote_head_branch:-}\" ]] &&\n\t\t[[ \"${_remote_branch_name:-\"${_current_branch}\"}\" == \"${_remote_head_branch:-}\" ]]; then\n\t\t_exit_1 printf \"Only orphan branches can be renamed.\\\\n\"\n\tfi\n}\n",
         );
     }
@@ -1384,12 +1311,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn normalizes_output_redirect_spacing_inside_raw_command_substitutions() {
         let source = "if $(! /sbin/pidof $PRGNAM > /dev/null 2>&1 ) ; then\n  echo stale\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if $(! /sbin/pidof $PRGNAM >/dev/null 2>&1); then\n\techo stale\nfi\n",
         );
     }
@@ -1407,12 +1330,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     fn normalizes_leading_pipe_continuations_inside_raw_command_substitutions() {
         let source =
             "value=\"$(declare -f list_all \\\n\t| sed 's/list_all/list_all_without_hub/')\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "value=\"$(declare -f list_all |\n\tsed 's/list_all/list_all_without_hub/')\"\n",
         );
     }
@@ -1420,12 +1339,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn normalizes_trailing_pipe_continuations_inside_raw_command_substitutions() {
         let source = "value=\"$(\n  # note\n  foo | \\\n  bar | \\\n  baz\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "value=\"$(\n\t# note\n\tfoo |\n\tbar |\n\tbaz\n)\"\n",
         );
     }
@@ -1433,12 +1348,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn carries_normalized_pipeline_indent_inside_raw_command_substitutions() {
         let source = "f() {\n    value=\"$(\n        # note\n        docker-compose \\\n            logs service | \\\n        grep token | \\\n        awk '{print $1}' || :\n    )\"\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tvalue=\"$(\n\t\t# note\n\t\tdocker-compose \\\n\t\t\tlogs service |\n\t\t\tgrep token |\n\t\t\tawk '{print $1}' || :\n\t)\"\n}\n",
         );
     }
@@ -1446,12 +1357,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn normalizes_leading_pipe_continuations_inside_process_substitutions() {
         let source = "while read -r line; do :; done < <(\n\tcat clean_files.txt \\\n\t\t| grep -v '^#'\n)\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "while read -r line; do :; done < <(\n\tcat clean_files.txt |\n\t\tgrep -v '^#'\n)\n",
         );
     }
@@ -1483,12 +1390,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn normalizes_here_string_spacing_inside_command_substitutions() {
         let source = "[[ $versions = \"$(sort -V <<< \"$versions\")\" ]]\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "[[ $versions = \"$(sort -V <<<\"$versions\")\" ]]\n",
         );
     }
@@ -1496,12 +1399,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn normalizes_here_string_spacing_in_raw_comment_command_substitutions() {
         let source = "value=\"$(\n\t# keep comment\n\tcat <<< \"$payload\"\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "value=\"$(\n\t# keep comment\n\tcat <<<\"$payload\"\n)\"\n",
         );
     }
@@ -1517,12 +1416,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_multiline_here_string_literal_payload_indent() {
         let source = "case $kind in\n  service)\n    cat >$unit <<<\"\n[Unit]\nDescription=$name\n\n[Service]\nExecStart=$bin\n\"\n    ;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "case $kind in\nservice)\n\tcat >$unit <<<\"\n[Unit]\nDescription=$name\n\n[Service]\nExecStart=$bin\n\"\n\t;;\nesac\n",
         );
     }
@@ -1531,12 +1426,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     fn indents_multiline_here_string_command_substitution_targets() {
         let source =
             "f() {\n  IFS=' ' read -ra tags <<<\"$(\n    get_tags \"$1\" \"$2\"\n  )\"\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tIFS=' ' read -ra tags <<<\"$(\n\t\tget_tags \"$1\" \"$2\"\n\t)\"\n}\n",
         );
     }
@@ -1552,12 +1443,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn formats_commented_inline_subshell_here_string_targets() {
         let source = "f() {\n\tIFS=\" \" read -r -a COMPREPLY <<< \"$( (\n\t\twhile read -r -d ' ' i; do\n\t\t\t[[ -z \"$i\" ]] && continue\n\t\t\t# flatten array with spaces on either side,\n\t\t\t# otherwise we cannot grep on word boundaries of\n\t\t\t# first and last word\n\t\t\tCOMPREPLYSTR=\" ${COMPREPLY[*]} \"\n\t\t\t# remove word from list of completions\n\t\t\tIFS=\" \" read -r -a COMPREPLY <<< \"${COMPREPLYSTR/ ${i%% *} / }\"\n\t\tdone\n\t\tprintf '%s ' \"${COMPREPLY[@]}\"\n\t) <<< \"${COMP_WORDS[@]}\")\"\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tIFS=\" \" read -r -a COMPREPLY <<<\"$( (\n\t\twhile read -r -d ' ' i; do\n\t\t\t[[ -z \"$i\" ]] && continue\n\t\t\t# flatten array with spaces on either side,\n\t\t\t# otherwise we cannot grep on word boundaries of\n\t\t\t# first and last word\n\t\t\tCOMPREPLYSTR=\" ${COMPREPLY[*]} \"\n\t\t\t# remove word from list of completions\n\t\t\tIFS=\" \" read -r -a COMPREPLY <<<\"${COMPREPLYSTR/ ${i%% *} / }\"\n\t\tdone\n\t\tprintf '%s ' \"${COMPREPLY[@]}\"\n\t) <<<\"${COMP_WORDS[@]}\")\"\n}\n",
         );
     }
@@ -1573,12 +1460,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn normalizes_redirect_spacing_in_raw_command_substitution_fallbacks() {
         let source = "find_dig=$(which dig 2> /dev/null | grep -v \"no [^ ]* in\")\ncontext_id=\"$(jq_debug_pipe_dump <<< \"$output\" | jq -r \".items[] | select(.name == \\\"$context_name\\\") | .id\")\"\nurl=\"$(jq -r \"limit(1; .[] | select(.title == \\\"$selected\\\" or .animal == \\\"$selected\\\") ) | .cover_src\" < \"$json\")\"\nCOMPREPLY=($(compgen -W \"$(awk -F ':' 'BEGIN {print_line = 0}; /^[^ ]/ {print_line = 0}' < ${MASTER_CONFIG})\" -- \"${cur}\"))\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "find_dig=$(which dig 2>/dev/null | grep -v \"no [^ ]* in\")\ncontext_id=\"$(jq_debug_pipe_dump <<<\"$output\" | jq -r \".items[] | select(.name == \\\"$context_name\\\") | .id\")\"\nurl=\"$(jq -r \"limit(1; .[] | select(.title == \\\"$selected\\\" or .animal == \\\"$selected\\\") ) | .cover_src\" <\"$json\")\"\nCOMPREPLY=($(compgen -W \"$(awk -F ':' 'BEGIN {print_line = 0}; /^[^ ]/ {print_line = 0}' <${MASTER_CONFIG})\" -- \"${cur}\"))\n",
         );
     }
@@ -1586,12 +1469,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn trims_inline_command_substitution_padding() {
         let source = "echo \"MD5SUM=\\\"$( md5sum file | cut -d' ' -f1 )\\\"\"\nlocal minute=\"${MINUTE:-$( date +%H )}\"\noutput=$( ls packages 2> /dev/null | grep pattern )\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "echo \"MD5SUM=\\\"$(md5sum file | cut -d' ' -f1)\\\"\"\nlocal minute=\"${MINUTE:-$(date +%H)}\"\noutput=$(ls packages 2>/dev/null | grep pattern)\n",
         );
     }
@@ -1599,51 +1478,26 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn trims_nested_inline_command_substitution_padding() {
         let source = "_pre=\"$( echo $( du -hs \"$directory/\" ) )\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "_pre=\"$(echo $(du -hs \"$directory/\"))\"\n",
-        );
+        assert_bash_formats_with_ast(source, "_pre=\"$(echo $(du -hs \"$directory/\"))\"\n");
     }
 
     #[test]
     fn keeps_subshell_command_substitution_from_becoming_arithmetic() {
         let source = "id=$( (echo hi ; echo there) | checksum )\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "id=$( (\n\techo hi\n\techo there\n) | checksum)\n",
-        );
+        assert_bash_formats_with_ast(source, "id=$( (\n\techo hi\n\techo there\n) | checksum)\n");
     }
 
     #[test]
     fn keeps_inline_nested_subshells_from_becoming_arithmetic_commands() {
         let source = "run() {\n  ( ( echo hi ) 2>&1 | ( cat ) ) 5>&1\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "run() {\n\t( (echo hi) 2>&1 | (cat)) 5>&1\n}\n",
-        );
+        assert_bash_formats_with_ast(source, "run() {\n\t( (echo hi) 2>&1 | (cat)) 5>&1\n}\n");
     }
 
     #[test]
     fn normalizes_inline_command_substitution_internal_spacing() {
         let source = "nlq=\"$(  _sanitizer run \"$nlq\"  numeric )\"\nline=$( head -n 2 $file|tail -n 1 )\nfile2patch=\"$( echo \"$line\" | cut -d' ' -f2 |cut -f1 )\"\nmsg=\"Welcome Hari - your last access was $(last|head -n2|tail -n1|sed 's/[^ ]\\+ \\+[^ ]\\+ \\+[^ ]\\+ \\+//;s/ *$//')\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "nlq=\"$(_sanitizer run \"$nlq\" numeric)\"\nline=$(head -n 2 $file | tail -n 1)\nfile2patch=\"$(echo \"$line\" | cut -d' ' -f2 | cut -f1)\"\nmsg=\"Welcome Hari - your last access was $(last | head -n2 | tail -n1 | sed 's/[^ ]\\+ \\+[^ ]\\+ \\+[^ ]\\+ \\+//;s/ *$//')\"\n",
         );
     }
@@ -1672,12 +1526,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn trims_command_substitution_close_line_continuations() {
         let source = "tag=\"$(\n  grep '\"tag_name.*\"'\".*$version\" \"$json\" \\\n  | head -1 \\\n  | sed 's,.*\"\\(gm'\"$version\"'[^\\\"]*\\)\".*,\\1,'\\\n  )\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "tag=\"$(\n\tgrep '\"tag_name.*\"'\".*$version\" \"$json\" |\n\t\thead -1 |\n\t\tsed 's,.*\"\\(gm'\"$version\"'[^\\\"]*\\)\".*,\\1,'\n)\"\n",
         );
     }
@@ -1703,12 +1553,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn keeps_quoted_command_substitution_continuation_indent_stable() {
         let source = "icons() {\n  icon_files=\"${icon_files}¤$(find \\\n    /usr/share/icons \\\n    /usr/share/pixmaps \\\n    /var/lib/flatpak/exports/share/icons -iname \"*${icon}*\" \\\n    -printf \"%p¤\" 2> /dev/null || :)\"\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "icons() {\n\ticon_files=\"${icon_files}¤$(find \\\n\t\t/usr/share/icons \\\n\t\t/usr/share/pixmaps \\\n\t\t/var/lib/flatpak/exports/share/icons -iname \"*${icon}*\" \\\n\t\t-printf \"%p¤\" 2>/dev/null || :)\"\n}\n",
         );
     }
@@ -1716,12 +1562,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn indents_inline_continued_command_substitution_assignments() {
         let source = "_npm_completion() {\n  compadd -- $(COMP_CWORD=$((CURRENT-1)) \\\n               COMP_LINE=$BUFFER \\\n               COMP_POINT=0 \\\n               npm completion -- \"${words[@]}\" \\\n               2>/dev/null)\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "_npm_completion() {\n\tcompadd -- $(COMP_CWORD=$((CURRENT - 1)) \\\n\t\tCOMP_LINE=$BUFFER \\\n\t\tCOMP_POINT=0 \\\n\t\tnpm completion -- \"${words[@]}\" \\\n\t\t2>/dev/null)\n}\n",
         );
     }
@@ -1729,12 +1571,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn command_substitution_assignment_continuations_do_not_double_context_indent() {
         let source = "get_pr_url(){\n    local existing_pr\n    existing_pr=\"$(gh pr list -R \"$owner/$repo\" \\\n        --json baseRefName,changedFiles \\\n        -q \".[] |\n            select(.baseRefName == \\\"$base\\\")\n    \")\"\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "get_pr_url() {\n\tlocal existing_pr\n\texisting_pr=\"$(gh pr list -R \"$owner/$repo\" \\\n\t\t--json baseRefName,changedFiles \\\n\t\t-q \".[] |\n            select(.baseRefName == \\\"$base\\\")\n    \")\"\n}\n",
         );
     }
@@ -1767,12 +1605,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn formats_commented_if_command_substitutions_structurally() {
         let source = "_SCOPED=\"$(\n  # selected notebook flag\n  if [[ \"$a\" != \"$b\" ]]\n  then\n    printf \"1\\\\n\"\n  else\n    printf \"0\\\\n\"\n  fi\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "_SCOPED=\"$(\n\t# selected notebook flag\n\tif [[ \"$a\" != \"$b\" ]]; then\n\t\tprintf \"1\\\\n\"\n\telse\n\t\tprintf \"0\\\\n\"\n\tfi\n)\"\n",
         );
     }
@@ -1780,12 +1614,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn formats_multiline_command_substitutions_with_escaped_quotes_structurally() {
         let source = "response=\"$(\n  download --flag \\\n    \"https://example.test?url=${target}\" |\n    LC_ALL=C sed -E \"s/.*\\\"url\\\": \\\"([^\\\"]+)\\\".*/\\1/g\" || printf \"\"\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "response=\"$(\n\tdownload --flag \\\n\t\t\"https://example.test?url=${target}\" |\n\t\tLC_ALL=C sed -E \"s/.*\\\"url\\\": \\\"([^\\\"]+)\\\".*/\\1/g\" || printf \"\"\n)\"\n",
         );
     }
@@ -1793,12 +1623,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn formats_commented_brace_group_pipeline_command_substitutions_structurally() {
         let source = "content=\"$(\n  {\n    cat \"$file\"\n  } | {\n    if [[ \"$tool\" =~ readab ]] &&\n       command -v readable; then # readability-cli\n      readable \\\n        --base \"$url\" \\\n        --quiet \\\n        2>/dev/null || cat\n    else\n      cat\n    fi\n  }\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "content=\"$(\n\t{\n\t\tcat \"$file\"\n\t} | {\n\t\tif [[ \"$tool\" =~ readab ]] &&\n\t\t\tcommand -v readable; then # readability-cli\n\t\t\treadable \\\n\t\t\t\t--base \"$url\" \\\n\t\t\t\t--quiet \\\n\t\t\t\t2>/dev/null || cat\n\t\telse\n\t\t\tcat\n\t\tfi\n\t}\n)\"\n",
         );
     }
@@ -1806,12 +1632,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn command_substitutions_with_comments_and_own_line_close_use_block_layout() {
         let source = "result=\"$(grep -En pattern \"$script\" |\n                     grep -Ev -e skip \\\n                              # keep this filter documented\n                    )\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "result=\"$(\n\tgrep -En pattern \"$script\" |\n\t\tgrep -Ev -e skip\n\t# keep this filter documented\n)\"\n",
         );
     }
@@ -1819,12 +1641,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn normalizes_raw_block_command_substitution_short_space_indent() {
         let source = "version=$(\n  # keep the sourced version local\n  source ./version.sh\n  echo \"$VERSION\"\n)\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "version=$(\n\t# keep the sourced version local\n\tsource ./version.sh\n\techo \"$VERSION\"\n)\n",
         );
     }
@@ -1838,12 +1656,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn command_substitution_heredoc_arguments_keep_body_unindented() {
         let source = "if ok; then\n    upload --policy \"$(cat <<EOF\n{\n  \"items\": [\n$(\n    for item in \"${items[@]}\"; do\n        printf '\"%s\",\\n' \"$item\"\n    done |\n    sed '$ s/,$//'\n)\n  ]\n}\nEOF\n)\"\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if ok; then\n\tupload --policy \"$(\n\t\tcat <<EOF\n{\n  \"items\": [\n$(\n\t\t\t\tfor item in \"${items[@]}\"; do\n\t\t\t\t\tprintf '\"%s\",\\n' \"$item\"\n\t\t\t\tdone |\n\t\t\t\t\tsed '$ s/,$//'\n\t\t\t)\n  ]\n}\nEOF\n\t)\"\nfi\n",
         );
     }
@@ -1851,12 +1665,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn command_substitution_heredocs_strip_wrapper_indent() {
         let source = "if true; then\n\tjson+=$(\n\t\tcat << EOF\n\t\t\t\t,\nEOF\n\t)\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if true; then\n\tjson+=$(\n\t\tcat <<EOF\n\t\t\t\t,\nEOF\n\t)\nfi\n",
         );
     }
@@ -1864,12 +1674,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn command_substitution_heredocs_normalize_top_level_operator_spacing() {
         let source = "json=$(\n\tcat << EOF\n{\n\t\"ok\": true\n}\nEOF\n)\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "json=$(\n\tcat <<EOF\n{\n\t\"ok\": true\n}\nEOF\n)\n",
         );
     }
@@ -1877,12 +1683,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn command_substitution_stripped_heredoc_closer_follows_command_indent() {
         let source = "x=\"$(\n    if ok; then\n        cat <<-EOF\nbody\nEOF\n    fi\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "x=\"$(\n\tif ok; then\n\t\tcat <<-EOF\n\t\t\tbody\n\t\tEOF\n\tfi\n)\"\n",
         );
     }
@@ -1890,12 +1692,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn quoted_command_substitution_with_escaped_replacements_formats_structurally() {
         let source = "sed_script=\"$(\n        for prefix in $prefixes; do\n            echo \"s|${prefix}\\\\>|$prefix|g;\"\n        done\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "sed_script=\"$(\n\tfor prefix in $prefixes; do\n\t\techo \"s|${prefix}\\\\>|$prefix|g;\"\n\tdone\n)\"\n",
         );
     }
@@ -1903,12 +1701,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn raw_block_command_substitution_strips_wrapper_indent_with_comments() {
         let source = "sed_script=\"$(\n        while read -r directory prefix; do\n            if [ -z \"$directory\" ]; then\n                continue\n            fi\n            # catch whole scripts\n            echo \"s|${prefix}\\\\>|$directory/${prefix}|g;\"\n        done <<< \"$mappings\"\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "sed_script=\"$(\n\twhile read -r directory prefix; do\n\t\tif [ -z \"$directory\" ]; then\n\t\t\tcontinue\n\t\tfi\n\t\t# catch whole scripts\n\t\techo \"s|${prefix}\\\\>|$directory/${prefix}|g;\"\n\tdone <<<\"$mappings\"\n)\"\n",
         );
     }
@@ -1916,12 +1710,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn assignment_command_substitution_heredoc_keeps_literal_tail_unindented() {
         let source = "if ok; then\n    response=\"$(\n        nc <<EOF || :\nHTTP/1.1 200 OK\n\naccepted\nEOF\n    )\"\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if ok; then\n\tresponse=\"$(\n\t\tnc <<EOF || :\nHTTP/1.1 200 OK\n\naccepted\nEOF\n\t)\"\nfi\n",
         );
     }
@@ -1929,26 +1719,15 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn command_position_command_substitution_heredoc_keeps_literal_tail_unindented() {
         let source = "(\n$(\ncat << HERE\nHERE\n)\n)\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "(\n\t$(\n\t\tcat <<HERE\nHERE\n\t)\n)\n",
-        );
+        assert_bash_formats_with_ast(source, "(\n\t$(\n\t\tcat <<HERE\nHERE\n\t)\n)\n");
     }
 
     #[test]
     fn process_substitution_heredoc_in_assignment_keeps_literal_tail_unindented() {
         let source =
             "if ok; then\n  result=$(OPENSSL_CONF=<(cat <<EOF\nbody\nEOF\n) curl url)\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if ok; then\n\tresult=$(OPENSSL_CONF=<(\n\t\tcat <<EOF\nbody\nEOF\n\t) curl url)\nfi\n",
         );
     }
@@ -1956,12 +1735,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn raw_block_command_substitution_indents_backslash_continuations_before_comment() {
         let source = "if ok; then\n    output=\"$(\n        NO_TOKEN_AUTH=1 \\\n        USERNAME=\"$SPOTIFY_ID\" \\\n        PASSWORD=\"$SPOTIFY_SECRET\" \\\n        -d code=\"$code\" \\\n        #-d code_verifier=\"$code_verifier\"\n    )\"\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if ok; then\n\toutput=\"$(\n\t\tNO_TOKEN_AUTH=1 \\\n\t\t\tUSERNAME=\"$SPOTIFY_ID\" \\\n\t\t\tPASSWORD=\"$SPOTIFY_SECRET\" \\\n\t\t\t-d code=\"$code\"\n\t\t#-d code_verifier=\"$code_verifier\"\n\t)\"\nfi\n",
         );
     }
@@ -1969,12 +1744,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn rendered_heredoc_bodies_preserve_escaped_variables() {
         let source = "cat <<EOF > script\n#!/bin/bash\nexec $(which dart) \"\\$@\"\nEOF\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "cat <<EOF >script\n#!/bin/bash\nexec $(which dart) \"\\$@\"\nEOF\n",
         );
     }
@@ -1990,12 +1761,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn heredoc_command_substitution_continuations_follow_shell_indent() {
         let source = "if ok; then\n  cat <<EOF\nx $(date +%F |\n      # comment\n      sed 's/-/--/g') y\nEOF\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if ok; then\n\tcat <<EOF\nx $(date +%F |\n\t\t# comment\n\t\tsed 's/-/--/g') y\nEOF\nfi\n",
         );
     }
@@ -2011,14 +1778,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn command_substitution_bounds_do_not_capture_following_list_operators() {
         let source = "value=$(cmd \\\n  arg) || echo no\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "value=$(cmd \\\n\targ) || echo no\n",
-        );
+        assert_bash_formats_with_ast(source, "value=$(cmd \\\n\targ) || echo no\n");
     }
 
     #[test]
@@ -2143,12 +1903,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn formats_quoted_block_command_substitution_conditions_like_shfmt() {
         let source = "f() {\n  declare -i -r test_jobs_effective=\"$(\n    if [[ \"${TEST_JOBS:-detect}\" = \"detect\" ]] \\\n      && command -v nproc &> /dev/null; then\n      nproc\n    fi\n  )\"\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tdeclare -i -r test_jobs_effective=\"$(\n\t\tif [[ \"${TEST_JOBS:-detect}\" = \"detect\" ]] &&\n\t\t\tcommand -v nproc &>/dev/null; then\n\t\t\tnproc\n\t\tfi\n\t)\"\n}\n",
         );
     }
@@ -2156,12 +1912,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn formats_quoted_continued_command_substitution_lists_like_shfmt() {
         let source = "f() {\n  branchName=\"$(git symbolic-ref --quiet --short HEAD 2> /dev/null \\\n    || git rev-parse --short HEAD 2> /dev/null \\\n    || echo '(unknown)')\"\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tbranchName=\"$(git symbolic-ref --quiet --short HEAD 2>/dev/null ||\n\t\tgit rev-parse --short HEAD 2>/dev/null ||\n\t\techo '(unknown)')\"\n}\n",
         );
     }
@@ -2169,12 +1921,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn indents_assignment_command_substitution_leading_pipe_continuations() {
         let source = "f() {\n  certText=$(echo \"${tmp}\" \\\n    | openssl x509 -text -certopt \"no_header, no_serial, \\\n    no_signame\")\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tcertText=$(echo \"${tmp}\" |\n\t\topenssl x509 -text -certopt \"no_header, no_serial, \\\n\t\tno_signame\")\n}\n",
         );
     }
@@ -2183,12 +1931,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     fn indents_inline_command_substitution_backslash_continuations() {
         let source =
             "f() {\n  providers=\"$(find . |\n    sed -e 's/^a/b/' \\\n      -e 's/^c/d/')\"\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tproviders=\"$(find . |\n\t\tsed -e 's/^a/b/' \\\n\t\t\t-e 's/^c/d/')\"\n}\n",
         );
     }
@@ -2196,12 +1940,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn indents_literal_assignment_command_substitution_pipeline_continuations() {
         let source = "f() {\n  while ok; do\n    protected_branches=\"$protected_branches\n                            $(jq_debug_pipe_dump <<< \"$output\" |\n                              jq -r '.[] | select(.protected == true)')\"\n  done\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\twhile ok; do\n\t\tprotected_branches=\"$protected_branches\n                            $(jq_debug_pipe_dump <<<\"$output\" |\n\t\t\tjq -r '.[] | select(.protected == true)')\"\n\tdone\n}\n",
         );
     }
@@ -2209,12 +1949,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn indents_command_substitution_continuations_after_multiline_literals() {
         let source = "f() {\n  allowed=\"$(sed 's/#.*//;\n                        s/^[[:space:]]*//;\n                        /^[[:space:]]*$/d;' \\\n                        \"$file\")\"\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tallowed=\"$(sed 's/#.*//;\n                        s/^[[:space:]]*//;\n                        /^[[:space:]]*$/d;' \\\n\t\t\"$file\")\"\n}\n",
         );
     }
@@ -2222,12 +1958,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn indents_assignment_command_substitution_pipelines_after_multiline_literals() {
         let source = "if [ \"$version\" = latest ]; then\n    version=\"$(gh api \"repos/$owner_repo/tags\" \\\n                --jq '\n                    .[] |\n                    select(.name | test(\"^go[0-9]\")) |\n                    .name\n                ' --paginate |\n                head -n1 |\n                sed 's/^go//' || :)\"\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if [ \"$version\" = latest ]; then\n\tversion=\"$(gh api \"repos/$owner_repo/tags\" \\\n\t\t--jq '\n                    .[] |\n                    select(.name | test(\"^go[0-9]\")) |\n                    .name\n                ' --paginate |\n\t\thead -n1 |\n\t\tsed 's/^go//' || :)\"\nfi\n",
         );
     }
@@ -2235,12 +1967,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn block_command_substitution_pipelines_keep_nested_indent() {
         let source = "backups=\"$(\n    while read -r mountpoint; do\n        ls -t \"$mountpoint\" |\n        sed '\n            s|\\.backup/*$||;\n        '\n    done <<< \"$mountpoints\" |\n    sort -r\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "backups=\"$(\n\twhile read -r mountpoint; do\n\t\tls -t \"$mountpoint\" |\n\t\t\tsed '\n            s|\\.backup/*$||;\n        '\n\tdone <<<\"$mountpoints\" |\n\t\tsort -r\n)\"\n",
         );
     }
@@ -2248,12 +1976,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn block_command_substitution_pipeline_stage_after_multiline_literal_keeps_stage_indent() {
         let source = "versions=\"$(\n    grep rpm <<< \"$downloads_page\" |\n    sed '\n        s/^.*basic[[:alpha:]]*-//;\n        s/linuxx64//;\n    ' |\n    sort -Vur\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "versions=\"$(\n\tgrep rpm <<<\"$downloads_page\" |\n\t\tsed '\n        s/^.*basic[[:alpha:]]*-//;\n        s/linuxx64//;\n    ' |\n\t\tsort -Vur\n)\"\n",
         );
     }
@@ -2261,12 +1985,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn block_command_substitution_pipeline_after_command_continuations_keeps_stage_indent() {
         let source = "artist_id=\"$(\n    SEARCH_TYPE=artist \\\n    SEARCH_LIMIT=50 \\\n    \"$srcdir/search.sh\" \"$artist\" |\n    jq -r \"\n        .items[] |\n        .id\n    \" |\n    head -n1\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "artist_id=\"$(\n\tSEARCH_TYPE=artist \\\n\t\tSEARCH_LIMIT=50 \\\n\t\t\"$srcdir/search.sh\" \"$artist\" |\n\t\tjq -r \"\n        .items[] |\n        .id\n    \" |\n\t\thead -n1\n)\"\n",
         );
     }
@@ -2274,12 +1994,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn inline_assignment_command_substitution_pipeline_after_multiline_literal_keeps_body_indent() {
         let source = "f() {\n  packages=\"$(sed 's/#.*//;\n         s/[<>=].*//;\n         /^[[:space:]]*$/d;' $package_files |\n        sort |\n        uniq -d\n    )\"\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tpackages=\"$(\n\t\tsed 's/#.*//;\n         s/[<>=].*//;\n         /^[[:space:]]*$/d;' $package_files |\n\t\t\tsort |\n\t\t\tuniq -d\n\t)\"\n}\n",
         );
     }
@@ -2287,12 +2003,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_quoted_command_substitution_multiline_literals() {
         let source = "f() {\n  _comp_compgen_split -- \"$(cmd | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}')\"\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\t_comp_compgen_split -- \"$(cmd | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}')\"\n}\n",
         );
     }
@@ -2300,12 +2012,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn indents_block_command_substitution_assignments_with_multiline_literals() {
         let source = "f() {\n  gw=\"$(\n    netstat -rn |\n    awk '\n            /^default/ { print $2 }\n        '\n  )\"\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tgw=\"$(\n\t\tnetstat -rn |\n\t\t\tawk '\n            /^default/ { print $2 }\n        '\n\t)\"\n}\n",
         );
     }
@@ -2335,12 +2043,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn keeps_multiline_arithmetic_if_condition_then_attached() {
         let source = "if ! (( BASH_VERSINFO[0] > 4 ||\n        BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 2 )); then\n  exit 1\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if ! ((\\\nBASH_VERSINFO[0] > 4 || \\\nBASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 2)); then\n\texit 1\nfi\n",
         );
     }
@@ -2389,14 +2093,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn formats_binary_spacing_around_command_substitution_arithmetic_operands() {
         let source = "printf \"%s\\n\" \"$(($(foo)-bar))\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "printf \"%s\\n\" \"$(($(foo) - bar))\"\n",
-        );
+        assert_bash_formats_with_ast(source, "printf \"%s\\n\" \"$(($(foo) - bar))\"\n");
     }
 
     #[test]
@@ -2432,12 +2129,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn keeps_array_subscript_modulo_compact_like_shfmt() {
         let source = "color=${AVAILABLE_COLORS[$RANDOM % ${#AVAILABLE_COLORS[@]}]}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "color=${AVAILABLE_COLORS[$RANDOM%${#AVAILABLE_COLORS[@]}]}\n",
         );
     }
@@ -2445,25 +2138,14 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn formats_arithmetic_expansion_array_subscripts_like_shfmt() {
         let source = "echo ${options[$((choice*2+1))]}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "echo ${options[$((choice * 2 + 1))]}\n",
-        );
+        assert_bash_formats_with_ast(source, "echo ${options[$((choice * 2 + 1))]}\n");
     }
 
     #[test]
     fn formats_parenthesized_array_subscripts_like_shfmt() {
         let source = "echo ${arr[(($i+1))]}\necho ${arr[((i+1))]}\necho ${arr[(i+1)]}\necho ${arr[($i+1)]}\necho ${arr[$i+1]}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "echo ${arr[(($i + 1))]}\necho ${arr[((i + 1))]}\necho ${arr[(i + 1)]}\necho ${arr[($i + 1)]}\necho ${arr[$i+1]}\n",
         );
     }
@@ -2471,12 +2153,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn keeps_nested_parameter_operand_subscripts_compact_like_shfmt() {
         let source = ": \"${BASH_IT_BASHRC:=${BASH_SOURCE[${#BASH_SOURCE[@]} - 1]}}\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             ": \"${BASH_IT_BASHRC:=${BASH_SOURCE[${#BASH_SOURCE[@]}-1]}}\"\n",
         );
     }
@@ -2484,27 +2162,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn keeps_plain_array_subscripts_compact_like_shfmt() {
         let source = "prev=\"${COMP_WORDS[COMP_CWORD - 1]}\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "prev=\"${COMP_WORDS[COMP_CWORD-1]}\"\n",
-        );
+        assert_bash_formats_with_ast(source, "prev=\"${COMP_WORDS[COMP_CWORD-1]}\"\n");
     }
 
     #[test]
     fn keeps_identifier_array_subscript_arithmetic_compact_like_shfmt() {
         let source = "source \"${_files[_file - __array_offset]}\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "source \"${_files[_file-__array_offset]}\"\n",
-        );
+        assert_bash_formats_with_ast(source, "source \"${_files[_file-__array_offset]}\"\n");
     }
 
     #[test]
@@ -2538,12 +2202,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn normalizes_backticks_inside_preserved_escaped_quote_words() {
         let source = "eval printf \"\\\"$name -> $`echo \"${env_var}_DEFAULT\"` => \\\"\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "eval printf \"\\\"$name -> $$(echo \"${env_var}_DEFAULT\") => \\\"\"\n",
         );
     }
@@ -2690,12 +2350,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn removes_multiline_compound_assignment_line_continuations() {
         let source = "if ok; then\n    params+=(-Done=true -Dtwo=false \\\n               -Dthree=false \\\n               -Dfour=true)\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if ok; then\n\tparams+=(-Done=true -Dtwo=false\n\t\t-Dthree=false\n\t\t-Dfour=true)\nfi\n",
         );
     }
@@ -2703,12 +2359,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_escaped_multiline_double_quoted_compound_items() {
         let source = "show() {\n  items+=(\"\\\n    $(printf \" ---------\")\n     Text.\n\n     $(\n  for   x in a b\n  do\n    echo \"$x\"\n  done\n)\")\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "show() {\n\titems+=(\"\\\n    $(printf \" ---------\")\n     Text.\n\n     $(\n\t\tfor x in a b; do\n\t\t\techo \"$x\"\n\t\tdone\n\t)\")\n}\n",
         );
     }
@@ -2716,12 +2368,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn strips_residual_indent_from_continued_array_rows() {
         let source = "cmd=(\n  grep -s                         \\\n    -e \"^<${url}>\"                 \\\n    -e \"^##\"\n)\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "cmd=(\n\tgrep -s\n\t-e \"^<${url}>\"\n\t-e \"^##\"\n)\n",
         );
     }
@@ -2729,12 +2377,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_array_command_substitution_argument_continuations() {
         let source = "x=( $(find . -not \\( -path ./x -prune \\) -not -name lib \\\n  -not -name other | sort) )\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "x=($(find . -not \\( -path ./x -prune \\) -not -name lib \\\n\t-not -name other | sort))\n",
         );
     }
@@ -2742,12 +2386,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn removes_decl_array_assignment_line_continuations() {
         let source = "local cmd=(dialog --title \"Select\" --default-item \"$default\" \\\n    --menu \"Choose\" 18 50 9)\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "local cmd=(dialog --title \"Select\" --default-item \"$default\"\n\t--menu \"Choose\" 18 50 9)\n",
         );
     }
@@ -2755,12 +2395,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn normalizes_multiline_compound_assignment_row_spacing() {
         let source = "options=(\n  1 \"1080p\"  \"Set 1080p\"\n  2 \"720p\"   \"Set 720p\"\n)\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "options=(\n\t1 \"1080p\" \"Set 1080p\"\n\t2 \"720p\" \"Set 720p\"\n)\n",
         );
     }
@@ -2769,12 +2405,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     fn ignores_comments_for_multiline_compound_assignment_body_indent() {
         let source =
             "versions=(1.16.0\n# Match the server package.\n                    21.1.16)\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "versions=(1.16.0\n\t# Match the server package.\n\t21.1.16)\n",
         );
     }
@@ -2782,26 +2414,15 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_blank_lines_inside_multiline_compound_assignments() {
         let source = "args=(\n  one\n\n  # group\n  two\n\n  three\n)\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "args=(\n\tone\n\n\t# group\n\ttwo\n\n\tthree\n)\n",
-        );
+        assert_bash_formats_with_ast(source, "args=(\n\tone\n\n\t# group\n\ttwo\n\n\tthree\n)\n");
     }
 
     #[test]
     fn normalizes_keyed_compound_assignment_row_indent() {
         let source =
             "declare -A map=(\n        [up]=one\n   [down]=two\n\n        [left]=three\n)\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "declare -A map=(\n\t[up]=one\n\t[down]=two\n\n\t[left]=three\n)\n",
         );
     }
@@ -2809,12 +2430,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn normalizes_multiline_command_substitution_array_elements() {
         let source = "items=(\nfirst\n    $(\n        for item in $items; do\n            echo \"$item\"\n        done\n    )\n\n)\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "items=(\n\tfirst\n\t$(\n\t\tfor item in $items; do\n\t\t\techo \"$item\"\n\t\tdone\n\t)\n\n)\n",
         );
     }
@@ -2822,12 +2439,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn normalizes_array_command_substitution_elements_like_shfmt() {
         let source = "options=( \n  config_file \"$(\n     [[ \"$config\" == *.cfg ]] && echo ok\n  )\"\n  enabled \"$( [[ -n \"$flag\" ]] && echo true || echo false)\"\n)\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "options=(\n\tconfig_file \"$(\n\t\t[[ \"$config\" == *.cfg ]] && echo ok\n\t)\"\n\tenabled \"$([[ -n \"$flag\" ]] && echo true || echo false)\"\n)\n",
         );
     }
@@ -2835,12 +2448,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn indents_array_append_command_substitution_elements_like_shfmt() {
         let source = "f() {\n  if ok; then\n    opts+=(\"$(\n      get x\n    )\")\n  fi\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tif ok; then\n\t\topts+=(\"$(\n\t\t\tget x\n\t\t)\")\n\tfi\n}\n",
         );
     }
@@ -2866,12 +2475,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_compound_assignment_command_substitution_body_indent() {
         let source = "f() {\n  _files=($(\n    while [[ \"$PWD\" != \"/\" ]]; do\n      _file=\"$PWD/.env\"\n      if [[ -e \"${_file}\" ]]; then\n        echo \"${_file}\"\n      fi\n      builtin cd .. || true\n    done\n  ))\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\t_files=($(\n\t\twhile [[ \"$PWD\" != \"/\" ]]; do\n\t\t\t_file=\"$PWD/.env\"\n\t\t\tif [[ -e \"${_file}\" ]]; then\n\t\t\t\techo \"${_file}\"\n\t\t\tfi\n\t\t\tbuiltin cd .. || true\n\t\tdone\n\t))\n}\n",
         );
     }
@@ -2879,12 +2484,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_compound_assignment_command_substitution_command_continuations() {
         let source = "f() {\n  _remote_branches=($(\n    git -C \"$path\" ls-remote --heads \"$url\" 2>/dev/null \\\n      | LC_ALL=C sed \"s/.*\\///g\"\n  ))\n  _diff=($(\n    printf \"%s\\n\" \\\n      \"${_index_list[@]:-}\" \\\n      \"${_file_list[@]:-}\" \\\n      | sort \\\n      | uniq -u\n  ))\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\t_remote_branches=($(\n\t\tgit -C \"$path\" ls-remote --heads \"$url\" 2>/dev/null |\n\t\t\tLC_ALL=C sed \"s/.*\\///g\"\n\t))\n\t_diff=($(\n\t\tprintf \"%s\\n\" \\\n\t\t\t\"${_index_list[@]:-}\" \\\n\t\t\t\"${_file_list[@]:-}\" |\n\t\t\tsort |\n\t\t\tuniq -u\n\t))\n}\n",
         );
     }
@@ -2892,12 +2493,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn normalizes_array_command_substitution_leading_list_operators() {
         let source = "f() {\n  x=(\\\n    $(printf \"%s\\n\" \"${xs[@]}\" \\\n      | sort \\\n      | cut -d: -f1 \\\n    || true))\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tx=(\n\t\t$(printf \"%s\\n\" \"${xs[@]}\" |\n\t\t\tsort |\n\t\t\tcut -d: -f1 ||\n\t\t\ttrue))\n}\n",
         );
     }
@@ -2905,12 +2502,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn strips_redirect_residual_indent_in_compound_assignment_command_substitutions() {
         let source = "f() {\n  _remote_branches=($(\n    git -C \"$path\" ls-remote        \\\n      --heads \"$url\"        \\\n       2>/dev/null                              \\\n      | LC_ALL=C sed \"s/.*\\///g\" || :\n  ))\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\t_remote_branches=($(\n\t\tgit -C \"$path\" ls-remote \\\n\t\t\t--heads \"$url\" \\\n\t\t\t2>/dev/null |\n\t\t\tLC_ALL=C sed \"s/.*\\///g\" || :\n\t))\n}\n",
         );
     }
@@ -2918,12 +2511,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn expands_multistatement_command_substitutions_in_array_values() {
         let source = "f() {\n  local -A ver=(\n    [libx11]=\"$(. \"${TERMUX_SCRIPTDIR}/packages/libx11/build.sh\"; echo \"${TERMUX_PKG_VERSION}\")\"\n  )\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tlocal -A ver=(\n\t\t[libx11]=\"$(\n\t\t\t. \"${TERMUX_SCRIPTDIR}/packages/libx11/build.sh\"\n\t\t\techo \"${TERMUX_PKG_VERSION}\"\n\t\t)\"\n\t)\n}\n",
         );
     }
@@ -2939,12 +2528,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn indents_quoted_block_command_substitution_loop_close() {
         let source = "f() {\n  eval \"$(\n    for key in a b; do\n      awk -F= \"/$key/\" <<< \"$profile_data\"\n    done\n  )\"\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\teval \"$(\n\t\tfor key in a b; do\n\t\t\tawk -F= \"/$key/\" <<<\"$profile_data\"\n\t\tdone\n\t)\"\n}\n",
         );
     }
@@ -2952,12 +2537,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn normalizes_raw_block_command_substitution_comment_indent() {
         let source = "f() {\n    value=\"$(\n        docker-compose -f file.yml \\\n            exec -T service cat secret </dev/null\n            # keep this note with the command\n    )\"\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tvalue=\"$(\n\t\tdocker-compose -f file.yml \\\n\t\t\texec -T service cat secret </dev/null\n\t\t# keep this note with the command\n\t)\"\n}\n",
         );
     }
@@ -2965,12 +2546,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn normalizes_raw_block_command_substitution_shell_indent() {
         let source = "f() {\n    value=\"$(\n        aws service call \\\n            --query 'Items[]{\n                        \"Name\": Name\n                    }' \\\n            --output json |\n        jq -r \"\n            .[]\n        \"\n    )\"\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tvalue=\"$(\n\t\taws service call \\\n\t\t\t--query 'Items[]{\n                        \"Name\": Name\n                    }' \\\n\t\t\t--output json |\n\t\t\tjq -r \"\n            .[]\n        \"\n\t)\"\n}\n",
         );
     }
@@ -2978,12 +2555,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn indents_raw_block_command_substitution_pipeline_after_compound_close() {
         let source = "regions=\"$(\n    # choose enabled regions by default\n    if [ -n \"${ALL_REGIONS:-}\" ]; then\n        list_regions --all\n    else\n        list_regions\n    fi |\n    jq -r '.Regions[] | .Name'\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "regions=\"$(\n\t# choose enabled regions by default\n\tif [ -n \"${ALL_REGIONS:-}\" ]; then\n\t\tlist_regions --all\n\telse\n\t\tlist_regions\n\tfi |\n\t\tjq -r '.Regions[] | .Name'\n)\"\n",
         );
     }
@@ -2998,12 +2571,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn case_item_comments_do_not_leak_to_previous_arm() {
         let source = "case \"$arg\" in\n--squash-msg)\n  SQUASH_MSG=1\n  ;;\n*)\n  # set the argument back\n  set -- \"$@\" \"$arg\"\n  ;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "case \"$arg\" in\n--squash-msg)\n\tSQUASH_MSG=1\n\t;;\n*)\n\t# set the argument back\n\tset -- \"$@\" \"$arg\"\n\t;;\nesac\n",
         );
     }
@@ -3011,12 +2580,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_comments_before_case_patterns() {
         let source = "case \"$1\" in\n# Fetch config\n--xsel | -b)\n  INIT_CONFIG_VAL=$(xsel -b)\n  ;;\n# Additional env vars\n-e | --env)\n  CONTAINER_ENV+=(\"$2\")\n  ;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "case \"$1\" in\n# Fetch config\n--xsel | -b)\n\tINIT_CONFIG_VAL=$(xsel -b)\n\t;;\n# Additional env vars\n-e | --env)\n\tCONTAINER_ENV+=(\"$2\")\n\t;;\nesac\n",
         );
     }
@@ -3024,12 +2589,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_body_indented_comments_before_case_patterns() {
         let source = "f() {\n  case \"$prev\" in\n  -G)\n    echo grains\n    ;;\n    # FIXME\n  -R)\n    echo range\n    ;;\n  esac\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tcase \"$prev\" in\n\t-G)\n\t\techo grains\n\t\t;;\n\t\t# FIXME\n\t-R)\n\t\techo range\n\t\t;;\n\tesac\n}\n",
         );
     }
@@ -3037,12 +2598,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_body_indented_comments_before_overindented_case_patterns() {
         let source = "if [ -z \"$ARCH\" ]; then\n  case \"$( uname -m )\" in\n    arm*) ARCH=arm\n          NO_ASM=1 ;;\n    # comment\n       *) ARCH=$( uname -m ) ;;\n  esac\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\tarm*)\n\t\tARCH=arm\n\t\tNO_ASM=1\n\t\t;;\n\t\t# comment\n\t*) ARCH=$(uname -m) ;;\n\tesac\nfi\n",
         );
     }
@@ -3050,12 +2607,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn indents_disabled_case_arm_comments_before_next_pattern() {
         let source = "f() {\n  case \"$mode\" in\n  client)\n    echo client\n    ;;\n#\t\thybrid)\n#\t\t\techo hybrid\n#\t\t;;\n  *)\n    echo default\n    ;;\n  esac\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tcase \"$mode\" in\n\tclient)\n\t\techo client\n\t\t;;\n\t\t#\t\thybrid)\n\t\t#\t\t\techo hybrid\n\t\t#\t\t;;\n\t*)\n\t\techo default\n\t\t;;\n\tesac\n}\n",
         );
     }
@@ -3063,12 +2616,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn keeps_space_disabled_case_pattern_comments_at_pattern_indent() {
         let source = "if [ -z \"$ARCH\" ]; then\n  case \"$( uname -m )\" in\n#    i?86) ARCH=i586 ;;\n    arm*) ARCH=arm ;;\n  esac\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\t#    i?86) ARCH=i586 ;;\n\tarm*) ARCH=arm ;;\n\tesac\nfi\n",
         );
     }
@@ -3076,12 +2625,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn indents_space_disabled_case_pattern_comments_between_arms() {
         let source = "if [ -z \"$ARCH\" ]; then\n  case \"$( uname -m )\" in\n    i?86) ARCH=i586 ;;\n#    arm*) ARCH=arm ;;\n    *)    ARCH=$( uname -m ) ;;\n  esac\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if [ -z \"$ARCH\" ]; then\n\tcase \"$(uname -m)\" in\n\ti?86) ARCH=i586 ;;\n\t\t#    arm*) ARCH=arm ;;\n\t*) ARCH=$(uname -m) ;;\n\tesac\nfi\n",
         );
     }
@@ -3089,12 +2634,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn indents_aligned_disabled_case_arm_comments_before_next_pattern() {
         let source = "case \"$ext\" in\n          #.envrc)  cd \"$dirname\" && direnv allow .\n           .envrc)  shellcheck \"$basename\"\n                    ;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "case \"$ext\" in\n#.envrc)  cd \"$dirname\" && direnv allow .\n.envrc)\n\tshellcheck \"$basename\"\n\t;;\nesac\n",
         );
     }
@@ -3102,12 +2643,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn keeps_disabled_case_comments_with_explanatory_prefix_comments() {
         let source = "f() {\n  case \"$ext\" in\n               # this command does not fail when missing\n               #.vimrc)  if ! vim -c \"source $basename\" -c \"q\"; then\n               .vimrc)  echo ok\n                        ;;\n  esac\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tcase \"$ext\" in\n\t# this command does not fail when missing\n\t#.vimrc)  if ! vim -c \"source $basename\" -c \"q\"; then\n\t.vimrc)\n\t\techo ok\n\t\t;;\n\tesac\n}\n",
         );
     }
@@ -3115,12 +2652,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn keeps_disabled_case_arm_body_comments_at_pattern_indent_without_hash_tabs() {
         let source = "case \"$GUI\" in\n    # disabled for now\n    #QT) UI=Qt4\n         #sed -i x\n         #;;\n    QT5) UI=Qt5 ;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "case \"$GUI\" in\n# disabled for now\n#QT) UI=Qt4\n#sed -i x\n#;;\nQT5) UI=Qt5 ;;\nesac\n",
         );
     }
@@ -3128,12 +2661,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn keeps_aligned_disabled_case_patterns_at_pattern_indent() {
         let source = "case ${FUNCTION} in\n      \"equals\")\n          CMP1=$(echo ${SEARCH} | tr '[:upper:]' '[:lower:]')\n          if [ \"${CMP1}\" = \"${CMP1}\" ]; then RETVAL=0; else RETVAL=1; fi\n      ;;\n      #\"not-equal\")   COLOR=$WHITE   ;;\n      #\"lt\" | \"less-than\")  COLOR=$YELLOW  ;;\n      *) echo \"INVALID OPTION USED\"; exit 1 ;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "case ${FUNCTION} in\n\"equals\")\n\tCMP1=$(echo ${SEARCH} | tr '[:upper:]' '[:lower:]')\n\tif [ \"${CMP1}\" = \"${CMP1}\" ]; then RETVAL=0; else RETVAL=1; fi\n\t;;\n#\"not-equal\")   COLOR=$WHITE   ;;\n#\"lt\" | \"less-than\")  COLOR=$YELLOW  ;;\n*)\n\techo \"INVALID OPTION USED\"\n\texit 1\n\t;;\nesac\n",
         );
     }
@@ -3147,12 +2676,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_prefix_comments_before_empty_case_items() {
         let source = "case \"$LUA\" in\n  # LUA=no: accept and do nothing\n  no) ;;\n  # Anything else is a fail\n  *) echo fail ;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "case \"$LUA\" in\n# LUA=no: accept and do nothing\nno) ;;\n# Anything else is a fail\n*) echo fail ;;\nesac\n",
         );
     }
@@ -3160,12 +2685,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn keeps_case_header_comments_before_inline_first_pattern() {
         let source = "# For 15.0\n# otherwise cater to current\n#\ncase $(cmake --version | head -1) in 3.2*.*)\n  echo old\n  ;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "# For 15.0\n# otherwise cater to current\n#\ncase $(cmake --version | head -1) in 3.2*.*)\n\techo old\n\t;;\nesac\n",
         );
     }
@@ -3197,12 +2718,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn adds_blank_line_after_multiline_case_patterns() {
         let source = "case \"$1\" in\n  --disable \\\n  | --disable-http \\\n  | --disable-https \\\n  )\n    apache_args+=(\"$1\")\n    ;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "case \"$1\" in\n--disable | \\\n\t--disable-http | \\\n\t--disable-https)\n\n\tapache_args+=(\"$1\")\n\t;;\nesac\n",
         );
     }
@@ -3210,12 +2727,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn trims_final_case_pattern_continuation_before_close_paren() {
         let source = "case \"$1\" in\n  *.xsl|\\\n  *.[ch]\\\n      ) pygmentize -f 256 \"$1\"\n      ;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "case \"$1\" in\n*.xsl | \\\n\t*.[ch])\n\tpygmentize -f 256 \"$1\"\n\t;;\nesac\n",
         );
     }
@@ -3223,12 +2736,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn keeps_attached_multiline_case_patterns_compact() {
         let source = "case \"$1\" in\n  --nginx-additional-configuration \\\n  | --nginx-external-configuration)\n    nginx_args+=(\"$1\")\n    ;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "case \"$1\" in\n--nginx-additional-configuration | \\\n\t--nginx-external-configuration)\n\tnginx_args+=(\"$1\")\n\t;;\nesac\n",
         );
     }
@@ -3414,12 +2923,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_nested_brace_group_after_case_body_open_comment() {
         let source = "case \"$x\" in\na)\n  grep x f && { # note\n    {\n      echo\n    } >>\"$file\"\n  } # note\n  ;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "case \"$x\" in\na)\n\tgrep x f && { # note\n\t\t{\n\t\t\techo\n\t\t} >>\"$file\"\n\t}\n\t;;\nesac\n",
         );
     }
@@ -3510,12 +3015,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn expands_subshells_with_line_continuation_headers() {
         let source = "(cd samples/ && \\\n  find . -name \"build.sh\" -exec chmod 0755 {} \\;\n)\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "(\n\tcd samples/ &&\n\t\tfind . -name \"build.sh\" -exec chmod 0755 {} \\;\n)\n",
         );
     }
@@ -3558,12 +3059,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_compound_redirect_continuations() {
         let source = "(\n  echo '#!/usr/bin/wish -f'\n  cat completion.tcl\n  sed '1,5d' $PRGNAM\n) \\\n  >$PKG/usr/bin/$PRGNAM\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "(\n\techo '#!/usr/bin/wish -f'\n\tcat completion.tcl\n\tsed '1,5d' $PRGNAM\n) \\\n\t>$PKG/usr/bin/$PRGNAM\n",
         );
     }
@@ -3675,12 +3172,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_process_substitution_redirect_spacing_inside_command_substitutions() {
         let source = "output=\"$(\n  exec > >(tee /dev/fd/2) 2>&1\n)\"\nlatest=\"$(grep x < <(jq -r '.body' <<< \"$response\"))\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "output=\"$(\n\texec > >(tee /dev/fd/2) 2>&1\n)\"\nlatest=\"$(grep x < <(jq -r '.body' <<<\"$response\"))\"\n",
         );
     }
@@ -3739,14 +3232,7 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn formats_process_substitution_heredocs_as_blocks() {
         let source = "curl -d @<(cat <<EOF\nbody\nEOF\n)\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "curl -d @<(\n\tcat <<EOF\nbody\nEOF\n)\n",
-        );
+        assert_bash_formats_with_ast(source, "curl -d @<(\n\tcat <<EOF\nbody\nEOF\n)\n");
     }
 
     #[test]
@@ -3771,12 +3257,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     fn expands_multistatement_process_substitutions_as_blocks() {
         let source =
             "while read game; do\n    echo \"$game\"\ndone < <(_get_opts; echo -e \"a\\nb\")\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "while read game; do\n\techo \"$game\"\ndone < <(\n\t_get_opts\n\techo -e \"a\\nb\"\n)\n",
         );
     }
@@ -3784,12 +3266,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn normalizes_process_substitution_block_indent_from_partial_source_indent() {
         let source = "if ok; then\n   cat < <(produce; consume)\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if ok; then\n\tcat < <(\n\t\tproduce\n\t\tconsume\n\t)\nfi\n",
         );
     }
@@ -3797,12 +3275,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn keeps_inline_process_substitution_brace_group_attached() {
         let source = "while read -r line; do\n    menu+=(\"$line\")\ndone < <( { echo \"$a\"; echo \"$b\"; } | sort -u )\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "while read -r line; do\n\tmenu+=(\"$line\")\ndone < <({\n\techo \"$a\"\n\techo \"$b\"\n} | sort -u)\n",
         );
     }
@@ -3810,12 +3284,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn does_not_duplicate_process_substitution_comments_before_pipeline_rhs() {
         let source = "while read -r item; do\n    echo \"$item\"\ndone < <(\n    # note\n    produce_items\n) |\nconsume_items\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "while read -r item; do\n\techo \"$item\"\ndone < <(\n\t# note\n\tproduce_items\n) |\n\tconsume_items\n",
         );
     }
@@ -3823,12 +3293,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn indents_process_substitution_pipeline_comments() {
         let source = "cat < <(\n    produce_items |\n    # keep this filter documented\n    filter_items |\n    sort_items\n)\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "cat < <(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\tfilter_items |\n\t\tsort_items\n)\n",
         );
     }
@@ -3836,12 +3302,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn aligns_raw_pipeline_comments_after_continuation_stages() {
         let source = "cat < <(\n    produce_items |\n    filter_items |\n    # keep this filter documented\n    normalize_items |\n    sort_items\n)\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "cat < <(\n\tproduce_items |\n\t\tfilter_items |\n\t\t# keep this filter documented\n\t\tnormalize_items |\n\t\tsort_items\n)\n",
         );
     }
@@ -3849,12 +3311,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn compacts_raw_process_substitution_semicolon_terminators() {
         let source = "cat < <(\n    produce_items |\n    # keep this filter documented\n    { filter_items || : ; } |\n    sort_items\n)\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "cat < <(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\t{ filter_items || :; } |\n\t\tsort_items\n)\n",
         );
     }
@@ -3862,12 +3320,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn keeps_nested_process_substitution_close_indent_in_raw_command_substitutions() {
         let source = "urls=\"$(\n    while read -r filename; do\n        # keep comment with raw block path\n        { grep -E \"$url_regex\" \"$filename\" || : ; } |\n        if [ -n \"${URL_LINKS_IGNORED:-}\" ]; then\n            grep -Eivf <(\n                tr '[:space:]' '\\n' <<< \"$URL_LINKS_IGNORED\" |\n                sed 's/^[[:space:]]*//;\n                     s/[[:space:]]*$//;\n                     /^[[:space:]]*$/d'\n            )\n        else\n            cat\n        fi\n    done |\n    sort -uf\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "urls=\"$(\n\twhile read -r filename; do\n\t\t# keep comment with raw block path\n\t\t{ grep -E \"$url_regex\" \"$filename\" || :; } |\n\t\t\tif [ -n \"${URL_LINKS_IGNORED:-}\" ]; then\n\t\t\t\tgrep -Eivf <(\n\t\t\t\t\ttr '[:space:]' '\\n' <<<\"$URL_LINKS_IGNORED\" |\n\t\t\t\t\t\tsed 's/^[[:space:]]*//;\n                     s/[[:space:]]*$//;\n                     /^[[:space:]]*$/d'\n\t\t\t\t)\n\t\t\telse\n\t\t\t\tcat\n\t\t\tfi\n\tdone |\n\t\tsort -uf\n)\"\n",
         );
     }
@@ -3875,12 +3329,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn indents_continued_process_substitution_comments_once() {
         let source = "cmd \\\n<(\n    produce |\n    sort #|\n    # keep the sorted stream documented\n    # before the process substitution closes\n) \\\n<(\n    # describe target stream\n    consume\n) |\nsed 's/x/y/'\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "cmd \\\n\t<(\n\t\tproduce |\n\t\t\tsort #|\n\t\t# keep the sorted stream documented\n\t\t# before the process substitution closes\n\t) \\\n\t<(\n\t\t# describe target stream\n\t\tconsume\n\t) |\n\tsed 's/x/y/'\n",
         );
     }
@@ -3888,12 +3338,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_raw_block_multiline_literal_payloads() {
         let source = "value=\"$(\n    produce_items |\n    sed '\n        s/a/b ;\n    ' |\n    consume_items\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "value=\"$(\n\tproduce_items |\n\t\tsed '\n        s/a/b ;\n    ' |\n\t\tconsume_items\n)\"\n",
         );
     }
@@ -3901,12 +3347,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn shifts_raw_pipeline_compound_bodies_with_continuation() {
         let source = "value=\"$(\n    produce_items |\n    # keep this filter documented\n    while read -r item; do\n        consume_item \"$item\"\n    done || :\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "value=\"$(\n\tproduce_items |\n\t\t# keep this filter documented\n\t\twhile read -r item; do\n\t\t\tconsume_item \"$item\"\n\t\tdone || :\n)\"\n",
         );
     }
@@ -3978,12 +3420,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn moves_interspersed_simple_command_redirects_after_arguments() {
         let source = "curl -sSf >\"$jar\" \"$url\"\ncmd a >out b 2>err c\ncmd >out a 2>err b\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "curl -sSf \"$url\" >\"$jar\"\ncmd a b c >out 2>err\ncmd >out a b 2>err\n",
         );
     }
@@ -3991,12 +3429,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_time_command_trailing_comment_after_redirect() {
         let source = "time nice ffmpeg -i \"$filepath\" \"$mp4_filepath\" < /dev/null  # note\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "time nice ffmpeg -i \"$filepath\" \"$mp4_filepath\" </dev/null # note\n",
         );
     }
@@ -4012,12 +3446,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_regex_alternation_operands_in_conditionals() {
         let source = "if [[ $line =~ \\<(target|extension-point)[[:space:]].*name=[\\\"\\']([^\\\"\\']+) ]]; then\n  echo \"${BASH_REMATCH[2]}\"\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if [[ $line =~ \\<(target|extension-point)[[:space:]].*name=[\\\"\\']([^\\\"\\']+) ]]; then\n\techo \"${BASH_REMATCH[2]}\"\nfi\n",
         );
     }
@@ -4025,12 +3455,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_escaped_spaces_in_conditional_regex_operands() {
         let source = "if [[ \"$line\" =~ ^=\\  ]]; then\n  echo ok\nfi\nif [[ ! \"$line\" =~ ^=\\  ]] && [[ \"$n\" -gt 20 ]]; then\n  break\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if [[ \"$line\" =~ ^=\\  ]]; then\n\techo ok\nfi\nif [[ ! \"$line\" =~ ^=\\  ]] && [[ \"$n\" -gt 20 ]]; then\n\tbreak\nfi\n",
         );
     }
@@ -4051,12 +3477,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_list_break_after_multiline_condition() {
         let source = "f() {\n  [[ ! -f \"$cert_file\" ||\n    \"$cert_file\" -ot /one ||\n    \"$cert_file\" -ot /two\n  ]] || (( ${force:-0} > 0 ))\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\t[[ ! -f \"$cert_file\" ||\n\t\t\"$cert_file\" -ot /one ||\n\t\t\"$cert_file\" -ot /two ]] ||\n\t\t((${force:-0} > 0))\n}\n",
         );
     }
@@ -4065,12 +3487,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     fn keeps_inline_list_rhs_after_wrapped_conditional() {
         let source =
             "f() {\n  [[ \"${show:-}\" != true ||\n    -z \"$(which todo.sh)\" ]] && return\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\t[[ \"${show:-}\" != true ||\n\t\t-z \"$(which todo.sh)\" ]] && return\n}\n",
         );
     }
@@ -4079,12 +3497,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     fn preserves_explicit_line_break_when_list_operator_starts_continued_line() {
         let source =
             "_command_exists goenv \\\n  || [[ -x \"$GOENV_ROOT/bin/goenv\" ]] \\\n  || return 0\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "_command_exists goenv ||\n\t[[ -x \"$GOENV_ROOT/bin/goenv\" ]] ||\n\treturn 0\n",
         );
     }
@@ -4125,12 +3539,8 @@ function R() {
     #[test]
     fn keeps_multiline_condition_list_operator_before_brace_group() {
         let source = "while [[ -n \"$x\" ]] &&\n  ! {\n    [[ -d \"$x\" ]] &&\n      [[ -f \"$x\" ]]\n  } && {\n    {\n      [[ \"$x\" =~ ^/ ]] &&\n        [[ \"$x\" != / ]]\n    } || {\n      [[ \"$x\" != /tmp ]]\n    }\n  }; do\n  x=\"${x%/*}\"\ndone\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "while [[ -n \"$x\" ]] &&\n\t! {\n\t\t[[ -d \"$x\" ]] &&\n\t\t\t[[ -f \"$x\" ]]\n\t} && {\n\t{\n\t\t[[ \"$x\" =~ ^/ ]] &&\n\t\t\t[[ \"$x\" != / ]]\n\t} || {\n\t\t[[ \"$x\" != /tmp ]]\n\t}\n}; do\n\tx=\"${x%/*}\"\ndone\n",
         );
     }
@@ -4200,12 +3610,8 @@ function R() {
     esac) )
 }
 "#;
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             r#"_genkernel() {
 	declare args rhs
 	args=($(case $args in
@@ -4272,12 +3678,8 @@ function R() {
     #[test]
     fn keeps_pipeline_continuation_at_list_rhs_indent() {
         let source = "if true; then\n  ffmpeg \\\n    && convert GIF:- \\\n    | gifsicle > out || return 2\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if true; then\n\tffmpeg &&\n\t\tconvert GIF:- |\n\t\tgifsicle >out || return 2\nfi\n",
         );
     }
@@ -4310,12 +3712,8 @@ function R() {
     #[test]
     fn expands_inline_command_substitution_pipeline_brace_groups() {
         let source = "f() {\n  title=\"$(curl -sS --fail \"$url\" | { head -n1 | sed 's/^#*//'; cat >/dev/null; } )\"\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\ttitle=\"$(curl -sS --fail \"$url\" | {\n\t\thead -n1 | sed 's/^#*//'\n\t\tcat >/dev/null\n\t})\"\n}\n",
         );
     }
@@ -4360,12 +3758,8 @@ function R() {
     #[test]
     fn indents_raw_command_substitution_brace_group_bodies() {
         let source = "items=\"$(\n    {\n    # primary items\n    produce_items |\n    sort_items\n    }\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "items=\"$(\n\t{\n\t\t# primary items\n\t\tproduce_items |\n\t\t\tsort_items\n\t}\n)\"\n",
         );
     }
@@ -4373,12 +3767,8 @@ function R() {
     #[test]
     fn indents_raw_command_substitution_pipeline_continuations() {
         let source = "url=\"$(\n    git remote -v |\n    awk '{print $2}' |\n    head -n 1\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "url=\"$(\n\tgit remote -v |\n\t\tawk '{print $2}' |\n\t\thead -n 1\n)\"\n",
         );
     }
@@ -4386,12 +3776,8 @@ function R() {
     #[test]
     fn indents_raw_command_substitution_pipeline_before_multiline_literal_command() {
         let source = "if ok; then\n    url=\"$(\n        git remote -v |\n        awk '{print $2}' |\n        perl -pe \"\n            s/foo/bar/\n        \"\n    )\"\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if ok; then\n\turl=\"$(\n\t\tgit remote -v |\n\t\t\tawk '{print $2}' |\n\t\t\tperl -pe \"\n            s/foo/bar/\n        \"\n\t)\"\nfi\n",
         );
     }
@@ -4399,12 +3785,8 @@ function R() {
     #[test]
     fn expands_nested_inline_command_substitutions_inside_raw_blocks() {
         let source = "value=\"$(\n    {\n    sort |\n    uniq -d\n    } |\n    grep -vi $(IFS=$'\\n'; for line in $ignored_lines_regex; do [[ \"$line\" =~ ^[[:space:]]*$ ]] && continue; printf \"%s\" \" -e '$line'\"; done)\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "value=\"$(\n\t{\n\t\tsort |\n\t\t\tuniq -d\n\t} |\n\t\tgrep -vi $(\n\t\t\tIFS=$'\\n'\n\t\t\tfor line in $ignored_lines_regex; do\n\t\t\t\t[[ \"$line\" =~ ^[[:space:]]*$ ]] && continue\n\t\t\t\tprintf \"%s\" \" -e '$line'\"\n\t\t\tdone\n\t\t)\n)\"\n",
         );
     }
@@ -4412,12 +3794,8 @@ function R() {
     #[test]
     fn normalizes_nested_command_substitution_argument_indent() {
         let source = "f() {\n  result=\"$(\n    add --content \"$(\n      printf \"%b\\\\n\" \"$body\" \\\n        | tr -d $'\\r'\n    )\" --skip\n  )\"\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tresult=\"$(\n\t\tadd --content \"$(\n\t\t\tprintf \"%b\\\\n\" \"$body\" |\n\t\t\t\ttr -d $'\\r'\n\t\t)\" --skip\n\t)\"\n}\n",
         );
     }
@@ -4425,12 +3803,8 @@ function R() {
     #[test]
     fn indents_raw_command_substitution_compound_pipeline_bodies() {
         let source = "urls=\"$(\n    find files |\n    if [ -n \"$filter\" ]; then\n        grep \"$filter\" || :\n    else\n        cat\n    fi |\n    while read -r file; do\n        [ -f \"$file\" ] || continue\n        grep \"$file\" |\n        if [ -n \"$ignored\" ]; then\n            grep -v \"$ignored\"\n        else\n            cat\n        fi\n    done |\n    sort -u\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "urls=\"$(\n\tfind files |\n\t\tif [ -n \"$filter\" ]; then\n\t\t\tgrep \"$filter\" || :\n\t\telse\n\t\t\tcat\n\t\tfi |\n\t\twhile read -r file; do\n\t\t\t[ -f \"$file\" ] || continue\n\t\t\tgrep \"$file\" |\n\t\t\t\tif [ -n \"$ignored\" ]; then\n\t\t\t\t\tgrep -v \"$ignored\"\n\t\t\t\telse\n\t\t\t\t\tcat\n\t\t\t\tfi\n\t\tdone |\n\t\tsort -u\n)\"\n",
         );
     }
@@ -4438,12 +3812,8 @@ function R() {
     #[test]
     fn indents_inline_raw_command_substitution_compound_pipeline_bodies() {
         let source = "playlist_id=\"$(producer |\n    if [ \"$x\" ]; then\n        # keep exact match\n        while read -r id name; do\n            if [[ \"$name\" = \"$playlist_name\" ]]; then\n               echo \"$id\"\n               break\n            fi\n        done\n    else\n        grep -Fi \"$playlist_name\" |\n        awk '{print $1}'\n    fi || :\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "playlist_id=\"$(\n\tproducer |\n\t\tif [ \"$x\" ]; then\n\t\t\t# keep exact match\n\t\t\twhile read -r id name; do\n\t\t\t\tif [[ \"$name\" = \"$playlist_name\" ]]; then\n\t\t\t\t\techo \"$id\"\n\t\t\t\t\tbreak\n\t\t\t\tfi\n\t\t\tdone\n\t\telse\n\t\t\tgrep -Fi \"$playlist_name\" |\n\t\t\t\tawk '{print $1}'\n\t\tfi || :\n)\"\n",
         );
     }
@@ -4451,12 +3821,8 @@ function R() {
     #[test]
     fn preserves_loop_body_brace_group_background_before_done() {
         let source = "for workflow_name in $workflows; do\n  {\n    output=\"$(printf '%s\\n' \"$workflow_name\")\"\n    echo \"$output\"\n  } &\ndone |\nsort\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "for workflow_name in $workflows; do\n\t{\n\t\toutput=\"$(printf '%s\\n' \"$workflow_name\")\"\n\t\techo \"$output\"\n\t} &\ndone |\n\tsort\n",
         );
     }
@@ -4480,12 +3846,8 @@ function R() {
     #[test]
     fn indents_block_command_substitution_loop_body_comments() {
         let source = "tests=\"$(\n    for filename in $filelist; do\n        # expensive filter\n        echo \"check $filename\"\n    done\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "tests=\"$(\n\tfor filename in $filelist; do\n\t\t# expensive filter\n\t\techo \"check $filename\"\n\tdone\n)\"\n",
         );
     }
@@ -4493,12 +3855,8 @@ function R() {
     #[test]
     fn indents_block_command_substitution_pipeline_comments_inside_assignments() {
         let source = "snapshots=\"$(\n    tmutil listlocalsnapshots \"$path\" |\n    tail -n +2 |\n    # update snapshots can't be deleted so just take the date timestamped ones:\n    #\n    #                  2026-02-14-041148\n    command ggrep -oP '\\d{4}-\\d\\d-\\d\\d-\\d+'\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "snapshots=\"$(\n\ttmutil listlocalsnapshots \"$path\" |\n\t\ttail -n +2 |\n\t\t# update snapshots can't be deleted so just take the date timestamped ones:\n\t\t#\n\t\t#                  2026-02-14-041148\n\t\tcommand ggrep -oP '\\d{4}-\\d\\d-\\d\\d-\\d+'\n)\"\n",
         );
     }
@@ -4506,12 +3864,8 @@ function R() {
     #[test]
     fn normalizes_raw_block_command_substitution_inline_comment_padding() {
         let source = "resources=\"$(\n    kubectl api-resources |\n    tail -n +2 || :  # ignore incomplete API discovery\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "resources=\"$(\n\tkubectl api-resources |\n\t\ttail -n +2 || : # ignore incomplete API discovery\n)\"\n",
         );
     }
@@ -4519,12 +3873,8 @@ function R() {
     #[test]
     fn normalizes_raw_command_substitution_leading_list_operators() {
         let source = "matches=\"$(git grep -Ei \\\n    -e a \\\n    | grep -Fv x \\\n    || :\n    # note\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "matches=\"$(\n\tgit grep -Ei \\\n\t\t-e a |\n\t\tgrep -Fv x ||\n\t\t:\n\t# note\n)\"\n",
         );
     }
@@ -4532,12 +3882,8 @@ function R() {
     #[test]
     fn preserves_repeated_inline_substitution_continuation_indent() {
         let source = "matches=\"$(git grep -Ei \\\n    -e first \\\n    -e second \\\n    -e third \\\n    | grep -Fv skip \\\n    || :\n    # note\n)\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "matches=\"$(\n\tgit grep -Ei \\\n\t\t-e first \\\n\t\t-e second \\\n\t\t-e third |\n\t\tgrep -Fv skip ||\n\t\t:\n\t# note\n)\"\n",
         );
     }
@@ -4598,12 +3944,8 @@ function R() {
     #[test]
     fn aligns_trailing_comments_after_normalized_array_assignments() {
         let source = "args=( \"${args[@]/%/ }\" )\t\t\t# add space to all\nargs=( \"${args[@]/%$slash /$slash}\" )\t# remove space from dirs\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "args=(\"${args[@]/%/ }\")             # add space to all\nargs=(\"${args[@]/%$slash /$slash}\") # remove space from dirs\n",
         );
     }
@@ -4638,12 +3980,8 @@ function R() {
     #[test]
     fn aligns_trailing_comments_after_empty_parameter_replacements() {
         let source = "MAINVER=\"${VERSION//_*}\"  # e.g. 1.8.0_9 => 1.8.0\nDEBVER=\"${VERSION//*_}\"   # e.g. 1.8.0_9 => 9\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "MAINVER=\"${VERSION//_*/}\" # e.g. 1.8.0_9 => 1.8.0\nDEBVER=\"${VERSION//*_/}\"  # e.g. 1.8.0_9 => 9\n",
         );
     }
@@ -4664,12 +4002,8 @@ function R() {
     #[test]
     fn aligns_trailing_comments_after_removed_semicolons() {
         let source = "BUILD_TNC=${BUILD_TNC:-true}           ; # build tnc XML validator module\nBUILD_TDOMHTML=${BUILD_TDOMHTML:-true} ; # build tdomhtml html generation module\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "BUILD_TNC=${BUILD_TNC:-true}           # build tnc XML validator module\nBUILD_TDOMHTML=${BUILD_TDOMHTML:-true} # build tdomhtml html generation module\n",
         );
     }
@@ -4686,12 +4020,8 @@ function R() {
     #[test]
     fn aligns_trailing_comments_after_bare_redirect_spacing() {
         let source = "cp -ar SlackBuild $PKG/opt/$PRGNAM/          # Copy the SlackBuild script\ncat $PRGNAM.sh > $PKG/opt/$PRGNAM/$PRGNAM.sh # Copy the launcher script\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "cp -ar SlackBuild $PKG/opt/$PRGNAM/         # Copy the SlackBuild script\ncat $PRGNAM.sh >$PKG/opt/$PRGNAM/$PRGNAM.sh # Copy the launcher script\n",
         );
     }
@@ -4717,12 +4047,8 @@ function R() {
     #[test]
     fn splits_multistatement_if_conditions_like_shfmt() {
         let source = "f() {\n  if curl -X PUT -k \"${@:2}\"\n    \"$url\" \\\n      -H x \\\n      -d y; then\n    echo ok\n  fi\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tif\n\t\tcurl -X PUT -k \"${@:2}\"\n\t\t\"$url\" \\\n\t\t\t-H x \\\n\t\t\t-d y\n\tthen\n\t\techo ok\n\tfi\n}\n",
         );
     }
@@ -4730,12 +4056,8 @@ function R() {
     #[test]
     fn collapses_then_on_next_line_after_simple_if_conditions_like_shfmt() {
         let source = "f() {\n  if [ -z \"${EDITOR:-}\" ]\n  then\n    EDITOR=vi\n  elif grep -q \"$cur\" <<<'-g'\n  then\n    COMPREPLY+=(\"-g\")\n  fi\n  if ! ContainsString \"lock\" \"$value\"\n  then\n    FOUND=1\n  fi\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tif [ -z \"${EDITOR:-}\" ]; then\n\t\tEDITOR=vi\n\telif grep -q \"$cur\" <<<'-g'; then\n\t\tCOMPREPLY+=(\"-g\")\n\tfi\n\tif ! ContainsString \"lock\" \"$value\"; then\n\t\tFOUND=1\n\tfi\n}\n",
         );
     }
@@ -4743,12 +4065,8 @@ function R() {
     #[test]
     fn keeps_multiline_literal_if_conditions_inline_like_shfmt() {
         let source = "case \"$ext\" in\n.vimrc) if vim -c \"\n    if !filereadable('$basename') |\n        cquit 1\n    endif\n    \" -c \"q\"; then\n  echo ok\nfi\n;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "case \"$ext\" in\n.vimrc)\n\tif vim -c \"\n    if !filereadable('$basename') |\n        cquit 1\n    endif\n    \" -c \"q\"; then\n\t\techo ok\n\tfi\n\t;;\nesac\n",
         );
     }
@@ -4756,12 +4074,8 @@ function R() {
     #[test]
     fn splits_multistatement_elif_conditions_like_shfmt() {
         let source = "f() {\n  if type -p perl >/dev/null; then\n    perl -pe decode\n  elif type -p python3 >/dev/null &&\n    log \"using python\"\n    python3 -c 'import html' >/dev/null; then\n    python3 -c decode\n  elif type -p xmlstarlet >/dev/null; then\n    xmlstarlet unesc\n  fi\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tif type -p perl >/dev/null; then\n\t\tperl -pe decode\n\telif\n\t\ttype -p python3 >/dev/null &&\n\t\t\tlog \"using python\"\n\t\tpython3 -c 'import html' >/dev/null\n\tthen\n\t\tpython3 -c decode\n\telif type -p xmlstarlet >/dev/null; then\n\t\txmlstarlet unesc\n\tfi\n}\n",
         );
     }
@@ -4769,12 +4083,8 @@ function R() {
     #[test]
     fn splits_multistatement_loop_conditions_like_shfmt() {
         let source = "while read mac; read name; do\n  printf '%s\\n' \"$mac:$name\"\ndone\nuntil poll; sleep 1; do\n  :\ndone\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "while\n\tread mac\n\tread name\ndo\n\tprintf '%s\\n' \"$mac:$name\"\ndone\nuntil\n\tpoll\n\tsleep 1\ndo\n\t:\ndone\n",
         );
     }
@@ -4799,12 +4109,8 @@ function R() {
     #[test]
     fn aligns_comments_across_space_indented_multiline_headers() {
         let source = "search() {\n        if ok\n        then\n          ag                      \\\n            --filename            \\\n            --hidden              \\\n            --ignore \".git\"       \\\n            --ignore-case         \\\n            --noheading           \\\n            \"${_search_args[@]}\"  \\\n            \"${_query}\"           \\\n            \"${_search_paths[@]}\" \\\n              || return 0 # Don't fail out within a single scope.\n        elif _search_with \"ack\" \"${_search_utility:-}\"\n        then # ack is available.\n          :\n        fi\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "search() {\n\tif ok; then\n\t\tag \\\n\t\t\t--filename \\\n\t\t\t--hidden \\\n\t\t\t--ignore \".git\" \\\n\t\t\t--ignore-case \\\n\t\t\t--noheading \\\n\t\t\t\"${_search_args[@]}\" \\\n\t\t\t\"${_query}\" \\\n\t\t\t\"${_search_paths[@]}\" ||\n\t\t\treturn 0                                           # Don't fail out within a single scope.\n\telif _search_with \"ack\" \"${_search_utility:-}\"; then # ack is available.\n\t\t:\n\tfi\n}\n",
         );
     }
@@ -4812,12 +4118,8 @@ function R() {
     #[test]
     fn aligns_list_rhs_comments_with_following_branch_header_comments() {
         let source = "search() {\n  for __target_path in \"${_target_paths[@]:-}\"\n  do\n    {\n      if _search_with \"ag\" \"${_search_utility:-}\"\n      then\n        ag                      \\\n          --filename            \\\n          --hidden              \\\n          --ignore \".git\"       \\\n          --ignore-case         \\\n          --noheading           \\\n          \"${_search_args[@]}\"  \\\n          \"${_query}\"           \\\n          \"${_search_paths[@]}\" \\\n            || return 0 # Don't fail out within a single scope.\n      elif _search_with \"ack\" \"${_search_utility:-}\"\n      then # ack is available.\n        :\n      fi\n    }\n  done\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "search() {\n\tfor __target_path in \"${_target_paths[@]:-}\"; do\n\t\t{\n\t\t\tif _search_with \"ag\" \"${_search_utility:-}\"; then\n\t\t\t\tag \\\n\t\t\t\t\t--filename \\\n\t\t\t\t\t--hidden \\\n\t\t\t\t\t--ignore \".git\" \\\n\t\t\t\t\t--ignore-case \\\n\t\t\t\t\t--noheading \\\n\t\t\t\t\t\"${_search_args[@]}\" \\\n\t\t\t\t\t\"${_query}\" \\\n\t\t\t\t\t\"${_search_paths[@]}\" ||\n\t\t\t\t\treturn 0                                           # Don't fail out within a single scope.\n\t\t\telif _search_with \"ack\" \"${_search_utility:-}\"; then # ack is available.\n\t\t\t\t:\n\t\t\tfi\n\t\t}\n\tdone\n}\n",
         );
     }
@@ -4825,12 +4127,8 @@ function R() {
     #[test]
     fn aligns_else_comments_with_space_indented_nested_then_comments() {
         let source = "show() {\n  if outer\n  then\n      if ok\n      then\n        rm -f \"${_rendered_temp_file_path:?}\"\n    else # default\n      if ((_print_output))\n      then # `show --print [--no-color]`\n        if ((_COLOR_ENABLED))\n        then # `show --print`\n          _highlight_syntax_if_available \"${_target_path}\"\n        else # `show --print --no-color`\n          cat \"${_target_path}\"\n        fi\n      fi\n    fi\n  fi\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "show() {\n\tif outer; then\n\t\tif ok; then\n\t\t\trm -f \"${_rendered_temp_file_path:?}\"\n\t\telse                          # default\n\t\t\tif ((_print_output)); then   # `show --print [--no-color]`\n\t\t\t\tif ((_COLOR_ENABLED)); then # `show --print`\n\t\t\t\t\t_highlight_syntax_if_available \"${_target_path}\"\n\t\t\t\telse # `show --print --no-color`\n\t\t\t\t\tcat \"${_target_path}\"\n\t\t\t\tfi\n\t\t\tfi\n\t\tfi\n\tfi\n}\n",
         );
     }
@@ -4886,12 +4184,8 @@ function R() {
     #[test]
     fn preserves_blank_line_after_if_then_suffix_comment() {
         let source = "if [[ -s ./bin/rails ]]; then # binstub\n\n  ruby ./bin/rails\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if [[ -s ./bin/rails ]]; then # binstub\n\n\truby ./bin/rails\nfi\n",
         );
     }
@@ -4899,12 +4193,8 @@ function R() {
     #[test]
     fn does_not_insert_blank_after_then_suffix_comment_before_body_comment() {
         let source = "if [[ \"${#_test_line}\" -gt \"${_COLUMNS}\" ]]\nthen # wrap to next line\n  # Use the existing value.\n  echo yes\nfi\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "if [[ \"${#_test_line}\" -gt \"${_COLUMNS}\" ]]; then # wrap to next line\n\t# Use the existing value.\n\techo yes\nfi\n",
         );
     }
@@ -4991,12 +4281,8 @@ function R() {
     #[test]
     fn indents_dangling_comments_before_done_like_shfmt() {
         let source = "while true; do\n  echo ok\n# buffered input\ndone\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "while true; do\n\techo ok\n\t# buffered input\ndone\n",
         );
     }
@@ -5082,12 +4368,8 @@ function R() {
     ${_header_and_footer_line_count:-0} +
     ${_auto_limit_adjustment:-0}
 ))\"\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "_auto_limit_amount=\"$((\\\n\t${_available_lines:-1} - \\\n\t${_header_and_footer_line_count:-0} + \\\n\t${_auto_limit_adjustment:-0}))\"\n",
         );
     }
@@ -5195,12 +4477,8 @@ function R() {
     #[test]
     fn preserves_multiline_compound_assignment_literal_shape() {
         let source = "case $mode in\ndocs)\n  CMD=(zsh -ilsc\n    'sudo chown /src &&\n     make -C /src doc')\n  ;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "case $mode in\ndocs)\n\tCMD=(zsh -ilsc\n\t\t'sudo chown /src &&\n     make -C /src doc')\n\t;;\nesac\n",
         );
     }
@@ -5208,12 +4486,8 @@ function R() {
     #[test]
     fn preserves_decl_multiline_compound_assignment_literal_shape() {
         let source = "f() {\n  local options=(\n    1 \"Short\"\n    \"First line\n\nliteral continuation\"\n  )\n}\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "f() {\n\tlocal options=(\n\t\t1 \"Short\"\n\t\t\"First line\n\nliteral continuation\"\n\t)\n}\n",
         );
     }
@@ -5311,12 +4585,8 @@ function R() {
     #[test]
     fn keeps_inline_case_arms_with_if_bodies() {
         let source = "case \"$name\" in\nFastfile) if [[ \"$path\" =~ /fastlane/Fastfile ]]; then\n  ruby -c \"$name\"\nfi ;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "case \"$name\" in\nFastfile) if [[ \"$path\" =~ /fastlane/Fastfile ]]; then\n\truby -c \"$name\"\nfi ;;\nesac\n",
         );
     }
@@ -5324,12 +4594,8 @@ function R() {
     #[test]
     fn keeps_inline_case_arms_with_if_else_bodies() {
         let source = "case \"$RETROARCH\" in\n*) if [ -x /usr/share/games/retroarch ]; then\n    build_ra=yes\nelse\n    build_ra=no\nfi ;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "case \"$RETROARCH\" in\n*) if [ -x /usr/share/games/retroarch ]; then\n\tbuild_ra=yes\nelse\n\tbuild_ra=no\nfi ;;\nesac\n",
         );
     }
@@ -5346,12 +4612,8 @@ function R() {
     #[test]
     fn splits_nested_case_body_when_outer_terminator_was_on_next_line() {
         let source = "case $x in\na) case $y in\nb) echo b ;; esac # note\n;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "case $x in\na)\n\tcase $y in\n\tb) echo b ;; esac # note\n\t;;\nesac\n",
         );
     }
@@ -5383,12 +4645,8 @@ function R() {
     #[test]
     fn keeps_empty_case_terminators_after_pattern_suffix_comments_parseable() {
         let source = "case \"$line\" in\n\"status-filtered \"*) # ignore other status-filtered lines\n  ;;\n\"#\"*) # allow for comments\n  ;;\nesac\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(
+        assert_bash_formats_with_ast(
             source,
-            None,
-            &options,
             "case \"$line\" in\n\"status-filtered \"*) # ignore other status-filtered lines\n\t;;\n\"#\"*) # allow for comments\n\t;;\nesac\n",
         );
     }
