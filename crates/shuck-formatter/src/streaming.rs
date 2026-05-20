@@ -945,19 +945,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn write_word(&mut self, word: &Word) {
-        let source_map = self.source_map().clone();
         let mut scratch = self.take_scratch_buffer();
-        {
-            let facts = self.facts();
-            render_word_syntax_with_facts_to_buf(
-                word,
-                self.source(),
-                self.options(),
-                &source_map,
-                facts,
-                &mut scratch,
-            );
-        }
+        self.render_word_with_facts_to_buffer(word, &mut scratch);
         if rendered_shell_text_has_heredoc_tail(&scratch)
             && (word_contains_command_heredoc(word)
                 || word_source_has_shell_substitution(word, self.source())
@@ -4611,30 +4600,14 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         preserve_here_string_indent: bool,
     ) {
         let mut target = self.take_scratch_buffer();
-        let source_map = self.source_map().clone();
-        {
-            let facts = self.facts();
-            match (redirect.word_target(), redirect.heredoc()) {
-                (Some(word), None) => render_word_syntax_with_facts_to_buf(
-                    word,
-                    source,
-                    &options,
-                    &source_map,
-                    facts,
-                    &mut target,
-                ),
-                (None, Some(heredoc)) => render_word_syntax_with_facts_to_buf(
-                    &heredoc.delimiter.raw,
-                    source,
-                    &options,
-                    &source_map,
-                    facts,
-                    &mut target,
-                ),
-                (None, None) => {}
-                (Some(_), Some(_)) => {
-                    unreachable!("redirect target cannot be both word and heredoc")
-                }
+        match (redirect.word_target(), redirect.heredoc()) {
+            (Some(word), None) => self.render_word_with_facts_to_buffer(word, &mut target),
+            (None, Some(heredoc)) => {
+                self.render_word_with_facts_to_buffer(&heredoc.delimiter.raw, &mut target);
+            }
+            (None, None) => {}
+            (Some(_), Some(_)) => {
+                unreachable!("redirect target cannot be both word and heredoc")
             }
         }
         let normalized_target = normalized_redirect_target(redirect.kind, &target);
@@ -5084,19 +5057,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn conditional_word_needs_tight_close(&mut self, word: &Word) -> bool {
-        let source_map = self.source_map().clone();
         let mut rendered = self.take_scratch_buffer();
-        {
-            let facts = self.facts();
-            render_word_syntax_with_facts_to_buf(
-                word,
-                self.source(),
-                self.options(),
-                &source_map,
-                facts,
-                &mut rendered,
-            );
-        }
+        self.render_word_with_facts_to_buffer(word, &mut rendered);
         let needs_tight_close = matches!(
             rendered.as_str(),
             "!" | "-a"
