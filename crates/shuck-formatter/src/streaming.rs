@@ -705,24 +705,19 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
     }
 
-    fn write_assignment_shell_text_preserving_heredoc_tails(&mut self, text: &str) {
-        let base_indent_column = if self.line_start {
-            self.indent_column_for_level(self.indent_level)
-        } else if self.line_indent_column > 0 {
-            self.line_indent_column
-        } else {
-            self.column
-        };
-        if self.line_start {
-            self.write_indent_to_column(base_indent_column);
-        }
-
-        self.write_shell_text_preserving_heredoc_tails(text, HeredocTailTextMode::Assignment);
-    }
-
     fn write_shell_text_with_heredoc_tails(&mut self, text: &str, assignment_context: bool) {
         if assignment_context && !rendered_text_starts_with_block_command_substitution(text) {
-            self.write_assignment_shell_text_preserving_heredoc_tails(text);
+            let base_indent_column = if self.line_start {
+                self.indent_column_for_level(self.indent_level)
+            } else if self.line_indent_column > 0 {
+                self.line_indent_column
+            } else {
+                self.column
+            };
+            if self.line_start {
+                self.write_indent_to_column(base_indent_column);
+            }
+            self.write_shell_text_preserving_heredoc_tails(text, HeredocTailTextMode::Assignment);
             return;
         }
         self.write_shell_text_preserving_heredoc_tails(text, HeredocTailTextMode::Rendered);
