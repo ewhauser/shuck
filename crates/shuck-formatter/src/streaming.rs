@@ -705,10 +705,6 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
     }
 
-    fn write_rendered_shell_text_preserving_heredoc_tails(&mut self, text: &str) {
-        self.write_shell_text_preserving_heredoc_tails(text, HeredocTailTextMode::Rendered);
-    }
-
     fn write_assignment_shell_text_preserving_heredoc_tails(&mut self, text: &str) {
         let base_indent_column = if self.line_start {
             self.indent_column_for_level(self.indent_level)
@@ -729,7 +725,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_assignment_shell_text_preserving_heredoc_tails(text);
             return;
         }
-        self.write_rendered_shell_text_preserving_heredoc_tails(text);
+        self.write_shell_text_preserving_heredoc_tails(text, HeredocTailTextMode::Rendered);
     }
 
     fn write_shell_text_preserving_heredoc_tails(&mut self, text: &str, mode: HeredocTailTextMode) {
