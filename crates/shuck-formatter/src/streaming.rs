@@ -4593,63 +4593,23 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             RedirectKind::OutputBoth => "&>",
         });
 
-        let mut target = self.take_scratch_buffer();
-        let source_map = self.source_map().clone();
-        {
-            let facts = self.facts();
-            match (redirect.word_target(), redirect.heredoc()) {
-                (Some(word), None) => render_word_syntax_with_facts_to_buf(
-                    word,
-                    source,
-                    &options,
-                    &source_map,
-                    facts,
-                    &mut target,
-                ),
-                (None, Some(heredoc)) => render_word_syntax_with_facts_to_buf(
-                    &heredoc.delimiter.raw,
-                    source,
-                    &options,
-                    &source_map,
-                    facts,
-                    &mut target,
-                ),
-                (None, None) => {}
-                (Some(_), Some(_)) => {
-                    unreachable!("redirect target cannot be both word and heredoc")
-                }
-            }
-        }
-        let normalized_target = normalized_redirect_target(redirect.kind, &target);
-        if redirect_target_starts_on_continuation_line(redirect, source) {
-            self.line_continuation();
-            self.write_indent_units(1);
-        } else if needs_space_before_target(
-            redirect.kind,
-            normalized_target,
-            options.space_redirects(),
-        ) {
-            self.write_space();
-        }
-        if matches!(redirect.kind, RedirectKind::HereString)
-            && here_string_target_is_multiline_literal(normalized_target)
-        {
-            self.write_rendered_shell_text(normalized_target);
-        } else if matches!(redirect.kind, RedirectKind::HereString)
-            && normalized_target.contains('\n')
-        {
-            self.write_text_preserving_current_line_indent(normalized_target);
-        } else {
-            self.write_rendered_shell_text(normalized_target);
-        }
-        self.restore_scratch_buffer(target);
+        self.write_redirect_target(redirect, source, &options, true);
     }
 
     fn format_append_both_redirect(&mut self, redirect: &Redirect) {
         let source = self.source();
         let options = self.options().clone();
         self.write_text("&>>");
+        self.write_redirect_target(redirect, source, &options, false);
+    }
 
+    fn write_redirect_target(
+        &mut self,
+        redirect: &Redirect,
+        source: &'source str,
+        options: &ResolvedShellFormatOptions,
+        preserve_here_string_indent: bool,
+    ) {
         let mut target = self.take_scratch_buffer();
         let source_map = self.source_map().clone();
         {
@@ -4688,7 +4648,15 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         ) {
             self.write_space();
         }
-        self.write_rendered_shell_text(normalized_target);
+        if preserve_here_string_indent
+            && matches!(redirect.kind, RedirectKind::HereString)
+            && normalized_target.contains('\n')
+            && !here_string_target_is_multiline_literal(normalized_target)
+        {
+            self.write_text_preserving_current_line_indent(normalized_target);
+        } else {
+            self.write_rendered_shell_text(normalized_target);
+        }
         self.restore_scratch_buffer(target);
     }
 
