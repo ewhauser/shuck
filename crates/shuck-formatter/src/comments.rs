@@ -380,19 +380,11 @@ impl<'a> CommentAttachmentIndex<'a> {
     #[must_use]
     pub fn from_ast(source: &'a str, comments: &[Comment]) -> Self {
         let source_map = SourceMap::new(source);
-        let mut items = comments
+        let items = comments
             .iter()
             .filter_map(|comment| source_map.source_comment(*comment))
             .collect::<Vec<_>>();
-        items.sort_by_key(|comment| comment.span.start.offset);
-
-        let claimed = vec![false; items.len()];
-        Self {
-            source_map,
-            items: Arc::from(items.into_boxed_slice()),
-            claimed,
-            next_unclaimed: 0,
-        }
+        Self::from_source_comments(source_map, items)
     }
 
     #[must_use]
@@ -414,14 +406,17 @@ impl<'a> CommentAttachmentIndex<'a> {
         track_alignment: bool,
     ) -> Self {
         let source_map = SourceMap::from_indexer(source, indexer, track_alignment);
-        let mut items = comment_index
+        let items = comment_index
             .comments()
             .iter()
             .filter(|comment| !indexer.region_index().is_heredoc(comment.range.start()))
             .filter_map(|comment| source_map.source_comment_for_indexed(comment))
             .collect::<Vec<_>>();
-        items.sort_by_key(|comment| comment.span.start.offset);
+        Self::from_source_comments(source_map, items)
+    }
 
+    fn from_source_comments(source_map: SourceMap<'a>, mut items: Vec<SourceComment<'a>>) -> Self {
+        items.sort_by_key(|comment| comment.span.start.offset);
         let claimed = vec![false; items.len()];
         Self {
             source_map,
