@@ -3042,33 +3042,27 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
 
         match command.syntax {
-            ForSyntax::InDoDone {
-                in_span, done_span, ..
-            } => {
+            ForSyntax::InDoDone { in_span, .. }
+            | ForSyntax::InDirect { in_span }
+            | ForSyntax::InBrace { in_span, .. } => {
                 self.write_for_in_words(command.words.as_deref(), in_span);
+            }
+            ForSyntax::ParenDoDone { .. }
+            | ForSyntax::ParenDirect { .. }
+            | ForSyntax::ParenBrace { .. } => {
+                self.write_parenthesized_word_list(command.words.as_deref());
+            }
+        }
+
+        match command.syntax {
+            ForSyntax::InDoDone { done_span, .. } | ForSyntax::ParenDoDone { done_span, .. } => {
                 self.format_done_body(&command.body, command.span, Some(done_span))?;
             }
-            ForSyntax::InDirect { in_span } => {
-                self.write_for_in_words(command.words.as_deref(), in_span);
+            ForSyntax::InDirect { .. } | ForSyntax::ParenDirect { .. } => {
                 self.write_space();
                 self.format_inline_stmts(&command.body)?;
             }
-            ForSyntax::ParenDoDone { done_span, .. } => {
-                self.write_parenthesized_word_list(command.words.as_deref());
-                self.format_done_body(&command.body, command.span, Some(done_span))?;
-            }
-            ForSyntax::ParenDirect { .. } => {
-                self.write_parenthesized_word_list(command.words.as_deref());
-                self.write_space();
-                self.format_inline_stmts(&command.body)?;
-            }
-            ForSyntax::InBrace { in_span, .. } => {
-                self.write_for_in_words(command.words.as_deref(), in_span);
-                self.write_text("; ");
-                self.format_brace_group(&command.body, Some(command.span.end.offset))?;
-            }
-            ForSyntax::ParenBrace { .. } => {
-                self.write_parenthesized_word_list(command.words.as_deref());
+            ForSyntax::InBrace { .. } | ForSyntax::ParenBrace { .. } => {
                 self.write_text("; ");
                 self.format_brace_group(&command.body, Some(command.span.end.offset))?;
             }
