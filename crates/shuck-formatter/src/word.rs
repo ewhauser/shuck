@@ -897,68 +897,16 @@ fn render_heredoc_body_part(
         } => {
             if let Some(raw) = escaped_heredoc_expansion_source(span, source) {
                 rendered.push_str(raw);
-            } else if matches!(syntax, ArithmeticExpansionSyntax::LegacyBracket) {
-                push_trimmed_arithmetic_expansion_source(
-                    rendered,
-                    expression.slice(source),
-                    *syntax,
-                );
-            } else if let Some(formatted) = format_multiline_arithmetic_expansion_source(
-                expression.slice(source),
-                *syntax,
-                expression_ast.as_ref(),
-                source,
-                options,
-            ) {
-                rendered.push_str(&formatted);
-            } else if arithmetic_expression_prefers_raw_source(expression.slice(source)) {
-                push_trimmed_arithmetic_expansion_source(
-                    rendered,
-                    expression.slice(source),
-                    *syntax,
-                );
-            } else if let Some(expression_ast) = expression_ast {
-                if !expression.is_source_backed() {
-                    push_trimmed_arithmetic_expansion_source(
-                        rendered,
-                        expression.slice(source),
-                        *syntax,
-                    );
-                } else {
-                    match syntax {
-                        ArithmeticExpansionSyntax::DollarParenParen => {
-                            rendered.push_str("$((");
-                            push_arithmetic_expansion_body(
-                                rendered,
-                                expression_ast,
-                                source,
-                                options,
-                                Some(facts.source_map()),
-                                Some(facts),
-                            );
-                            rendered.push_str("))");
-                        }
-                        ArithmeticExpansionSyntax::LegacyBracket => {
-                            rendered.push_str("$[");
-                            push_arithmetic_expr(
-                                rendered,
-                                expression_ast,
-                                ArithmeticContext::TopLevel,
-                                source,
-                                options,
-                                false,
-                                Some(facts.source_map()),
-                                Some(facts),
-                            );
-                            rendered.push(']');
-                        }
-                    }
-                }
             } else {
-                push_trimmed_arithmetic_expansion_source(
+                push_arithmetic_expansion(
                     rendered,
-                    expression.slice(source),
+                    expression,
+                    expression_ast.as_ref(),
                     *syntax,
+                    source,
+                    options,
+                    Some(facts.source_map()),
+                    Some(facts),
                 );
             }
         }
@@ -1573,72 +1521,16 @@ fn render_word_part(
             expression_ast,
             syntax,
             ..
-        } => {
-            if matches!(syntax, ArithmeticExpansionSyntax::LegacyBracket) {
-                push_trimmed_arithmetic_expansion_source(
-                    rendered,
-                    expression.slice(source),
-                    *syntax,
-                );
-            } else if let Some(formatted) = format_multiline_arithmetic_expansion_source(
-                expression.slice(source),
-                *syntax,
-                expression_ast.as_ref().map(|ast| ast.as_ref()),
-                source,
-                options,
-            ) {
-                rendered.push_str(&formatted);
-            } else if arithmetic_expression_prefers_raw_source(expression.slice(source)) {
-                push_trimmed_arithmetic_expansion_source(
-                    rendered,
-                    expression.slice(source),
-                    *syntax,
-                );
-            } else if let Some(expression_ast) = expression_ast {
-                if !expression.is_source_backed() {
-                    push_trimmed_arithmetic_expansion_source(
-                        rendered,
-                        expression.slice(source),
-                        *syntax,
-                    );
-                } else {
-                    match syntax {
-                        ArithmeticExpansionSyntax::DollarParenParen => {
-                            rendered.push_str("$((");
-                            push_arithmetic_expansion_body(
-                                rendered,
-                                expression_ast,
-                                source,
-                                options,
-                                source_map,
-                                facts,
-                            );
-                            rendered.push_str("))");
-                        }
-                        ArithmeticExpansionSyntax::LegacyBracket => {
-                            rendered.push_str("$[");
-                            push_arithmetic_expr(
-                                rendered,
-                                expression_ast,
-                                ArithmeticContext::TopLevel,
-                                source,
-                                options,
-                                false,
-                                source_map,
-                                facts,
-                            );
-                            rendered.push(']');
-                        }
-                    }
-                }
-            } else {
-                push_trimmed_arithmetic_expansion_source(
-                    rendered,
-                    expression.slice(source),
-                    *syntax,
-                );
-            }
-        }
+        } => push_arithmetic_expansion(
+            rendered,
+            expression,
+            expression_ast.as_deref(),
+            *syntax,
+            source,
+            options,
+            source_map,
+            facts,
+        ),
         WordPart::Parameter(parameter) => {
             push_parameter_word(rendered, parameter, source, options)?;
         }
@@ -5717,6 +5609,52 @@ fn render_arithmetic_slice_shell_word(
             }
         },
         _ => render_word_syntax(word, source, options),
+    }
+}
+
+fn push_arithmetic_expansion(
+    rendered: &mut String,
+    expression: &shuck_ast::SourceText,
+    expression_ast: Option<&ArithmeticExprNode>,
+    syntax: ArithmeticExpansionSyntax,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+    source_map: Option<&SourceMap<'_>>,
+    facts: Option<&FormatterFacts<'_>>,
+) {
+    let expression_source = expression.slice(source);
+    if matches!(syntax, ArithmeticExpansionSyntax::LegacyBracket) {
+        push_trimmed_arithmetic_expansion_source(rendered, expression_source, syntax);
+    } else if let Some(formatted) = format_multiline_arithmetic_expansion_source(
+        expression_source,
+        syntax,
+        expression_ast,
+        source,
+        options,
+    ) {
+        rendered.push_str(&formatted);
+    } else if arithmetic_expression_prefers_raw_source(expression_source)
+        || !expression.is_source_backed()
+    {
+        push_trimmed_arithmetic_expansion_source(rendered, expression_source, syntax);
+    } else if let Some(expression_ast) = expression_ast {
+        match syntax {
+            ArithmeticExpansionSyntax::DollarParenParen => {
+                rendered.push_str("$((");
+                push_arithmetic_expansion_body(
+                    rendered,
+                    expression_ast,
+                    source,
+                    options,
+                    source_map,
+                    facts,
+                );
+                rendered.push_str("))");
+            }
+            ArithmeticExpansionSyntax::LegacyBracket => unreachable!("handled above"),
+        }
+    } else {
+        push_trimmed_arithmetic_expansion_source(rendered, expression_source, syntax);
     }
 }
 
