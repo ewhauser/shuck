@@ -15,10 +15,11 @@ use shuck_format::{IndentStyle, LineEnding};
 
 use crate::Result;
 use crate::command::{
-    array_elem_parts, binary_operator, case_item_body_upper_bound, case_terminator,
-    collect_binary_list_first as collect_binary_list_first_with, collect_pipeline_parts,
-    command_format_span, command_group_commands, done_close_span as command_done_close_span,
-    format_arithmetic_command_source, format_arithmetic_for_clause_source, group_attachment_span,
+    array_elem_parts, binary_operator, branch_open_keyword_start, case_item_body_upper_bound,
+    case_terminator, collect_binary_list_first as collect_binary_list_first_with,
+    collect_pipeline_parts, command_format_span, command_group_commands,
+    done_close_span as command_done_close_span, format_arithmetic_command_source,
+    format_arithmetic_for_clause_source, group_attachment_span,
     if_close_span as command_if_close_span, if_next_branch_region_with_body_end,
     line_gap_break_count, line_has_unclosed_command_substitution_open, matching_group_close,
     multiline_compound_assignment_command_substitution_body_prefix,
@@ -35,8 +36,7 @@ use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
     BranchPrefixComment, branch_prefix_comments, close_suffix_comment_offsets,
     has_newline_between_offsets, last_shell_keyword_end, last_shell_keyword_start,
-    last_shell_keyword_start_between, last_uncommented_shell_keyword_before,
-    line_indent_before_offset,
+    last_shell_keyword_start_between, line_indent_before_offset,
     operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line,
     own_line_comments_in_region as scan_own_line_comments_in_region, redirect_operator_end,
     shell_keyword_at, skip_double_quoted, skip_single_quoted, source_between_offsets,
@@ -5844,11 +5844,6 @@ fn condition_keyword_on_previous_non_empty_line(
     }
 
     false
-}
-
-fn branch_open_keyword_start(sequence: &StmtSeq, source: &str, keyword: &str) -> Option<usize> {
-    let first = sequence.first()?;
-    last_uncommented_shell_keyword_before(source, stmt_span(first).start.offset, keyword)
 }
 
 fn raw_grouped_if_condition(

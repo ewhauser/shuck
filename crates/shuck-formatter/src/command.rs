@@ -3,9 +3,9 @@ use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
     branch_keyword_offset, close_suffix_comment_offsets, last_shell_keyword_start,
-    leading_shell_indent, matching_done_close_start, matching_if_close_start,
-    normalized_close_keyword_span, refine_common_indent, shell_comment_can_start,
-    skip_double_quoted, skip_single_quoted,
+    last_uncommented_shell_keyword_before, leading_shell_indent, matching_done_close_start,
+    matching_if_close_start, normalized_close_keyword_span, refine_common_indent,
+    shell_comment_can_start, skip_double_quoted, skip_single_quoted,
 };
 use crate::word::{
     matching_raw_command_substitution_close, normalize_raw_pipeline_continuations,
@@ -1048,6 +1048,15 @@ pub(crate) fn command_group_commands(command: &Command) -> Option<(&StmtSeq, cha
         Command::Compound(CompoundCommand::Subshell(commands)) => Some((commands, '(')),
         _ => None,
     }
+}
+
+pub(crate) fn branch_open_keyword_start(
+    sequence: &StmtSeq,
+    source: &str,
+    keyword: &str,
+) -> Option<usize> {
+    let first = sequence.first()?;
+    last_uncommented_shell_keyword_before(source, stmt_span(first).start.offset, keyword)
 }
 
 pub(crate) fn if_next_branch_region_with_body_end(

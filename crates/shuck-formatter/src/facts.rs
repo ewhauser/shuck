@@ -12,19 +12,20 @@ use shuck_ast::{
 use shuck_indexer::Indexer;
 
 use crate::command::{
-    array_elem_parts, case_item_body_upper_bound, case_item_was_inline_in_source,
-    collect_binary_list_first as collect_binary_list_first_with, collect_pipeline_parts,
-    command_group_commands, done_close_span, group_attachment_span, group_open_suffix,
-    group_was_inline_in_source, if_close_span, if_next_branch_region_with_body_end,
-    matching_group_close, rendered_stmt_end_line, should_render_verbatim, stmt_attachment_span,
-    stmt_format_span, stmt_has_trailing_comment, stmt_render_start_line, stmt_span,
-    stmt_start_after_operator, stmt_verbatim_span_with_source_map,
+    array_elem_parts, branch_open_keyword_start, case_item_body_upper_bound,
+    case_item_was_inline_in_source, collect_binary_list_first as collect_binary_list_first_with,
+    collect_pipeline_parts, command_group_commands, done_close_span, group_attachment_span,
+    group_open_suffix, group_was_inline_in_source, if_close_span,
+    if_next_branch_region_with_body_end, matching_group_close, rendered_stmt_end_line,
+    should_render_verbatim, stmt_attachment_span, stmt_format_span, stmt_has_trailing_comment,
+    stmt_render_start_line, stmt_span, stmt_start_after_operator,
+    stmt_verbatim_span_with_source_map,
 };
 use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_window};
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
     branch_prefix_first_comment_offset, has_newline_between_offsets as has_newline_between,
-    last_shell_keyword_start, last_uncommented_shell_keyword_before, operator_starts_or_ends_line,
+    last_shell_keyword_start, operator_starts_or_ends_line,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -761,7 +762,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 group_attachment_span(body.as_slice(), self.source_map(), '{', '}')
                     .map(|span| span.start.offset)
             } else {
-                branch_open_keyword_start(body, self.source_map(), "then")
+                branch_open_keyword_start(body, self.source_map().source(), "then")
             };
             self.visit_sequence(condition, condition_upper_bound, None);
             if brace_syntax
@@ -873,7 +874,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
 
     fn visit_while(&mut self, command: &WhileCommand) {
         let condition_upper_bound =
-            branch_open_keyword_start(&command.body, self.source_map(), "do");
+            branch_open_keyword_start(&command.body, self.source_map().source(), "do");
         self.visit_sequence(&command.condition, condition_upper_bound, None);
         self.visit_sequence_with_suffix(
             &command.body,
@@ -885,7 +886,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
 
     fn visit_until(&mut self, command: &UntilCommand) {
         let condition_upper_bound =
-            branch_open_keyword_start(&command.body, self.source_map(), "do");
+            branch_open_keyword_start(&command.body, self.source_map().source(), "do");
         self.visit_sequence(&command.condition, condition_upper_bound, None);
         self.visit_sequence_with_suffix(
             &command.body,
@@ -1221,7 +1222,7 @@ fn branch_open_suffix_span(
     keyword: &str,
 ) -> Option<Span> {
     let source = source_map.source();
-    let keyword_offset = branch_open_keyword_start(sequence, source_map, keyword)?;
+    let keyword_offset = branch_open_keyword_start(sequence, source, keyword)?;
     let line_end = source[keyword_offset..]
         .find('\n')
         .map(|offset| keyword_offset + offset)
@@ -1232,16 +1233,6 @@ fn branch_open_suffix_span(
         .trim_start_matches(char::is_whitespace)
         .starts_with('#')
         .then(|| source_map.span_for_offsets(suffix_start, line_end))
-}
-
-fn branch_open_keyword_start(
-    sequence: &StmtSeq,
-    source_map: &SourceMap<'_>,
-    keyword: &str,
-) -> Option<usize> {
-    let source = source_map.source();
-    let first = sequence.first()?;
-    last_uncommented_shell_keyword_before(source, stmt_span(first).start.offset, keyword)
 }
 
 fn sequence_comment_lower_bound(sequence: &StmtSeq, source_map: &SourceMap<'_>) -> usize {
