@@ -509,6 +509,18 @@ mod tests {
         assert_source_and_ast_paths_match(source, path, options);
     }
 
+    macro_rules! default_format_ast_cases {
+        ($($name:ident: $source:expr => $expected:expr;)+) => {
+            $(
+                #[test]
+                fn $name() {
+                    let options = ShellFormatOptions::default();
+                    assert_formats_to_with_ast($source, None, &options, $expected);
+                }
+            )+
+        };
+    }
+
     fn lint_source_posix_strict(source: &str, path: &Path) -> Vec<Diagnostic> {
         let parse_result = Parser::with_dialect(source, ParseShellDialect::Posix).parse();
         assert!(
@@ -640,57 +652,19 @@ mod tests {
         );
     }
 
-    #[test]
-    fn preserves_tab_stripped_heredoc_body_source() {
-        let source =
-            "if true; then\n  cat >run <<-EOF\n\t\t#!/bin/sh\n\n\t\texec 2>&1\n\tEOF\nfi\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "if true; then\n\tcat >run <<-EOF\n\t\t#!/bin/sh\n\n\t\texec 2>&1\n\tEOF\nfi\n",
-        );
-    }
-
-    #[test]
-    fn indents_tab_stripped_heredoc_body_to_context_depth() {
-        let source = "if true; then\n\tcat >&2 <<-EOF\n\t* package moved\n\tEOF\nfi\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "if true; then\n\tcat >&2 <<-EOF\n\t\t* package moved\n\tEOF\nfi\n",
-        );
-    }
-
-    #[test]
-    fn tab_stripped_heredoc_closer_follows_context_indent() {
-        let source = "if true; then\n  if ok; then\n\tcat <<-EOF\n\tbody\n\tEOF\n  fi\nfi\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "if true; then\n\tif ok; then\n\t\tcat <<-EOF\n\t\t\tbody\n\t\tEOF\n\tfi\nfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_relative_tabs_inside_tab_stripped_heredoc_body() {
-        let source = "build() {\n\tcat <<-EOF >./prerm\n\t#!$PREFIX/bin/bash\n\tif [ -d $PREFIX/etc ]; then\n\t\techo ok\n\t\trm -f file\n\tfi\n\texit 0\n\tEOF\n}\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "build() {\n\tcat <<-EOF >./prerm\n\t\t#!$PREFIX/bin/bash\n\t\tif [ -d $PREFIX/etc ]; then\n\t\t\techo ok\n\t\t\trm -f file\n\t\tfi\n\t\texit 0\n\tEOF\n}\n",
-        );
+    default_format_ast_cases! {
+        preserves_tab_stripped_heredoc_body_source:
+            "if true; then\n  cat >run <<-EOF\n\t\t#!/bin/sh\n\n\t\texec 2>&1\n\tEOF\nfi\n"
+            => "if true; then\n\tcat >run <<-EOF\n\t\t#!/bin/sh\n\n\t\texec 2>&1\n\tEOF\nfi\n";
+        indents_tab_stripped_heredoc_body_to_context_depth:
+            "if true; then\n\tcat >&2 <<-EOF\n\t* package moved\n\tEOF\nfi\n"
+            => "if true; then\n\tcat >&2 <<-EOF\n\t\t* package moved\n\tEOF\nfi\n";
+        tab_stripped_heredoc_closer_follows_context_indent:
+            "if true; then\n  if ok; then\n\tcat <<-EOF\n\tbody\n\tEOF\n  fi\nfi\n"
+            => "if true; then\n\tif ok; then\n\t\tcat <<-EOF\n\t\t\tbody\n\t\tEOF\n\tfi\nfi\n";
+        preserves_relative_tabs_inside_tab_stripped_heredoc_body:
+            "build() {\n\tcat <<-EOF >./prerm\n\t#!$PREFIX/bin/bash\n\tif [ -d $PREFIX/etc ]; then\n\t\techo ok\n\t\trm -f file\n\tfi\n\texit 0\n\tEOF\n}\n"
+            => "build() {\n\tcat <<-EOF >./prerm\n\t\t#!$PREFIX/bin/bash\n\t\tif [ -d $PREFIX/etc ]; then\n\t\t\techo ok\n\t\t\trm -f file\n\t\tfi\n\t\texit 0\n\tEOF\n}\n";
     }
 
     #[test]
@@ -757,19 +731,6 @@ mod tests {
     }
 
     #[test]
-    fn aligns_comments_before_elif_and_else_with_branch_keywords() {
-        let source = "if a; then\none\n# next branch\n# still next branch\nelif b; then\ntwo\n# final branch\nelse\nthree\nfi\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "if a; then\n\tone\n# next branch\n# still next branch\nelif b; then\n\ttwo\n# final branch\nelse\n\tthree\nfi\n",
-        );
-    }
-
-    #[test]
     fn aligns_else_suffix_comments_with_nested_multiline_header_suffix_comments() {
         let source = "if foo; then\n  :\nelse # branch\n  if [[ \"$x\" =~ y ]]\n  then # nested\n    :\n  fi\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
@@ -782,56 +743,22 @@ mod tests {
         );
     }
 
-    #[test]
-    fn ignores_commented_branch_keywords_when_finding_else() {
-        let source = "if a; then\n  one\nelse\n# disabled pre\n#if b; then\n#else\n  two\nfi\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "if a; then\n\tone\nelse\n\t# disabled pre\n\t#if b; then\n\t#else\n\ttwo\nfi\n",
-        );
-    }
-
-    #[test]
-    fn keeps_body_indented_comments_before_elif_inside_previous_branch() {
-        let source = "if a; then\none\n  # still body context\nelif b; then\ntwo\nfi\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "if a; then\n\tone\n\t# still body context\nelif b; then\n\ttwo\nfi\n",
-        );
-    }
-
-    #[test]
-    fn keeps_disabled_elif_comment_block_before_real_elif() {
-        let source = "if a; then\none\n\n#elif disabled; then\n    #cmd one\n    # note\n    #cmd two\n\nelif b; then\ntwo\nfi\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "if a; then\n\tone\n\n\t#elif disabled; then\n\t#cmd one\n\t# note\n\t#cmd two\n\nelif b; then\n\ttwo\nfi\n",
-        );
-    }
-
-    #[test]
-    fn keeps_explanatory_if_comment_before_elif_at_branch_indent() {
-        let source = "if [ -d \"$source_dir\" ]; then\n  if ! mkdir -p \"$target_dir\"; then\n    return 1\n  fi\n# if instead it is a file\nelif [ -f \"$source_dir\" ]; then\n  touch \"$target_dir\"\nfi\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "if [ -d \"$source_dir\" ]; then\n\tif ! mkdir -p \"$target_dir\"; then\n\t\treturn 1\n\tfi\n# if instead it is a file\nelif [ -f \"$source_dir\" ]; then\n\ttouch \"$target_dir\"\nfi\n",
-        );
+    default_format_ast_cases! {
+        aligns_comments_before_elif_and_else_with_branch_keywords:
+            "if a; then\none\n# next branch\n# still next branch\nelif b; then\ntwo\n# final branch\nelse\nthree\nfi\n"
+            => "if a; then\n\tone\n# next branch\n# still next branch\nelif b; then\n\ttwo\n# final branch\nelse\n\tthree\nfi\n";
+        ignores_commented_branch_keywords_when_finding_else:
+            "if a; then\n  one\nelse\n# disabled pre\n#if b; then\n#else\n  two\nfi\n"
+            => "if a; then\n\tone\nelse\n\t# disabled pre\n\t#if b; then\n\t#else\n\ttwo\nfi\n";
+        keeps_body_indented_comments_before_elif_inside_previous_branch:
+            "if a; then\none\n  # still body context\nelif b; then\ntwo\nfi\n"
+            => "if a; then\n\tone\n\t# still body context\nelif b; then\n\ttwo\nfi\n";
+        keeps_disabled_elif_comment_block_before_real_elif:
+            "if a; then\none\n\n#elif disabled; then\n    #cmd one\n    # note\n    #cmd two\n\nelif b; then\ntwo\nfi\n"
+            => "if a; then\n\tone\n\n\t#elif disabled; then\n\t#cmd one\n\t# note\n\t#cmd two\n\nelif b; then\n\ttwo\nfi\n";
+        keeps_explanatory_if_comment_before_elif_at_branch_indent:
+            "if [ -d \"$source_dir\" ]; then\n  if ! mkdir -p \"$target_dir\"; then\n    return 1\n  fi\n# if instead it is a file\nelif [ -f \"$source_dir\" ]; then\n  touch \"$target_dir\"\nfi\n"
+            => "if [ -d \"$source_dir\" ]; then\n\tif ! mkdir -p \"$target_dir\"; then\n\t\treturn 1\n\tfi\n# if instead it is a file\nelif [ -f \"$source_dir\" ]; then\n\ttouch \"$target_dir\"\nfi\n";
     }
 
     #[test]
@@ -897,19 +824,6 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_opening_brace_comment_spacing() {
-        let source = "[ $ok ] && {\t\t# ready\n  echo hi\n}\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "[ $ok ] && { # ready\n\techo hi\n}\n",
-        );
-    }
-
-    #[test]
     fn preserves_comments_after_function_blocks() {
         assert_formats(
             "foo() {\necho hi\n}\n# after\nbar\n",
@@ -917,121 +831,37 @@ mod tests {
         );
     }
 
-    #[test]
-    fn preserves_trailing_function_header_comment_when_brace_moves_up() {
-        let source = "foo() # header comment\n{\n  echo hi\n}\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "foo() { # header comment\n\techo hi\n}\n",
-        );
-    }
-
-    #[test]
-    fn preserves_function_header_comment_spacing_when_brace_moves_up() {
-        let source = "foo()\t\t# header comment\n{\n  echo hi\n}\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "foo() { # header comment\n\techo hi\n}\n",
-        );
-    }
-
-    #[test]
-    fn aligns_moved_function_header_comments_with_first_body_comment() {
-        let source = "_olsr_uptime()\t\t\t# in seconds\n{\n  local option=\"$1\"\t# string option\n  local funcname='olsr_uptime'\n}\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "_olsr_uptime() {   # in seconds\n\tlocal option=\"$1\" # string option\n\tlocal funcname='olsr_uptime'\n}\n",
-        );
-    }
-
-    #[test]
-    fn body_comment_stops_moved_function_header_comment_alignment() {
-        let source = "foo()\t\t# header\n{\n#\tlocal mac=\"$1\"\n\tlocal minute=\"${MINUTE:-$( date +%H )}\"\t\t# built during taskplanner: 00...23\n\tlocal hour=\"${HOUR:-$( date +%M )}\"\t\t# built during taskplanner: 00...59\n}\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "foo() { # header\n\t#\tlocal mac=\"$1\"\n\tlocal minute=\"${MINUTE:-$(date +%H)}\" # built during taskplanner: 00...23\n\tlocal hour=\"${HOUR:-$(date +%M)}\"     # built during taskplanner: 00...59\n}\n",
-        );
-    }
-
-    #[test]
-    fn aligns_old_style_function_header_comments_like_shfmt() {
-        let source = "foo () # header\n{\n  a=1 # body\n}\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "foo() { # header\n\ta=1    # body\n}\n",
-        );
-    }
-
-    #[test]
-    fn preserves_header_and_opening_brace_comments_when_brace_moves_up() {
-        let source = "foo() # header comment\n{ # body comment\n  echo hi\n}\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "foo() { # header comment\n\t# body comment\n\techo hi\n}\n",
-        );
-    }
-
-    #[test]
-    fn preserves_inline_function_keyword_opening_brace_comments() {
-        let source = "function is_integer() { # helper function for todo-txt-count\n  [ \"$1\" -eq \"$1\" ] > /dev/null 2>&1\n  return $?\n}\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "function is_integer() { # helper function for todo-txt-count\n\t[ \"$1\" -eq \"$1\" ] >/dev/null 2>&1\n\treturn $?\n}\n",
-        );
-    }
-
-    #[test]
-    fn opening_brace_comment_stops_following_body_comment_alignment() {
-        let source = "foo() # header\n{ # body comment\n  local FILE='/tmp/OLSR/LINKS.sh' # see build_tables()\n  local json=\"$TMPDIR/links.json\" # FIXME! add _speedtest_stats()\n}\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "foo() { # header\n\t# body comment\n\tlocal FILE='/tmp/OLSR/LINKS.sh' # see build_tables()\n\tlocal json=\"$TMPDIR/links.json\" # FIXME! add _speedtest_stats()\n}\n",
-        );
-    }
-
-    #[test]
-    fn preserves_blank_line_before_trailing_file_comment() {
-        let source = "foo() {\necho hi\n}\n\n# ex: filetype=sh\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(
-            source,
-            None,
-            &options,
-            "foo() {\n\techo hi\n}\n\n# ex: filetype=sh\n",
-        );
+    default_format_ast_cases! {
+        normalizes_opening_brace_comment_spacing:
+            "[ $ok ] && {\t\t# ready\n  echo hi\n}\n"
+            => "[ $ok ] && { # ready\n\techo hi\n}\n";
+        preserves_trailing_function_header_comment_when_brace_moves_up:
+            "foo() # header comment\n{\n  echo hi\n}\n"
+            => "foo() { # header comment\n\techo hi\n}\n";
+        preserves_function_header_comment_spacing_when_brace_moves_up:
+            "foo()\t\t# header comment\n{\n  echo hi\n}\n"
+            => "foo() { # header comment\n\techo hi\n}\n";
+        aligns_moved_function_header_comments_with_first_body_comment:
+            "_olsr_uptime()\t\t\t# in seconds\n{\n  local option=\"$1\"\t# string option\n  local funcname='olsr_uptime'\n}\n"
+            => "_olsr_uptime() {   # in seconds\n\tlocal option=\"$1\" # string option\n\tlocal funcname='olsr_uptime'\n}\n";
+        body_comment_stops_moved_function_header_comment_alignment:
+            "foo()\t\t# header\n{\n#\tlocal mac=\"$1\"\n\tlocal minute=\"${MINUTE:-$( date +%H )}\"\t\t# built during taskplanner: 00...23\n\tlocal hour=\"${HOUR:-$( date +%M )}\"\t\t# built during taskplanner: 00...59\n}\n"
+            => "foo() { # header\n\t#\tlocal mac=\"$1\"\n\tlocal minute=\"${MINUTE:-$(date +%H)}\" # built during taskplanner: 00...23\n\tlocal hour=\"${HOUR:-$(date +%M)}\"     # built during taskplanner: 00...59\n}\n";
+        aligns_old_style_function_header_comments_like_shfmt:
+            "foo () # header\n{\n  a=1 # body\n}\n"
+            => "foo() { # header\n\ta=1    # body\n}\n";
+        preserves_header_and_opening_brace_comments_when_brace_moves_up:
+            "foo() # header comment\n{ # body comment\n  echo hi\n}\n"
+            => "foo() { # header comment\n\t# body comment\n\techo hi\n}\n";
+        preserves_inline_function_keyword_opening_brace_comments:
+            "function is_integer() { # helper function for todo-txt-count\n  [ \"$1\" -eq \"$1\" ] > /dev/null 2>&1\n  return $?\n}\n"
+            => "function is_integer() { # helper function for todo-txt-count\n\t[ \"$1\" -eq \"$1\" ] >/dev/null 2>&1\n\treturn $?\n}\n";
+        opening_brace_comment_stops_following_body_comment_alignment:
+            "foo() # header\n{ # body comment\n  local FILE='/tmp/OLSR/LINKS.sh' # see build_tables()\n  local json=\"$TMPDIR/links.json\" # FIXME! add _speedtest_stats()\n}\n"
+            => "foo() { # header\n\t# body comment\n\tlocal FILE='/tmp/OLSR/LINKS.sh' # see build_tables()\n\tlocal json=\"$TMPDIR/links.json\" # FIXME! add _speedtest_stats()\n}\n";
+        preserves_blank_line_before_trailing_file_comment:
+            "foo() {\necho hi\n}\n\n# ex: filetype=sh\n"
+            => "foo() {\n\techo hi\n}\n\n# ex: filetype=sh\n";
     }
 
     #[test]
