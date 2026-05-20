@@ -30,9 +30,9 @@ use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    branch_keyword_offset, close_suffix_comment_offsets, last_uncommented_shell_keyword_before,
-    line_indent_before_offset, matching_done_close_start, matching_if_close_start,
-    normalized_close_keyword_span,
+    BranchPrefixComment, branch_keyword_offset, branch_prefix_comments,
+    close_suffix_comment_offsets, last_uncommented_shell_keyword_before, line_indent_before_offset,
+    matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
     operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line, redirect_operator_end,
     shell_keyword_boundaries_match, skip_double_quoted, skip_single_quoted,
 };
@@ -8937,45 +8937,6 @@ fn trim_trailing_gap_before_offset(source: &str, mut offset: usize) -> usize {
         offset -= 1;
     }
     offset
-}
-
-#[derive(Debug, Clone)]
-struct BranchPrefixComment {
-    offset: usize,
-    text: String,
-    source_indent: usize,
-}
-
-fn branch_prefix_comments(source: &str, start: usize, end: usize) -> Vec<BranchPrefixComment> {
-    let start = start.min(end).min(source.len());
-    let end = end.min(source.len());
-    let Some(slice) = source.get(start..end) else {
-        return Vec::new();
-    };
-    let keyword_indent = line_indent_before_offset(source, end).unwrap_or("");
-
-    let mut comments = Vec::new();
-    let mut in_branch_prefix_run = false;
-    let mut offset = start;
-    for line in slice.split_inclusive('\n') {
-        let text = line.trim_end_matches(['\n', '\r']);
-        let trimmed = text.trim_start_matches([' ', '\t']);
-        let indent = text.len().saturating_sub(trimmed.len());
-        if trimmed.starts_with('#')
-            && (in_branch_prefix_run || text.get(..indent) == Some(keyword_indent))
-        {
-            comments.push(BranchPrefixComment {
-                offset: offset + indent,
-                text: trimmed.trim_end_matches([' ', '\t', '\r']).to_string(),
-                source_indent: indent,
-            });
-            in_branch_prefix_run = true;
-        } else if !trimmed.is_empty() {
-            in_branch_prefix_run = false;
-        }
-        offset += line.len();
-    }
-    comments
 }
 
 fn comment_looks_like_disabled_if_branch(text: &str) -> bool {

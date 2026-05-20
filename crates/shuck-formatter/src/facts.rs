@@ -20,9 +20,9 @@ use crate::command::{
 use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_window};
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    branch_keyword_offset, last_uncommented_shell_keyword_before, line_indent_before_offset,
-    matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
-    operator_starts_or_ends_line, shell_keyword_boundaries_match,
+    branch_keyword_offset, branch_prefix_first_comment_offset,
+    last_uncommented_shell_keyword_before, matching_done_close_start, matching_if_close_start,
+    normalized_close_keyword_span, operator_starts_or_ends_line, shell_keyword_boundaries_match,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1521,25 +1521,6 @@ fn branch_body_content_end(body: &StmtSeq) -> usize {
     body.last()
         .map(|stmt| stmt_span(stmt).end.offset)
         .unwrap_or(body.span.end.offset)
-}
-
-fn branch_prefix_first_comment_offset(source: &str, start: usize, end: usize) -> Option<usize> {
-    let start = start.min(end).min(source.len());
-    let end = end.min(source.len());
-    let slice = source.get(start..end)?;
-    let keyword_indent = line_indent_before_offset(source, end)?;
-
-    let mut offset = start;
-    for line in slice.split_inclusive('\n') {
-        let text = line.trim_end_matches(['\n', '\r']);
-        let trimmed = text.trim_start_matches([' ', '\t']);
-        let indent = text.len().saturating_sub(trimmed.len());
-        if trimmed.starts_with('#') && text.get(..indent) == Some(keyword_indent) {
-            return Some(offset + indent);
-        }
-        offset += line.len();
-    }
-    None
 }
 
 #[cfg(test)]

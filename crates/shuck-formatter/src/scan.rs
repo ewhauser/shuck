@@ -122,6 +122,59 @@ fn branch_keyword_candidate_matches(line: &str, start: usize, end: usize) -> boo
     before.is_empty() || before.ends_with(';') || before.ends_with('&')
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct BranchPrefixComment {
+    pub(crate) offset: usize,
+    pub(crate) text: String,
+    pub(crate) source_indent: usize,
+}
+
+pub(crate) fn branch_prefix_first_comment_offset(
+    source: &str,
+    start: usize,
+    end: usize,
+) -> Option<usize> {
+    branch_prefix_comments(source, start, end)
+        .first()
+        .map(|comment| comment.offset)
+}
+
+pub(crate) fn branch_prefix_comments(
+    source: &str,
+    start: usize,
+    end: usize,
+) -> Vec<BranchPrefixComment> {
+    let start = start.min(end).min(source.len());
+    let end = end.min(source.len());
+    let Some(slice) = source.get(start..end) else {
+        return Vec::new();
+    };
+    let keyword_indent = line_indent_before_offset(source, end).unwrap_or("");
+
+    let mut comments = Vec::new();
+    let mut in_branch_prefix_run = false;
+    let mut offset = start;
+    for line in slice.split_inclusive('\n') {
+        let text = line.trim_end_matches(['\n', '\r']);
+        let trimmed = text.trim_start_matches([' ', '\t']);
+        let indent = text.len().saturating_sub(trimmed.len());
+        if trimmed.starts_with('#')
+            && (in_branch_prefix_run || text.get(..indent) == Some(keyword_indent))
+        {
+            comments.push(BranchPrefixComment {
+                offset: offset + indent,
+                text: trimmed.trim_end_matches([' ', '\t', '\r']).to_string(),
+                source_indent: indent,
+            });
+            in_branch_prefix_run = true;
+        } else if !trimmed.is_empty() {
+            in_branch_prefix_run = false;
+        }
+        offset += line.len();
+    }
+    comments
+}
+
 pub(crate) fn last_uncommented_shell_keyword_before(
     source: &str,
     search_end: usize,
