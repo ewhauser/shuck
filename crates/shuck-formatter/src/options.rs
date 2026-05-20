@@ -59,125 +59,60 @@ impl Default for ShellFormatOptions {
     }
 }
 
+macro_rules! option_getters {
+    ($($method:ident: $field:ident -> $ty:ty;)+) => {
+        $(
+            #[must_use]
+            pub fn $method(&self) -> $ty {
+                self.$field
+            }
+        )+
+    };
+}
+
+macro_rules! option_builders {
+    ($($method:ident: $field:ident -> $ty:ty;)+) => {
+        $(
+            #[must_use]
+            pub fn $method(mut self, value: $ty) -> Self {
+                self.$field = value;
+                self
+            }
+        )+
+    };
+}
+
 impl ShellFormatOptions {
-    #[must_use]
-    pub fn dialect(&self) -> ShellDialect {
-        self.dialect
+    option_getters! {
+        dialect: dialect -> ShellDialect;
+        indent_style: indent_style -> IndentStyle;
+        indent_width: indent_width -> u8;
+        binary_next_line: binary_next_line -> bool;
+        switch_case_indent: switch_case_indent -> bool;
+        space_redirects: space_redirects -> bool;
+        keep_padding: keep_padding -> bool;
+        function_next_line: function_next_line -> bool;
+        never_split: never_split -> bool;
+        simplify: simplify -> bool;
+        minify: minify -> bool;
     }
 
-    #[must_use]
-    pub fn indent_style(&self) -> IndentStyle {
-        self.indent_style
-    }
-
-    #[must_use]
-    pub fn indent_width(&self) -> u8 {
-        self.indent_width
-    }
-
-    #[must_use]
-    pub fn binary_next_line(&self) -> bool {
-        self.binary_next_line
-    }
-
-    #[must_use]
-    pub fn switch_case_indent(&self) -> bool {
-        self.switch_case_indent
-    }
-
-    #[must_use]
-    pub fn space_redirects(&self) -> bool {
-        self.space_redirects
-    }
-
-    #[must_use]
-    pub fn keep_padding(&self) -> bool {
-        self.keep_padding
-    }
-
-    #[must_use]
-    pub fn function_next_line(&self) -> bool {
-        self.function_next_line
-    }
-
-    #[must_use]
-    pub fn never_split(&self) -> bool {
-        self.never_split
-    }
-
-    #[must_use]
-    pub fn simplify(&self) -> bool {
-        self.simplify
-    }
-
-    #[must_use]
-    pub fn minify(&self) -> bool {
-        self.minify
-    }
-
-    #[must_use]
-    pub fn with_dialect(mut self, dialect: ShellDialect) -> Self {
-        self.dialect = dialect;
-        self
-    }
-
-    #[must_use]
-    pub fn with_indent_style(mut self, indent_style: IndentStyle) -> Self {
-        self.indent_style = indent_style;
-        self
+    option_builders! {
+        with_dialect: dialect -> ShellDialect;
+        with_indent_style: indent_style -> IndentStyle;
+        with_binary_next_line: binary_next_line -> bool;
+        with_switch_case_indent: switch_case_indent -> bool;
+        with_space_redirects: space_redirects -> bool;
+        with_keep_padding: keep_padding -> bool;
+        with_function_next_line: function_next_line -> bool;
+        with_never_split: never_split -> bool;
+        with_simplify: simplify -> bool;
+        with_minify: minify -> bool;
     }
 
     #[must_use]
     pub fn with_indent_width(mut self, indent_width: u8) -> Self {
         self.indent_width = indent_width.max(1);
-        self
-    }
-
-    #[must_use]
-    pub fn with_binary_next_line(mut self, enabled: bool) -> Self {
-        self.binary_next_line = enabled;
-        self
-    }
-
-    #[must_use]
-    pub fn with_switch_case_indent(mut self, enabled: bool) -> Self {
-        self.switch_case_indent = enabled;
-        self
-    }
-
-    #[must_use]
-    pub fn with_space_redirects(mut self, enabled: bool) -> Self {
-        self.space_redirects = enabled;
-        self
-    }
-
-    #[must_use]
-    pub fn with_keep_padding(mut self, enabled: bool) -> Self {
-        self.keep_padding = enabled;
-        self
-    }
-
-    #[must_use]
-    pub fn with_function_next_line(mut self, enabled: bool) -> Self {
-        self.function_next_line = enabled;
-        self
-    }
-
-    #[must_use]
-    pub fn with_never_split(mut self, enabled: bool) -> Self {
-        self.never_split = enabled;
-        self
-    }
-
-    #[must_use]
-    pub fn with_simplify(mut self, enabled: bool) -> Self {
-        self.simplify = enabled;
-        self
-    }
-
-    #[must_use]
-    pub fn with_minify(mut self, enabled: bool) -> Self {
-        self.minify = enabled;
         self
     }
 
@@ -217,19 +152,10 @@ pub struct ResolvedShellFormatOptions {
 }
 
 impl ResolvedShellFormatOptions {
-    #[must_use]
-    pub fn dialect(&self) -> ParseDialect {
-        self.dialect
-    }
-
-    #[must_use]
-    pub fn indent_style(&self) -> IndentStyle {
-        self.indent_style
-    }
-
-    #[must_use]
-    pub fn indent_width(&self) -> u8 {
-        self.indent_width
+    option_getters! {
+        dialect: dialect -> ParseDialect;
+        indent_style: indent_style -> IndentStyle;
+        indent_width: indent_width -> u8;
     }
 
     pub(crate) fn indent_unit_columns(&self) -> usize {
@@ -261,44 +187,15 @@ impl ResolvedShellFormatOptions {
         prefix
     }
 
-    #[must_use]
-    pub fn binary_next_line(&self) -> bool {
-        self.binary_next_line
-    }
-
-    #[must_use]
-    pub fn switch_case_indent(&self) -> bool {
-        self.switch_case_indent
-    }
-
-    #[must_use]
-    pub fn space_redirects(&self) -> bool {
-        self.space_redirects
-    }
-
-    #[must_use]
-    pub fn keep_padding(&self) -> bool {
-        self.keep_padding
-    }
-
-    #[must_use]
-    pub fn function_next_line(&self) -> bool {
-        self.function_next_line
-    }
-
-    #[must_use]
-    pub fn never_split(&self) -> bool {
-        self.never_split
-    }
-
-    #[must_use]
-    pub fn simplify(&self) -> bool {
-        self.simplify
-    }
-
-    #[must_use]
-    pub fn minify(&self) -> bool {
-        self.minify
+    option_getters! {
+        binary_next_line: binary_next_line -> bool;
+        switch_case_indent: switch_case_indent -> bool;
+        space_redirects: space_redirects -> bool;
+        keep_padding: keep_padding -> bool;
+        function_next_line: function_next_line -> bool;
+        never_split: never_split -> bool;
+        simplify: simplify -> bool;
+        minify: minify -> bool;
     }
 
     #[must_use]
@@ -306,9 +203,8 @@ impl ResolvedShellFormatOptions {
         self.minify || self.never_split
     }
 
-    #[must_use]
-    pub fn line_ending(&self) -> LineEnding {
-        self.line_ending
+    option_getters! {
+        line_ending: line_ending -> LineEnding;
     }
 }
 
