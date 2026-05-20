@@ -20,9 +20,9 @@ use crate::command::{
 use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_window};
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    branch_keyword_offset, branch_prefix_first_comment_offset,
+    branch_keyword_offset, branch_prefix_first_comment_offset, last_shell_keyword_start,
     last_uncommented_shell_keyword_before, matching_done_close_start, matching_if_close_start,
-    normalized_close_keyword_span, operator_starts_or_ends_line, shell_keyword_boundaries_match,
+    normalized_close_keyword_span, operator_starts_or_ends_line,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1368,7 +1368,8 @@ fn case_item_body_upper_bound(item: &CaseItem, fallback: usize) -> Option<usize>
 }
 
 fn case_body_fallback_upper_bound(command: &CaseCommand, source_map: &SourceMap<'_>) -> usize {
-    last_shell_keyword_start(source_map, command.span, "esac").unwrap_or(command.span.end.offset)
+    last_shell_keyword_start(source_map.source(), command.span, "esac")
+        .unwrap_or(command.span.end.offset)
 }
 
 fn done_body_upper_bound(source_map: &SourceMap<'_>, span: Span) -> usize {
@@ -1444,24 +1445,6 @@ fn if_close_span(command: &IfCommand, source_map: &SourceMap<'_>) -> Span {
 
 fn if_close_start(command: &IfCommand, source_map: &SourceMap<'_>) -> usize {
     if_close_span(command, source_map).start.offset
-}
-
-fn last_shell_keyword_start(
-    source_map: &SourceMap<'_>,
-    span: Span,
-    keyword: &str,
-) -> Option<usize> {
-    let source = source_map.source();
-    let upper = span.end.offset.min(source.len());
-    let lower = span.start.offset.min(upper);
-    let slice = source.get(lower..upper)?;
-    slice
-        .match_indices(keyword)
-        .filter_map(|(start, _)| {
-            let end = start + keyword.len();
-            shell_keyword_boundaries_match(slice, start, end).then_some(lower + start)
-        })
-        .last()
 }
 
 fn span_contains_comment(span: Span, comment: SourceComment<'_>) -> bool {

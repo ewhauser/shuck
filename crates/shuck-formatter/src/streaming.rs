@@ -31,8 +31,9 @@ use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
     BranchPrefixComment, branch_keyword_offset, branch_prefix_comments,
-    close_suffix_comment_offsets, last_uncommented_shell_keyword_before, line_indent_before_offset,
-    matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
+    close_suffix_comment_offsets, last_shell_keyword_start, last_uncommented_shell_keyword_before,
+    line_indent_before_offset, matching_done_close_start, matching_if_close_start,
+    normalized_close_keyword_span,
     operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line,
     own_line_comments_in_region as scan_own_line_comments_in_region, redirect_operator_end,
     shell_keyword_boundaries_match, skip_double_quoted, skip_single_quoted,
@@ -6504,16 +6505,7 @@ fn last_shell_keyword_span(
     span: Span,
     keyword: &str,
 ) -> Option<Span> {
-    let upper = span.end.offset.min(source.len());
-    let lower = span.start.offset.min(upper);
-    let slice = source.get(lower..upper)?;
-    let start = slice
-        .match_indices(keyword)
-        .filter_map(|(start, _)| {
-            let end = start + keyword.len();
-            shell_keyword_boundaries_match(slice, start, end).then_some(lower + start)
-        })
-        .last()?;
+    let start = last_shell_keyword_start(source, span, keyword)?;
     Some(source_map.span_for_offsets(start, start + keyword.len()))
 }
 

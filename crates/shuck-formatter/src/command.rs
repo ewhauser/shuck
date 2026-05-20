@@ -2,10 +2,9 @@ use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    close_suffix_comment_offsets, leading_shell_indent, matching_done_close_start,
-    matching_if_close_start, normalized_close_keyword_span, refine_common_indent,
-    shell_comment_can_start, shell_keyword_boundaries_match, skip_double_quoted,
-    skip_single_quoted,
+    close_suffix_comment_offsets, last_shell_keyword_start, leading_shell_indent,
+    matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
+    refine_common_indent, shell_comment_can_start, skip_double_quoted, skip_single_quoted,
 };
 use crate::word::{
     matching_raw_command_substitution_close, normalize_raw_pipeline_continuations,
@@ -2027,10 +2026,8 @@ fn stmt_compound_close_span(
         CompoundCommand::While(command) => done_close_span(source, source_map, command.span, None),
         CompoundCommand::Until(command) => done_close_span(source, source_map, command.span, None),
         CompoundCommand::Select(command) => done_close_span(source, source_map, command.span, None),
-        CompoundCommand::Case(command) => {
-            last_shell_keyword_start(source_map, command.span, "esac")
-                .map(|start| source_map.span_for_offsets(start, start + "esac".len()))
-        }
+        CompoundCommand::Case(command) => last_shell_keyword_start(source, command.span, "esac")
+            .map(|start| source_map.span_for_offsets(start, start + "esac".len())),
         _ => None,
     }
 }
@@ -2072,24 +2069,6 @@ fn done_close_span(
         .or_else(|| {
             fallback.map(|span| normalized_close_keyword_span(source, source_map, span, "done"))
         })
-}
-
-fn last_shell_keyword_start(
-    source_map: &crate::comments::SourceMap<'_>,
-    span: Span,
-    keyword: &str,
-) -> Option<usize> {
-    let source = source_map.source();
-    let upper = span.end.offset.min(source.len());
-    let lower = span.start.offset.min(upper);
-    let slice = source.get(lower..upper)?;
-    slice
-        .match_indices(keyword)
-        .filter_map(|(start, _)| {
-            let end = start + keyword.len();
-            shell_keyword_boundaries_match(slice, start, end).then_some(lower + start)
-        })
-        .last()
 }
 
 fn command_attachment_span(
