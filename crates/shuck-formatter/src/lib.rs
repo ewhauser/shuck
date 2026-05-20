@@ -17,17 +17,7 @@ mod context;
 #[allow(missing_docs)]
 mod facts;
 #[allow(missing_docs)]
-mod generated;
-#[allow(missing_docs)]
 mod options;
-#[allow(missing_docs)]
-mod prelude;
-#[allow(missing_docs)]
-mod redirect;
-#[allow(missing_docs)]
-mod script;
-#[allow(missing_docs)]
-mod shared_traits;
 #[allow(missing_docs)]
 mod simplify;
 #[allow(missing_docs)]
@@ -39,7 +29,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use shuck_ast::File;
-use shuck_format::{FormatResult, LineEnding};
+use shuck_format::LineEnding;
 use shuck_parser::{Error as ParseError, parser::Parser};
 
 #[cfg(feature = "benchmarking")]
@@ -53,10 +43,6 @@ pub use shuck_format::IndentStyle;
 /// Formatter specialized for shell formatting contexts.
 pub type ShellFormatter<'source, 'buf> =
     shuck_format::Formatter<context::ShellFormatContext<'source>>;
-
-pub(crate) trait FormatNodeRule<N> {
-    fn fmt(&self, node: &N, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()>;
-}
 
 /// Result of formatting shell source.
 #[allow(missing_docs)]

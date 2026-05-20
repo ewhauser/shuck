@@ -9,29 +9,12 @@ use shuck_ast::{
     WordPart,
 };
 use shuck_format::IndentStyle;
-use shuck_format::{FormatResult, text, write};
 
-use crate::FormatNodeRule;
 use crate::command::stmt_seq_has_heredoc;
 use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
-use crate::prelude::ShellFormatter;
 use crate::streaming::format_stmt_sequence_streaming_to_buf;
-
-#[derive(Debug, Default, Clone, Copy)]
-pub struct FormatWord;
-
-impl FormatNodeRule<Word> for FormatWord {
-    fn fmt(&self, word: &Word, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
-        let rendered = render_word_syntax(
-            word,
-            formatter.context().source(),
-            formatter.context().options(),
-        );
-        write!(formatter, [text(rendered)])
-    }
-}
 
 pub(crate) fn word_gap_end_before_trailing_continuation(word: &Word, source: &str) -> usize {
     let span_end = word.span.end.offset;
@@ -6463,16 +6446,6 @@ fn parameter_defaulting_operator(operator: &ParameterOp) -> &'static str {
         ParameterOp::Error => "?",
         _ => "",
     }
-}
-
-pub(crate) fn render_pattern_syntax(
-    pattern: &Pattern,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-) -> String {
-    let mut rendered = String::new();
-    render_pattern_syntax_to_buf(pattern, source, options, &mut rendered);
-    rendered
 }
 
 pub(crate) fn render_pattern_syntax_to_buf(

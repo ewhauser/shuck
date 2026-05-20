@@ -1999,13 +1999,9 @@ fn literal_text_from_double_quoted(parts: &[WordPartNode], source: &str) -> Opti
 mod tests {
     use std::path::Path;
 
-    use shuck_format::format;
     use shuck_parser::parser::Parser;
 
-    use crate::comments::Comments;
-    use crate::context::ShellFormatContext;
     use crate::options::ShellFormatOptions;
-    use crate::shared_traits::AsFormat;
 
     use super::*;
 
@@ -2023,18 +2019,17 @@ mod tests {
         let changes = (rewrite.apply)(&mut file, source);
         assert!(changes > 0, "expected rewrite `{rewrite:?}` to apply");
 
-        let options = ShellFormatOptions::default();
-        let context = ShellFormatContext::new(
-            options.resolve(source, Some(Path::new("test.sh"))),
+        match crate::format_file_ast(
             source,
-            Comments::from_file(source, &parsed.file),
-        );
-        let formatted = format!(context, [file.format()]).unwrap();
-        let mut output = formatted.print().unwrap().into_code();
-        if !output.ends_with('\n') {
-            output.push('\n');
+            file,
+            Some(Path::new("test.sh")),
+            &ShellFormatOptions::default(),
+        )
+        .unwrap()
+        {
+            crate::FormattedSource::Unchanged => source.to_string(),
+            crate::FormattedSource::Formatted(formatted) => formatted,
         }
-        output
     }
 
     fn format_with_simplify(source: &str) -> String {
