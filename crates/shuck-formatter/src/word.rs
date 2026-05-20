@@ -288,19 +288,16 @@ fn optional_word_has_multiline_literal_source(word: Option<&Word>, source: &str)
 }
 
 fn compound_has_multiline_literal_source(command: &CompoundCommand, source: &str) -> bool {
+    compound_words_have_multiline_literal_source(command, source)
+        || compound_contains_child(
+            command,
+            |stmt| stmt_has_multiline_literal_source(stmt, source),
+            |sequence| stmt_seq_has_multiline_literal_source(sequence, source),
+        )
+}
+
+fn compound_words_have_multiline_literal_source(command: &CompoundCommand, source: &str) -> bool {
     match command {
-        CompoundCommand::If(command) => {
-            stmt_seq_has_multiline_literal_source(&command.condition, source)
-                || stmt_seq_has_multiline_literal_source(&command.then_branch, source)
-                || command.elif_branches.iter().any(|(condition, body)| {
-                    stmt_seq_has_multiline_literal_source(condition, source)
-                        || stmt_seq_has_multiline_literal_source(body, source)
-                })
-                || command
-                    .else_branch
-                    .as_ref()
-                    .is_some_and(|body| stmt_seq_has_multiline_literal_source(body, source))
-        }
         CompoundCommand::For(command) => {
             command
                 .targets
@@ -310,56 +307,21 @@ fn compound_has_multiline_literal_source(command: &CompoundCommand, source: &str
                     .words
                     .as_deref()
                     .is_some_and(|words| words_have_multiline_literal_source(words, source))
-                || stmt_seq_has_multiline_literal_source(&command.body, source)
         }
         CompoundCommand::Repeat(command) => {
             word_has_multiline_literal_source(&command.count, source)
-                || stmt_seq_has_multiline_literal_source(&command.body, source)
         }
         CompoundCommand::Foreach(command) => {
             words_have_multiline_literal_source(&command.words, source)
-                || stmt_seq_has_multiline_literal_source(&command.body, source)
         }
-        CompoundCommand::ArithmeticFor(command) => {
-            stmt_seq_has_multiline_literal_source(&command.body, source)
-        }
-        CompoundCommand::While(command) => {
-            stmt_seq_has_multiline_literal_source(&command.condition, source)
-                || stmt_seq_has_multiline_literal_source(&command.body, source)
-        }
-        CompoundCommand::Until(command) => {
-            stmt_seq_has_multiline_literal_source(&command.condition, source)
-                || stmt_seq_has_multiline_literal_source(&command.body, source)
-        }
-        CompoundCommand::Case(command) => {
-            word_has_multiline_literal_source(&command.word, source)
-                || command
-                    .cases
-                    .iter()
-                    .any(|item| stmt_seq_has_multiline_literal_source(&item.body, source))
-        }
+        CompoundCommand::Case(command) => word_has_multiline_literal_source(&command.word, source),
         CompoundCommand::Select(command) => {
             words_have_multiline_literal_source(&command.words, source)
-                || stmt_seq_has_multiline_literal_source(&command.body, source)
         }
-        CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
-            stmt_seq_has_multiline_literal_source(body, source)
-        }
-        CompoundCommand::Arithmetic(_) => false,
-        CompoundCommand::Time(command) => command
-            .command
-            .as_ref()
-            .is_some_and(|stmt| stmt_has_multiline_literal_source(stmt, source)),
         CompoundCommand::Conditional(command) => {
             conditional_expr_has_multiline_literal_source(&command.expression, source)
         }
-        CompoundCommand::Coproc(command) => {
-            stmt_has_multiline_literal_source(&command.body, source)
-        }
-        CompoundCommand::Always(command) => {
-            stmt_seq_has_multiline_literal_source(&command.body, source)
-                || stmt_seq_has_multiline_literal_source(&command.always_body, source)
-        }
+        _ => false,
     }
 }
 
