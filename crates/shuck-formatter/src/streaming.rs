@@ -5310,10 +5310,10 @@ fn append_both_redirect_pair_matches_source(
     }
     if !matches!(next.kind, RedirectKind::DupOutput)
         || next.fd != Some(2)
-        || !next
+        || next
             .word_target()
             .and_then(|word| word.try_static_text(source))
-            .is_some_and(|target| target == "1")
+            .is_none_or(|target| target != "1")
     {
         return false;
     }

@@ -217,9 +217,10 @@ impl<'a> SourceMap<'a> {
 
     fn first_non_whitespace_for_line(&self, line_index: usize) -> Option<usize> {
         *self.data.first_non_whitespace[line_index].get_or_init(|| {
-            let Some(range) = self.data.line_index.line_range(line_index + 1, self.source) else {
-                return None;
-            };
+            let range = self
+                .data
+                .line_index
+                .line_range(line_index + 1, self.source)?;
             let start = usize::from(range.start());
             let end = usize::from(range.end());
             first_non_whitespace_in_line(self.source, start, end)

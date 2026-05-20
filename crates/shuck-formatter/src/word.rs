@@ -1039,10 +1039,9 @@ fn push_raw_command_substitution_with_normalized_spacing(
             let mut adjusted_line = None;
             if let Some(previous_indent) = carried_pipeline_indent.as_deref()
                 && !content.trim().is_empty()
+                && raw_indent_units(indent, options) < raw_indent_units(previous_indent, options)
             {
-                if raw_indent_units(indent, options) < raw_indent_units(previous_indent, options) {
-                    adjusted_line = Some(format!("{previous_indent}{content}"));
-                }
+                adjusted_line = Some(format!("{previous_indent}{content}"));
             }
             if let Some(adjusted) = adjusted_line {
                 line = adjusted;
@@ -4927,7 +4926,6 @@ fn command_substitution_heredoc_indent(line: &str) -> Option<CommandSubstitution
         (false, after_marker)
     };
     let delimiter = after_marker
-        .trim_start()
         .split_whitespace()
         .next()?
         .trim_matches(['\'', '"'])

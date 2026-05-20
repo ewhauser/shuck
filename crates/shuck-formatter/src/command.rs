@@ -1896,7 +1896,7 @@ fn word_uses_synthetic_source(word: &Word, source: &str) -> bool {
     let rendered = word.render_syntax(source);
     let raw = source
         .get(word.span.start.offset.min(source.len())..word.span.end.offset.min(source.len()));
-    !raw.is_some_and(|raw| raw == rendered)
+    raw.is_none_or(|raw| raw != rendered)
 }
 
 fn word_part_uses_synthetic_source(part: &WordPart) -> bool {
