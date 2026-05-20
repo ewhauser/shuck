@@ -19,6 +19,8 @@ mod facts;
 #[allow(missing_docs)]
 mod options;
 #[allow(missing_docs)]
+mod scan;
+#[allow(missing_docs)]
 mod simplify;
 #[allow(missing_docs)]
 mod streaming;
