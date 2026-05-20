@@ -1139,7 +1139,7 @@ fn command_group_attachment_span(
     )
 }
 
-fn stmt_group_attachment_or_verbatim_span(
+pub(crate) fn stmt_group_attachment_or_verbatim_span(
     stmt: &Stmt,
     source_map: &crate::comments::SourceMap<'_>,
 ) -> Option<Span> {

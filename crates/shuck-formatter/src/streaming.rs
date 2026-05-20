@@ -26,9 +26,9 @@ use crate::command::{
     multiline_compound_assignment_layout, multiline_compound_assignment_lines,
     render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
     render_subscript_to_buf, render_var_ref_to_buf, simple_command_uses_synthetic_words,
-    slice_span, stmt_attachment_span, stmt_format_span, stmt_render_start_line,
-    stmt_seq_has_heredoc, stmt_span, stmt_start_after_operator, stmt_verbatim_span_with_source_map,
-    trim_unescaped_trailing_whitespace,
+    slice_span, stmt_attachment_span, stmt_format_span, stmt_group_attachment_or_verbatim_span,
+    stmt_render_start_line, stmt_seq_has_heredoc, stmt_span, stmt_start_after_operator,
+    stmt_verbatim_span_with_source_map, trim_unescaped_trailing_whitespace,
 };
 use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
@@ -5896,24 +5896,10 @@ fn stmt_first_content_offset(stmt: &Stmt, source_map: &SourceMap<'_>) -> usize {
     match &stmt.command {
         Command::Binary(command) => stmt_first_content_offset(&command.left, source_map),
         _ => {
-            if let Some((commands, open)) = command_group_commands(&stmt.command) {
-                group_attachment_span(
-                    commands.as_slice(),
-                    source_map,
-                    open,
-                    matching_group_close(open),
-                )
-                .map(|span| span.start.offset)
-                .unwrap_or_else(|| {
-                    stmt_verbatim_span_with_source_map(stmt, source_map)
-                        .start
-                        .offset
-                })
-            } else {
-                stmt_verbatim_span_with_source_map(stmt, source_map)
-                    .start
-                    .offset
-            }
+            stmt_group_attachment_or_verbatim_span(stmt, source_map)
+                .unwrap_or_else(|| stmt_verbatim_span_with_source_map(stmt, source_map))
+                .start
+                .offset
         }
     }
 }
