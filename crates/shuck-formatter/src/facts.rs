@@ -362,8 +362,8 @@ fn line_indent_before_offset<'source>(
     prefix.get(..indent_end)
 }
 
-fn branch_prefix_comments_from_index<'source>(
-    source: &'source str,
+fn branch_prefix_comments_from_index(
+    source: &str,
     line_index: &LineIndex,
     comment_index: &CommentIndex,
     start: usize,
@@ -409,8 +409,8 @@ fn branch_prefix_comments_from_index<'source>(
     comments
 }
 
-fn own_line_comments_in_region_from_index<'source>(
-    source: &'source str,
+fn own_line_comments_in_region_from_index(
+    source: &str,
     line_index: &LineIndex,
     comment_index: &CommentIndex,
     start: usize,
