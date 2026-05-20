@@ -3785,15 +3785,6 @@ function R() {
     }
 
     #[test]
-    fn aligns_inline_if_close_comments_after_reindent() {
-        let source = "scan() {\n       if IsRunning \"sentineld\"; then SENTINELONE_SCANNER_RUNNING=1; fi # macOS\n       if IsRunning \"s1-agent\"; then SENTINELONE_SCANNER_RUNNING=1; fi # Linux\n       if IsRunning \"SentinelAgent\"; then SENTINELONE_SCANNER_RUNNING=1; fi # Windows\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "scan() {\n\tif IsRunning \"sentineld\"; then SENTINELONE_SCANNER_RUNNING=1; fi     # macOS\n\tif IsRunning \"s1-agent\"; then SENTINELONE_SCANNER_RUNNING=1; fi      # Linux\n\tif IsRunning \"SentinelAgent\"; then SENTINELONE_SCANNER_RUNNING=1; fi # Windows\n}\n",
-        );
-    }
-
-    #[test]
     fn preserves_simple_elif_condition_on_own_line_after_heredoc_branch() {
         let source = "#!/bin/sh\n\nif [ \"$1\" = --query ]; then\n\n  cat <<EOF\nquery\nEOF\n\nelif\n  [ \"$1\" = --listmonitors ]\nthen\n\n  cat <<EOF\nmonitors\nEOF\nfi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Posix);
@@ -3806,130 +3797,63 @@ function R() {
         );
     }
 
-    #[test]
-    fn preserves_blank_line_after_if_then() {
-        let source = "if true; then\n\n  echo yes\nfi\n";
-        assert_formats_default_with_ast(source, "if true; then\n\n\techo yes\nfi\n");
+    default_format_ast_cases! {
+        aligns_inline_if_close_comments_after_reindent:
+            "scan() {\n       if IsRunning \"sentineld\"; then SENTINELONE_SCANNER_RUNNING=1; fi # macOS\n       if IsRunning \"s1-agent\"; then SENTINELONE_SCANNER_RUNNING=1; fi # Linux\n       if IsRunning \"SentinelAgent\"; then SENTINELONE_SCANNER_RUNNING=1; fi # Windows\n}\n"
+            => "scan() {\n\tif IsRunning \"sentineld\"; then SENTINELONE_SCANNER_RUNNING=1; fi     # macOS\n\tif IsRunning \"s1-agent\"; then SENTINELONE_SCANNER_RUNNING=1; fi      # Linux\n\tif IsRunning \"SentinelAgent\"; then SENTINELONE_SCANNER_RUNNING=1; fi # Windows\n}\n";
+        preserves_blank_line_after_if_then:
+            "if true; then\n\n  echo yes\nfi\n"
+            => "if true; then\n\n\techo yes\nfi\n";
+        preserves_blank_line_before_if_fi:
+            "if true; then\n  if other; then\n    echo yes\n  else\n    echo no\n  fi\n\nfi\n"
+            => "if true; then\n\tif other; then\n\t\techo yes\n\telse\n\t\techo no\n\tfi\n\nfi\n";
+        preserves_blank_line_before_simple_fi:
+            "if true; then\n  echo yes\n\nfi\n"
+            => "if true; then\n\techo yes\n\nfi\n";
+        does_not_treat_comment_internal_blank_as_fi_gap:
+            "if true; then\n  echo yes\n\n  # disabled\nfi\n"
+            => "if true; then\n\techo yes\n\n\t# disabled\nfi\n";
+        preserves_blank_line_before_if_branches:
+            "if true; then\n  echo yes\n\nelif false; then\n  echo no\n\nelse\n  echo maybe\nfi\n"
+            => "if true; then\n\techo yes\n\nelif false; then\n\techo no\n\nelse\n\techo maybe\nfi\n";
+        preserves_blank_line_before_commented_if_branch:
+            "if true; then\n  echo yes\n\n# try the fallback\nelif false; then\n  echo no\nfi\n"
+            => "if true; then\n\techo yes\n\n# try the fallback\nelif false; then\n\techo no\nfi\n";
+        preserves_blank_line_before_fi_after_elif_branch:
+            "if true; then\n  echo yes\nelif false; then\n  echo no\n\nfi\n"
+            => "if true; then\n\techo yes\nelif false; then\n\techo no\n\nfi\n";
+        does_not_preserve_branch_blanks_from_inline_keywords:
+            "# setup\n\nif true; then yes; else\n  no\nfi\n"
+            => "# setup\n\nif true; then yes; else\n\tno\nfi\n";
+        preserves_blank_line_after_while_do:
+            "while read -r dep; do\n\n  ver=${dep#*=}\ndone\n"
+            => "while read -r dep; do\n\n\tver=${dep#*=}\ndone\n";
+        preserves_blank_line_before_done:
+            "while true; do\n  echo yes\n\ndone\n"
+            => "while true; do\n\techo yes\n\ndone\n";
+        preserves_blank_line_after_brace_group_open:
+            "if true; then\n  [ -n \"$x\" ] && {\n\n    echo yes\n  }\nfi\n"
+            => "if true; then\n\t[ -n \"$x\" ] && {\n\n\t\techo yes\n\t}\nfi\n";
+        preserves_blank_line_after_brace_group_open_suffix_comment:
+            "if true; then\n  [ -n \"$x\" ] || { # note\n\n    echo yes\n  }\nfi\n"
+            => "if true; then\n\t[ -n \"$x\" ] || { # note\n\n\t\techo yes\n\t}\nfi\n";
     }
 
-    #[test]
-    fn preserves_blank_line_after_if_then_suffix_comment() {
-        let source = "if [[ -s ./bin/rails ]]; then # binstub\n\n  ruby ./bin/rails\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if [[ -s ./bin/rails ]]; then # binstub\n\n\truby ./bin/rails\nfi\n",
-        );
+    bash_format_ast_cases! {
+        preserves_blank_line_after_if_then_suffix_comment:
+            "if [[ -s ./bin/rails ]]; then # binstub\n\n  ruby ./bin/rails\nfi\n"
+            => "if [[ -s ./bin/rails ]]; then # binstub\n\n\truby ./bin/rails\nfi\n";
+        does_not_insert_blank_after_then_suffix_comment_before_body_comment:
+            "if [[ \"${#_test_line}\" -gt \"${_COLUMNS}\" ]]\nthen # wrap to next line\n  # Use the existing value.\n  echo yes\nfi\n"
+            => "if [[ \"${#_test_line}\" -gt \"${_COLUMNS}\" ]]; then # wrap to next line\n\t# Use the existing value.\n\techo yes\nfi\n";
+        indents_dangling_comments_before_done_like_shfmt:
+            "while true; do\n  echo ok\n# buffered input\ndone\n"
+            => "while true; do\n\techo ok\n\t# buffered input\ndone\n";
     }
 
-    #[test]
-    fn does_not_insert_blank_after_then_suffix_comment_before_body_comment() {
-        let source = "if [[ \"${#_test_line}\" -gt \"${_COLUMNS}\" ]]\nthen # wrap to next line\n  # Use the existing value.\n  echo yes\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if [[ \"${#_test_line}\" -gt \"${_COLUMNS}\" ]]; then # wrap to next line\n\t# Use the existing value.\n\techo yes\nfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_blank_line_before_if_fi() {
-        let source =
-            "if true; then\n  if other; then\n    echo yes\n  else\n    echo no\n  fi\n\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if true; then\n\tif other; then\n\t\techo yes\n\telse\n\t\techo no\n\tfi\n\nfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_blank_line_before_simple_fi() {
-        let source = "if true; then\n  echo yes\n\nfi\n";
-        assert_formats_default_with_ast(source, "if true; then\n\techo yes\n\nfi\n");
-    }
-
-    #[test]
-    fn does_not_treat_comment_internal_blank_as_fi_gap() {
-        let source = "if true; then\n  echo yes\n\n  # disabled\nfi\n";
-        assert_formats_default_with_ast(source, "if true; then\n\techo yes\n\n\t# disabled\nfi\n");
-    }
-
-    #[test]
-    fn preserves_blank_line_before_if_branches() {
-        let source =
-            "if true; then\n  echo yes\n\nelif false; then\n  echo no\n\nelse\n  echo maybe\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if true; then\n\techo yes\n\nelif false; then\n\techo no\n\nelse\n\techo maybe\nfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_blank_line_before_commented_if_branch() {
-        let source =
-            "if true; then\n  echo yes\n\n# try the fallback\nelif false; then\n  echo no\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if true; then\n\techo yes\n\n# try the fallback\nelif false; then\n\techo no\nfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_blank_line_before_fi_after_elif_branch() {
-        let source = "if true; then\n  echo yes\nelif false; then\n  echo no\n\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if true; then\n\techo yes\nelif false; then\n\techo no\n\nfi\n",
-        );
-    }
-
-    #[test]
-    fn does_not_preserve_branch_blanks_from_inline_keywords() {
-        let source = "# setup\n\nif true; then yes; else\n  no\nfi\n";
-        assert_formats_default_with_ast(source, "# setup\n\nif true; then yes; else\n\tno\nfi\n");
-    }
-
-    #[test]
-    fn preserves_blank_line_after_while_do() {
-        let source = "while read -r dep; do\n\n  ver=${dep#*=}\ndone\n";
-        assert_formats_default_with_ast(source, "while read -r dep; do\n\n\tver=${dep#*=}\ndone\n");
-    }
-
-    #[test]
-    fn preserves_while_condition_on_own_line() {
-        let source = "f() {\n\twhile\n\t\t[[ ! -r \"$target\" && \"$target\" != \"\" ]]\n\tdo\n\t\tchmod ugo+rX \"$target\"\n\t\ttarget=\"${target%/*}\"\n\tdone\n}\n";
-        assert_bash_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_blank_line_before_done() {
-        let source = "while true; do\n  echo yes\n\ndone\n";
-        assert_formats_default_with_ast(source, "while true; do\n\techo yes\n\ndone\n");
-    }
-
-    #[test]
-    fn indents_dangling_comments_before_done_like_shfmt() {
-        let source = "while true; do\n  echo ok\n# buffered input\ndone\n";
-        assert_bash_formats_with_ast(
-            source,
-            "while true; do\n\techo ok\n\t# buffered input\ndone\n",
-        );
-    }
-
-    #[test]
-    fn preserves_blank_line_after_brace_group_open() {
-        let source = "if true; then\n  [ -n \"$x\" ] && {\n\n    echo yes\n  }\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if true; then\n\t[ -n \"$x\" ] && {\n\n\t\techo yes\n\t}\nfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_blank_line_after_brace_group_open_suffix_comment() {
-        let source = "if true; then\n  [ -n \"$x\" ] || { # note\n\n    echo yes\n  }\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if true; then\n\t[ -n \"$x\" ] || { # note\n\n\t\techo yes\n\t}\nfi\n",
-        );
+    bash_unchanged_ast_cases! {
+        preserves_while_condition_on_own_line:
+            "f() {\n\twhile\n\t\t[[ ! -r \"$target\" && \"$target\" != \"\" ]]\n\tdo\n\t\tchmod ugo+rX \"$target\"\n\t\ttarget=\"${target%/*}\"\n\tdone\n}\n";
     }
 
     #[test]
@@ -3951,41 +3875,19 @@ function R() {
         );
     }
 
-    #[test]
-    fn does_not_insert_blank_before_body_leading_brace_pipeline() {
-        let source =
-            "if ok; then\n  {\n    echo yes\n  } | cat\nelse\n  {\n    echo no\n  } | cat\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if ok; then\n\t{\n\t\techo yes\n\t} | cat\nelse\n\t{\n\t\techo no\n\t} | cat\nfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_blank_line_before_inline_do_brace_close() {
-        let source = "while read -r line; do {\n  echo \"$line\"\n\n} done <file\n";
-        assert_formats_default_with_ast(
-            source,
-            "while read -r line; do {\n\techo \"$line\"\n\n}; done <file\n",
-        );
-    }
-
-    #[test]
-    fn preserves_blank_line_before_inline_do_brace_close_after_nested_group() {
-        let source = "while read -r line; do {\n  [ -n \"$line\" ] && {\n    echo \"$line\"\n  }\n\n} done <file\n";
-        assert_formats_default_with_ast(
-            source,
-            "while read -r line; do {\n\t[ -n \"$line\" ] && {\n\t\techo \"$line\"\n\t}\n\n}; done <file\n",
-        );
-    }
-
-    #[test]
-    fn formats_multiline_arithmetic_commands_with_continuations() {
-        let source = "if true; then\n  ((\n  I++,\n  IDX = 16\n  + R * 5\n  + G * 6\n  ))\nelse\n  echo no\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if true; then\n\t((\\\n\tI++, \\\n\tIDX = 16 + \\\n\tR * 5 + \\\n\tG * 6))\n\nelse\n\techo no\nfi\n",
-        );
+    default_format_ast_cases! {
+        does_not_insert_blank_before_body_leading_brace_pipeline:
+            "if ok; then\n  {\n    echo yes\n  } | cat\nelse\n  {\n    echo no\n  } | cat\nfi\n"
+            => "if ok; then\n\t{\n\t\techo yes\n\t} | cat\nelse\n\t{\n\t\techo no\n\t} | cat\nfi\n";
+        preserves_blank_line_before_inline_do_brace_close:
+            "while read -r line; do {\n  echo \"$line\"\n\n} done <file\n"
+            => "while read -r line; do {\n\techo \"$line\"\n\n}; done <file\n";
+        preserves_blank_line_before_inline_do_brace_close_after_nested_group:
+            "while read -r line; do {\n  [ -n \"$line\" ] && {\n    echo \"$line\"\n  }\n\n} done <file\n"
+            => "while read -r line; do {\n\t[ -n \"$line\" ] && {\n\t\techo \"$line\"\n\t}\n\n}; done <file\n";
+        formats_multiline_arithmetic_commands_with_continuations:
+            "if true; then\n  ((\n  I++,\n  IDX = 16\n  + R * 5\n  + G * 6\n  ))\nelse\n  echo no\nfi\n"
+            => "if true; then\n\t((\\\n\tI++, \\\n\tIDX = 16 + \\\n\tR * 5 + \\\n\tG * 6))\n\nelse\n\techo no\nfi\n";
     }
 
     #[test]
@@ -4001,76 +3903,37 @@ function R() {
         );
     }
 
-    #[test]
-    fn preserves_continued_semicolon_terminators() {
-        let source = "ln -s foo bar \\\n  ;\nrm bar\n";
-        assert_formats_default_with_ast(source, "ln -s foo bar \\\n\t;\nrm bar\n");
+    default_format_ast_cases! {
+        preserves_continued_semicolon_terminators:
+            "ln -s foo bar \\\n  ;\nrm bar\n"
+            => "ln -s foo bar \\\n\t;\nrm bar\n";
+        preserves_multiline_single_quoted_argument_payload_indentation:
+            "cat \"$@\" |\n  python -c '\nfrom __future__ import print_function\nprint(\"ok\")\n'\n"
+            => "cat \"$@\" |\n\tpython -c '\nfrom __future__ import print_function\nprint(\"ok\")\n'\n";
+        preserves_multiline_assignment_payload_indentation:
+            "if true; then\n  section+=\"\n$line\"\nfi\n"
+            => "if true; then\n\tsection+=\"\n$line\"\nfi\n";
+        removes_unquoted_assignment_continuation_backslashes:
+            "packages=$one\\\n$two\\\n$three\n"
+            => "packages=$one$two$three\n";
+        preserves_multiline_assignment_continuation_payload_indentation:
+            "if true; then\n  INCLUDE_TESTS=\"boot_services kernel \\\n                           filesystems usb \\\n                           hardening\"\nfi\n"
+            => "if true; then\n\tINCLUDE_TESTS=\"boot_services kernel \\\n                           filesystems usb \\\n                           hardening\"\nfi\n";
+        normalizes_multiline_command_substitution_arguments:
+            "_comp_compgen_split -- \"$(\"$1\" -watchdog help 2>&1 |\n                _comp_awk '{print $1}')\"\n"
+            => "_comp_compgen_split -- \"$(\"$1\" -watchdog help 2>&1 |\n\t_comp_awk '{print $1}')\"\n";
+        indents_inline_command_substitution_pipeline_words:
+            "f() {\n  for fl in \"$HOME/.ssh/config\" \\\n    $(grep \"^\\s*Include\" \"$HOME/.ssh/config\" |\n      awk '{for (i=2; i<=NF; i++) print $i}' |\n      sed -Ee \"s|^([^/~])|$HOME/.ssh/\\1|\"); do\n    echo \"$fl\"\n  done\n}\n"
+            => "f() {\n\tfor fl in \"$HOME/.ssh/config\" \\\n\t\t$(grep \"^\\s*Include\" \"$HOME/.ssh/config\" |\n\t\t\tawk '{for (i=2; i<=NF; i++) print $i}' |\n\t\t\tsed -Ee \"s|^([^/~])|$HOME/.ssh/\\1|\"); do\n\t\techo \"$fl\"\n\tdone\n}\n";
     }
 
-    #[test]
-    fn preserves_multiline_single_quoted_argument_payload_indentation() {
-        let source = "cat \"$@\" |\n  python -c '\nfrom __future__ import print_function\nprint(\"ok\")\n'\n";
-        assert_formats_default_with_ast(
-            source,
-            "cat \"$@\" |\n\tpython -c '\nfrom __future__ import print_function\nprint(\"ok\")\n'\n",
-        );
-    }
-
-    #[test]
-    fn preserves_command_substitution_padding_inside_single_quotes() {
-        let source = "echo >>$TOOLS 'x=$( uptime_in_seconds )'\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_multiline_assignment_payload_indentation() {
-        let source = "if true; then\n  section+=\"\n$line\"\nfi\n";
-        assert_formats_default_with_ast(source, "if true; then\n\tsection+=\"\n$line\"\nfi\n");
-    }
-
-    #[test]
-    fn removes_unquoted_assignment_continuation_backslashes() {
-        let source = "packages=$one\\\n$two\\\n$three\n";
-        assert_formats_default_with_ast(source, "packages=$one$two$three\n");
-    }
-
-    #[test]
-    fn preserves_multiline_assignment_continuation_payload_indentation() {
-        let source = "if true; then\n  INCLUDE_TESTS=\"boot_services kernel \\\n                           filesystems usb \\\n                           hardening\"\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if true; then\n\tINCLUDE_TESTS=\"boot_services kernel \\\n                           filesystems usb \\\n                           hardening\"\nfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_multiline_quoted_assignment_payloads_with_nested_expansions() {
-        let source = "result_command=\"${result_command}\n\t--label \\\"manager=distrobox\\\"\n\t--env \\\"SHELL=$(basename \"${SHELL:-\"/bin/bash\"}\")\\\"\n\t--env \\\"HOME=${container_user_home}\\\"\"\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_inline_multiline_command_substitution_source_indentation() {
-        let source = "result_command=\"${result_command}\n\t\t$(printenv | grep '=' |\n\t\tgrep -Ev '^_' |\n\t\tsed 's/x/y/')\"\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn normalizes_multiline_command_substitution_arguments() {
-        let source = "_comp_compgen_split -- \"$(\"$1\" -watchdog help 2>&1 |\n                _comp_awk '{print $1}')\"\n";
-        assert_formats_default_with_ast(
-            source,
-            "_comp_compgen_split -- \"$(\"$1\" -watchdog help 2>&1 |\n\t_comp_awk '{print $1}')\"\n",
-        );
-    }
-
-    #[test]
-    fn indents_inline_command_substitution_pipeline_words() {
-        let source = "f() {\n  for fl in \"$HOME/.ssh/config\" \\\n    $(grep \"^\\s*Include\" \"$HOME/.ssh/config\" |\n      awk '{for (i=2; i<=NF; i++) print $i}' |\n      sed -Ee \"s|^([^/~])|$HOME/.ssh/\\1|\"); do\n    echo \"$fl\"\n  done\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "f() {\n\tfor fl in \"$HOME/.ssh/config\" \\\n\t\t$(grep \"^\\s*Include\" \"$HOME/.ssh/config\" |\n\t\t\tawk '{for (i=2; i<=NF; i++) print $i}' |\n\t\t\tsed -Ee \"s|^([^/~])|$HOME/.ssh/\\1|\"); do\n\t\techo \"$fl\"\n\tdone\n}\n",
-        );
+    default_unchanged_ast_cases! {
+        preserves_command_substitution_padding_inside_single_quotes:
+            "echo >>$TOOLS 'x=$( uptime_in_seconds )'\n";
+        preserves_multiline_quoted_assignment_payloads_with_nested_expansions:
+            "result_command=\"${result_command}\n\t--label \\\"manager=distrobox\\\"\n\t--env \\\"SHELL=$(basename \"${SHELL:-\"/bin/bash\"}\")\\\"\n\t--env \\\"HOME=${container_user_home}\\\"\"\n";
+        preserves_inline_multiline_command_substitution_source_indentation:
+            "result_command=\"${result_command}\n\t\t$(printenv | grep '=' |\n\t\tgrep -Ev '^_' |\n\t\tsed 's/x/y/')\"\n";
     }
 
     #[test]
