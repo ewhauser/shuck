@@ -396,6 +396,26 @@ pub(crate) fn skip_double_quoted(source: &str, mut offset: usize, upper: usize) 
     offset
 }
 
+pub(crate) fn skip_escaped_or_quoted(
+    source: &str,
+    offset: usize,
+    upper: usize,
+    ch: char,
+) -> Option<usize> {
+    let next = offset + ch.len_utf8();
+    match ch {
+        '\\' => Some(
+            source[next..upper]
+                .chars()
+                .next()
+                .map_or(next, |escaped| next + escaped.len_utf8()),
+        ),
+        '\'' => Some(skip_single_quoted(source, next, upper)),
+        '"' => Some(skip_double_quoted(source, next, upper)),
+        _ => None,
+    }
+}
+
 pub(crate) fn normalized_close_keyword_span(
     source: &str,
     source_map: &SourceMap<'_>,

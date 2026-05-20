@@ -5,7 +5,7 @@ use crate::scan::{
     branch_keyword_offset, close_suffix_comment_offsets, last_shell_keyword_start,
     last_uncommented_shell_keyword_before, leading_shell_indent, matching_done_close_start,
     matching_if_close_start, normalized_close_keyword_span, refine_common_indent,
-    shell_comment_can_start, skip_double_quoted, skip_single_quoted,
+    shell_comment_can_start, skip_escaped_or_quoted,
 };
 use crate::word::{
     matching_raw_command_substitution_close, normalize_raw_pipeline_continuations,
@@ -1452,29 +1452,15 @@ fn find_group_open_offset_between(
     while offset < upper {
         let tail = &source[offset..upper];
         let ch = tail.chars().next()?;
-        match ch {
-            '\\' => {
-                offset += ch.len_utf8();
-                if let Some(escaped) = source[offset..upper].chars().next() {
-                    offset += escaped.len_utf8();
-                }
-                continue;
-            }
-            '\'' => {
-                offset = skip_single_quoted(source, offset + ch.len_utf8(), upper);
-                continue;
-            }
-            '"' => {
-                offset = skip_double_quoted(source, offset + ch.len_utf8(), upper);
-                continue;
-            }
-            '#' if shell_comment_can_start(source, offset) => {
-                offset = tail
-                    .find('\n')
-                    .map_or(upper, |newline| offset + newline + 1);
-                continue;
-            }
-            _ => {}
+        if let Some(next) = skip_escaped_or_quoted(source, offset, upper, ch) {
+            offset = next;
+            continue;
+        }
+        if ch == '#' && shell_comment_can_start(source, offset) {
+            offset = tail
+                .find('\n')
+                .map_or(upper, |newline| offset + newline + 1);
+            continue;
         }
 
         if ch == open {
@@ -1526,24 +1512,12 @@ fn find_group_open_offset_on_line(
     while offset < line_end {
         let ch = source[offset..].chars().next()?;
 
-        match ch {
-            '\\' => {
-                offset += ch.len_utf8();
-                if let Some(escaped) = source[offset..line_end].chars().next() {
-                    offset += escaped.len_utf8();
-                }
-                continue;
-            }
-            '\'' => {
-                offset = skip_single_quoted(source, offset + ch.len_utf8(), line_end);
-                continue;
-            }
-            '"' => {
-                offset = skip_double_quoted(source, offset + ch.len_utf8(), line_end);
-                continue;
-            }
-            '#' if shell_comment_can_start(source, offset) => break,
-            _ => {}
+        if let Some(next) = skip_escaped_or_quoted(source, offset, line_end, ch) {
+            offset = next;
+            continue;
+        }
+        if ch == '#' && shell_comment_can_start(source, offset) {
+            break;
         }
 
         if ch == open {
