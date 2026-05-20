@@ -1187,6 +1187,14 @@ fn render_word_part(
         WordPart::CommandSubstitution { body, syntax } => {
             if let Some(raw) = raw_source_slice(span, source) {
                 let raw = raw_dollar_command_substitution_slice(raw).unwrap_or(raw);
+                let layout = command_substitution_layout(
+                    Some(raw),
+                    body,
+                    source,
+                    options.dialect(),
+                    false,
+                    context.source_indented_inline_command_substitution,
+                );
                 if raw_dollar_command_substitution_body(raw)
                     .is_some_and(raw_body_contains_pipeline_multistatement_brace_group)
                     && let Some(block) =
@@ -1202,14 +1210,7 @@ fn render_word_part(
                             span.end.offset,
                             source,
                             options,
-                            command_substitution_layout(
-                                Some(raw),
-                                body,
-                                source,
-                                options.dialect(),
-                                false,
-                                context.source_indented_inline_command_substitution,
-                            ),
+                            layout,
                             1,
                             Some(raw),
                             source_map,
@@ -1254,14 +1255,7 @@ fn render_word_part(
                     span.end.offset,
                     source,
                     options,
-                    command_substitution_layout(
-                        Some(raw),
-                        body,
-                        source,
-                        options.dialect(),
-                        false,
-                        context.source_indented_inline_command_substitution,
-                    ),
+                    layout,
                     1,
                     Some(raw),
                     source_map,
