@@ -736,7 +736,21 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     active_heredoc = None;
                 }
             } else {
-                active_heredoc = self.write_heredoc_tail_start_or_line(line, mode);
+                let heredoc = rendered_heredoc_tail_start(line);
+                let normalized = heredoc
+                    .is_some()
+                    .then(|| normalize_rendered_heredoc_start_spacing(line))
+                    .flatten();
+                let line = if self.options().space_redirects() {
+                    line
+                } else {
+                    normalized.as_deref().unwrap_or(line)
+                };
+                match mode {
+                    HeredocTailTextMode::Rendered => self.write_text(line),
+                    HeredocTailTextMode::Assignment => self.write_verbatim(line),
+                }
+                active_heredoc = heredoc;
             }
 
             if had_newline {
@@ -745,28 +759,6 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             }
             rest = next;
         }
-    }
-
-    fn write_heredoc_tail_start_or_line(
-        &mut self,
-        line: &str,
-        mode: HeredocTailTextMode,
-    ) -> Option<RenderedHeredocTail> {
-        let heredoc = rendered_heredoc_tail_start(line);
-        let normalized = heredoc
-            .is_some()
-            .then(|| normalize_rendered_heredoc_start_spacing(line))
-            .flatten();
-        let line = if self.options().space_redirects() {
-            line
-        } else {
-            normalized.as_deref().unwrap_or(line)
-        };
-        match mode {
-            HeredocTailTextMode::Rendered => self.write_text(line),
-            HeredocTailTextMode::Assignment => self.write_verbatim(line),
-        }
-        heredoc
     }
 
     fn write_verbatim(&mut self, text: &str) {
