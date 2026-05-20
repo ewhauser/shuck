@@ -310,12 +310,21 @@ pub struct SequenceCommentAttachment<'a> {
 }
 
 impl<'a> SequenceCommentAttachment<'a> {
-    fn new(child_count: usize) -> Self {
+    pub(crate) fn new(child_count: usize) -> Self {
         Self {
             leading: vec![Vec::new(); child_count],
             trailing: vec![Vec::new(); child_count],
             dangling: Vec::new(),
             ambiguous: false,
+        }
+    }
+
+    pub(crate) fn with_dangling(dangling: Vec<SourceComment<'a>>, ambiguous: bool) -> Self {
+        Self {
+            leading: Vec::new(),
+            trailing: Vec::new(),
+            dangling,
+            ambiguous,
         }
     }
 
@@ -345,18 +354,6 @@ impl<'a> SequenceCommentAttachment<'a> {
             || !self.dangling.is_empty()
             || self.leading.iter().any(|comments| !comments.is_empty())
             || self.trailing.iter().any(|comments| !comments.is_empty())
-    }
-
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn into_parts(
-        self,
-    ) -> (
-        Vec<Vec<SourceComment<'a>>>,
-        Vec<Vec<SourceComment<'a>>>,
-        Vec<SourceComment<'a>>,
-        bool,
-    ) {
-        (self.leading, self.trailing, self.dangling, self.ambiguous)
     }
 }
 

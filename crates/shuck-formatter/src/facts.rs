@@ -22,7 +22,8 @@ use crate::command::{
     stmt_verbatim_span_with_source_map,
 };
 use crate::comments::{
-    SourceComment, SourceMap, inspect_sequence_comments_in_window, span_contains_comment,
+    SequenceCommentAttachment, SourceComment, SourceMap, inspect_sequence_comments_in_window,
+    span_contains_comment,
 };
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
@@ -99,10 +100,7 @@ impl StmtFacts {
 
 #[derive(Debug, Clone)]
 pub(crate) struct SequenceFacts<'source> {
-    leading: Vec<Vec<SourceComment<'source>>>,
-    trailing: Vec<Vec<SourceComment<'source>>>,
-    dangling: Vec<SourceComment<'source>>,
-    ambiguous: bool,
+    comments: SequenceCommentAttachment<'source>,
     first_rendered_lines: Vec<usize>,
     group_open_suffix_span: Option<Span>,
 }
@@ -110,36 +108,30 @@ pub(crate) struct SequenceFacts<'source> {
 impl<'source> SequenceFacts<'source> {
     fn new(child_count: usize) -> Self {
         Self {
-            leading: vec![Vec::new(); child_count],
-            trailing: vec![Vec::new(); child_count],
-            dangling: Vec::new(),
-            ambiguous: false,
+            comments: SequenceCommentAttachment::new(child_count),
             first_rendered_lines: vec![0; child_count],
             group_open_suffix_span: None,
         }
     }
 
     pub(crate) fn leading_for(&self, index: usize) -> &[SourceComment<'source>] {
-        self.leading.get(index).map_or(&[], Vec::as_slice)
+        self.comments.leading_for(index)
     }
 
     pub(crate) fn trailing_for(&self, index: usize) -> &[SourceComment<'source>] {
-        self.trailing.get(index).map_or(&[], Vec::as_slice)
+        self.comments.trailing_for(index)
     }
 
     pub(crate) fn dangling(&self) -> &[SourceComment<'source>] {
-        &self.dangling
+        self.comments.dangling()
     }
 
     pub(crate) fn is_ambiguous(&self) -> bool {
-        self.ambiguous
+        self.comments.is_ambiguous()
     }
 
     pub(crate) fn has_comments(&self) -> bool {
-        self.ambiguous
-            || !self.dangling.is_empty()
-            || self.leading.iter().any(|comments| !comments.is_empty())
-            || self.trailing.iter().any(|comments| !comments.is_empty())
+        self.comments.has_comments()
     }
 
     pub(crate) fn first_rendered_line_for(&self, index: usize) -> usize {
@@ -378,7 +370,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         let comment_window = self.comment_window(lower_bound, sequence_limit);
 
         if sequence.is_empty() {
-            facts.dangling = comment_window
+            let dangling: Vec<_> = comment_window
                 .iter()
                 .copied()
                 .filter(|comment| {
@@ -390,7 +382,8 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                         .is_none_or(|span| !span_contains_comment(span, *comment))
                 })
                 .collect();
-            facts.ambiguous = facts.dangling.iter().any(SourceComment::inline);
+            let ambiguous = dangling.iter().any(SourceComment::inline);
+            facts.comments = SequenceCommentAttachment::with_dangling(dangling, ambiguous);
         } else {
             let child_spans = sequence
                 .iter()
@@ -402,14 +395,12 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 sequence_limit,
                 facts.group_open_suffix_span,
             );
-            let (leading, trailing, dangling, ambiguous) = attachment.into_parts();
-            facts.leading = leading;
-            facts.trailing = trailing;
-            facts.dangling = dangling;
-            facts.ambiguous = ambiguous;
+            facts.comments = attachment;
 
             for (index, stmt) in sequence.iter().enumerate() {
-                facts.first_rendered_lines[index] = facts.leading[index]
+                facts.first_rendered_lines[index] = facts
+                    .comments
+                    .leading_for(index)
                     .first()
                     .map(SourceComment::line)
                     .unwrap_or(stmt_render_start_line(
