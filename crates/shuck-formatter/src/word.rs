@@ -1875,27 +1875,14 @@ fn render_command_substitution(
     facts: Option<&FormatterFacts<'_>>,
 ) -> Option<()> {
     let mut nested = String::new();
-    let owned_facts;
-    let facts = match facts {
-        Some(facts) => facts,
-        None => {
-            let file = shuck_ast::File {
-                body: body.clone(),
-                span: body.span,
-            };
-            owned_facts = FormatterFacts::build(source, &file, options);
-            &owned_facts
-        }
-    };
-    format_stmt_sequence_streaming_to_buf(
+    format_nested_stmt_sequence_to_buf(
         source,
         body,
         options,
         facts,
         Some(upper_bound),
         &mut nested,
-    )
-    .ok()?;
+    )?;
 
     let trimmed = trim_trailing_line_endings(&nested);
     let normalized_backtick_body;
@@ -1959,6 +1946,29 @@ fn render_command_substitution(
     }
 
     Some(())
+}
+
+fn format_nested_stmt_sequence_to_buf(
+    source: &str,
+    body: &StmtSeq,
+    options: &ResolvedShellFormatOptions,
+    facts: Option<&FormatterFacts<'_>>,
+    upper_bound: Option<usize>,
+    rendered: &mut String,
+) -> Option<()> {
+    let owned_facts;
+    let facts = match facts {
+        Some(facts) => facts,
+        None => {
+            let file = shuck_ast::File {
+                body: body.clone(),
+                span: body.span,
+            };
+            owned_facts = FormatterFacts::build(source, &file, options);
+            &owned_facts
+        }
+    };
+    format_stmt_sequence_streaming_to_buf(source, body, options, facts, upper_bound, rendered).ok()
 }
 
 fn restore_trailing_escaped_horizontal_whitespace(
@@ -2172,20 +2182,14 @@ fn render_heredoc_body_command_substitution(
     }
 
     let mut nested = String::new();
-    let file = shuck_ast::File {
-        body: body.clone(),
-        span: body.span,
-    };
-    let facts = FormatterFacts::build(source, &file, options);
-    format_stmt_sequence_streaming_to_buf(
+    format_nested_stmt_sequence_to_buf(
         source,
         body,
         options,
-        &facts,
+        None,
         Some(upper_bound),
         &mut nested,
-    )
-    .ok()?;
+    )?;
     let trimmed = trim_trailing_line_endings(&nested);
     if trimmed.is_empty() {
         rendered.push_str("$()");
@@ -2297,17 +2301,8 @@ fn expand_inline_pipeline_brace_group_body(
         return None;
     }
 
-    let facts = FormatterFacts::build(body, &parsed.file, options);
     let mut nested = String::new();
-    format_stmt_sequence_streaming_to_buf(
-        body,
-        &parsed.file.body,
-        options,
-        &facts,
-        None,
-        &mut nested,
-    )
-    .ok()?;
+    format_nested_stmt_sequence_to_buf(body, &parsed.file.body, options, None, None, &mut nested)?;
     let trimmed = trim_trailing_line_endings(&nested);
     trimmed.contains('\n').then(|| trimmed.to_string())
 }
@@ -3444,17 +3439,8 @@ fn render_inline_raw_command_substitution_as_block(
         return None;
     }
 
-    let facts = FormatterFacts::build(body, &parsed.file, options);
     let mut nested = String::new();
-    format_stmt_sequence_streaming_to_buf(
-        body,
-        &parsed.file.body,
-        options,
-        &facts,
-        None,
-        &mut nested,
-    )
-    .ok()?;
+    format_nested_stmt_sequence_to_buf(body, &parsed.file.body, options, None, None, &mut nested)?;
     let trimmed = trim_trailing_line_endings(&nested);
     if trimmed.is_empty() {
         return Some("$()".to_string());
@@ -4503,27 +4489,14 @@ fn render_process_substitution(
 ) -> Option<()> {
     let has_heredoc = stmt_seq_has_heredoc(body);
     let mut nested = String::new();
-    let owned_facts;
-    let facts = match facts {
-        Some(facts) => facts,
-        None => {
-            let file = shuck_ast::File {
-                body: body.clone(),
-                span: body.span,
-            };
-            owned_facts = FormatterFacts::build(source, &file, options);
-            &owned_facts
-        }
-    };
-    format_stmt_sequence_streaming_to_buf(
+    format_nested_stmt_sequence_to_buf(
         source,
         body,
         options,
         facts,
         span.end.offset.checked_sub(1),
         &mut nested,
-    )
-    .ok()?;
+    )?;
 
     let prefix = if is_input { '<' } else { '>' };
     let trimmed = trim_trailing_line_endings(&nested);
@@ -5801,17 +5774,15 @@ fn normalize_inline_parameter_command_substitution_body(
         return None;
     }
 
-    let facts = FormatterFacts::build(trimmed, &parsed.file, options);
     let mut nested = String::new();
-    format_stmt_sequence_streaming_to_buf(
+    format_nested_stmt_sequence_to_buf(
         trimmed,
         &parsed.file.body,
         options,
-        &facts,
+        None,
         None,
         &mut nested,
-    )
-    .ok()?;
+    )?;
     let formatted = trim_trailing_line_endings(&nested);
     (!formatted.is_empty() && !formatted.contains('\n')).then(|| formatted.to_string())
 }
