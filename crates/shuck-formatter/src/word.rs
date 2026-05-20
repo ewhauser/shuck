@@ -467,8 +467,9 @@ fn render_word_syntax_internal(
     preserve_escaped_multiline_words: bool,
     rendered: &mut String,
 ) {
-    if !options.simplify()
-        && !options.minify()
+    let preserve_raw = !options.simplify() && !options.minify();
+
+    if preserve_raw
         && !word_is_single_quoted_only(word)
         && let Some(raw) = raw_word_source_slice(word, source)
         && let Some(normalized) = normalize_raw_command_substitution_padding(raw)
@@ -490,8 +491,7 @@ fn render_word_syntax_internal(
         return;
     }
 
-    if !options.simplify()
-        && !options.minify()
+    if preserve_raw
         && let Some(raw) = raw_word_source_slice(word, source)
         && raw_single_line_escaped_quote_command_substitution_should_preserve(raw)
     {
@@ -499,8 +499,7 @@ fn render_word_syntax_internal(
         return;
     }
 
-    if !options.simplify()
-        && !options.minify()
+    if preserve_raw
         && let Some(raw) = raw_word_source_slice(word, source)
         && let Some(normalized) = normalize_raw_compound_assignment_word_continuations(raw)
     {
@@ -508,8 +507,7 @@ fn render_word_syntax_internal(
         return;
     }
 
-    if !options.simplify()
-        && !options.minify()
+    if preserve_raw
         && !word_needs_special_rendering(word)
         && let Some(raw) = raw_word_source_slice(word, source)
         && let Some(normalized) = normalize_raw_unquoted_word_continuations(raw)
@@ -518,8 +516,7 @@ fn render_word_syntax_internal(
         return;
     }
 
-    if !options.simplify()
-        && !options.minify()
+    if preserve_raw
         && let Some(raw) = raw_word_source_slice(word, source)
         && let Some(normalized) = normalize_raw_empty_parameter_replacement_delimiters(raw)
     {
@@ -527,8 +524,7 @@ fn render_word_syntax_internal(
         return;
     }
 
-    if !options.simplify()
-        && !options.minify()
+    if preserve_raw
         && let Some(raw) = raw_word_source_slice(word, source)
         && (word_has_multiline_double_quoted_source(word, source)
             || (raw.starts_with('"') && raw.contains("\\\n")))
@@ -542,11 +538,7 @@ fn render_word_syntax_internal(
         return;
     }
 
-    if word_needs_special_rendering(word)
-        || word_has_parameter_raw_subscript_needs_compaction(word, source, options)
-        || word_has_parameter_command_redirect_spacing_needs_normalization(word, source)
-        || word_has_arithmetic_expansion_source_needs_trim(word, source)
-    {
+    if word_needs_formatter_rendering(word, source, options) {
         let start = rendered.len();
         if render_word_parts(
             word.parts.as_slice(),
@@ -561,8 +553,7 @@ fn render_word_syntax_internal(
         {
             unreachable!("writing into a String should not fail");
         }
-        if !options.simplify()
-            && !options.minify()
+        if preserve_raw
             && let Some(slice) = raw_word_source_slice(word, source)
             && should_preserve_special_rendered_raw_syntax(slice, &rendered[start..])
         {
@@ -572,8 +563,7 @@ fn render_word_syntax_internal(
         return;
     }
 
-    if !options.simplify()
-        && !options.minify()
+    if preserve_raw
         && let Some(slice) = raw_word_source_slice(word, source)
         && could_need_preserve_raw_syntax(slice)
     {
@@ -653,14 +643,27 @@ fn word_needs_special_rendering(word: &Word) -> bool {
     })
 }
 
-fn word_has_parameter_raw_subscript_needs_compaction(
+fn word_needs_formatter_rendering(
     word: &Word,
     source: &str,
     options: &ResolvedShellFormatOptions,
 ) -> bool {
     word_part_nodes_any(&word.parts, &mut |part| {
-        word_part_has_parameter_raw_subscript_needs_compaction(&part.kind, source, options)
+        word_part_needs_formatter_rendering(part, source, options)
     })
+}
+
+fn word_part_needs_formatter_rendering(
+    part: &WordPartNode,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+) -> bool {
+    part_needs_special_rendering(&part.kind)
+        || word_part_has_parameter_raw_subscript_needs_compaction(&part.kind, source, options)
+        || word_part_has_parameter_command_redirect_spacing_needs_normalization(
+            &part.kind, part.span, source,
+        )
+        || word_part_has_arithmetic_expansion_source_needs_trim(&part.kind, source)
 }
 
 fn word_part_has_parameter_raw_subscript_needs_compaction(
@@ -676,17 +679,6 @@ fn word_part_has_parameter_raw_subscript_needs_compaction(
     }
 }
 
-fn word_has_parameter_command_redirect_spacing_needs_normalization(
-    word: &Word,
-    source: &str,
-) -> bool {
-    word_part_nodes_any(&word.parts, &mut |part| {
-        word_part_has_parameter_command_redirect_spacing_needs_normalization(
-            &part.kind, part.span, source,
-        )
-    })
-}
-
 fn word_part_has_parameter_command_redirect_spacing_needs_normalization(
     part: &WordPart,
     span: shuck_ast::Span,
@@ -698,12 +690,6 @@ fn word_part_has_parameter_command_redirect_spacing_needs_normalization(
         }
         _ => false,
     }
-}
-
-fn word_has_arithmetic_expansion_source_needs_trim(word: &Word, source: &str) -> bool {
-    word_part_nodes_any(&word.parts, &mut |part| {
-        word_part_has_arithmetic_expansion_source_needs_trim(&part.kind, source)
-    })
 }
 
 fn word_part_has_arithmetic_expansion_source_needs_trim(part: &WordPart, source: &str) -> bool {
@@ -1637,15 +1623,8 @@ fn preferred_raw_word_part_source<'a>(
         WordPart::SingleQuoted { .. } => raw_source_slice(span, source),
         WordPart::DoubleQuoted { parts, .. } => {
             let raw = raw_source_slice(span, source)?;
-            let has_formattable_parts = parts.iter().any(|part| {
-                part_needs_special_rendering(&part.kind)
-                    || word_part_has_parameter_raw_subscript_needs_compaction(
-                        &part.kind, source, options,
-                    )
-                    || word_part_has_parameter_command_redirect_spacing_needs_normalization(
-                        &part.kind, part.span, source,
-                    )
-                    || word_part_has_arithmetic_expansion_source_needs_trim(&part.kind, source)
+            let has_formattable_parts = word_part_nodes_any(parts, &mut |part| {
+                word_part_needs_formatter_rendering(part, source, options)
             });
             (!has_formattable_parts).then_some(raw)
         }
