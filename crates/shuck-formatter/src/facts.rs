@@ -13,12 +13,12 @@ use shuck_indexer::Indexer;
 
 use crate::command::{
     array_elem_parts, case_item_body_upper_bound, case_item_was_inline_in_source,
-    collect_pipeline_parts, command_group_commands, done_close_span, group_attachment_span,
-    group_open_suffix, group_was_inline_in_source, if_close_span,
-    if_next_branch_region_with_body_end, matching_group_close, rendered_stmt_end_line,
-    should_render_verbatim, stmt_attachment_span, stmt_format_span, stmt_has_trailing_comment,
-    stmt_render_start_line, stmt_span, stmt_start_after_operator,
-    stmt_verbatim_span_with_source_map,
+    collect_binary_list_first as collect_binary_list_first_with, collect_pipeline_parts,
+    command_group_commands, done_close_span, group_attachment_span, group_open_suffix,
+    group_was_inline_in_source, if_close_span, if_next_branch_region_with_body_end,
+    matching_group_close, rendered_stmt_end_line, should_render_verbatim, stmt_attachment_span,
+    stmt_format_span, stmt_has_trailing_comment, stmt_render_start_line, stmt_span,
+    stmt_start_after_operator, stmt_verbatim_span_with_source_map,
 };
 use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_window};
 use crate::options::ResolvedShellFormatOptions;
@@ -1169,26 +1169,10 @@ fn collect_command_list_first<'a>(
     command: &'a BinaryCommand,
     rest: &mut Vec<BinaryListItemFact<'a>>,
 ) -> &'a Stmt {
-    if let Command::Binary(left_binary) = &command.left.command
-        && command.left.redirects.is_empty()
-        && !command.left.negated
-        && command.left.terminator.is_none()
-        && matches!(left_binary.op, BinaryOp::And | BinaryOp::Or)
-    {
-        let first = collect_command_list_first(left_binary, rest);
-        rest.push(BinaryListItemFact {
-            operator_span: command.op_span,
-            stmt: command.right.as_ref(),
-        });
-        return first;
-    }
-
-    let first = command.left.as_ref();
-    rest.push(BinaryListItemFact {
+    collect_binary_list_first_with(command, rest, &|command| BinaryListItemFact {
         operator_span: command.op_span,
         stmt: command.right.as_ref(),
-    });
-    first
+    })
 }
 
 fn stmt_is_multiline_conditional(stmt: &Stmt) -> bool {

@@ -13,7 +13,7 @@ use crate::word::{
 };
 use shuck_ast::{
     AnonymousFunctionCommand, ArithmeticExprNode, ArrayElem, Assignment, AssignmentValue,
-    BackgroundOperator, BinaryCommand, BuiltinCommand, CaseItem, CaseTerminator, Command,
+    BackgroundOperator, BinaryCommand, BinaryOp, BuiltinCommand, CaseItem, CaseTerminator, Command,
     CompoundCommand, DeclClause, DeclOperand, ForSyntax, ForeachSyntax, FunctionDef, IfCommand,
     IfSyntax, Redirect, RedirectKind, RepeatSyntax, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
     StmtTerminator, Subscript, VarRef, Word, WordPart,
@@ -1130,6 +1130,27 @@ fn stmt_plain_pipeline_binary(stmt: &Stmt) -> Option<&BinaryCommand> {
     } else {
         None
     }
+}
+
+pub(crate) fn collect_binary_list_first<'a, T>(
+    command: &'a BinaryCommand,
+    rest: &mut Vec<T>,
+    item_for: &impl Fn(&'a BinaryCommand) -> T,
+) -> &'a Stmt {
+    if let Command::Binary(left_binary) = &command.left.command
+        && command.left.redirects.is_empty()
+        && !command.left.negated
+        && command.left.terminator.is_none()
+        && matches!(left_binary.op, BinaryOp::And | BinaryOp::Or)
+    {
+        let first = collect_binary_list_first(left_binary, rest, item_for);
+        rest.push(item_for(command));
+        return first;
+    }
+
+    let first = command.left.as_ref();
+    rest.push(item_for(command));
+    first
 }
 
 fn command_group_attachment_span(

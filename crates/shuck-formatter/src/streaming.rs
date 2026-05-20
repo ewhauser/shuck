@@ -16,9 +16,9 @@ use shuck_format::{IndentStyle, LineEnding};
 use crate::Result;
 use crate::command::{
     array_elem_parts, binary_operator, case_item_body_upper_bound, case_terminator,
-    collect_pipeline_parts, command_format_span, command_group_commands,
-    done_close_span as command_done_close_span, format_arithmetic_command_source,
-    format_arithmetic_for_clause_source, group_attachment_span,
+    collect_binary_list_first as collect_binary_list_first_with, collect_pipeline_parts,
+    command_format_span, command_group_commands, done_close_span as command_done_close_span,
+    format_arithmetic_command_source, format_arithmetic_for_clause_source, group_attachment_span,
     if_close_span as command_if_close_span, if_next_branch_region_with_body_end,
     line_gap_break_count, line_has_unclosed_command_substitution_open, matching_group_close,
     multiline_compound_assignment_command_substitution_body_prefix,
@@ -8198,28 +8198,11 @@ fn collect_command_list_first<'a>(
     command: &'a BinaryCommand,
     rest: &mut Vec<BinaryListItem<'a>>,
 ) -> &'a Stmt {
-    if let Command::Binary(left_binary) = &command.left.command
-        && command.left.redirects.is_empty()
-        && !command.left.negated
-        && command.left.terminator.is_none()
-        && matches!(left_binary.op, BinaryOp::And | BinaryOp::Or)
-    {
-        let first = collect_command_list_first(left_binary, rest);
-        rest.push(BinaryListItem {
-            operator: command.op,
-            operator_span: command.op_span,
-            stmt: &command.right,
-        });
-        return first;
-    }
-
-    let first = command.left.as_ref();
-    rest.push(BinaryListItem {
+    collect_binary_list_first_with(command, rest, &|command| BinaryListItem {
         operator: command.op,
         operator_span: command.op_span,
-        stmt: &command.right,
-    });
-    first
+        stmt: command.right.as_ref(),
+    })
 }
 
 fn list_item_separator(operator: BinaryOp, inline: bool) -> &'static str {
