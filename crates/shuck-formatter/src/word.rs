@@ -4986,11 +4986,8 @@ pub(crate) fn render_arithmetic_expr_to_buf(
         rendered,
         expr,
         ArithmeticContext::TopLevel,
-        source,
-        options,
         false,
-        None,
-        None,
+        ArithmeticRenderEnv::new(source, options, None, None),
     );
 }
 
@@ -5005,11 +5002,8 @@ fn render_arithmetic_subscript_expr_to_buf(
         rendered,
         expr,
         ArithmeticContext::Subscript,
-        source,
-        options,
         compact,
-        None,
-        None,
+        ArithmeticRenderEnv::new(source, options, None, None),
     );
 }
 
@@ -5025,15 +5019,36 @@ enum ArithmeticContext {
     Subscript,
 }
 
+#[derive(Clone, Copy)]
+struct ArithmeticRenderEnv<'source, 'a> {
+    source: &'source str,
+    options: &'a ResolvedShellFormatOptions,
+    source_map: Option<&'a SourceMap<'source>>,
+    facts: Option<&'a FormatterFacts<'source>>,
+}
+
+impl<'source, 'a> ArithmeticRenderEnv<'source, 'a> {
+    fn new(
+        source: &'source str,
+        options: &'a ResolvedShellFormatOptions,
+        source_map: Option<&'a SourceMap<'source>>,
+        facts: Option<&'a FormatterFacts<'source>>,
+    ) -> Self {
+        Self {
+            source,
+            options,
+            source_map,
+            facts,
+        }
+    }
+}
+
 fn push_arithmetic_expr(
     rendered: &mut String,
     expr: &ArithmeticExprNode,
     context: ArithmeticContext,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
     compact: bool,
-    source_map: Option<&SourceMap<'_>>,
-    facts: Option<&FormatterFacts<'_>>,
+    env: ArithmeticRenderEnv<'_, '_>,
 ) {
     let needs_parentheses = arithmetic_needs_parentheses(expr, context);
     if needs_parentheses {
@@ -5041,25 +5056,22 @@ fn push_arithmetic_expr(
     }
 
     match &expr.kind {
-        ArithmeticExpr::Number(number) => rendered.push_str(number.slice(source)),
+        ArithmeticExpr::Number(number) => rendered.push_str(number.slice(env.source)),
         ArithmeticExpr::Variable(name) => rendered.push_str(name),
         ArithmeticExpr::Indexed { name, index } => {
             rendered.push_str(name);
             rendered.push('[');
-            push_arithmetic_expr(
-                rendered,
-                index,
-                ArithmeticContext::Subscript,
-                source,
-                options,
-                true,
-                source_map,
-                facts,
-            );
+            push_arithmetic_expr(rendered, index, ArithmeticContext::Subscript, true, env);
             rendered.push(']');
         }
         ArithmeticExpr::ShellWord(word) => {
-            let word = render_arithmetic_shell_word(word, source, options, source_map, facts);
+            let word = render_arithmetic_shell_word(
+                word,
+                env.source,
+                env.options,
+                env.source_map,
+                env.facts,
+            );
             if compact {
                 rendered.push_str(&compact_dynamic_arithmetic_subscript(
                     word.trim_matches([' ', '\t', '\r']),
@@ -5074,51 +5086,21 @@ fn push_arithmetic_expr(
                 rendered,
                 expression,
                 ArithmeticContext::TopLevel,
-                source,
-                options,
                 compact,
-                source_map,
-                facts,
+                env,
             );
             rendered.push(')');
         }
         ArithmeticExpr::Unary { op, expr } => {
             rendered.push_str(arithmetic_unary_operator(*op));
-            push_arithmetic_expr(
-                rendered,
-                expr,
-                ArithmeticContext::Unary,
-                source,
-                options,
-                compact,
-                source_map,
-                facts,
-            );
+            push_arithmetic_expr(rendered, expr, ArithmeticContext::Unary, compact, env);
         }
         ArithmeticExpr::Postfix { expr, op } => {
-            push_arithmetic_expr(
-                rendered,
-                expr,
-                ArithmeticContext::Postfix,
-                source,
-                options,
-                compact,
-                source_map,
-                facts,
-            );
+            push_arithmetic_expr(rendered, expr, ArithmeticContext::Postfix, compact, env);
             rendered.push_str(arithmetic_postfix_operator(*op));
         }
         ArithmeticExpr::Binary { left, op, right } => {
-            push_arithmetic_expr(
-                rendered,
-                left,
-                ArithmeticContext::Binary(*op),
-                source,
-                options,
-                compact,
-                source_map,
-                facts,
-            );
+            push_arithmetic_expr(rendered, left, ArithmeticContext::Binary(*op), compact, env);
             if !compact {
                 rendered.push(' ');
             }
@@ -5130,11 +5112,8 @@ fn push_arithmetic_expr(
                 rendered,
                 right,
                 ArithmeticContext::Binary(*op),
-                source,
-                options,
                 compact,
-                source_map,
-                facts,
+                env,
             );
         }
         ArithmeticExpr::Conditional {
@@ -5146,37 +5125,28 @@ fn push_arithmetic_expr(
                 rendered,
                 condition,
                 ArithmeticContext::ConditionalCondition,
-                source,
-                options,
                 compact,
-                source_map,
-                facts,
+                env,
             );
             rendered.push_str(if compact { "?" } else { " ? " });
             push_arithmetic_expr(
                 rendered,
                 then_expr,
                 ArithmeticContext::ConditionalBranch,
-                source,
-                options,
                 compact,
-                source_map,
-                facts,
+                env,
             );
             rendered.push_str(if compact { ":" } else { " : " });
             push_arithmetic_expr(
                 rendered,
                 else_expr,
                 ArithmeticContext::ConditionalBranch,
-                source,
-                options,
                 compact,
-                source_map,
-                facts,
+                env,
             );
         }
         ArithmeticExpr::Assignment { target, op, value } => {
-            push_arithmetic_lvalue(rendered, target, source, options, source_map, facts);
+            push_arithmetic_lvalue(rendered, target, env);
             if !compact {
                 rendered.push(' ');
             }
@@ -5184,16 +5154,7 @@ fn push_arithmetic_expr(
             if !compact {
                 rendered.push(' ');
             }
-            push_arithmetic_expr(
-                rendered,
-                value,
-                ArithmeticContext::Assignment,
-                source,
-                options,
-                compact,
-                source_map,
-                facts,
-            );
+            push_arithmetic_expr(rendered, value, ArithmeticContext::Assignment, compact, env);
         }
     }
 
@@ -5215,11 +5176,8 @@ fn push_arithmetic_expansion_body(
         &mut body,
         expr,
         ArithmeticContext::TopLevel,
-        source,
-        options,
         false,
-        source_map,
-        facts,
+        ArithmeticRenderEnv::new(source, options, source_map, facts),
     );
     if body.contains("$(")
         || body.contains('`')
@@ -5451,26 +5409,14 @@ fn arithmetic_assign_operator(op: ArithmeticAssignOp) -> &'static str {
 fn push_arithmetic_lvalue(
     rendered: &mut String,
     target: &ArithmeticLvalue,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-    source_map: Option<&SourceMap<'_>>,
-    facts: Option<&FormatterFacts<'_>>,
+    env: ArithmeticRenderEnv<'_, '_>,
 ) {
     match target {
         ArithmeticLvalue::Variable(name) => rendered.push_str(name),
         ArithmeticLvalue::Indexed { name, index } => {
             rendered.push_str(name);
             rendered.push('[');
-            push_arithmetic_expr(
-                rendered,
-                index,
-                ArithmeticContext::Subscript,
-                source,
-                options,
-                true,
-                source_map,
-                facts,
-            );
+            push_arithmetic_expr(rendered, index, ArithmeticContext::Subscript, true, env);
             rendered.push(']');
         }
     }
