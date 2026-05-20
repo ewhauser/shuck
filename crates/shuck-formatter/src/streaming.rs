@@ -2383,22 +2383,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.write_text(&raw_condition);
             self.write_text("then");
             let then_upper_bound = if_branch_upper_bound(command, 0, source, self.source_map());
-            self.write_sequence_open_suffix(&command.then_branch, Some(then_upper_bound));
-            let preserve_then_open_blank = body_has_blank_line_after_open(
-                source,
-                self.source_map(),
-                then_span.end.offset,
-                &command.then_branch,
-            );
-            self.format_body_with_upper_bound_and_open_blank(
-                &command.then_branch,
-                Some(then_upper_bound),
-                preserve_then_open_blank,
-            )?;
-            self.write_unmodeled_branch_background_terminator(
+            self.format_if_branch_body_after_open(
                 &command.then_branch,
                 then_upper_bound,
-            );
+                then_span.end.offset,
+            )?;
             if let Some(body) = &command.else_branch {
                 if if_next_branch_has_blank_line_before_keyword(command, 0, source) {
                     self.newline();
@@ -2406,20 +2395,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.newline();
                 self.write_text("else");
                 let body_upper_bound = fi_upper_bound;
-                self.write_sequence_open_suffix(body, Some(body_upper_bound));
-                let preserve_else_open_blank = body_has_blank_line_after_keyword(
-                    source,
-                    self.source_map(),
+                self.format_if_branch_body_after_keyword(
+                    body,
+                    body_upper_bound,
                     command.span.start.offset,
                     "else",
-                    body,
-                );
-                self.format_body_with_upper_bound_and_open_blank(
-                    body,
-                    Some(body_upper_bound),
-                    preserve_else_open_blank,
                 )?;
-                self.write_unmodeled_branch_background_terminator(body, body_upper_bound);
             }
             if self.if_final_branch_has_blank_line_before_fi(command, then_upper_bound) {
                 self.newline();
@@ -2446,22 +2427,11 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.newline();
             self.write_text("then");
             let then_upper_bound = if_branch_upper_bound(command, 0, source, self.source_map());
-            self.write_sequence_open_suffix(&command.then_branch, Some(then_upper_bound));
-            let preserve_then_open_blank = body_has_blank_line_after_open(
-                source,
-                self.source_map(),
-                then_span.end.offset,
-                &command.then_branch,
-            );
-            self.format_body_with_upper_bound_and_open_blank(
-                &command.then_branch,
-                Some(then_upper_bound),
-                preserve_then_open_blank,
-            )?;
-            self.write_unmodeled_branch_background_terminator(
+            self.format_if_branch_body_after_open(
                 &command.then_branch,
                 then_upper_bound,
-            );
+                then_span.end.offset,
+            )?;
             for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
                 if if_next_branch_has_blank_line_before_keyword(command, index, source) {
                     self.newline();
@@ -2489,20 +2459,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 }
                 let body_upper_bound =
                     if_branch_upper_bound(command, index + 1, source, self.source_map());
-                self.write_sequence_open_suffix(body, Some(body_upper_bound));
-                let preserve_elif_open_blank = body_has_blank_line_after_keyword(
-                    source,
-                    self.source_map(),
+                self.format_if_branch_body_after_keyword(
+                    body,
+                    body_upper_bound,
                     condition.span.start.offset,
                     "then",
-                    body,
-                );
-                self.format_body_with_upper_bound_and_open_blank(
-                    body,
-                    Some(body_upper_bound),
-                    preserve_elif_open_blank,
                 )?;
-                self.write_unmodeled_branch_background_terminator(body, body_upper_bound);
             }
             if let Some(body) = &command.else_branch {
                 if if_next_branch_has_blank_line_before_keyword(
@@ -2525,20 +2487,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 }
                 self.write_text("else");
                 let body_upper_bound = fi_upper_bound;
-                self.write_sequence_open_suffix(body, Some(body_upper_bound));
-                let preserve_else_open_blank = body_has_blank_line_after_keyword(
-                    source,
-                    self.source_map(),
+                self.format_if_branch_body_after_keyword(
+                    body,
+                    body_upper_bound,
                     command.span.start.offset,
                     "else",
-                    body,
-                );
-                self.format_body_with_upper_bound_and_open_blank(
-                    body,
-                    Some(body_upper_bound),
-                    preserve_else_open_blank,
                 )?;
-                self.write_unmodeled_branch_background_terminator(body, body_upper_bound);
             }
             if self.if_final_branch_has_blank_line_before_fi(command, then_upper_bound) {
                 self.newline();
@@ -2608,20 +2562,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.format_inline_stmts(&command.then_branch)?;
             self.write_text("; else");
             let body_upper_bound = fi_upper_bound;
-            self.write_sequence_open_suffix(else_branch, Some(body_upper_bound));
-            let preserve_else_open_blank = body_has_blank_line_after_keyword(
-                source,
-                self.source_map(),
+            self.format_if_branch_body_after_keyword(
+                else_branch,
+                body_upper_bound,
                 command.span.start.offset,
                 "else",
-                else_branch,
-            );
-            self.format_body_with_upper_bound_and_open_blank(
-                else_branch,
-                Some(body_upper_bound),
-                preserve_else_open_blank,
             )?;
-            self.write_unmodeled_branch_background_terminator(else_branch, body_upper_bound);
             let then_upper_bound = if_branch_upper_bound(command, 0, source, self.source_map());
             if self.if_final_branch_has_blank_line_before_fi(command, then_upper_bound) {
                 self.newline();
@@ -2712,20 +2658,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             }
             let body_upper_bound =
                 if_branch_upper_bound(command, index + 1, source, self.source_map());
-            self.write_sequence_open_suffix(body, Some(body_upper_bound));
-            let preserve_elif_open_blank = body_has_blank_line_after_keyword(
-                source,
-                self.source_map(),
+            self.format_if_branch_body_after_keyword(
+                body,
+                body_upper_bound,
                 condition.span.start.offset,
                 "then",
-                body,
-            );
-            self.format_body_with_upper_bound_and_open_blank(
-                body,
-                Some(body_upper_bound),
-                preserve_elif_open_blank,
             )?;
-            self.write_unmodeled_branch_background_terminator(body, body_upper_bound);
         }
         if let Some(body) = &command.else_branch {
             if self.options().compact_layout() {
@@ -2759,20 +2697,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.write_text("else");
             }
             let body_upper_bound = fi_upper_bound;
-            self.write_sequence_open_suffix(body, Some(body_upper_bound));
-            let preserve_else_open_blank = body_has_blank_line_after_keyword(
-                source,
-                self.source_map(),
+            self.format_if_branch_body_after_keyword(
+                body,
+                body_upper_bound,
                 command.span.start.offset,
                 "else",
-                body,
-            );
-            self.format_body_with_upper_bound_and_open_blank(
-                body,
-                Some(body_upper_bound),
-                preserve_else_open_blank,
             )?;
-            self.write_unmodeled_branch_background_terminator(body, body_upper_bound);
         }
         if self.options().compact_layout() {
             self.write_text("; fi");
@@ -3032,6 +2962,50 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         };
         self.write_space();
         self.write_text(operator);
+    }
+
+    fn format_if_branch_body_after_open(
+        &mut self,
+        body: &StmtSeq,
+        upper_bound: usize,
+        open_end_offset: usize,
+    ) -> Result<()> {
+        let preserve_open_blank =
+            body_has_blank_line_after_open(self.source(), self.source_map(), open_end_offset, body);
+        self.format_if_branch_body(body, upper_bound, preserve_open_blank)
+    }
+
+    fn format_if_branch_body_after_keyword(
+        &mut self,
+        body: &StmtSeq,
+        upper_bound: usize,
+        keyword_start_offset: usize,
+        keyword: &'static str,
+    ) -> Result<()> {
+        let preserve_open_blank = body_has_blank_line_after_keyword(
+            self.source(),
+            self.source_map(),
+            keyword_start_offset,
+            keyword,
+            body,
+        );
+        self.format_if_branch_body(body, upper_bound, preserve_open_blank)
+    }
+
+    fn format_if_branch_body(
+        &mut self,
+        body: &StmtSeq,
+        upper_bound: usize,
+        preserve_open_blank: bool,
+    ) -> Result<()> {
+        self.write_sequence_open_suffix(body, Some(upper_bound));
+        self.format_body_with_upper_bound_and_open_blank(
+            body,
+            Some(upper_bound),
+            preserve_open_blank,
+        )?;
+        self.write_unmodeled_branch_background_terminator(body, upper_bound);
+        Ok(())
     }
 
     fn format_brace_if(&mut self, command: &IfCommand) -> Result<()> {
