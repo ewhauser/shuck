@@ -2702,15 +2702,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let Some(comment) = self.condition_separator_suffix_comment(condition, then_span) else {
             return false;
         };
-        let current_code_column = self.column.saturating_sub(self.line_indent_column);
-        let padding = trailing_comment_padding(
-            self.source(),
-            &comment,
-            current_code_column,
-            self.line_indent_column,
-        );
-        self.write_spaces(padding);
-        self.write_comment(&comment);
+        self.write_comment_with_padding(&comment, trailing_comment_padding);
         true
     }
 
@@ -3287,15 +3279,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     fn write_case_terminator(&mut self, item: &CaseItem) {
         self.write_text(case_terminator(item.terminator));
         if let Some(comment) = self.case_item_terminator_suffix_comment(item) {
-            let current_code_column = self.column.saturating_sub(self.line_indent_column);
-            let padding = trailing_comment_padding(
-                self.source(),
-                &comment,
-                current_code_column,
-                self.line_indent_column,
-            );
-            self.write_spaces(padding);
-            self.write_comment(&comment);
+            self.write_comment_with_padding(&comment, trailing_comment_padding);
         }
     }
 
@@ -4208,15 +4192,23 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         else {
             return;
         };
+        self.write_comment_with_padding(&comment, close_suffix_comment_padding);
+    }
+
+    fn write_comment_with_padding(
+        &mut self,
+        comment: &SourceComment<'_>,
+        padding_for: impl FnOnce(&str, &SourceComment<'_>, usize, usize) -> usize,
+    ) {
         let current_code_column = self.column.saturating_sub(self.line_indent_column);
-        let padding = close_suffix_comment_padding(
+        let padding = padding_for(
             self.source(),
-            &comment,
+            comment,
             current_code_column,
             self.line_indent_column,
         );
         self.write_spaces(padding);
-        self.write_comment(&comment);
+        self.write_comment(comment);
     }
 
     fn write_suffix_comment_after_span(&mut self, span: Span, nudge_aligned: bool) {
