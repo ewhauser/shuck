@@ -587,6 +587,17 @@ mod tests {
         };
     }
 
+    macro_rules! default_unchanged_cases {
+        ($($name:ident: $source:expr;)+) => {
+            $(
+                #[test]
+                fn $name() {
+                    assert_unchanged_default($source);
+                }
+            )+
+        };
+    }
+
     fn lint_source_posix_strict(source: &str, path: &Path) -> Vec<Diagnostic> {
         let parse_result = Parser::with_dialect(source, ParseShellDialect::Posix).parse();
         assert!(
@@ -948,9 +959,9 @@ mod tests {
             => "foo() {\n\techo hi\n}\n\n# ex: filetype=sh\n";
     }
 
-    #[test]
-    fn preserves_heredoc_trailing_comments_without_duplication() {
-        assert_unchanged_default("cat <<EOF # note\nhi\nEOF\n");
+    default_unchanged_cases! {
+        preserves_heredoc_trailing_comments_without_duplication:
+            "cat <<EOF # note\nhi\nEOF\n";
     }
 
     #[test]
@@ -985,14 +996,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn standalone_assignments_do_not_gain_trailing_spaces() {
-        assert_unchanged_default("x=1\n");
-    }
-
-    #[test]
-    fn preserves_blank_lines_between_commands() {
-        assert_unchanged_default("set -u\n\nfoo\n");
+    default_unchanged_cases! {
+        standalone_assignments_do_not_gain_trailing_spaces:
+            "x=1\n";
+        preserves_blank_lines_between_commands:
+            "set -u\n\nfoo\n";
     }
 
     #[test]
@@ -1016,9 +1024,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn preserves_blank_lines_after_leading_comments() {
-        assert_unchanged_default("#!/usr/bin/env bash\n\nset -u\n");
+    default_unchanged_cases! {
+        preserves_blank_lines_after_leading_comments:
+            "#!/usr/bin/env bash\n\nset -u\n";
     }
 
     #[test]
@@ -1049,18 +1057,11 @@ mod tests {
         assert_eq!(value.render_syntax("x=1\n"), "1");
     }
 
-    #[test]
-    fn preserves_escaped_quotes_in_double_quoted_assignments() {
-        let source = "fzf_completion=\"source \\\"$fzf_base/shell/completion.${shell}\\\"\"\n";
-
-        assert_unchanged_default(source);
-    }
-
-    #[test]
-    fn preserves_prompt_escapes_in_double_quoted_assignments() {
-        let source = "PS1=\"\\u:\\W \\$ \"\n";
-
-        assert_unchanged_default(source);
+    default_unchanged_cases! {
+        preserves_escaped_quotes_in_double_quoted_assignments:
+            "fzf_completion=\"source \\\"$fzf_base/shell/completion.${shell}\\\"\"\n";
+        preserves_prompt_escapes_in_double_quoted_assignments:
+            "PS1=\"\\u:\\W \\$ \"\n";
     }
 
     default_unchanged_ast_cases! {
@@ -1365,11 +1366,9 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn preserves_nested_parameter_expansions_inside_quoted_strings() {
-        let source = "nvm_err \"N/A: version \\\"${PREFIXED_VERSION:-$PROVIDED_VERSION}\\\" is not yet installed.\"\n";
-
-        assert_unchanged_default(source);
+    default_unchanged_cases! {
+        preserves_nested_parameter_expansions_inside_quoted_strings:
+            "nvm_err \"N/A: version \\\"${PREFIXED_VERSION:-$PROVIDED_VERSION}\\\" is not yet installed.\"\n";
     }
 
     #[test]
@@ -2264,11 +2263,9 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn preserves_inline_negated_subshell_conditions() {
-        let source = "if ! (try_curl \"$url\" || try_wget \"$url\"); then\n\treturn 1\nfi\n";
-
-        assert_unchanged_default(source);
+    default_unchanged_cases! {
+        preserves_inline_negated_subshell_conditions:
+            "if ! (try_curl \"$url\" || try_wget \"$url\"); then\n\treturn 1\nfi\n";
     }
 
     #[test]
@@ -2301,11 +2298,9 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn preserves_outdented_dangling_comments_before_fi() {
-        let source = "if outer; then\n\tif inner; then\n\t\tok\n\telse\n\t\tfallback\n\t# disabled\n\t# exit\n\tfi\nfi\n";
-
-        assert_unchanged_default(source);
+    default_unchanged_cases! {
+        preserves_outdented_dangling_comments_before_fi:
+            "if outer; then\n\tif inner; then\n\t\tok\n\telse\n\t\tfallback\n\t# disabled\n\t# exit\n\tfi\nfi\n";
     }
 
     #[test]
@@ -2958,25 +2953,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         assert_formats(source, "[ -n \"$x\" ] && {\n\tset -x\n}\n# later\nnext\n");
     }
 
-    #[test]
-    fn preserves_single_line_function_bodies() {
-        let source = "tty_escape() { printf \"\\\\033[%sm\" \"$1\"; }\n";
-
-        assert_unchanged_default(source);
-    }
-
-    #[test]
-    fn preserves_single_line_nested_function_bodies() {
-        let source = "setup() { shellspec_type_name() { eval echo type_name ${1+'\"$@\"'}; }; }\n";
-
-        assert_unchanged_default(source);
-    }
-
-    #[test]
-    fn preserves_single_line_subshells() {
-        let source = "(cd \"$fzf_base\"/bin && rm -f fzf && ln -sf \"$which_fzf\" fzf)\n";
-
-        assert_unchanged_default(source);
+    default_unchanged_cases! {
+        preserves_single_line_function_bodies:
+            "tty_escape() { printf \"\\\\033[%sm\" \"$1\"; }\n";
+        preserves_single_line_nested_function_bodies:
+            "setup() { shellspec_type_name() { eval echo type_name ${1+'\"$@\"'}; }; }\n";
+        preserves_single_line_subshells:
+            "(cd \"$fzf_base\"/bin && rm -f fzf && ln -sf \"$which_fzf\" fzf)\n";
     }
 
     #[test]
