@@ -15,11 +15,11 @@ use shuck_format::{IndentStyle, LineEnding};
 
 use crate::Result;
 use crate::command::{
-    array_elem_parts, binary_operator, branch_open_keyword_start, case_item_body_upper_bound,
-    case_terminator, collect_binary_list_first as collect_binary_list_first_with,
-    collect_pipeline_parts, command_format_span, command_group_commands,
-    done_close_span as command_done_close_span, format_arithmetic_command_source,
-    format_arithmetic_for_clause_source, group_attachment_span,
+    array_elem_parts, binary_operator, branch_open_keyword_start, builtin_like_parts,
+    case_item_body_upper_bound, case_terminator,
+    collect_binary_list_first as collect_binary_list_first_with, collect_pipeline_parts,
+    command_format_span, command_group_commands, done_close_span as command_done_close_span,
+    format_arithmetic_command_source, format_arithmetic_for_clause_source, group_attachment_span,
     if_close_span as command_if_close_span, if_next_branch_region_with_body_end,
     line_gap_break_count, line_has_unclosed_command_substitution_open, matching_group_close,
     multiline_compound_assignment_command_substitution_body_prefix,
@@ -1573,36 +1573,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn format_builtin_command(&mut self, command: &BuiltinCommand) -> Result<()> {
-        match command {
-            BuiltinCommand::Break(command) => self.format_builtin_like(
-                "break",
-                command.span.start,
-                &command.assignments,
-                command.depth.as_ref(),
-                &command.extra_args,
-            ),
-            BuiltinCommand::Continue(command) => self.format_builtin_like(
-                "continue",
-                command.span.start,
-                &command.assignments,
-                command.depth.as_ref(),
-                &command.extra_args,
-            ),
-            BuiltinCommand::Return(command) => self.format_builtin_like(
-                "return",
-                command.span.start,
-                &command.assignments,
-                command.code.as_ref(),
-                &command.extra_args,
-            ),
-            BuiltinCommand::Exit(command) => self.format_builtin_like(
-                "exit",
-                command.span.start,
-                &command.assignments,
-                command.code.as_ref(),
-                &command.extra_args,
-            ),
-        }
+        let (span, name, assignments, primary, extra_args) = builtin_like_parts(command);
+        self.format_builtin_like(name, span.start, assignments, primary, extra_args)
     }
 
     fn format_builtin_like(

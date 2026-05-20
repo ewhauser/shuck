@@ -11,7 +11,7 @@ use shuck_ast::{
 use shuck_format::IndentStyle;
 
 use crate::command::{
-    array_elem_parts, compound_contains_child, stmt_seq_has_heredoc,
+    array_elem_parts, builtin_like_parts, compound_contains_child, stmt_seq_has_heredoc,
     trim_unescaped_trailing_whitespace,
 };
 use crate::comments::SourceMap;
@@ -244,32 +244,8 @@ fn command_has_multiline_literal_source(command: &Command, source: &str) -> bool
 }
 
 fn builtin_has_multiline_literal_source(command: &BuiltinCommand, source: &str) -> bool {
-    match command {
-        BuiltinCommand::Break(command) => builtin_args_have_multiline_literal_source(
-            command.depth.as_ref(),
-            &command.extra_args,
-            &command.assignments,
-            source,
-        ),
-        BuiltinCommand::Continue(command) => builtin_args_have_multiline_literal_source(
-            command.depth.as_ref(),
-            &command.extra_args,
-            &command.assignments,
-            source,
-        ),
-        BuiltinCommand::Return(command) => builtin_args_have_multiline_literal_source(
-            command.code.as_ref(),
-            &command.extra_args,
-            &command.assignments,
-            source,
-        ),
-        BuiltinCommand::Exit(command) => builtin_args_have_multiline_literal_source(
-            command.code.as_ref(),
-            &command.extra_args,
-            &command.assignments,
-            source,
-        ),
-    }
+    let (_, _, assignments, primary, extra_args) = builtin_like_parts(command);
+    builtin_args_have_multiline_literal_source(primary, extra_args, assignments, source)
 }
 
 fn builtin_args_have_multiline_literal_source(

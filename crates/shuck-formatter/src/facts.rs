@@ -12,7 +12,7 @@ use shuck_ast::{
 use shuck_indexer::Indexer;
 
 use crate::command::{
-    array_elem_parts, branch_open_keyword_start, case_item_body_upper_bound,
+    array_elem_parts, branch_open_keyword_start, builtin_like_parts, case_item_body_upper_bound,
     case_item_was_inline_in_source, collect_binary_list_first as collect_binary_list_first_with,
     collect_pipeline_parts, command_group_commands, done_close_span, group_attachment_span,
     group_open_suffix, group_was_inline_in_source, if_close_span,
@@ -509,51 +509,15 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_builtin_command(&mut self, command: &BuiltinCommand) {
-        match command {
-            BuiltinCommand::Break(command) => {
-                for assignment in &command.assignments {
-                    self.visit_assignment(assignment);
-                }
-                if let Some(depth) = &command.depth {
-                    self.visit_word(depth);
-                }
-                for word in &command.extra_args {
-                    self.visit_word(word);
-                }
-            }
-            BuiltinCommand::Continue(command) => {
-                for assignment in &command.assignments {
-                    self.visit_assignment(assignment);
-                }
-                if let Some(depth) = &command.depth {
-                    self.visit_word(depth);
-                }
-                for word in &command.extra_args {
-                    self.visit_word(word);
-                }
-            }
-            BuiltinCommand::Return(command) => {
-                for assignment in &command.assignments {
-                    self.visit_assignment(assignment);
-                }
-                if let Some(code) = &command.code {
-                    self.visit_word(code);
-                }
-                for word in &command.extra_args {
-                    self.visit_word(word);
-                }
-            }
-            BuiltinCommand::Exit(command) => {
-                for assignment in &command.assignments {
-                    self.visit_assignment(assignment);
-                }
-                if let Some(code) = &command.code {
-                    self.visit_word(code);
-                }
-                for word in &command.extra_args {
-                    self.visit_word(word);
-                }
-            }
+        let (_, _, assignments, primary, extra_args) = builtin_like_parts(command);
+        for assignment in assignments {
+            self.visit_assignment(assignment);
+        }
+        if let Some(primary) = primary {
+            self.visit_word(primary);
+        }
+        for word in extra_args {
+            self.visit_word(word);
         }
     }
 

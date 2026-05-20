@@ -1004,12 +1004,7 @@ fn command_verbatim_span(
 ) -> Span {
     match command {
         Command::Simple(command) => command.span,
-        Command::Builtin(command) => match command {
-            BuiltinCommand::Break(command) => command.span,
-            BuiltinCommand::Continue(command) => command.span,
-            BuiltinCommand::Return(command) => command.span,
-            BuiltinCommand::Exit(command) => command.span,
-        },
+        Command::Builtin(command) => builtin_like_parts(command).0,
         Command::Decl(command) => command.span,
         Command::Binary(command) => stmt_verbatim_span_impl(&command.left, source, source_map)
             .merge(stmt_verbatim_span_impl(&command.right, source, source_map)),
@@ -1646,8 +1641,8 @@ pub(crate) fn command_format_span(command: &Command) -> Span {
     match command {
         Command::Simple(command) => simple_command_format_span(command),
         Command::Builtin(command) => {
-            let (start, name, assignments, primary, extra_args) = builtin_like_parts(command);
-            builtin_like_span(start, name, assignments, primary, extra_args)
+            let (span, name, assignments, primary, extra_args) = builtin_like_parts(command);
+            builtin_like_span(span.start, name, assignments, primary, extra_args)
         }
         Command::Decl(command) => decl_clause_format_span(command),
         Command::Binary(command) => {
@@ -1697,10 +1692,10 @@ fn builtin_like_span(
     span
 }
 
-fn builtin_like_parts(
+pub(crate) fn builtin_like_parts(
     command: &BuiltinCommand,
 ) -> (
-    shuck_ast::Position,
+    Span,
     &'static str,
     &[Assignment],
     Option<&shuck_ast::Word>,
@@ -1708,28 +1703,28 @@ fn builtin_like_parts(
 ) {
     match command {
         BuiltinCommand::Break(command) => (
-            command.span.start,
+            command.span,
             "break",
             &command.assignments,
             command.depth.as_ref(),
             &command.extra_args,
         ),
         BuiltinCommand::Continue(command) => (
-            command.span.start,
+            command.span,
             "continue",
             &command.assignments,
             command.depth.as_ref(),
             &command.extra_args,
         ),
         BuiltinCommand::Return(command) => (
-            command.span.start,
+            command.span,
             "return",
             &command.assignments,
             command.code.as_ref(),
             &command.extra_args,
         ),
         BuiltinCommand::Exit(command) => (
-            command.span.start,
+            command.span,
             "exit",
             &command.assignments,
             command.code.as_ref(),
@@ -2286,8 +2281,8 @@ fn command_token_spans(command: &Command) -> Vec<Span> {
             spans
         }
         Command::Builtin(command) => {
-            let (start, name, assignments, primary, extra_args) = builtin_like_parts(command);
-            builtin_like_token_spans(start, name, assignments, primary, extra_args)
+            let (span, name, assignments, primary, extra_args) = builtin_like_parts(command);
+            builtin_like_token_spans(span.start, name, assignments, primary, extra_args)
         }
         Command::Decl(command) => {
             let mut spans = command
