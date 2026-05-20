@@ -24,7 +24,7 @@ for path in "$cache_dir"/bench-format-*.json; do
 
     while IFS='	' read -r command mean exit_codes; do
         case "$command" in
-            shuck-format/*|shuck-format)
+            shuck-formatter/*|shuck-formatter)
                 shuck_mean=$mean
                 shuck_exit_codes=$exit_codes
                 ;;

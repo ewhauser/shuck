@@ -18,7 +18,7 @@ for file in "$fixtures_dir"/*.sh; do
         --warmup 3 \
         --runs 10 \
         --export-json "$cache_dir/bench-format-$name.json" \
-        -n "shuck-format/$name" "$timeout_runner $timeout_secs $shuck format --check --no-cache --dialect bash $file" \
+        -n "shuck-formatter/$name" "$timeout_runner $timeout_secs $shuck format --check --no-cache --dialect bash $file" \
         -n "shfmt/$name" "$timeout_runner $timeout_secs shfmt -l -ln=bash $file"
 done
 
@@ -31,5 +31,5 @@ hyperfine \
     --runs 10 \
     --export-json "$cache_dir/bench-format-all.json" \
     --export-markdown "$cache_dir/bench-format-all.md" \
-    -n "shuck-format/all" "$timeout_runner $timeout_secs $shuck format --check --no-cache --dialect bash $*" \
+    -n "shuck-formatter/all" "$timeout_runner $timeout_secs $shuck format --check --no-cache --dialect bash $*" \
     -n "shfmt/all" "$timeout_runner $timeout_secs shfmt -l -ln=bash $*"

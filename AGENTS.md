@@ -110,7 +110,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command shellch
 - **`crates/shuck-cache`** — File-level caching with SHA-256 keyed `PackageCache<T>`. Stores results in a shared cache root (from `--cache-dir`, `SHUCK_CACHE_DIR`, or the OS cache directory such as `~/Library/Caches/shuck` / `$XDG_CACHE_HOME/shuck`) using bincode serialization. Entries are keyed by file mtime+permissions and auto-pruned after 30 days.
 - **`crates/shuck-parser`** — The shell parser library. Provides source-backed lexing, dialect/profile-aware parsing, AST construction, recovery diagnostics, and syntax facts.
 - **`crates/shuck-ast`** — Shared AST node types, tokens, identifiers, and source span utilities.
-- **`crates/shuck-formatter`** and **`crates/shuck-format`** — Shell formatting plus reusable pretty-printer primitives.
+- **`crates/shuck-formatter`** — Shell formatting built directly on the parser and AST.
 
 ### Data flow for `shuck check`
 

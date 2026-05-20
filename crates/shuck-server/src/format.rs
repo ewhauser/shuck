@@ -200,6 +200,54 @@ mod tests {
     };
 
     #[test]
+    fn document_formatting_uses_shuck_formatter() {
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, _client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+        let workspace_root = std::env::temp_dir().join("shuck-server-format-document-tests");
+        let workspace_uri =
+            Url::from_file_path(&workspace_root).expect("workspace path should convert to a URL");
+        let workspaces = Workspaces::new(vec![Workspace::default(workspace_uri)]);
+        let global = GlobalOptions::default().into_settings(client.clone());
+        let mut session = Session::new(
+            &ClientCapabilities::default(),
+            PositionEncoding::UTF16,
+            global,
+            &workspaces,
+            &client,
+        )
+        .expect("test session should initialize");
+
+        let uri = Url::from_file_path(workspace_root.join("script.sh"))
+            .expect("script path should convert to a URL");
+        session.open_text_document(
+            uri.clone(),
+            TextDocument::new("if true; then\necho ok\nfi\n".to_owned(), 1)
+                .with_language_id("shellscript"),
+        );
+        let snapshot = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot");
+
+        let edits = format_document(
+            snapshot,
+            &client,
+            types::DocumentFormattingParams {
+                text_document: types::TextDocumentIdentifier { uri },
+                options: types::FormattingOptions::default(),
+                work_done_progress_params: types::WorkDoneProgressParams::default(),
+            },
+        )
+        .expect("document formatting should succeed")
+        .expect("document formatting should return an edit list");
+
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].range.start, types::Position::new(1, 0));
+        assert_eq!(edits[0].range.end, types::Position::new(1, 0));
+        assert_eq!(edits[0].new_text, "\t");
+    }
+
+    #[test]
     fn range_formatting_returns_empty_edits_for_already_formatted_buffer() {
         let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
         let (client_sender, _client_receiver) = channel::unbounded();

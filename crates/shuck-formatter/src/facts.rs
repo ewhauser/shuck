@@ -9,7 +9,6 @@ use shuck_ast::{
     Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
 };
 use shuck_ast::{TextRange, TextSize};
-use shuck_format::LineEnding;
 use shuck_indexer::{CommentIndex, IndexedComment, Indexer, IndexerOptions, LineIndex};
 
 use crate::command::{
@@ -26,7 +25,7 @@ use crate::comments::{
     SequenceCommentAttachment, SourceComment, SourceMap, inspect_sequence_comments_in_window,
     span_contains_comment,
 };
-use crate::options::ResolvedShellFormatOptions;
+use crate::options::{LineEnding, ResolvedShellFormatOptions};
 use crate::scan::{BranchPrefixComment, last_shell_keyword_start};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

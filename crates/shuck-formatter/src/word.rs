@@ -1,5 +1,19 @@
 use std::fmt::Write as _;
 
+use crate::command::{
+    array_elem_parts, builtin_like_parts, compound_contains_child, stmt_seq_has_heredoc,
+    trim_unescaped_trailing_whitespace,
+};
+use crate::comments::SourceMap;
+use crate::facts::FormatterFacts;
+use crate::options::{IndentStyle, ResolvedShellFormatOptions};
+use crate::scan::{
+    common_nonempty_shell_indent, heredoc_start, leading_shell_indent as line_leading_shell_indent,
+    line_indent_before_offset as line_indent_before_source_offset,
+    line_without_continuation_backslash, redirect_operator_end, refine_common_indent,
+    shell_comment_can_start,
+};
+use crate::streaming::format_stmt_sequence_streaming_to_buf;
 use shuck_ast::{
     ArithmeticAssignOp, ArithmeticBinaryOp, ArithmeticExpansionSyntax, ArithmeticExpr,
     ArithmeticExprNode, ArithmeticLvalue, ArithmeticPostfixOp, ArithmeticUnaryOp, Assignment,
@@ -8,22 +22,6 @@ use shuck_ast::{
     ParameterOp, Pattern, PatternPart, Redirect, Stmt, StmtSeq, SubscriptSelector, VarRef, Word,
     WordPart, WordPartNode,
 };
-use shuck_format::IndentStyle;
-
-use crate::command::{
-    array_elem_parts, builtin_like_parts, compound_contains_child, stmt_seq_has_heredoc,
-    trim_unescaped_trailing_whitespace,
-};
-use crate::comments::SourceMap;
-use crate::facts::FormatterFacts;
-use crate::options::ResolvedShellFormatOptions;
-use crate::scan::{
-    common_nonempty_shell_indent, heredoc_start, leading_shell_indent as line_leading_shell_indent,
-    line_indent_before_offset as line_indent_before_source_offset,
-    line_without_continuation_backslash, redirect_operator_end, refine_common_indent,
-    shell_comment_can_start,
-};
-use crate::streaming::format_stmt_sequence_streaming_to_buf;
 
 pub(crate) fn word_gap_end_before_trailing_continuation(word: &Word, source: &str) -> usize {
     let span_end = word.span.end.offset;

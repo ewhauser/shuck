@@ -1,8 +1,8 @@
 use std::sync::{Arc, OnceLock};
 
 use memchr::memchr_iter;
-use shuck_ast::{Comment, File, Position, Span, TextSize};
-use shuck_indexer::{CommentIndex, IndexedComment, Indexer, LineIndex};
+use shuck_ast::{Comment, Position, Span, TextSize};
+use shuck_indexer::{IndexedComment, Indexer, LineIndex};
 
 #[derive(Debug, Clone)]
 pub struct SourceMap<'a> {
@@ -25,6 +25,7 @@ impl<'a> SourceMap<'a> {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub fn without_alignment_indexes(source: &'a str) -> Self {
         Self::new_with_alignment(source, false)
     }
@@ -478,191 +479,18 @@ impl<'a> SequenceCommentAttachment<'a> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SequenceCommentAnalysis<'a> {
-    pub(crate) attachment: SequenceCommentAttachment<'a>,
-    pub(crate) claimed_indices: Vec<usize>,
-}
-
-#[derive(Debug, Clone)]
-pub struct CommentAttachmentIndex<'a> {
-    source_map: SourceMap<'a>,
-    items: Arc<[SourceComment<'a>]>,
-    claimed: Vec<bool>,
-    next_unclaimed: usize,
-}
-
-pub type Comments<'a> = CommentAttachmentIndex<'a>;
-
-impl<'a> CommentAttachmentIndex<'a> {
-    #[must_use]
-    pub fn from_ast(source: &'a str, comments: &[Comment]) -> Self {
-        let source_map = SourceMap::new(source);
-        let items = comments
-            .iter()
-            .filter_map(|comment| source_map.source_comment(*comment))
-            .collect::<Vec<_>>();
-        Self::from_source_comments(source_map, items)
-    }
-
-    #[must_use]
-    pub fn from_file(source: &'a str, file: &File) -> Self {
-        let indexer = Indexer::for_file(source, file);
-        Self::from_indexer(source, &indexer)
-    }
-
-    #[must_use]
-    pub(crate) fn from_indexer(source: &'a str, indexer: &Indexer) -> Self {
-        Self::from_comment_index(source, indexer, indexer.comment_index(), true)
-    }
-
-    #[must_use]
-    pub(crate) fn from_comment_index(
-        source: &'a str,
-        indexer: &Indexer,
-        comment_index: &CommentIndex,
-        track_alignment: bool,
-    ) -> Self {
-        let source_map = SourceMap::from_indexer(source, indexer, track_alignment);
-        let items = comment_index
-            .comments()
-            .iter()
-            .filter(|comment| !indexer.region_index().is_heredoc(comment.range.start()))
-            .filter_map(|comment| source_map.source_comment_for_indexed(comment))
-            .collect::<Vec<_>>();
-        Self::from_source_comments(source_map, items)
-    }
-
-    fn from_source_comments(source_map: SourceMap<'a>, mut items: Vec<SourceComment<'a>>) -> Self {
-        items.sort_by_key(|comment| comment.span.start.offset);
-        let claimed = vec![false; items.len()];
-        Self {
-            source_map,
-            items: Arc::from(items.into_boxed_slice()),
-            claimed,
-            next_unclaimed: 0,
-        }
-    }
-
-    #[must_use]
-    pub fn source_map(&self) -> &SourceMap<'a> {
-        &self.source_map
-    }
-
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.items.len()
-    }
-
-    #[must_use]
-    pub(crate) fn inspect_sequence(
-        &self,
-        child_spans: &[Span],
-        upper_bound: Option<usize>,
-    ) -> SequenceCommentAnalysis<'a> {
-        compute_sequence_attachment(
-            &self.items,
-            Some(&self.claimed),
-            0,
-            self.next_unclaimed,
-            child_spans,
-            upper_bound,
-            None,
-            true,
-        )
-    }
-
-    pub(crate) fn claim_sequence(&mut self, analysis: &SequenceCommentAnalysis<'a>) {
-        for index in &analysis.claimed_indices {
-            self.claimed[*index] = true;
-        }
-        self.advance_next_unclaimed();
-    }
-
-    pub fn attach_sequence(
-        &mut self,
-        child_spans: &[Span],
-        upper_bound: Option<usize>,
-    ) -> SequenceCommentAttachment<'a> {
-        let analysis = self.inspect_sequence(child_spans, upper_bound);
-        self.claim_sequence(&analysis);
-        analysis.attachment
-    }
-
-    pub fn take_remaining(&mut self) -> Vec<SourceComment<'a>> {
-        let mut remaining = Vec::new();
-        for index in self.next_unclaimed..self.items.len() {
-            if self.claimed[index] {
-                continue;
-            }
-            self.claimed[index] = true;
-            remaining.push(self.items[index]);
-        }
-        self.advance_next_unclaimed();
-        remaining
-    }
-
-    pub fn claim_in_span(&mut self, span: Span) {
-        for index in self.next_unclaimed..self.items.len() {
-            let comment = self.items[index];
-            if comment.span.start.offset > span.end.offset {
-                break;
-            }
-            if self.claimed[index] {
-                continue;
-            }
-            if span.start.offset <= comment.span.start.offset
-                && comment.span.end.offset <= span.end.offset
-            {
-                self.claimed[index] = true;
-            }
-        }
-        self.advance_next_unclaimed();
-    }
-
-    pub fn claim_lines(&mut self, start_line: usize, end_line: usize) {
-        for index in self.next_unclaimed..self.items.len() {
-            let comment = self.items[index];
-            if comment.line > end_line {
-                break;
-            }
-            if self.claimed[index] {
-                continue;
-            }
-            if (start_line..=end_line).contains(&comment.line) {
-                self.claimed[index] = true;
-            }
-        }
-        self.advance_next_unclaimed();
-    }
-
-    fn advance_next_unclaimed(&mut self) {
-        while self.next_unclaimed < self.claimed.len() && self.claimed[self.next_unclaimed] {
-            self.next_unclaimed += 1;
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
 fn compute_sequence_attachment<'a>(
     items: &[SourceComment<'a>],
-    claimed: Option<&[bool]>,
-    base_index: usize,
-    start_index: usize,
     child_spans: &[Span],
     upper_bound: Option<usize>,
     skip_span: Option<Span>,
-    track_claimed_indices: bool,
-) -> SequenceCommentAnalysis<'a> {
+    start_index: usize,
+) -> SequenceCommentAttachment<'a> {
     let mut attachment = SequenceCommentAttachment::new(child_spans.len());
     if child_spans.is_empty() || start_index >= items.len() {
-        return SequenceCommentAnalysis {
-            attachment,
-            claimed_indices: Vec::new(),
-        };
+        return attachment;
     }
 
-    let mut claimed_indices = Vec::new();
     let first_child_start = child_spans[0].start.offset;
     let last_child_end = child_spans
         .last()
@@ -673,11 +501,6 @@ fn compute_sequence_attachment<'a>(
 
     let mut index = start_index;
     while index < items.len() {
-        if comment_is_claimed(claimed, base_index, index) {
-            index += 1;
-            continue;
-        }
-
         let comment = items[index];
         let start = comment.span.start.offset;
         let end = comment.span.end.offset;
@@ -716,11 +539,6 @@ fn compute_sequence_attachment<'a>(
                 && child_spans[prev_idx].start.offset <= start
             {
                 attachment.trailing[prev_idx].push(comment);
-                record_claimed_index(
-                    &mut claimed_indices,
-                    track_claimed_indices,
-                    base_index + index,
-                );
                 index += 1;
                 continue;
             }
@@ -731,11 +549,6 @@ fn compute_sequence_attachment<'a>(
                         && child_spans[prev_idx].end.line == comment.line =>
                 {
                     attachment.trailing[prev_idx].push(comment);
-                    record_claimed_index(
-                        &mut claimed_indices,
-                        track_claimed_indices,
-                        base_index + index,
-                    );
                 }
                 _ => attachment.ambiguous = true,
             }
@@ -744,22 +557,11 @@ fn compute_sequence_attachment<'a>(
         }
 
         if end <= first_child_start {
-            let run_end = advance_comment_run(
-                items,
-                claimed,
-                base_index,
-                index,
-                limit_end,
-                skip_span,
-                |candidate| candidate.span.end.offset <= first_child_start,
-            );
-            for (i, item) in items[index..run_end].iter().enumerate() {
+            let run_end = advance_comment_run(items, index, limit_end, skip_span, |candidate| {
+                candidate.span.end.offset <= first_child_start
+            });
+            for item in &items[index..run_end] {
                 attachment.leading[0].push(*item);
-                record_claimed_index(
-                    &mut claimed_indices,
-                    track_claimed_indices,
-                    base_index + index + i,
-                );
             }
             index = run_end;
         } else if let Some(next_idx) = next {
@@ -767,43 +569,19 @@ fn compute_sequence_attachment<'a>(
                 .map(|prev_idx| child_spans[prev_idx].end.offset)
                 .unwrap_or(0);
             let gap_end = child_spans[next_idx].start.offset;
-            let run_end = advance_comment_run(
-                items,
-                claimed,
-                base_index,
-                index,
-                limit_end,
-                skip_span,
-                |candidate| {
-                    candidate.span.start.offset >= gap_start && candidate.span.end.offset <= gap_end
-                },
-            );
-            for (i, item) in items[index..run_end].iter().enumerate() {
+            let run_end = advance_comment_run(items, index, limit_end, skip_span, |candidate| {
+                candidate.span.start.offset >= gap_start && candidate.span.end.offset <= gap_end
+            });
+            for item in &items[index..run_end] {
                 attachment.leading[next_idx].push(*item);
-                record_claimed_index(
-                    &mut claimed_indices,
-                    track_claimed_indices,
-                    base_index + index + i,
-                );
             }
             index = run_end;
         } else if start >= last_child_end {
-            let run_end = advance_comment_run(
-                items,
-                claimed,
-                base_index,
-                index,
-                limit_end,
-                skip_span,
-                |candidate| candidate.span.start.offset >= last_child_end,
-            );
-            for (i, item) in items[index..run_end].iter().enumerate() {
+            let run_end = advance_comment_run(items, index, limit_end, skip_span, |candidate| {
+                candidate.span.start.offset >= last_child_end
+            });
+            for item in &items[index..run_end] {
                 attachment.dangling.push(*item);
-                record_claimed_index(
-                    &mut claimed_indices,
-                    track_claimed_indices,
-                    base_index + index + i,
-                );
             }
             index = run_end;
         } else {
@@ -811,10 +589,7 @@ fn compute_sequence_attachment<'a>(
         }
     }
 
-    SequenceCommentAnalysis {
-        attachment,
-        claimed_indices,
-    }
+    attachment
 }
 
 pub(crate) fn inspect_sequence_comments_in_window<'a>(
@@ -823,23 +598,11 @@ pub(crate) fn inspect_sequence_comments_in_window<'a>(
     upper_bound: Option<usize>,
     skip_span: Option<Span>,
 ) -> SequenceCommentAttachment<'a> {
-    compute_sequence_attachment(
-        items,
-        None,
-        0,
-        0,
-        child_spans,
-        upper_bound,
-        skip_span,
-        false,
-    )
-    .attachment
+    compute_sequence_attachment(items, child_spans, upper_bound, skip_span, 0)
 }
 
 fn advance_comment_run<'a>(
     items: &[SourceComment<'a>],
-    claimed: Option<&[bool]>,
-    base_index: usize,
     start_index: usize,
     limit_end: usize,
     skip_span: Option<Span>,
@@ -847,9 +610,6 @@ fn advance_comment_run<'a>(
 ) -> usize {
     let mut index = start_index;
     while index < items.len() {
-        if comment_is_claimed(claimed, base_index, index) {
-            break;
-        }
         let comment = items[index];
         if comment.span.start.offset >= limit_end
             || comment.inline
@@ -862,19 +622,6 @@ fn advance_comment_run<'a>(
         index += 1;
     }
     index
-}
-
-fn record_claimed_index(target: &mut Vec<usize>, track: bool, index: usize) {
-    if track {
-        target.push(index);
-    }
-}
-
-fn comment_is_claimed(claimed: Option<&[bool]>, base_index: usize, index: usize) -> bool {
-    claimed
-        .and_then(|flags| flags.get(base_index + index))
-        .copied()
-        .unwrap_or(false)
 }
 
 pub(crate) fn span_contains_comment(span: Span, comment: SourceComment<'_>) -> bool {

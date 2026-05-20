@@ -1,6 +1,6 @@
 #![warn(missing_docs)]
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
-//! Shell formatting entrypoints built on top of `shuck-parser` and `shuck-format`.
+//! Shell formatting entrypoints built on top of `shuck-parser`.
 //!
 //! Most callers will use [`format_source`] for source text or [`format_file_ast`] when they
 //! already have a parsed shell AST.
@@ -12,9 +12,6 @@
 mod command;
 #[allow(missing_docs)]
 mod comments;
-#[allow(missing_docs)]
-mod context;
-#[allow(missing_docs)]
 mod facts;
 #[allow(missing_docs)]
 mod options;
@@ -30,19 +27,14 @@ mod word;
 use std::path::Path;
 
 use shuck_ast::File;
-use shuck_format::LineEnding;
 use shuck_parser::{Error as ParseError, parser::Parser};
 
 use crate::facts::FormatterFacts;
 
 /// Formatter option types exposed by the shell formatter.
-pub use crate::options::{ResolvedShellFormatOptions, ShellDialect, ShellFormatOptions};
-/// Indentation styles supported by the underlying pretty-printer.
-pub use shuck_format::IndentStyle;
-
-/// Formatter specialized for shell formatting contexts.
-pub type ShellFormatter<'source, 'buf> =
-    shuck_format::Formatter<context::ShellFormatContext<'source>>;
+pub use crate::options::{
+    IndentStyle, LineEnding, ResolvedShellFormatOptions, ShellDialect, ShellFormatOptions,
+};
 
 /// Result of formatting shell source.
 #[allow(missing_docs)]
@@ -92,12 +84,6 @@ impl std::fmt::Display for FormatError {
 }
 
 impl std::error::Error for FormatError {}
-
-impl From<shuck_format::FormatError> for FormatError {
-    fn from(error: shuck_format::FormatError) -> Self {
-        Self::Internal(error.to_string())
-    }
-}
 
 /// Convenient result alias for shell formatting operations.
 pub type Result<T> = std::result::Result<T, FormatError>;

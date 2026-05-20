@@ -6,7 +6,7 @@ Partially Implemented
 
 ## Summary
 
-A shell script formatter built on a generic document/printer abstraction, following ruff's formatter architecture. The system is split across three crates: `shuck-format` (language-agnostic document IR and printer), `shuck-formatter` (shell-specific formatting rules, comment handling, and an optional simplify pass), and `shuck` (CLI integration, config, and caching). The formatter parses shell source into an AST, converts AST nodes into a document IR of text, line breaks, indentation, and groups, then prints the IR back to source text respecting user-chosen options like indent style, dialect, and layout preferences.
+A shell script formatter built on Shuck's parser and AST. The live implementation is centered in `shuck-formatter`, which owns shell-specific formatting rules, comment handling, option resolution, and the optional simplify pass. CLI and editor callers invoke the same `format_source()` / `format_file_ast()` entry points.
 
 The formatter supports Bash, POSIX, and mksh dialects with auto-inference from shebangs and file extensions. It exposes formatting layout options through CLI flags and `[format]` config sections, while `--dialect` remains a CLI-only override. An optional simplify pass applies safe AST rewrites before formatting, and a minify mode produces compact output without comments.
 
@@ -24,10 +24,11 @@ Shuck already parses shell scripts into a full AST. Building a formatter on top 
 
 ### Architecture Overview
 
-The formatter is organized into three layers:
+The formatter is organized around one shell-specific formatting crate:
 
 ```
   CLI (shuck format / shuck format-stdin)
+  LSP (textDocument/formatting / textDocument/rangeFormatting)
     |
     v
   +----------------------------------------------+
@@ -41,9 +42,9 @@ The formatter is organized into three layers:
   |           |                                   |
   |           v                                   |
   |  +-----------------------------------------+  |
-  |  | Node Formatters                         |  |
-  |  |  script.rs, command.rs, word.rs,        |  |
-  |  |  redirect.rs — AST → Document IR        |  |
+  |  | Streaming Formatter                     |  |
+  |  |  streaming.rs, command.rs, word.rs      |  |
+  |  |  AST + source facts → formatted text    |  |
   |  +-----------------------------------------+  |
   |           |                                   |
   |           v                                   |
@@ -52,74 +53,12 @@ The formatter is organized into three layers:
   |  |  Line-based leading/trailing/dangling   |  |
   |  +-----------------------------------------+  |
   +----------------------------------------------+
-    |
-    v
-  +----------------------------------------------+
-  | shuck-format                                  |
-  |  Document IR, Formatter, Printer              |
-  |  Language-agnostic pretty-printing engine      |
-  +----------------------------------------------+
-    |
-    v
   Formatted source text
-```
-
-### Generic Printer Layer (`shuck-format`)
-
-A language-agnostic document IR and printer, modeled after Prettier's intermediate representation. This crate knows nothing about shell — it provides the primitives that language-specific formatters compose.
-
-#### Document IR
-
-The IR represents formatted output as a tree of `FormatElement` nodes:
-
-```rust
-pub enum FormatElement {
-    Text(String),                              // Literal text
-    Space,                                     // Single space
-    Line(LineMode),                             // Line break (hard, soft, or soft-or-space)
-    Indent(Document),                           // Indented child document
-    Group(Document),                            // Flat-or-expanded choice
-    BestFit { flat: Document, expanded: Document }, // Two-variant layout choice
-    Verbatim(String),                           // Preserved source text, printed as-is
-}
-
-pub enum LineMode {
-    Hard,         // Always breaks
-    Soft,         // Breaks only when group expands
-    SoftOrSpace,  // Space when flat, break when expanded
-}
-```
-
-A `Document` is a sequence of `FormatElement` nodes. The key abstraction is `Group`: the printer first tries to render the group's content on a single line (flat mode). If it exceeds the line width, the printer re-renders with soft line breaks expanded into actual line breaks.
-
-`BestFit` is a more explicit two-variant choice — the printer tries the flat variant and falls back to expanded if it doesn't fit. This is used for constructs where the flat and expanded forms differ structurally (not just in line breaks).
-
-`Verbatim` bypasses the printer entirely, emitting source text as-is. This is the escape hatch for constructs the formatter cannot yet handle structurally (heredoc bodies, alignment-sensitive regions).
-
-#### Formatter and Printer
-
-The `Formatter` trait converts AST nodes into `Document` IR:
-
-```rust
-pub trait Format<C: FormatContext> {
-    fn fmt(&self, f: &mut Formatter<C>) -> FormatResult<()>;
-}
-```
-
-The `Printer` consumes a `Document` and emits source text, respecting `PrinterOptions`:
-
-```rust
-pub struct PrinterOptions {
-    pub indent_style: IndentStyle,  // Tab or Space
-    pub indent_width: u8,           // Width for space indentation
-    pub line_width: u16,            // Target line width (default 80)
-    pub line_ending: LineEnding,    // LF or CRLF (auto-detected from input)
-}
 ```
 
 ### Shell Formatter (`shuck-formatter`)
 
-The shell-specific layer that converts parsed AST nodes into the generic document IR.
+The shell-specific layer that formats parsed AST nodes using source-aware layout facts.
 
 #### Public API
 
@@ -188,16 +127,17 @@ Options are resolved before formatting via `ShellFormatOptions::resolve()`, whic
 | `simplify` | `false` | Run AST simplification rewrites before formatting. |
 | `minify` | `false` | Produce compact output: single-line layouts, no comments, implies simplify. |
 
-#### Node Formatters
+#### Streaming Formatter
 
-Each AST construct has a corresponding formatter module that implements the `FormatNodeRule<N>` trait. The major modules:
+The formatter is source-aware rather than a generic document printer. The major modules:
 
-- **`script.rs`** — Top-level script: formats the command sequence, preserving blank lines between top-level commands and attaching leading/trailing comments.
+- **`streaming.rs`** — Owns the main output buffer, indentation state, sequence layout, comment placement, and unchanged checks.
 - **`command.rs`** — The largest module. Handles simple commands, pipelines, command lists (`&&`/`||`/`;`/`&`), and all compound commands (`if`/`for`/`while`/`until`/`case`/`select`/`subshell`/`brace-group`/`arithmetic`/`conditional`/`coproc`/`time`). Also handles function definitions and declaration builtins (`declare`, `export`, `local`, `readonly`, `typeset`).
 - **`word.rs`** — Word and word-part formatting. Reconstructs the textual form of words from their AST parts, handling quoting, expansions, parameter operations, and escape sequences.
-- **`redirect.rs`** — Redirect formatting. Handles fd numbers, operators, targets, heredoc delimiters, and the `space_redirects` option.
+- **`facts.rs`** — Computes source-layout facts used during formatting, including spacing-sensitive regions and comment attachment inputs.
+- **`scan.rs`** — Contains source scanning helpers for shell comments, indentation, heredocs, and keyword/operator boundaries.
 
-When a node formatter cannot yet produce correct structured output for a construct, it falls back to `verbatim()` — emitting the original source slice unchanged. This is a correctness safety net: the formatter never silently corrupts code. The roadmap tracks reducing verbatim fallback usage over time.
+When the formatter cannot yet produce correct structured output for a construct, it emits the original source slice unchanged. This is a correctness safety net: the formatter never silently corrupts code. The roadmap tracks reducing verbatim fallback usage over time.
 
 #### Formatting Pipeline
 
@@ -206,27 +146,26 @@ format_source(source, path, options)
   1. Resolve options (dialect inference, line ending detection)
   2. Parse source → File
   3. If simplify or minify: rewrite the owned AST in place
-  4. Build comment index from the AST
-  5. Create ShellFormatContext (resolved options + source + comments)
-  6. Format File → Document IR via node formatters
-  7. Print Document → raw output string
-  8. Ensure single trailing newline
-  9. Compare output to input → Unchanged or Formatted
+  4. Build source maps, comment attachments, and formatter facts
+  5. Format File through the streaming formatter
+  6. Produce raw output string
+  7. Ensure single trailing newline
+  8. Compare output to input → Unchanged or Formatted
 ```
 
-Step 9 is important: if the formatter's output is byte-identical to the input, it returns `Unchanged` rather than a redundant copy. This makes `--check` mode (exit non-zero if changes needed) a zero-allocation path for already-formatted files.
+Step 8 is important: if the formatter's output is byte-identical to the input, it returns `Unchanged` rather than a redundant copy. This makes `--check` mode (exit non-zero if changes needed) a zero-allocation path for already-formatted files.
 
 #### Comment Handling
 
 Comments are not part of the AST — the parser emits them as a separate `Vec<Comment>` alongside the script. The formatter must reattach them to the correct positions in the output.
 
-The current implementation uses a `Comments` struct built from a `SourceMap`:
+The current implementation computes comment placement from `SourceMap` and sequence-level attachment facts:
 
 - **`SourceMap`** — Pre-computes line start offsets, first-non-whitespace positions per line, and fast lookup indexes for `#`, tab, and double-space characters. Provides O(log n) offset-to-line mapping and O(1) queries for inline vs. own-line comments and alignment padding detection.
 - **`SourceComment`** — A comment with its text, span, line number, and inline flag (whether other content precedes it on the same line).
 - **`SequenceCommentAttachment`** — For a sequence of N commands, partitions comments into leading (before each command), trailing (after each command on the same line), and dangling (comments in otherwise-empty bodies). Also tracks ambiguity when the line-based heuristic cannot confidently assign a comment.
 
-Node formatters consume comments during IR generation, emitting them as `text()` elements at the appropriate positions. In `--minify` mode, comments are dropped entirely.
+The streaming formatter consumes comments while rendering command sequences and writes them into the output buffer at the appropriate positions. In `--minify` mode, comments are dropped entirely.
 
 **Limitation:** The current approach attaches comments by line proximity rather than by anchoring them to AST nodes. This works well for most cases but can misplace comments in constructs with continuation lines, nested substitutions, or heredocs. The roadmap tracks replacing this with true AST-anchored comment attachment.
 
@@ -308,9 +247,8 @@ For each file:
       format_source(source, path, options)
         → Parse (dialect-aware)
         → Optional simplify (owned AST rewrite)
-        → Build comment index
-        → Format AST → Document IR
-        → Print IR → String
+        → Build formatter facts and comment attachments
+        → Streaming format → String
         → Ensure trailing newline
         → Compare to input
         |
@@ -323,21 +261,21 @@ For each file:
 
 ### Alternative A: Token-Stream Formatter
 
-Format by manipulating the token stream directly (insert/remove whitespace tokens, adjust indentation) without building a document IR.
+Format by manipulating the token stream directly (insert/remove whitespace tokens, adjust indentation) without using the AST as the main formatting structure.
 
-Rejected because token-stream formatting cannot express layout choices that depend on line width. The Group/BestFit abstraction in the document IR allows the printer to choose between flat and expanded layouts based on whether content fits, which is essential for producing readable output from deeply-nested shell constructs. Token-stream formatters also cannot express the simplify rewrites, which operate at the AST level.
+Rejected because token-stream formatting cannot express semantic layout choices, structured fallbacks, or simplify rewrites cleanly. The formatter needs AST ownership for dialect-sensitive constructs and safe rewrites.
 
-### Alternative B: Integrated Printer (No Generic Layer)
+### Alternative B: Separate Generic Printer Crate
 
-Build the printer directly into the shell formatter without a separate `shuck-format` crate.
+Keep a language-agnostic document/printer crate and have `shuck-formatter` lower shell AST nodes into that IR.
 
-Rejected because the document IR / printer separation keeps the shell-specific formatting logic focused on "what should the output look like" while the printer handles "how to emit it given line width and indent settings." This separation also makes both layers independently testable and potentially reusable if other output formats are needed in the future.
+Initially selected, then removed. The shell formatter's hot path evolved toward source-aware streaming with shell-specific facts, and the generic crate became mostly dead abstraction around a formatter that no longer used it.
 
-### Alternative C: Direct String Building
+### Alternative C: Unstructured Direct String Building
 
-Skip the IR entirely and have node formatters write directly to a string buffer.
+Have isolated node helpers append text to a string buffer without central formatter state or source facts.
 
-Rejected because direct string building cannot implement line-width-aware layout decisions. The formatter needs to speculatively try flat layouts and fall back to expanded layouts, which requires a two-pass approach (build IR, then print). Direct string building would either produce output that ignores line width or require complex backtracking.
+Rejected because it spreads indentation, comments, and fallback decisions across many helpers. The current streaming formatter still writes directly, but through one stateful engine with shared source maps, formatter facts, indentation helpers, and scratch buffers.
 
 ## Verification
 
