@@ -653,6 +653,17 @@ mod tests {
         ]
     }
 
+    const TONKA_PROMPT_ASSIGNMENT: &str = r##"PS1="$TITLEBAR$YELLOW-$LIGHT_BLUE-(\
+$YELLOW\u$LIGHT_BLUE@$YELLOW\h\
+$LIGHT_BLUE)-(\
+$YELLOW\$PWD\
+$LIGHT_BLUE)-$YELLOW-\
+\n\
+$YELLOW-$LIGHT_BLUE-(\
+$(__tonka_clock)\
+$WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
+"##;
+
     #[test]
     fn format_file_ast_requires_explicit_clone_for_ast_reuse() {
         let source = "echo $(( $a + ${b} ))\n";
@@ -983,49 +994,21 @@ $WHITE\$ $NO_COLOUR "
 
     #[test]
     fn preserves_multiline_prompt_assignments_with_leading_continuation_lines() {
-        let source = r##"PS1="$TITLEBAR$YELLOW-$LIGHT_BLUE-(\
-$YELLOW\u$LIGHT_BLUE@$YELLOW\h\
-$LIGHT_BLUE)-(\
-$YELLOW\$PWD\
-$LIGHT_BLUE)-$YELLOW-\
-\n\
-$YELLOW-$LIGHT_BLUE-(\
-$(__tonka_clock)\
-$WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
-"##;
-        assert_unchanged_with_ast(source, None, &ShellFormatOptions::default());
+        assert_unchanged_with_ast(
+            TONKA_PROMPT_ASSIGNMENT,
+            None,
+            &ShellFormatOptions::default(),
+        );
     }
 
     #[test]
     fn preserves_indented_multiline_prompt_assignments_with_leading_continuation_lines() {
-        let source = r##"prompt() {
-  PS1="$TITLEBAR$YELLOW-$LIGHT_BLUE-(\
-$YELLOW\u$LIGHT_BLUE@$YELLOW\h\
-$LIGHT_BLUE)-(\
-$YELLOW\$PWD\
-$LIGHT_BLUE)-$YELLOW-\
-\n\
-$YELLOW-$LIGHT_BLUE-(\
-$(__tonka_clock)\
-$WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
-}
-"##;
+        let source = format!("prompt() {{\n  {TONKA_PROMPT_ASSIGNMENT}}}\n");
         assert_formats_to_with_ast(
-            source,
+            &source,
             None,
             &ShellFormatOptions::default(),
-            r##"prompt() {
-	PS1="$TITLEBAR$YELLOW-$LIGHT_BLUE-(\
-$YELLOW\u$LIGHT_BLUE@$YELLOW\h\
-$LIGHT_BLUE)-(\
-$YELLOW\$PWD\
-$LIGHT_BLUE)-$YELLOW-\
-\n\
-$YELLOW-$LIGHT_BLUE-(\
-$(__tonka_clock)\
-$WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
-}
-"##,
+            format!("prompt() {{\n\t{TONKA_PROMPT_ASSIGNMENT}}}\n"),
         );
     }
 
