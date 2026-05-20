@@ -2225,9 +2225,10 @@ function R() {
             => "while [[ -n \"$x\" ]] &&\n\t! {\n\t\t[[ -d \"$x\" ]] &&\n\t\t\t[[ -f \"$x\" ]]\n\t} && {\n\t{\n\t\t[[ \"$x\" =~ ^/ ]] &&\n\t\t\t[[ \"$x\" != / ]]\n\t} || {\n\t\t[[ \"$x\" != /tmp ]]\n\t}\n}; do\n\tx=\"${x%/*}\"\ndone\n";
     }
 
-    #[test]
-    fn formats_completion_function_subscripts_and_case_indent_like_shfmt() {
-        let source = r#"_saltkey() {
+    format_cases_with_options! {
+        formats_completion_function_subscripts_and_case_indent_like_shfmt:
+            ShellFormatOptions::default().with_dialect(ShellDialect::Bash),
+            r#"_saltkey() {
 	local cur prev opts prev pprev
 	COMPREPLY=()
 	cur="${COMP_WORDS[COMP_CWORD]}"
@@ -2247,14 +2248,8 @@ function R() {
 	esac
 	return 0
 }
-"#;
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to(
-            source,
-            None,
-            &options,
-            r#"_saltkey() {
+"#
+            => r#"_saltkey() {
 	local cur prev opts prev pprev
 	COMPREPLY=()
 	cur="${COMP_WORDS[COMP_CWORD]}"
@@ -2274,8 +2269,7 @@ function R() {
 	esac
 	return 0
 }
-"#,
-        );
+"#;
     }
 
     bash_format_ast_cases! {
