@@ -8581,16 +8581,24 @@ fn pattern_contains_command_substitution(pattern: &Pattern) -> bool {
     })
 }
 
-fn word_contains_command_substitution(word: &Word) -> bool {
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum WordSubstitutionKind {
+    Command,
+    Process,
+}
+
+fn word_contains_substitution(word: &Word, kind: WordSubstitutionKind) -> bool {
     word.parts
         .iter()
-        .any(|part| word_part_contains_command_substitution(&part.kind))
+        .any(|part| word_part_contains_substitution(&part.kind, kind))
+}
+
+fn word_contains_command_substitution(word: &Word) -> bool {
+    word_contains_substitution(word, WordSubstitutionKind::Command)
 }
 
 fn word_contains_process_substitution(word: &Word) -> bool {
-    word.parts
-        .iter()
-        .any(|part| word_part_contains_process_substitution(&part.kind))
+    word_contains_substitution(word, WordSubstitutionKind::Process)
 }
 
 fn word_source_has_shell_substitution(word: &Word, source: &str) -> bool {
@@ -8625,27 +8633,28 @@ fn rendered_text_has_leading_list_operator_line(text: &str) -> bool {
     })
 }
 
-fn word_part_contains_command_substitution(part: &WordPart) -> bool {
+fn word_part_contains_substitution(part: &WordPart, kind: WordSubstitutionKind) -> bool {
     match part {
-        WordPart::CommandSubstitution { .. } => true,
+        WordPart::CommandSubstitution { .. } => kind == WordSubstitutionKind::Command,
+        WordPart::ProcessSubstitution { .. } => kind == WordSubstitutionKind::Process,
         WordPart::DoubleQuoted { parts, .. } => parts
             .iter()
-            .any(|part| word_part_contains_command_substitution(&part.kind)),
+            .any(|part| word_part_contains_substitution(&part.kind, kind)),
         WordPart::ArithmeticExpansion {
             expression_word_ast,
             ..
-        } => word_contains_command_substitution(expression_word_ast),
+        } => word_contains_substitution(expression_word_ast, kind),
         WordPart::Parameter(_) => false,
         WordPart::ParameterExpansion {
             operand_word_ast, ..
         } => operand_word_ast
             .as_deref()
-            .is_some_and(word_contains_command_substitution),
+            .is_some_and(|word| word_contains_substitution(word, kind)),
         WordPart::IndirectExpansion {
             operand_word_ast, ..
         } => operand_word_ast
             .as_deref()
-            .is_some_and(word_contains_command_substitution),
+            .is_some_and(|word| word_contains_substitution(word, kind)),
         WordPart::Substring {
             offset_word_ast,
             length_word_ast,
@@ -8656,47 +8665,10 @@ fn word_part_contains_command_substitution(part: &WordPart) -> bool {
             length_word_ast,
             ..
         } => {
-            word_contains_command_substitution(offset_word_ast)
+            word_contains_substitution(offset_word_ast, kind)
                 || length_word_ast
                     .as_deref()
-                    .is_some_and(word_contains_command_substitution)
-        }
-        _ => false,
-    }
-}
-
-fn word_part_contains_process_substitution(part: &WordPart) -> bool {
-    match part {
-        WordPart::ProcessSubstitution { .. } => true,
-        WordPart::DoubleQuoted { parts, .. } => parts
-            .iter()
-            .any(|part| word_part_contains_process_substitution(&part.kind)),
-        WordPart::ArithmeticExpansion {
-            expression_word_ast,
-            ..
-        } => word_contains_process_substitution(expression_word_ast),
-        WordPart::ParameterExpansion {
-            operand_word_ast, ..
-        }
-        | WordPart::IndirectExpansion {
-            operand_word_ast, ..
-        } => operand_word_ast
-            .as_deref()
-            .is_some_and(word_contains_process_substitution),
-        WordPart::Substring {
-            offset_word_ast,
-            length_word_ast,
-            ..
-        }
-        | WordPart::ArraySlice {
-            offset_word_ast,
-            length_word_ast,
-            ..
-        } => {
-            word_contains_process_substitution(offset_word_ast)
-                || length_word_ast
-                    .as_deref()
-                    .is_some_and(word_contains_process_substitution)
+                    .is_some_and(|word| word_contains_substitution(word, kind))
         }
         _ => false,
     }
