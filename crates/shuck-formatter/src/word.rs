@@ -5525,26 +5525,19 @@ fn render_arithmetic_slice_shell_word(
             expression_ast,
             syntax,
             ..
-        } => match syntax {
-            ArithmeticExpansionSyntax::DollarParenParen => {
-                let mut body = String::new();
-                if let Some(ast) = expression_ast.as_deref() {
-                    render_arithmetic_expr_to_buf(&mut body, ast, source, options);
-                } else {
-                    body.push_str(expression.slice(source).trim());
-                }
-                format!("$(({body}))")
+        } => {
+            let mut body = String::new();
+            if let Some(ast) = expression_ast.as_deref() {
+                render_arithmetic_expr_to_buf(&mut body, ast, source, options);
+            } else {
+                body.push_str(expression.slice(source).trim());
             }
-            ArithmeticExpansionSyntax::LegacyBracket => {
-                let mut body = String::new();
-                if let Some(ast) = expression_ast.as_deref() {
-                    render_arithmetic_expr_to_buf(&mut body, ast, source, options);
-                } else {
-                    body.push_str(expression.slice(source).trim());
-                }
-                format!("$[{body}]")
-            }
-        },
+            let (open, close) = match syntax {
+                ArithmeticExpansionSyntax::DollarParenParen => ("$((", "))"),
+                ArithmeticExpansionSyntax::LegacyBracket => ("$[", "]"),
+            };
+            format!("{open}{body}{close}")
+        }
         _ => render_word_syntax(word, source, options),
     }
 }
