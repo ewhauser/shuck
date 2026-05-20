@@ -2378,10 +2378,7 @@ fn indent_inline_case_command_body(
         return None;
     }
 
-    let prefix = match options.indent_style() {
-        IndentStyle::Tab => "\t".to_string(),
-        IndentStyle::Space => " ".repeat(usize::from(options.indent_width())),
-    };
+    let prefix = options.indent_prefix(1);
     let mut rendered = String::with_capacity(body.len() + prefix.len());
     let mut changed = false;
     for (index, line) in body.split('\n').enumerate() {
@@ -2410,10 +2407,7 @@ fn indent_inline_pipeline_continuations(
         return None;
     }
 
-    let unit = match options.indent_style() {
-        IndentStyle::Tab => "\t".to_string(),
-        IndentStyle::Space => " ".repeat(usize::from(options.indent_width())),
-    };
+    let unit = options.indent_prefix(1);
     let prefix = unit.repeat(indent_levels.max(1));
     let mut rendered = String::with_capacity(body.len() + prefix.len());
     let mut changed = false;
@@ -3133,7 +3127,7 @@ fn push_raw_shell_line_with_normalized_source_indent(
         && !trimmed_content.is_empty()
         && !raw_line_closes_substitution_wrapper(trimmed_content)
     {
-        push_indent_units(&mut rendered_indent, options, 1);
+        options.push_indent_units(&mut rendered_indent, 1);
     } else {
         rendered_indent.push_str(&normalized_raw_shell_indent(indent, options));
     }
@@ -3176,7 +3170,7 @@ fn rendered_raw_shell_indent_for_line(
         && !raw_line_closes_substitution_wrapper(trimmed_content)
     {
         let mut rendered = String::new();
-        push_indent_units(&mut rendered, options, 1);
+        options.push_indent_units(&mut rendered, 1);
         rendered
     } else {
         normalized_raw_shell_indent(indent, options)
@@ -4445,21 +4439,6 @@ fn raw_indent_units(indent: &str, options: &ResolvedShellFormatOptions) -> usize
     }
 }
 
-fn push_indent_units(target: &mut String, options: &ResolvedShellFormatOptions, levels: usize) {
-    match options.indent_style() {
-        IndentStyle::Tab => {
-            for _ in 0..levels {
-                target.push('\t');
-            }
-        }
-        IndentStyle::Space => {
-            for _ in 0..(levels * usize::from(options.indent_width())) {
-                target.push(' ');
-            }
-        }
-    }
-}
-
 fn strip_one_indent_unit<'a>(line: &'a str, options: &ResolvedShellFormatOptions) -> &'a str {
     match options.indent_style() {
         IndentStyle::Tab => line.strip_prefix('\t').unwrap_or_else(|| {
@@ -4592,7 +4571,7 @@ fn render_process_substitution(
             rendered.push_str("(\n");
             push_indented_rendered_block(rendered, trimmed, options, outer_levels + 1);
             rendered.push('\n');
-            push_indent_units(rendered, options, outer_levels);
+            options.push_indent_units(rendered, outer_levels);
             rendered.push(')');
         }
     } else {
@@ -4702,10 +4681,7 @@ fn push_indented_rendered_block(
     options: &ResolvedShellFormatOptions,
     levels: usize,
 ) {
-    let prefix = match options.indent_style() {
-        IndentStyle::Tab => "\t".repeat(levels),
-        IndentStyle::Space => " ".repeat(levels * usize::from(options.indent_width())),
-    };
+    let prefix = options.indent_prefix(levels);
     let normalized_literal_continuations =
         normalize_literal_continuation_indent_for_block(rendered);
     let rendered = normalized_literal_continuations
@@ -5471,7 +5447,7 @@ fn format_multiline_arithmetic_expansion_source(
     }
     let lines = split_rendered_arithmetic_body_at_source_operators(&rendered_body, &operators)?;
     let mut continuation_indent = String::new();
-    push_indent_units(&mut continuation_indent, options, 1);
+    options.push_indent_units(&mut continuation_indent, 1);
     let lines = lines
         .into_iter()
         .map(|line| format!("{continuation_indent}{line}"))

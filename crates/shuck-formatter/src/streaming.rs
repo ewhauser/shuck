@@ -418,10 +418,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if self.options.minify() {
             return 0;
         }
-        match self.options.indent_style() {
-            IndentStyle::Tab => level,
-            IndentStyle::Space => level * usize::from(self.options.indent_width()),
-        }
+        self.options.indent_columns(level)
     }
 
     fn with_indent<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
@@ -583,10 +580,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             .next()
             .is_some_and(|line| line.trim_end_matches([' ', '\t', '\r']).ends_with("$("));
         let strip_context_indent = !starts_with_block_command_substitution;
-        let indent_unit = match self.options.indent_style() {
-            IndentStyle::Tab => 1,
-            IndentStyle::Space => usize::from(self.options.indent_width()),
-        };
+        let indent_unit = self.options.indent_unit_columns();
         let inline_pipeline_indent_column = base_indent_column + indent_unit;
         let mut next_pipeline_indent_column = None;
         let mut active_shell_pipeline_indent_column: Option<usize> = None;
@@ -886,7 +880,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
     fn write_indented_heredoc_text(&mut self, text: &str) {
         let indent_level = self.indent_level.saturating_add(1);
-        let prefix = self.indent_prefix_for_level(indent_level);
+        let prefix = self.options.indent_prefix(indent_level);
         let base_tabs = if matches!(self.options.indent_style(), IndentStyle::Tab) {
             minimum_leading_tabs_in_non_empty_lines(text)
         } else {
@@ -920,13 +914,6 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             }
             self.line_start = line.ends_with('\n');
             rest = next;
-        }
-    }
-
-    fn indent_prefix_for_level(&self, level: usize) -> String {
-        match self.options.indent_style() {
-            IndentStyle::Tab => "\t".repeat(level),
-            IndentStyle::Space => " ".repeat(level * usize::from(self.options.indent_width())),
         }
     }
 
@@ -1063,8 +1050,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 {
                     self.write_text_preserving_current_line_indent(&scratch);
                 } else {
-                    let continuation_indent =
-                        self.indent_prefix_for_level(self.indent_level.saturating_add(1));
+                    let continuation_indent = self
+                        .options
+                        .indent_prefix(self.indent_level.saturating_add(1));
                     let normalized = normalize_literal_assignment_command_substitution_pipelines(
                         &scratch,
                         &continuation_indent,
@@ -5432,10 +5420,7 @@ fn normalize_escaped_multiline_word_command_substitution_indent(
         return None;
     }
 
-    let indent = match options.indent_style() {
-        IndentStyle::Tab => "\t".to_string(),
-        IndentStyle::Space => " ".repeat(usize::from(options.indent_width())),
-    };
+    let indent = options.indent_prefix(1);
     let mut output = String::with_capacity(rendered.len() + indent.len() * 4);
     let mut changed = false;
     let mut command_substitution_depth = 0usize;

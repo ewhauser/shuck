@@ -232,6 +232,31 @@ impl ResolvedShellFormatOptions {
         self.indent_width
     }
 
+    pub(crate) fn indent_unit_columns(&self) -> usize {
+        match self.indent_style() {
+            IndentStyle::Tab => 1,
+            IndentStyle::Space => usize::from(self.indent_width()),
+        }
+    }
+
+    pub(crate) fn indent_columns(&self, levels: usize) -> usize {
+        levels * self.indent_unit_columns()
+    }
+
+    pub(crate) fn push_indent_units(&self, target: &mut String, levels: usize) {
+        let (ch, columns) = match self.indent_style() {
+            IndentStyle::Tab => ('\t', levels),
+            IndentStyle::Space => (' ', self.indent_columns(levels)),
+        };
+        target.extend(std::iter::repeat_n(ch, columns));
+    }
+
+    pub(crate) fn indent_prefix(&self, levels: usize) -> String {
+        let mut prefix = String::new();
+        self.push_indent_units(&mut prefix, levels);
+        prefix
+    }
+
     #[must_use]
     pub fn binary_next_line(&self) -> bool {
         self.binary_next_line
