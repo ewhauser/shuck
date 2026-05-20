@@ -2413,18 +2413,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 then_span.end.offset,
             )?;
             for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
-                if if_next_branch_has_blank_line_before_keyword(command, index, source) {
-                    self.newline();
-                }
-                let preserve_blank_after_prefix =
-                    if_branch_prefix_comments_have_blank_line_before_keyword(
-                        command, index, source,
-                    );
-                self.emit_branch_prefix_comments(command, index);
-                self.newline();
-                if preserve_blank_after_prefix {
-                    self.newline();
-                }
+                self.write_if_branch_prefix(command, index, source);
                 let condition_prefix_comments =
                     self.elif_condition_prefix_comments(command, index, condition);
                 if condition_keyword_on_previous_non_empty_line(condition, source, "elif")
@@ -2447,24 +2436,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 )?;
             }
             if let Some(body) = &command.else_branch {
-                if if_next_branch_has_blank_line_before_keyword(
-                    command,
-                    command.elif_branches.len(),
-                    source,
-                ) {
-                    self.newline();
-                }
-                let preserve_blank_after_prefix =
-                    if_branch_prefix_comments_have_blank_line_before_keyword(
-                        command,
-                        command.elif_branches.len(),
-                        source,
-                    );
-                self.emit_branch_prefix_comments(command, command.elif_branches.len());
-                self.newline();
-                if preserve_blank_after_prefix {
-                    self.newline();
-                }
+                self.write_if_branch_prefix(command, command.elif_branches.len(), source);
                 self.write_text("else");
                 let body_upper_bound = fi_upper_bound;
                 self.format_if_branch_body_after_keyword(
@@ -2611,18 +2583,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 self.format_inline_stmts(condition)?;
                 self.write_text(self.then_separator_for_condition(condition));
             } else {
-                if if_next_branch_has_blank_line_before_keyword(command, index, source) {
-                    self.newline();
-                }
-                let preserve_blank_after_prefix =
-                    if_branch_prefix_comments_have_blank_line_before_keyword(
-                        command, index, source,
-                    );
-                self.emit_branch_prefix_comments(command, index);
-                self.newline();
-                if preserve_blank_after_prefix {
-                    self.newline();
-                }
+                self.write_if_branch_prefix(command, index, source);
                 let condition_prefix_comments =
                     self.elif_condition_prefix_comments(command, index, condition);
                 if condition_keyword_on_previous_non_empty_line(condition, source, "elif")
@@ -2649,24 +2610,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             if self.options().compact_layout() {
                 self.write_text("; else");
             } else {
-                if if_next_branch_has_blank_line_before_keyword(
-                    command,
-                    command.elif_branches.len(),
-                    source,
-                ) {
-                    self.newline();
-                }
-                let preserve_blank_after_prefix =
-                    if_branch_prefix_comments_have_blank_line_before_keyword(
-                        command,
-                        command.elif_branches.len(),
-                        source,
-                    );
-                self.emit_branch_prefix_comments(command, command.elif_branches.len());
-                self.newline();
-                if preserve_blank_after_prefix {
-                    self.newline();
-                }
+                self.write_if_branch_prefix(command, command.elif_branches.len(), source);
                 if self.can_inline_else_branch_close(command, body, fi_span) {
                     self.write_text("else ");
                     self.format_inline_stmts(body)?;
@@ -2812,6 +2756,19 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 command.span,
                 "fi",
             )
+    }
+
+    fn write_if_branch_prefix(&mut self, command: &IfCommand, branch_index: usize, source: &str) {
+        if if_next_branch_has_blank_line_before_keyword(command, branch_index, source) {
+            self.newline();
+        }
+        let preserve_blank_after_prefix =
+            if_branch_prefix_comments_have_blank_line_before_keyword(command, branch_index, source);
+        self.emit_branch_prefix_comments(command, branch_index);
+        self.newline();
+        if preserve_blank_after_prefix {
+            self.newline();
+        }
     }
 
     fn emit_branch_prefix_comments(&mut self, command: &IfCommand, branch_index: usize) {
