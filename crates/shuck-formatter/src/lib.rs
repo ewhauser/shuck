@@ -533,6 +533,15 @@ mod tests {
         assert_unchanged_with_ast(source, None, &options);
     }
 
+    #[track_caller]
+    fn assert_default_idempotent(source: &str, filename: &str) {
+        assert_idempotent(
+            source,
+            Some(Path::new(filename)),
+            &ShellFormatOptions::default(),
+        );
+    }
+
     macro_rules! default_format_ast_cases {
         ($($name:ident: $source:expr => $expected:expr;)+) => {
             $(
@@ -936,11 +945,7 @@ mod tests {
 
     #[test]
     fn preserves_quoted_heredoc_delimiters_idempotently() {
-        assert_idempotent(
-            "cat <<'EOF_264'\ndelta\nEOF_264\n",
-            Some(Path::new("quoted_heredoc.sh")),
-            &ShellFormatOptions::default(),
-        );
+        assert_default_idempotent("cat <<'EOF_264'\ndelta\nEOF_264\n", "quoted_heredoc.sh");
     }
 
     #[test]
@@ -4823,74 +4828,60 @@ print hidden &!
 
     #[test]
     fn preserves_group_spacing_idempotently_for_nested_subshells() {
-        assert_idempotent(
-            "foo(foo()) \n",
-            Some(Path::new("nested_subshell_spacing.sh")),
-            &ShellFormatOptions::default(),
-        );
+        assert_default_idempotent("foo(foo()) \n", "nested_subshell_spacing.sh");
     }
 
     #[test]
     fn preserves_blank_lines_after_multiline_subshells_idempotently() {
-        assert_idempotent(
+        assert_default_idempotent(
             "(\n\techo hi\n)\n\nfoo() {\n\techo bye\n}\n",
-            Some(Path::new("multiline_subshell_gap.sh")),
-            &ShellFormatOptions::default(),
+            "multiline_subshell_gap.sh",
         );
     }
 
     #[test]
     fn preserves_blank_lines_after_multiline_brace_groups_idempotently() {
-        assert_idempotent(
+        assert_default_idempotent(
             "{\n\techo hi\n}\n\nfoo() {\n\techo bye\n}\n",
-            Some(Path::new("multiline_brace_gap.sh")),
-            &ShellFormatOptions::default(),
+            "multiline_brace_gap.sh",
         );
     }
 
     #[test]
     fn preserves_spacing_after_nested_multiline_subshells_before_simple_commands() {
-        assert_idempotent(
+        assert_default_idempotent(
             "(\n\t(\n\t\tfalse\n\t)\n)\ngrep \"name delta\"\n",
-            Some(Path::new("nested_multiline_subshell_then_stmt.sh")),
-            &ShellFormatOptions::default(),
+            "nested_multiline_subshell_then_stmt.sh",
         );
     }
 
     #[test]
     fn preserves_spacing_after_nested_multiline_subshells_before_other_groups() {
-        assert_idempotent(
+        assert_default_idempotent(
             "(\n\t(\n\t\tfalse\n\t)\n)\n(\n\twhile true; do\n\t\t:\n\tdone\n)\n",
-            Some(Path::new("nested_multiline_subshell_then_group.bash")),
-            &ShellFormatOptions::default(),
+            "nested_multiline_subshell_then_group.bash",
         );
     }
 
     #[test]
     fn preserves_spacing_after_subshells_that_end_with_function_definitions() {
-        assert_idempotent(
+        assert_default_idempotent(
             "foo() {\n\t(\n\t\tbar() {\n\t\t\techo hi\n\t\t}\n\t)\n\n\tprintf x\n}\n",
-            Some(Path::new("subshell_function_tail_gap.bash")),
-            &ShellFormatOptions::default(),
+            "subshell_function_tail_gap.bash",
         );
     }
 
     #[test]
     fn preserves_shebang_spacing_before_nested_multiline_groups_idempotently() {
-        assert_idempotent(
+        assert_default_idempotent(
             "#!/usr/bin/env bash\n\n(\n\t(\n\t\techo hi\n\t)\n)\n",
-            Some(Path::new("shebang_nested_groups.bash")),
-            &ShellFormatOptions::default(),
+            "shebang_nested_groups.bash",
         );
     }
 
     #[test]
     fn preserves_legacy_bracket_arithmetic_idempotently() {
-        assert_idempotent(
-            "#!/bin/sh\n\ni=$[$i+1]\n",
-            Some(Path::new("legacy_bracket_arithmetic.sh")),
-            &ShellFormatOptions::default(),
-        );
+        assert_default_idempotent("#!/bin/sh\n\ni=$[$i+1]\n", "legacy_bracket_arithmetic.sh");
     }
 
     #[test]
@@ -4912,16 +4903,8 @@ print hidden &!
 
     #[test]
     fn preserves_conditional_words_that_look_like_unary_operators() {
-        assert_idempotent(
-            "[[ -n]]\n",
-            Some(Path::new("fuzz.bash")),
-            &ShellFormatOptions::default(),
-        );
-        assert_idempotent(
-            "[[ ! -n]]\n",
-            Some(Path::new("fuzz.bash")),
-            &ShellFormatOptions::default(),
-        );
+        assert_default_idempotent("[[ -n]]\n", "fuzz.bash");
+        assert_default_idempotent("[[ ! -n]]\n", "fuzz.bash");
     }
 
     #[test]
@@ -4934,11 +4917,7 @@ print hidden &!
         );
 
         assert_eq!(formatted, "x foo=1 <<EOF=1 <<EOF\nhi\nEOF=1\nEOF\n");
-        assert_idempotent(
-            source,
-            Some(Path::new("fuzz.sh")),
-            &ShellFormatOptions::default(),
-        );
+        assert_default_idempotent(source, "fuzz.sh");
     }
 
     #[test]
@@ -4951,11 +4930,7 @@ print hidden &!
         );
 
         assert_eq!(formatted, "d8 <<EGF\nhi\nEOF\nEGF\n");
-        assert_idempotent(
-            source,
-            Some(Path::new("fuzz.sh")),
-            &ShellFormatOptions::default(),
-        );
+        assert_default_idempotent(source, "fuzz.sh");
     }
 
     #[test]
