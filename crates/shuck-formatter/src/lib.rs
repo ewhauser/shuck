@@ -1564,22 +1564,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "echo \"\\\"$BUILDSCRIPT\\\" -a \\\"$TERMUX_ARCH\\\" $TERMUX_DEBUG_BUILD --format \\\"$TERMUX_FORMAT\\\" --library $(test \"${PKG_DIR%/*}\" = \"gpkg\" && echo \"glibc\" || echo \"bionic\") ${TERMUX_OUTPUT_DIR+-o $TERMUX_OUTPUT_DIR} $TERMUX_INSTALL_DEPS \\\"$PKG_DIR\\\"\"\n";
     }
 
-    #[test]
-    fn preserves_parameter_replacements_and_slice_offsets() {
-        let source = "if [ \"$package_url\" != \"${package_url/\\#}\" ]; then\n  echo \"${arg:$index:1}\"\n  local fetch_args=(\"$package_name\" \"${@:1:$package_type_nargs}\")\n  local y=${charmap:$((RANDOM%${#charmap})):1}\n  for arg in \"${@:$(( $package_type_nargs + 1 ))}\"; do\n    echo \"$arg\"\n  done\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if [ \"$package_url\" != \"${package_url/\\#/}\" ]; then\n\techo \"${arg:$index:1}\"\n\tlocal fetch_args=(\"$package_name\" \"${@:1:$package_type_nargs}\")\n\tlocal y=${charmap:$((RANDOM % ${#charmap})):1}\n\tfor arg in \"${@:$(($package_type_nargs + 1))}\"; do\n\t\techo \"$arg\"\n\tdone\nfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_replacement_patterns_that_need_raw_delimiters() {
-        let source = "title=\"${title//\\\"}\"\nlocal profile=\"${1// }\"\n";
-        assert_formats_default_with_ast(
-            source,
-            "title=\"${title//\\\"/}\"\nlocal profile=\"${1// /}\"\n",
-        );
+    default_format_ast_cases! {
+        preserves_parameter_replacements_and_slice_offsets:
+            "if [ \"$package_url\" != \"${package_url/\\#}\" ]; then\n  echo \"${arg:$index:1}\"\n  local fetch_args=(\"$package_name\" \"${@:1:$package_type_nargs}\")\n  local y=${charmap:$((RANDOM%${#charmap})):1}\n  for arg in \"${@:$(( $package_type_nargs + 1 ))}\"; do\n    echo \"$arg\"\n  done\nfi\n"
+            => "if [ \"$package_url\" != \"${package_url/\\#/}\" ]; then\n\techo \"${arg:$index:1}\"\n\tlocal fetch_args=(\"$package_name\" \"${@:1:$package_type_nargs}\")\n\tlocal y=${charmap:$((RANDOM % ${#charmap})):1}\n\tfor arg in \"${@:$(($package_type_nargs + 1))}\"; do\n\t\techo \"$arg\"\n\tdone\nfi\n";
+        preserves_replacement_patterns_that_need_raw_delimiters:
+            "title=\"${title//\\\"}\"\nlocal profile=\"${1// }\"\n"
+            => "title=\"${title//\\\"/}\"\nlocal profile=\"${1// /}\"\n";
     }
 
     default_unchanged_ast_cases! {
@@ -1587,23 +1578,13 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "query=\"${query//\\\"/\\\\\\\"}\"\nurl_path=\"${url_path//https:\\\\/\\\\/api.openai.com\\/v1}\"\n";
     }
 
-    #[test]
-    fn inserts_empty_replacement_delimiter_after_escaped_quote_replacements() {
-        let source =
-            "playlist=\"${playlist//\\\\\"/\\\\\\\\\"}\"\nplaylist=\"${playlist//'/\\\\'}\"\n";
-        assert_formats_default_with_ast(
-            source,
-            "playlist=\"${playlist//\\\\\"/\\\\\\\\\"/}\"\nplaylist=\"${playlist//'/\\\\'/}\"\n",
-        );
-    }
-
-    #[test]
-    fn preserves_negative_parameter_slice_offset_spacing() {
-        let source = "if [ \"${filename: -5}\" != .orig ]; then\n  echo no\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if [ \"${filename: -5}\" != .orig ]; then\n\techo no\nfi\n",
-        );
+    default_format_ast_cases! {
+        inserts_empty_replacement_delimiter_after_escaped_quote_replacements:
+            "playlist=\"${playlist//\\\\\"/\\\\\\\\\"}\"\nplaylist=\"${playlist//'/\\\\'}\"\n"
+            => "playlist=\"${playlist//\\\\\"/\\\\\\\\\"/}\"\nplaylist=\"${playlist//'/\\\\'/}\"\n";
+        preserves_negative_parameter_slice_offset_spacing:
+            "if [ \"${filename: -5}\" != .orig ]; then\n  echo no\nfi\n"
+            => "if [ \"${filename: -5}\" != .orig ]; then\n\techo no\nfi\n";
     }
 
     bash_unchanged_ast_cases! {
@@ -1611,95 +1592,40 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             "region=\"${zone::${#zone}-1}\"\nindex=\"${items:1+2:count-1}\"\n";
     }
 
-    #[test]
-    fn formats_major_minor_multiline_command_substitution_like_shfmt() {
-        let source = "major_minor() {\n  echo \"${1%%.*}.$(\n    x=\"${1#*.}\"\n    echo \"${x%%.*}\"\n  )\"\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "major_minor() {\n\techo \"${1%%.*}.$(\n\t\tx=\"${1#*.}\"\n\t\techo \"${x%%.*}\"\n\t)\"\n}\n",
-        );
+    default_format_ast_cases! {
+        formats_major_minor_multiline_command_substitution_like_shfmt:
+            "major_minor() {\n  echo \"${1%%.*}.$(\n    x=\"${1#*.}\"\n    echo \"${x%%.*}\"\n  )\"\n}\n"
+            => "major_minor() {\n\techo \"${1%%.*}.$(\n\t\tx=\"${1#*.}\"\n\t\techo \"${x%%.*}\"\n\t)\"\n}\n";
+        formats_nvm_args_command_substitution_without_losing_sed_body_layout:
+            "ARGS=$(\n  nvm_echo \"$@\" | command sed \"\n    s/--progress-bar /--progress=bar /\n    s/-s /-q /\n  \"\n)\n"
+            => "ARGS=$(\n\tnvm_echo \"$@\" | command sed \"\n    s/--progress-bar /--progress=bar /\n    s/-s /-q /\n  \"\n)\n";
     }
 
-    #[test]
-    fn formats_nvm_args_command_substitution_without_losing_sed_body_layout() {
-        let source = "ARGS=$(\n  nvm_echo \"$@\" | command sed \"\n    s/--progress-bar /--progress=bar /\n    s/-s /-q /\n  \"\n)\n";
-        assert_formats_default_with_ast(
-            source,
-            "ARGS=$(\n\tnvm_echo \"$@\" | command sed \"\n    s/--progress-bar /--progress=bar /\n    s/-s /-q /\n  \"\n)\n",
-        );
-    }
-
-    #[test]
-    fn formats_quoted_block_command_substitution_conditions_like_shfmt() {
-        let source = "f() {\n  declare -i -r test_jobs_effective=\"$(\n    if [[ \"${TEST_JOBS:-detect}\" = \"detect\" ]] \\\n      && command -v nproc &> /dev/null; then\n      nproc\n    fi\n  )\"\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tdeclare -i -r test_jobs_effective=\"$(\n\t\tif [[ \"${TEST_JOBS:-detect}\" = \"detect\" ]] &&\n\t\t\tcommand -v nproc &>/dev/null; then\n\t\t\tnproc\n\t\tfi\n\t)\"\n}\n",
-        );
-    }
-
-    #[test]
-    fn formats_quoted_continued_command_substitution_lists_like_shfmt() {
-        let source = "f() {\n  branchName=\"$(git symbolic-ref --quiet --short HEAD 2> /dev/null \\\n    || git rev-parse --short HEAD 2> /dev/null \\\n    || echo '(unknown)')\"\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tbranchName=\"$(git symbolic-ref --quiet --short HEAD 2>/dev/null ||\n\t\tgit rev-parse --short HEAD 2>/dev/null ||\n\t\techo '(unknown)')\"\n}\n",
-        );
-    }
-
-    #[test]
-    fn indents_assignment_command_substitution_leading_pipe_continuations() {
-        let source = "f() {\n  certText=$(echo \"${tmp}\" \\\n    | openssl x509 -text -certopt \"no_header, no_serial, \\\n    no_signame\")\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tcertText=$(echo \"${tmp}\" |\n\t\topenssl x509 -text -certopt \"no_header, no_serial, \\\n\t\tno_signame\")\n}\n",
-        );
-    }
-
-    #[test]
-    fn indents_inline_command_substitution_backslash_continuations() {
-        let source =
-            "f() {\n  providers=\"$(find . |\n    sed -e 's/^a/b/' \\\n      -e 's/^c/d/')\"\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tproviders=\"$(find . |\n\t\tsed -e 's/^a/b/' \\\n\t\t\t-e 's/^c/d/')\"\n}\n",
-        );
-    }
-
-    #[test]
-    fn indents_literal_assignment_command_substitution_pipeline_continuations() {
-        let source = "f() {\n  while ok; do\n    protected_branches=\"$protected_branches\n                            $(jq_debug_pipe_dump <<< \"$output\" |\n                              jq -r '.[] | select(.protected == true)')\"\n  done\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\twhile ok; do\n\t\tprotected_branches=\"$protected_branches\n                            $(jq_debug_pipe_dump <<<\"$output\" |\n\t\t\tjq -r '.[] | select(.protected == true)')\"\n\tdone\n}\n",
-        );
-    }
-
-    #[test]
-    fn indents_command_substitution_continuations_after_multiline_literals() {
-        let source = "f() {\n  allowed=\"$(sed 's/#.*//;\n                        s/^[[:space:]]*//;\n                        /^[[:space:]]*$/d;' \\\n                        \"$file\")\"\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tallowed=\"$(sed 's/#.*//;\n                        s/^[[:space:]]*//;\n                        /^[[:space:]]*$/d;' \\\n\t\t\"$file\")\"\n}\n",
-        );
-    }
-
-    #[test]
-    fn indents_assignment_command_substitution_pipelines_after_multiline_literals() {
-        let source = "if [ \"$version\" = latest ]; then\n    version=\"$(gh api \"repos/$owner_repo/tags\" \\\n                --jq '\n                    .[] |\n                    select(.name | test(\"^go[0-9]\")) |\n                    .name\n                ' --paginate |\n                head -n1 |\n                sed 's/^go//' || :)\"\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if [ \"$version\" = latest ]; then\n\tversion=\"$(gh api \"repos/$owner_repo/tags\" \\\n\t\t--jq '\n                    .[] |\n                    select(.name | test(\"^go[0-9]\")) |\n                    .name\n                ' --paginate |\n\t\thead -n1 |\n\t\tsed 's/^go//' || :)\"\nfi\n",
-        );
-    }
-
-    #[test]
-    fn block_command_substitution_pipelines_keep_nested_indent() {
-        let source = "backups=\"$(\n    while read -r mountpoint; do\n        ls -t \"$mountpoint\" |\n        sed '\n            s|\\.backup/*$||;\n        '\n    done <<< \"$mountpoints\" |\n    sort -r\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "backups=\"$(\n\twhile read -r mountpoint; do\n\t\tls -t \"$mountpoint\" |\n\t\t\tsed '\n            s|\\.backup/*$||;\n        '\n\tdone <<<\"$mountpoints\" |\n\t\tsort -r\n)\"\n",
-        );
+    bash_format_ast_cases! {
+        formats_quoted_block_command_substitution_conditions_like_shfmt:
+            "f() {\n  declare -i -r test_jobs_effective=\"$(\n    if [[ \"${TEST_JOBS:-detect}\" = \"detect\" ]] \\\n      && command -v nproc &> /dev/null; then\n      nproc\n    fi\n  )\"\n}\n"
+            => "f() {\n\tdeclare -i -r test_jobs_effective=\"$(\n\t\tif [[ \"${TEST_JOBS:-detect}\" = \"detect\" ]] &&\n\t\t\tcommand -v nproc &>/dev/null; then\n\t\t\tnproc\n\t\tfi\n\t)\"\n}\n";
+        formats_quoted_continued_command_substitution_lists_like_shfmt:
+            "f() {\n  branchName=\"$(git symbolic-ref --quiet --short HEAD 2> /dev/null \\\n    || git rev-parse --short HEAD 2> /dev/null \\\n    || echo '(unknown)')\"\n}\n"
+            => "f() {\n\tbranchName=\"$(git symbolic-ref --quiet --short HEAD 2>/dev/null ||\n\t\tgit rev-parse --short HEAD 2>/dev/null ||\n\t\techo '(unknown)')\"\n}\n";
+        indents_assignment_command_substitution_leading_pipe_continuations:
+            "f() {\n  certText=$(echo \"${tmp}\" \\\n    | openssl x509 -text -certopt \"no_header, no_serial, \\\n    no_signame\")\n}\n"
+            => "f() {\n\tcertText=$(echo \"${tmp}\" |\n\t\topenssl x509 -text -certopt \"no_header, no_serial, \\\n\t\tno_signame\")\n}\n";
+        indents_inline_command_substitution_backslash_continuations:
+            "f() {\n  providers=\"$(find . |\n    sed -e 's/^a/b/' \\\n      -e 's/^c/d/')\"\n}\n"
+            => "f() {\n\tproviders=\"$(find . |\n\t\tsed -e 's/^a/b/' \\\n\t\t\t-e 's/^c/d/')\"\n}\n";
+        indents_literal_assignment_command_substitution_pipeline_continuations:
+            "f() {\n  while ok; do\n    protected_branches=\"$protected_branches\n                            $(jq_debug_pipe_dump <<< \"$output\" |\n                              jq -r '.[] | select(.protected == true)')\"\n  done\n}\n"
+            => "f() {\n\twhile ok; do\n\t\tprotected_branches=\"$protected_branches\n                            $(jq_debug_pipe_dump <<<\"$output\" |\n\t\t\tjq -r '.[] | select(.protected == true)')\"\n\tdone\n}\n";
+        indents_command_substitution_continuations_after_multiline_literals:
+            "f() {\n  allowed=\"$(sed 's/#.*//;\n                        s/^[[:space:]]*//;\n                        /^[[:space:]]*$/d;' \\\n                        \"$file\")\"\n}\n"
+            => "f() {\n\tallowed=\"$(sed 's/#.*//;\n                        s/^[[:space:]]*//;\n                        /^[[:space:]]*$/d;' \\\n\t\t\"$file\")\"\n}\n";
+        indents_assignment_command_substitution_pipelines_after_multiline_literals:
+            "if [ \"$version\" = latest ]; then\n    version=\"$(gh api \"repos/$owner_repo/tags\" \\\n                --jq '\n                    .[] |\n                    select(.name | test(\"^go[0-9]\")) |\n                    .name\n                ' --paginate |\n                head -n1 |\n                sed 's/^go//' || :)\"\nfi\n"
+            => "if [ \"$version\" = latest ]; then\n\tversion=\"$(gh api \"repos/$owner_repo/tags\" \\\n\t\t--jq '\n                    .[] |\n                    select(.name | test(\"^go[0-9]\")) |\n                    .name\n                ' --paginate |\n\t\thead -n1 |\n\t\tsed 's/^go//' || :)\"\nfi\n";
+        block_command_substitution_pipelines_keep_nested_indent:
+            "backups=\"$(\n    while read -r mountpoint; do\n        ls -t \"$mountpoint\" |\n        sed '\n            s|\\.backup/*$||;\n        '\n    done <<< \"$mountpoints\" |\n    sort -r\n)\"\n"
+            => "backups=\"$(\n\twhile read -r mountpoint; do\n\t\tls -t \"$mountpoint\" |\n\t\t\tsed '\n            s|\\.backup/*$||;\n        '\n\tdone <<<\"$mountpoints\" |\n\t\tsort -r\n)\"\n";
     }
 
     bash_format_ast_cases! {
