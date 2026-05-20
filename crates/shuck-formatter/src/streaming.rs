@@ -1780,6 +1780,17 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
     }
 
+    fn format_done_body(
+        &mut self,
+        body: &StmtSeq,
+        enclosing_span: Span,
+        done_span: Option<Span>,
+    ) -> Result<()> {
+        let close_span =
+            command_done_close_span(self.source(), self.source_map(), enclosing_span, done_span);
+        self.format_do_done_body(body, enclosing_span, close_span, "done")
+    }
+
     fn format_do_done_body(
         &mut self,
         body: &StmtSeq,
@@ -3067,13 +3078,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 in_span, done_span, ..
             } => {
                 self.write_for_in_words(command.words.as_deref(), in_span);
-                let close_span = command_done_close_span(
-                    self.source(),
-                    self.source_map(),
-                    command.span,
-                    Some(done_span),
-                );
-                self.format_do_done_body(&command.body, command.span, close_span, "done")?;
+                self.format_done_body(&command.body, command.span, Some(done_span))?;
             }
             ForSyntax::InDirect { in_span } => {
                 self.write_for_in_words(command.words.as_deref(), in_span);
@@ -3082,13 +3087,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             }
             ForSyntax::ParenDoDone { done_span, .. } => {
                 self.write_parenthesized_word_list(command.words.as_deref());
-                let close_span = command_done_close_span(
-                    self.source(),
-                    self.source_map(),
-                    command.span,
-                    Some(done_span),
-                );
-                self.format_do_done_body(&command.body, command.span, close_span, "done")?;
+                self.format_done_body(&command.body, command.span, Some(done_span))?;
             }
             ForSyntax::ParenDirect { .. } => {
                 self.write_parenthesized_word_list(command.words.as_deref());
@@ -3141,13 +3140,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.write_word(&command.count);
         match command.syntax {
             RepeatSyntax::DoDone { done_span, .. } => {
-                let close_span = command_done_close_span(
-                    self.source(),
-                    self.source_map(),
-                    command.span,
-                    Some(done_span),
-                );
-                self.format_do_done_body(&command.body, command.span, close_span, "done")?;
+                self.format_done_body(&command.body, command.span, Some(done_span))?;
             }
             RepeatSyntax::Direct => {
                 self.write_space();
@@ -3173,13 +3166,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             ForeachSyntax::InDoDone { done_span, .. } => {
                 self.write_text(" in");
                 self.write_word_list_preserving_breaks(&command.words);
-                let close_span = command_done_close_span(
-                    self.source(),
-                    self.source_map(),
-                    command.span,
-                    Some(done_span),
-                );
-                self.format_do_done_body(&command.body, command.span, close_span, "done")?;
+                self.format_done_body(&command.body, command.span, Some(done_span))?;
             }
         }
         Ok(())
@@ -3190,9 +3177,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.write_text(command.variable.as_ref());
         self.write_text(" in");
         self.write_word_list_preserving_breaks(&command.words);
-        let close_span =
-            command_done_close_span(self.source(), self.source_map(), command.span, None);
-        self.format_do_done_body(&command.body, command.span, close_span, "done")?;
+        self.format_done_body(&command.body, command.span, None)?;
         Ok(())
     }
 
@@ -3926,9 +3911,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.write_text("; ");
         self.write_text(&step);
         self.write_text("))");
-        let close_span =
-            command_done_close_span(self.source(), self.source_map(), command.span, None);
-        self.format_do_done_body(&command.body, command.span, close_span, "done")
+        self.format_done_body(&command.body, command.span, None)
     }
 
     fn format_time(&mut self, command: &TimeCommand) -> Result<()> {
