@@ -1,15 +1,16 @@
 use std::collections::{HashMap, HashSet};
 
-use shuck_ast::TextSize;
 use shuck_ast::{
     AnonymousFunctionCommand, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, Assignment,
     AssignmentValue, BinaryCommand, BinaryOp, BuiltinCommand, CaseCommand, CaseItem, Command,
     CommandSubstitutionSyntax, CompoundCommand, ConditionalCommand, ConditionalExpr, DeclClause,
-    DeclOperand, File, ForCommand, ForeachCommand, FunctionDef, HeredocBody, HeredocBodyPart,
-    IfCommand, Pattern, PatternPart, Redirect, RepeatCommand, SelectCommand, Span, Stmt, StmtSeq,
-    StmtTerminator, TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
+    DeclOperand, File, ForCommand, ForeachCommand, FunctionDef, Heredoc, HeredocBody,
+    HeredocBodyPart, IfCommand, Pattern, PatternPart, Redirect, RepeatCommand, SelectCommand, Span,
+    Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
 };
-use shuck_indexer::Indexer;
+use shuck_ast::{TextRange, TextSize};
+use shuck_format::LineEnding;
+use shuck_indexer::{CommentIndex, IndexedComment, Indexer, LineIndex};
 
 use crate::command::{
     array_elem_parts, branch_open_keyword_start, builtin_like_parts, case_item_body_upper_bound,
@@ -26,10 +27,7 @@ use crate::comments::{
     span_contains_comment,
 };
 use crate::options::ResolvedShellFormatOptions;
-use crate::scan::{
-    branch_prefix_first_comment_offset, has_newline_between_offsets as has_newline_between,
-    last_shell_keyword_start, operator_starts_or_ends_line,
-};
+use crate::scan::{BranchPrefixComment, last_shell_keyword_start};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct FactSpan {
@@ -234,6 +232,107 @@ impl<'source> FormatterFacts<'source> {
             .is_heredoc(TextSize::new(offset as u32))
     }
 
+    pub(crate) fn line_ending(&self) -> LineEnding {
+        match self.indexer.line_index().line_ending() {
+            shuck_indexer::LineEndingStyle::Lf => LineEnding::Lf,
+            shuck_indexer::LineEndingStyle::CrLf => LineEnding::CrLf,
+        }
+    }
+
+    pub(crate) fn contains_newline_between(&self, start: usize, end: usize) -> bool {
+        self.source_map.contains_newline_between(start, end)
+    }
+
+    pub(crate) fn has_continuation_line_start_between(&self, start: usize, end: usize) -> bool {
+        if start >= end {
+            return false;
+        }
+        let start = TextSize::new(start as u32);
+        let end = TextSize::new(end as u32);
+        self.indexer
+            .continuation_line_starts()
+            .iter()
+            .copied()
+            .any(|line_start| start < line_start && line_start <= end)
+    }
+
+    pub(crate) fn has_raw_continuation_backslash_between(&self, start: usize, end: usize) -> bool {
+        if start >= end {
+            return false;
+        }
+        let start = TextSize::new(start as u32);
+        let end = TextSize::new(end as u32);
+        self.indexer
+            .line_index()
+            .raw_continuation_backslashes()
+            .iter()
+            .copied()
+            .any(|backslash| start <= backslash && backslash < end)
+    }
+
+    pub(crate) fn line_end_for_offset(&self, offset: usize) -> Option<usize> {
+        let offset = TextSize::new(offset.min(self.source_map.source().len()) as u32);
+        let line = self.indexer.line_index().line_number(offset);
+        self.indexer
+            .line_index()
+            .line_range(line, self.source_map.source())
+            .map(|range| usize::from(range.end()))
+    }
+
+    pub(crate) fn branch_prefix_first_comment_offset(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Option<usize> {
+        self.branch_prefix_comments(start, end)
+            .first()
+            .map(|comment| comment.offset)
+    }
+
+    pub(crate) fn branch_prefix_comments(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Vec<BranchPrefixComment> {
+        branch_prefix_comments_from_index(
+            self.source_map.source(),
+            self.indexer.line_index(),
+            self.indexer.comment_index(),
+            start,
+            end,
+        )
+        .into_iter()
+        .filter(|comment| !self.offset_is_in_heredoc_body(comment.offset))
+        .collect()
+    }
+
+    pub(crate) fn own_line_comments_in_region(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Vec<BranchPrefixComment> {
+        own_line_comments_in_region_from_index(
+            self.source_map.source(),
+            self.indexer.line_index(),
+            self.indexer.comment_index(),
+            start,
+            end,
+        )
+        .into_iter()
+        .filter(|comment| !self.offset_is_in_heredoc_body(comment.offset))
+        .collect()
+    }
+
+    pub(crate) fn heredoc_closing_marker_bounds(
+        &self,
+        heredoc: &Heredoc,
+    ) -> Option<(usize, usize)> {
+        self.indexer
+            .region_index()
+            .heredoc_closing_marker_range(heredoc.body.span.to_range())
+            .map(|range| (usize::from(range.start()), usize::from(range.end())))
+    }
+
     #[cfg(feature = "benchmarking")]
     pub(crate) fn len(&self) -> usize {
         self.stmt_facts.len()
@@ -245,6 +344,146 @@ impl<'source> FormatterFacts<'source> {
             + self.inline_case_item_bodies.len()
             + self.indexer.region_index().heredoc_ranges().len()
     }
+}
+
+fn line_indent_before_offset<'source>(
+    source: &'source str,
+    line_index: &LineIndex,
+    offset: usize,
+) -> Option<&'source str> {
+    let offset = offset.min(source.len());
+    let line = line_index.line_number(TextSize::new(offset as u32));
+    let line_start = usize::from(line_index.line_start(line)?);
+    let prefix = source.get(line_start..offset)?;
+    let indent_end = prefix
+        .char_indices()
+        .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
+        .map_or(prefix.len(), |(index, _)| index);
+    prefix.get(..indent_end)
+}
+
+fn branch_prefix_comments_from_index<'source>(
+    source: &'source str,
+    line_index: &LineIndex,
+    comment_index: &CommentIndex,
+    start: usize,
+    end: usize,
+) -> Vec<BranchPrefixComment> {
+    let start = start.min(end).min(source.len());
+    let end = end.min(source.len());
+    if start >= end {
+        return Vec::new();
+    }
+
+    let keyword_indent = line_indent_before_offset(source, line_index, end).unwrap_or("");
+    let mut comments = Vec::new();
+    let mut in_branch_prefix_run = false;
+    let first_line = line_index.line_number(TextSize::new(start as u32));
+    let last_line = line_index.line_number(TextSize::new(end.saturating_sub(1) as u32));
+
+    for line in first_line..=last_line {
+        let Some((line_start, line_end, text)) =
+            clamped_line_text(source, line_index, line, start, end)
+        else {
+            continue;
+        };
+        let trimmed = text.trim_start_matches([' ', '\t']);
+        let indent = text.len().saturating_sub(trimmed.len());
+        let own_line_comment =
+            own_line_comment_in_bounds(comment_index, line, line_start, line_end).is_some();
+        if own_line_comment
+            && trimmed.starts_with('#')
+            && (in_branch_prefix_run || text.get(..indent) == Some(keyword_indent))
+        {
+            comments.push(BranchPrefixComment {
+                offset: line_start + indent,
+                text: trimmed.trim_end_matches([' ', '\t', '\r']).to_string(),
+                source_indent: indent,
+            });
+            in_branch_prefix_run = true;
+        } else if !trimmed.is_empty() {
+            in_branch_prefix_run = false;
+        }
+    }
+
+    comments
+}
+
+fn own_line_comments_in_region_from_index<'source>(
+    source: &'source str,
+    line_index: &LineIndex,
+    comment_index: &CommentIndex,
+    start: usize,
+    end: usize,
+) -> Vec<BranchPrefixComment> {
+    let start = start.min(end).min(source.len());
+    let end = end.min(source.len());
+    let start_line = line_index.line_number(TextSize::new(start as u32));
+    let Some(next_line_start) = line_index.line_start(start_line + 1).map(usize::from) else {
+        return Vec::new();
+    };
+    if next_line_start >= end {
+        return Vec::new();
+    }
+
+    let mut comments = Vec::new();
+    let first_line = start_line + 1;
+    let last_line = line_index.line_number(TextSize::new(end.saturating_sub(1) as u32));
+    for line in first_line..=last_line {
+        let Some((line_start, line_end, text)) =
+            clamped_line_text(source, line_index, line, next_line_start, end)
+        else {
+            continue;
+        };
+        if own_line_comment_in_bounds(comment_index, line, line_start, line_end).is_none() {
+            continue;
+        }
+        let trimmed = text.trim_start_matches([' ', '\t']);
+        if !trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = text.len().saturating_sub(trimmed.len());
+        comments.push(BranchPrefixComment {
+            offset: line_start + indent,
+            text: trimmed.trim_end_matches([' ', '\t', '\r']).to_string(),
+            source_indent: indent,
+        });
+    }
+
+    comments
+}
+
+fn clamped_line_text<'source>(
+    source: &'source str,
+    line_index: &LineIndex,
+    line: usize,
+    start: usize,
+    end: usize,
+) -> Option<(usize, usize, &'source str)> {
+    let range: TextRange = line_index.line_range(line, source)?;
+    let line_start = usize::from(range.start()).max(start);
+    let line_end = usize::from(range.end()).min(end);
+    (line_start <= line_end)
+        .then(|| {
+            source
+                .get(line_start..line_end)
+                .map(|text| (line_start, line_end, text))
+        })
+        .flatten()
+}
+
+fn own_line_comment_in_bounds(
+    comment_index: &CommentIndex,
+    line: usize,
+    line_start: usize,
+    line_end: usize,
+) -> Option<&IndexedComment> {
+    comment_index.comments_on_line(line).iter().find(|comment| {
+        comment.is_own_line && {
+            let start = usize::from(comment.range.start());
+            line_start <= start && start < line_end
+        }
+    })
 }
 
 struct FormatterFactsBuilder<'source, 'options> {
@@ -428,7 +667,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 .map(|span| span.end.offset)
                 .unwrap_or_else(|| stmt_span(current).end.offset);
             let next_start = self.facts.stmt(next).attachment_span().start.offset;
-            if has_newline_between(self.source, break_start, next_start) {
+            if self.facts.contains_newline_between(break_start, next_start) {
                 self.facts.background_breaks.insert(break_key);
             }
         }
@@ -568,8 +807,12 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 );
                 let next_start_line = self.source_map().line_number_for_offset(next_start);
                 let previous_span = stmt_span(previous);
-                if operator_starts_or_ends_line(self.source, item.operator_span)
-                    || has_newline_between(self.source, item.operator_span.end.offset, next_start)
+                if self
+                    .source_map()
+                    .operator_starts_or_ends_line(item.operator_span)
+                    || self
+                        .facts
+                        .contains_newline_between(item.operator_span.end.offset, next_start)
                     || (stmt_is_multiline_conditional(previous)
                         && previous_span.start.line < item.operator_span.start.line
                         && item.operator_span.end.line == next_start_line
@@ -680,6 +923,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 0,
                 self.source,
                 self.source_map(),
+                &self.facts,
             )),
             group_open_char,
             (!brace_syntax)
@@ -704,6 +948,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     index + 1,
                     self.source,
                     self.source_map(),
+                    &self.facts,
                 )),
                 group_open_char,
                 (!brace_syntax)
@@ -1104,8 +1349,8 @@ fn pipeline_has_explicit_line_break(
     for (statement, operator_span) in statements.iter().skip(1).zip(operators.iter()) {
         let next_start =
             stmt_start_after_operator(statement, operator_span.end.offset, source, source_map);
-        if operator_starts_or_ends_line(source, *operator_span)
-            || has_newline_between(source, operator_span.end.offset, next_start)
+        if source_map.operator_starts_or_ends_line(*operator_span)
+            || source_map.contains_newline_between(operator_span.end.offset, next_start)
         {
             return true;
         }
@@ -1121,10 +1366,7 @@ fn branch_open_suffix_span(
 ) -> Option<Span> {
     let source = source_map.source();
     let keyword_offset = branch_open_keyword_start(sequence, source, keyword)?;
-    let line_end = source[keyword_offset..]
-        .find('\n')
-        .map(|offset| keyword_offset + offset)
-        .unwrap_or(source.len());
+    let (_, line_end) = source_map.line_bounds_for_offset(keyword_offset)?;
     let suffix_start = keyword_offset + keyword.len();
     let suffix = source.get(suffix_start..line_end)?;
     suffix
@@ -1230,9 +1472,12 @@ fn if_branch_upper_bound(
     branch_index: usize,
     source: &str,
     source_map: &SourceMap<'_>,
+    facts: &FormatterFacts<'_>,
 ) -> usize {
     if let Some((start, end)) = if_next_branch_region(command, branch_index, source) {
-        branch_prefix_first_comment_offset(source, start, end).unwrap_or(end)
+        facts
+            .branch_prefix_first_comment_offset(start, end)
+            .unwrap_or(end)
     } else {
         if_close_start(command, source_map)
     }
@@ -1323,6 +1568,7 @@ mod tests {
                 1,
                 source,
                 facts.source_map(),
+                &facts,
             )),
         );
         assert_eq!(elif_facts.leading_for(0).len(), 1);
@@ -1373,6 +1619,7 @@ mod tests {
                 0,
                 source,
                 facts.source_map(),
+                &facts,
             )),
         );
         assert!(sequence.group_open_suffix_span().is_some());

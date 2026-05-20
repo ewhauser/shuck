@@ -129,16 +129,22 @@ impl ShellFormatOptions {
 
     #[must_use]
     pub fn resolve(&self, source: &str, path: Option<&Path>) -> ResolvedShellFormatOptions {
+        let mut resolved = self.resolve_for_format(source, path);
+        resolved.line_ending = line_ending_from_source_index(source);
+        resolved
+    }
+
+    pub(crate) fn resolve_for_format(
+        &self,
+        source: &str,
+        path: Option<&Path>,
+    ) -> ResolvedShellFormatOptions {
         let mut options = self.clone();
         options.indent_width = options.indent_width.max(1);
         ResolvedShellFormatOptions {
             dialect: self.dialect.resolve(source, path),
             options,
-            line_ending: if source.contains("\r\n") {
-                LineEnding::CrLf
-            } else {
-                LineEnding::Lf
-            },
+            line_ending: LineEnding::Lf,
         }
     }
 }
@@ -208,6 +214,11 @@ impl ResolvedShellFormatOptions {
     option_getters! {
         line_ending: line_ending -> LineEnding;
     }
+
+    pub(crate) fn with_line_ending(mut self, line_ending: LineEnding) -> Self {
+        self.line_ending = line_ending;
+        self
+    }
 }
 
 impl FormatOptions for ResolvedShellFormatOptions {
@@ -218,6 +229,13 @@ impl FormatOptions for ResolvedShellFormatOptions {
             line_width: 80,
             line_ending: self.line_ending,
         }
+    }
+}
+
+fn line_ending_from_source_index(source: &str) -> LineEnding {
+    match shuck_indexer::LineIndex::new(source).line_ending() {
+        shuck_indexer::LineEndingStyle::Lf => LineEnding::Lf,
+        shuck_indexer::LineEndingStyle::CrLf => LineEnding::CrLf,
     }
 }
 

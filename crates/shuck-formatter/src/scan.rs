@@ -76,33 +76,6 @@ pub(crate) fn line_without_continuation_backslash(line: &str) -> Option<&str> {
     Some(prefix.trim_end_matches([' ', '\t', '\r']))
 }
 
-pub(crate) fn operator_starts_or_ends_line(source: &str, operator_span: Span) -> bool {
-    let start = operator_span.start.offset;
-    let end = operator_span.end.offset;
-    if start >= end || end > source.len() {
-        return false;
-    }
-
-    let line_start = source[..start]
-        .rfind('\n')
-        .map_or(0, |offset| offset.saturating_add(1));
-    let line_end = source[end..]
-        .find('\n')
-        .map_or(source.len(), |offset| end.saturating_add(offset));
-    let has_previous_line = line_start > 0;
-    let has_next_line = line_end < source.len();
-    let before = &source[line_start..start];
-    let after = &source[end..line_end];
-
-    (has_previous_line && line_edge_is_blank_or_continuation(before))
-        || (has_next_line && line_edge_is_blank_or_continuation(after))
-}
-
-fn line_edge_is_blank_or_continuation(text: &str) -> bool {
-    let trimmed = text.trim_matches(|ch| matches!(ch, ' ' | '\t' | '\r'));
-    trimmed.is_empty() || trimmed == "\\"
-}
-
 pub(crate) fn line_has_shell_comment_before(source: &str, offset: usize) -> bool {
     let upper = offset.min(source.len());
     let line_start = source[..upper]
@@ -177,87 +150,6 @@ pub(crate) struct BranchPrefixComment {
     pub(crate) source_indent: usize,
 }
 
-pub(crate) fn branch_prefix_first_comment_offset(
-    source: &str,
-    start: usize,
-    end: usize,
-) -> Option<usize> {
-    branch_prefix_comments(source, start, end)
-        .first()
-        .map(|comment| comment.offset)
-}
-
-pub(crate) fn branch_prefix_comments(
-    source: &str,
-    start: usize,
-    end: usize,
-) -> Vec<BranchPrefixComment> {
-    let start = start.min(end).min(source.len());
-    let end = end.min(source.len());
-    let Some(slice) = source.get(start..end) else {
-        return Vec::new();
-    };
-    let keyword_indent = line_indent_before_offset(source, end).unwrap_or("");
-
-    let mut comments = Vec::new();
-    let mut in_branch_prefix_run = false;
-    let mut offset = start;
-    for line in slice.split_inclusive('\n') {
-        let text = line.trim_end_matches(['\n', '\r']);
-        let trimmed = text.trim_start_matches([' ', '\t']);
-        let indent = text.len().saturating_sub(trimmed.len());
-        if trimmed.starts_with('#')
-            && (in_branch_prefix_run || text.get(..indent) == Some(keyword_indent))
-        {
-            comments.push(BranchPrefixComment {
-                offset: offset + indent,
-                text: trimmed.trim_end_matches([' ', '\t', '\r']).to_string(),
-                source_indent: indent,
-            });
-            in_branch_prefix_run = true;
-        } else if !trimmed.is_empty() {
-            in_branch_prefix_run = false;
-        }
-        offset += line.len();
-    }
-    comments
-}
-
-pub(crate) fn own_line_comments_in_region(
-    source: &str,
-    start: usize,
-    end: usize,
-) -> Vec<BranchPrefixComment> {
-    let start = start.min(end).min(source.len());
-    let end = end.min(source.len());
-    let Some(next_line_start) = source
-        .get(start..end)
-        .and_then(|slice| slice.find('\n').map(|offset| start + offset + 1))
-    else {
-        return Vec::new();
-    };
-    let Some(slice) = source.get(next_line_start..end) else {
-        return Vec::new();
-    };
-
-    let mut comments = Vec::new();
-    let mut offset = next_line_start;
-    for line in slice.split_inclusive('\n') {
-        let text = line.trim_end_matches(['\n', '\r']);
-        let trimmed = text.trim_start_matches([' ', '\t']);
-        let indent = text.len().saturating_sub(trimmed.len());
-        if trimmed.starts_with('#') {
-            comments.push(BranchPrefixComment {
-                offset: offset + indent,
-                text: trimmed.trim_end_matches([' ', '\t', '\r']).to_string(),
-                source_indent: indent,
-            });
-        }
-        offset += line.len();
-    }
-    comments
-}
-
 pub(crate) fn last_uncommented_shell_keyword_before(
     source: &str,
     search_end: usize,
@@ -324,43 +216,6 @@ pub(crate) fn source_between_offsets(source: &str, start: usize, end: usize) -> 
     let lower = start.min(end).min(source.len());
     let upper = start.max(end).min(source.len());
     source.get(lower..upper)
-}
-
-pub(crate) fn has_newline_between_offsets(source: &str, start: usize, end: usize) -> bool {
-    source_between_offsets(source, start, end).is_some_and(|between| between.contains('\n'))
-}
-
-pub(crate) fn close_suffix_comment_offsets(
-    source: &str,
-    close_span: Span,
-) -> Option<(usize, usize)> {
-    if close_span.start.line != close_span.end.line {
-        return None;
-    }
-    let start = close_span.end.offset.min(source.len());
-    let suffix_source = source.get(start..)?;
-    let line_end = suffix_source
-        .find('\n')
-        .map_or(source.len(), |offset| start + offset);
-    let suffix = source.get(start..line_end)?;
-    let mut comment_start = None;
-    for (offset, ch) in suffix.char_indices() {
-        match ch {
-            ' ' | '\t' => {}
-            '#' => {
-                comment_start = Some(start + offset);
-                break;
-            }
-            _ => return None,
-        }
-    }
-    let comment_start = comment_start?;
-    let comment_end = source
-        .get(comment_start..line_end)?
-        .trim_end_matches([' ', '\t', '\r'])
-        .len()
-        + comment_start;
-    Some((comment_start, comment_end))
 }
 
 pub(crate) fn redirect_operator_end(bytes: &[u8], start: usize) -> Option<usize> {

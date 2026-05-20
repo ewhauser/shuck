@@ -1,5 +1,15 @@
 use shuck_ast::{TextRange, TextSize};
 
+/// Source line-ending style inferred while indexing physical lines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LineEndingStyle {
+    /// Unix-style `\n` line endings.
+    #[default]
+    Lf,
+    /// Windows-style `\r\n` line endings.
+    CrLf,
+}
+
 /// Maps between byte offsets and 1-based source lines.
 ///
 /// `LineIndex` stores the byte offset of each physical line start in the source
@@ -9,6 +19,8 @@ use shuck_ast::{TextRange, TextSize};
 pub struct LineIndex {
     line_starts: Vec<TextSize>,
     raw_continuation_line_starts: Vec<TextSize>,
+    raw_continuation_backslashes: Vec<TextSize>,
+    line_ending: LineEndingStyle,
 }
 
 impl LineIndex {
@@ -25,14 +37,27 @@ impl LineIndex {
         let bytes = source.as_bytes();
         let mut line_starts = Vec::new();
         let mut raw_continuation_line_starts = Vec::new();
+        let mut raw_continuation_backslashes = Vec::new();
+        let mut line_ending = LineEndingStyle::Lf;
         line_starts.push(TextSize::new(0));
 
         for (index, byte) in bytes.iter().copied().enumerate() {
             if byte == b'\n' {
                 let next_line_start = TextSize::new((index + 1) as u32);
                 line_starts.push(next_line_start);
-                if index > 0 && bytes[index - 1] == b'\\' {
+                if index > 0 && bytes[index - 1] == b'\r' {
+                    line_ending = LineEndingStyle::CrLf;
+                }
+                let backslash_index = if index > 0 && bytes[index - 1] == b'\r' {
+                    index.checked_sub(2)
+                } else {
+                    index.checked_sub(1)
+                };
+                if let Some(backslash_index) = backslash_index
+                    && bytes[backslash_index] == b'\\'
+                {
                     raw_continuation_line_starts.push(next_line_start);
+                    raw_continuation_backslashes.push(TextSize::new(backslash_index as u32));
                 }
             }
         }
@@ -40,6 +65,8 @@ impl LineIndex {
         Self {
             line_starts,
             raw_continuation_line_starts,
+            raw_continuation_backslashes,
+            line_ending,
         }
     }
 
@@ -123,8 +150,31 @@ impl LineIndex {
         self.line_starts.len()
     }
 
-    pub(crate) fn raw_continuation_line_starts(&self) -> &[TextSize] {
+    /// Return the source line-ending style observed while indexing lines.
+    ///
+    /// A file with any `\r\n` line ending is treated as CRLF, matching the
+    /// formatter's existing preservation behavior.
+    pub fn line_ending(&self) -> LineEndingStyle {
+        self.line_ending
+    }
+
+    /// Return byte offsets for physical line starts after a raw backslash-newline.
+    ///
+    /// These are unfiltered lexical candidates. Use
+    /// [`Indexer::continuation_line_starts`](crate::Indexer::continuation_line_starts)
+    /// when comments, quoted regions, and heredoc bodies should be ignored.
+    pub fn raw_continuation_line_starts(&self) -> &[TextSize] {
         &self.raw_continuation_line_starts
+    }
+
+    /// Return byte offsets for the backslashes that introduce raw line continuations.
+    ///
+    /// These are unfiltered lexical candidates paired with
+    /// [`Self::raw_continuation_line_starts`]. The offset points at the
+    /// backslash immediately before the physical line ending, including CRLF
+    /// input where the carriage return sits between the backslash and newline.
+    pub fn raw_continuation_backslashes(&self) -> &[TextSize] {
+        &self.raw_continuation_backslashes
     }
 }
 
@@ -162,6 +212,15 @@ mod tests {
             index.raw_continuation_line_starts(),
             &[TextSize::new(11), TextSize::new(28)]
         );
+    }
+
+    #[test]
+    fn detects_crlf_line_endings_during_line_indexing() {
+        let index = LineIndex::new("one \\\r\ntwo\n");
+
+        assert_eq!(index.line_ending(), LineEndingStyle::CrLf);
+        assert_eq!(index.raw_continuation_line_starts(), &[TextSize::new(7)]);
+        assert_eq!(index.raw_continuation_backslashes(), &[TextSize::new(4)]);
     }
 
     #[test]

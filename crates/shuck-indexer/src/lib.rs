@@ -25,9 +25,9 @@ mod region_index;
 /// Comment lookup types derived from parser output.
 pub use comment_index::{CommentIndex, IndexedComment};
 /// Line-based offset lookup utilities.
-pub use line_index::LineIndex;
+pub use line_index::{LineEndingStyle, LineIndex};
 /// Structural region indexes over parsed shell source.
-pub use region_index::{RegionIndex, RegionKind};
+pub use region_index::{IndexedHeredoc, RegionIndex, RegionKind};
 
 use shuck_ast::{File, TextSize};
 use shuck_parser::parser::ParseResult;
@@ -137,11 +137,14 @@ fn collect_continuation_lines(
 ) -> Vec<TextSize> {
     let mut continuation_lines = Vec::new();
 
-    for line_start in line_index.raw_continuation_line_starts() {
-        let backslash_offset = TextSize::new(line_start.to_u32() - 2);
-        if comment_index.is_comment(backslash_offset)
-            || region_index.is_heredoc(backslash_offset)
-            || region_index.is_quoted(backslash_offset)
+    for (line_start, backslash_offset) in line_index
+        .raw_continuation_line_starts()
+        .iter()
+        .zip(line_index.raw_continuation_backslashes())
+    {
+        if comment_index.is_comment(*backslash_offset)
+            || region_index.is_heredoc(*backslash_offset)
+            || region_index.is_quoted(*backslash_offset)
         {
             continue;
         }
