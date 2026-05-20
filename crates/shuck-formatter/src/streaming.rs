@@ -1889,14 +1889,32 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         Ok(())
     }
 
-    fn body_starts_with_inline_do_brace_group(&self, body: &StmtSeq) -> bool {
+    fn single_unadorned_compound_stmt<'a>(&self, body: &'a StmtSeq) -> Option<&'a CompoundCommand> {
         let [stmt] = body.as_slice() else {
-            return false;
+            return None;
         };
         if stmt.negated || !stmt.redirects.is_empty() || stmt.terminator.is_some() {
-            return false;
+            return None;
         }
-        let Command::Compound(CompoundCommand::BraceGroup(commands)) = &stmt.command else {
+        match &stmt.command {
+            Command::Compound(command) => Some(command),
+            _ => None,
+        }
+    }
+
+    fn source_line_before_offset_ends_with_do(&self, offset: usize) -> bool {
+        let source = self.source();
+        let line_start = source[..offset]
+            .rfind('\n')
+            .map_or(0, |offset| offset.saturating_add(1));
+        source[line_start..offset]
+            .trim_end_matches([' ', '\t', '\r'])
+            .ends_with("do")
+    }
+
+    fn body_starts_with_inline_do_brace_group(&self, body: &StmtSeq) -> bool {
+        let Some(CompoundCommand::BraceGroup(commands)) = self.single_unadorned_compound_stmt(body)
+        else {
             return false;
         };
         let Some(group_span) =
@@ -1904,35 +1922,17 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         else {
             return false;
         };
-        let source = self.source();
-        let line_start = source[..group_span.start.offset]
-            .rfind('\n')
-            .map_or(0, |offset| offset.saturating_add(1));
-        source[line_start..group_span.start.offset]
-            .trim_end_matches([' ', '\t', '\r'])
-            .ends_with("do")
+        self.source_line_before_offset_ends_with_do(group_span.start.offset)
     }
 
     fn body_starts_with_inline_do_if(&self, body: &StmtSeq) -> bool {
-        let [stmt] = body.as_slice() else {
-            return false;
-        };
-        if stmt.negated || !stmt.redirects.is_empty() || stmt.terminator.is_some() {
-            return false;
-        }
-        let Command::Compound(CompoundCommand::If(command)) = &stmt.command else {
+        let Some(CompoundCommand::If(command)) = self.single_unadorned_compound_stmt(body) else {
             return false;
         };
         if !matches!(command.syntax, IfSyntax::ThenFi { .. }) {
             return false;
         }
-        let source = self.source();
-        let line_start = source[..command.span.start.offset]
-            .rfind('\n')
-            .map_or(0, |offset| offset.saturating_add(1));
-        source[line_start..command.span.start.offset]
-            .trim_end_matches([' ', '\t', '\r'])
-            .ends_with("do")
+        self.source_line_before_offset_ends_with_do(command.span.start.offset)
     }
 
     fn inline_do_brace_group_done_separator(

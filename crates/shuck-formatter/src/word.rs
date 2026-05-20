@@ -2717,13 +2717,7 @@ fn command_substitution_source_starts_with_body_line(raw: &str) -> bool {
 }
 
 fn command_substitution_source_closes_on_own_line(raw: &str) -> bool {
-    let Some(close_offset) = raw.rfind(')') else {
-        return false;
-    };
-    let line_start = raw[..close_offset]
-        .rfind('\n')
-        .map_or(0, |newline| newline.saturating_add(1));
-    line_start > 0 && raw[line_start..close_offset].trim().is_empty()
+    substitution_source_closes_on_own_line(raw)
 }
 
 fn push_inline_raw_command_substitution_as_block(
@@ -4709,7 +4703,7 @@ fn render_process_substitution(
         } else if let Some(raw) = raw
             && process_substitution_source_starts_with_body_line(raw)
             && raw.contains('\n')
-            && !process_substitution_source_closes_on_own_line(raw)
+            && !substitution_source_closes_on_own_line(raw)
         {
             rendered.push(prefix);
             rendered.push('(');
@@ -4755,7 +4749,7 @@ fn process_substitution_source_opens_to_body_line(raw: &str) -> bool {
     })
 }
 
-fn process_substitution_source_closes_on_own_line(raw: &str) -> bool {
+fn substitution_source_closes_on_own_line(raw: &str) -> bool {
     let Some(close_offset) = raw.rfind(')') else {
         return false;
     };
