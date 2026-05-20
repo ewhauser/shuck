@@ -1228,16 +1228,9 @@ fn pipeline_has_explicit_line_break(
     let mut operators = Vec::new();
     collect_pipeline(pipeline, &mut statements, &mut operators);
 
-    for index in 1..statements.len() {
-        let Some(operator_span) = operators.get(index - 1) else {
-            continue;
-        };
-        let next_start = stmt_start_after_operator(
-            statements[index],
-            operator_span.end.offset,
-            source,
-            source_map,
-        );
+    for (statement, operator_span) in statements.iter().skip(1).zip(operators.iter()) {
+        let next_start =
+            stmt_start_after_operator(statement, operator_span.end.offset, source, source_map);
         if operator_starts_or_ends_line(source, *operator_span)
             || has_newline_between(source, operator_span.end.offset, next_start)
         {

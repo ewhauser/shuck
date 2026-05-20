@@ -890,7 +890,7 @@ fn render_heredoc_body_part(
     Ok(())
 }
 
-fn escaped_heredoc_expansion_source<'a>(span: shuck_ast::Span, source: &'a str) -> Option<&'a str> {
+fn escaped_heredoc_expansion_source(span: shuck_ast::Span, source: &str) -> Option<&str> {
     let raw = span.slice(source);
     if raw.starts_with(['\\', '\x00']) {
         return Some(raw);
@@ -1008,7 +1008,7 @@ fn push_raw_command_substitution_with_normalized_spacing(
             } else {
                 target.push_str(line);
             }
-            quote.scan_line(&line);
+            quote.scan_line(line);
             continuation_indent = if line_continues {
                 if quote.in_multiline_literal() {
                     continuation_indent.clone()
@@ -4759,7 +4759,7 @@ fn normalized_source_inline_indent(indent: &str, options: &ResolvedShellFormatOp
     match options.indent_style() {
         IndentStyle::Tab if indent.chars().all(|ch| ch == ' ') => {
             let unit = usize::from(options.indent_width()).clamp(1, 4);
-            if indent.len() % unit == 0 {
+            if indent.len().is_multiple_of(unit) {
                 "\t".repeat(indent.len() / unit)
             } else {
                 indent.to_string()

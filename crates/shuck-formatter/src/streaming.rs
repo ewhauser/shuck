@@ -5974,10 +5974,10 @@ fn branch_open_keyword_start(sequence: &StmtSeq, source: &str, keyword: &str) ->
     last_uncommented_shell_keyword_before(source, stmt_span(first).start.offset, keyword)
 }
 
-fn raw_grouped_if_condition<'a>(
+fn raw_grouped_if_condition(
     command: &IfCommand,
     then_span: Span,
-    source: &'a str,
+    source: &str,
     source_map: &SourceMap<'_>,
     options: &ResolvedShellFormatOptions,
 ) -> Option<String> {
@@ -6020,19 +6020,19 @@ fn body_has_blank_line_after_open(
     open_end_offset: usize,
     commands: &StmtSeq,
 ) -> bool {
-    let Some(mut first_start) = sequence_first_content_offset(commands, source, source_map) else {
+    let Some(mut first_start) = sequence_first_content_offset(commands, source_map) else {
         return false;
     };
     if first_start <= open_end_offset
         && let Some(stmt) = commands.first()
     {
-        first_start = stmt_first_content_offset(stmt, source, source_map);
+        first_start = stmt_first_content_offset(stmt, source_map);
     }
     if source_map.line_number_for_offset(first_start)
         == source_map.line_number_for_offset(open_end_offset)
         && let Some(stmt) = commands.first()
     {
-        first_start = stmt_first_content_offset(stmt, source, source_map);
+        first_start = stmt_first_content_offset(stmt, source_map);
     }
     let open_line = source_map.line_number_for_offset(open_end_offset);
     let mut comment_search = open_end_offset;
@@ -6057,7 +6057,7 @@ fn body_has_blank_line_after_keyword(
     keyword: &str,
     commands: &StmtSeq,
 ) -> bool {
-    let Some(first_start) = sequence_first_content_offset(commands, source, source_map) else {
+    let Some(first_start) = sequence_first_content_offset(commands, source_map) else {
         return false;
     };
     let Some(prefix) = source.get(search_start.min(source.len())..first_start.min(source.len()))
@@ -6119,11 +6119,7 @@ fn source_has_blank_line_before_last_keyword_after(
     gap_has_empty_physical_line(source, lower, keyword_start)
 }
 
-fn sequence_first_content_offset(
-    commands: &StmtSeq,
-    source: &str,
-    source_map: &SourceMap<'_>,
-) -> Option<usize> {
+fn sequence_first_content_offset(commands: &StmtSeq, source_map: &SourceMap<'_>) -> Option<usize> {
     let mut first = commands
         .leading_comments
         .iter()
@@ -6137,17 +6133,15 @@ fn sequence_first_content_offset(
                     .iter()
                     .map(|comment| usize::from(comment.range.start())),
             )
-            .chain(std::iter::once(stmt_first_content_offset(
-                stmt, source, source_map,
-            )))
+            .chain(std::iter::once(stmt_first_content_offset(stmt, source_map)))
             .min();
     }
     first
 }
 
-fn stmt_first_content_offset(stmt: &Stmt, source: &str, source_map: &SourceMap<'_>) -> usize {
+fn stmt_first_content_offset(stmt: &Stmt, source_map: &SourceMap<'_>) -> usize {
     match &stmt.command {
-        Command::Binary(command) => stmt_first_content_offset(&command.left, source, source_map),
+        Command::Binary(command) => stmt_first_content_offset(&command.left, source_map),
         Command::Compound(CompoundCommand::BraceGroup(commands)) => {
             group_attachment_span(commands.as_slice(), source_map, '{', '}')
                 .map(|span| span.start.offset)
@@ -7841,16 +7835,9 @@ fn pipeline_operator_breaks(
     source_map: &SourceMap<'_>,
 ) -> Vec<bool> {
     let mut breaks = Vec::with_capacity(operators.len());
-    for index in 1..statements.len() {
-        let Some((_, operator_span)) = operators.get(index - 1) else {
-            continue;
-        };
-        let next_start = interstitial_comment_end(
-            statements[index],
-            operator_span.end.offset,
-            source,
-            source_map,
-        );
+    for (statement, (_, operator_span)) in statements.iter().skip(1).zip(operators.iter()) {
+        let next_start =
+            interstitial_comment_end(statement, operator_span.end.offset, source, source_map);
         breaks.push(
             pipeline_operator_starts_or_ends_line(source, *operator_span)
                 || has_newline_between_offsets(source, operator_span.end.offset, next_start),
