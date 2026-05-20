@@ -1365,109 +1365,50 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
             => "nlq=\"$(_sanitizer run \"$nlq\" numeric)\"\nline=$(head -n 2 $file | tail -n 1)\nfile2patch=\"$(echo \"$line\" | cut -d' ' -f2 | cut -f1)\"\nmsg=\"Welcome Hari - your last access was $(last | head -n2 | tail -n1 | sed 's/[^ ]\\+ \\+[^ ]\\+ \\+[^ ]\\+ \\+//;s/ *$//')\"\n";
     }
 
-    #[test]
-    fn formats_multiline_command_substitutions() {
-        let source = "result=$(\necho foo\necho bar\n)\n";
-        assert_formats_default_with_ast(source, "result=$(\n\techo foo\n\techo bar\n)\n");
+    default_format_ast_cases! {
+        formats_multiline_command_substitutions:
+            "result=$(\necho foo\necho bar\n)\n"
+            => "result=$(\n\techo foo\n\techo bar\n)\n";
+        formats_block_command_substitutions_with_trailing_comments:
+            "size=$(\nstat -f\"%z\" \"$tmpFile\" 2> /dev/null; # OS X `stat`\nstat -c\"%s\" \"$tmpFile\" 2> /dev/null # GNU `stat`\n)\n"
+            => "size=$(\n\tstat -f\"%z\" \"$tmpFile\" 2>/dev/null # OS X `stat`\n\tstat -c\"%s\" \"$tmpFile\" 2>/dev/null # GNU `stat`\n)\n";
+        preserves_command_substitutions_with_closing_paren_on_own_line:
+            "output=\"$(foo |\n          bar\n         )\"\n"
+            => "output=\"$(\n\tfoo |\n\t\tbar\n)\"\n";
+        formats_multiline_command_substitutions_with_compound_commands:
+            "result=$(\nif foo; then\necho hi\nelse\necho bye\nfi\n)\n"
+            => "result=$(\n\tif foo; then\n\t\techo hi\n\telse\n\t\techo bye\n\tfi\n)\n";
+        preserves_inline_continued_command_substitution_assignments:
+            "start() {\n  CHOICE=$(whiptail --title x --menu \\\n    foo 14 58 2 \\\n    yes \" \" no \" \" 3>&2 2>&1 1>&3)\n}\n"
+            => "start() {\n\tCHOICE=$(whiptail --title x --menu \\\n\t\tfoo 14 58 2 \\\n\t\tyes \" \" no \" \" 3>&2 2>&1 1>&3)\n}\n";
+        keeps_nested_command_substitution_multiline_literals_unindented:
+            "f() {\n  case $prev in\n    -soundhw)\n      _comp_compgen_split -- \"$(\"$1\" -soundhw help | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}') all\"\n      ;;\n  esac\n}\n"
+            => "f() {\n\tcase $prev in\n\t-soundhw)\n\t\t_comp_compgen_split -- \"$(\"$1\" -soundhw help | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}') all\"\n\t\t;;\n\tesac\n}\n";
     }
 
-    #[test]
-    fn formats_block_command_substitutions_with_trailing_comments() {
-        let source = "size=$(\nstat -f\"%z\" \"$tmpFile\" 2> /dev/null; # OS X `stat`\nstat -c\"%s\" \"$tmpFile\" 2> /dev/null # GNU `stat`\n)\n";
-        assert_formats_default_with_ast(
-            source,
-            "size=$(\n\tstat -f\"%z\" \"$tmpFile\" 2>/dev/null # OS X `stat`\n\tstat -c\"%s\" \"$tmpFile\" 2>/dev/null # GNU `stat`\n)\n",
-        );
+    bash_format_ast_cases! {
+        trims_command_substitution_close_line_continuations:
+            "tag=\"$(\n  grep '\"tag_name.*\"'\".*$version\" \"$json\" \\\n  | head -1 \\\n  | sed 's,.*\"\\(gm'\"$version\"'[^\\\"]*\\)\".*,\\1,'\\\n  )\"\n"
+            => "tag=\"$(\n\tgrep '\"tag_name.*\"'\".*$version\" \"$json\" |\n\t\thead -1 |\n\t\tsed 's,.*\"\\(gm'\"$version\"'[^\\\"]*\\)\".*,\\1,'\n)\"\n";
+        keeps_quoted_command_substitution_continuation_indent_stable:
+            "icons() {\n  icon_files=\"${icon_files}¤$(find \\\n    /usr/share/icons \\\n    /usr/share/pixmaps \\\n    /var/lib/flatpak/exports/share/icons -iname \"*${icon}*\" \\\n    -printf \"%p¤\" 2> /dev/null || :)\"\n}\n"
+            => "icons() {\n\ticon_files=\"${icon_files}¤$(find \\\n\t\t/usr/share/icons \\\n\t\t/usr/share/pixmaps \\\n\t\t/var/lib/flatpak/exports/share/icons -iname \"*${icon}*\" \\\n\t\t-printf \"%p¤\" 2>/dev/null || :)\"\n}\n";
+        indents_inline_continued_command_substitution_assignments:
+            "_npm_completion() {\n  compadd -- $(COMP_CWORD=$((CURRENT-1)) \\\n               COMP_LINE=$BUFFER \\\n               COMP_POINT=0 \\\n               npm completion -- \"${words[@]}\" \\\n               2>/dev/null)\n}\n"
+            => "_npm_completion() {\n\tcompadd -- $(COMP_CWORD=$((CURRENT - 1)) \\\n\t\tCOMP_LINE=$BUFFER \\\n\t\tCOMP_POINT=0 \\\n\t\tnpm completion -- \"${words[@]}\" \\\n\t\t2>/dev/null)\n}\n";
+        command_substitution_assignment_continuations_do_not_double_context_indent:
+            "get_pr_url(){\n    local existing_pr\n    existing_pr=\"$(gh pr list -R \"$owner/$repo\" \\\n        --json baseRefName,changedFiles \\\n        -q \".[] |\n            select(.baseRefName == \\\"$base\\\")\n    \")\"\n}\n"
+            => "get_pr_url() {\n\tlocal existing_pr\n\texisting_pr=\"$(gh pr list -R \"$owner/$repo\" \\\n\t\t--json baseRefName,changedFiles \\\n\t\t-q \".[] |\n            select(.baseRefName == \\\"$base\\\")\n    \")\"\n}\n";
+        formats_commented_if_command_substitutions_structurally:
+            "_SCOPED=\"$(\n  # selected notebook flag\n  if [[ \"$a\" != \"$b\" ]]\n  then\n    printf \"1\\\\n\"\n  else\n    printf \"0\\\\n\"\n  fi\n)\"\n"
+            => "_SCOPED=\"$(\n\t# selected notebook flag\n\tif [[ \"$a\" != \"$b\" ]]; then\n\t\tprintf \"1\\\\n\"\n\telse\n\t\tprintf \"0\\\\n\"\n\tfi\n)\"\n";
     }
 
-    #[test]
-    fn preserves_command_substitutions_with_closing_paren_on_own_line() {
-        let source = "output=\"$(foo |\n          bar\n         )\"\n";
-        assert_formats_default_with_ast(source, "output=\"$(\n\tfoo |\n\t\tbar\n)\"\n");
-    }
-
-    #[test]
-    fn trims_command_substitution_close_line_continuations() {
-        let source = "tag=\"$(\n  grep '\"tag_name.*\"'\".*$version\" \"$json\" \\\n  | head -1 \\\n  | sed 's,.*\"\\(gm'\"$version\"'[^\\\"]*\\)\".*,\\1,'\\\n  )\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "tag=\"$(\n\tgrep '\"tag_name.*\"'\".*$version\" \"$json\" |\n\t\thead -1 |\n\t\tsed 's,.*\"\\(gm'\"$version\"'[^\\\"]*\\)\".*,\\1,'\n)\"\n",
-        );
-    }
-
-    #[test]
-    fn formats_multiline_command_substitutions_with_compound_commands() {
-        let source = "result=$(\nif foo; then\necho hi\nelse\necho bye\nfi\n)\n";
-        assert_formats_default_with_ast(
-            source,
-            "result=$(\n\tif foo; then\n\t\techo hi\n\telse\n\t\techo bye\n\tfi\n)\n",
-        );
-    }
-
-    #[test]
-    fn preserves_inline_continued_command_substitution_assignments() {
-        let source = "start() {\n  CHOICE=$(whiptail --title x --menu \\\n    foo 14 58 2 \\\n    yes \" \" no \" \" 3>&2 2>&1 1>&3)\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "start() {\n\tCHOICE=$(whiptail --title x --menu \\\n\t\tfoo 14 58 2 \\\n\t\tyes \" \" no \" \" 3>&2 2>&1 1>&3)\n}\n",
-        );
-    }
-
-    #[test]
-    fn keeps_quoted_command_substitution_continuation_indent_stable() {
-        let source = "icons() {\n  icon_files=\"${icon_files}¤$(find \\\n    /usr/share/icons \\\n    /usr/share/pixmaps \\\n    /var/lib/flatpak/exports/share/icons -iname \"*${icon}*\" \\\n    -printf \"%p¤\" 2> /dev/null || :)\"\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "icons() {\n\ticon_files=\"${icon_files}¤$(find \\\n\t\t/usr/share/icons \\\n\t\t/usr/share/pixmaps \\\n\t\t/var/lib/flatpak/exports/share/icons -iname \"*${icon}*\" \\\n\t\t-printf \"%p¤\" 2>/dev/null || :)\"\n}\n",
-        );
-    }
-
-    #[test]
-    fn indents_inline_continued_command_substitution_assignments() {
-        let source = "_npm_completion() {\n  compadd -- $(COMP_CWORD=$((CURRENT-1)) \\\n               COMP_LINE=$BUFFER \\\n               COMP_POINT=0 \\\n               npm completion -- \"${words[@]}\" \\\n               2>/dev/null)\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "_npm_completion() {\n\tcompadd -- $(COMP_CWORD=$((CURRENT - 1)) \\\n\t\tCOMP_LINE=$BUFFER \\\n\t\tCOMP_POINT=0 \\\n\t\tnpm completion -- \"${words[@]}\" \\\n\t\t2>/dev/null)\n}\n",
-        );
-    }
-
-    #[test]
-    fn command_substitution_assignment_continuations_do_not_double_context_indent() {
-        let source = "get_pr_url(){\n    local existing_pr\n    existing_pr=\"$(gh pr list -R \"$owner/$repo\" \\\n        --json baseRefName,changedFiles \\\n        -q \".[] |\n            select(.baseRefName == \\\"$base\\\")\n    \")\"\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "get_pr_url() {\n\tlocal existing_pr\n\texisting_pr=\"$(gh pr list -R \"$owner/$repo\" \\\n\t\t--json baseRefName,changedFiles \\\n\t\t-q \".[] |\n            select(.baseRefName == \\\"$base\\\")\n    \")\"\n}\n",
-        );
-    }
-
-    #[test]
-    fn keeps_single_statement_command_substitutions_with_multiline_literals_inline() {
-        let source = "_comp_compgen_split -- \"$(\"$1\" -soundhw help | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}') all\"\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn keeps_nested_command_substitution_multiline_literals_unindented() {
-        let source = "f() {\n  case $prev in\n    -soundhw)\n      _comp_compgen_split -- \"$(\"$1\" -soundhw help | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}') all\"\n      ;;\n  esac\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "f() {\n\tcase $prev in\n\t-soundhw)\n\t\t_comp_compgen_split -- \"$(\"$1\" -soundhw help | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}') all\"\n\t\t;;\n\tesac\n}\n",
-        );
-    }
-
-    #[test]
-    fn command_substitutions_with_comments_fall_back_to_raw_source() {
-        let source = "result=$(echo foo # keep comment\necho bar)\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn formats_commented_if_command_substitutions_structurally() {
-        let source = "_SCOPED=\"$(\n  # selected notebook flag\n  if [[ \"$a\" != \"$b\" ]]\n  then\n    printf \"1\\\\n\"\n  else\n    printf \"0\\\\n\"\n  fi\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "_SCOPED=\"$(\n\t# selected notebook flag\n\tif [[ \"$a\" != \"$b\" ]]; then\n\t\tprintf \"1\\\\n\"\n\telse\n\t\tprintf \"0\\\\n\"\n\tfi\n)\"\n",
-        );
+    default_unchanged_ast_cases! {
+        keeps_single_statement_command_substitutions_with_multiline_literals_inline:
+            "_comp_compgen_split -- \"$(\"$1\" -soundhw help | _comp_awk '\n                function islower(s) { return length(s) > 0 && s == tolower(s); }\n                islower(substr($0, 1, 1)) {print $1}') all\"\n";
+        command_substitutions_with_comments_fall_back_to_raw_source:
+            "result=$(echo foo # keep comment\necho bar)\n";
     }
 
     default_format_ast_cases! {
