@@ -554,6 +554,17 @@ mod tests {
         };
     }
 
+    macro_rules! bash_format_ast_cases {
+        ($($name:ident: $source:expr => $expected:expr;)+) => {
+            $(
+                #[test]
+                fn $name() {
+                    assert_bash_formats_with_ast($source, $expected);
+                }
+            )+
+        };
+    }
+
     fn lint_source_posix_strict(source: &str, path: &Path) -> Vec<Diagnostic> {
         let parse_result = Parser::with_dialect(source, ParseShellDialect::Posix).parse();
         assert!(
@@ -2135,49 +2146,25 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn keeps_array_subscript_modulo_compact_like_shfmt() {
-        let source = "color=${AVAILABLE_COLORS[$RANDOM % ${#AVAILABLE_COLORS[@]}]}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "color=${AVAILABLE_COLORS[$RANDOM%${#AVAILABLE_COLORS[@]}]}\n",
-        );
-    }
-
-    #[test]
-    fn formats_arithmetic_expansion_array_subscripts_like_shfmt() {
-        let source = "echo ${options[$((choice*2+1))]}\n";
-        assert_bash_formats_with_ast(source, "echo ${options[$((choice * 2 + 1))]}\n");
-    }
-
-    #[test]
-    fn formats_parenthesized_array_subscripts_like_shfmt() {
-        let source = "echo ${arr[(($i+1))]}\necho ${arr[((i+1))]}\necho ${arr[(i+1)]}\necho ${arr[($i+1)]}\necho ${arr[$i+1]}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "echo ${arr[(($i + 1))]}\necho ${arr[((i + 1))]}\necho ${arr[(i + 1)]}\necho ${arr[($i + 1)]}\necho ${arr[$i+1]}\n",
-        );
-    }
-
-    #[test]
-    fn keeps_nested_parameter_operand_subscripts_compact_like_shfmt() {
-        let source = ": \"${BASH_IT_BASHRC:=${BASH_SOURCE[${#BASH_SOURCE[@]} - 1]}}\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            ": \"${BASH_IT_BASHRC:=${BASH_SOURCE[${#BASH_SOURCE[@]}-1]}}\"\n",
-        );
-    }
-
-    #[test]
-    fn keeps_plain_array_subscripts_compact_like_shfmt() {
-        let source = "prev=\"${COMP_WORDS[COMP_CWORD - 1]}\"\n";
-        assert_bash_formats_with_ast(source, "prev=\"${COMP_WORDS[COMP_CWORD-1]}\"\n");
-    }
-
-    #[test]
-    fn keeps_identifier_array_subscript_arithmetic_compact_like_shfmt() {
-        let source = "source \"${_files[_file - __array_offset]}\"\n";
-        assert_bash_formats_with_ast(source, "source \"${_files[_file-__array_offset]}\"\n");
+    bash_format_ast_cases! {
+        keeps_array_subscript_modulo_compact_like_shfmt:
+            "color=${AVAILABLE_COLORS[$RANDOM % ${#AVAILABLE_COLORS[@]}]}\n"
+            => "color=${AVAILABLE_COLORS[$RANDOM%${#AVAILABLE_COLORS[@]}]}\n";
+        formats_arithmetic_expansion_array_subscripts_like_shfmt:
+            "echo ${options[$((choice*2+1))]}\n"
+            => "echo ${options[$((choice * 2 + 1))]}\n";
+        formats_parenthesized_array_subscripts_like_shfmt:
+            "echo ${arr[(($i+1))]}\necho ${arr[((i+1))]}\necho ${arr[(i+1)]}\necho ${arr[($i+1)]}\necho ${arr[$i+1]}\n"
+            => "echo ${arr[(($i + 1))]}\necho ${arr[((i + 1))]}\necho ${arr[(i + 1)]}\necho ${arr[($i + 1)]}\necho ${arr[$i+1]}\n";
+        keeps_nested_parameter_operand_subscripts_compact_like_shfmt:
+            ": \"${BASH_IT_BASHRC:=${BASH_SOURCE[${#BASH_SOURCE[@]} - 1]}}\"\n"
+            => ": \"${BASH_IT_BASHRC:=${BASH_SOURCE[${#BASH_SOURCE[@]}-1]}}\"\n";
+        keeps_plain_array_subscripts_compact_like_shfmt:
+            "prev=\"${COMP_WORDS[COMP_CWORD - 1]}\"\n"
+            => "prev=\"${COMP_WORDS[COMP_CWORD-1]}\"\n";
+        keeps_identifier_array_subscript_arithmetic_compact_like_shfmt:
+            "source \"${_files[_file - __array_offset]}\"\n"
+            => "source \"${_files[_file-__array_offset]}\"\n";
     }
 
     #[test]
