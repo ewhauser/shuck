@@ -2678,40 +2678,22 @@ function R() {
             "result_command=\"${result_command}\n\t\t$(printenv | grep '=' |\n\t\tgrep -Ev '^_' |\n\t\tsed 's/x/y/')\"\n";
     }
 
-    #[test]
-    fn normalizes_redirect_spacing_in_inline_multiline_command_substitutions() {
-        let source = "binary_files=\"$(grep -rl \"# distrobox_binary\" \"${HOME}/.local/bin\" 2> /dev/null | sed 's/./\\\\&/g' |\n\txargs -I{} grep -le \"# name: ${container_name}$\" \"{}\" | sed 's/./\\\\&/g' |\n\txargs -I{} printf \"%s¤\" \"{}\" 2> /dev/null || :)\"\n";
-        assert_formats_default_with_ast(
-            source,
-            "binary_files=\"$(grep -rl \"# distrobox_binary\" \"${HOME}/.local/bin\" 2>/dev/null | sed 's/./\\\\&/g' |\n\txargs -I{} grep -le \"# name: ${container_name}$\" \"{}\" | sed 's/./\\\\&/g' |\n\txargs -I{} printf \"%s¤\" \"{}\" 2>/dev/null || :)\"\n",
-        );
+    default_format_ast_cases! {
+        normalizes_redirect_spacing_in_inline_multiline_command_substitutions:
+            "binary_files=\"$(grep -rl \"# distrobox_binary\" \"${HOME}/.local/bin\" 2> /dev/null | sed 's/./\\\\&/g' |\n\txargs -I{} grep -le \"# name: ${container_name}$\" \"{}\" | sed 's/./\\\\&/g' |\n\txargs -I{} printf \"%s¤\" \"{}\" 2> /dev/null || :)\"\n"
+            => "binary_files=\"$(grep -rl \"# distrobox_binary\" \"${HOME}/.local/bin\" 2>/dev/null | sed 's/./\\\\&/g' |\n\txargs -I{} grep -le \"# name: ${container_name}$\" \"{}\" | sed 's/./\\\\&/g' |\n\txargs -I{} printf \"%s¤\" \"{}\" 2>/dev/null || :)\"\n";
+        trims_source_indent_from_block_command_substitutions:
+            "f() {\n\tdesktop_files=$(\n\t\t# keep this with the nested command\n\t\tfind \"$dir\" -type f 2> /dev/null | sed 's/./\\\\&/g' |\n\t\t\txargs printf '%s\\n'\n\t)\n}\n"
+            => "f() {\n\tdesktop_files=$(\n\t\t# keep this with the nested command\n\t\tfind \"$dir\" -type f 2>/dev/null | sed 's/./\\\\&/g' |\n\t\t\txargs printf '%s\\n'\n\t)\n}\n";
     }
 
-    #[test]
-    fn trims_source_indent_from_block_command_substitutions() {
-        let source = "f() {\n\tdesktop_files=$(\n\t\t# keep this with the nested command\n\t\tfind \"$dir\" -type f 2> /dev/null | sed 's/./\\\\&/g' |\n\t\t\txargs printf '%s\\n'\n\t)\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "f() {\n\tdesktop_files=$(\n\t\t# keep this with the nested command\n\t\tfind \"$dir\" -type f 2>/dev/null | sed 's/./\\\\&/g' |\n\t\t\txargs printf '%s\\n'\n\t)\n}\n",
-        );
-    }
-
-    #[test]
-    fn preserves_multiline_compound_assignment_literal_shape() {
-        let source = "case $mode in\ndocs)\n  CMD=(zsh -ilsc\n    'sudo chown /src &&\n     make -C /src doc')\n  ;;\nesac\n";
-        assert_bash_formats_with_ast(
-            source,
-            "case $mode in\ndocs)\n\tCMD=(zsh -ilsc\n\t\t'sudo chown /src &&\n     make -C /src doc')\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn preserves_decl_multiline_compound_assignment_literal_shape() {
-        let source = "f() {\n  local options=(\n    1 \"Short\"\n    \"First line\n\nliteral continuation\"\n  )\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tlocal options=(\n\t\t1 \"Short\"\n\t\t\"First line\n\nliteral continuation\"\n\t)\n}\n",
-        );
+    bash_format_ast_cases! {
+        preserves_multiline_compound_assignment_literal_shape:
+            "case $mode in\ndocs)\n  CMD=(zsh -ilsc\n    'sudo chown /src &&\n     make -C /src doc')\n  ;;\nesac\n"
+            => "case $mode in\ndocs)\n\tCMD=(zsh -ilsc\n\t\t'sudo chown /src &&\n     make -C /src doc')\n\t;;\nesac\n";
+        preserves_decl_multiline_compound_assignment_literal_shape:
+            "f() {\n  local options=(\n    1 \"Short\"\n    \"First line\n\nliteral continuation\"\n  )\n}\n"
+            => "f() {\n\tlocal options=(\n\t\t1 \"Short\"\n\t\t\"First line\n\nliteral continuation\"\n\t)\n}\n";
     }
 
     #[test]
@@ -2759,11 +2741,10 @@ function R() {
         );
     }
 
-    #[test]
-    fn formats_case_items_with_expected_indentation() {
-        let source = "case $x in\na) echo a;;\nb) echo b;;\nesac\n";
-
-        assert_formats(source, "case $x in\na) echo a ;;\nb) echo b ;;\nesac\n");
+    default_format_cases! {
+        formats_case_items_with_expected_indentation:
+            "case $x in\na) echo a;;\nb) echo b;;\nesac\n"
+            => "case $x in\na) echo a ;;\nb) echo b ;;\nesac\n";
     }
 
     default_format_ast_cases! {
