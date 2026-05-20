@@ -317,6 +317,23 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         self.visit_sequence_with_suffix(sequence, upper_bound, group_open_char, None);
     }
 
+    fn visit_do_done_body(&mut self, body: &StmtSeq, span: Span) {
+        self.visit_sequence_with_suffix(
+            body,
+            Some(done_body_upper_bound(self.source_map(), span)),
+            None,
+            branch_open_suffix_span(body, self.source_map(), "do"),
+        );
+    }
+
+    fn record_inline_group_sequence(&mut self, body: &StmtSeq, open: char, close: char) {
+        if group_was_inline_in_source(body.as_slice(), self.source_map(), open, close) {
+            self.facts
+                .inline_group_sequences
+                .insert(FactSpan::from(body.span));
+        }
+    }
+
     fn visit_sequence_with_suffix(
         &mut self,
         sequence: &StmtSeq,
@@ -586,17 +603,8 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 let group_open_char =
                     matches!(command.syntax, shuck_ast::ForeachSyntax::ParenBrace { .. })
                         .then_some('{');
-                if group_open_char.is_some()
-                    && group_was_inline_in_source(
-                        command.body.as_slice(),
-                        self.source_map(),
-                        '{',
-                        '}',
-                    )
-                {
-                    self.facts
-                        .inline_group_sequences
-                        .insert(FactSpan::from(command.body.span));
+                if group_open_char.is_some() {
+                    self.record_inline_group_sequence(&command.body, '{', '}');
                 }
                 self.visit_sequence_with_suffix(
                     &command.body,
@@ -624,31 +632,18 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 if let Some(expr) = &command.step_ast {
                     self.visit_arithmetic_expr(expr);
                 }
-                self.visit_sequence_with_suffix(
-                    &command.body,
-                    Some(done_body_upper_bound(self.source_map(), command.span)),
-                    None,
-                    branch_open_suffix_span(&command.body, self.source_map(), "do"),
-                );
+                self.visit_do_done_body(&command.body, command.span);
             }
             CompoundCommand::While(command) => self.visit_while(command),
             CompoundCommand::Until(command) => self.visit_until(command),
             CompoundCommand::Case(command) => self.visit_case(command),
             CompoundCommand::Select(command) => self.visit_select(command),
             CompoundCommand::Subshell(body) => {
-                if group_was_inline_in_source(body.as_slice(), self.source_map(), '(', ')') {
-                    self.facts
-                        .inline_group_sequences
-                        .insert(FactSpan::from(body.span));
-                }
+                self.record_inline_group_sequence(body, '(', ')');
                 self.visit_sequence(body, None, Some('('));
             }
             CompoundCommand::BraceGroup(body) => {
-                if group_was_inline_in_source(body.as_slice(), self.source_map(), '{', '}') {
-                    self.facts
-                        .inline_group_sequences
-                        .insert(FactSpan::from(body.span));
-                }
+                self.record_inline_group_sequence(body, '{', '}');
                 self.visit_sequence(body, None, Some('{'));
             }
             CompoundCommand::Arithmetic(command) => {
@@ -666,22 +661,8 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     Some(command.span.end.offset),
                     Some('{'),
                 );
-                if group_was_inline_in_source(command.body.as_slice(), self.source_map(), '{', '}')
-                {
-                    self.facts
-                        .inline_group_sequences
-                        .insert(FactSpan::from(command.body.span));
-                }
-                if group_was_inline_in_source(
-                    command.always_body.as_slice(),
-                    self.source_map(),
-                    '{',
-                    '}',
-                ) {
-                    self.facts
-                        .inline_group_sequences
-                        .insert(FactSpan::from(command.always_body.span));
-                }
+                self.record_inline_group_sequence(&command.body, '{', '}');
+                self.record_inline_group_sequence(&command.always_body, '{', '}');
             }
         }
     }
@@ -696,17 +677,8 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         self.visit_sequence(&command.condition, condition_upper_bound, None);
         let brace_syntax = matches!(command.syntax, shuck_ast::IfSyntax::Brace { .. });
         let group_open_char = brace_syntax.then_some('{');
-        if brace_syntax
-            && group_was_inline_in_source(
-                command.then_branch.as_slice(),
-                self.source_map(),
-                '{',
-                '}',
-            )
-        {
-            self.facts
-                .inline_group_sequences
-                .insert(FactSpan::from(command.then_branch.span));
+        if brace_syntax {
+            self.record_inline_group_sequence(&command.then_branch, '{', '}');
         }
         self.visit_sequence_with_suffix(
             &command.then_branch,
@@ -729,12 +701,8 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 branch_open_keyword_start(body, self.source_map().source(), "then")
             };
             self.visit_sequence(condition, condition_upper_bound, None);
-            if brace_syntax
-                && group_was_inline_in_source(body.as_slice(), self.source_map(), '{', '}')
-            {
-                self.facts
-                    .inline_group_sequences
-                    .insert(FactSpan::from(body.span));
+            if brace_syntax {
+                self.record_inline_group_sequence(body, '{', '}');
             }
             self.visit_sequence_with_suffix(
                 body,
@@ -751,12 +719,8 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             );
         }
         if let Some(else_branch) = &command.else_branch {
-            if brace_syntax
-                && group_was_inline_in_source(else_branch.as_slice(), self.source_map(), '{', '}')
-            {
-                self.facts
-                    .inline_group_sequences
-                    .insert(FactSpan::from(else_branch.span));
+            if brace_syntax {
+                self.record_inline_group_sequence(else_branch, '{', '}');
             }
             let upper_bound = Some(if_close_start(command, self.source_map()));
             self.visit_sequence_with_suffix(
@@ -784,12 +748,8 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             shuck_ast::ForSyntax::InBrace { .. } | shuck_ast::ForSyntax::ParenBrace { .. }
         )
         .then_some('{');
-        if group_open_char.is_some()
-            && group_was_inline_in_source(command.body.as_slice(), self.source_map(), '{', '}')
-        {
-            self.facts
-                .inline_group_sequences
-                .insert(FactSpan::from(command.body.span));
+        if group_open_char.is_some() {
+            self.record_inline_group_sequence(&command.body, '{', '}');
         }
         self.visit_sequence_with_suffix(
             &command.body,
@@ -814,12 +774,8 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         self.visit_word(&command.count);
         let group_open_char =
             matches!(command.syntax, shuck_ast::RepeatSyntax::Brace { .. }).then_some('{');
-        if group_open_char.is_some()
-            && group_was_inline_in_source(command.body.as_slice(), self.source_map(), '{', '}')
-        {
-            self.facts
-                .inline_group_sequences
-                .insert(FactSpan::from(command.body.span));
+        if group_open_char.is_some() {
+            self.record_inline_group_sequence(&command.body, '{', '}');
         }
         self.visit_sequence_with_suffix(
             &command.body,
@@ -840,24 +796,14 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         let condition_upper_bound =
             branch_open_keyword_start(&command.body, self.source_map().source(), "do");
         self.visit_sequence(&command.condition, condition_upper_bound, None);
-        self.visit_sequence_with_suffix(
-            &command.body,
-            Some(done_body_upper_bound(self.source_map(), command.span)),
-            None,
-            branch_open_suffix_span(&command.body, self.source_map(), "do"),
-        );
+        self.visit_do_done_body(&command.body, command.span);
     }
 
     fn visit_until(&mut self, command: &UntilCommand) {
         let condition_upper_bound =
             branch_open_keyword_start(&command.body, self.source_map().source(), "do");
         self.visit_sequence(&command.condition, condition_upper_bound, None);
-        self.visit_sequence_with_suffix(
-            &command.body,
-            Some(done_body_upper_bound(self.source_map(), command.span)),
-            None,
-            branch_open_suffix_span(&command.body, self.source_map(), "do"),
-        );
+        self.visit_do_done_body(&command.body, command.span);
     }
 
     fn visit_case(&mut self, command: &CaseCommand) {
@@ -886,12 +832,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         for word in &command.words {
             self.visit_word(word);
         }
-        self.visit_sequence_with_suffix(
-            &command.body,
-            Some(done_body_upper_bound(self.source_map(), command.span)),
-            None,
-            branch_open_suffix_span(&command.body, self.source_map(), "do"),
-        );
+        self.visit_do_done_body(&command.body, command.span);
     }
 
     fn visit_time(&mut self, command: &TimeCommand) {
