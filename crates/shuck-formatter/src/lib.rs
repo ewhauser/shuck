@@ -917,11 +917,7 @@ mod tests {
 
     #[test]
     fn preserves_heredoc_trailing_comments_without_duplication() {
-        assert_unchanged(
-            "cat <<EOF # note\nhi\nEOF\n",
-            None,
-            &ShellFormatOptions::default(),
-        );
+        assert_unchanged_default("cat <<EOF # note\nhi\nEOF\n");
     }
 
     #[test]
@@ -3588,12 +3584,8 @@ function R() {
     #[test]
     fn preserves_comments_between_pipeline_commands() {
         let source = "dat() {\n  find . -type f |\n    # keep this filter\n    grep -v patch |\n    sort\n}\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to(
+        assert_formats(
             source,
-            None,
-            &options,
             "dat() {\n\tfind . -type f |\n\t\t# keep this filter\n\t\tgrep -v patch |\n\t\tsort\n}\n",
         );
     }
@@ -3638,9 +3630,7 @@ function R() {
     #[test]
     fn preserves_continued_redirect_targets() {
         let source = "sed s/x/y/ in > \\\n  out\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(source, None, &options, "sed s/x/y/ in > \\\n\tout\n");
+        assert_formats_default_with_ast(source, "sed s/x/y/ in > \\\n\tout\n");
     }
 
     #[test]
@@ -3879,9 +3869,7 @@ function R() {
     #[test]
     fn aligns_trailing_comments_after_empty_array_assignments() {
         let source = "x=() # first\nyyy=() # second\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(source, None, &options, "x=()   # first\nyyy=() # second\n");
+        assert_formats_default_with_ast(source, "x=()   # first\nyyy=() # second\n");
     }
 
     #[test]
@@ -4117,9 +4105,7 @@ function R() {
     #[test]
     fn preserves_blank_line_after_if_then() {
         let source = "if true; then\n\n  echo yes\nfi\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(source, None, &options, "if true; then\n\n\techo yes\nfi\n");
+        assert_formats_default_with_ast(source, "if true; then\n\n\techo yes\nfi\n");
     }
 
     #[test]
@@ -4153,9 +4139,7 @@ function R() {
     #[test]
     fn preserves_blank_line_before_simple_fi() {
         let source = "if true; then\n  echo yes\n\nfi\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(source, None, &options, "if true; then\n\techo yes\n\nfi\n");
+        assert_formats_default_with_ast(source, "if true; then\n\techo yes\n\nfi\n");
     }
 
     #[test]
@@ -4316,9 +4300,7 @@ function R() {
     #[test]
     fn preserves_continued_semicolon_terminators() {
         let source = "ln -s foo bar \\\n  ;\nrm bar\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(source, None, &options, "ln -s foo bar \\\n\t;\nrm bar\n");
+        assert_formats_default_with_ast(source, "ln -s foo bar \\\n\t;\nrm bar\n");
     }
 
     #[test]
@@ -4345,9 +4327,7 @@ function R() {
     #[test]
     fn removes_unquoted_assignment_continuation_backslashes() {
         let source = "packages=$one\\\n$two\\\n$three\n";
-        let options = ShellFormatOptions::default();
-
-        assert_formats_to_with_ast(source, None, &options, "packages=$one$two$three\n");
+        assert_formats_default_with_ast(source, "packages=$one$two$three\n");
     }
 
     #[test]
@@ -4687,17 +4667,8 @@ function R() {
             &ShellFormatOptions::default(),
         );
 
-        assert_unchanged(
-            "#!/usr/bin/env zsh\nprint ${(m)foo}\n",
-            None,
-            &ShellFormatOptions::default(),
-        );
-
-        assert_unchanged(
-            "#!/usr/bin/env -S zsh -f\nprint ${(m)foo}\n",
-            None,
-            &ShellFormatOptions::default(),
-        );
+        assert_unchanged_default("#!/usr/bin/env zsh\nprint ${(m)foo}\n");
+        assert_unchanged_default("#!/usr/bin/env -S zsh -f\nprint ${(m)foo}\n");
     }
 
     #[test]
