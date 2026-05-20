@@ -170,79 +170,91 @@ fn walk_stmts(
     source: &str,
     visitor: &mut impl FnMut(&mut Stmt, &str) -> usize,
 ) -> usize {
-    walk_stmt_seq(&mut file.body, source, visitor)
+    walk_stmt_seq(&mut file.body, source, visitor, &mut |_| 0)
 }
 
 fn walk_stmt_seq(
     commands: &mut StmtSeq,
     source: &str,
-    visitor: &mut impl FnMut(&mut Stmt, &str) -> usize,
+    stmt_visitor: &mut dyn FnMut(&mut Stmt, &str) -> usize,
+    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
 ) -> usize {
     commands
         .iter_mut()
-        .map(|command| walk_stmt(command, source, visitor))
+        .map(|command| walk_stmt(command, source, stmt_visitor, word_visitor))
         .sum()
 }
 
 fn walk_stmt(
     stmt: &mut Stmt,
     source: &str,
-    visitor: &mut impl FnMut(&mut Stmt, &str) -> usize,
+    stmt_visitor: &mut dyn FnMut(&mut Stmt, &str) -> usize,
+    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
 ) -> usize {
-    let mut changes = visitor(stmt, source);
+    let mut changes = stmt_visitor(stmt, source);
     changes += match &mut stmt.command {
         Command::Simple(command) => {
             let mut count = 0;
             for assignment in &mut command.assignments {
-                count += walk_assignment(assignment, source, &mut |_| 0, &mut |_| 0);
+                count += walk_assignment(assignment, source, &mut |_| 0, word_visitor);
             }
-            count += walk_word(&mut command.name, source, &mut |_| 0);
+            count += walk_word(&mut command.name, source, word_visitor);
             for argument in &mut command.args {
-                count += walk_word(argument, source, &mut |_| 0);
+                count += walk_word(argument, source, word_visitor);
             }
             count
         }
-        Command::Builtin(command) => walk_builtin(command, source),
-        Command::Decl(command) => walk_decl_clause(command, source),
+        Command::Builtin(command) => walk_builtin(command, source, word_visitor),
+        Command::Decl(command) => walk_decl_clause(command, source, word_visitor),
         Command::Binary(command) => {
-            walk_stmt(&mut command.left, source, visitor)
-                + walk_stmt(&mut command.right, source, visitor)
+            walk_stmt(&mut command.left, source, stmt_visitor, word_visitor)
+                + walk_stmt(&mut command.right, source, stmt_visitor, word_visitor)
         }
-        Command::Compound(compound) => walk_compound(compound, source, visitor),
-        Command::Function(function) => walk_function(function, source, visitor),
-        Command::AnonymousFunction(function) => walk_anonymous_function(function, source, visitor),
+        Command::Compound(compound) => walk_compound(compound, source, stmt_visitor, word_visitor),
+        Command::Function(function) => walk_function(function, source, stmt_visitor, word_visitor),
+        Command::AnonymousFunction(function) => {
+            walk_anonymous_function(function, source, stmt_visitor, word_visitor)
+        }
     };
     for redirect in &mut stmt.redirects {
-        changes += walk_redirect(redirect, source, &mut |_| 0);
+        changes += walk_redirect(redirect, source, word_visitor);
     }
     changes
 }
 
-fn walk_builtin(command: &mut BuiltinCommand, source: &str) -> usize {
+fn walk_builtin(
+    command: &mut BuiltinCommand,
+    source: &str,
+    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
+) -> usize {
     match command {
         BuiltinCommand::Break(command) => walk_builtin_like(
             &mut command.assignments,
             command.depth.as_mut(),
             &mut command.extra_args,
             source,
+            word_visitor,
         ),
         BuiltinCommand::Continue(command) => walk_builtin_like(
             &mut command.assignments,
             command.depth.as_mut(),
             &mut command.extra_args,
             source,
+            word_visitor,
         ),
         BuiltinCommand::Return(command) => walk_builtin_like(
             &mut command.assignments,
             command.code.as_mut(),
             &mut command.extra_args,
             source,
+            word_visitor,
         ),
         BuiltinCommand::Exit(command) => walk_builtin_like(
             &mut command.assignments,
             command.code.as_mut(),
             &mut command.extra_args,
             source,
+            word_visitor,
         ),
     }
 }
@@ -252,33 +264,38 @@ fn walk_builtin_like(
     primary: Option<&mut Word>,
     extra_args: &mut [Word],
     source: &str,
+    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
 ) -> usize {
     let mut count = 0;
     for assignment in assignments {
-        count += walk_assignment(assignment, source, &mut |_| 0, &mut |_| 0);
+        count += walk_assignment(assignment, source, &mut |_| 0, word_visitor);
     }
     if let Some(primary) = primary {
-        count += walk_word(primary, source, &mut |_| 0);
+        count += walk_word(primary, source, word_visitor);
     }
     for argument in extra_args {
-        count += walk_word(argument, source, &mut |_| 0);
+        count += walk_word(argument, source, word_visitor);
     }
     count
 }
 
-fn walk_decl_clause(command: &mut DeclClause, source: &str) -> usize {
+fn walk_decl_clause(
+    command: &mut DeclClause,
+    source: &str,
+    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
+) -> usize {
     let mut count = 0;
     for assignment in &mut command.assignments {
-        count += walk_assignment(assignment, source, &mut |_| 0, &mut |_| 0);
+        count += walk_assignment(assignment, source, &mut |_| 0, word_visitor);
     }
     for operand in &mut command.operands {
         count += match operand {
             DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                walk_word(word, source, &mut |_| 0)
+                walk_word(word, source, word_visitor)
             }
             DeclOperand::Name(name) => walk_var_ref(name, source, &mut |_| 0),
             DeclOperand::Assignment(assignment) => {
-                walk_assignment(assignment, source, &mut |_| 0, &mut |_| 0)
+                walk_assignment(assignment, source, &mut |_| 0, word_visitor)
             }
         };
     }
@@ -288,23 +305,25 @@ fn walk_decl_clause(command: &mut DeclClause, source: &str) -> usize {
 fn walk_function(
     function: &mut FunctionDef,
     source: &str,
-    visitor: &mut impl FnMut(&mut Stmt, &str) -> usize,
+    stmt_visitor: &mut dyn FnMut(&mut Stmt, &str) -> usize,
+    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
 ) -> usize {
     let mut count = 0;
     for entry in &mut function.header.entries {
-        count += walk_word(&mut entry.word, source, &mut |_| 0);
+        count += walk_word(&mut entry.word, source, word_visitor);
     }
-    count + walk_stmt(function.body.as_mut(), source, visitor)
+    count + walk_stmt(function.body.as_mut(), source, stmt_visitor, word_visitor)
 }
 
 fn walk_anonymous_function(
     function: &mut shuck_ast::AnonymousFunctionCommand,
     source: &str,
-    visitor: &mut impl FnMut(&mut Stmt, &str) -> usize,
+    stmt_visitor: &mut dyn FnMut(&mut Stmt, &str) -> usize,
+    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
 ) -> usize {
-    let mut count = walk_stmt(function.body.as_mut(), source, visitor);
+    let mut count = walk_stmt(function.body.as_mut(), source, stmt_visitor, word_visitor);
     for argument in &mut function.args {
-        count += walk_word(argument, source, &mut |_| 0);
+        count += walk_word(argument, source, word_visitor);
     }
     count
 }
@@ -312,19 +331,20 @@ fn walk_anonymous_function(
 fn walk_compound(
     command: &mut CompoundCommand,
     source: &str,
-    visitor: &mut impl FnMut(&mut Stmt, &str) -> usize,
+    stmt_visitor: &mut dyn FnMut(&mut Stmt, &str) -> usize,
+    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
 ) -> usize {
     match command {
         CompoundCommand::If(command) => {
             let mut count = 0;
-            count += walk_stmt_seq(&mut command.condition, source, visitor);
-            count += walk_stmt_seq(&mut command.then_branch, source, visitor);
+            count += walk_stmt_seq(&mut command.condition, source, stmt_visitor, word_visitor);
+            count += walk_stmt_seq(&mut command.then_branch, source, stmt_visitor, word_visitor);
             for (condition, body) in &mut command.elif_branches {
-                count += walk_stmt_seq(condition, source, visitor);
-                count += walk_stmt_seq(body, source, visitor);
+                count += walk_stmt_seq(condition, source, stmt_visitor, word_visitor);
+                count += walk_stmt_seq(body, source, stmt_visitor, word_visitor);
             }
             if let Some(body) = &mut command.else_branch {
-                count += walk_stmt_seq(body, source, visitor);
+                count += walk_stmt_seq(body, source, stmt_visitor, word_visitor);
             }
             count
         }
@@ -332,68 +352,69 @@ fn walk_compound(
             let mut count = 0;
             if let Some(words) = &mut command.words {
                 for word in words {
-                    count += walk_word(word, source, &mut |_| 0);
+                    count += walk_word(word, source, word_visitor);
                 }
             }
-            count + walk_stmt_seq(&mut command.body, source, visitor)
+            count + walk_stmt_seq(&mut command.body, source, stmt_visitor, word_visitor)
         }
         CompoundCommand::Repeat(command) => {
-            walk_word(&mut command.count, source, &mut |_| 0)
-                + walk_stmt_seq(&mut command.body, source, visitor)
+            walk_word(&mut command.count, source, word_visitor)
+                + walk_stmt_seq(&mut command.body, source, stmt_visitor, word_visitor)
         }
         CompoundCommand::Foreach(command) => {
             command
                 .words
                 .iter_mut()
-                .map(|word| walk_word(word, source, &mut |_| 0))
+                .map(|word| walk_word(word, source, word_visitor))
                 .sum::<usize>()
-                + walk_stmt_seq(&mut command.body, source, visitor)
+                + walk_stmt_seq(&mut command.body, source, stmt_visitor, word_visitor)
         }
         CompoundCommand::ArithmeticFor(command) => {
-            walk_stmt_seq(&mut command.body, source, visitor)
+            walk_stmt_seq(&mut command.body, source, stmt_visitor, word_visitor)
         }
         CompoundCommand::While(command) => {
-            walk_stmt_seq(&mut command.condition, source, visitor)
-                + walk_stmt_seq(&mut command.body, source, visitor)
+            walk_stmt_seq(&mut command.condition, source, stmt_visitor, word_visitor)
+                + walk_stmt_seq(&mut command.body, source, stmt_visitor, word_visitor)
         }
         CompoundCommand::Until(command) => {
-            walk_stmt_seq(&mut command.condition, source, visitor)
-                + walk_stmt_seq(&mut command.body, source, visitor)
+            walk_stmt_seq(&mut command.condition, source, stmt_visitor, word_visitor)
+                + walk_stmt_seq(&mut command.body, source, stmt_visitor, word_visitor)
         }
         CompoundCommand::Case(command) => {
-            let mut count = walk_word(&mut command.word, source, &mut |_| 0);
+            let mut count = walk_word(&mut command.word, source, word_visitor);
             for item in &mut command.cases {
                 for pattern in &mut item.patterns {
-                    count += walk_pattern(pattern, source, &mut |_| 0);
+                    count += walk_pattern(pattern, source, word_visitor);
                 }
-                count += walk_stmt_seq(&mut item.body, source, visitor);
+                count += walk_stmt_seq(&mut item.body, source, stmt_visitor, word_visitor);
             }
             count
         }
         CompoundCommand::Select(command) => {
             let mut count = 0;
             for word in &mut command.words {
-                count += walk_word(word, source, &mut |_| 0);
+                count += walk_word(word, source, word_visitor);
             }
-            count + walk_stmt_seq(&mut command.body, source, visitor)
+            count + walk_stmt_seq(&mut command.body, source, stmt_visitor, word_visitor)
         }
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            walk_stmt_seq(commands, source, visitor)
+            walk_stmt_seq(commands, source, stmt_visitor, word_visitor)
         }
         CompoundCommand::Arithmetic(_) => 0,
-        CompoundCommand::Time(command) => command
-            .command
-            .as_mut()
-            .map_or(0, |command| walk_stmt(command, source, visitor)),
+        CompoundCommand::Time(command) => command.command.as_mut().map_or(0, |command| {
+            walk_stmt(command, source, stmt_visitor, word_visitor)
+        }),
         CompoundCommand::Conditional(command) => {
             let mut count = 0;
-            count += walk_conditional_words(&mut command.expression, source, &mut |_| 0);
+            count += walk_conditional_words(&mut command.expression, source, word_visitor);
             count
         }
-        CompoundCommand::Coproc(command) => walk_stmt(command.body.as_mut(), source, visitor),
+        CompoundCommand::Coproc(command) => {
+            walk_stmt(command.body.as_mut(), source, stmt_visitor, word_visitor)
+        }
         CompoundCommand::Always(command) => {
-            walk_stmt_seq(&mut command.body, source, visitor)
-                + walk_stmt_seq(&mut command.always_body, source, visitor)
+            walk_stmt_seq(&mut command.body, source, stmt_visitor, word_visitor)
+                + walk_stmt_seq(&mut command.always_body, source, stmt_visitor, word_visitor)
         }
     }
 }
@@ -401,7 +422,7 @@ fn walk_compound(
 fn walk_redirect(
     redirect: &mut Redirect,
     source: &str,
-    word_visitor: &mut impl FnMut(&mut Word) -> usize,
+    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
 ) -> usize {
     match &mut redirect.target {
         RedirectTarget::Word(word) => walk_word(word, source, word_visitor),
@@ -417,253 +438,9 @@ fn rewrite_stmt_words(
     source: &str,
     visitor: &mut impl FnMut(&mut Word, &str) -> usize,
 ) -> usize {
-    let mut count = match &mut stmt.command {
-        Command::Simple(command) => {
-            let mut count = 0;
-            for assignment in &mut command.assignments {
-                count += rewrite_assignment_words(assignment, source, visitor);
-            }
-            count += walk_word(&mut command.name, source, &mut |word| visitor(word, source));
-            for argument in &mut command.args {
-                count += walk_word(argument, source, &mut |word| visitor(word, source));
-            }
-            count
-        }
-        Command::Builtin(command) => match command {
-            BuiltinCommand::Break(command) => rewrite_builtin_like_words(
-                &mut command.assignments,
-                command.depth.as_mut(),
-                &mut command.extra_args,
-                source,
-                visitor,
-            ),
-            BuiltinCommand::Continue(command) => rewrite_builtin_like_words(
-                &mut command.assignments,
-                command.depth.as_mut(),
-                &mut command.extra_args,
-                source,
-                visitor,
-            ),
-            BuiltinCommand::Return(command) => rewrite_builtin_like_words(
-                &mut command.assignments,
-                command.code.as_mut(),
-                &mut command.extra_args,
-                source,
-                visitor,
-            ),
-            BuiltinCommand::Exit(command) => rewrite_builtin_like_words(
-                &mut command.assignments,
-                command.code.as_mut(),
-                &mut command.extra_args,
-                source,
-                visitor,
-            ),
-        },
-        Command::Decl(command) => {
-            let mut count = 0;
-            for assignment in &mut command.assignments {
-                count += rewrite_assignment_words(assignment, source, visitor);
-            }
-            for operand in &mut command.operands {
-                count += match operand {
-                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                        walk_word(word, source, &mut |word| visitor(word, source))
-                    }
-                    DeclOperand::Name(_) => 0,
-                    DeclOperand::Assignment(assignment) => {
-                        rewrite_assignment_words(assignment, source, visitor)
-                    }
-                };
-            }
-            count
-        }
-        Command::Binary(command) => {
-            rewrite_stmt_words(&mut command.left, source, visitor)
-                + rewrite_stmt_words(&mut command.right, source, visitor)
-        }
-        Command::Compound(compound) => rewrite_compound_words(compound, source, visitor),
-        Command::Function(function) => {
-            let mut count = 0;
-            for entry in &mut function.header.entries {
-                count += walk_word(&mut entry.word, source, &mut |word| visitor(word, source));
-            }
-            count + rewrite_stmt_words(function.body.as_mut(), source, visitor)
-        }
-        Command::AnonymousFunction(function) => {
-            let mut count = rewrite_stmt_words(function.body.as_mut(), source, visitor);
-            for argument in &mut function.args {
-                count += walk_word(argument, source, &mut |word| visitor(word, source));
-            }
-            count
-        }
-    };
-    for redirect in &mut stmt.redirects {
-        count += rewrite_redirect_words(redirect, source, visitor);
-    }
-    count
-}
-
-fn rewrite_builtin_like_words(
-    assignments: &mut [Assignment],
-    primary: Option<&mut Word>,
-    extra_args: &mut [Word],
-    source: &str,
-    visitor: &mut impl FnMut(&mut Word, &str) -> usize,
-) -> usize {
-    let mut count = 0;
-    for assignment in assignments {
-        count += rewrite_assignment_words(assignment, source, visitor);
-    }
-    if let Some(primary) = primary {
-        count += walk_word(primary, source, &mut |word| visitor(word, source));
-    }
-    for argument in extra_args {
-        count += walk_word(argument, source, &mut |word| visitor(word, source));
-    }
-    count
-}
-
-fn rewrite_compound_words(
-    command: &mut CompoundCommand,
-    source: &str,
-    visitor: &mut impl FnMut(&mut Word, &str) -> usize,
-) -> usize {
-    match command {
-        CompoundCommand::If(command) => {
-            let mut count = rewrite_stmt_seq_words(&mut command.condition, source, visitor)
-                + rewrite_stmt_seq_words(&mut command.then_branch, source, visitor);
-
-            for (condition, body) in &mut command.elif_branches {
-                count += rewrite_stmt_seq_words(condition, source, visitor);
-                count += rewrite_stmt_seq_words(body, source, visitor);
-            }
-
-            if let Some(body) = &mut command.else_branch {
-                count += rewrite_stmt_seq_words(body, source, visitor);
-            }
-
-            count
-        }
-        CompoundCommand::For(command) => {
-            let mut count = 0;
-            if let Some(words) = &mut command.words {
-                for word in words {
-                    count += walk_word(word, source, &mut |word| visitor(word, source));
-                }
-            }
-            count + rewrite_stmt_seq_words(&mut command.body, source, visitor)
-        }
-        CompoundCommand::Repeat(command) => {
-            walk_word(&mut command.count, source, &mut |word| {
-                visitor(word, source)
-            }) + rewrite_stmt_seq_words(&mut command.body, source, visitor)
-        }
-        CompoundCommand::Foreach(command) => {
-            let mut count = 0;
-            for word in &mut command.words {
-                count += walk_word(word, source, &mut |word| visitor(word, source));
-            }
-            count + rewrite_stmt_seq_words(&mut command.body, source, visitor)
-        }
-        CompoundCommand::ArithmeticFor(command) => {
-            rewrite_stmt_seq_words(&mut command.body, source, visitor)
-        }
-        CompoundCommand::While(command) => {
-            rewrite_stmt_seq_words(&mut command.condition, source, visitor)
-                + rewrite_stmt_seq_words(&mut command.body, source, visitor)
-        }
-        CompoundCommand::Until(command) => {
-            rewrite_stmt_seq_words(&mut command.condition, source, visitor)
-                + rewrite_stmt_seq_words(&mut command.body, source, visitor)
-        }
-        CompoundCommand::Case(command) => {
-            let mut count = walk_word(&mut command.word, source, &mut |word| visitor(word, source));
-            for item in &mut command.cases {
-                for pattern in &mut item.patterns {
-                    count += walk_pattern(pattern, source, &mut |word| visitor(word, source));
-                }
-                count += rewrite_stmt_seq_words(&mut item.body, source, visitor);
-            }
-            count
-        }
-        CompoundCommand::Select(command) => {
-            let mut count = 0;
-            for word in &mut command.words {
-                count += walk_word(word, source, &mut |word| visitor(word, source));
-            }
-            count + rewrite_stmt_seq_words(&mut command.body, source, visitor)
-        }
-        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            rewrite_stmt_seq_words(commands, source, visitor)
-        }
-        CompoundCommand::Arithmetic(_) => 0,
-        CompoundCommand::Time(command) => command
-            .command
-            .as_mut()
-            .map_or(0, |command| rewrite_stmt_words(command, source, visitor)),
-        CompoundCommand::Conditional(command) => {
-            walk_conditional_words(&mut command.expression, source, &mut |word| {
-                visitor(word, source)
-            })
-        }
-        CompoundCommand::Coproc(command) => {
-            rewrite_stmt_words(command.body.as_mut(), source, visitor)
-        }
-        CompoundCommand::Always(command) => {
-            rewrite_stmt_seq_words(&mut command.body, source, visitor)
-                + rewrite_stmt_seq_words(&mut command.always_body, source, visitor)
-        }
-    }
-}
-
-fn rewrite_stmt_seq_words(
-    commands: &mut StmtSeq,
-    source: &str,
-    visitor: &mut impl FnMut(&mut Word, &str) -> usize,
-) -> usize {
-    let mut count = 0;
-    for command in commands.iter_mut() {
-        count += rewrite_stmt_words(command, source, visitor);
-    }
-    count
-}
-
-fn rewrite_assignment_words(
-    assignment: &mut Assignment,
-    source: &str,
-    visitor: &mut impl FnMut(&mut Word, &str) -> usize,
-) -> usize {
-    match &mut assignment.value {
-        AssignmentValue::Scalar(word) => walk_word(word, source, &mut |word| visitor(word, source)),
-        AssignmentValue::Compound(array) => {
-            let mut count = 0;
-            for element in &mut array.elements {
-                count += match element {
-                    ArrayElem::Sequential(word)
-                    | ArrayElem::Keyed { value: word, .. }
-                    | ArrayElem::KeyedAppend { value: word, .. } => {
-                        walk_word(word, source, &mut |word| visitor(word, source))
-                    }
-                };
-            }
-            count
-        }
-    }
-}
-
-fn rewrite_redirect_words(
-    redirect: &mut Redirect,
-    source: &str,
-    visitor: &mut impl FnMut(&mut Word, &str) -> usize,
-) -> usize {
-    match &mut redirect.target {
-        RedirectTarget::Word(word) => walk_word(word, source, &mut |word| visitor(word, source)),
-        RedirectTarget::Heredoc(heredoc) => {
-            walk_word(&mut heredoc.delimiter.raw, source, &mut |word| {
-                visitor(word, source)
-            }) + walk_heredoc_body(&mut heredoc.body, source, &mut |word| visitor(word, source))
-        }
-    }
+    let mut stmt_visitor = |_: &mut Stmt, _: &str| 0;
+    let mut word_visitor = |word: &mut Word| visitor(word, source);
+    walk_stmt(stmt, source, &mut stmt_visitor, &mut word_visitor)
 }
 
 fn walk_var_ref(
@@ -684,7 +461,7 @@ fn walk_assignment(
     assignment: &mut Assignment,
     source: &str,
     source_text_visitor: &mut impl FnMut(&mut SourceText) -> usize,
-    word_visitor: &mut impl FnMut(&mut Word) -> usize,
+    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
 ) -> usize {
     let mut count = walk_var_ref(&mut assignment.target, source, source_text_visitor);
     count += match &mut assignment.value {
@@ -706,11 +483,7 @@ fn walk_assignment(
     count
 }
 
-fn walk_word(
-    word: &mut Word,
-    _source: &str,
-    visitor: &mut impl FnMut(&mut Word) -> usize,
-) -> usize {
+fn walk_word(word: &mut Word, _source: &str, visitor: &mut dyn FnMut(&mut Word) -> usize) -> usize {
     let mut count = visitor(word);
     for part in &mut word.parts {
         count += walk_word_part(part);
@@ -730,8 +503,12 @@ fn walk_heredoc_body(
             body: command_body, ..
         } = &mut part.kind
         {
-            count +=
-                rewrite_stmt_seq_words(command_body, source, &mut |word, _source| visitor(word));
+            count += walk_stmt_seq(
+                command_body,
+                source,
+                &mut |_: &mut Stmt, _: &str| 0,
+                visitor,
+            );
         }
     }
 
@@ -760,7 +537,7 @@ fn walk_word_part(part: &mut WordPartNode) -> usize {
 fn walk_pattern(
     pattern: &mut Pattern,
     source: &str,
-    visitor: &mut impl FnMut(&mut Word) -> usize,
+    visitor: &mut dyn FnMut(&mut Word) -> usize,
 ) -> usize {
     let mut count = 0;
 
@@ -787,7 +564,7 @@ fn walk_pattern(
 fn walk_conditional_words(
     expression: &mut ConditionalExpr,
     source: &str,
-    visitor: &mut impl FnMut(&mut Word) -> usize,
+    visitor: &mut dyn FnMut(&mut Word) -> usize,
 ) -> usize {
     match expression {
         ConditionalExpr::Binary(ConditionalBinaryExpr { left, right, .. }) => {
