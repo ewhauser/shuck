@@ -6821,13 +6821,7 @@ fn multiline_header_suffix_comment_width(
     let header = header_line.trim_matches([' ', '\t', '\r']);
     let suffix = multiline_header_suffix_keyword(header)?;
 
-    let suffix_start = header_end.checked_add(1)?;
-    if suffix_start >= source.len() {
-        return None;
-    }
-    let suffix_end = source[suffix_start..]
-        .find('\n')
-        .map_or(source.len(), |offset| suffix_start + offset);
+    let (suffix_start, suffix_end) = next_line_bounds(source, header_end)?;
     let suffix_line = source.get(suffix_start..suffix_end)?;
     let comment_offset = find_inline_comment_start(suffix_line, suffix_start)?;
     let suffix_prefix = source.get(suffix_start..comment_offset)?;
