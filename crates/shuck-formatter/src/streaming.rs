@@ -33,7 +33,8 @@ use crate::scan::{
     BranchPrefixComment, branch_keyword_offset, branch_prefix_comments,
     close_suffix_comment_offsets, last_uncommented_shell_keyword_before, line_indent_before_offset,
     matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
-    operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line, redirect_operator_end,
+    operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line,
+    own_line_comments_in_region as scan_own_line_comments_in_region, redirect_operator_end,
     shell_keyword_boundaries_match, skip_double_quoted, skip_single_quoted,
 };
 use crate::word::{
@@ -2276,7 +2277,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn own_line_comments_in_region(&self, start: usize, end: usize) -> Vec<BranchPrefixComment> {
-        own_line_comments_in_region(self.source(), start, end)
+        scan_own_line_comments_in_region(self.source(), start, end)
             .into_iter()
             .filter(|comment| !self.facts().offset_is_in_heredoc_body(comment.offset))
             .collect()
@@ -2942,29 +2943,22 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let Some((start, end)) = if_next_branch_region(command, branch_index, self.source()) else {
             return;
         };
-        let comments = branch_prefix_comments(self.source(), start, end)
-            .into_iter()
-            .map(|comment| {
-                (
-                    self.source_map().line_number_for_offset(comment.offset),
-                    comment.text,
-                    comment.source_indent,
-                )
-            })
-            .collect::<Vec<_>>();
+        let comments = branch_prefix_comments(self.source(), start, end);
         if comments.is_empty() {
             return;
         }
         let disabled_branch_block = branch_prefix_comments_use_disabled_body_indent(&comments);
         self.newline();
-        for (index, (line, text, _)) in comments.iter().enumerate() {
+        for (index, comment) in comments.iter().enumerate() {
             if disabled_branch_block {
-                self.with_indent(|formatter| formatter.write_text(text));
+                self.with_indent(|formatter| formatter.write_text(&comment.text));
             } else {
-                self.write_text(text);
+                self.write_text(&comment.text);
             }
-            if let Some((next_line, _, _)) = comments.get(index + 1) {
-                self.write_line_breaks(line_gap_break_count(*line, *next_line));
+            if let Some(next) = comments.get(index + 1) {
+                let line = self.source_map().line_number_for_offset(comment.offset);
+                let next_line = self.source_map().line_number_for_offset(next.offset);
+                self.write_line_breaks(line_gap_break_count(line, next_line));
             }
         }
     }
@@ -8949,15 +8943,15 @@ fn comment_looks_like_disabled_if_branch(text: &str) -> bool {
         .any(|keyword| shell_keyword_prefix_matches(body, keyword))
 }
 
-fn branch_prefix_comments_use_disabled_body_indent(comments: &[(usize, String, usize)]) -> bool {
-    let Some((_, first_text, first_indent)) = comments.first() else {
+fn branch_prefix_comments_use_disabled_body_indent(comments: &[BranchPrefixComment]) -> bool {
+    let Some(first) = comments.first() else {
         return false;
     };
-    comment_looks_like_disabled_if_branch(first_text)
+    comment_looks_like_disabled_if_branch(&first.text)
         && comments
             .iter()
             .skip(1)
-            .any(|(_, _, indent)| indent > first_indent)
+            .any(|comment| comment.source_indent > first.source_indent)
 }
 
 fn shell_keyword_prefix_matches(text: &str, keyword: &str) -> bool {
@@ -8971,37 +8965,6 @@ fn time_inner_stmt_needs_trailing_comment(stmt: &Stmt) -> bool {
         Command::Binary(command) => time_inner_stmt_needs_trailing_comment(&command.right),
         _ => false,
     }
-}
-
-fn own_line_comments_in_region(source: &str, start: usize, end: usize) -> Vec<BranchPrefixComment> {
-    let start = start.min(end).min(source.len());
-    let end = end.min(source.len());
-    let Some(next_line_start) = source
-        .get(start..end)
-        .and_then(|slice| slice.find('\n').map(|offset| start + offset + 1))
-    else {
-        return Vec::new();
-    };
-    let Some(slice) = source.get(next_line_start..end) else {
-        return Vec::new();
-    };
-
-    let mut comments = Vec::new();
-    let mut offset = next_line_start;
-    for line in slice.split_inclusive('\n') {
-        let text = line.trim_end_matches(['\n', '\r']);
-        let trimmed = text.trim_start_matches([' ', '\t']);
-        let indent = text.len().saturating_sub(trimmed.len());
-        if trimmed.starts_with('#') {
-            comments.push(BranchPrefixComment {
-                offset: offset + indent,
-                text: trimmed.trim_end_matches([' ', '\t', '\r']).to_string(),
-                source_indent: indent,
-            });
-        }
-        offset += line.len();
-    }
-    comments
 }
 
 fn unmodeled_branch_background_operator(

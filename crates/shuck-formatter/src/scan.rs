@@ -175,6 +175,41 @@ pub(crate) fn branch_prefix_comments(
     comments
 }
 
+pub(crate) fn own_line_comments_in_region(
+    source: &str,
+    start: usize,
+    end: usize,
+) -> Vec<BranchPrefixComment> {
+    let start = start.min(end).min(source.len());
+    let end = end.min(source.len());
+    let Some(next_line_start) = source
+        .get(start..end)
+        .and_then(|slice| slice.find('\n').map(|offset| start + offset + 1))
+    else {
+        return Vec::new();
+    };
+    let Some(slice) = source.get(next_line_start..end) else {
+        return Vec::new();
+    };
+
+    let mut comments = Vec::new();
+    let mut offset = next_line_start;
+    for line in slice.split_inclusive('\n') {
+        let text = line.trim_end_matches(['\n', '\r']);
+        let trimmed = text.trim_start_matches([' ', '\t']);
+        let indent = text.len().saturating_sub(trimmed.len());
+        if trimmed.starts_with('#') {
+            comments.push(BranchPrefixComment {
+                offset: offset + indent,
+                text: trimmed.trim_end_matches([' ', '\t', '\r']).to_string(),
+                source_indent: indent,
+            });
+        }
+        offset += line.len();
+    }
+    comments
+}
+
 pub(crate) fn last_uncommented_shell_keyword_before(
     source: &str,
     search_end: usize,
