@@ -4416,7 +4416,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             commands.as_slice(),
             self.source_map(),
             open_char,
-            matching_group_close_char(open_char),
+            matching_group_close(open_char),
         );
         let open_end_offset = open_suffix_span
             .map(|span| span.end.offset)
@@ -4424,7 +4424,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         let preserve_open_blank = open_end_offset.is_some_and(|offset| {
             body_has_blank_line_after_open(source, self.source_map(), offset, commands)
         });
-        let close_char = matching_group_close_char(open_char);
+        let close_char = matching_group_close(open_char);
         let preserve_close_blank = group_span.is_some_and(|span| {
             let close_offset =
                 group_close_offset(source, span, upper_bound, close_char, close.len());
@@ -4801,7 +4801,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             commands.as_slice(),
             self.source_map(),
             open_char,
-            matching_group_close_char(open_char),
+            matching_group_close(open_char),
         ) else {
             return false;
         };
@@ -6561,13 +6561,6 @@ fn compound_allows_done_without_semicolon(command: &CompoundCommand) -> bool {
             brace_group_last_stmt_allows_done_without_semicolon(&command.body)
         }
         _ => false,
-    }
-}
-
-fn matching_group_close_char(open: char) -> char {
-    match open {
-        '(' => ')',
-        _ => '}',
     }
 }
 
