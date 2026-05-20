@@ -1887,225 +1887,88 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn formats_multiline_compound_assignments_structurally() {
-        let source = "directories=(\n  bin\n  etc\n  Frameworks\n)\n";
-
-        assert_formats(source, "directories=(\n\tbin\n\tetc\n\tFrameworks\n)\n");
+    default_format_cases! {
+        formats_multiline_compound_assignments_structurally:
+            "directories=(\n  bin\n  etc\n  Frameworks\n)\n"
+            => "directories=(\n\tbin\n\tetc\n\tFrameworks\n)\n";
     }
 
-    #[test]
-    fn removes_multiline_compound_assignment_line_continuations() {
-        let source = "if ok; then\n    params+=(-Done=true -Dtwo=false \\\n               -Dthree=false \\\n               -Dfour=true)\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if ok; then\n\tparams+=(-Done=true -Dtwo=false\n\t\t-Dthree=false\n\t\t-Dfour=true)\nfi\n",
-        );
+    default_format_ast_cases! {
+        preserves_inline_multiline_compound_assignment_delimiters:
+            "options=(path frozen without\n  ssl_verify_mode system_bindir user_agent)\n"
+            => "options=(path frozen without\n\tssl_verify_mode system_bindir user_agent)\n";
+        aligns_compound_assignment_command_substitution_close_suffixes:
+            "f() {\n  case \"$prev\" in\n  -a)\n    COMPREPLY=($(compgen -W \"$(\n      salt-key -l un --no-color\n      salt-key -l rej --no-color\n    )\" -- \"${cur}\"))\n    ;;\n  esac\n}\n"
+            => "f() {\n\tcase \"$prev\" in\n\t-a)\n\t\tCOMPREPLY=($(compgen -W \"$(\n\t\t\tsalt-key -l un --no-color\n\t\t\tsalt-key -l rej --no-color\n\t\t)\" -- \"${cur}\"))\n\t\t;;\n\tesac\n}\n";
     }
 
-    #[test]
-    fn preserves_escaped_multiline_double_quoted_compound_items() {
-        let source = "show() {\n  items+=(\"\\\n    $(printf \" ---------\")\n     Text.\n\n     $(\n  for   x in a b\n  do\n    echo \"$x\"\n  done\n)\")\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "show() {\n\titems+=(\"\\\n    $(printf \" ---------\")\n     Text.\n\n     $(\n\t\tfor x in a b; do\n\t\t\techo \"$x\"\n\t\tdone\n\t)\")\n}\n",
-        );
-    }
-
-    #[test]
-    fn strips_residual_indent_from_continued_array_rows() {
-        let source = "cmd=(\n  grep -s                         \\\n    -e \"^<${url}>\"                 \\\n    -e \"^##\"\n)\n";
-        assert_bash_formats_with_ast(
-            source,
-            "cmd=(\n\tgrep -s\n\t-e \"^<${url}>\"\n\t-e \"^##\"\n)\n",
-        );
-    }
-
-    #[test]
-    fn preserves_array_command_substitution_argument_continuations() {
-        let source = "x=( $(find . -not \\( -path ./x -prune \\) -not -name lib \\\n  -not -name other | sort) )\n";
-        assert_bash_formats_with_ast(
-            source,
-            "x=($(find . -not \\( -path ./x -prune \\) -not -name lib \\\n\t-not -name other | sort))\n",
-        );
-    }
-
-    #[test]
-    fn removes_decl_array_assignment_line_continuations() {
-        let source = "local cmd=(dialog --title \"Select\" --default-item \"$default\" \\\n    --menu \"Choose\" 18 50 9)\n";
-        assert_bash_formats_with_ast(
-            source,
-            "local cmd=(dialog --title \"Select\" --default-item \"$default\"\n\t--menu \"Choose\" 18 50 9)\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_multiline_compound_assignment_row_spacing() {
-        let source = "options=(\n  1 \"1080p\"  \"Set 1080p\"\n  2 \"720p\"   \"Set 720p\"\n)\n";
-        assert_bash_formats_with_ast(
-            source,
-            "options=(\n\t1 \"1080p\" \"Set 1080p\"\n\t2 \"720p\" \"Set 720p\"\n)\n",
-        );
-    }
-
-    #[test]
-    fn ignores_comments_for_multiline_compound_assignment_body_indent() {
-        let source =
-            "versions=(1.16.0\n# Match the server package.\n                    21.1.16)\n";
-        assert_bash_formats_with_ast(
-            source,
-            "versions=(1.16.0\n\t# Match the server package.\n\t21.1.16)\n",
-        );
-    }
-
-    #[test]
-    fn preserves_blank_lines_inside_multiline_compound_assignments() {
-        let source = "args=(\n  one\n\n  # group\n  two\n\n  three\n)\n";
-        assert_bash_formats_with_ast(source, "args=(\n\tone\n\n\t# group\n\ttwo\n\n\tthree\n)\n");
-    }
-
-    #[test]
-    fn normalizes_keyed_compound_assignment_row_indent() {
-        let source =
-            "declare -A map=(\n        [up]=one\n   [down]=two\n\n        [left]=three\n)\n";
-        assert_bash_formats_with_ast(
-            source,
-            "declare -A map=(\n\t[up]=one\n\t[down]=two\n\n\t[left]=three\n)\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_multiline_command_substitution_array_elements() {
-        let source = "items=(\nfirst\n    $(\n        for item in $items; do\n            echo \"$item\"\n        done\n    )\n\n)\n";
-        assert_bash_formats_with_ast(
-            source,
-            "items=(\n\tfirst\n\t$(\n\t\tfor item in $items; do\n\t\t\techo \"$item\"\n\t\tdone\n\t)\n\n)\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_array_command_substitution_elements_like_shfmt() {
-        let source = "options=( \n  config_file \"$(\n     [[ \"$config\" == *.cfg ]] && echo ok\n  )\"\n  enabled \"$( [[ -n \"$flag\" ]] && echo true || echo false)\"\n)\n";
-        assert_bash_formats_with_ast(
-            source,
-            "options=(\n\tconfig_file \"$(\n\t\t[[ \"$config\" == *.cfg ]] && echo ok\n\t)\"\n\tenabled \"$([[ -n \"$flag\" ]] && echo true || echo false)\"\n)\n",
-        );
-    }
-
-    #[test]
-    fn indents_array_append_command_substitution_elements_like_shfmt() {
-        let source = "f() {\n  if ok; then\n    opts+=(\"$(\n      get x\n    )\")\n  fi\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tif ok; then\n\t\topts+=(\"$(\n\t\t\tget x\n\t\t)\")\n\tfi\n}\n",
-        );
-    }
-
-    #[test]
-    fn preserves_inline_multiline_compound_assignment_delimiters() {
-        let source = "options=(path frozen without\n  ssl_verify_mode system_bindir user_agent)\n";
-        assert_formats_default_with_ast(
-            source,
-            "options=(path frozen without\n\tssl_verify_mode system_bindir user_agent)\n",
-        );
-    }
-
-    #[test]
-    fn aligns_compound_assignment_command_substitution_close_suffixes() {
-        let source = "f() {\n  case \"$prev\" in\n  -a)\n    COMPREPLY=($(compgen -W \"$(\n      salt-key -l un --no-color\n      salt-key -l rej --no-color\n    )\" -- \"${cur}\"))\n    ;;\n  esac\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "f() {\n\tcase \"$prev\" in\n\t-a)\n\t\tCOMPREPLY=($(compgen -W \"$(\n\t\t\tsalt-key -l un --no-color\n\t\t\tsalt-key -l rej --no-color\n\t\t)\" -- \"${cur}\"))\n\t\t;;\n\tesac\n}\n",
-        );
-    }
-
-    #[test]
-    fn preserves_compound_assignment_command_substitution_body_indent() {
-        let source = "f() {\n  _files=($(\n    while [[ \"$PWD\" != \"/\" ]]; do\n      _file=\"$PWD/.env\"\n      if [[ -e \"${_file}\" ]]; then\n        echo \"${_file}\"\n      fi\n      builtin cd .. || true\n    done\n  ))\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\t_files=($(\n\t\twhile [[ \"$PWD\" != \"/\" ]]; do\n\t\t\t_file=\"$PWD/.env\"\n\t\t\tif [[ -e \"${_file}\" ]]; then\n\t\t\t\techo \"${_file}\"\n\t\t\tfi\n\t\t\tbuiltin cd .. || true\n\t\tdone\n\t))\n}\n",
-        );
-    }
-
-    #[test]
-    fn preserves_compound_assignment_command_substitution_command_continuations() {
-        let source = "f() {\n  _remote_branches=($(\n    git -C \"$path\" ls-remote --heads \"$url\" 2>/dev/null \\\n      | LC_ALL=C sed \"s/.*\\///g\"\n  ))\n  _diff=($(\n    printf \"%s\\n\" \\\n      \"${_index_list[@]:-}\" \\\n      \"${_file_list[@]:-}\" \\\n      | sort \\\n      | uniq -u\n  ))\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\t_remote_branches=($(\n\t\tgit -C \"$path\" ls-remote --heads \"$url\" 2>/dev/null |\n\t\t\tLC_ALL=C sed \"s/.*\\///g\"\n\t))\n\t_diff=($(\n\t\tprintf \"%s\\n\" \\\n\t\t\t\"${_index_list[@]:-}\" \\\n\t\t\t\"${_file_list[@]:-}\" |\n\t\t\tsort |\n\t\t\tuniq -u\n\t))\n}\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_array_command_substitution_leading_list_operators() {
-        let source = "f() {\n  x=(\\\n    $(printf \"%s\\n\" \"${xs[@]}\" \\\n      | sort \\\n      | cut -d: -f1 \\\n    || true))\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tx=(\n\t\t$(printf \"%s\\n\" \"${xs[@]}\" |\n\t\t\tsort |\n\t\t\tcut -d: -f1 ||\n\t\t\ttrue))\n}\n",
-        );
-    }
-
-    #[test]
-    fn strips_redirect_residual_indent_in_compound_assignment_command_substitutions() {
-        let source = "f() {\n  _remote_branches=($(\n    git -C \"$path\" ls-remote        \\\n      --heads \"$url\"        \\\n       2>/dev/null                              \\\n      | LC_ALL=C sed \"s/.*\\///g\" || :\n  ))\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\t_remote_branches=($(\n\t\tgit -C \"$path\" ls-remote \\\n\t\t\t--heads \"$url\" \\\n\t\t\t2>/dev/null |\n\t\t\tLC_ALL=C sed \"s/.*\\///g\" || :\n\t))\n}\n",
-        );
-    }
-
-    #[test]
-    fn expands_multistatement_command_substitutions_in_array_values() {
-        let source = "f() {\n  local -A ver=(\n    [libx11]=\"$(. \"${TERMUX_SCRIPTDIR}/packages/libx11/build.sh\"; echo \"${TERMUX_PKG_VERSION}\")\"\n  )\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tlocal -A ver=(\n\t\t[libx11]=\"$(\n\t\t\t. \"${TERMUX_SCRIPTDIR}/packages/libx11/build.sh\"\n\t\t\techo \"${TERMUX_PKG_VERSION}\"\n\t\t)\"\n\t)\n}\n",
-        );
-    }
-
-    #[test]
-    fn expands_multistatement_assignment_command_substitutions() {
-        let source = "x=$(cd /tmp ; ls | wc -l )\n";
-        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-
-        assert_formats_to_with_ast(source, None, &options, "x=$(\n\tcd /tmp\n\tls | wc -l\n)\n");
-    }
-
-    #[test]
-    fn indents_quoted_block_command_substitution_loop_close() {
-        let source = "f() {\n  eval \"$(\n    for key in a b; do\n      awk -F= \"/$key/\" <<< \"$profile_data\"\n    done\n  )\"\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\teval \"$(\n\t\tfor key in a b; do\n\t\t\tawk -F= \"/$key/\" <<<\"$profile_data\"\n\t\tdone\n\t)\"\n}\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_raw_block_command_substitution_comment_indent() {
-        let source = "f() {\n    value=\"$(\n        docker-compose -f file.yml \\\n            exec -T service cat secret </dev/null\n            # keep this note with the command\n    )\"\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tvalue=\"$(\n\t\tdocker-compose -f file.yml \\\n\t\t\texec -T service cat secret </dev/null\n\t\t# keep this note with the command\n\t)\"\n}\n",
-        );
-    }
-
-    #[test]
-    fn normalizes_raw_block_command_substitution_shell_indent() {
-        let source = "f() {\n    value=\"$(\n        aws service call \\\n            --query 'Items[]{\n                        \"Name\": Name\n                    }' \\\n            --output json |\n        jq -r \"\n            .[]\n        \"\n    )\"\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\tvalue=\"$(\n\t\taws service call \\\n\t\t\t--query 'Items[]{\n                        \"Name\": Name\n                    }' \\\n\t\t\t--output json |\n\t\t\tjq -r \"\n            .[]\n        \"\n\t)\"\n}\n",
-        );
-    }
-
-    #[test]
-    fn indents_raw_block_command_substitution_pipeline_after_compound_close() {
-        let source = "regions=\"$(\n    # choose enabled regions by default\n    if [ -n \"${ALL_REGIONS:-}\" ]; then\n        list_regions --all\n    else\n        list_regions\n    fi |\n    jq -r '.Regions[] | .Name'\n)\"\n";
-        assert_bash_formats_with_ast(
-            source,
-            "regions=\"$(\n\t# choose enabled regions by default\n\tif [ -n \"${ALL_REGIONS:-}\" ]; then\n\t\tlist_regions --all\n\telse\n\t\tlist_regions\n\tfi |\n\t\tjq -r '.Regions[] | .Name'\n)\"\n",
-        );
+    bash_format_ast_cases! {
+        removes_multiline_compound_assignment_line_continuations:
+            "if ok; then\n    params+=(-Done=true -Dtwo=false \\\n               -Dthree=false \\\n               -Dfour=true)\nfi\n"
+            => "if ok; then\n\tparams+=(-Done=true -Dtwo=false\n\t\t-Dthree=false\n\t\t-Dfour=true)\nfi\n";
+        preserves_escaped_multiline_double_quoted_compound_items:
+            "show() {\n  items+=(\"\\\n    $(printf \" ---------\")\n     Text.\n\n     $(\n  for   x in a b\n  do\n    echo \"$x\"\n  done\n)\")\n}\n"
+            => "show() {\n\titems+=(\"\\\n    $(printf \" ---------\")\n     Text.\n\n     $(\n\t\tfor x in a b; do\n\t\t\techo \"$x\"\n\t\tdone\n\t)\")\n}\n";
+        strips_residual_indent_from_continued_array_rows:
+            "cmd=(\n  grep -s                         \\\n    -e \"^<${url}>\"                 \\\n    -e \"^##\"\n)\n"
+            => "cmd=(\n\tgrep -s\n\t-e \"^<${url}>\"\n\t-e \"^##\"\n)\n";
+        preserves_array_command_substitution_argument_continuations:
+            "x=( $(find . -not \\( -path ./x -prune \\) -not -name lib \\\n  -not -name other | sort) )\n"
+            => "x=($(find . -not \\( -path ./x -prune \\) -not -name lib \\\n\t-not -name other | sort))\n";
+        removes_decl_array_assignment_line_continuations:
+            "local cmd=(dialog --title \"Select\" --default-item \"$default\" \\\n    --menu \"Choose\" 18 50 9)\n"
+            => "local cmd=(dialog --title \"Select\" --default-item \"$default\"\n\t--menu \"Choose\" 18 50 9)\n";
+        normalizes_multiline_compound_assignment_row_spacing:
+            "options=(\n  1 \"1080p\"  \"Set 1080p\"\n  2 \"720p\"   \"Set 720p\"\n)\n"
+            => "options=(\n\t1 \"1080p\" \"Set 1080p\"\n\t2 \"720p\" \"Set 720p\"\n)\n";
+        ignores_comments_for_multiline_compound_assignment_body_indent:
+            "versions=(1.16.0\n# Match the server package.\n                    21.1.16)\n"
+            => "versions=(1.16.0\n\t# Match the server package.\n\t21.1.16)\n";
+        preserves_blank_lines_inside_multiline_compound_assignments:
+            "args=(\n  one\n\n  # group\n  two\n\n  three\n)\n"
+            => "args=(\n\tone\n\n\t# group\n\ttwo\n\n\tthree\n)\n";
+        normalizes_keyed_compound_assignment_row_indent:
+            "declare -A map=(\n        [up]=one\n   [down]=two\n\n        [left]=three\n)\n"
+            => "declare -A map=(\n\t[up]=one\n\t[down]=two\n\n\t[left]=three\n)\n";
+        normalizes_multiline_command_substitution_array_elements:
+            "items=(\nfirst\n    $(\n        for item in $items; do\n            echo \"$item\"\n        done\n    )\n\n)\n"
+            => "items=(\n\tfirst\n\t$(\n\t\tfor item in $items; do\n\t\t\techo \"$item\"\n\t\tdone\n\t)\n\n)\n";
+        normalizes_array_command_substitution_elements_like_shfmt:
+            "options=( \n  config_file \"$(\n     [[ \"$config\" == *.cfg ]] && echo ok\n  )\"\n  enabled \"$( [[ -n \"$flag\" ]] && echo true || echo false)\"\n)\n"
+            => "options=(\n\tconfig_file \"$(\n\t\t[[ \"$config\" == *.cfg ]] && echo ok\n\t)\"\n\tenabled \"$([[ -n \"$flag\" ]] && echo true || echo false)\"\n)\n";
+        indents_array_append_command_substitution_elements_like_shfmt:
+            "f() {\n  if ok; then\n    opts+=(\"$(\n      get x\n    )\")\n  fi\n}\n"
+            => "f() {\n\tif ok; then\n\t\topts+=(\"$(\n\t\t\tget x\n\t\t)\")\n\tfi\n}\n";
+        preserves_compound_assignment_command_substitution_body_indent:
+            "f() {\n  _files=($(\n    while [[ \"$PWD\" != \"/\" ]]; do\n      _file=\"$PWD/.env\"\n      if [[ -e \"${_file}\" ]]; then\n        echo \"${_file}\"\n      fi\n      builtin cd .. || true\n    done\n  ))\n}\n"
+            => "f() {\n\t_files=($(\n\t\twhile [[ \"$PWD\" != \"/\" ]]; do\n\t\t\t_file=\"$PWD/.env\"\n\t\t\tif [[ -e \"${_file}\" ]]; then\n\t\t\t\techo \"${_file}\"\n\t\t\tfi\n\t\t\tbuiltin cd .. || true\n\t\tdone\n\t))\n}\n";
+        preserves_compound_assignment_command_substitution_command_continuations:
+            "f() {\n  _remote_branches=($(\n    git -C \"$path\" ls-remote --heads \"$url\" 2>/dev/null \\\n      | LC_ALL=C sed \"s/.*\\///g\"\n  ))\n  _diff=($(\n    printf \"%s\\n\" \\\n      \"${_index_list[@]:-}\" \\\n      \"${_file_list[@]:-}\" \\\n      | sort \\\n      | uniq -u\n  ))\n}\n"
+            => "f() {\n\t_remote_branches=($(\n\t\tgit -C \"$path\" ls-remote --heads \"$url\" 2>/dev/null |\n\t\t\tLC_ALL=C sed \"s/.*\\///g\"\n\t))\n\t_diff=($(\n\t\tprintf \"%s\\n\" \\\n\t\t\t\"${_index_list[@]:-}\" \\\n\t\t\t\"${_file_list[@]:-}\" |\n\t\t\tsort |\n\t\t\tuniq -u\n\t))\n}\n";
+        normalizes_array_command_substitution_leading_list_operators:
+            "f() {\n  x=(\\\n    $(printf \"%s\\n\" \"${xs[@]}\" \\\n      | sort \\\n      | cut -d: -f1 \\\n    || true))\n}\n"
+            => "f() {\n\tx=(\n\t\t$(printf \"%s\\n\" \"${xs[@]}\" |\n\t\t\tsort |\n\t\t\tcut -d: -f1 ||\n\t\t\ttrue))\n}\n";
+        strips_redirect_residual_indent_in_compound_assignment_command_substitutions:
+            "f() {\n  _remote_branches=($(\n    git -C \"$path\" ls-remote        \\\n      --heads \"$url\"        \\\n       2>/dev/null                              \\\n      | LC_ALL=C sed \"s/.*\\///g\" || :\n  ))\n}\n"
+            => "f() {\n\t_remote_branches=($(\n\t\tgit -C \"$path\" ls-remote \\\n\t\t\t--heads \"$url\" \\\n\t\t\t2>/dev/null |\n\t\t\tLC_ALL=C sed \"s/.*\\///g\" || :\n\t))\n}\n";
+        expands_multistatement_command_substitutions_in_array_values:
+            "f() {\n  local -A ver=(\n    [libx11]=\"$(. \"${TERMUX_SCRIPTDIR}/packages/libx11/build.sh\"; echo \"${TERMUX_PKG_VERSION}\")\"\n  )\n}\n"
+            => "f() {\n\tlocal -A ver=(\n\t\t[libx11]=\"$(\n\t\t\t. \"${TERMUX_SCRIPTDIR}/packages/libx11/build.sh\"\n\t\t\techo \"${TERMUX_PKG_VERSION}\"\n\t\t)\"\n\t)\n}\n";
+        expands_multistatement_assignment_command_substitutions:
+            "x=$(cd /tmp ; ls | wc -l )\n"
+            => "x=$(\n\tcd /tmp\n\tls | wc -l\n)\n";
+        indents_quoted_block_command_substitution_loop_close:
+            "f() {\n  eval \"$(\n    for key in a b; do\n      awk -F= \"/$key/\" <<< \"$profile_data\"\n    done\n  )\"\n}\n"
+            => "f() {\n\teval \"$(\n\t\tfor key in a b; do\n\t\t\tawk -F= \"/$key/\" <<<\"$profile_data\"\n\t\tdone\n\t)\"\n}\n";
+        normalizes_raw_block_command_substitution_comment_indent:
+            "f() {\n    value=\"$(\n        docker-compose -f file.yml \\\n            exec -T service cat secret </dev/null\n            # keep this note with the command\n    )\"\n}\n"
+            => "f() {\n\tvalue=\"$(\n\t\tdocker-compose -f file.yml \\\n\t\t\texec -T service cat secret </dev/null\n\t\t# keep this note with the command\n\t)\"\n}\n";
+        normalizes_raw_block_command_substitution_shell_indent:
+            "f() {\n    value=\"$(\n        aws service call \\\n            --query 'Items[]{\n                        \"Name\": Name\n                    }' \\\n            --output json |\n        jq -r \"\n            .[]\n        \"\n    )\"\n}\n"
+            => "f() {\n\tvalue=\"$(\n\t\taws service call \\\n\t\t\t--query 'Items[]{\n                        \"Name\": Name\n                    }' \\\n\t\t\t--output json |\n\t\t\tjq -r \"\n            .[]\n        \"\n\t)\"\n}\n";
+        indents_raw_block_command_substitution_pipeline_after_compound_close:
+            "regions=\"$(\n    # choose enabled regions by default\n    if [ -n \"${ALL_REGIONS:-}\" ]; then\n        list_regions --all\n    else\n        list_regions\n    fi |\n    jq -r '.Regions[] | .Name'\n)\"\n"
+            => "regions=\"$(\n\t# choose enabled regions by default\n\tif [ -n \"${ALL_REGIONS:-}\" ]; then\n\t\tlist_regions --all\n\telse\n\t\tlist_regions\n\tfi |\n\t\tjq -r '.Regions[] | .Name'\n)\"\n";
     }
 
     #[test]
