@@ -2321,115 +2321,54 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn preserves_blank_line_after_case_pattern() {
-        let source = "case $x in\na)\n\n  echo a\n  ;;\nesac\n";
-        assert_formats_default_with_ast(source, "case $x in\na)\n\n\techo a\n\t;;\nesac\n");
+    default_format_ast_cases! {
+        preserves_blank_line_after_case_pattern:
+            "case $x in\na)\n\n  echo a\n  ;;\nesac\n"
+            => "case $x in\na)\n\n\techo a\n\t;;\nesac\n";
+        preserves_blank_line_after_case_pattern_with_prefix_comments:
+            "case $x in\na)\n  echo a\n  ;;\n# disabled *)\n# note\n*)\n\n  echo default\n  ;;\nesac\n"
+            => "case $x in\na)\n\techo a\n\t;;\n# disabled *)\n# note\n*)\n\n\techo default\n\t;;\nesac\n";
+        does_not_treat_comment_internal_blank_as_case_pattern_gap:
+            "case $x in\n*)\n  # first\n\n  # second\n  echo a\n  ;;\nesac\n"
+            => "case $x in\n*)\n\t# first\n\n\t# second\n\techo a\n\t;;\nesac\n";
+        preserves_blank_line_before_esac:
+            "case $x in\na)\n  echo a\n  ;;\n\nesac\n"
+            => "case $x in\na)\n\techo a\n\t;;\n\nesac\n";
+        preserves_blank_line_before_esac_after_missing_terminator:
+            "case $x in\n*) echo \"$x\"\n\nesac\n"
+            => "case $x in\n*) echo \"$x\" ;;\n\nesac\n";
+        preserves_blank_line_before_case_item_terminator:
+            "case $x in\na)\n  echo a\n\n  ;;\nesac\n"
+            => "case $x in\na)\n\techo a\n\n\t;;\nesac\n";
+        does_not_treat_comment_internal_blank_as_case_terminator_gap:
+            "case $x in\na)\n  echo a\n\n  # note\n  ;;\nesac\n"
+            => "case $x in\na)\n\techo a\n\n\t# note\n\t;;\nesac\n";
+        preserves_case_pattern_suffix_comments:
+            "case $x in\n*) # default branch\nbreak ;;\nesac\n"
+            => "case $x in\n*) # default branch\n\tbreak ;;\nesac\n";
     }
 
-    #[test]
-    fn preserves_blank_line_after_case_pattern_with_prefix_comments() {
-        let source = "case $x in\na)\n  echo a\n  ;;\n# disabled *)\n# note\n*)\n\n  echo default\n  ;;\nesac\n";
-        assert_formats_default_with_ast(
-            source,
-            "case $x in\na)\n\techo a\n\t;;\n# disabled *)\n# note\n*)\n\n\techo default\n\t;;\nesac\n",
-        );
+    bash_format_ast_cases! {
+        adds_blank_line_after_multiline_case_patterns:
+            "case \"$1\" in\n  --disable \\\n  | --disable-http \\\n  | --disable-https \\\n  )\n    apache_args+=(\"$1\")\n    ;;\nesac\n"
+            => "case \"$1\" in\n--disable | \\\n\t--disable-http | \\\n\t--disable-https)\n\n\tapache_args+=(\"$1\")\n\t;;\nesac\n";
+        trims_final_case_pattern_continuation_before_close_paren:
+            "case \"$1\" in\n  *.xsl|\\\n  *.[ch]\\\n      ) pygmentize -f 256 \"$1\"\n      ;;\nesac\n"
+            => "case \"$1\" in\n*.xsl | \\\n\t*.[ch])\n\tpygmentize -f 256 \"$1\"\n\t;;\nesac\n";
+        keeps_attached_multiline_case_patterns_compact:
+            "case \"$1\" in\n  --nginx-additional-configuration \\\n  | --nginx-external-configuration)\n    nginx_args+=(\"$1\")\n    ;;\nesac\n"
+            => "case \"$1\" in\n--nginx-additional-configuration | \\\n\t--nginx-external-configuration)\n\tnginx_args+=(\"$1\")\n\t;;\nesac\n";
     }
 
-    #[test]
-    fn adds_blank_line_after_multiline_case_patterns() {
-        let source = "case \"$1\" in\n  --disable \\\n  | --disable-http \\\n  | --disable-https \\\n  )\n    apache_args+=(\"$1\")\n    ;;\nesac\n";
-        assert_bash_formats_with_ast(
-            source,
-            "case \"$1\" in\n--disable | \\\n\t--disable-http | \\\n\t--disable-https)\n\n\tapache_args+=(\"$1\")\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn trims_final_case_pattern_continuation_before_close_paren() {
-        let source = "case \"$1\" in\n  *.xsl|\\\n  *.[ch]\\\n      ) pygmentize -f 256 \"$1\"\n      ;;\nesac\n";
-        assert_bash_formats_with_ast(
-            source,
-            "case \"$1\" in\n*.xsl | \\\n\t*.[ch])\n\tpygmentize -f 256 \"$1\"\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn keeps_attached_multiline_case_patterns_compact() {
-        let source = "case \"$1\" in\n  --nginx-additional-configuration \\\n  | --nginx-external-configuration)\n    nginx_args+=(\"$1\")\n    ;;\nesac\n";
-        assert_bash_formats_with_ast(
-            source,
-            "case \"$1\" in\n--nginx-additional-configuration | \\\n\t--nginx-external-configuration)\n\tnginx_args+=(\"$1\")\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn does_not_treat_comment_internal_blank_as_case_pattern_gap() {
-        let source = "case $x in\n*)\n  # first\n\n  # second\n  echo a\n  ;;\nesac\n";
-        assert_formats_default_with_ast(
-            source,
-            "case $x in\n*)\n\t# first\n\n\t# second\n\techo a\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn preserves_blank_line_before_esac() {
-        let source = "case $x in\na)\n  echo a\n  ;;\n\nesac\n";
-        assert_formats_default_with_ast(source, "case $x in\na)\n\techo a\n\t;;\n\nesac\n");
-    }
-
-    #[test]
-    fn preserves_blank_line_before_esac_after_missing_terminator() {
-        let source = "case $x in\n*) echo \"$x\"\n\nesac\n";
-        assert_formats_default_with_ast(source, "case $x in\n*) echo \"$x\" ;;\n\nesac\n");
-    }
-
-    #[test]
-    fn preserves_blank_line_before_case_item_terminator() {
-        let source = "case $x in\na)\n  echo a\n\n  ;;\nesac\n";
-        assert_formats_default_with_ast(source, "case $x in\na)\n\techo a\n\n\t;;\nesac\n");
-    }
-
-    #[test]
-    fn does_not_treat_comment_internal_blank_as_case_terminator_gap() {
-        let source = "case $x in\na)\n  echo a\n\n  # note\n  ;;\nesac\n";
-        assert_formats_default_with_ast(
-            source,
-            "case $x in\na)\n\techo a\n\n\t# note\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn preserves_blank_line_between_case_items() {
-        let source = "case $x in\na) echo a ;;\n\nb) echo b ;;\nesac\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_blank_line_after_case_in() {
-        let source = "case $x in\n\na) echo a ;;\nesac\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_blank_line_after_case_in_comments() {
-        let source = "case $x in\n\n# next\na) echo a ;;\nesac\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_blank_line_before_case_item_comments() {
-        let source = "case $x in\na) echo a ;;\n\n# next\nb) echo b ;;\nesac\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_case_pattern_suffix_comments() {
-        let source = "case $x in\n*) # default branch\nbreak ;;\nesac\n";
-        assert_formats_default_with_ast(
-            source,
-            "case $x in\n*) # default branch\n\tbreak ;;\nesac\n",
-        );
+    default_unchanged_ast_cases! {
+        preserves_blank_line_between_case_items:
+            "case $x in\na) echo a ;;\n\nb) echo b ;;\nesac\n";
+        preserves_blank_line_after_case_in:
+            "case $x in\n\na) echo a ;;\nesac\n";
+        preserves_blank_line_after_case_in_comments:
+            "case $x in\n\n# next\na) echo a ;;\nesac\n";
+        preserves_blank_line_before_case_item_comments:
+            "case $x in\na) echo a ;;\n\n# next\nb) echo b ;;\nesac\n";
     }
 
     #[test]
@@ -2444,19 +2383,15 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         assert_formats_to_with_ast(source, None, &options, expected);
     }
 
-    #[test]
-    fn preserves_case_terminator_suffix_comments() {
-        let source = "case $x in\n*) return 0 ;; # not needed\nesac\n";
-        assert_default_unchanged_with_ast(source);
+    default_unchanged_ast_cases! {
+        preserves_case_terminator_suffix_comments:
+            "case $x in\n*) return 0 ;; # not needed\nesac\n";
     }
 
-    #[test]
-    fn preserves_case_terminator_suffix_comment_alignment() {
-        let source = "case ${PAGE} in\n    \"Folio\") W=612; H=936;;      # 8.5 x 13 in.\n    \"Quarto\") W=612, H=780;;     # 8.5 x 10.8 in.\nesac\n";
-        assert_formats_default_with_ast(
-            source,
-            "case ${PAGE} in\n\"Folio\")\n\tW=612\n\tH=936\n\t;;                       # 8.5 x 13 in.\n\"Quarto\") W=612, H=780 ;; # 8.5 x 10.8 in.\nesac\n",
-        );
+    default_format_ast_cases! {
+        preserves_case_terminator_suffix_comment_alignment:
+            "case ${PAGE} in\n    \"Folio\") W=612; H=936;;      # 8.5 x 13 in.\n    \"Quarto\") W=612, H=780;;     # 8.5 x 10.8 in.\nesac\n"
+            => "case ${PAGE} in\n\"Folio\")\n\tW=612\n\tH=936\n\t;;                       # 8.5 x 13 in.\n\"Quarto\") W=612, H=780 ;; # 8.5 x 10.8 in.\nesac\n";
     }
 
     #[test]
@@ -2480,115 +2415,60 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn aligns_case_terminator_comments_after_pattern_pipe_spacing() {
-        let source = "case \"$mac\" in\n  19|'6470028b2260') PORT=7534 ;; # first\n  16|'6470028b1ba2') PORT= ;; # second\n  8|'f4ec38c9c32c') PORT=7783 ;; # third\nesac\n";
-        assert_formats_default_with_ast(
-            source,
-            "case \"$mac\" in\n19 | '6470028b2260') PORT=7534 ;; # first\n16 | '6470028b1ba2') PORT= ;;     # second\n8 | 'f4ec38c9c32c') PORT=7783 ;;  # third\nesac\n",
-        );
+    default_format_ast_cases! {
+        aligns_case_terminator_comments_after_pattern_pipe_spacing:
+            "case \"$mac\" in\n  19|'6470028b2260') PORT=7534 ;; # first\n  16|'6470028b1ba2') PORT= ;; # second\n  8|'f4ec38c9c32c') PORT=7783 ;; # third\nesac\n"
+            => "case \"$mac\" in\n19 | '6470028b2260') PORT=7534 ;; # first\n16 | '6470028b1ba2') PORT= ;;     # second\n8 | 'f4ec38c9c32c') PORT=7783 ;;  # third\nesac\n";
+        preserves_case_suffix_comments_before_commented_compound_body:
+            "case $x in\n*) # default branch\n# explain\nif test -n \"$x\"; then\n  echo \"$x\"\nfi\n;;\nesac\n"
+            => "case $x in\n*) # default branch\n\t# explain\n\tif test -n \"$x\"; then\n\t\techo \"$x\"\n\tfi\n\t;;\nesac\n";
+        preserves_comment_after_case_in_keyword:
+            "case \"$( cut -d';' -f5 \"$FILE\" | md5sum )\" in # hash over costs\n\"$forced_hash\"*)\n  _log ok\n;;\nesac\n"
+            => "case \"$(cut -d';' -f5 \"$FILE\" | md5sum)\" in # hash over costs\n\"$forced_hash\"*)\n\t_log ok\n\t;;\nesac\n";
+        preserves_case_in_comment_containing_in_words:
+            "case $NETWORK in\t\t# new nodes start at $I, with registering until old nodes are in database\nffweimar) I=500 ;;\nesac\n"
+            => "case $NETWORK in # new nodes start at $I, with registering until old nodes are in database\nffweimar) I=500 ;;\nesac\n";
     }
 
-    #[test]
-    fn case_terminator_suffix_scan_handles_utf8_prefixes() {
-        let source = "# 不支持\ncase $x in\n*) echo ok ;;\nesac\n";
-        assert_default_unchanged_with_ast(source);
+    default_unchanged_ast_cases! {
+        case_terminator_suffix_scan_handles_utf8_prefixes:
+            "# 不支持\ncase $x in\n*) echo ok ;;\nesac\n";
     }
 
-    #[test]
-    fn preserves_case_suffix_comments_before_commented_compound_body() {
-        let source = "case $x in\n*) # default branch\n# explain\nif test -n \"$x\"; then\n  echo \"$x\"\nfi\n;;\nesac\n";
-        assert_formats_default_with_ast(
-            source,
-            "case $x in\n*) # default branch\n\t# explain\n\tif test -n \"$x\"; then\n\t\techo \"$x\"\n\tfi\n\t;;\nesac\n",
-        );
+    default_format_cases! {
+        preserves_brace_group_wrapper_comments:
+            "# c\n{ # note\na=1\n}\n"
+            => "# c\n{ # note\n\ta=1\n}\n";
     }
 
-    #[test]
-    fn preserves_comment_after_case_in_keyword() {
-        let source = "case \"$( cut -d';' -f5 \"$FILE\" | md5sum )\" in # hash over costs\n\"$forced_hash\"*)\n  _log ok\n;;\nesac\n";
-        assert_formats_default_with_ast(
-            source,
-            "case \"$(cut -d';' -f5 \"$FILE\" | md5sum)\" in # hash over costs\n\"$forced_hash\"*)\n\t_log ok\n\t;;\nesac\n",
-        );
+    bash_format_ast_cases! {
+        preserves_nested_brace_group_after_case_body_open_comment:
+            "case \"$x\" in\na)\n  grep x f && { # note\n    {\n      echo\n    } >>\"$file\"\n  } # note\n  ;;\nesac\n"
+            => "case \"$x\" in\na)\n\tgrep x f && { # note\n\t\t{\n\t\t\techo\n\t\t} >>\"$file\"\n\t}\n\t;;\nesac\n";
     }
 
-    #[test]
-    fn preserves_case_in_comment_containing_in_words() {
-        let source = "case $NETWORK in\t\t# new nodes start at $I, with registering until old nodes are in database\nffweimar) I=500 ;;\nesac\n";
-        assert_formats_default_with_ast(
-            source,
-            "case $NETWORK in # new nodes start at $I, with registering until old nodes are in database\nffweimar) I=500 ;;\nesac\n",
-        );
+    default_format_ast_cases! {
+        does_not_duplicate_leading_comments_inside_brace_groups:
+            "f() {\n  # before group\n  {\n    # inside group\n    echo ok\n  }\n}\n"
+            => "f() {\n\t# before group\n\t{\n\t\t# inside group\n\t\techo ok\n\t}\n}\n";
+        preserves_leading_comments_before_brace_group_pipelines:
+            "f() {\n  # before group\n  {\n    echo \"$@\"\n  } |\n  cat\n}\n"
+            => "f() {\n\t# before group\n\t{\n\t\techo \"$@\"\n\t} |\n\t\tcat\n}\n";
+        keeps_pipeline_rhs_brace_group_body_comments_inside_group:
+            "f() {\n  {\n    echo left\n  } |\n  {\n  # inside group\n  echo right\n  }\n}\n"
+            => "f() {\n\t{\n\t\techo left\n\t} |\n\t\t{\n\t\t\t# inside group\n\t\t\techo right\n\t\t}\n}\n";
+        keeps_same_line_pipeline_rhs_brace_group_attached:
+            "f() {\n  {\n    echo body\n  } | {\n    # Header\n    cat\n  } | {\n    # Footer\n    cat\n  }\n}\n"
+            => "f() {\n\t{\n\t\techo body\n\t} | {\n\t\t# Header\n\t\tcat\n\t} | {\n\t\t# Footer\n\t\tcat\n\t}\n}\n";
+        keeps_nested_same_line_pipeline_rhs_brace_group_attached:
+            "f() {\n  {\n    {\n      echo body\n    } || {\n      echo fallback\n    }\n  } | {\n    # Header\n    cat\n  } | {\n    # Footer\n    cat\n  }\n}\n"
+            => "f() {\n\t{\n\t\t{\n\t\t\techo body\n\t\t} || {\n\t\t\techo fallback\n\t\t}\n\t} | {\n\t\t# Header\n\t\tcat\n\t} | {\n\t\t# Footer\n\t\tcat\n\t}\n}\n";
     }
 
-    #[test]
-    fn preserves_brace_group_wrapper_comments() {
-        let source = "# c\n{ # note\na=1\n}\n";
-
-        assert_formats(source, "# c\n{ # note\n\ta=1\n}\n");
-    }
-
-    #[test]
-    fn preserves_nested_brace_group_after_case_body_open_comment() {
-        let source = "case \"$x\" in\na)\n  grep x f && { # note\n    {\n      echo\n    } >>\"$file\"\n  } # note\n  ;;\nesac\n";
-        assert_bash_formats_with_ast(
-            source,
-            "case \"$x\" in\na)\n\tgrep x f && { # note\n\t\t{\n\t\t\techo\n\t\t} >>\"$file\"\n\t}\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn does_not_duplicate_leading_comments_inside_brace_groups() {
-        let source = "f() {\n  # before group\n  {\n    # inside group\n    echo ok\n  }\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "f() {\n\t# before group\n\t{\n\t\t# inside group\n\t\techo ok\n\t}\n}\n",
-        );
-    }
-
-    #[test]
-    fn preserves_leading_comments_before_brace_group_pipelines() {
-        let source = "f() {\n  # before group\n  {\n    echo \"$@\"\n  } |\n  cat\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "f() {\n\t# before group\n\t{\n\t\techo \"$@\"\n\t} |\n\t\tcat\n}\n",
-        );
-    }
-
-    #[test]
-    fn keeps_pipeline_rhs_brace_group_body_comments_inside_group() {
-        let source =
-            "f() {\n  {\n    echo left\n  } |\n  {\n  # inside group\n  echo right\n  }\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "f() {\n\t{\n\t\techo left\n\t} |\n\t\t{\n\t\t\t# inside group\n\t\t\techo right\n\t\t}\n}\n",
-        );
-    }
-
-    #[test]
-    fn keeps_same_line_pipeline_rhs_brace_group_attached() {
-        let source = "f() {\n  {\n    echo body\n  } | {\n    # Header\n    cat\n  } | {\n    # Footer\n    cat\n  }\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "f() {\n\t{\n\t\techo body\n\t} | {\n\t\t# Header\n\t\tcat\n\t} | {\n\t\t# Footer\n\t\tcat\n\t}\n}\n",
-        );
-    }
-
-    #[test]
-    fn keeps_nested_same_line_pipeline_rhs_brace_group_attached() {
-        let source = "f() {\n  {\n    {\n      echo body\n    } || {\n      echo fallback\n    }\n  } | {\n    # Header\n    cat\n  } | {\n    # Footer\n    cat\n  }\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "f() {\n\t{\n\t\t{\n\t\t\techo body\n\t\t} || {\n\t\t\techo fallback\n\t\t}\n\t} | {\n\t\t# Header\n\t\tcat\n\t} | {\n\t\t# Footer\n\t\tcat\n\t}\n}\n",
-        );
-    }
-
-    #[test]
-    fn standalone_brace_groups_do_not_consume_later_file_comments() {
-        let source = "[ -n \"$x\" ] && {\nset -x\n}\n# later\nnext\n";
-
-        assert_formats(source, "[ -n \"$x\" ] && {\n\tset -x\n}\n# later\nnext\n");
+    default_format_cases! {
+        standalone_brace_groups_do_not_consume_later_file_comments:
+            "[ -n \"$x\" ] && {\nset -x\n}\n# later\nnext\n"
+            => "[ -n \"$x\" ] && {\n\tset -x\n}\n# later\nnext\n";
     }
 
     default_unchanged_cases! {
