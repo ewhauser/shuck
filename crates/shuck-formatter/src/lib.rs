@@ -2876,124 +2876,56 @@ function R() {
         );
     }
 
-    #[test]
-    fn preserves_explicit_multiline_pipeline_by_default() {
-        let source = "kubectl get secrets |\n  grep -v '^NAME[[:space:]]' |\n  awk '{print $1}'\n";
-        assert_formats_default_with_ast(
-            source,
-            "kubectl get secrets |\n\tgrep -v '^NAME[[:space:]]' |\n\tawk '{print $1}'\n",
-        );
+    default_format_ast_cases! {
+        preserves_explicit_multiline_pipeline_by_default:
+            "kubectl get secrets |\n  grep -v '^NAME[[:space:]]' |\n  awk '{print $1}'\n"
+            => "kubectl get secrets |\n\tgrep -v '^NAME[[:space:]]' |\n\tawk '{print $1}'\n";
+        keeps_pipeline_blank_before_disabled_comment_block:
+            "produce_json |\n\n#if disabled; then\n#  old_filter\n#fi\n\njq -r '.items[]'\n"
+            => "produce_json |\n\n\t#if disabled; then\n\t#  old_filter\n\t#fi\n\tjq -r '.items[]'\n";
+        preserves_comments_between_pipeline_and_compound_command:
+            "while read -r value; do\n  echo \"$value\"\ndone |\n# keep alternate implementation note\nif type -P helper >/dev/null; then\n  helper\nelse\n  cat\nfi\n"
+            => "while read -r value; do\n\techo \"$value\"\ndone |\n\t# keep alternate implementation note\n\tif type -P helper >/dev/null; then\n\t\thelper\n\telse\n\t\tcat\n\tfi\n";
+        preserves_explicit_multiline_pipeline_when_operator_starts_continued_line:
+            "find $PKG -print0 | xargs -0 file | grep ELF \\\n  | cut -f 1 -d : | xargs strip --strip-unneeded 2> /dev/null || true\n"
+            => "find $PKG -print0 | xargs -0 file | grep ELF |\n\tcut -f 1 -d : | xargs strip --strip-unneeded 2>/dev/null || true\n";
+        preserves_continued_redirect_targets:
+            "sed s/x/y/ in > \\\n  out\n"
+            => "sed s/x/y/ in > \\\n\tout\n";
+        preserves_for_in_first_word_continuation:
+            "for net_mount in \\\n  ${HOST_MOUNTS_RO} ${HOST_MOUNTS} \\\n  '/dev' '/proc'; do\n  echo \"$net_mount\"\ndone\n"
+            => "for net_mount in \\\n\t${HOST_MOUNTS_RO} ${HOST_MOUNTS} \\\n\t'/dev' '/proc'; do\n\techo \"$net_mount\"\ndone\n";
+        preserves_comment_after_loop_do_without_raw_body_fallback:
+            "for J in \"${I}\"/*; do  # iterate over folders in a safe way\n  FIND=$(echo \"${J}\")\n  if [ -f \"${J}\" ]; then\n    echo \"${FIND}\"\n  fi\ndone\n"
+            => "for J in \"${I}\"/*; do # iterate over folders in a safe way\n\tFIND=$(echo \"${J}\")\n\tif [ -f \"${J}\" ]; then\n\t\techo \"${FIND}\"\n\tfi\ndone\n";
+        preserves_inline_do_if_body_layout:
+            "for ITEM in ${LIST}; do if DirectoryExists ${ITEM}; then FOUND=1; break; fi; done\n"
+            => "for ITEM in ${LIST}; do if DirectoryExists ${ITEM}; then\n\tFOUND=1\n\tbreak\nfi; done\n";
+        preserves_brace_group_attached_after_pipeline_operator:
+            "link=$(cat \"${postdetailslog}\" | {\n  nc -w 3 termbin.com 9999\n  echo $? > /tmp/nc_exit_status\n} | tr -d '\\n\\0')\n"
+            => "link=$(cat \"${postdetailslog}\" | {\n\tnc -w 3 termbin.com 9999\n\techo $? >/tmp/nc_exit_status\n} | tr -d '\\n\\0')\n";
     }
 
-    #[test]
-    fn preserves_comments_between_pipeline_commands() {
-        let source = "dat() {\n  find . -type f |\n    # keep this filter\n    grep -v patch |\n    sort\n}\n";
-        assert_formats(
-            source,
-            "dat() {\n\tfind . -type f |\n\t\t# keep this filter\n\t\tgrep -v patch |\n\t\tsort\n}\n",
-        );
+    bash_format_ast_cases! {
+        keeps_pipeline_continuation_at_list_rhs_indent:
+            "if true; then\n  ffmpeg \\\n    && convert GIF:- \\\n    | gifsicle > out || return 2\nfi\n"
+            => "if true; then\n\tffmpeg &&\n\t\tconvert GIF:- |\n\t\tgifsicle >out || return 2\nfi\n";
+        expands_inline_command_substitution_pipeline_brace_groups:
+            "f() {\n  title=\"$(curl -sS --fail \"$url\" | { head -n1 | sed 's/^#*//'; cat >/dev/null; } )\"\n}\n"
+            => "f() {\n\ttitle=\"$(curl -sS --fail \"$url\" | {\n\t\thead -n1 | sed 's/^#*//'\n\t\tcat >/dev/null\n\t})\"\n}\n";
     }
 
-    #[test]
-    fn keeps_pipeline_blank_before_disabled_comment_block() {
-        let source =
-            "produce_json |\n\n#if disabled; then\n#  old_filter\n#fi\n\njq -r '.items[]'\n";
-        assert_formats_default_with_ast(
-            source,
-            "produce_json |\n\n\t#if disabled; then\n\t#  old_filter\n\t#fi\n\tjq -r '.items[]'\n",
-        );
+    default_format_cases! {
+        preserves_comments_between_pipeline_commands:
+            "dat() {\n  find . -type f |\n    # keep this filter\n    grep -v patch |\n    sort\n}\n"
+            => "dat() {\n\tfind . -type f |\n\t\t# keep this filter\n\t\tgrep -v patch |\n\t\tsort\n}\n";
     }
 
-    #[test]
-    fn preserves_comments_between_pipeline_and_compound_command() {
-        let source = "while read -r value; do\n  echo \"$value\"\ndone |\n# keep alternate implementation note\nif type -P helper >/dev/null; then\n  helper\nelse\n  cat\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "while read -r value; do\n\techo \"$value\"\ndone |\n\t# keep alternate implementation note\n\tif type -P helper >/dev/null; then\n\t\thelper\n\telse\n\t\tcat\n\tfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_explicit_multiline_pipeline_when_operator_starts_continued_line() {
-        let source = "find $PKG -print0 | xargs -0 file | grep ELF \\\n  | cut -f 1 -d : | xargs strip --strip-unneeded 2> /dev/null || true\n";
-        assert_formats_default_with_ast(
-            source,
-            "find $PKG -print0 | xargs -0 file | grep ELF |\n\tcut -f 1 -d : | xargs strip --strip-unneeded 2>/dev/null || true\n",
-        );
-    }
-
-    #[test]
-    fn keeps_pipeline_continuation_at_list_rhs_indent() {
-        let source = "if true; then\n  ffmpeg \\\n    && convert GIF:- \\\n    | gifsicle > out || return 2\nfi\n";
-        assert_bash_formats_with_ast(
-            source,
-            "if true; then\n\tffmpeg &&\n\t\tconvert GIF:- |\n\t\tgifsicle >out || return 2\nfi\n",
-        );
-    }
-
-    #[test]
-    fn preserves_continued_redirect_targets() {
-        let source = "sed s/x/y/ in > \\\n  out\n";
-        assert_formats_default_with_ast(source, "sed s/x/y/ in > \\\n\tout\n");
-    }
-
-    #[test]
-    fn preserves_for_in_first_word_continuation() {
-        let source = "for net_mount in \\\n  ${HOST_MOUNTS_RO} ${HOST_MOUNTS} \\\n  '/dev' '/proc'; do\n  echo \"$net_mount\"\ndone\n";
-        assert_formats_default_with_ast(
-            source,
-            "for net_mount in \\\n\t${HOST_MOUNTS_RO} ${HOST_MOUNTS} \\\n\t'/dev' '/proc'; do\n\techo \"$net_mount\"\ndone\n",
-        );
-    }
-
-    #[test]
-    fn preserves_for_targets_inside_inline_command_substitutions() {
-        let source = "pass=\"$(for i in $(eval \"echo {1..$length}\"); do pickfrom /usr/share/dict/words; done)\"\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn expands_inline_command_substitution_pipeline_brace_groups() {
-        let source = "f() {\n  title=\"$(curl -sS --fail \"$url\" | { head -n1 | sed 's/^#*//'; cat >/dev/null; } )\"\n}\n";
-        assert_bash_formats_with_ast(
-            source,
-            "f() {\n\ttitle=\"$(curl -sS --fail \"$url\" | {\n\t\thead -n1 | sed 's/^#*//'\n\t\tcat >/dev/null\n\t})\"\n}\n",
-        );
-    }
-
-    #[test]
-    fn preserves_comment_after_loop_do_without_raw_body_fallback() {
-        let source = "for J in \"${I}\"/*; do  # iterate over folders in a safe way\n  FIND=$(echo \"${J}\")\n  if [ -f \"${J}\" ]; then\n    echo \"${FIND}\"\n  fi\ndone\n";
-        assert_formats_default_with_ast(
-            source,
-            "for J in \"${I}\"/*; do # iterate over folders in a safe way\n\tFIND=$(echo \"${J}\")\n\tif [ -f \"${J}\" ]; then\n\t\techo \"${FIND}\"\n\tfi\ndone\n",
-        );
-    }
-
-    #[test]
-    fn preserves_inline_do_if_body_layout() {
-        let source =
-            "for ITEM in ${LIST}; do if DirectoryExists ${ITEM}; then FOUND=1; break; fi; done\n";
-        assert_formats_default_with_ast(
-            source,
-            "for ITEM in ${LIST}; do if DirectoryExists ${ITEM}; then\n\tFOUND=1\n\tbreak\nfi; done\n",
-        );
-    }
-
-    #[test]
-    fn preserves_inline_then_if_body_layout() {
-        let source =
+    default_unchanged_ast_cases! {
+        preserves_for_targets_inside_inline_command_substitutions:
+            "pass=\"$(for i in $(eval \"echo {1..$length}\"); do pickfrom /usr/share/dict/words; done)\"\n";
+        preserves_inline_then_if_body_layout:
             "if [ -n \"${TMPFILE}\" ]; then if [ -f ${TMPFILE} ]; then rm -f ${TMPFILE}; fi; fi\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_brace_group_attached_after_pipeline_operator() {
-        let source = "link=$(cat \"${postdetailslog}\" | {\n  nc -w 3 termbin.com 9999\n  echo $? > /tmp/nc_exit_status\n} | tr -d '\\n\\0')\n";
-        assert_formats_default_with_ast(
-            source,
-            "link=$(cat \"${postdetailslog}\" | {\n\tnc -w 3 termbin.com 9999\n\techo $? >/tmp/nc_exit_status\n} | tr -d '\\n\\0')\n",
-        );
     }
 
     #[test]
