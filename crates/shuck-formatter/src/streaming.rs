@@ -805,13 +805,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn write_indent_columns(&mut self, columns: usize) {
-        let ch = match self.options.indent_style() {
-            IndentStyle::Tab => '\t',
-            IndentStyle::Space => ' ',
-        };
-        for _ in 0..columns {
-            self.push_output_char(ch);
-        }
+        let mut indent = self.take_scratch_buffer();
+        self.options.push_indent_columns(&mut indent, columns);
+        self.push_output_str(&indent);
+        self.restore_scratch_buffer(indent);
 
         self.line_indent_column = self.column;
         self.line_start = false;
@@ -822,6 +819,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             return;
         }
         self.push_output_char(' ');
+    }
+
+    fn write_spaces(&mut self, count: usize) {
+        for _ in 0..count {
+            self.write_space();
+        }
     }
 
     fn flush_pending_heredocs(&mut self) {
@@ -1107,9 +1110,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 current_code_column,
                 self.line_indent_column,
             );
-            for _ in 0..padding {
-                self.write_space();
-            }
+            self.write_spaces(padding);
             self.write_comment(comment);
         }
     }
@@ -2774,9 +2775,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             current_code_column,
             self.line_indent_column,
         );
-        for _ in 0..padding {
-            self.write_space();
-        }
+        self.write_spaces(padding);
         self.write_comment(&comment);
         true
     }
@@ -3201,9 +3200,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             {
                 padding += 1;
             }
-            for _ in 0..padding {
-                self.write_space();
-            }
+            self.write_spaces(padding);
             self.write_comment(comment);
         }
 
@@ -3349,9 +3346,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 current_code_column,
                 self.line_indent_column,
             );
-            for _ in 0..padding {
-                self.write_space();
-            }
+            self.write_spaces(padding);
             self.write_comment(&comment);
         }
     }
@@ -3933,9 +3928,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.write_text("{");
         let padding =
             self.function_header_comment_padding(commands, Some(upper_bound), self.column);
-        for _ in 0..padding {
-            self.write_space();
-        }
+        self.write_spaces(padding);
         self.write_text(header_comment.trim_start());
 
         let open_suffix = self
@@ -4291,9 +4284,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             current_code_column,
             self.line_indent_column,
         );
-        for _ in 0..padding {
-            self.write_space();
-        }
+        self.write_spaces(padding);
         self.write_comment(&comment);
     }
 
@@ -4316,9 +4307,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         {
             padding += 1;
         }
-        for _ in 0..padding {
-            self.write_space();
-        }
+        self.write_spaces(padding);
         self.write_comment(&comment);
     }
 
@@ -7787,18 +7776,7 @@ fn rendered_line_with_indent_column(
 ) -> String {
     let content = line.trim_start_matches([' ', '\t']);
     let mut rendered = String::with_capacity(line.len());
-    match options.indent_style() {
-        IndentStyle::Tab => {
-            for _ in 0..column {
-                rendered.push('\t');
-            }
-        }
-        IndentStyle::Space => {
-            for _ in 0..column {
-                rendered.push(' ');
-            }
-        }
-    }
+    options.push_indent_columns(&mut rendered, column);
     rendered.push_str(content);
     rendered
 }

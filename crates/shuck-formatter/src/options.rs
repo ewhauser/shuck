@@ -244,9 +244,13 @@ impl ResolvedShellFormatOptions {
     }
 
     pub(crate) fn push_indent_units(&self, target: &mut String, levels: usize) {
-        let (ch, columns) = match self.indent_style() {
-            IndentStyle::Tab => ('\t', levels),
-            IndentStyle::Space => (' ', self.indent_columns(levels)),
+        self.push_indent_columns(target, self.indent_columns(levels));
+    }
+
+    pub(crate) fn push_indent_columns(&self, target: &mut String, columns: usize) {
+        let ch = match self.indent_style() {
+            IndentStyle::Tab => '\t',
+            IndentStyle::Space => ' ',
         };
         target.extend(std::iter::repeat_n(ch, columns));
     }
