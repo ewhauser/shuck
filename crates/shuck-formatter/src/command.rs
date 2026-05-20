@@ -1040,24 +1040,49 @@ fn function_body_verbatim_span(
     let Some(source_map) = source_map else {
         return span;
     };
-    match &body.command {
-        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
-            if let Some(group_span) =
-                group_attachment_span(commands.as_slice(), source_map, '{', '}')
-            {
-                span = merge_non_empty_span(span, group_span);
-            }
-        }
-        Command::Compound(CompoundCommand::Subshell(commands)) => {
-            if let Some(group_span) =
-                group_attachment_span(commands.as_slice(), source_map, '(', ')')
-            {
-                span = merge_non_empty_span(span, group_span);
-            }
-        }
-        _ => {}
+    if let Some(group_span) = command_group_attachment_span(&body.command, source_map) {
+        span = merge_non_empty_span(span, group_span);
     }
     span
+}
+
+fn command_group_commands(command: &Command) -> Option<(&[Stmt], char)> {
+    match command {
+        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
+            Some((commands.as_slice(), '{'))
+        }
+        Command::Compound(CompoundCommand::Subshell(commands)) => Some((commands.as_slice(), '(')),
+        _ => None,
+    }
+}
+
+fn command_group_attachment_span(
+    command: &Command,
+    source_map: &crate::comments::SourceMap<'_>,
+) -> Option<Span> {
+    let (commands, open) = command_group_commands(command)?;
+    group_attachment_span(commands, source_map, open, matching_group_close(open))
+}
+
+fn stmt_group_attachment_or_verbatim_span(
+    stmt: &Stmt,
+    source_map: &crate::comments::SourceMap<'_>,
+) -> Option<Span> {
+    let (commands, open) = command_group_commands(&stmt.command)?;
+    Some(
+        group_attachment_span(commands, source_map, open, matching_group_close(open))
+            .unwrap_or_else(|| stmt_verbatim_span_with_source_map(stmt, source_map)),
+    )
+}
+
+fn stmt_group_base_span(
+    stmt: &Stmt,
+    commands: &[Stmt],
+    source_map: &crate::comments::SourceMap<'_>,
+    open: char,
+) -> Span {
+    group_attachment_span(commands, source_map, open, matching_group_close(open))
+        .unwrap_or_else(|| stmt_span(stmt))
 }
 
 fn merge_redirect_heredoc_spans(mut span: Span, redirects: &[Redirect], source: &str) -> Span {
@@ -1410,56 +1435,21 @@ fn stmt_group_attachment_start_offset(
     stmt: &Stmt,
     source_map: &crate::comments::SourceMap<'_>,
 ) -> usize {
-    match &stmt.command {
-        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
-            group_attachment_span(commands.as_slice(), source_map, '{', '}')
-                .map(|span| span.start.offset)
-                .unwrap_or_else(|| {
-                    stmt_verbatim_span_with_source_map(stmt, source_map)
-                        .start
-                        .offset
-                })
-        }
-        Command::Compound(CompoundCommand::Subshell(commands)) => {
-            group_attachment_span(commands.as_slice(), source_map, '(', ')')
-                .map(|span| span.start.offset)
-                .unwrap_or_else(|| {
-                    stmt_verbatim_span_with_source_map(stmt, source_map)
-                        .start
-                        .offset
-                })
-        }
-        _ => {
-            stmt_verbatim_span_with_source_map(stmt, source_map)
-                .start
-                .offset
-        }
-    }
+    stmt_group_attachment_or_verbatim_span(stmt, source_map)
+        .unwrap_or_else(|| stmt_verbatim_span_with_source_map(stmt, source_map))
+        .start
+        .offset
 }
 
 fn stmt_group_attachment_end_offset(
     stmt: &Stmt,
     source_map: &crate::comments::SourceMap<'_>,
 ) -> usize {
+    if let Some(span) = stmt_group_attachment_or_verbatim_span(stmt, source_map) {
+        return span.end.offset;
+    }
+
     match &stmt.command {
-        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
-            group_attachment_span(commands.as_slice(), source_map, '{', '}')
-                .map(|span| span.end.offset)
-                .unwrap_or_else(|| {
-                    stmt_verbatim_span_with_source_map(stmt, source_map)
-                        .end
-                        .offset
-                })
-        }
-        Command::Compound(CompoundCommand::Subshell(commands)) => {
-            group_attachment_span(commands.as_slice(), source_map, '(', ')')
-                .map(|span| span.end.offset)
-                .unwrap_or_else(|| {
-                    stmt_verbatim_span_with_source_map(stmt, source_map)
-                        .end
-                        .offset
-                })
-        }
         Command::Function(_) | Command::AnonymousFunction(_) => stmt_span(stmt).end.offset,
         _ if has_heredoc(stmt) => {
             stmt_verbatim_span_with_source_map(stmt, source_map)
@@ -1735,34 +1725,23 @@ pub(crate) fn rendered_stmt_end_line(
             source,
             source_map,
         ),
-        Command::Compound(CompoundCommand::Subshell(commands)) => {
-            let mut span = group_attachment_span(commands.as_slice(), source_map, '(', ')')
-                .unwrap_or_else(|| stmt_span(stmt));
-            for redirect in &stmt.redirects {
-                span = merge_non_empty_span(span, redirect.span);
-            }
-            if matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
-                && let Some(terminator_span) = stmt.terminator_span
-            {
-                span = merge_non_empty_span(span, terminator_span);
-            }
-            span_render_end_line(span, source, source_map)
-        }
-        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
-            let mut span = group_attachment_span(commands.as_slice(), source_map, '{', '}')
-                .unwrap_or_else(|| stmt_span(stmt));
-            for redirect in &stmt.redirects {
-                span = merge_non_empty_span(span, redirect.span);
-            }
-            if matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
-                && let Some(terminator_span) = stmt.terminator_span
-            {
-                span = merge_non_empty_span(span, terminator_span);
-            }
-            span_render_end_line(span, source, source_map)
-        }
         Command::Binary(command) => rendered_stmt_end_line(&command.right, source, source_map),
-        _ => span_render_end_line(stmt_format_span(stmt), source, source_map),
+        _ => {
+            if let Some((commands, open)) = command_group_commands(&stmt.command) {
+                let mut span = stmt_group_base_span(stmt, commands, source_map, open);
+                for redirect in &stmt.redirects {
+                    span = merge_non_empty_span(span, redirect.span);
+                }
+                if matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
+                    && let Some(terminator_span) = stmt.terminator_span
+                {
+                    span = merge_non_empty_span(span, terminator_span);
+                }
+                span_render_end_line(span, source, source_map)
+            } else {
+                span_render_end_line(stmt_format_span(stmt), source, source_map)
+            }
+        }
     }
 }
 
@@ -1902,16 +1881,9 @@ pub(crate) fn stmt_attachment_span(
         function_attachment_span(command)
     } else if let Command::AnonymousFunction(command) = &stmt.command {
         anonymous_function_attachment_span(command)
-    } else if let Command::Compound(CompoundCommand::BraceGroup(commands)) = &stmt.command {
+    } else if let Some((commands, open)) = command_group_commands(&stmt.command) {
         stmt.redirects.iter().fold(
-            group_attachment_span(commands.as_slice(), source_map, '{', '}')
-                .unwrap_or_else(|| stmt_span(stmt)),
-            |span, redirect| span.merge(redirect.span),
-        )
-    } else if let Command::Compound(CompoundCommand::Subshell(commands)) = &stmt.command {
-        stmt.redirects.iter().fold(
-            group_attachment_span(commands.as_slice(), source_map, '(', ')')
-                .unwrap_or_else(|| stmt_span(stmt)),
+            stmt_group_base_span(stmt, commands, source_map, open),
             |span, redirect| span.merge(redirect.span),
         )
     } else {
@@ -2074,18 +2046,12 @@ pub(crate) fn stmt_render_start_line(
     source_map: &crate::comments::SourceMap<'_>,
     options: &crate::options::ResolvedShellFormatOptions,
 ) -> usize {
-    match &stmt.command {
-        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
-            group_render_start_line(stmt, commands.as_slice(), source, source_map, '{', options)
-        }
-        Command::Compound(CompoundCommand::Subshell(commands)) => {
-            group_render_start_line(stmt, commands.as_slice(), source, source_map, '(', options)
-        }
-        _ => {
-            stmt_attachment_span(stmt, source, source_map, options)
-                .start
-                .line
-        }
+    if let Some((commands, open)) = command_group_commands(&stmt.command) {
+        group_render_start_line(stmt, commands, source, source_map, open, options)
+    } else {
+        stmt_attachment_span(stmt, source, source_map, options)
+            .start
+            .line
     }
 }
 
