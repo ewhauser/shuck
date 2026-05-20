@@ -813,6 +813,10 @@ fn rewrite_subscript_source_texts(
     count
 }
 
+fn rewrite_optional<T>(value: &mut Option<T>, f: impl FnOnce(&mut T) -> usize) -> usize {
+    value.as_mut().map_or(0, f)
+}
+
 fn rewrite_pattern_source_texts(
     pattern: &mut Pattern,
     source: &str,
@@ -907,9 +911,7 @@ fn rewrite_word_part_source_texts(
             ..
         } => {
             rewrite_var_ref_source_texts(reference, source, visitor)
-                + operand
-                    .as_mut()
-                    .map_or(0, |operand| visitor(operand, source))
+                + rewrite_optional(operand, |operand| visitor(operand, source))
                 + rewrite_parameter_op_source_texts(operator, source, visitor)
         }
         WordPart::Length(reference)
@@ -933,7 +935,7 @@ fn rewrite_word_part_source_texts(
         } => {
             rewrite_var_ref_source_texts(reference, source, visitor)
                 + visitor(offset, source)
-                + length.as_mut().map_or(0, |length| visitor(length, source))
+                + rewrite_optional(length, |length| visitor(length, source))
         }
         WordPart::IndirectExpansion {
             reference,
@@ -942,10 +944,8 @@ fn rewrite_word_part_source_texts(
             ..
         } => {
             rewrite_var_ref_source_texts(reference, source, visitor)
-                + operand
-                    .as_mut()
-                    .map_or(0, |operand| visitor(operand, source))
-                + operator.as_mut().map_or(0, |operator| {
+                + rewrite_optional(operand, |operand| visitor(operand, source))
+                + rewrite_optional(operator, |operator| {
                     rewrite_parameter_op_source_texts(operator, source, visitor)
                 })
         }
@@ -999,7 +999,7 @@ fn rewrite_zsh_glob_qualifier_group_source_texts(
             | shuck_ast::ZshGlobQualifier::Flag { .. } => 0,
             shuck_ast::ZshGlobQualifier::LetterSequence { text, .. } => visitor(text, source),
             shuck_ast::ZshGlobQualifier::NumericArgument { start, end, .. } => {
-                visitor(start, source) + end.as_mut().map_or(0, |end| visitor(end, source))
+                visitor(start, source) + rewrite_optional(end, |end| visitor(end, source))
             }
         })
         .sum()
@@ -1025,10 +1025,8 @@ fn rewrite_parameter_source_texts(
                 ..
             } => {
                 rewrite_var_ref_source_texts(reference, source, visitor)
-                    + operand
-                        .as_mut()
-                        .map_or(0, |operand| visitor(operand, source))
-                    + operator.as_mut().map_or(0, |operator| {
+                    + rewrite_optional(operand, |operand| visitor(operand, source))
+                    + rewrite_optional(operator, |operator| {
                         rewrite_parameter_op_source_texts(operator, source, visitor)
                     })
             }
@@ -1041,7 +1039,7 @@ fn rewrite_parameter_source_texts(
             } => {
                 rewrite_var_ref_source_texts(reference, source, visitor)
                     + visitor(offset, source)
-                    + length.as_mut().map_or(0, |length| visitor(length, source))
+                    + rewrite_optional(length, |length| visitor(length, source))
             }
             BourneParameterExpansion::Operation {
                 reference,
@@ -1050,9 +1048,7 @@ fn rewrite_parameter_source_texts(
                 ..
             } => {
                 rewrite_var_ref_source_texts(reference, source, visitor)
-                    + operand
-                        .as_mut()
-                        .map_or(0, |operand| visitor(operand, source))
+                    + rewrite_optional(operand, |operand| visitor(operand, source))
                     + rewrite_parameter_op_source_texts(operator, source, visitor)
             }
         },
