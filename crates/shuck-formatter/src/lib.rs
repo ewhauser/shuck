@@ -297,26 +297,16 @@ pub fn build_formatter_facts(source: &str, file: &File) -> usize {
 }
 
 fn ensure_single_trailing_newline(output: &mut String, line_ending: LineEnding) {
-    while has_multiple_trailing_line_endings(output) {
-        truncate_trailing_line_ending(output);
+    while let Some(start) = trailing_line_ending_start(output)
+        .filter(|start| trailing_line_ending_start(&output[..*start]).is_some())
+    {
+        output.truncate(start);
     }
     if trailing_line_ending_start(output).is_none() {
         if trailing_backslash_count(output) % 2 == 1 && !trailing_backslash_is_in_comment(output) {
             output.push('\\');
         }
         output.push_str(line_ending_str(line_ending));
-    }
-}
-
-fn has_multiple_trailing_line_endings(text: &str) -> bool {
-    trailing_line_ending_start(text)
-        .and_then(|start| trailing_line_ending_start(&text[..start]))
-        .is_some()
-}
-
-fn truncate_trailing_line_ending(output: &mut String) {
-    if let Some(start) = trailing_line_ending_start(output) {
-        output.truncate(start);
     }
 }
 
