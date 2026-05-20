@@ -109,15 +109,9 @@ pub(crate) fn render_word_syntax_with_facts_to_buf(
     facts: &FormatterFacts<'_>,
     rendered: &mut String,
 ) {
-    render_word_syntax_internal(
-        word,
-        source,
-        options,
-        Some(source_map),
-        Some(facts),
-        true,
-        rendered,
-    );
+    let source_map = Some(source_map);
+    let facts = Some(facts);
+    render_word_syntax_internal(word, source, options, source_map, facts, true, rendered);
 }
 
 pub(crate) fn render_escaped_multiline_word_syntax_with_facts_to_buf(
@@ -128,15 +122,9 @@ pub(crate) fn render_escaped_multiline_word_syntax_with_facts_to_buf(
     facts: &FormatterFacts<'_>,
     rendered: &mut String,
 ) {
-    render_word_syntax_internal(
-        word,
-        source,
-        options,
-        Some(source_map),
-        Some(facts),
-        false,
-        rendered,
-    );
+    let source_map = Some(source_map);
+    let facts = Some(facts);
+    render_word_syntax_internal(word, source, options, source_map, facts, false, rendered);
 }
 
 pub(crate) fn word_has_multiline_literal_source(word: &Word, source: &str) -> bool {
