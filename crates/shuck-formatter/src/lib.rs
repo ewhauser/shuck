@@ -1057,28 +1057,22 @@ mod tests {
     }
 
     #[test]
-    fn preserves_escaped_html_closing_tags_in_double_quoted_assignments() {
-        let source = "_link=\"<a href=\\\"${target//' '/%20}\\\">[[${label:-}]]</a>\"\n";
-        assert_bash_unchanged_with_ast(source);
-    }
-
-    #[test]
     fn preserves_prompt_escapes_in_double_quoted_assignments() {
         let source = "PS1=\"\\u:\\W \\$ \"\n";
 
         assert_unchanged_default(source);
     }
 
-    #[test]
-    fn preserves_escaped_dollar_literals_after_command_substitutions() {
-        let source = "RUNTIME_CLASSPATH=$(echo $ALL_JARS | xargs printf -- \"\\$this_dir/%s:\"):\\$this_dir\n";
-        assert_default_unchanged_with_ast(source);
+    default_unchanged_ast_cases! {
+        preserves_escaped_dollar_literals_after_command_substitutions:
+            "RUNTIME_CLASSPATH=$(echo $ALL_JARS | xargs printf -- \"\\$this_dir/%s:\"):\\$this_dir\n";
+        preserves_escaped_dollar_literals_inside_quoted_command_substitutions:
+            "XDGPATH=$(echo \"foreach dir [split [::tcl::tm::path list]] {puts \\$dir}\" | tclsh | tail -n1)\n";
     }
 
-    #[test]
-    fn preserves_escaped_dollar_literals_inside_quoted_command_substitutions() {
-        let source = "XDGPATH=$(echo \"foreach dir [split [::tcl::tm::path list]] {puts \\$dir}\" | tclsh | tail -n1)\n";
-        assert_default_unchanged_with_ast(source);
+    bash_unchanged_ast_cases! {
+        preserves_escaped_html_closing_tags_in_double_quoted_assignments:
+            "_link=\"<a href=\\\"${target//' '/%20}\\\">[[${label:-}]]</a>\"\n";
     }
 
     #[test]
@@ -1818,10 +1812,9 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn rendered_heredoc_bodies_preserve_escaped_backslashes() {
-        let source = "cat <<EOF\nline \\\\\nEOF\n";
-        assert_bash_unchanged_with_ast(source);
+    bash_unchanged_ast_cases! {
+        rendered_heredoc_bodies_preserve_escaped_backslashes:
+            "cat <<EOF\nline \\\\\nEOF\n";
     }
 
     #[test]
@@ -1833,10 +1826,9 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn command_substitution_bounds_do_not_capture_following_comments() {
-        let source = "value=$(pwd)\n# after\nnext\n";
-        assert_default_unchanged_with_ast(source);
+    default_unchanged_ast_cases! {
+        command_substitution_bounds_do_not_capture_following_comments:
+            "value=$(pwd)\n# after\nnext\n";
     }
 
     #[test]
@@ -1845,40 +1837,22 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         assert_bash_formats_with_ast(source, "value=$(cmd \\\n\targ) || echo no\n");
     }
 
-    #[test]
-    fn dirname_command_substitution_bounds_do_not_capture_following_comments() {
-        let source = "cd \"$(dirname \"${BASH_SOURCE[0]}\")\"\n# after\nnext\n";
-        assert_default_unchanged_with_ast(source);
+    default_unchanged_ast_cases! {
+        dirname_command_substitution_bounds_do_not_capture_following_comments:
+            "cd \"$(dirname \"${BASH_SOURCE[0]}\")\"\n# after\nnext\n";
+        nested_command_substitution_bounds_do_not_capture_following_comments:
+            "INFO=\"$(which \"${COMMAND}\") ($(type \"${COMMAND}\" | command awk '{print $4}'))\"\n# after\nnext\n";
+        preserves_conditional_command_substitutions_with_nested_quoted_arguments:
+            "[[ \"$(get_permission \"$1\")\" != \"$(id -u)\" ]]\n";
+        preserves_file_not_grpowned_command_substitution_shape:
+            "[[ \" $(id -G \"${USER}\") \" != *\" $(get_group \"$1\") \"* ]]\n";
+        preserves_long_suffix_trim_operators_in_words:
+            "package_url=\"${package_url%%#*}\"\necho \"${1%%.*}\"\n";
     }
 
-    #[test]
-    fn nested_command_substitution_bounds_do_not_capture_following_comments() {
-        let source = "INFO=\"$(which \"${COMMAND}\") ($(type \"${COMMAND}\" | command awk '{print $4}'))\"\n# after\nnext\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_conditional_command_substitutions_with_nested_quoted_arguments() {
-        let source = "[[ \"$(get_permission \"$1\")\" != \"$(id -u)\" ]]\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_escaped_quote_words_with_nested_quoted_command_substitutions() {
-        let source = "echo \"\\\"$BUILDSCRIPT\\\" -a \\\"$TERMUX_ARCH\\\" $TERMUX_DEBUG_BUILD --format \\\"$TERMUX_FORMAT\\\" --library $(test \"${PKG_DIR%/*}\" = \"gpkg\" && echo \"glibc\" || echo \"bionic\") ${TERMUX_OUTPUT_DIR+-o $TERMUX_OUTPUT_DIR} $TERMUX_INSTALL_DEPS \\\"$PKG_DIR\\\"\"\n";
-        assert_bash_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_file_not_grpowned_command_substitution_shape() {
-        let source = "[[ \" $(id -G \"${USER}\") \" != *\" $(get_group \"$1\") \"* ]]\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_long_suffix_trim_operators_in_words() {
-        let source = "package_url=\"${package_url%%#*}\"\necho \"${1%%.*}\"\n";
-        assert_default_unchanged_with_ast(source);
+    bash_unchanged_ast_cases! {
+        preserves_escaped_quote_words_with_nested_quoted_command_substitutions:
+            "echo \"\\\"$BUILDSCRIPT\\\" -a \\\"$TERMUX_ARCH\\\" $TERMUX_DEBUG_BUILD --format \\\"$TERMUX_FORMAT\\\" --library $(test \"${PKG_DIR%/*}\" = \"gpkg\" && echo \"glibc\" || echo \"bionic\") ${TERMUX_OUTPUT_DIR+-o $TERMUX_OUTPUT_DIR} $TERMUX_INSTALL_DEPS \\\"$PKG_DIR\\\"\"\n";
     }
 
     #[test]
@@ -1899,10 +1873,9 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn preserves_quoted_replacements_with_escaped_delimiters() {
-        let source = "query=\"${query//\\\"/\\\\\\\"}\"\nurl_path=\"${url_path//https:\\\\/\\\\/api.openai.com\\/v1}\"\n";
-        assert_default_unchanged_with_ast(source);
+    default_unchanged_ast_cases! {
+        preserves_quoted_replacements_with_escaped_delimiters:
+            "query=\"${query//\\\"/\\\\\\\"}\"\nurl_path=\"${url_path//https:\\\\/\\\\/api.openai.com\\/v1}\"\n";
     }
 
     #[test]
@@ -1924,10 +1897,9 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn compacts_parameter_slice_arithmetic_operands() {
-        let source = "region=\"${zone::${#zone}-1}\"\nindex=\"${items:1+2:count-1}\"\n";
-        assert_bash_unchanged_with_ast(source);
+    bash_unchanged_ast_cases! {
+        compacts_parameter_slice_arithmetic_operands:
+            "region=\"${zone::${#zone}-1}\"\nindex=\"${items:1+2:count-1}\"\n";
     }
 
     #[test]
@@ -3285,34 +3257,20 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn preserves_fd_duplication_redirect_targets() {
-        let source = "cmd 2>&$fd\ncmd 1>&/dev/null\ncmd >&file\n";
-        assert_default_unchanged_with_ast(source);
+    default_unchanged_ast_cases! {
+        preserves_fd_duplication_redirect_targets:
+            "cmd 2>&$fd\ncmd 1>&/dev/null\ncmd >&file\n";
+        preserves_append_both_redirect_spelling:
+            "cmd &>>/dev/null\ncmd &>>log <input\n";
     }
 
-    #[test]
-    fn preserves_adjacent_numeric_fd_heredoc_redirects() {
-        let source = "exec \"${SHELL:-sh}\" -i 3<<EOF 4<&0 <&3\n  set +e\nEOF\n";
-        assert_bash_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_fd_close_redirect_targets() {
-        let source = "cmd 2>&-\nexec <&-\nexec {ACCEPT_FD}>&-\n";
-        assert_bash_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_multi_digit_fd_duplication_redirect_prefixes() {
-        let source = "exec 99>&1\nexec 99>&-\nread 42<&0\n";
-        assert_bash_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_append_both_redirect_spelling() {
-        let source = "cmd &>>/dev/null\ncmd &>>log <input\n";
-        assert_default_unchanged_with_ast(source);
+    bash_unchanged_ast_cases! {
+        preserves_adjacent_numeric_fd_heredoc_redirects:
+            "exec \"${SHELL:-sh}\" -i 3<<EOF 4<&0 <&3\n  set +e\nEOF\n";
+        preserves_fd_close_redirect_targets:
+            "cmd 2>&-\nexec <&-\nexec {ACCEPT_FD}>&-\n";
+        preserves_multi_digit_fd_duplication_redirect_prefixes:
+            "exec 99>&1\nexec 99>&-\nread 42<&0\n";
     }
 
     #[test]
@@ -3323,16 +3281,11 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         assert_formats_to_with_ast(source, None, &options, "echo \"Usage\" 1 &>2\n".to_string());
     }
 
-    #[test]
-    fn preserves_explicit_stdout_fd_on_dup_redirects() {
-        let source = "cat 1>&2 <<EOF\nhi\nEOF\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn preserves_simple_command_redirect_positions() {
-        let source = "echo >&2 \"bad news\"\n";
-        assert_default_unchanged_with_ast(source);
+    default_unchanged_ast_cases! {
+        preserves_explicit_stdout_fd_on_dup_redirects:
+            "cat 1>&2 <<EOF\nhi\nEOF\n";
+        preserves_simple_command_redirect_positions:
+            "echo >&2 \"bad news\"\n";
     }
 
     #[test]
@@ -3353,10 +3306,9 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
         );
     }
 
-    #[test]
-    fn preserves_regex_operands_in_conditionals() {
-        let source = "[[ \"$x\" =~ \"git version \"([^ ]*).* ]]\n";
-        assert_default_unchanged_with_ast(source);
+    default_unchanged_ast_cases! {
+        preserves_regex_operands_in_conditionals:
+            "[[ \"$x\" =~ \"git version \"([^ ]*).* ]]\n";
     }
 
     #[test]
