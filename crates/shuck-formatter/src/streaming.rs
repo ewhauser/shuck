@@ -30,9 +30,10 @@ use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
-    shell_comment_can_start, shell_keyword_boundaries_match, skip_double_quoted,
-    skip_single_quoted,
+    branch_keyword_offset, line_has_shell_comment_before, matching_done_close_start,
+    matching_if_close_start, normalized_close_keyword_span,
+    operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line,
+    shell_keyword_boundaries_match, skip_double_quoted, skip_single_quoted,
 };
 use crate::word::{
     normalize_raw_unquoted_word_continuations, render_arithmetic_expr_to_buf,
@@ -6295,30 +6296,6 @@ fn branch_open_keyword_start(sequence: &StmtSeq, source: &str, keyword: &str) ->
     }
 }
 
-fn line_has_shell_comment_before(source: &str, offset: usize) -> bool {
-    let upper = offset.min(source.len());
-    let line_start = source[..upper]
-        .rfind('\n')
-        .map_or(0, |newline| newline.saturating_add(1));
-    let mut cursor = line_start;
-    while cursor < upper {
-        let Some(ch) = source[cursor..].chars().next() else {
-            break;
-        };
-        match ch {
-            '\'' => {
-                cursor = skip_single_quoted(source, cursor + ch.len_utf8(), upper);
-            }
-            '"' => {
-                cursor = skip_double_quoted(source, cursor + ch.len_utf8(), upper);
-            }
-            '#' if shell_comment_can_start(source, cursor) => return true,
-            _ => cursor += ch.len_utf8(),
-        }
-    }
-    false
-}
-
 fn raw_grouped_if_condition<'a>(
     command: &IfCommand,
     then_span: Span,
@@ -8293,33 +8270,6 @@ fn pipeline_operator_breaks(
     breaks
 }
 
-fn pipeline_operator_starts_or_ends_line(source: &str, operator_span: Span) -> bool {
-    let start = operator_span.start.offset;
-    let end = operator_span.end.offset;
-    if start >= end || end > source.len() {
-        return false;
-    }
-
-    let line_start = source[..start]
-        .rfind('\n')
-        .map_or(0, |offset| offset.saturating_add(1));
-    let line_end = source[end..]
-        .find('\n')
-        .map_or(source.len(), |offset| end.saturating_add(offset));
-    let has_previous_line = line_start > 0;
-    let has_next_line = line_end < source.len();
-    let before = &source[line_start..start];
-    let after = &source[end..line_end];
-
-    (has_previous_line && line_edge_is_blank_or_continuation(before))
-        || (has_next_line && line_edge_is_blank_or_continuation(after))
-}
-
-fn line_edge_is_blank_or_continuation(text: &str) -> bool {
-    let trimmed = text.trim_matches(|ch| matches!(ch, ' ' | '\t' | '\r'));
-    trimmed.is_empty() || trimmed == "\\"
-}
-
 fn command_substitution_assignment_line_needs_context_indent(
     remaining: &str,
     options: &ResolvedShellFormatOptions,
@@ -9042,44 +8992,6 @@ fn trim_trailing_gap_before_offset(source: &str, mut offset: usize) -> usize {
         offset -= 1;
     }
     offset
-}
-
-fn branch_keyword_offset(source: &str, start: usize, end: usize, keyword: &str) -> Option<usize> {
-    let start = start.min(end).min(source.len());
-    let end = end.min(source.len());
-    let mut line_start = start;
-    while line_start < end {
-        let line_end = source[line_start..end]
-            .find('\n')
-            .map_or(end, |offset| line_start + offset);
-        let line = source.get(line_start..line_end)?;
-        let mut search_start = 0;
-        while let Some(relative) = line[search_start..].find(keyword) {
-            let keyword_start = search_start + relative;
-            let keyword_end = keyword_start + keyword.len();
-            if branch_keyword_candidate_matches(line, keyword_start, keyword_end) {
-                return Some(line_start + keyword_start);
-            }
-            search_start = keyword_end;
-        }
-        line_start = line_end.saturating_add(1);
-    }
-    None
-}
-
-fn branch_keyword_candidate_matches(line: &str, start: usize, end: usize) -> bool {
-    if !shell_keyword_boundaries_match(line, start, end) {
-        return false;
-    }
-
-    let prefix = &line[..start];
-    let trimmed = prefix.trim_start_matches([' ', '\t']);
-    if trimmed.starts_with('#') {
-        return false;
-    }
-
-    let before = prefix.trim_end_matches([' ', '\t']);
-    before.is_empty() || before.ends_with(';') || before.ends_with('&')
 }
 
 #[derive(Debug, Clone)]
