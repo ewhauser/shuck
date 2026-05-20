@@ -744,6 +744,14 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.write_shell_text_preserving_heredoc_tails(text, HeredocTailTextMode::Assignment);
     }
 
+    fn write_shell_text_with_heredoc_tails(&mut self, text: &str, assignment_context: bool) {
+        if assignment_context && !rendered_text_starts_with_block_command_substitution(text) {
+            self.write_assignment_shell_text_preserving_heredoc_tails(text);
+            return;
+        }
+        self.write_rendered_shell_text_preserving_heredoc_tails(text);
+    }
+
     fn write_shell_text_preserving_heredoc_tails(&mut self, text: &str, mode: HeredocTailTextMode) {
         let mut active_heredoc: Option<RenderedHeredocTail> = None;
         let mut rest = text;
@@ -955,11 +963,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 || word_source_has_shell_substitution(word, self.source())
                 || rendered_text_has_shell_substitution(&scratch))
         {
-            if rendered_text_starts_with_block_command_substitution(&scratch) {
-                self.write_rendered_shell_text_preserving_heredoc_tails(&scratch);
-            } else {
-                self.write_assignment_shell_text_preserving_heredoc_tails(&scratch);
-            }
+            self.write_shell_text_with_heredoc_tails(&scratch, true);
         } else if scratch.contains('\n')
             && word_is_quoted_formattable_command_substitution_only(word, self.source())
         {
@@ -1044,11 +1048,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 || assignment_source_has_command_substitution(assignment, self.source())
                 || rendered_text_has_shell_substitution(&scratch))
         {
-            if rendered_text_starts_with_block_command_substitution(&scratch) {
-                self.write_rendered_shell_text_preserving_heredoc_tails(&scratch);
-            } else {
-                self.write_assignment_shell_text_preserving_heredoc_tails(&scratch);
-            }
+            self.write_shell_text_with_heredoc_tails(&scratch, true);
         } else if scratch.contains('\n')
             && assignment_value_is_quoted_formattable_command_substitution_only(
                 assignment,
@@ -1112,13 +1112,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if rendered_shell_text_has_heredoc_tail(rendered_name)
             && rendered_text_has_shell_substitution(rendered_name)
         {
-            if rendered_text_starts_with_block_command_substitution(rendered_name) {
-                self.write_rendered_shell_text_preserving_heredoc_tails(rendered_name);
-            } else if rendered_text_starts_like_assignment_with_substitution(rendered_name) {
-                self.write_assignment_shell_text_preserving_heredoc_tails(rendered_name);
-            } else {
-                self.write_rendered_shell_text_preserving_heredoc_tails(rendered_name);
-            }
+            self.write_shell_text_with_heredoc_tails(
+                rendered_name,
+                rendered_text_starts_like_assignment_with_substitution(rendered_name),
+            );
         } else {
             self.write_text(rendered_name);
         }
