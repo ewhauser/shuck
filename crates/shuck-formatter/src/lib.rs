@@ -3330,9 +3330,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_case_pattern_escapes() {
         let source = "case \"$archi\" in\nDarwin\\ arm64*) download foo ;;\nesac\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(formatted, FormattedSource::Unchanged);
+        assert_unchanged_default(source);
     }
 
     #[test]
@@ -3822,12 +3821,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_brace_group_wrapper_comments() {
         let source = "# c\n{ # note\na=1\n}\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("# c\n{ # note\n\ta=1\n}\n".to_string())
-        );
+        assert_formats(source, "# c\n{ # note\n\ta=1\n}\n");
     }
 
     #[test]
@@ -3912,38 +3907,29 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn standalone_brace_groups_do_not_consume_later_file_comments() {
         let source = "[ -n \"$x\" ] && {\nset -x\n}\n# later\nnext\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "[ -n \"$x\" ] && {\n\tset -x\n}\n# later\nnext\n".to_string()
-            )
-        );
+        assert_formats(source, "[ -n \"$x\" ] && {\n\tset -x\n}\n# later\nnext\n");
     }
 
     #[test]
     fn preserves_single_line_function_bodies() {
         let source = "tty_escape() { printf \"\\\\033[%sm\" \"$1\"; }\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(formatted, FormattedSource::Unchanged);
+        assert_unchanged_default(source);
     }
 
     #[test]
     fn preserves_single_line_nested_function_bodies() {
         let source = "setup() { shellspec_type_name() { eval echo type_name ${1+'\"$@\"'}; }; }\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(formatted, FormattedSource::Unchanged);
+        assert_unchanged_default(source);
     }
 
     #[test]
     fn preserves_single_line_subshells() {
         let source = "(cd \"$fzf_base\"/bin && rm -f fzf && ln -sf \"$which_fzf\" fzf)\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(formatted, FormattedSource::Unchanged);
+        assert_unchanged_default(source);
     }
 
     #[test]
@@ -4001,27 +3987,20 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_single_line_subshells_inside_case_bodies() {
         let source = "build_package_pyston() {\n  build_package_copy\n  mkdir -p \"${PREFIX_PATH}/bin\" \"${PREFIX_PATH}/lib\"\n  local bin\n  shopt -s nullglob\n  for bin in \"bin/\"*; do\n    if [ -f \"${bin}\" ] && [ -x \"${bin}\" ] && [ ! -L \"${bin}\" ]; then\n      case \"${bin##*/}\" in\n      \"pyston\"* )\n        ( cd \"${PREFIX_PATH}/bin\" && ln -fs \"${bin##*/}\" \"python\" )\n        ;;\n      esac\n    fi\n  done\n  shopt -u nullglob\n}\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "build_package_pyston() {\n\tbuild_package_copy\n\tmkdir -p \"${PREFIX_PATH}/bin\" \"${PREFIX_PATH}/lib\"\n\tlocal bin\n\tshopt -s nullglob\n\tfor bin in \"bin/\"*; do\n\t\tif [ -f \"${bin}\" ] && [ -x \"${bin}\" ] && [ ! -L \"${bin}\" ]; then\n\t\t\tcase \"${bin##*/}\" in\n\t\t\t\"pyston\"*)\n\t\t\t\t(cd \"${PREFIX_PATH}/bin\" && ln -fs \"${bin##*/}\" \"python\")\n\t\t\t\t;;\n\t\t\tesac\n\t\tfi\n\tdone\n\tshopt -u nullglob\n}\n"
-                    .to_string()
-            )
+        assert_formats(
+            source,
+            "build_package_pyston() {\n\tbuild_package_copy\n\tmkdir -p \"${PREFIX_PATH}/bin\" \"${PREFIX_PATH}/lib\"\n\tlocal bin\n\tshopt -s nullglob\n\tfor bin in \"bin/\"*; do\n\t\tif [ -f \"${bin}\" ] && [ -x \"${bin}\" ] && [ ! -L \"${bin}\" ]; then\n\t\t\tcase \"${bin##*/}\" in\n\t\t\t\"pyston\"*)\n\t\t\t\t(cd \"${PREFIX_PATH}/bin\" && ln -fs \"${bin##*/}\" \"python\")\n\t\t\t\t;;\n\t\t\tesac\n\t\tfi\n\tdone\n\tshopt -u nullglob\n}\n",
         );
     }
 
     #[test]
     fn preserves_inline_group_redirect_suffixes() {
         let source = "build_package_activepython() {\n  local package_name=\"$1\"\n  { bash \"install.sh\" --install-dir \"${PREFIX_PATH}\"\n  } >&4 2>&1\n}\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "build_package_activepython() {\n\tlocal package_name=\"$1\"\n\t{\n\t\tbash \"install.sh\" --install-dir \"${PREFIX_PATH}\"\n\t} >&4 2>&1\n}\n".to_string()
-            )
+        assert_formats(
+            source,
+            "build_package_activepython() {\n\tlocal package_name=\"$1\"\n\t{\n\t\tbash \"install.sh\" --install-dir \"${PREFIX_PATH}\"\n\t} >&4 2>&1\n}\n",
         );
     }
 
@@ -4041,12 +4020,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn trailing_comments_on_function_closing_braces_do_not_poison_following_layout() {
         let source = "foo() {\necho hi\n} # trailing\nbar\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("foo() {\n\techo hi\n} # trailing\nbar\n".to_string())
-        );
+        assert_formats(source, "foo() {\n\techo hi\n} # trailing\nbar\n");
     }
 
     #[test]
@@ -4533,14 +4508,12 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     fn preserves_explicit_line_break_after_list_operator() {
         let source = "command -v curl >/dev/null &&\n  if [[ $1 =~ tar.gz$ ]]; then\n    curl -fL $1 | tar $tar_opts\n  else\n    echo nope\n  fi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-        let formatted =
-            format_source(source, Some(Path::new("list_operator_if.bash")), &options).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "command -v curl >/dev/null &&\n\tif [[ $1 =~ tar.gz$ ]]; then\n\t\tcurl -fL $1 | tar $tar_opts\n\telse\n\t\techo nope\n\tfi\n".to_string()
-            )
+        assert_formats_to(
+            source,
+            Some(Path::new("list_operator_if.bash")),
+            &options,
+            "command -v curl >/dev/null &&\n\tif [[ $1 =~ tar.gz$ ]]; then\n\t\tcurl -fL $1 | tar $tar_opts\n\telse\n\t\techo nope\n\tfi\n",
         );
     }
 
@@ -4656,10 +4629,11 @@ function R() {
 "#;
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                r#"_saltkey() {
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            r#"_saltkey() {
 	local cur prev opts prev pprev
 	COMPREPLY=()
 	cur="${COMP_WORDS[COMP_CWORD]}"
@@ -4679,9 +4653,7 @@ function R() {
 	esac
 	return 0
 }
-"#
-                .to_string()
-            )
+"#,
         );
     }
 
@@ -4734,12 +4706,11 @@ function R() {
         let source = "dat() {\n  find . -type f |\n    # keep this filter\n    grep -v patch |\n    sort\n}\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, None, &options).unwrap(),
-            FormattedSource::Formatted(
-                "dat() {\n\tfind . -type f |\n\t\t# keep this filter\n\t\tgrep -v patch |\n\t\tsort\n}\n"
-                    .to_string()
-            )
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "dat() {\n\tfind . -type f |\n\t\t# keep this filter\n\t\tgrep -v patch |\n\t\tsort\n}\n",
         );
     }
 
@@ -5228,14 +5199,12 @@ function R() {
         let source = "read_conf() {\n  while read line; do\n    line=${line%%#*}   # Remove comments\n    line=${line//:/ }  # Change colon delimiter to space\n    line=${line//,/ }  # Change comma delimiter to space\n  done\n}\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
 
-        assert_eq!(
-            format_source(source, Some(Path::new("ldconfig.in-r3")), &options).unwrap(),
-            FormattedSource::Formatted(
-                "read_conf() {\n\twhile read line; do\n\t\tline=${line%%#*}  # Remove comments\n\t\tline=${line//:/ } # Change colon delimiter to space\n\t\tline=${line//,/ } # Change comma delimiter to space\n\tdone\n}\n"
-                    .to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            Some(Path::new("ldconfig.in-r3")),
+            &options,
+            "read_conf() {\n\twhile read line; do\n\t\tline=${line%%#*}  # Remove comments\n\t\tline=${line//:/ } # Change colon delimiter to space\n\t\tline=${line//,/ } # Change comma delimiter to space\n\tdone\n}\n",
         );
-        assert_source_and_ast_paths_match(source, Some(Path::new("ldconfig.in-r3")), &options);
     }
 
     #[test]
@@ -5917,12 +5886,12 @@ function R() {
     #[test]
     fn binary_next_line_pipeline_keeps_heredoc_body_unindented() {
         let options = ShellFormatOptions::default().with_binary_next_line(true);
-        let formatted =
-            format_source("cat foo | \\\ncat<<EOF\nhello\nEOF\n", None, &options).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("cat foo \\\n\t| cat <<EOF\nhello\nEOF\n".to_string())
+        assert_formats_to(
+            "cat foo | \\\ncat<<EOF\nhello\nEOF\n",
+            None,
+            &options,
+            "cat foo \\\n\t| cat <<EOF\nhello\nEOF\n",
         );
     }
 
@@ -5942,45 +5911,35 @@ function R() {
     #[test]
     fn binary_next_line_does_not_force_single_line_pipelines_to_wrap() {
         let options = ShellFormatOptions::default().with_binary_next_line(true);
-        let formatted = format_source("cat foo | cat bar\n", None, &options).unwrap();
 
-        assert_eq!(formatted, FormattedSource::Unchanged);
+        assert_unchanged("cat foo | cat bar\n", None, &options);
     }
 
     #[test]
     fn honors_function_next_line_option() {
         let source = "foo(){\necho hi\n}\n";
         let options = ShellFormatOptions::default().with_function_next_line(true);
-        let formatted = format_source(source, None, &options).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("foo()\n{\n\techo hi\n}\n".to_string())
-        );
+        assert_formats_to(source, None, &options, "foo()\n{\n\techo hi\n}\n");
     }
 
     #[test]
     fn minify_drops_comments_but_preserves_shebang() {
         let options = ShellFormatOptions::default().with_minify(true);
-        let formatted = format_source("#!/bin/bash\necho hi # note\n", None, &options).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("#!/bin/bash\necho hi\n".to_string())
+        assert_formats_to(
+            "#!/bin/bash\necho hi # note\n",
+            None,
+            &options,
+            "#!/bin/bash\necho hi\n",
         );
     }
 
     #[test]
     fn formats_case_items_with_expected_indentation() {
         let source = "case $x in\na) echo a;;\nb) echo b;;\nesac\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "case $x in\na) echo a ;;\nb) echo b ;;\nesac\n".to_string()
-            )
-        );
+        assert_formats(source, "case $x in\na) echo a ;;\nb) echo b ;;\nesac\n");
     }
 
     #[test]
@@ -6151,41 +6110,38 @@ function R() {
     fn switch_case_indent_indents_patterns_and_bodies() {
         let source = "case $x in\na) echo a;;\nesac\n";
         let options = ShellFormatOptions::default().with_switch_case_indent(true);
-        let formatted = format_source(source, None, &options).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("case $x in\n\ta)\n\t\techo a\n\t\t;;\nesac\n".to_string())
+        assert_formats_to(
+            source,
+            None,
+            &options,
+            "case $x in\n\ta)\n\t\techo a\n\t\t;;\nesac\n",
         );
     }
 
     #[test]
     fn space_redirects_insert_spaces_between_operator_and_target() {
         let options = ShellFormatOptions::default().with_space_redirects(true);
-        let formatted = format_source("echo hi>out\n", None, &options).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("echo hi > out\n".to_string())
-        );
+        assert_formats_to("echo hi>out\n", None, &options, "echo hi > out\n");
     }
 
     #[test]
     fn keep_padding_preserves_safe_verbatim_regions() {
         let options = ShellFormatOptions::default().with_keep_padding(true);
-        let formatted = format_source("a=1  b=2\n", None, &options).unwrap();
 
-        assert_eq!(formatted, FormattedSource::Unchanged);
+        assert_unchanged("a=1  b=2\n", None, &options);
     }
 
     #[test]
     fn keep_padding_still_formats_unpadded_syntax() {
         let options = ShellFormatOptions::default().with_keep_padding(true);
-        let formatted = format_source("#!/bin/bash\n echo hi\n", None, &options).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("#!/bin/bash\necho hi\n".to_string())
+        assert_formats_to(
+            "#!/bin/bash\n echo hi\n",
+            None,
+            &options,
+            "#!/bin/bash\necho hi\n",
         );
         assert!(!source_is_formatted("#!/bin/bash\n echo hi\n", None, &options).unwrap());
     }
@@ -6195,21 +6151,19 @@ function R() {
         let source = "echo hi\r\n\r\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(
-            format_source(source, Some(Path::new("test.sh")), &options).unwrap(),
-            FormattedSource::Formatted("echo hi\r\n".to_string())
-        );
+        assert_formats_to(source, Some(Path::new("test.sh")), &options, "echo hi\r\n");
         assert!(!source_is_formatted(source, Some(Path::new("test.sh")), &options).unwrap());
     }
 
     #[test]
     fn never_split_prefers_compact_layouts() {
         let options = ShellFormatOptions::default().with_never_split(true);
-        let formatted = format_source("if true; then\necho hi\nfi\n", None, &options).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("if true; then echo hi; fi\n".to_string())
+        assert_formats_to(
+            "if true; then\necho hi\nfi\n",
+            None,
+            &options,
+            "if true; then echo hi; fi\n",
         );
     }
 
@@ -6242,29 +6196,23 @@ function R() {
 
     #[test]
     fn auto_dialect_honors_zsh_paths_and_shebangs() {
-        let path_formatted = format_source(
+        assert_unchanged(
             "print ${(m)foo}\n",
             Some(Path::new("script.zsh")),
             &ShellFormatOptions::default(),
-        )
-        .unwrap();
-        assert_eq!(path_formatted, FormattedSource::Unchanged);
+        );
 
-        let shebang_formatted = format_source(
+        assert_unchanged(
             "#!/usr/bin/env zsh\nprint ${(m)foo}\n",
             None,
             &ShellFormatOptions::default(),
-        )
-        .unwrap();
-        assert_eq!(shebang_formatted, FormattedSource::Unchanged);
+        );
 
-        let split_shebang_formatted = format_source(
+        assert_unchanged(
             "#!/usr/bin/env -S zsh -f\nprint ${(m)foo}\n",
             None,
             &ShellFormatOptions::default(),
-        )
-        .unwrap();
-        assert_eq!(split_shebang_formatted, FormattedSource::Unchanged);
+        );
     }
 
     #[test]
@@ -6286,24 +6234,18 @@ print hidden &!
             .with_dialect(ShellDialect::Zsh)
             .with_simplify(true);
 
-        assert_eq!(
-            format_source(source, Some(Path::new("script.zsh")), &options).unwrap(),
-            FormattedSource::Unchanged
-        );
-        assert_source_and_ast_paths_match(source, Some(Path::new("script.zsh")), &options);
+        assert_unchanged_with_ast(source, Some(Path::new("script.zsh")), &options);
     }
 
     #[test]
     fn mksh_dialect_formats_select_commands() {
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Mksh);
-        let formatted = format_source(
+
+        assert_unchanged(
             "select name in foo; do echo \"$name\"; done\n",
             None,
             &options,
-        )
-        .unwrap();
-
-        assert_eq!(formatted, FormattedSource::Unchanged);
+        );
     }
 
     #[test]
