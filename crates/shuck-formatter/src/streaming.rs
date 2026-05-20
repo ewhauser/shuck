@@ -3113,122 +3113,90 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
 
         match command.syntax {
-            ForSyntax::InDoDone { in_span, .. } => {
-                if let Some(words) = &command.words {
-                    self.write_text(" in");
-                    self.write_word_list_preserving_breaks_after(
-                        words,
-                        in_span.map(|span| span.end.offset),
-                    );
-                }
-                let close_span = match command.syntax {
-                    ForSyntax::InDoDone { done_span, .. } => command_done_close_span(
-                        self.source(),
-                        self.source_map(),
-                        command.span,
-                        Some(done_span),
-                    ),
-                    _ => None,
-                };
+            ForSyntax::InDoDone {
+                in_span, done_span, ..
+            } => {
+                self.write_for_in_words(command.words.as_deref(), in_span);
+                let close_span = command_done_close_span(
+                    self.source(),
+                    self.source_map(),
+                    command.span,
+                    Some(done_span),
+                );
                 self.format_do_done_body(&command.body, command.span, close_span, "done")?;
             }
             ForSyntax::InDirect { in_span } => {
-                if let Some(words) = &command.words {
-                    self.write_text(" in");
-                    self.write_word_list_preserving_breaks_after(
-                        words,
-                        in_span.map(|span| span.end.offset),
-                    );
-                }
+                self.write_for_in_words(command.words.as_deref(), in_span);
                 self.write_space();
                 self.format_inline_stmts(&command.body)?;
             }
-            ForSyntax::ParenDoDone { .. } => {
-                self.write_text(" (");
-                for (index, word) in command
-                    .words
-                    .iter()
-                    .flat_map(|words| words.iter())
-                    .enumerate()
-                {
-                    if index > 0 {
-                        self.write_space();
-                    }
-                    self.write_word(word);
-                }
-                self.write_text(")");
-                let close_span = match command.syntax {
-                    ForSyntax::ParenDoDone { done_span, .. } => command_done_close_span(
-                        self.source(),
-                        self.source_map(),
-                        command.span,
-                        Some(done_span),
-                    ),
-                    _ => None,
-                };
+            ForSyntax::ParenDoDone { done_span, .. } => {
+                self.write_parenthesized_word_list(command.words.as_deref());
+                let close_span = command_done_close_span(
+                    self.source(),
+                    self.source_map(),
+                    command.span,
+                    Some(done_span),
+                );
                 self.format_do_done_body(&command.body, command.span, close_span, "done")?;
             }
             ForSyntax::ParenDirect { .. } => {
-                self.write_text(" (");
-                for (index, word) in command
-                    .words
-                    .iter()
-                    .flat_map(|words| words.iter())
-                    .enumerate()
-                {
-                    if index > 0 {
-                        self.write_space();
-                    }
-                    self.write_word(word);
-                }
-                self.write_text(") ");
+                self.write_parenthesized_word_list(command.words.as_deref());
+                self.write_space();
                 self.format_inline_stmts(&command.body)?;
             }
             ForSyntax::InBrace { in_span, .. } => {
-                if let Some(words) = &command.words {
-                    self.write_text(" in");
-                    self.write_word_list_preserving_breaks_after(
-                        words,
-                        in_span.map(|span| span.end.offset),
-                    );
-                }
+                self.write_for_in_words(command.words.as_deref(), in_span);
                 self.write_text("; ");
                 self.format_brace_group(&command.body, Some(command.span.end.offset))?;
             }
             ForSyntax::ParenBrace { .. } => {
-                self.write_text(" (");
-                for (index, word) in command
-                    .words
-                    .iter()
-                    .flat_map(|words| words.iter())
-                    .enumerate()
-                {
-                    if index > 0 {
-                        self.write_space();
-                    }
-                    self.write_word(word);
-                }
-                self.write_text("); ");
+                self.write_parenthesized_word_list(command.words.as_deref());
+                self.write_text("; ");
                 self.format_brace_group(&command.body, Some(command.span.end.offset))?;
             }
         }
         Ok(())
     }
 
+    fn write_for_in_words(&mut self, words: Option<&[Word]>, in_span: Option<Span>) {
+        if let Some(words) = words {
+            self.write_text(" in");
+            self.write_word_list_preserving_breaks_after(
+                words,
+                in_span.map(|span| span.end.offset),
+            );
+        }
+    }
+
+    fn write_parenthesized_word_list(&mut self, words: Option<&[Word]>) {
+        self.write_text(" (");
+        if let Some(words) = words {
+            self.write_space_separated_words(words);
+        }
+        self.write_text(")");
+    }
+
+    fn write_space_separated_words(&mut self, words: &[Word]) {
+        for (index, word) in words.iter().enumerate() {
+            if index > 0 {
+                self.write_space();
+            }
+            self.write_word(word);
+        }
+    }
+
     fn format_repeat(&mut self, command: &RepeatCommand) -> Result<()> {
         self.write_text("repeat ");
         self.write_word(&command.count);
         match command.syntax {
-            RepeatSyntax::DoDone { .. } => {
-                let close_span = match command.syntax {
-                    RepeatSyntax::DoDone { done_span, .. } => command_done_close_span(
-                        self.source(),
-                        self.source_map(),
-                        command.span,
-                        Some(done_span),
-                    ),
-                    _ => None,
-                };
+            RepeatSyntax::DoDone { done_span, .. } => {
+                let close_span = command_done_close_span(
+                    self.source(),
+                    self.source_map(),
+                    command.span,
+                    Some(done_span),
+                );
                 self.format_do_done_body(&command.body, command.span, close_span, "done")?;
             }
             RepeatSyntax::Direct => {
@@ -3248,28 +3216,19 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.write_text(command.variable.as_ref());
         match command.syntax {
             ForeachSyntax::ParenBrace { .. } => {
-                self.write_text(" (");
-                for (index, word) in command.words.iter().enumerate() {
-                    if index > 0 {
-                        self.write_space();
-                    }
-                    self.write_word(word);
-                }
-                self.write_text(") ");
+                self.write_parenthesized_word_list(Some(&command.words));
+                self.write_space();
                 self.format_brace_group(&command.body, Some(command.span.end.offset))?;
             }
-            ForeachSyntax::InDoDone { .. } => {
+            ForeachSyntax::InDoDone { done_span, .. } => {
                 self.write_text(" in");
                 self.write_word_list_preserving_breaks(&command.words);
-                let close_span = match command.syntax {
-                    ForeachSyntax::InDoDone { done_span, .. } => command_done_close_span(
-                        self.source(),
-                        self.source_map(),
-                        command.span,
-                        Some(done_span),
-                    ),
-                    _ => None,
-                };
+                let close_span = command_done_close_span(
+                    self.source(),
+                    self.source_map(),
+                    command.span,
+                    Some(done_span),
+                );
                 self.format_do_done_body(&command.body, command.span, close_span, "done")?;
             }
         }
