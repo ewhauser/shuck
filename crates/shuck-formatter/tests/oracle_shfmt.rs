@@ -14,6 +14,7 @@ use similar::TextDiff;
 const MAX_ORACLE_DIFF_LINES: usize = 200;
 const MAX_LARGE_CORPUS_FAILURES: usize = 25;
 const SHFMT_LARGE_CORPUS_TIMEOUT: Duration = Duration::from_secs(10);
+const LARGE_CORPUS_MAX_DURATION: Duration = Duration::from_secs(60);
 const LARGE_CORPUS_PROGRESS_INTERVAL: usize = 1_000;
 const LARGE_CORPUS_SLOW_FIXTURE: Duration = Duration::from_secs(3);
 const LARGE_CORPUS_ENV: &str = "SHUCK_TEST_LARGE_CORPUS";
@@ -32,6 +33,17 @@ const LARGE_CORPUS_STATIC_IGNORE_SUFFIXES: &[&str] = &[
     "moovweb__gvm__examples__native__ltmain.sh",
     "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh",
 ];
+const LARGE_CORPUS_IGNORED_EXTENSIONS: &[&str] = &["fish"];
+const LARGE_CORPUS_IGNORED_FILE_PREFIXES: &[&str] = &["._"];
+const LARGE_CORPUS_IGNORED_FILE_SUFFIXES: &[&str] = &[
+    ".sample",
+    ".patch",
+    ".diff",
+    ".dpatch",
+    ".guess",
+    "config.sub",
+];
+const LARGE_CORPUS_IGNORED_FILE_CONTAINS: &[&str] = &["__.git__"];
 
 struct OracleCase {
     name: &'static str,
@@ -116,7 +128,10 @@ fn selected_fixtures_match_shfmt() {
         }
 
         let source = fs::read_to_string(fixture_root.join(case.fixture)).unwrap();
-        let shuck = run_shuck_formatter(&source, case.filename, &case.options);
+        let shuck = match try_run_shuck_formatter(&source, case.filename, &case.options).unwrap() {
+            FormattedSource::Unchanged => source.to_string(),
+            FormattedSource::Formatted(formatted) => formatted,
+        };
         let shfmt = run_shfmt(&source, case.filename, case.shfmt_flags);
 
         if let Some(mismatch) = render_oracle_mismatch(case.name, case.filename, &shfmt, &shuck) {
@@ -148,6 +163,7 @@ fn large_corpus_matches_shfmt() {
         return;
     };
 
+    let large_corpus_started = Instant::now();
     probe_shfmt().expect("shfmt not found on PATH; run under `nix develop`");
 
     let all_fixtures = collect_large_corpus_fixtures(&cfg.corpus_dir);
@@ -157,7 +173,10 @@ fn large_corpus_matches_shfmt() {
         cfg.corpus_dir.join("scripts").display()
     );
 
-    let fixtures = select_large_corpus_fixtures(all_fixtures, &cfg);
+    let fixtures = sample_fixtures(
+        shard_fixtures(all_fixtures, cfg.shard_index, cfg.total_shards),
+        cfg.sample_percent,
+    );
     assert!(
         !fixtures.is_empty(),
         "no large-corpus fixtures selected from {}",
@@ -188,7 +207,13 @@ fn large_corpus_matches_shfmt() {
     let mut mismatches = Vec::new();
 
     for result in results {
-        report_slow_large_corpus_fixture(&result.filename, result.elapsed);
+        if result.elapsed >= LARGE_CORPUS_SLOW_FIXTURE {
+            eprintln!(
+                "large corpus shfmt oracle slow fixture: {} took {:.1}s",
+                result.filename,
+                result.elapsed.as_secs_f64(),
+            );
+        }
         match result.comparison {
             LargeCorpusComparison::Matched => {
                 compared += 1;
@@ -214,8 +239,9 @@ fn large_corpus_matches_shfmt() {
         }
     }
 
+    let elapsed = large_corpus_started.elapsed();
     eprintln!(
-        "large corpus shfmt oracle summary: fixtures={} compared={} matched={} mismatches={} shuck_errors={} shfmt_skips={} unsupported_dialects={} non_utf8={}",
+        "large corpus shfmt oracle summary: fixtures={} compared={} matched={} mismatches={} shuck_errors={} shfmt_skips={} unsupported_dialects={} non_utf8={} elapsed={:.2}s max_elapsed={}s",
         fixtures.len(),
         compared,
         matched,
@@ -224,13 +250,28 @@ fn large_corpus_matches_shfmt() {
         shfmt_skips,
         unsupported_dialects,
         non_utf8,
+        elapsed.as_secs_f64(),
+        LARGE_CORPUS_MAX_DURATION.as_secs(),
     );
 
+    let timing_failure = if elapsed > LARGE_CORPUS_MAX_DURATION {
+        format!(
+            "large corpus shfmt oracle exceeded {}s limit (took {:.2}s)\n\n",
+            LARGE_CORPUS_MAX_DURATION.as_secs(),
+            elapsed.as_secs_f64(),
+        )
+    } else {
+        String::new()
+    };
+
     assert!(
-        shuck_errors.is_empty() && mismatches.is_empty(),
-        "large corpus shfmt oracle found {} shuck error(s) and {} mismatch(es):\n\n{}{}",
+        elapsed <= LARGE_CORPUS_MAX_DURATION && shuck_errors.is_empty() && mismatches.is_empty(),
+        "large corpus shfmt oracle found {} shuck error(s) and {} mismatch(es) in {:.2}s (limit {}s):\n\n{}{}{}",
         shuck_errors.len(),
         mismatches.len(),
+        elapsed.as_secs_f64(),
+        LARGE_CORPUS_MAX_DURATION.as_secs(),
+        timing_failure,
         format_failure_list("shuck formatter errors", &shuck_errors),
         format_failure_list("formatter mismatches", &mismatches),
     );
@@ -238,29 +279,18 @@ fn large_corpus_matches_shfmt() {
 
 impl LargeCorpusProgress {
     fn observe(&self, result: &LargeCorpusFixtureResult, total: usize) {
-        match &result.comparison {
-            LargeCorpusComparison::Matched => {
-                self.compared.fetch_add(1, Ordering::Relaxed);
-                self.matched.fetch_add(1, Ordering::Relaxed);
-            }
-            LargeCorpusComparison::Mismatch(_) => {
-                self.compared.fetch_add(1, Ordering::Relaxed);
-                self.mismatches.fetch_add(1, Ordering::Relaxed);
-            }
-            LargeCorpusComparison::ShuckError(_) => {
-                self.compared.fetch_add(1, Ordering::Relaxed);
-                self.shuck_errors.fetch_add(1, Ordering::Relaxed);
-            }
-            LargeCorpusComparison::ShfmtSkip => {
-                self.shfmt_skips.fetch_add(1, Ordering::Relaxed);
-            }
-            LargeCorpusComparison::UnsupportedDialect => {
-                self.unsupported_dialects.fetch_add(1, Ordering::Relaxed);
-            }
-            LargeCorpusComparison::NonUtf8 => {
-                self.non_utf8.fetch_add(1, Ordering::Relaxed);
-            }
+        let (counts_comparison, counter) = match &result.comparison {
+            LargeCorpusComparison::Matched => (true, &self.matched),
+            LargeCorpusComparison::Mismatch(_) => (true, &self.mismatches),
+            LargeCorpusComparison::ShuckError(_) => (true, &self.shuck_errors),
+            LargeCorpusComparison::ShfmtSkip => (false, &self.shfmt_skips),
+            LargeCorpusComparison::UnsupportedDialect => (false, &self.unsupported_dialects),
+            LargeCorpusComparison::NonUtf8 => (false, &self.non_utf8),
+        };
+        if counts_comparison {
+            self.compared.fetch_add(1, Ordering::Relaxed);
         }
+        counter.fetch_add(1, Ordering::Relaxed);
 
         let processed = self.processed.fetch_add(1, Ordering::Relaxed) + 1;
         if processed.is_multiple_of(LARGE_CORPUS_PROGRESS_INTERVAL) {
@@ -281,45 +311,33 @@ impl LargeCorpusProgress {
 fn compare_large_corpus_fixture(fixture: &LargeCorpusFixture) -> LargeCorpusFixtureResult {
     let fixture_started = Instant::now();
     let filename = fixture.cache_rel_path.to_string_lossy().into_owned();
+    let finish = |filename: String, comparison: LargeCorpusComparison| LargeCorpusFixtureResult {
+        filename,
+        elapsed: fixture_started.elapsed(),
+        comparison,
+    };
 
     let source = match fs::read_to_string(&fixture.path) {
         Ok(source) => source,
-        Err(_) => {
-            return LargeCorpusFixtureResult {
-                filename,
-                elapsed: fixture_started.elapsed(),
-                comparison: LargeCorpusComparison::NonUtf8,
-            };
-        }
+        Err(_) => return finish(filename, LargeCorpusComparison::NonUtf8),
     };
     let Some(format_config) = formatter_oracle_config(&source, &fixture.path) else {
-        return LargeCorpusFixtureResult {
-            filename,
-            elapsed: fixture_started.elapsed(),
-            comparison: LargeCorpusComparison::UnsupportedDialect,
-        };
+        return finish(filename, LargeCorpusComparison::UnsupportedDialect);
     };
 
     let shfmt = match try_run_shfmt(&source, &filename, format_config.shfmt_language) {
         Ok(output) => output,
-        Err(_) => {
-            return LargeCorpusFixtureResult {
-                filename,
-                elapsed: fixture_started.elapsed(),
-                comparison: LargeCorpusComparison::ShfmtSkip,
-            };
-        }
+        Err(_) => return finish(filename, LargeCorpusComparison::ShfmtSkip),
     };
 
     let shuck = match try_run_shuck_formatter(&source, &filename, &format_config.options) {
         Ok(FormattedSource::Unchanged) => source.clone(),
         Ok(FormattedSource::Formatted(formatted)) => formatted,
         Err(error) => {
-            return LargeCorpusFixtureResult {
-                filename: filename.clone(),
-                elapsed: fixture_started.elapsed(),
-                comparison: LargeCorpusComparison::ShuckError(format!("{filename}: {error}")),
-            };
+            return finish(
+                filename.clone(),
+                LargeCorpusComparison::ShuckError(format!("{filename}: {error}")),
+            );
         }
     };
 
@@ -327,14 +345,35 @@ fn compare_large_corpus_fixture(fixture: &LargeCorpusFixture) -> LargeCorpusFixt
         .map(LargeCorpusComparison::Mismatch)
         .unwrap_or(LargeCorpusComparison::Matched);
 
-    LargeCorpusFixtureResult {
-        filename,
-        elapsed: fixture_started.elapsed(),
-        comparison,
-    }
+    finish(filename, comparison)
 }
 
 impl OracleCase {
+    fn new(name: &'static str, fixture: &'static str) -> Self {
+        Self {
+            name,
+            fixture,
+            filename: fixture,
+            shfmt_flags: &[],
+            options: ShellFormatOptions::default(),
+        }
+    }
+
+    fn with_filename(mut self, filename: &'static str) -> Self {
+        self.filename = filename;
+        self
+    }
+
+    fn with_shfmt_flags(mut self, shfmt_flags: &'static [&'static str]) -> Self {
+        self.shfmt_flags = shfmt_flags;
+        self
+    }
+
+    fn with_options(mut self, options: ShellFormatOptions) -> Self {
+        self.options = options;
+        self
+    }
+
     fn is_supported(&self, shfmt: &ShfmtProbe) -> bool {
         self.shfmt_flags
             .iter()
@@ -371,13 +410,6 @@ fn probe_shfmt() -> Option<ShfmtProbe> {
     supported_flags.push_str(&String::from_utf8_lossy(&help.stderr));
 
     Some(ShfmtProbe { supported_flags })
-}
-
-fn run_shuck_formatter(source: &str, filename: &str, options: &ShellFormatOptions) -> String {
-    match try_run_shuck_formatter(source, filename, options).unwrap() {
-        FormattedSource::Unchanged => source.to_string(),
-        FormattedSource::Formatted(formatted) => formatted,
-    }
 }
 
 fn try_run_shuck_formatter(
@@ -504,16 +536,6 @@ fn collect_reader(
     }
 }
 
-fn report_slow_large_corpus_fixture(filename: &str, elapsed: Duration) {
-    if elapsed >= LARGE_CORPUS_SLOW_FIXTURE {
-        eprintln!(
-            "large corpus shfmt oracle slow fixture: {} took {:.1}s",
-            filename,
-            elapsed.as_secs_f64(),
-        );
-    }
-}
-
 fn render_oracle_mismatch(
     case_name: &str,
     filename: &str,
@@ -588,8 +610,8 @@ fn resolve_large_corpus_config() -> Option<LargeCorpusConfig> {
 
     for candidate in candidates {
         if let Some(corpus_dir) = normalize_large_corpus_root(&candidate) {
-            let total_shards = positive_env_int(LARGE_CORPUS_SHARDS_ENV, 1);
-            let shard_index = non_negative_env_int(LARGE_CORPUS_SHARD_ENV, 0);
+            let total_shards = filtered_env_int(LARGE_CORPUS_SHARDS_ENV, 1, |value| value > 0);
+            let shard_index = filtered_env_int(LARGE_CORPUS_SHARD_ENV, 0, |_| true);
             assert!(
                 shard_index < total_shards,
                 "{LARGE_CORPUS_SHARD_ENV}={shard_index}, want value in [0,{total_shards})"
@@ -599,7 +621,9 @@ fn resolve_large_corpus_config() -> Option<LargeCorpusConfig> {
                 corpus_dir,
                 shard_index,
                 total_shards,
-                sample_percent: percentage_env_int(LARGE_CORPUS_SAMPLE_PERCENT_ENV, 100),
+                sample_percent: filtered_env_int(LARGE_CORPUS_SAMPLE_PERCENT_ENV, 100, |value| {
+                    (1..=100).contains(&value)
+                }),
             });
         }
     }
@@ -672,73 +696,36 @@ fn collect_large_corpus_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
 }
 
 fn fixture_path_is_supported(path: &Path) -> bool {
-    !(path_is_statically_ignored_large_corpus_fixture(path)
-        || path_is_sample_file(path)
-        || path_is_fish_file(path)
-        || path_is_patch_file(path)
-        || path_is_appledouble_file(path)
-        || path_is_guess_file(path)
-        || path_is_config_sub_file(path)
-        || path_is_repo_git_entry(path))
-}
+    let path_text = path.to_string_lossy();
+    if LARGE_CORPUS_STATIC_IGNORE_SUFFIXES
+        .iter()
+        .any(|suffix| path_text.ends_with(suffix))
+        || path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| {
+                LARGE_CORPUS_IGNORED_EXTENSIONS
+                    .iter()
+                    .any(|ignored| ext.eq_ignore_ascii_case(ignored))
+            })
+    {
+        return false;
+    }
 
-fn path_matches_large_corpus_suffix(path: &Path, suffixes: &[&str]) -> bool {
-    let path = path.to_string_lossy();
-    suffixes.iter().any(|suffix| path.ends_with(suffix))
-}
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return true;
+    };
 
-fn path_is_statically_ignored_large_corpus_fixture(path: &Path) -> bool {
-    path_matches_large_corpus_suffix(path, LARGE_CORPUS_STATIC_IGNORE_SUFFIXES)
-}
-
-fn path_is_sample_file(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.ends_with(".sample"))
-}
-
-fn path_is_patch_file(path: &Path) -> bool {
-    let path = path.to_string_lossy().to_lowercase();
-    path.ends_with(".patch") || path.ends_with(".diff") || path.ends_with(".dpatch")
-}
-
-fn path_is_fish_file(path: &Path) -> bool {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("fish"))
-}
-
-fn path_is_appledouble_file(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.starts_with("._"))
-}
-
-fn path_is_guess_file(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.to_ascii_lowercase().ends_with(".guess"))
-}
-
-fn path_is_config_sub_file(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.to_ascii_lowercase().ends_with("config.sub"))
-}
-
-fn path_is_repo_git_entry(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.contains("__.git__"))
-}
-
-fn select_large_corpus_fixtures(
-    mut fixtures: Vec<LargeCorpusFixture>,
-    cfg: &LargeCorpusConfig,
-) -> Vec<LargeCorpusFixture> {
-    fixtures = shard_fixtures(fixtures, cfg.shard_index, cfg.total_shards);
-    fixtures = sample_fixtures(fixtures, cfg.sample_percent);
-    fixtures
+    let lower_name = name.to_ascii_lowercase();
+    !(LARGE_CORPUS_IGNORED_FILE_PREFIXES
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+        || LARGE_CORPUS_IGNORED_FILE_SUFFIXES
+            .iter()
+            .any(|suffix| lower_name.ends_with(suffix))
+        || LARGE_CORPUS_IGNORED_FILE_CONTAINS
+            .iter()
+            .any(|needle| name.contains(needle)))
 }
 
 fn shard_fixtures(
@@ -764,26 +751,16 @@ fn sample_fixtures(
 
     fixtures
         .into_iter()
-        .filter(|fixture| fixture_selected_for_sample(fixture, sample_percent))
+        .filter(|fixture| {
+            let key = fixture.cache_rel_path.to_string_lossy();
+            let mut hash = 0xcbf29ce484222325u64;
+            for byte in key.as_bytes() {
+                hash ^= u64::from(*byte);
+                hash = hash.wrapping_mul(0x100000001b3);
+            }
+            hash % 100 < sample_percent as u64
+        })
         .collect()
-}
-
-fn fixture_selected_for_sample(fixture: &LargeCorpusFixture, sample_percent: usize) -> bool {
-    if sample_percent >= 100 {
-        return true;
-    }
-
-    let key = fixture.cache_rel_path.to_string_lossy();
-    stable_sample_hash(&key) % 100 < sample_percent as u64
-}
-
-fn stable_sample_hash(value: &str) -> u64 {
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in value.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    hash
 }
 
 fn format_failure_list(title: &str, failures: &[String]) -> String {
@@ -812,114 +789,43 @@ fn env_truthy(name: &str, default: bool) -> bool {
         .unwrap_or(default)
 }
 
-fn positive_env_int(name: &str, default: usize) -> usize {
+fn filtered_env_int(name: &str, default: usize, predicate: impl Fn(usize) -> bool) -> usize {
     std::env::var(name)
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(default)
-}
-
-fn non_negative_env_int(name: &str, default: usize) -> usize {
-    std::env::var(name)
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or(default)
-}
-
-fn percentage_env_int(name: &str, default: usize) -> usize {
-    std::env::var(name)
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .filter(|value| (1..=100).contains(value))
+        .filter(|value| predicate(*value))
         .unwrap_or(default)
 }
 
 fn oracle_cases() -> Vec<OracleCase> {
     vec![
-        OracleCase {
-            name: "function next line",
-            fixture: "function_next_line.sh",
-            filename: "function_next_line.sh",
-            shfmt_flags: &["-fn"],
-            options: ShellFormatOptions::default().with_function_next_line(true),
-        },
-        OracleCase {
-            name: "case arms",
-            fixture: "case_default.sh",
-            filename: "case_default.sh",
-            shfmt_flags: &[],
-            options: ShellFormatOptions::default(),
-        },
-        OracleCase {
-            name: "space redirects",
-            fixture: "space_redirects.sh",
-            filename: "space_redirects.sh",
-            shfmt_flags: &["-sr"],
-            options: ShellFormatOptions::default().with_space_redirects(true),
-        },
-        OracleCase {
-            name: "keep padding",
-            fixture: "keep_padding.sh",
-            filename: "keep_padding.sh",
-            shfmt_flags: &["-kp"],
-            options: ShellFormatOptions::default().with_keep_padding(true),
-        },
-        OracleCase {
-            name: "nested heredoc",
-            fixture: "nested_heredoc.sh",
-            filename: "nested_heredoc.sh",
-            shfmt_flags: &[],
-            options: ShellFormatOptions::default(),
-        },
-        OracleCase {
-            name: "if body comment",
-            fixture: "if_body_comment.sh",
-            filename: "if_body_comment.sh",
-            shfmt_flags: &[],
-            options: ShellFormatOptions::default(),
-        },
-        OracleCase {
-            name: "heredoc trailing comment",
-            fixture: "heredoc_trailing_comment.sh",
-            filename: "heredoc_trailing_comment.sh",
-            shfmt_flags: &[],
-            options: ShellFormatOptions::default(),
-        },
-        OracleCase {
-            name: "declare heredoc",
-            fixture: "decl_heredoc.sh",
-            filename: "decl_heredoc.sh",
-            shfmt_flags: &[],
-            options: ShellFormatOptions::default(),
-        },
-        OracleCase {
-            name: "binary next line",
-            fixture: "binary_next_line.sh",
-            filename: "binary_next_line.sh",
-            shfmt_flags: &["-bn"],
-            options: ShellFormatOptions::default().with_binary_next_line(true),
-        },
-        OracleCase {
-            name: "simplify",
-            fixture: "simplify.sh",
-            filename: "simplify.bash",
-            shfmt_flags: &["-s"],
-            options: ShellFormatOptions::default().with_simplify(true),
-        },
-        OracleCase {
-            name: "minify",
-            fixture: "minify.sh",
-            filename: "minify.sh",
-            shfmt_flags: &["-mn"],
-            options: ShellFormatOptions::default().with_minify(true),
-        },
-        OracleCase {
-            name: "mksh select",
-            fixture: "mksh_select.sh",
-            filename: "script.mksh",
-            shfmt_flags: &["-ln=mksh"],
-            options: ShellFormatOptions::default().with_dialect(ShellDialect::Mksh),
-        },
+        OracleCase::new("function next line", "function_next_line.sh")
+            .with_shfmt_flags(&["-fn"])
+            .with_options(ShellFormatOptions::default().with_function_next_line(true)),
+        OracleCase::new("case arms", "case_default.sh"),
+        OracleCase::new("space redirects", "space_redirects.sh")
+            .with_shfmt_flags(&["-sr"])
+            .with_options(ShellFormatOptions::default().with_space_redirects(true)),
+        OracleCase::new("keep padding", "keep_padding.sh")
+            .with_shfmt_flags(&["-kp"])
+            .with_options(ShellFormatOptions::default().with_keep_padding(true)),
+        OracleCase::new("nested heredoc", "nested_heredoc.sh"),
+        OracleCase::new("if body comment", "if_body_comment.sh"),
+        OracleCase::new("heredoc trailing comment", "heredoc_trailing_comment.sh"),
+        OracleCase::new("declare heredoc", "decl_heredoc.sh"),
+        OracleCase::new("binary next line", "binary_next_line.sh")
+            .with_shfmt_flags(&["-bn"])
+            .with_options(ShellFormatOptions::default().with_binary_next_line(true)),
+        OracleCase::new("simplify", "simplify.sh")
+            .with_filename("simplify.bash")
+            .with_shfmt_flags(&["-s"])
+            .with_options(ShellFormatOptions::default().with_simplify(true)),
+        OracleCase::new("minify", "minify.sh")
+            .with_shfmt_flags(&["-mn"])
+            .with_options(ShellFormatOptions::default().with_minify(true)),
+        OracleCase::new("mksh select", "mksh_select.sh")
+            .with_filename("script.mksh")
+            .with_shfmt_flags(&["-ln=mksh"])
+            .with_options(ShellFormatOptions::default().with_dialect(ShellDialect::Mksh)),
     ]
 }
