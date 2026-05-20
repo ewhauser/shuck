@@ -195,25 +195,28 @@ fn stmt_has_multiline_literal_source(stmt: &Stmt, source: &str) -> bool {
             .any(|redirect| redirect_has_multiline_literal_source(redirect, source))
 }
 
+fn words_have_multiline_literal_source(words: &[Word], source: &str) -> bool {
+    words
+        .iter()
+        .any(|word| word_has_multiline_literal_source(word, source))
+}
+
+fn assignments_have_multiline_literal_source(assignments: &[Assignment], source: &str) -> bool {
+    assignments
+        .iter()
+        .any(|assignment| assignment_has_multiline_literal_source(assignment, source))
+}
+
 fn command_has_multiline_literal_source(command: &Command, source: &str) -> bool {
     match command {
         Command::Simple(command) => {
             word_has_multiline_literal_source(&command.name, source)
-                || command
-                    .args
-                    .iter()
-                    .any(|word| word_has_multiline_literal_source(word, source))
-                || command
-                    .assignments
-                    .iter()
-                    .any(|assignment| assignment_has_multiline_literal_source(assignment, source))
+                || words_have_multiline_literal_source(&command.args, source)
+                || assignments_have_multiline_literal_source(&command.assignments, source)
         }
         Command::Builtin(command) => builtin_has_multiline_literal_source(command, source),
         Command::Decl(command) => {
-            command
-                .assignments
-                .iter()
-                .any(|assignment| assignment_has_multiline_literal_source(assignment, source))
+            assignments_have_multiline_literal_source(&command.assignments, source)
                 || command.operands.iter().any(|operand| match operand {
                     shuck_ast::DeclOperand::Flag(word) | shuck_ast::DeclOperand::Dynamic(word) => {
                         word_has_multiline_literal_source(word, source)
@@ -231,10 +234,7 @@ fn command_has_multiline_literal_source(command: &Command, source: &str) -> bool
         Command::Compound(command) => compound_has_multiline_literal_source(command, source),
         Command::Function(command) => stmt_has_multiline_literal_source(&command.body, source),
         Command::AnonymousFunction(command) => {
-            command
-                .args
-                .iter()
-                .any(|word| word_has_multiline_literal_source(word, source))
+            words_have_multiline_literal_source(&command.args, source)
                 || stmt_has_multiline_literal_source(&command.body, source)
         }
     }
@@ -276,12 +276,8 @@ fn builtin_args_have_multiline_literal_source(
     source: &str,
 ) -> bool {
     optional_word_has_multiline_literal_source(primary, source)
-        || extra_args
-            .iter()
-            .any(|word| word_has_multiline_literal_source(word, source))
-        || assignments
-            .iter()
-            .any(|assignment| assignment_has_multiline_literal_source(assignment, source))
+        || words_have_multiline_literal_source(extra_args, source)
+        || assignments_have_multiline_literal_source(assignments, source)
 }
 
 fn optional_word_has_multiline_literal_source(word: Option<&Word>, source: &str) -> bool {
@@ -307,11 +303,10 @@ fn compound_has_multiline_literal_source(command: &CompoundCommand, source: &str
                 .targets
                 .iter()
                 .any(|target| word_has_multiline_literal_source(&target.word, source))
-                || command.words.as_ref().is_some_and(|words| {
-                    words
-                        .iter()
-                        .any(|word| word_has_multiline_literal_source(word, source))
-                })
+                || command
+                    .words
+                    .as_deref()
+                    .is_some_and(|words| words_have_multiline_literal_source(words, source))
                 || stmt_seq_has_multiline_literal_source(&command.body, source)
         }
         CompoundCommand::Repeat(command) => {
@@ -319,10 +314,7 @@ fn compound_has_multiline_literal_source(command: &CompoundCommand, source: &str
                 || stmt_seq_has_multiline_literal_source(&command.body, source)
         }
         CompoundCommand::Foreach(command) => {
-            command
-                .words
-                .iter()
-                .any(|word| word_has_multiline_literal_source(word, source))
+            words_have_multiline_literal_source(&command.words, source)
                 || stmt_seq_has_multiline_literal_source(&command.body, source)
         }
         CompoundCommand::ArithmeticFor(command) => {
@@ -344,10 +336,7 @@ fn compound_has_multiline_literal_source(command: &CompoundCommand, source: &str
                     .any(|item| stmt_seq_has_multiline_literal_source(&item.body, source))
         }
         CompoundCommand::Select(command) => {
-            command
-                .words
-                .iter()
-                .any(|word| word_has_multiline_literal_source(word, source))
+            words_have_multiline_literal_source(&command.words, source)
                 || stmt_seq_has_multiline_literal_source(&command.body, source)
         }
         CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
