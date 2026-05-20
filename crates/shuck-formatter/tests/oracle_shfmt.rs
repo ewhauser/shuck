@@ -128,7 +128,10 @@ fn selected_fixtures_match_shfmt() {
         }
 
         let source = fs::read_to_string(fixture_root.join(case.fixture)).unwrap();
-        let shuck = run_shuck_formatter(&source, case.filename, &case.options);
+        let shuck = match try_run_shuck_formatter(&source, case.filename, &case.options).unwrap() {
+            FormattedSource::Unchanged => source.to_string(),
+            FormattedSource::Formatted(formatted) => formatted,
+        };
         let shfmt = run_shfmt(&source, case.filename, case.shfmt_flags);
 
         if let Some(mismatch) = render_oracle_mismatch(case.name, case.filename, &shfmt, &shuck) {
@@ -299,45 +302,33 @@ impl LargeCorpusProgress {
 fn compare_large_corpus_fixture(fixture: &LargeCorpusFixture) -> LargeCorpusFixtureResult {
     let fixture_started = Instant::now();
     let filename = fixture.cache_rel_path.to_string_lossy().into_owned();
+    let finish = |filename: String, comparison: LargeCorpusComparison| LargeCorpusFixtureResult {
+        filename,
+        elapsed: fixture_started.elapsed(),
+        comparison,
+    };
 
     let source = match fs::read_to_string(&fixture.path) {
         Ok(source) => source,
-        Err(_) => {
-            return LargeCorpusFixtureResult {
-                filename,
-                elapsed: fixture_started.elapsed(),
-                comparison: LargeCorpusComparison::NonUtf8,
-            };
-        }
+        Err(_) => return finish(filename, LargeCorpusComparison::NonUtf8),
     };
     let Some(format_config) = formatter_oracle_config(&source, &fixture.path) else {
-        return LargeCorpusFixtureResult {
-            filename,
-            elapsed: fixture_started.elapsed(),
-            comparison: LargeCorpusComparison::UnsupportedDialect,
-        };
+        return finish(filename, LargeCorpusComparison::UnsupportedDialect);
     };
 
     let shfmt = match try_run_shfmt(&source, &filename, format_config.shfmt_language) {
         Ok(output) => output,
-        Err(_) => {
-            return LargeCorpusFixtureResult {
-                filename,
-                elapsed: fixture_started.elapsed(),
-                comparison: LargeCorpusComparison::ShfmtSkip,
-            };
-        }
+        Err(_) => return finish(filename, LargeCorpusComparison::ShfmtSkip),
     };
 
     let shuck = match try_run_shuck_formatter(&source, &filename, &format_config.options) {
         Ok(FormattedSource::Unchanged) => source.clone(),
         Ok(FormattedSource::Formatted(formatted)) => formatted,
         Err(error) => {
-            return LargeCorpusFixtureResult {
-                filename: filename.clone(),
-                elapsed: fixture_started.elapsed(),
-                comparison: LargeCorpusComparison::ShuckError(format!("{filename}: {error}")),
-            };
+            return finish(
+                filename.clone(),
+                LargeCorpusComparison::ShuckError(format!("{filename}: {error}")),
+            );
         }
     };
 
@@ -345,11 +336,7 @@ fn compare_large_corpus_fixture(fixture: &LargeCorpusFixture) -> LargeCorpusFixt
         .map(LargeCorpusComparison::Mismatch)
         .unwrap_or(LargeCorpusComparison::Matched);
 
-    LargeCorpusFixtureResult {
-        filename,
-        elapsed: fixture_started.elapsed(),
-        comparison,
-    }
+    finish(filename, comparison)
 }
 
 impl OracleCase {
@@ -414,13 +401,6 @@ fn probe_shfmt() -> Option<ShfmtProbe> {
     supported_flags.push_str(&String::from_utf8_lossy(&help.stderr));
 
     Some(ShfmtProbe { supported_flags })
-}
-
-fn run_shuck_formatter(source: &str, filename: &str, options: &ShellFormatOptions) -> String {
-    match try_run_shuck_formatter(source, filename, options).unwrap() {
-        FormattedSource::Unchanged => source.to_string(),
-        FormattedSource::Formatted(formatted) => formatted,
-    }
 }
 
 fn try_run_shuck_formatter(
@@ -631,8 +611,8 @@ fn resolve_large_corpus_config() -> Option<LargeCorpusConfig> {
 
     for candidate in candidates {
         if let Some(corpus_dir) = normalize_large_corpus_root(&candidate) {
-            let total_shards = positive_env_int(LARGE_CORPUS_SHARDS_ENV, 1);
-            let shard_index = non_negative_env_int(LARGE_CORPUS_SHARD_ENV, 0);
+            let total_shards = filtered_env_int(LARGE_CORPUS_SHARDS_ENV, 1, |value| value > 0);
+            let shard_index = filtered_env_int(LARGE_CORPUS_SHARD_ENV, 0, |_| true);
             assert!(
                 shard_index < total_shards,
                 "{LARGE_CORPUS_SHARD_ENV}={shard_index}, want value in [0,{total_shards})"
@@ -642,7 +622,9 @@ fn resolve_large_corpus_config() -> Option<LargeCorpusConfig> {
                 corpus_dir,
                 shard_index,
                 total_shards,
-                sample_percent: percentage_env_int(LARGE_CORPUS_SAMPLE_PERCENT_ENV, 100),
+                sample_percent: filtered_env_int(LARGE_CORPUS_SAMPLE_PERCENT_ENV, 100, |value| {
+                    (1..=100).contains(&value)
+                }),
             });
         }
     }
@@ -715,7 +697,7 @@ fn collect_large_corpus_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
 }
 
 fn fixture_path_is_supported(path: &Path) -> bool {
-    !(path_is_statically_ignored_large_corpus_fixture(path)
+    !(path_matches_large_corpus_suffix(path, LARGE_CORPUS_STATIC_IGNORE_SUFFIXES)
         || path_extension_matches(path, LARGE_CORPUS_IGNORED_EXTENSIONS)
         || path_file_name_matches(
             path,
@@ -728,10 +710,6 @@ fn fixture_path_is_supported(path: &Path) -> bool {
 fn path_matches_large_corpus_suffix(path: &Path, suffixes: &[&str]) -> bool {
     let path = path.to_string_lossy();
     suffixes.iter().any(|suffix| path.ends_with(suffix))
-}
-
-fn path_is_statically_ignored_large_corpus_fixture(path: &Path) -> bool {
-    path_matches_large_corpus_suffix(path, LARGE_CORPUS_STATIC_IGNORE_SUFFIXES)
 }
 
 fn path_extension_matches(path: &Path, extensions: &[&str]) -> bool {
@@ -846,18 +824,6 @@ fn filtered_env_int(name: &str, default: usize, predicate: impl Fn(usize) -> boo
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|value| predicate(*value))
         .unwrap_or(default)
-}
-
-fn positive_env_int(name: &str, default: usize) -> usize {
-    filtered_env_int(name, default, |value| value > 0)
-}
-
-fn non_negative_env_int(name: &str, default: usize) -> usize {
-    filtered_env_int(name, default, |_| true)
-}
-
-fn percentage_env_int(name: &str, default: usize) -> usize {
-    filtered_env_int(name, default, |value| (1..=100).contains(&value))
 }
 
 fn oracle_cases() -> Vec<OracleCase> {
