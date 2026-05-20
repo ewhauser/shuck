@@ -499,6 +499,11 @@ mod tests {
     }
 
     #[track_caller]
+    fn assert_unchanged_default(source: &str) {
+        assert_unchanged(source, None, &ShellFormatOptions::default());
+    }
+
+    #[track_caller]
     fn assert_unchanged_with_ast(source: &str, path: Option<&Path>, options: &ShellFormatOptions) {
         assert_unchanged(source, path, options);
         assert_source_and_ast_paths_match(source, path, options);
@@ -1076,46 +1081,27 @@ mod tests {
 
     #[test]
     fn formats_decl_heredoc_heads_structurally() {
-        let formatted = format_source(
+        assert_formats(
             "declare -x foo=1<<EOF\nhi\nEOF\n",
-            None,
-            &ShellFormatOptions::default(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("declare -x foo=1 <<EOF\nhi\nEOF\n".to_string())
+            "declare -x foo=1 <<EOF\nhi\nEOF\n",
         );
     }
 
     #[test]
     fn standalone_assignments_do_not_gain_trailing_spaces() {
-        let formatted = format_source("x=1\n", None, &ShellFormatOptions::default()).unwrap();
-
-        assert_eq!(formatted, FormattedSource::Unchanged);
+        assert_unchanged_default("x=1\n");
     }
 
     #[test]
     fn preserves_blank_lines_between_commands() {
-        let formatted =
-            format_source("set -u\n\nfoo\n", None, &ShellFormatOptions::default()).unwrap();
-
-        assert_eq!(formatted, FormattedSource::Unchanged);
+        assert_unchanged_default("set -u\n\nfoo\n");
     }
 
     #[test]
     fn collapses_extra_blank_lines_between_items() {
-        let formatted = format_source(
+        assert_formats(
             "set -u\n\n\n# ready\n\n\nfoo\n",
-            None,
-            &ShellFormatOptions::default(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("set -u\n\n# ready\n\nfoo\n".to_string())
+            "set -u\n\n# ready\n\nfoo\n",
         );
     }
 
@@ -1123,40 +1109,23 @@ mod tests {
     fn preserves_blank_lines_after_functions() {
         let source = "foo() {\n  echo hi\n}\n\nbar\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-        let formatted =
-            format_source(source, Some(Path::new("function_gap.bash")), &options).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("foo() {\n\techo hi\n}\n\nbar\n".to_string())
+        assert_formats_to(
+            source,
+            Some(Path::new("function_gap.bash")),
+            &options,
+            "foo() {\n\techo hi\n}\n\nbar\n",
         );
     }
 
     #[test]
     fn preserves_blank_lines_after_leading_comments() {
-        let formatted = format_source(
-            "#!/usr/bin/env bash\n\nset -u\n",
-            None,
-            &ShellFormatOptions::default(),
-        )
-        .unwrap();
-
-        assert_eq!(formatted, FormattedSource::Unchanged);
+        assert_unchanged_default("#!/usr/bin/env bash\n\nset -u\n");
     }
 
     #[test]
     fn trims_trailing_comment_whitespace() {
-        let formatted = format_source(
-            "# note \nfoo # bar\t\n",
-            None,
-            &ShellFormatOptions::default(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("# note\nfoo # bar\n".to_string())
-        );
+        assert_formats("# note \nfoo # bar\t\n", "# note\nfoo # bar\n");
     }
 
     #[test]
@@ -1189,9 +1158,8 @@ mod tests {
     #[test]
     fn preserves_escaped_quotes_in_double_quoted_assignments() {
         let source = "fzf_completion=\"source \\\"$fzf_base/shell/completion.${shell}\\\"\"\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(formatted, FormattedSource::Unchanged);
+        assert_unchanged_default(source);
     }
 
     #[test]
@@ -1205,9 +1173,8 @@ mod tests {
     #[test]
     fn preserves_prompt_escapes_in_double_quoted_assignments() {
         let source = "PS1=\"\\u:\\W \\$ \"\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(formatted, FormattedSource::Unchanged);
+        assert_unchanged_default(source);
     }
 
     #[test]
@@ -1632,24 +1599,21 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn preserves_nested_parameter_expansions_inside_quoted_strings() {
         let source = "nvm_err \"N/A: version \\\"${PREFIXED_VERSION:-$PROVIDED_VERSION}\\\" is not yet installed.\"\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(formatted, FormattedSource::Unchanged);
+        assert_unchanged_default(source);
     }
 
     #[test]
     fn preserves_default_redirect_spacing_without_space_redirects() {
         let source = "archi=$(uname -smo 2> /dev/null || uname -sm)\n";
         let options = ShellFormatOptions::default();
-        let formatted = format_source(source, None, &options).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "archi=$(uname -smo 2>/dev/null || uname -sm)\n".to_string()
-            )
+        assert_formats_to_with_ast(
+            source,
+            None,
+            &options,
+            "archi=$(uname -smo 2>/dev/null || uname -sm)\n",
         );
-        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
@@ -2672,23 +2636,15 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn formats_arithmetic_expansions_from_ruby_build() {
         let source = "echo $(( ver[0]*100 + ver[1] ))\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("echo $((ver[0] * 100 + ver[1]))\n".to_string())
-        );
+        assert_formats(source, "echo $((ver[0] * 100 + ver[1]))\n");
     }
 
     #[test]
     fn trims_arithmetic_command_delimiter_padding() {
         let source = "if (( EUID == 0 )); then\n  abort root\nfi\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("if ((EUID == 0)); then\n\tabort root\nfi\n".to_string())
-        );
+        assert_formats(source, "if ((EUID == 0)); then\n\tabort root\nfi\n");
     }
 
     #[test]
@@ -2741,12 +2697,8 @@ $WHITE\$ $LIGHT_BLUE)-$YELLOW-$NO_COLOUR "
     #[test]
     fn formats_shell_style_variables_inside_arithmetic_expansions_like_shfmt() {
         let source = "index=$(($index+1))\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted("index=$(($index + 1))\n".to_string())
-        );
+        assert_formats(source, "index=$(($index + 1))\n");
     }
 
     #[test]
