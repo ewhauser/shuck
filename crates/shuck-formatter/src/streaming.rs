@@ -38,7 +38,7 @@ use crate::scan::{
     last_uncommented_shell_keyword_before, line_indent_before_offset,
     operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line,
     own_line_comments_in_region as scan_own_line_comments_in_region, redirect_operator_end,
-    shell_keyword_at, skip_double_quoted, skip_single_quoted,
+    shell_keyword_at, skip_double_quoted, skip_single_quoted, source_between_offsets,
 };
 use crate::word::{
     assignment_value_has_multiline_literal_source as assignment_has_multiline_literal_source,
@@ -6486,17 +6486,12 @@ fn last_shell_keyword_span(
 }
 
 fn gap_has_blank_line(source: &str, start: usize, end: usize) -> bool {
-    let lower = start.min(end).min(source.len());
-    let upper = start.max(end).min(source.len());
-    source
-        .get(lower..upper)
+    source_between_offsets(source, start, end)
         .is_some_and(|gap| gap.bytes().filter(|byte| *byte == b'\n').count() >= 2)
 }
 
 fn gap_has_empty_physical_line(source: &str, start: usize, end: usize) -> bool {
-    let lower = start.min(end).min(source.len());
-    let upper = start.max(end).min(source.len());
-    let Some(gap) = source.get(lower..upper) else {
+    let Some(gap) = source_between_offsets(source, start, end) else {
         return false;
     };
     let bytes = gap.as_bytes();
@@ -6517,9 +6512,7 @@ fn gap_has_empty_physical_line(source: &str, start: usize, end: usize) -> bool {
 }
 
 fn gap_starts_with_empty_physical_line(source: &str, start: usize, end: usize) -> bool {
-    let lower = start.min(end).min(source.len());
-    let upper = start.max(end).min(source.len());
-    let Some(gap) = source.get(lower..upper) else {
+    let Some(gap) = source_between_offsets(source, start, end) else {
         return false;
     };
     for byte in gap.bytes() {

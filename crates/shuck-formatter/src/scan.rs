@@ -272,12 +272,14 @@ pub(crate) fn line_indent_before_offset(source: &str, offset: usize) -> Option<&
     line.get(..indent_end)
 }
 
-pub(crate) fn has_newline_between_offsets(source: &str, start: usize, end: usize) -> bool {
+pub(crate) fn source_between_offsets(source: &str, start: usize, end: usize) -> Option<&str> {
     let lower = start.min(end).min(source.len());
     let upper = start.max(end).min(source.len());
-    source
-        .get(lower..upper)
-        .is_some_and(|between| between.contains('\n'))
+    source.get(lower..upper)
+}
+
+pub(crate) fn has_newline_between_offsets(source: &str, start: usize, end: usize) -> bool {
+    source_between_offsets(source, start, end).is_some_and(|between| between.contains('\n'))
 }
 
 pub(crate) fn close_suffix_comment_offsets(
