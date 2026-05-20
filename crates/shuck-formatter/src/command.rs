@@ -669,17 +669,7 @@ fn line_continuation_is_inside_unclosed_substitution(line: &str) -> bool {
 
 fn multiline_compound_assignment_common_body_indent(lines: &[&str], open_inline: bool) -> String {
     let mut common: Option<String> = None;
-    for (index, line) in lines.iter().enumerate() {
-        if index == 0 && open_inline {
-            continue;
-        }
-        let trimmed = line.trim_start_matches([' ', '\t']);
-        if trimmed.is_empty() {
-            continue;
-        }
-        if trimmed.starts_with(')') || trimmed.starts_with('#') {
-            continue;
-        }
+    for line in multiline_compound_assignment_body_lines(lines, open_inline) {
         let indent = leading_shell_indent(line);
         if indent.is_empty() {
             continue;
@@ -697,17 +687,8 @@ fn multiline_compound_assignment_residual_space_indent_width(
     open_inline: bool,
 ) -> usize {
     let mut width = None::<usize>;
-    for (index, line) in lines.iter().enumerate() {
-        if index == 0 && open_inline {
-            continue;
-        }
+    for line in multiline_compound_assignment_body_lines(lines, open_inline) {
         let trimmed = line.trim_start_matches([' ', '\t']);
-        if trimmed.is_empty() {
-            continue;
-        }
-        if trimmed.starts_with(')') || trimmed.starts_with('#') {
-            continue;
-        }
         let stripped = line.strip_prefix(common_indent).unwrap_or(trimmed);
         let indent = leading_shell_indent(stripped);
         if indent.is_empty() || indent.contains('\t') {
@@ -716,6 +697,22 @@ fn multiline_compound_assignment_residual_space_indent_width(
         width = Some(width.map_or(indent.len(), |current| current.min(indent.len())));
     }
     width.unwrap_or(1).max(1)
+}
+
+fn multiline_compound_assignment_body_lines<'a>(
+    lines: &'a [&'a str],
+    open_inline: bool,
+) -> impl Iterator<Item = &'a str> + 'a {
+    lines.iter().enumerate().filter_map(move |(index, line)| {
+        if index == 0 && open_inline {
+            return None;
+        }
+        let trimmed = line.trim_start_matches([' ', '\t']);
+        if trimmed.is_empty() || trimmed.starts_with(')') || trimmed.starts_with('#') {
+            return None;
+        }
+        Some(*line)
+    })
 }
 
 fn canonicalize_multiline_compound_assignment_residual_indent(
