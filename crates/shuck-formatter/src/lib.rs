@@ -3984,13 +3984,10 @@ function R() {
         );
     }
 
-    #[test]
-    fn tab_stripping_heredocs_indent_body_with_context() {
-        let source = "case $mode in\nnew)\n  cat >$file <<-EOF\nbody\nEOF\n  ;;\nesac\n";
-        assert_formats_default_with_ast(
-            source,
-            "case $mode in\nnew)\n\tcat >$file <<-EOF\n\t\tbody\n\tEOF\n\t;;\nesac\n",
-        );
+    default_format_ast_cases! {
+        tab_stripping_heredocs_indent_body_with_context:
+            "case $mode in\nnew)\n  cat >$file <<-EOF\nbody\nEOF\n  ;;\nesac\n"
+            => "case $mode in\nnew)\n\tcat >$file <<-EOF\n\t\tbody\n\tEOF\n\t;;\nesac\n";
     }
 
     #[test]
@@ -4027,115 +4024,51 @@ function R() {
         assert_formats(source, "case $x in\na) echo a ;;\nb) echo b ;;\nesac\n");
     }
 
-    #[test]
-    fn keeps_inline_case_inside_if_command_lists() {
-        let source = "if case \"${icon_name}\" in \"/\"*) true ;; *) false ;; esac &&\n  [ -e \"${icon_name}\" ]; then\n  echo yes\nfi\n";
-        assert_formats_default_with_ast(
-            source,
-            "if case \"${icon_name}\" in \"/\"*) true ;; *) false ;; esac &&\n\t[ -e \"${icon_name}\" ]; then\n\techo yes\nfi\n",
-        );
+    default_format_ast_cases! {
+        keeps_inline_case_inside_if_command_lists:
+            "if case \"${icon_name}\" in \"/\"*) true ;; *) false ;; esac &&\n  [ -e \"${icon_name}\" ]; then\n  echo yes\nfi\n"
+            => "if case \"${icon_name}\" in \"/\"*) true ;; *) false ;; esac &&\n\t[ -e \"${icon_name}\" ]; then\n\techo yes\nfi\n";
+        keeps_standalone_inline_case_commands:
+            "for src in $source; do\n  case \"$src\" in */*) continue ;; esac\n  echo \"$src\"\ndone\n"
+            => "for src in $source; do\n\tcase \"$src\" in */*) continue ;; esac\n\techo \"$src\"\ndone\n";
+        keeps_inline_case_commands_with_missing_terminators:
+            "shellspec_is_number() {\n  case ${1:-} in ( '' | *[!0-9]* ) return 1; esac\n  return 0\n}\n"
+            => "shellspec_is_number() {\n\tcase ${1:-} in '' | *[!0-9]*) return 1 ;; esac\n\treturn 0\n}\n";
+        keeps_inline_case_arms_inside_command_substitutions:
+            "value=\"$(\n  while read -r key; do\n    case \"$key\" in\n    A) echo A ;;\n    B) echo B ;;\n    esac\n  done\n)\"\n\n# later comment\nnext() { :; }\n"
+            => "value=\"$(\n\twhile read -r key; do\n\t\tcase \"$key\" in\n\t\tA) echo A ;;\n\t\tB) echo B ;;\n\t\tesac\n\tdone\n)\"\n\n# later comment\nnext() { :; }\n";
+        keeps_case_items_multiline_when_terminator_was_multiline:
+            "case \"$x\" in\n-h|--help)  usage\n            ;;\nesac\n"
+            => "case \"$x\" in\n-h | --help)\n\tusage\n\t;;\nesac\n";
+        keeps_inline_case_item_when_terminator_is_missing:
+            "case \"$x\" in\n*)  usage\nesac\n"
+            => "case \"$x\" in\n*) usage ;;\nesac\n";
+        keeps_case_header_items_inline_when_later_body_wraps:
+            "case \"$mode\" in a) ;; b) ;; c)\n  echo c\nesac\n"
+            => "case \"$mode\" in a) ;; b) ;; c)\n\techo c\n\t;;\nesac\n";
+        keeps_missing_terminator_case_item_body_on_pattern_line:
+            "case \"$x\" in\n*) value= && for item in $items; do {\n  echo \"$item\"\n} done\nesac\n"
+            => "case \"$x\" in\n*) value= && for item in $items; do {\n\techo \"$item\"\n}; done ;;\nesac\n";
     }
 
-    #[test]
-    fn keeps_standalone_inline_case_commands() {
-        let source = "for src in $source; do\n  case \"$src\" in */*) continue ;; esac\n  echo \"$src\"\ndone\n";
-        assert_formats_default_with_ast(
-            source,
-            "for src in $source; do\n\tcase \"$src\" in */*) continue ;; esac\n\techo \"$src\"\ndone\n",
-        );
+    bash_format_ast_cases! {
+        keeps_inline_case_arms_with_if_bodies:
+            "case \"$name\" in\nFastfile) if [[ \"$path\" =~ /fastlane/Fastfile ]]; then\n  ruby -c \"$name\"\nfi ;;\nesac\n"
+            => "case \"$name\" in\nFastfile) if [[ \"$path\" =~ /fastlane/Fastfile ]]; then\n\truby -c \"$name\"\nfi ;;\nesac\n";
+        keeps_inline_case_arms_with_if_else_bodies:
+            "case \"$RETROARCH\" in\n*) if [ -x /usr/share/games/retroarch ]; then\n    build_ra=yes\nelse\n    build_ra=no\nfi ;;\nesac\n"
+            => "case \"$RETROARCH\" in\n*) if [ -x /usr/share/games/retroarch ]; then\n\tbuild_ra=yes\nelse\n\tbuild_ra=no\nfi ;;\nesac\n";
+        splits_nested_case_body_when_outer_terminator_was_on_next_line:
+            "case $x in\na) case $y in\nb) echo b ;; esac # note\n;;\nesac\n"
+            => "case $x in\na)\n\tcase $y in\n\tb) echo b ;; esac # note\n\t;;\nesac\n";
+        keeps_empty_case_terminators_after_pattern_suffix_comments_parseable:
+            "case \"$line\" in\n\"status-filtered \"*) # ignore other status-filtered lines\n  ;;\n\"#\"*) # allow for comments\n  ;;\nesac\n"
+            => "case \"$line\" in\n\"status-filtered \"*) # ignore other status-filtered lines\n\t;;\n\"#\"*) # allow for comments\n\t;;\nesac\n";
     }
 
-    #[test]
-    fn keeps_inline_case_commands_with_multiple_patterns() {
-        let source = "case ${1:-} in '' | *[!0-9]*) return 1 ;; esac\n";
-        assert_default_unchanged_with_ast(source);
-    }
-
-    #[test]
-    fn keeps_inline_case_commands_with_missing_terminators() {
-        let source = "shellspec_is_number() {\n  case ${1:-} in ( '' | *[!0-9]* ) return 1; esac\n  return 0\n}\n";
-        assert_formats_default_with_ast(
-            source,
-            "shellspec_is_number() {\n\tcase ${1:-} in '' | *[!0-9]*) return 1 ;; esac\n\treturn 0\n}\n",
-        );
-    }
-
-    #[test]
-    fn keeps_inline_case_arms_with_if_bodies() {
-        let source = "case \"$name\" in\nFastfile) if [[ \"$path\" =~ /fastlane/Fastfile ]]; then\n  ruby -c \"$name\"\nfi ;;\nesac\n";
-        assert_bash_formats_with_ast(
-            source,
-            "case \"$name\" in\nFastfile) if [[ \"$path\" =~ /fastlane/Fastfile ]]; then\n\truby -c \"$name\"\nfi ;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn keeps_inline_case_arms_with_if_else_bodies() {
-        let source = "case \"$RETROARCH\" in\n*) if [ -x /usr/share/games/retroarch ]; then\n    build_ra=yes\nelse\n    build_ra=no\nfi ;;\nesac\n";
-        assert_bash_formats_with_ast(
-            source,
-            "case \"$RETROARCH\" in\n*) if [ -x /usr/share/games/retroarch ]; then\n\tbuild_ra=yes\nelse\n\tbuild_ra=no\nfi ;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn keeps_inline_case_arms_inside_command_substitutions() {
-        let source = "value=\"$(\n  while read -r key; do\n    case \"$key\" in\n    A) echo A ;;\n    B) echo B ;;\n    esac\n  done\n)\"\n\n# later comment\nnext() { :; }\n";
-        assert_formats_default_with_ast(
-            source,
-            "value=\"$(\n\twhile read -r key; do\n\t\tcase \"$key\" in\n\t\tA) echo A ;;\n\t\tB) echo B ;;\n\t\tesac\n\tdone\n)\"\n\n# later comment\nnext() { :; }\n",
-        );
-    }
-
-    #[test]
-    fn splits_nested_case_body_when_outer_terminator_was_on_next_line() {
-        let source = "case $x in\na) case $y in\nb) echo b ;; esac # note\n;;\nesac\n";
-        assert_bash_formats_with_ast(
-            source,
-            "case $x in\na)\n\tcase $y in\n\tb) echo b ;; esac # note\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn keeps_case_items_multiline_when_terminator_was_multiline() {
-        let source = "case \"$x\" in\n-h|--help)  usage\n            ;;\nesac\n";
-        assert_formats_default_with_ast(
-            source,
-            "case \"$x\" in\n-h | --help)\n\tusage\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn keeps_inline_case_item_when_terminator_is_missing() {
-        let source = "case \"$x\" in\n*)  usage\nesac\n";
-        assert_formats_default_with_ast(source, "case \"$x\" in\n*) usage ;;\nesac\n");
-    }
-
-    #[test]
-    fn keeps_case_header_items_inline_when_later_body_wraps() {
-        let source = "case \"$mode\" in a) ;; b) ;; c)\n  echo c\nesac\n";
-        assert_formats_default_with_ast(
-            source,
-            "case \"$mode\" in a) ;; b) ;; c)\n\techo c\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn keeps_empty_case_terminators_after_pattern_suffix_comments_parseable() {
-        let source = "case \"$line\" in\n\"status-filtered \"*) # ignore other status-filtered lines\n  ;;\n\"#\"*) # allow for comments\n  ;;\nesac\n";
-        assert_bash_formats_with_ast(
-            source,
-            "case \"$line\" in\n\"status-filtered \"*) # ignore other status-filtered lines\n\t;;\n\"#\"*) # allow for comments\n\t;;\nesac\n",
-        );
-    }
-
-    #[test]
-    fn keeps_missing_terminator_case_item_body_on_pattern_line() {
-        let source = "case \"$x\" in\n*) value= && for item in $items; do {\n  echo \"$item\"\n} done\nesac\n";
-        assert_formats_default_with_ast(
-            source,
-            "case \"$x\" in\n*) value= && for item in $items; do {\n\techo \"$item\"\n}; done ;;\nesac\n",
-        );
+    default_unchanged_ast_cases! {
+        keeps_inline_case_commands_with_multiple_patterns:
+            "case ${1:-} in '' | *[!0-9]*) return 1 ;; esac\n";
     }
 
     #[test]
