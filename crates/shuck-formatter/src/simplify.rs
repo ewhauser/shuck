@@ -198,9 +198,7 @@ fn walk_stmt(
                 count += walk_assignment(assignment, source, &mut |_| 0, word_visitor);
             }
             count += walk_word(&mut command.name, source, word_visitor);
-            for argument in &mut command.args {
-                count += walk_word(argument, source, word_visitor);
-            }
+            count += walk_words(&mut command.args, source, word_visitor);
             count
         }
         Command::Builtin(command) => walk_builtin(command, source, word_visitor),
@@ -272,9 +270,7 @@ fn walk_builtin_like(
     if let Some(primary) = primary {
         count += walk_word(primary, source, word_visitor);
     }
-    for argument in extra_args {
-        count += walk_word(argument, source, word_visitor);
-    }
+    count += walk_words(extra_args, source, word_visitor);
     count
 }
 
@@ -321,9 +317,7 @@ fn walk_anonymous_function(
     word_visitor: &mut dyn FnMut(&mut Word) -> usize,
 ) -> usize {
     let mut count = walk_stmt(function.body.as_mut(), source, stmt_visitor, word_visitor);
-    for argument in &mut function.args {
-        count += walk_word(argument, source, word_visitor);
-    }
+    count += walk_words(&mut function.args, source, word_visitor);
     count
 }
 
@@ -348,24 +342,18 @@ fn walk_compound(
             count
         }
         CompoundCommand::For(command) => {
-            let mut count = 0;
-            if let Some(words) = &mut command.words {
-                for word in words {
-                    count += walk_word(word, source, word_visitor);
-                }
-            }
-            count + walk_stmt_seq(&mut command.body, source, stmt_visitor, word_visitor)
+            command
+                .words
+                .as_deref_mut()
+                .map_or(0, |words| walk_words(words, source, word_visitor))
+                + walk_stmt_seq(&mut command.body, source, stmt_visitor, word_visitor)
         }
         CompoundCommand::Repeat(command) => {
             walk_word(&mut command.count, source, word_visitor)
                 + walk_stmt_seq(&mut command.body, source, stmt_visitor, word_visitor)
         }
         CompoundCommand::Foreach(command) => {
-            command
-                .words
-                .iter_mut()
-                .map(|word| walk_word(word, source, word_visitor))
-                .sum::<usize>()
+            walk_words(&mut command.words, source, word_visitor)
                 + walk_stmt_seq(&mut command.body, source, stmt_visitor, word_visitor)
         }
         CompoundCommand::ArithmeticFor(command) => {
@@ -390,11 +378,8 @@ fn walk_compound(
             count
         }
         CompoundCommand::Select(command) => {
-            let mut count = 0;
-            for word in &mut command.words {
-                count += walk_word(word, source, word_visitor);
-            }
-            count + walk_stmt_seq(&mut command.body, source, stmt_visitor, word_visitor)
+            walk_words(&mut command.words, source, word_visitor)
+                + walk_stmt_seq(&mut command.body, source, stmt_visitor, word_visitor)
         }
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
             walk_stmt_seq(commands, source, stmt_visitor, word_visitor)
@@ -472,6 +457,17 @@ fn walk_word(word: &mut Word, _source: &str, visitor: &mut dyn FnMut(&mut Word) 
         count += walk_word_part(part);
     }
     count
+}
+
+fn walk_words(
+    words: &mut [Word],
+    source: &str,
+    visitor: &mut dyn FnMut(&mut Word) -> usize,
+) -> usize {
+    words
+        .iter_mut()
+        .map(|word| walk_word(word, source, visitor))
+        .sum()
 }
 
 fn walk_heredoc_body(
@@ -566,13 +562,9 @@ fn rewrite_stmt_source_texts(
     let mut count = match &mut stmt.command {
         Command::Simple(command) => {
             let mut count = 0;
-            for assignment in &mut command.assignments {
-                count += rewrite_assignment_source_texts(assignment, source, visitor);
-            }
+            count += rewrite_assignments_source_texts(&mut command.assignments, source, visitor);
             count += rewrite_word_source_texts(&mut command.name, source, visitor);
-            for argument in &mut command.args {
-                count += rewrite_word_source_texts(argument, source, visitor);
-            }
+            count += rewrite_words_source_texts(&mut command.args, source, visitor);
             count
         }
         Command::Builtin(command) => match command {
@@ -606,10 +598,8 @@ fn rewrite_stmt_source_texts(
             ),
         },
         Command::Decl(command) => {
-            let mut count = 0;
-            for assignment in &mut command.assignments {
-                count += rewrite_assignment_source_texts(assignment, source, visitor);
-            }
+            let mut count =
+                rewrite_assignments_source_texts(&mut command.assignments, source, visitor);
             for operand in &mut command.operands {
                 count += match operand {
                     DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
@@ -637,9 +627,7 @@ fn rewrite_stmt_source_texts(
         }
         Command::AnonymousFunction(function) => {
             let mut count = rewrite_stmt_source_texts(function.body.as_mut(), source, visitor);
-            for argument in &mut function.args {
-                count += rewrite_word_source_texts(argument, source, visitor);
-            }
+            count += rewrite_words_source_texts(&mut function.args, source, visitor);
             count
         }
     };
@@ -657,16 +645,34 @@ fn rewrite_builtin_like_source_texts(
     visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
 ) -> usize {
     let mut count = 0;
-    for assignment in assignments {
-        count += rewrite_assignment_source_texts(assignment, source, visitor);
-    }
+    count += rewrite_assignments_source_texts(assignments, source, visitor);
     if let Some(primary) = primary {
         count += rewrite_word_source_texts(primary, source, visitor);
     }
-    for argument in extra_args {
-        count += rewrite_word_source_texts(argument, source, visitor);
-    }
+    count += rewrite_words_source_texts(extra_args, source, visitor);
     count
+}
+
+fn rewrite_assignments_source_texts(
+    assignments: &mut [Assignment],
+    source: &str,
+    visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
+) -> usize {
+    assignments
+        .iter_mut()
+        .map(|assignment| rewrite_assignment_source_texts(assignment, source, visitor))
+        .sum()
+}
+
+fn rewrite_words_source_texts(
+    words: &mut [Word],
+    source: &str,
+    visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
+) -> usize {
+    words
+        .iter_mut()
+        .map(|word| rewrite_word_source_texts(word, source, visitor))
+        .sum()
 }
 
 fn rewrite_compound_source_texts(
@@ -691,24 +697,16 @@ fn rewrite_compound_source_texts(
                 })
         }
         CompoundCommand::For(command) => {
-            command
-                .words
-                .iter_mut()
-                .flat_map(|words| words.iter_mut())
-                .map(|word| rewrite_word_source_texts(word, source, visitor))
-                .sum::<usize>()
-                + rewrite_stmt_seq_source_texts(&mut command.body, source, visitor)
+            command.words.as_deref_mut().map_or(0, |words| {
+                rewrite_words_source_texts(words, source, visitor)
+            }) + rewrite_stmt_seq_source_texts(&mut command.body, source, visitor)
         }
         CompoundCommand::Repeat(command) => {
             rewrite_word_source_texts(&mut command.count, source, visitor)
                 + rewrite_stmt_seq_source_texts(&mut command.body, source, visitor)
         }
         CompoundCommand::Foreach(command) => {
-            command
-                .words
-                .iter_mut()
-                .map(|word| rewrite_word_source_texts(word, source, visitor))
-                .sum::<usize>()
+            rewrite_words_source_texts(&mut command.words, source, visitor)
                 + rewrite_stmt_seq_source_texts(&mut command.body, source, visitor)
         }
         CompoundCommand::ArithmeticFor(command) => {
@@ -737,11 +735,7 @@ fn rewrite_compound_source_texts(
                     .sum::<usize>()
         }
         CompoundCommand::Select(command) => {
-            command
-                .words
-                .iter_mut()
-                .map(|word| rewrite_word_source_texts(word, source, visitor))
-                .sum::<usize>()
+            rewrite_words_source_texts(&mut command.words, source, visitor)
                 + rewrite_stmt_seq_source_texts(&mut command.body, source, visitor)
         }
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
