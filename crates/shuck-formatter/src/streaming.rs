@@ -35,7 +35,7 @@ use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
     BranchPrefixComment, branch_prefix_comments, close_suffix_comment_offsets,
-    has_newline_between_offsets, last_shell_keyword_end, last_shell_keyword_start,
+    has_newline_between_offsets, heredoc_start, last_shell_keyword_end, last_shell_keyword_start,
     last_shell_keyword_start_between, line_indent_before_offset,
     operator_starts_or_ends_line as pipeline_operator_starts_or_ends_line,
     own_line_comments_in_region as scan_own_line_comments_in_region, redirect_operator_end,
@@ -5036,35 +5036,16 @@ fn rendered_shell_text_has_heredoc_tail(text: &str) -> bool {
 }
 
 fn rendered_heredoc_tail_start(line: &str) -> Option<RenderedHeredocTail> {
-    let marker = line.find("<<")?;
-    let after_marker = &line[marker + 2..];
-    if after_marker.starts_with('<') {
-        return None;
-    }
-    let (strip_tabs, after_marker) = if let Some(rest) = after_marker.strip_prefix('-') {
-        (true, rest)
-    } else {
-        (false, after_marker)
-    };
-    let delimiter = after_marker
-        .split_whitespace()
-        .next()?
-        .trim_matches(['\'', '"'])
-        .to_string();
-    (!delimiter.is_empty()).then_some(RenderedHeredocTail {
-        delimiter,
-        strip_tabs,
+    let start = heredoc_start(line)?;
+    Some(RenderedHeredocTail {
+        delimiter: start.delimiter.to_string(),
+        strip_tabs: start.strip_tabs,
         command_indent: line_leading_indent(line).to_string(),
     })
 }
 
 fn normalize_rendered_heredoc_start_spacing(line: &str) -> Option<String> {
-    let marker = line.find("<<")?;
-    let after_marker = &line[marker + 2..];
-    if after_marker.starts_with('<') {
-        return None;
-    }
-    let operator_end = marker + if after_marker.starts_with('-') { 3 } else { 2 };
+    let operator_end = heredoc_start(line)?.operator_end;
     let target_start = line[operator_end..]
         .char_indices()
         .find_map(|(index, ch)| (!matches!(ch, ' ' | '\t' | '\r')).then_some(operator_end + index))

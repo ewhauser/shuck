@@ -18,7 +18,7 @@ use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    leading_shell_indent as line_leading_shell_indent,
+    heredoc_start, leading_shell_indent as line_leading_shell_indent,
     line_indent_before_offset as line_indent_before_source_offset, redirect_operator_end,
     refine_common_indent, shell_comment_can_start,
 };
@@ -4701,24 +4701,10 @@ struct CommandSubstitutionHeredocIndent {
 }
 
 fn command_substitution_heredoc_indent(line: &str) -> Option<CommandSubstitutionHeredocIndent> {
-    let marker = line.find("<<")?;
-    let after_marker = &line[marker + 2..];
-    if after_marker.starts_with('<') {
-        return None;
-    }
-    let (strip_tabs, after_marker) = if let Some(rest) = after_marker.strip_prefix('-') {
-        (true, rest)
-    } else {
-        (false, after_marker)
-    };
-    let delimiter = after_marker
-        .split_whitespace()
-        .next()?
-        .trim_matches(['\'', '"'])
-        .to_string();
-    (!delimiter.is_empty()).then_some(CommandSubstitutionHeredocIndent {
-        delimiter,
-        strip_tabs,
+    let start = heredoc_start(line)?;
+    Some(CommandSubstitutionHeredocIndent {
+        delimiter: start.delimiter.to_string(),
+        strip_tabs: start.strip_tabs,
         command_indent: line_leading_shell_indent(line).to_string(),
     })
 }

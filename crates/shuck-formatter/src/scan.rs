@@ -10,6 +10,34 @@ pub(crate) fn leading_shell_indent(line: &str) -> &str {
     &line[..indent_end]
 }
 
+pub(crate) struct HeredocStart<'line> {
+    pub(crate) delimiter: &'line str,
+    pub(crate) strip_tabs: bool,
+    pub(crate) operator_end: usize,
+}
+
+pub(crate) fn heredoc_start(line: &str) -> Option<HeredocStart<'_>> {
+    let marker = line.find("<<")?;
+    let after_marker = &line[marker + 2..];
+    if after_marker.starts_with('<') {
+        return None;
+    }
+    let (strip_tabs, after_marker) = if let Some(rest) = after_marker.strip_prefix('-') {
+        (true, rest)
+    } else {
+        (false, after_marker)
+    };
+    let delimiter = after_marker
+        .split_whitespace()
+        .next()?
+        .trim_matches(['\'', '"']);
+    (!delimiter.is_empty()).then_some(HeredocStart {
+        delimiter,
+        strip_tabs,
+        operator_end: marker + if strip_tabs { 3 } else { 2 },
+    })
+}
+
 pub(crate) fn common_indent_prefix<'a>(left: &'a str, right: &str) -> &'a str {
     let len = left
         .as_bytes()
