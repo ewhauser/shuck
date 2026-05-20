@@ -4882,20 +4882,15 @@ fn heredoc_body_needs_separator(body: &str) -> bool {
 }
 
 fn split_first_line(text: &str) -> (&str, &str, bool) {
-    match text.find('\n') {
-        Some(index) => (&text[..index], &text[index + 1..], true),
-        None => (text, "", false),
-    }
+    text.split_once('\n')
+        .map_or((text, "", false), |(line, rest)| (line, rest, true))
 }
 
 fn split_first_line_including_newline(text: &str) -> (&str, &str, bool) {
-    match text.find('\n') {
-        Some(index) => {
-            let (line, next) = text.split_at(index + 1);
-            (line, next, true)
-        }
-        None => (text, "", false),
-    }
+    text.find('\n').map_or((text, "", false), |index| {
+        let (line, next) = text.split_at(index + 1);
+        (line, next, true)
+    })
 }
 
 fn minimum_leading_tabs_in_non_empty_lines(text: &str) -> usize {
