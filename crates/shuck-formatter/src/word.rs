@@ -3803,7 +3803,7 @@ fn trim_raw_command_substitution_horizontal_padding(body: &str) -> &str {
     trim_unescaped_trailing_whitespace(body.trim_start_matches([' ', '\t']))
 }
 
-fn normalize_raw_empty_parameter_replacement_delimiters(raw: &str) -> Option<String> {
+pub(crate) fn normalize_raw_empty_parameter_replacement_delimiters(raw: &str) -> Option<String> {
     if !raw.contains("${") {
         return None;
     }
