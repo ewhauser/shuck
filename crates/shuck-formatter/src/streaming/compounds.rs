@@ -18,175 +18,187 @@ where
             IfSyntax::Brace { .. } => unreachable!("brace if cannot be formatted as then/fi"),
         };
         let fi_span = command_if_close_span(command, source, self.source_map());
+        let layout = self.then_fi_if_layout(command, then_span, fi_span);
+
+        match layout {
+            ThenFiIfLayout::RawGroupedCondition { raw_condition } => {
+                self.format_raw_grouped_then_fi_if(command, then_span, fi_span, &raw_condition)
+            }
+            ThenFiIfLayout::SplitCondition => {
+                self.format_split_condition_then_fi_if(command, then_span, fi_span)
+            }
+            layout => self.format_inline_condition_then_fi_if(command, then_span, fi_span, layout),
+        }
+    }
+
+    pub(super) fn format_raw_grouped_then_fi_if(
+        &mut self,
+        command: &IfCommand,
+        then_span: Span,
+        fi_span: Span,
+        raw_condition: &str,
+    ) -> Result<()> {
+        let source = self.source();
         let fi_upper_bound = fi_span.start.offset;
-
-        if command.elif_branches.is_empty()
-            && let Some(raw_condition) = raw_grouped_if_condition(
-                command,
-                then_span,
-                source,
-                self.source_map(),
-                self.options(),
-                self.facts(),
-            )
-        {
-            self.write_text("if");
-            self.write_text(&raw_condition);
-            self.write_text("then");
-            let then_upper_bound =
-                if_branch_upper_bound(command, 0, source, self.source_map(), self.facts());
-            self.format_if_branch_body_after_open(
-                &command.then_branch,
-                then_upper_bound,
-                then_span.end.offset,
-            )?;
-            if let Some(body) = &command.else_branch {
-                if self.if_next_branch_has_blank_line_before_keyword(command, 0, source) {
-                    self.newline();
-                }
+        self.write_text("if");
+        self.write_text(raw_condition);
+        self.write_text("then");
+        let then_upper_bound =
+            if_branch_upper_bound(command, 0, source, self.source_map(), self.facts());
+        self.format_if_branch_body_after_open(
+            &command.then_branch,
+            then_upper_bound,
+            then_span.end.offset,
+        )?;
+        if let Some(body) = &command.else_branch {
+            if self.if_next_branch_has_blank_line_before_keyword(command, 0, source) {
                 self.newline();
-                self.write_text("else");
-                self.format_else_branch_body(command, body, fi_upper_bound)?;
             }
-            self.finish_multiline_if_close(command, then_upper_bound, fi_span);
-            return Ok(());
+            self.newline();
+            self.write_text("else");
+            self.format_else_branch_body(command, body, fi_upper_bound)?;
         }
+        self.finish_multiline_if_close(command, then_upper_bound, fi_span);
+        Ok(())
+    }
 
-        if if_condition_starts_after_keyword(
-            command,
-            then_span,
-            source,
-            self.source_map(),
-            self.options(),
-            self.facts(),
-        ) || if_condition_has_explicit_statement_break(
-            command,
-            then_span,
-            source,
-            self.source_map(),
-            self.facts(),
-        ) {
-            self.write_text("if");
-            self.newline();
-            self.with_indent(|formatter| {
-                formatter.format_stmt_sequence(&command.condition, Some(then_span.start.offset))
-            })?;
-            self.newline();
-            self.write_text("then");
-            let then_upper_bound =
-                if_branch_upper_bound(command, 0, source, self.source_map(), self.facts());
-            self.format_if_branch_body_after_open(
-                &command.then_branch,
-                then_upper_bound,
-                then_span.end.offset,
+    pub(super) fn format_split_condition_then_fi_if(
+        &mut self,
+        command: &IfCommand,
+        then_span: Span,
+        fi_span: Span,
+    ) -> Result<()> {
+        let source = self.source();
+        let fi_upper_bound = fi_span.start.offset;
+        self.write_text("if");
+        self.newline();
+        self.with_indent(|formatter| {
+            formatter.format_stmt_sequence(&command.condition, Some(then_span.start.offset))
+        })?;
+        self.newline();
+        self.write_text("then");
+        let then_upper_bound =
+            if_branch_upper_bound(command, 0, source, self.source_map(), self.facts());
+        self.format_if_branch_body_after_open(
+            &command.then_branch,
+            then_upper_bound,
+            then_span.end.offset,
+        )?;
+        for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
+            self.write_if_branch_prefix(command, index, source);
+            self.write_elif_header(command, index, condition, body, source)?;
+            let body_upper_bound =
+                if_branch_upper_bound(command, index + 1, source, self.source_map(), self.facts());
+            self.format_if_branch_body_after_keyword(
+                body,
+                body_upper_bound,
+                condition.span.start.offset,
+                "then",
             )?;
-            for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
-                self.write_if_branch_prefix(command, index, source);
-                self.write_elif_header(command, index, condition, body, source)?;
-                let body_upper_bound = if_branch_upper_bound(
-                    command,
-                    index + 1,
-                    source,
-                    self.source_map(),
-                    self.facts(),
-                );
-                self.format_if_branch_body_after_keyword(
-                    body,
-                    body_upper_bound,
-                    condition.span.start.offset,
-                    "then",
-                )?;
-            }
-            if let Some(body) = &command.else_branch {
-                self.write_if_branch_prefix(command, command.elif_branches.len(), source);
-                self.write_text("else");
-                self.format_else_branch_body(command, body, fi_upper_bound)?;
-            }
-            self.finish_multiline_if_close(command, then_upper_bound, fi_span);
-            return Ok(());
         }
+        if let Some(body) = &command.else_branch {
+            self.write_if_branch_prefix(command, command.elif_branches.len(), source);
+            self.write_text("else");
+            self.format_else_branch_body(command, body, fi_upper_bound)?;
+        }
+        self.finish_multiline_if_close(command, then_upper_bound, fi_span);
+        Ok(())
+    }
 
+    pub(super) fn format_inline_condition_then_fi_if(
+        &mut self,
+        command: &IfCommand,
+        then_span: Span,
+        fi_span: Span,
+        layout: ThenFiIfLayout,
+    ) -> Result<()> {
         self.write_text("if ");
         self.format_inline_stmts(&command.condition)?;
         let then_separator = self.then_separator_for_condition(&command.condition);
-        let no_elifs = command.elif_branches.is_empty();
-        let can_inline_then = no_elifs
-            && self.can_inline_body_with_upper_bound(
-                &command.then_branch,
-                command.span,
-                Some(fi_upper_bound),
-            );
-        if no_elifs && command.else_branch.is_none() && can_inline_then {
-            self.write_text(then_separator);
-            self.write_space();
-            self.format_inline_stmts(&command.then_branch)?;
-            self.write_if_close("; fi", fi_span);
-            return Ok(());
-        }
-        if can_inline_then
-            && let Some(else_branch) = &command.else_branch
-            && self.can_inline_body_with_upper_bound(
-                else_branch,
-                command.span,
-                Some(fi_upper_bound),
-            )
-        {
-            self.write_text(then_separator);
-            self.write_space();
-            self.format_inline_stmts(&command.then_branch)?;
-            self.write_text("; else ");
-            self.format_inline_stmts(else_branch)?;
-            self.write_if_close("; fi", fi_span);
-            return Ok(());
-        }
-        if can_inline_then
-            && let Some(else_branch) = &command.else_branch
-            && !self.can_inline_body_with_upper_bound(
-                else_branch,
-                command.span,
-                Some(fi_upper_bound),
-            )
-            && !self.options().compact_layout()
-        {
-            self.write_text(then_separator);
-            self.write_space();
-            self.format_inline_stmts(&command.then_branch)?;
-            self.write_text("; else");
-            self.format_else_branch_body(command, else_branch, fi_upper_bound)?;
-            let then_upper_bound =
-                if_branch_upper_bound(command, 0, source, self.source_map(), self.facts());
-            self.finish_multiline_if_close(command, then_upper_bound, fi_span);
-            return Ok(());
-        }
-        if no_elifs
-            && command.else_branch.is_none()
-            && self.then_branch_starts_with_inline_if(command, then_span, fi_span)
-        {
-            self.write_text(then_separator);
-            self.write_space();
-            self.format_stmt(&command.then_branch[0])?;
-            self.write_if_close("; fi", fi_span);
-            return Ok(());
-        }
-        if self.can_inline_if_chain(command, fi_span) {
-            self.write_text(then_separator);
-            self.write_space();
-            self.format_inline_stmts(&command.then_branch)?;
-            for (condition, body) in &command.elif_branches {
-                self.write_text("; elif ");
-                self.format_inline_stmts(condition)?;
-                self.write_text(self.then_separator_for_condition(condition));
+
+        match layout {
+            ThenFiIfLayout::InlineThen => {
+                self.write_text(then_separator);
                 self.write_space();
-                self.format_inline_stmts(body)?;
+                self.format_inline_stmts(&command.then_branch)?;
+                self.write_if_close("; fi", fi_span);
+                Ok(())
             }
-            if let Some(else_branch) = &command.else_branch {
+            ThenFiIfLayout::InlineThenElse => {
+                let Some(else_branch) = command.else_branch.as_ref() else {
+                    unreachable!("inline then/else layout requires an else branch");
+                };
+                self.write_text(then_separator);
+                self.write_space();
+                self.format_inline_stmts(&command.then_branch)?;
                 self.write_text("; else ");
                 self.format_inline_stmts(else_branch)?;
+                self.write_if_close("; fi", fi_span);
+                Ok(())
             }
-            self.write_if_close("; fi", fi_span);
-            return Ok(());
+            ThenFiIfLayout::InlineThenMultilineElse => {
+                let Some(else_branch) = command.else_branch.as_ref() else {
+                    unreachable!("inline then/multiline else layout requires an else branch");
+                };
+                self.write_text(then_separator);
+                self.write_space();
+                self.format_inline_stmts(&command.then_branch)?;
+                self.write_text("; else");
+                self.format_else_branch_body(command, else_branch, fi_span.start.offset)?;
+                let then_upper_bound = if_branch_upper_bound(
+                    command,
+                    0,
+                    self.source(),
+                    self.source_map(),
+                    self.facts(),
+                );
+                self.finish_multiline_if_close(command, then_upper_bound, fi_span);
+                Ok(())
+            }
+            ThenFiIfLayout::InlineThenNestedIf => {
+                self.write_text(then_separator);
+                self.write_space();
+                self.format_stmt(&command.then_branch[0])?;
+                self.write_if_close("; fi", fi_span);
+                Ok(())
+            }
+            ThenFiIfLayout::InlineChain => {
+                self.write_text(then_separator);
+                self.write_space();
+                self.format_inline_stmts(&command.then_branch)?;
+                for (condition, body) in &command.elif_branches {
+                    self.write_text("; elif ");
+                    self.format_inline_stmts(condition)?;
+                    self.write_text(self.then_separator_for_condition(condition));
+                    self.write_space();
+                    self.format_inline_stmts(body)?;
+                }
+                if let Some(else_branch) = &command.else_branch {
+                    self.write_text("; else ");
+                    self.format_inline_stmts(else_branch)?;
+                }
+                self.write_if_close("; fi", fi_span);
+                Ok(())
+            }
+            ThenFiIfLayout::Expanded(layout) => {
+                self.format_expanded_then_fi_if(command, then_span, fi_span, then_separator, layout)
+            }
+            ThenFiIfLayout::RawGroupedCondition { .. } | ThenFiIfLayout::SplitCondition => {
+                unreachable!("non-inline if layout routed to inline emitter")
+            }
         }
+    }
 
+    pub(super) fn format_expanded_then_fi_if(
+        &mut self,
+        command: &IfCommand,
+        then_span: Span,
+        fi_span: Span,
+        then_separator: &'static str,
+        layout: ExpandedThenFiIfLayout,
+    ) -> Result<()> {
+        let source = self.source();
+        let fi_upper_bound = fi_span.start.offset;
         self.write_text(then_separator);
         let then_upper_bound =
             if_branch_upper_bound(command, 0, source, self.source_map(), self.facts());
@@ -204,7 +216,7 @@ where
         )?;
         self.write_unmodeled_branch_background_terminator(&command.then_branch, then_upper_bound);
         for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
-            if self.options().compact_layout() {
+            if matches!(layout, ExpandedThenFiIfLayout::Compact) {
                 self.write_text("; elif ");
                 self.format_inline_stmts(condition)?;
                 self.write_text(self.then_separator_for_condition(condition));
@@ -222,24 +234,26 @@ where
             )?;
         }
         if let Some(body) = &command.else_branch {
-            if self.options().compact_layout() {
-                self.write_text("; else");
-            } else {
-                self.write_if_branch_prefix(command, command.elif_branches.len(), source);
-                if self.can_inline_else_branch_close(command, body, fi_span) {
-                    self.write_text("else ");
-                    self.format_inline_stmts(body)?;
-                    self.write_if_close("; fi", fi_span);
-                    return Ok(());
+            match layout {
+                ExpandedThenFiIfLayout::Compact => self.write_text("; else"),
+                ExpandedThenFiIfLayout::Multiline { inline_else_close } => {
+                    self.write_if_branch_prefix(command, command.elif_branches.len(), source);
+                    if inline_else_close {
+                        self.write_text("else ");
+                        self.format_inline_stmts(body)?;
+                        self.write_if_close("; fi", fi_span);
+                        return Ok(());
+                    }
+                    self.write_text("else");
                 }
-                self.write_text("else");
             }
             self.format_else_branch_body(command, body, fi_upper_bound)?;
         }
-        if self.options().compact_layout() {
-            self.write_if_close("; fi", fi_span);
-        } else {
-            self.finish_multiline_if_close(command, then_upper_bound, fi_span);
+        match layout {
+            ExpandedThenFiIfLayout::Compact => self.write_if_close("; fi", fi_span),
+            ExpandedThenFiIfLayout::Multiline { .. } => {
+                self.finish_multiline_if_close(command, then_upper_bound, fi_span);
+            }
         }
         Ok(())
     }
@@ -260,111 +274,6 @@ where
     pub(super) fn write_if_close(&mut self, close_text: &str, fi_span: Span) {
         self.write_text(close_text);
         self.write_close_suffix_after_span(Some(fi_span));
-    }
-
-    pub(super) fn can_inline_else_branch_close(
-        &self,
-        command: &IfCommand,
-        body: &StmtSeq,
-        fi_span: Span,
-    ) -> bool {
-        let [stmt] = body.as_slice() else {
-            return false;
-        };
-        if matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
-            || !self.can_inline_stmt(stmt)
-            || self
-                .facts()
-                .sequence(body, Some(fi_span.start.offset))
-                .has_comments()
-        {
-            return false;
-        };
-        let Some((_, else_offset)) = self
-            .facts()
-            .if_next_branch_region(command, command.elif_branches.len())
-        else {
-            return false;
-        };
-        let else_line = self.source_map().line_number_for_offset(else_offset);
-        let body_line = stmt_span(stmt).start.line;
-        else_line == body_line && body_line == fi_span.start.line
-    }
-
-    pub(super) fn can_inline_if_chain(&self, command: &IfCommand, fi_span: Span) -> bool {
-        if command.elif_branches.is_empty() || command.span.start.line != fi_span.end.line {
-            return false;
-        }
-
-        let source = self.source();
-        if !self.can_inline_body_with_upper_bound(
-            &command.then_branch,
-            command.span,
-            Some(if_branch_upper_bound(
-                command,
-                0,
-                source,
-                self.source_map(),
-                self.facts(),
-            )),
-        ) {
-            return false;
-        }
-
-        for (index, (_, body)) in command.elif_branches.iter().enumerate() {
-            if !self.can_inline_body_with_upper_bound(
-                body,
-                command.span,
-                Some(if_branch_upper_bound(
-                    command,
-                    index + 1,
-                    source,
-                    self.source_map(),
-                    self.facts(),
-                )),
-            ) {
-                return false;
-            }
-        }
-
-        command.else_branch.as_ref().is_none_or(|body| {
-            self.can_inline_body_with_upper_bound(body, command.span, Some(fi_span.start.offset))
-        })
-    }
-
-    pub(super) fn then_branch_starts_with_inline_if(
-        &self,
-        command: &IfCommand,
-        then_span: Span,
-        fi_span: Span,
-    ) -> bool {
-        if command.span.start.line != fi_span.end.line {
-            return false;
-        }
-        let [stmt] = command.then_branch.as_slice() else {
-            return false;
-        };
-        if stmt.negated || !stmt.redirects.is_empty() || stmt.terminator.is_some() {
-            return false;
-        }
-        let Command::Compound(CompoundCommand::If(inner)) = &stmt.command else {
-            return false;
-        };
-        matches!(inner.syntax, IfSyntax::ThenFi { .. })
-            && then_span.end.line == inner.span.start.line
-            && !self
-                .facts()
-                .sequence(
-                    &command.then_branch,
-                    Some(if_branch_upper_bound(
-                        command,
-                        0,
-                        self.source(),
-                        self.source_map(),
-                        self.facts(),
-                    )),
-                )
-                .has_comments()
     }
 
     pub(super) fn if_final_branch_has_blank_line_before_fi(
