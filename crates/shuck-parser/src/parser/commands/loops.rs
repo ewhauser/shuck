@@ -907,7 +907,7 @@ impl<'a> Parser<'a> {
         let condition_span = Span::from_positions(condition_start, self.current_span.start);
         let condition = Self::stmt_seq_with_span(condition_span, condition);
 
-        let (body, done_span) = if allow_brace_body && self.at(TokenKind::LeftBrace) {
+        let (body, done_span, end_span) = if allow_brace_body && self.at(TokenKind::LeftBrace) {
             let body = self.parse_brace_group(BraceBodyContext::Ordinary)?;
             let span = Self::compound_span(&body);
             (
@@ -919,6 +919,7 @@ impl<'a> Parser<'a> {
                     ))],
                 ),
                 None,
+                span,
             )
         } else if let Some((body, left_brace_span, right_brace_span)) = allow_brace_body
             .then(|| self.try_parse_compact_zsh_brace_body(BraceBodyContext::Ordinary))
@@ -936,6 +937,7 @@ impl<'a> Parser<'a> {
                     ))],
                 ),
                 None,
+                right_brace_span,
             )
         } else {
             self.expect_keyword(Keyword::Do)?;
@@ -957,7 +959,7 @@ impl<'a> Parser<'a> {
             }
             let done_span = self.current_span;
             self.advance();
-            (body, Some(done_span))
+            (body, Some(done_span), done_span)
         };
 
         self.pop_depth();
@@ -965,7 +967,7 @@ impl<'a> Parser<'a> {
             condition,
             body,
             done_span,
-            span: start_span.merge(self.current_span),
+            span: start_span.merge(end_span),
         }))
     }
 
@@ -983,7 +985,7 @@ impl<'a> Parser<'a> {
         let condition_span = Span::from_positions(condition_start, self.current_span.start);
         let condition = Self::stmt_seq_with_span(condition_span, condition);
 
-        let (body, done_span) = if allow_brace_body && self.at(TokenKind::LeftBrace) {
+        let (body, done_span, end_span) = if allow_brace_body && self.at(TokenKind::LeftBrace) {
             let body = self.parse_brace_group(BraceBodyContext::Ordinary)?;
             let span = Self::compound_span(&body);
             (
@@ -995,6 +997,7 @@ impl<'a> Parser<'a> {
                     ))],
                 ),
                 None,
+                span,
             )
         } else if let Some((body, left_brace_span, right_brace_span)) = allow_brace_body
             .then(|| self.try_parse_compact_zsh_brace_body(BraceBodyContext::Ordinary))
@@ -1012,6 +1015,7 @@ impl<'a> Parser<'a> {
                     ))],
                 ),
                 None,
+                right_brace_span,
             )
         } else {
             self.expect_keyword(Keyword::Do)?;
@@ -1033,7 +1037,7 @@ impl<'a> Parser<'a> {
             }
             let done_span = self.current_span;
             self.advance();
-            (body, Some(done_span))
+            (body, Some(done_span), done_span)
         };
 
         self.pop_depth();
@@ -1041,7 +1045,7 @@ impl<'a> Parser<'a> {
             condition,
             body,
             done_span,
-            span: start_span.merge(self.current_span),
+            span: start_span.merge(end_span),
         }))
     }
 }

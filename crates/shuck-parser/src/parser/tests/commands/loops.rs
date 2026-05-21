@@ -527,6 +527,44 @@ fn test_parse_zsh_while_loop_with_brace_body() {
 }
 
 #[test]
+fn test_parse_zsh_while_compact_brace_body_span_stops_before_next_command() {
+    let input = "while (( count )){echo;}; echo next\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    assert_eq!(script.body.len(), 2);
+    let (compound, redirects) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::While(command) = compound else {
+        panic!("expected while loop");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(command.span.slice(input), "while (( count )){echo;}");
+    assert_eq!(expect_simple(&script.body[1]).name.render(input), "echo");
+}
+
+#[test]
+fn test_parse_zsh_until_compact_brace_body_span_stops_before_next_command() {
+    let input = "until (( ready )){echo;}; echo next\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    assert_eq!(script.body.len(), 2);
+    let (compound, redirects) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Until(command) = compound else {
+        panic!("expected until loop");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(command.span.slice(input), "until (( ready )){echo;}");
+    assert_eq!(expect_simple(&script.body[1]).name.render(input), "echo");
+}
+
+#[test]
 fn test_parse_zsh_while_loop_with_brace_body_after_setopt_noshortloops() {
     let input = "f() {\n  setopt noshortloops\n  while (( count )) {\n    break\n  }\n}\n";
     Parser::with_dialect(input, ShellDialect::Zsh)
