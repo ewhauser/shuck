@@ -82,9 +82,9 @@ where
     ) {
         let mut target = self.take_scratch_buffer();
         match (redirect.word_target(), redirect.heredoc()) {
-            (Some(word), None) => self.render_word_with_facts_to_buffer(word, &mut target),
+            (Some(word), None) => self.render_word_to_buffer(word, &mut target),
             (None, Some(heredoc)) => {
-                self.render_word_with_facts_to_buffer(&heredoc.delimiter.raw, &mut target);
+                self.render_word_to_buffer(&heredoc.delimiter.raw, &mut target);
             }
             (None, None) => {}
             (Some(_), Some(_)) => {

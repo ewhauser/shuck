@@ -236,10 +236,8 @@ pub(super) fn collect_raw_command_substitution_spans(
 pub(super) struct RawCommandSubstitutionCommentFallback<'source, 'facts> {
     pub(super) raw: &'source str,
     pub(super) body: &'source shuck_ast::StmtSeq,
-    pub(super) source: &'source str,
     pub(super) span_start: usize,
-    pub(super) options: &'source ResolvedShellFormatOptions,
-    pub(super) facts: Option<&'source FormatterFacts<'facts>>,
+    pub(super) context: RenderContext<'source, 'facts>,
 }
 
 pub(super) fn push_raw_command_substitution_comment_fallback(
@@ -250,16 +248,17 @@ pub(super) fn push_raw_command_substitution_comment_fallback(
     let RawCommandSubstitutionCommentFallback {
         raw,
         body,
-        source,
         span_start,
-        options,
-        facts,
+        context,
     } = fallback;
+    let source = context.source;
+    let options = context.options;
 
     if push_inline_raw_command_substitution_as_block(rendered, raw, options) {
         return;
     }
-    if command_substitution_source_starts_with_body_line(raw) && !stmt_seq_has_heredoc(facts, body)
+    if command_substitution_source_starts_with_body_line(raw)
+        && !stmt_seq_has_heredoc(context.facts, body)
     {
         push_raw_block_command_substitution_without_outer_indent(
             rendered, raw, source, span_start, options,
@@ -279,23 +278,15 @@ pub(super) fn render_command_substitution(
     rendered: &mut String,
     body: &shuck_ast::StmtSeq,
     upper_bound: usize,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
     layout: CommandSubstitutionLayout,
     inline_continuation_indent_levels: usize,
     raw: Option<&str>,
-    _source_map: Option<&SourceMap<'_>>,
-    facts: Option<&FormatterFacts<'_>>,
 ) -> Option<()> {
+    let source = context.source;
+    let options = context.options;
     let mut nested = String::new();
-    format_nested_stmt_sequence_to_buf(
-        source,
-        body,
-        options,
-        facts,
-        Some(upper_bound),
-        &mut nested,
-    )?;
+    format_nested_stmt_sequence_to_buf(body, context, Some(upper_bound), &mut nested)?;
 
     let trimmed = trim_trailing_line_endings(&nested);
     let normalized_backtick_body;
@@ -362,26 +353,20 @@ pub(super) fn render_command_substitution(
 }
 
 pub(super) fn format_nested_stmt_sequence_to_buf(
-    source: &str,
     body: &StmtSeq,
-    options: &ResolvedShellFormatOptions,
-    facts: Option<&FormatterFacts<'_>>,
+    context: RenderContext<'_, '_>,
     upper_bound: Option<usize>,
     rendered: &mut String,
 ) -> Option<()> {
-    let owned_facts;
-    let facts = match facts {
-        Some(facts) => facts,
-        None => {
-            let file = shuck_ast::File {
-                body: body.clone(),
-                span: body.span,
-            };
-            owned_facts = FormatterFacts::build(source, &file, options);
-            &owned_facts
-        }
-    };
-    format_stmt_sequence_streaming_to_buf(source, body, options, facts, upper_bound, rendered).ok()
+    format_stmt_sequence_streaming_to_buf(
+        context.source,
+        body,
+        context.options,
+        context.facts,
+        upper_bound,
+        rendered,
+    )
+    .ok()
 }
 
 pub(super) fn restore_trailing_escaped_horizontal_whitespace(
@@ -620,9 +605,11 @@ pub(super) fn expand_inline_pipeline_brace_group_body(
     if parsed.is_err() {
         return None;
     }
+    let parsed_facts = FormatterFacts::build(body, &parsed.file, options);
+    let context = RenderContext::new(body, options, &parsed_facts);
 
     let mut nested = String::new();
-    format_nested_stmt_sequence_to_buf(body, &parsed.file.body, options, None, None, &mut nested)?;
+    format_nested_stmt_sequence_to_buf(&parsed.file.body, context, None, &mut nested)?;
     let trimmed = trim_trailing_line_endings(&nested);
     trimmed.contains('\n').then(|| trimmed.to_string())
 }
@@ -743,9 +730,7 @@ pub(super) enum CommandSubstitutionLayout {
 pub(super) fn command_substitution_layout(
     raw: Option<&str>,
     body: &shuck_ast::StmtSeq,
-    facts: Option<&FormatterFacts<'_>>,
-    source: &str,
-    dialect: shuck_parser::ShellDialect,
+    context: RenderContext<'_, '_>,
     force_block: bool,
     allow_source_indented_inline: bool,
 ) -> CommandSubstitutionLayout {
@@ -753,7 +738,7 @@ pub(super) fn command_substitution_layout(
         return CommandSubstitutionLayout::Block;
     }
 
-    if stmt_seq_has_heredoc(facts, body) {
+    if stmt_seq_has_heredoc(context.facts, body) {
         return CommandSubstitutionLayout::Block;
     }
 
@@ -764,7 +749,8 @@ pub(super) fn command_substitution_layout(
         if command_substitution_source_closes_on_own_line(raw) {
             return CommandSubstitutionLayout::Block;
         }
-        if command_substitution_source_parses_as_multiple_statements(raw, dialect) {
+        if command_substitution_source_parses_as_multiple_statements(raw, context.options.dialect())
+        {
             return CommandSubstitutionLayout::Block;
         }
         if command_substitution_source_prefers_continued_inline_body(raw) {
@@ -778,7 +764,7 @@ pub(super) fn command_substitution_layout(
     if body.len() > 1
         || body
             .span
-            .slice(source)
+            .slice(context.source)
             .trim_start_matches([' ', '\t', '\r'])
             .starts_with('\n')
     {
@@ -1229,22 +1215,15 @@ pub(super) fn render_process_substitution(
     body: &shuck_ast::StmtSeq,
     is_input: bool,
     span: shuck_ast::Span,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
     multiline: bool,
     raw: Option<&str>,
-    facts: Option<&FormatterFacts<'_>>,
 ) -> Option<()> {
-    let has_heredoc = stmt_seq_has_heredoc(facts, body);
+    let source = context.source;
+    let options = context.options;
+    let has_heredoc = stmt_seq_has_heredoc(context.facts, body);
     let mut nested = String::new();
-    format_nested_stmt_sequence_to_buf(
-        source,
-        body,
-        options,
-        facts,
-        span.end.offset.checked_sub(1),
-        &mut nested,
-    )?;
+    format_nested_stmt_sequence_to_buf(body, context, span.end.offset.checked_sub(1), &mut nested)?;
 
     let prefix = if is_input { '<' } else { '>' };
     let trimmed = trim_trailing_line_endings(&nested);

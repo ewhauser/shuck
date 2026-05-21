@@ -1567,12 +1567,6 @@ pub(crate) fn classify_sequence_contains_multiline_literal_source(
         .contains_multiline_literal_source
 }
 
-pub(crate) fn classify_sequence_contains_comments(sequence: &StmtSeq) -> bool {
-    LayoutAnnotations::build_for_sequence("", sequence)
-        .sequence(sequence)
-        .contains_comments
-}
-
 pub(crate) fn classify_stmt_contains_heredoc(stmt: &Stmt) -> bool {
     LayoutAnnotations::build_for_stmt("", stmt)
         .stmt(stmt)
@@ -2595,22 +2589,72 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 expression_ast: Some(expr),
                 ..
             } => self.visit_arithmetic_expr(expr),
+            WordPart::Parameter(parameter) => self.visit_parameter_expansion(parameter),
+            WordPart::ParameterExpansion {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                self.visit_var_ref(reference);
+                self.visit_parameter_op(operator);
+                if let Some(operand) = operand_word_ast {
+                    self.visit_word(operand);
+                }
+            }
+            WordPart::Length(reference)
+            | WordPart::ArrayAccess(reference)
+            | WordPart::ArrayLength(reference)
+            | WordPart::ArrayIndices(reference)
+            | WordPart::Transformation { reference, .. } => self.visit_var_ref(reference),
+            WordPart::Substring {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            }
+            | WordPart::ArraySlice {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            } => {
+                self.visit_var_ref(reference);
+                if let Some(expr) = offset_ast {
+                    self.visit_arithmetic_expr(expr);
+                } else {
+                    self.visit_word(offset_word_ast);
+                }
+                if let Some(expr) = length_ast {
+                    self.visit_arithmetic_expr(expr);
+                } else if let Some(word) = length_word_ast {
+                    self.visit_word(word);
+                }
+            }
+            WordPart::IndirectExpansion {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                self.visit_var_ref(reference);
+                if let Some(operator) = operator {
+                    self.visit_parameter_op(operator);
+                }
+                if let Some(operand) = operand_word_ast {
+                    self.visit_word(operand);
+                }
+            }
             WordPart::CommandSubstitution { .. }
             | WordPart::Literal(_)
             | WordPart::SingleQuoted { .. }
             | WordPart::Variable(_)
             | WordPart::ArithmeticExpansion { .. }
-            | WordPart::Parameter(_)
-            | WordPart::ParameterExpansion { .. }
-            | WordPart::Length(_)
-            | WordPart::ArrayAccess(_)
-            | WordPart::ArrayLength(_)
-            | WordPart::ArrayIndices(_)
-            | WordPart::Substring { .. }
-            | WordPart::ArraySlice { .. }
-            | WordPart::IndirectExpansion { .. }
             | WordPart::PrefixMatch { .. }
-            | WordPart::Transformation { .. }
             | WordPart::ZshQualifiedGlob(_) => {}
             WordPart::DoubleQuoted { parts, .. } => {
                 for part in parts {
@@ -2645,10 +2689,10 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 expression_word_ast,
                 ..
             } => self.visit_word(expression_word_ast),
+            HeredocBodyPart::Parameter(parameter) => self.visit_parameter_expansion(parameter),
             HeredocBodyPart::Literal(_)
             | HeredocBodyPart::Variable(_)
-            | HeredocBodyPart::CommandSubstitution { .. }
-            | HeredocBodyPart::Parameter(_) => {}
+            | HeredocBodyPart::CommandSubstitution { .. } => {}
         }
     }
 

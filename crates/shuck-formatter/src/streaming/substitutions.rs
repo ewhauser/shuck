@@ -272,7 +272,7 @@ where
 
     pub(super) fn write_word(&mut self, word: &Word) {
         let mut scratch = self.take_scratch_buffer();
-        self.render_word_with_facts_to_buffer(word, &mut scratch);
+        self.render_word_to_buffer(word, &mut scratch);
         if rendered_shell_text_has_heredoc_tail(&scratch)
             && (word_contains_command_heredoc(word)
                 || word_source_has_shell_substitution(word, self.source())
@@ -311,14 +311,15 @@ where
     }
 
     pub(super) fn write_pattern(&mut self, pattern: &Pattern) {
-        self.write_rendered(|scratch, source, options| {
-            render_pattern_syntax_to_buf(pattern, source, options, scratch);
-        });
+        let mut scratch = self.take_scratch_buffer();
+        render_pattern_syntax_to_buf(pattern, self.render_context(), &mut scratch);
+        self.write_text(&scratch);
+        self.restore_scratch_buffer(scratch);
     }
 
     pub(super) fn write_case_pattern(&mut self, item: &CaseItem, pattern: &Pattern) {
         let mut scratch = self.take_scratch_buffer();
-        render_pattern_syntax_to_buf(pattern, self.source(), self.options(), &mut scratch);
+        render_pattern_syntax_to_buf(pattern, self.render_context(), &mut scratch);
         if case_item_pattern_close_paren_on_own_line(item, self.source(), self.source_map()) {
             trim_trailing_pattern_line_continuation(&mut scratch);
         }
@@ -346,19 +347,8 @@ where
             return;
         }
 
-        let source_map = self.source_map().clone();
         let mut scratch = self.take_scratch_buffer();
-        {
-            let facts = self.facts();
-            render_assignment_with_facts_to_buf(
-                assignment,
-                self.source(),
-                self.options(),
-                &source_map,
-                facts,
-                &mut scratch,
-            );
-        }
+        render_assignment_to_buf(assignment, self.render_context(), &mut scratch);
         if rendered_shell_text_has_heredoc_tail(&scratch)
             && (assignment_contains_command_heredoc(assignment)
                 || assignment_source_has_command_substitution(assignment, self.source())
@@ -528,19 +518,8 @@ where
     }
 
     pub(super) fn write_word_with_escaped_multiline_substitution_indent(&mut self, word: &Word) {
-        let source_map = self.source_map().clone();
         let mut scratch = self.take_scratch_buffer();
-        {
-            let facts = self.facts();
-            render_escaped_multiline_word_syntax_with_facts_to_buf(
-                word,
-                self.source(),
-                self.options(),
-                &source_map,
-                facts,
-                &mut scratch,
-            );
-        }
+        render_escaped_multiline_word_syntax_to_buf(word, self.render_context(), &mut scratch);
 
         let normalized =
             normalize_escaped_multiline_word_command_substitution_indent(&scratch, self.options());

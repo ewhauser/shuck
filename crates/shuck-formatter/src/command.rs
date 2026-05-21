@@ -1,6 +1,6 @@
 use crate::comments::SourceMap;
-use crate::facts::{FormatterFacts, classify_stmt_contains_heredoc};
-use crate::options::ResolvedShellFormatOptions;
+use crate::context::RenderContext;
+use crate::facts::classify_stmt_contains_heredoc;
 use crate::raw_syntax::{
     RawShellText, common_nonempty_shell_indent, leading_shell_indent,
     matching_raw_command_substitution_close, normalize_raw_pipeline_continuations,
@@ -10,9 +10,7 @@ use crate::scan::{
     branch_keyword_offset, last_shell_keyword_start, last_uncommented_shell_keyword_before,
     matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
 };
-use crate::word::{
-    render_arithmetic_expr_to_buf, render_word_syntax_to_buf, render_word_syntax_with_facts_to_buf,
-};
+use crate::word::{render_arithmetic_expr_to_buf, render_word_syntax_to_buf};
 use shuck_ast::{
     AnonymousFunctionCommand, ArithmeticExprNode, ArrayElem, Assignment, AssignmentValue,
     BackgroundOperator, BinaryCommand, BinaryOp, BuiltinCommand, CaseItem, CaseTerminator, Command,
@@ -67,15 +65,14 @@ pub(crate) fn format_arithmetic_for_init_source(raw: &str) -> String {
 pub(crate) fn format_arithmetic_for_clause_source(
     raw: &str,
     ast: Option<&ArithmeticExprNode>,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
 ) -> String {
     if raw.trim().is_empty() {
         return String::new();
     }
     if let Some(ast) = ast {
         let mut rendered = String::new();
-        render_arithmetic_expr_to_buf(&mut rendered, ast, source, options);
+        render_arithmetic_expr_to_buf(&mut rendered, ast, context);
         rendered
     } else {
         format_arithmetic_for_init_source(raw)
@@ -167,39 +164,17 @@ fn format_multiline_arithmetic_command_body(body: &str) -> String {
     rendered
 }
 
-pub(crate) fn render_assignment_with_facts_to_buf(
+pub(crate) fn render_assignment_to_buf(
     assignment: &Assignment,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-    source_map: &SourceMap<'_>,
-    facts: &FormatterFacts<'_>,
-    rendered: &mut String,
-) {
-    render_assignment_inner(
-        assignment,
-        source,
-        options,
-        Some(source_map),
-        Some(facts),
-        rendered,
-    );
-}
-
-fn render_assignment_inner(
-    assignment: &Assignment,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-    source_map: Option<&SourceMap<'_>>,
-    facts: Option<&FormatterFacts<'_>>,
+    context: RenderContext<'_, '_>,
     rendered: &mut String,
 ) {
     let start = rendered.len();
+    let source = context.source;
     render_assignment_head_to_buf(assignment, source, rendered);
     match &assignment.value {
         AssignmentValue::Scalar(value) => {
-            render_word_syntax_with_optional_facts_to_buf(
-                value, source, options, source_map, facts, rendered,
-            );
+            render_word_syntax_to_buf(value, context, rendered);
         }
         AssignmentValue::Compound(array) => {
             rendered.push('(');
@@ -207,7 +182,7 @@ fn render_assignment_inner(
                 if index > 0 {
                     rendered.push(' ');
                 }
-                render_array_elem_to_buf(value, source, options, source_map, facts, rendered);
+                render_array_elem_to_buf(value, context, rendered);
             }
             rendered.push(')');
         }
@@ -218,42 +193,29 @@ fn render_assignment_inner(
 
 fn render_array_elem_to_buf(
     element: &ArrayElem,
-    source: &str,
-    options: &crate::options::ResolvedShellFormatOptions,
-    source_map: Option<&SourceMap<'_>>,
-    facts: Option<&FormatterFacts<'_>>,
+    context: RenderContext<'_, '_>,
     rendered: &mut String,
 ) {
     let (key, value, op) = array_elem_parts(element);
     if let Some(key) = key {
-        render_keyed_array_elem_to_buf(
-            key, value, source, options, source_map, facts, op, rendered,
-        );
+        render_keyed_array_elem_to_buf(key, value, context, op, rendered);
     } else {
-        render_word_syntax_with_optional_facts_to_buf(
-            value, source, options, source_map, facts, rendered,
-        );
+        render_word_syntax_to_buf(value, context, rendered);
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn render_keyed_array_elem_to_buf(
     key: &Subscript,
     value: &Word,
-    source: &str,
-    options: &crate::options::ResolvedShellFormatOptions,
-    source_map: Option<&SourceMap<'_>>,
-    facts: Option<&FormatterFacts<'_>>,
+    context: RenderContext<'_, '_>,
     operator: &str,
     rendered: &mut String,
 ) {
     rendered.push('[');
-    render_subscript_to_buf(key, source, rendered);
+    render_subscript_to_buf(key, context.source, rendered);
     rendered.push(']');
     rendered.push_str(operator);
-    render_word_syntax_with_optional_facts_to_buf(
-        value, source, options, source_map, facts, rendered,
-    );
+    render_word_syntax_to_buf(value, context, rendered);
 }
 
 pub(crate) fn render_assignment_head_to_buf(
@@ -271,22 +233,6 @@ pub(crate) fn render_assignment_head_to_buf(
         rendered.push_str("+=");
     } else {
         rendered.push('=');
-    }
-}
-
-fn render_word_syntax_with_optional_facts_to_buf(
-    word: &Word,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-    source_map: Option<&SourceMap<'_>>,
-    facts: Option<&FormatterFacts<'_>>,
-    rendered: &mut String,
-) {
-    match (source_map, facts) {
-        (Some(source_map), Some(facts)) => {
-            render_word_syntax_with_facts_to_buf(word, source, options, source_map, facts, rendered)
-        }
-        _ => render_word_syntax_to_buf(word, source, options, rendered),
     }
 }
 

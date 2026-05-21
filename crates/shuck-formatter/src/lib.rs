@@ -12,6 +12,7 @@
 mod command;
 #[allow(missing_docs)]
 mod comments;
+mod context;
 mod facts;
 #[allow(missing_docs)]
 mod options;

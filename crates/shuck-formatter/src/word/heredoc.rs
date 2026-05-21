@@ -1,6 +1,5 @@
 use super::arithmetic::*;
 use super::command_substitution::*;
-use super::core::WordRenderEnv;
 use super::parameter::*;
 use super::raw_rewrites::*;
 use super::*;
@@ -38,6 +37,7 @@ pub(super) fn render_heredoc_body_part(
     facts: &FormatterFacts<'_>,
     embedded_command_indent_levels: usize,
 ) -> Result<(), std::fmt::Error> {
+    let context = RenderContext::new(source, options, facts);
     match part {
         HeredocBodyPart::Literal(text) => {
             let raw = span.slice(source);
@@ -74,9 +74,7 @@ pub(super) fn render_heredoc_body_part(
                 let layout = command_substitution_layout(
                     raw,
                     body,
-                    Some(facts),
-                    source,
-                    options.dialect(),
+                    context,
                     raw.is_none() && *syntax == CommandSubstitutionSyntax::DollarParen,
                     false,
                 );
@@ -85,13 +83,10 @@ pub(super) fn render_heredoc_body_part(
                     rendered,
                     body,
                     span.end.offset,
-                    source,
-                    options,
+                    context,
                     layout,
                     embedded_command_indent_levels,
                     raw,
-                    Some(facts.source_map()),
-                    Some(facts),
                 )
                 .is_none()
                 {
@@ -117,7 +112,7 @@ pub(super) fn render_heredoc_body_part(
                     expression,
                     expression_ast.as_ref(),
                     *syntax,
-                    WordRenderEnv::new(source, options, Some(facts.source_map()), Some(facts)),
+                    context,
                 );
             }
         }
@@ -125,7 +120,7 @@ pub(super) fn render_heredoc_body_part(
             if let Some(raw) = escaped_heredoc_expansion_source(span, source) {
                 rendered.push_str(raw);
             } else {
-                push_parameter_word(rendered, parameter, source, options)?;
+                push_parameter_word(rendered, parameter, context)?;
             }
         }
     }
@@ -169,15 +164,9 @@ pub(super) fn render_heredoc_body_command_substitution(
         return None;
     }
 
+    let context = RenderContext::new(source, options, facts);
     let mut nested = String::new();
-    format_nested_stmt_sequence_to_buf(
-        source,
-        body,
-        options,
-        Some(facts),
-        Some(upper_bound),
-        &mut nested,
-    )?;
+    format_nested_stmt_sequence_to_buf(body, context, Some(upper_bound), &mut nested)?;
     let trimmed = trim_trailing_line_endings(&nested);
     if trimmed.is_empty() {
         rendered.push_str("$()");

@@ -62,60 +62,30 @@ pub(super) fn word_part_nodes_any(
     })
 }
 
-pub(crate) fn render_word_syntax(
-    word: &Word,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-) -> String {
-    let mut rendered = String::new();
-    render_word_syntax_to_buf(word, source, options, &mut rendered);
-    rendered
-}
-
 pub(crate) fn render_word_syntax_to_buf(
     word: &Word,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
     rendered: &mut String,
 ) {
-    render_word_syntax_internal(word, source, options, None, None, true, rendered);
+    render_word_syntax_internal(word, context, true, rendered);
 }
 
-pub(crate) fn render_word_syntax_with_facts_to_buf(
+pub(crate) fn render_escaped_multiline_word_syntax_to_buf(
     word: &Word,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-    source_map: &SourceMap<'_>,
-    facts: &FormatterFacts<'_>,
+    context: RenderContext<'_, '_>,
     rendered: &mut String,
 ) {
-    let source_map = Some(source_map);
-    let facts = Some(facts);
-    render_word_syntax_internal(word, source, options, source_map, facts, true, rendered);
-}
-
-pub(crate) fn render_escaped_multiline_word_syntax_with_facts_to_buf(
-    word: &Word,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-    source_map: &SourceMap<'_>,
-    facts: &FormatterFacts<'_>,
-    rendered: &mut String,
-) {
-    let source_map = Some(source_map);
-    let facts = Some(facts);
-    render_word_syntax_internal(word, source, options, source_map, facts, false, rendered);
+    render_word_syntax_internal(word, context, false, rendered);
 }
 
 pub(super) fn render_word_syntax_internal(
     word: &Word,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-    source_map: Option<&SourceMap<'_>>,
-    facts: Option<&FormatterFacts<'_>>,
+    context: RenderContext<'_, '_>,
     preserve_escaped_multiline_words: bool,
     rendered: &mut String,
 ) {
+    let source = context.source;
+    let options = context.options;
     let preserve_raw = !options.simplify() && !options.minify();
 
     if preserve_raw
@@ -187,12 +157,11 @@ pub(super) fn render_word_syntax_internal(
         return;
     }
 
-    if word_needs_formatter_rendering(word, source, options) {
+    if word_needs_formatter_rendering(word, context) {
         let start = rendered.len();
-        let env = WordRenderEnv::new(source, options, source_map, facts);
         if render_word_parts(
             word.parts.as_slice(),
-            env,
+            context,
             preserve_escaped_multiline_words,
             rendered,
         )
@@ -290,37 +259,33 @@ pub(super) fn word_needs_special_rendering(word: &Word) -> bool {
     })
 }
 
-pub(super) fn word_needs_formatter_rendering(
-    word: &Word,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-) -> bool {
+pub(super) fn word_needs_formatter_rendering(word: &Word, context: RenderContext<'_, '_>) -> bool {
     word_part_nodes_any(&word.parts, &mut |part| {
-        word_part_needs_formatter_rendering(part, source, options)
+        word_part_needs_formatter_rendering(part, context)
     })
 }
 
 pub(super) fn word_part_needs_formatter_rendering(
     part: &WordPartNode,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
 ) -> bool {
     part_needs_special_rendering(&part.kind)
-        || word_part_has_parameter_raw_subscript_needs_compaction(&part.kind, source, options)
+        || word_part_has_parameter_raw_subscript_needs_compaction(&part.kind, context)
         || word_part_has_parameter_command_redirect_spacing_needs_normalization(
-            &part.kind, part.span, source,
+            &part.kind,
+            part.span,
+            context.source,
         )
-        || word_part_has_arithmetic_expansion_source_needs_trim(&part.kind, source)
+        || word_part_has_arithmetic_expansion_source_needs_trim(&part.kind, context.source)
 }
 
 pub(super) fn word_part_has_parameter_raw_subscript_needs_compaction(
     part: &WordPart,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
 ) -> bool {
     match part {
         WordPart::Parameter(parameter) => {
-            parameter_raw_subscript_needs_compaction(parameter, source, options)
+            parameter_raw_subscript_needs_compaction(parameter, context)
         }
         _ => false,
     }
@@ -427,7 +392,7 @@ pub(super) fn part_needs_special_rendering(part: &WordPart) -> bool {
 
 pub(super) fn render_word_parts(
     parts: &[shuck_ast::WordPartNode],
-    env: WordRenderEnv<'_, '_>,
+    env: RenderContext<'_, '_>,
     allow_source_indented_inline_command_substitution: bool,
     rendered: &mut String,
 ) -> Result<(), std::fmt::Error> {
@@ -456,15 +421,14 @@ pub(super) fn render_word_part(
     rendered: &mut String,
     part: &WordPart,
     span: shuck_ast::Span,
-    env: WordRenderEnv<'_, '_>,
-    context: WordPartRenderContext,
+    env: RenderContext<'_, '_>,
+    part_context: WordPartRenderContext,
 ) -> Result<(), std::fmt::Error> {
     let source = env.source;
     let options = env.options;
-    let source_map = env.source_map;
     let facts = env.facts;
 
-    if let Some(raw) = preferred_raw_word_part_source(part, span, source, options) {
+    if let Some(raw) = preferred_raw_word_part_source(part, span, env) {
         rendered.push_str(raw);
         return Ok(());
     }
@@ -511,9 +475,9 @@ pub(super) fn render_word_part(
                             part.span,
                             env,
                             WordPartRenderContext {
-                                allow_source_indented_inline_command_substitution: context
+                                allow_source_indented_inline_command_substitution: part_context
                                     .allow_source_indented_inline_command_substitution,
-                                source_indented_inline_command_substitution: context
+                                source_indented_inline_command_substitution: part_context
                                     .allow_source_indented_inline_command_substitution
                                     && follows_line_indent_literal,
                             },
@@ -538,11 +502,9 @@ pub(super) fn render_word_part(
                 let layout = command_substitution_layout(
                     Some(raw),
                     body,
-                    facts,
-                    source,
-                    options.dialect(),
+                    env,
                     false,
-                    context.source_indented_inline_command_substitution,
+                    part_context.source_indented_inline_command_substitution,
                 );
                 if raw_dollar_command_substitution_body(raw)
                     .is_some_and(raw_body_contains_pipeline_multistatement_brace_group)
@@ -554,10 +516,8 @@ pub(super) fn render_word_part(
                     let fallback = RawCommandSubstitutionCommentFallback {
                         raw,
                         body,
-                        source,
                         span_start: span.start.offset,
-                        options,
-                        facts,
+                        context: env,
                     };
                     if commented_command_substitution_can_use_structural_formatter(body) {
                         let rendered_start = rendered.len();
@@ -565,13 +525,10 @@ pub(super) fn render_word_part(
                             rendered,
                             body,
                             span.end.offset,
-                            source,
-                            options,
+                            env,
                             layout,
                             1,
                             Some(raw),
-                            source_map,
-                            None,
                         )
                         .is_some()
                         {
@@ -596,13 +553,10 @@ pub(super) fn render_word_part(
                     rendered,
                     body,
                     span.end.offset,
-                    source,
-                    options,
+                    env,
                     layout,
                     1,
                     Some(raw),
-                    source_map,
-                    facts,
                 )
                 .is_some()
                 {
@@ -613,21 +567,16 @@ pub(super) fn render_word_part(
                 rendered,
                 body,
                 span.end.offset,
-                source,
-                options,
+                env,
                 command_substitution_layout(
                     None,
                     body,
-                    facts,
-                    source,
-                    options.dialect(),
+                    env,
                     *syntax == CommandSubstitutionSyntax::DollarParen,
                     false,
                 ),
                 1,
                 None,
-                source_map,
-                facts,
             )
             .is_some()
             {
@@ -656,21 +605,17 @@ pub(super) fn render_word_part(
                     body,
                     *is_input,
                     span,
-                    source,
-                    options,
+                    env,
                     raw.contains('\n'),
                     Some(raw),
-                    facts,
                 )
                 .is_some()
                 {
                 } else {
                     rendered.push_str(raw);
                 }
-            } else if render_process_substitution(
-                rendered, body, *is_input, span, source, options, false, None, facts,
-            )
-            .is_some()
+            } else if render_process_substitution(rendered, body, *is_input, span, env, false, None)
+                .is_some()
             {
             } else {
                 let prefix = if *is_input { "<" } else { ">" };
@@ -690,7 +635,7 @@ pub(super) fn render_word_part(
             env,
         ),
         WordPart::Parameter(parameter) => {
-            push_parameter_word(rendered, parameter, source, options)?;
+            push_parameter_word(rendered, parameter, env)?;
         }
         WordPart::ParameterExpansion {
             reference,
@@ -708,13 +653,13 @@ pub(super) fn render_word_part(
             env,
         )?,
         WordPart::Length(reference) | WordPart::ArrayLength(reference) => {
-            push_braced_var_ref(rendered, "#", reference, source, options);
+            push_braced_var_ref(rendered, "#", reference, env);
         }
         WordPart::ArrayAccess(reference) => {
-            push_braced_var_ref(rendered, "", reference, source, options);
+            push_braced_var_ref(rendered, "", reference, env);
         }
         WordPart::ArrayIndices(reference) => {
-            push_braced_var_ref(rendered, "!", reference, source, options);
+            push_braced_var_ref(rendered, "!", reference, env);
         }
         WordPart::Substring {
             reference,
@@ -733,18 +678,12 @@ pub(super) fn render_word_part(
             ..
         } => {
             rendered.push_str("${");
-            push_var_ref(rendered, reference, source, options);
+            push_var_ref(rendered, reference, env);
             rendered.push(':');
-            push_parameter_slice_offset(rendered, offset, offset_ast.as_deref(), source, options);
+            push_parameter_slice_offset(rendered, offset, offset_ast.as_deref(), env);
             if let Some(length) = length {
                 rendered.push(':');
-                push_arithmetic_source_text(
-                    rendered,
-                    length,
-                    length_ast.as_deref(),
-                    source,
-                    options,
-                );
+                push_arithmetic_source_text(rendered, length, length_ast.as_deref(), env);
             }
             rendered.push('}');
         }
@@ -756,14 +695,14 @@ pub(super) fn render_word_part(
             ..
         } => {
             rendered.push_str("${!");
-            push_var_ref(rendered, reference, source, options);
+            push_var_ref(rendered, reference, env);
             if let Some(operator) = operator {
                 if *colon_variant {
                     rendered.push(':');
                 }
                 rendered.push_str(parameter_defaulting_operator(operator.as_ref()));
                 if let Some(operand) = operand {
-                    push_parameter_operand(rendered, operand, source, options);
+                    push_parameter_operand(rendered, operand, env);
                 }
             }
             rendered.push('}');
@@ -783,12 +722,11 @@ pub(super) fn push_braced_var_ref(
     rendered: &mut String,
     prefix: &str,
     reference: &VarRef,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
 ) {
     rendered.push_str("${");
     rendered.push_str(prefix);
-    push_var_ref(rendered, reference, source, options);
+    push_var_ref(rendered, reference, context);
     rendered.push('}');
 }
 
@@ -802,9 +740,10 @@ pub(super) fn literal_ends_with_line_indent_for_word_part(literal: &str) -> bool
 pub(super) fn preferred_raw_word_part_source<'a>(
     part: &WordPart,
     span: shuck_ast::Span,
-    source: &'a str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'a, '_>,
 ) -> Option<&'a str> {
+    let source = context.source;
+    let options = context.options;
     if options.simplify() || options.minify() {
         return None;
     }
@@ -814,14 +753,14 @@ pub(super) fn preferred_raw_word_part_source<'a>(
         WordPart::DoubleQuoted { parts, .. } => {
             let raw = raw_source_slice(span, source)?;
             let has_formattable_parts = word_part_nodes_any(parts, &mut |part| {
-                word_part_needs_formatter_rendering(part, source, options)
+                word_part_needs_formatter_rendering(part, context)
             });
             (!has_formattable_parts).then_some(raw)
         }
         WordPart::Parameter(parameter) => {
             let raw = raw_source_slice(span, source)?;
             (parameter_prefers_raw_source(parameter, span, source)
-                && !parameter_raw_subscript_needs_compaction(parameter, source, options)
+                && !parameter_raw_subscript_needs_compaction(parameter, context)
                 && !raw_parameter_command_spacing_would_change(raw))
             .then_some(raw)
         }
@@ -847,9 +786,9 @@ pub(super) fn preferred_raw_word_part_source<'a>(
 
 pub(super) fn parameter_raw_subscript_needs_compaction(
     parameter: &shuck_ast::ParameterExpansion,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
 ) -> bool {
+    let source = context.source;
     if parameter_bourne_operand_needs_subscript_compaction(parameter, source) {
         return true;
     }
@@ -859,7 +798,7 @@ pub(super) fn parameter_raw_subscript_needs_compaction(
             && arithmetic_subscript_prefers_spaced_expression(syntax)
         {
             let mut rendered = String::new();
-            render_arithmetic_subscript_expr_to_buf(&mut rendered, ast, source, options, false);
+            render_arithmetic_subscript_expr_to_buf(&mut rendered, ast, context, false);
             return rendered != syntax;
         }
         return compact_dynamic_arithmetic_subscript(syntax) != syntax;
@@ -915,29 +854,6 @@ pub(super) fn render_double_quoted_literal(rendered: &mut String, text: &str) {
                 rendered.push(ch);
             }
             _ => rendered.push(ch),
-        }
-    }
-}
-#[derive(Clone, Copy)]
-pub(super) struct WordRenderEnv<'source, 'a> {
-    pub(super) source: &'source str,
-    pub(super) options: &'a ResolvedShellFormatOptions,
-    pub(super) source_map: Option<&'a SourceMap<'source>>,
-    pub(super) facts: Option<&'a FormatterFacts<'source>>,
-}
-
-impl<'source, 'a> WordRenderEnv<'source, 'a> {
-    pub(super) fn new(
-        source: &'source str,
-        options: &'a ResolvedShellFormatOptions,
-        source_map: Option<&'a SourceMap<'source>>,
-        facts: Option<&'a FormatterFacts<'source>>,
-    ) -> Self {
-        Self {
-            source,
-            options,
-            source_map,
-            facts,
         }
     }
 }

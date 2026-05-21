@@ -1,11 +1,8 @@
 use std::fmt::Write as _;
 
 use crate::command::trim_unescaped_trailing_whitespace;
-use crate::comments::SourceMap;
-use crate::facts::{
-    FormatterFacts, classify_sequence_contains_comments, classify_sequence_contains_heredoc,
-    classify_sequence_contains_multiline_literal_source,
-};
+use crate::context::RenderContext;
+use crate::facts::{FormatterFacts, classify_sequence_contains_multiline_literal_source};
 use crate::options::{IndentStyle, ResolvedShellFormatOptions};
 use crate::raw_syntax::{
     QuoteState, RawShellScanner, RawShellText, common_nonempty_shell_indent, heredoc_start,
@@ -32,9 +29,8 @@ mod raw_rewrites;
 
 pub(crate) use self::arithmetic::render_arithmetic_expr_to_buf;
 pub(crate) use self::core::{
-    render_escaped_multiline_word_syntax_with_facts_to_buf, render_word_syntax_to_buf,
-    render_word_syntax_with_facts_to_buf, word_gap_end_before_trailing_continuation,
-    word_is_quoted_command_substitution_only,
+    render_escaped_multiline_word_syntax_to_buf, render_word_syntax_to_buf,
+    word_gap_end_before_trailing_continuation, word_is_quoted_command_substitution_only,
     word_is_quoted_formattable_command_substitution_only_with_facts,
 };
 pub(crate) use self::heredoc::render_heredoc_body_to_buf;
