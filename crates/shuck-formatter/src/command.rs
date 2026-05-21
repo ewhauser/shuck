@@ -419,10 +419,6 @@ fn multiline_compound_assignment_command_substitution_range<T: AsRef<str>>(
     lines: &[T],
     open_index: usize,
 ) -> Option<(usize, usize, bool)> {
-    if !RawShellText::new(lines.get(open_index)?.as_ref()).has_unclosed_command_substitution_open()
-    {
-        return None;
-    }
     let close_index =
         multiline_compound_assignment_command_substitution_close_index(lines, open_index)?;
     let close_line_is_standalone = lines[close_index]
@@ -441,6 +437,8 @@ fn multiline_compound_assignment_command_substitution_close_index<T: AsRef<str>>
     lines: &[T],
     open_index: usize,
 ) -> Option<usize> {
+    let open = RawShellText::new(lines.get(open_index)?.as_ref())
+        .unclosed_command_substitution_body_start()?;
     let mut tail = String::new();
     for (index, line) in lines.get(open_index..)?.iter().enumerate() {
         if index > 0 {
@@ -448,8 +446,7 @@ fn multiline_compound_assignment_command_substitution_close_index<T: AsRef<str>>
         }
         tail.push_str(line.as_ref());
     }
-    let open = tail.find("$(")?;
-    let close = matching_raw_command_substitution_close(&tail, open + 2)?;
+    let close = matching_raw_command_substitution_close(&tail, open)?;
     Some(open_index + tail[..close].bytes().filter(|byte| *byte == b'\n').count())
 }
 
@@ -2275,5 +2272,14 @@ mod tests {
         let span = first_brace_group_verbatim_span(source);
 
         assert_eq!(span.slice(source), "{ # note\n  echo ok; \\\n}");
+    }
+
+    #[test]
+    fn compound_assignment_command_substitution_matches_unclosed_opener() {
+        let raw_lines = [") $(closed) $(open", "echo body", ")"];
+
+        let body_lines = multiline_compound_assignment_command_substitution_body_lines(&raw_lines);
+
+        assert_eq!(body_lines, vec![false, true, false]);
     }
 }

@@ -130,7 +130,7 @@ impl<'source> RawShellText<'source> {
         RawShellScanner::new(self.text).next_command_substitution(index)
     }
 
-    pub(crate) fn has_unclosed_command_substitution_open(&self) -> bool {
+    pub(crate) fn unclosed_command_substitution_body_start(&self) -> Option<usize> {
         let bytes = self.text.as_bytes();
         let mut quote = QuoteState::default();
         let mut index = 0usize;
@@ -150,7 +150,7 @@ impl<'source> RawShellText<'source> {
                 && bytes.get(index + 2).is_none_or(|byte| *byte != b'(')
             {
                 let Some(close_offset) = self.matching_command_substitution_close(index + 2) else {
-                    return true;
+                    return Some(index + 2);
                 };
                 index = close_offset + 1;
                 continue;
@@ -158,7 +158,11 @@ impl<'source> RawShellText<'source> {
             index = next_index;
         }
 
-        false
+        None
+    }
+
+    pub(crate) fn has_unclosed_command_substitution_open(&self) -> bool {
+        self.unclosed_command_substitution_body_start().is_some()
     }
 
     pub(crate) fn normalize_pipeline_continuations(&self) -> Option<String> {
@@ -652,6 +656,10 @@ mod tests {
     fn unclosed_command_substitution_ignores_quoted_open() {
         assert!(!RawShellText::new("'$(").has_unclosed_command_substitution_open());
         assert!(RawShellText::new("value=$(echo").has_unclosed_command_substitution_open());
+        assert_eq!(
+            RawShellText::new("$(closed) $(open").unclosed_command_substitution_body_start(),
+            Some(12)
+        );
     }
 
     #[test]
