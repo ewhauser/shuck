@@ -477,10 +477,10 @@ where
     }
 
     pub(super) fn write_condition_separator_suffix_comment(&mut self, then_span: Span) -> bool {
-        let Some(comment) = self.facts().suffix_comment_for_span(then_span) else {
+        let Some(plan) = self.facts().suffix_comment_plan_for_span(then_span) else {
             return false;
         };
-        self.write_trailing_comment(&comment, false);
+        self.write_inline_comment_plan(plan, false);
         true
     }
 
@@ -1244,7 +1244,8 @@ where
         }
         let Some(comment) = self
             .facts()
-            .close_suffix_comment_after_span(stmt_format_span(stmt))
+            .close_suffix_comment_plan_after_span(stmt_format_span(stmt))
+            .map(|plan| plan.comment())
         else {
             return;
         };

@@ -51,16 +51,9 @@ where
         }
     }
 
-    pub(super) fn emit_trailing_comments_for_stmt(&mut self, comments: &[SourceComment<'_>]) {
+    pub(super) fn emit_trailing_comments_for_stmt(&mut self, comments: &[SourceComment<'source>]) {
         for comment in comments {
-            let current_code_column = self.column().saturating_sub(self.line_indent_column());
-            let padding = self.facts().trailing_comment_padding(
-                comment,
-                current_code_column,
-                self.line_indent_column(),
-            );
-            self.write_spaces(padding);
-            self.write_comment(comment);
+            self.write_trailing_comment(comment, false);
         }
     }
 
@@ -133,50 +126,48 @@ where
     }
 
     pub(super) fn write_close_suffix_after_span(&mut self, close_span: Option<Span>) {
-        let Some(comment) =
-            close_span.and_then(|span| self.facts().close_suffix_comment_after_span(span))
+        let Some(plan) =
+            close_span.and_then(|span| self.facts().close_suffix_comment_plan_after_span(span))
         else {
             return;
         };
+        self.write_inline_comment_plan(plan, false);
+    }
+
+    pub(super) fn write_inline_comment_plan(
+        &mut self,
+        plan: crate::facts::InlineCommentPlan<'source>,
+        nudge_aligned: bool,
+    ) {
         let current_code_column = self.column().saturating_sub(self.line_indent_column());
-        let padding = self.facts().close_suffix_comment_padding(
-            &comment,
+        let mut padding = plan.padding(
+            self.source_map(),
             current_code_column,
             self.line_indent_column(),
         );
+        if nudge_aligned && plan.has_alignment(self.source_map(), self.line_indent_column()) {
+            padding += 1;
+        }
         self.write_spaces(padding);
-        self.write_comment(&comment);
+        self.write_comment(&plan.comment());
     }
 
     pub(super) fn write_trailing_comment(
         &mut self,
-        comment: &SourceComment<'_>,
+        comment: &SourceComment<'source>,
         nudge_aligned: bool,
     ) {
-        let current_code_column = self.column().saturating_sub(self.line_indent_column());
-        let mut padding = self.facts().trailing_comment_padding(
-            comment,
-            current_code_column,
-            self.line_indent_column(),
-        );
-        if nudge_aligned
-            && self
-                .facts()
-                .trailing_comment_has_alignment(comment, self.line_indent_column())
-        {
-            padding += 1;
-        }
-        self.write_spaces(padding);
-        self.write_comment(comment);
+        let plan = self.facts().trailing_comment_plan(*comment);
+        self.write_inline_comment_plan(plan, nudge_aligned);
     }
 
     pub(super) fn write_suffix_comment_after_span(&mut self, span: Span, nudge_aligned: bool) {
-        let Some(comment) = self.facts().suffix_comment_for_span(span) else {
+        let Some(plan) = self.facts().suffix_comment_plan_for_span(span) else {
             self.write_space();
             self.write_text(span.slice(self.source()).trim_start());
             return;
         };
-        self.write_trailing_comment(&comment, nudge_aligned);
+        self.write_inline_comment_plan(plan, nudge_aligned);
     }
 }
 
