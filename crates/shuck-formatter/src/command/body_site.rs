@@ -54,10 +54,17 @@ impl<'a> CompoundBodySite<'a> {
     pub(crate) fn for_command(
         command: &'a ForCommand,
         source_map: &crate::comments::SourceMap<'_>,
+        cached_close_span: Option<Span>,
     ) -> Self {
         match command.syntax {
             ForSyntax::InDoDone { done_span, .. } | ForSyntax::ParenDoDone { done_span, .. } => {
-                Self::do_done(&command.body, command.span, Some(done_span), source_map)
+                Self::do_done(
+                    &command.body,
+                    command.span,
+                    Some(done_span),
+                    source_map,
+                    cached_close_span,
+                )
             }
             ForSyntax::InDirect { .. } | ForSyntax::ParenDirect { .. } => {
                 Self::direct(&command.body, command.span)
@@ -74,11 +81,16 @@ impl<'a> CompoundBodySite<'a> {
     pub(crate) fn foreach_command(
         command: &'a ForeachCommand,
         source_map: &crate::comments::SourceMap<'_>,
+        cached_close_span: Option<Span>,
     ) -> Self {
         match command.syntax {
-            ForeachSyntax::InDoDone { done_span, .. } => {
-                Self::do_done(&command.body, command.span, Some(done_span), source_map)
-            }
+            ForeachSyntax::InDoDone { done_span, .. } => Self::do_done(
+                &command.body,
+                command.span,
+                Some(done_span),
+                source_map,
+                cached_close_span,
+            ),
             ForeachSyntax::ParenBrace {
                 right_brace_span, ..
             } => Self::brace(&command.body, command.span, right_brace_span, source_map),
@@ -88,11 +100,16 @@ impl<'a> CompoundBodySite<'a> {
     pub(crate) fn repeat_command(
         command: &'a RepeatCommand,
         source_map: &crate::comments::SourceMap<'_>,
+        cached_close_span: Option<Span>,
     ) -> Self {
         match command.syntax {
-            RepeatSyntax::DoDone { done_span, .. } => {
-                Self::do_done(&command.body, command.span, Some(done_span), source_map)
-            }
+            RepeatSyntax::DoDone { done_span, .. } => Self::do_done(
+                &command.body,
+                command.span,
+                Some(done_span),
+                source_map,
+                cached_close_span,
+            ),
             RepeatSyntax::Direct => Self::direct(&command.body, command.span),
             RepeatSyntax::Brace {
                 right_brace_span, ..
@@ -103,34 +120,57 @@ impl<'a> CompoundBodySite<'a> {
     pub(crate) fn while_command(
         command: &'a WhileCommand,
         source_map: &crate::comments::SourceMap<'_>,
+        cached_close_span: Option<Span>,
     ) -> Self {
-        Self::do_done(&command.body, command.span, command.done_span, source_map)
+        Self::do_done(
+            &command.body,
+            command.span,
+            command.done_span,
+            source_map,
+            cached_close_span,
+        )
     }
 
     pub(crate) fn until_command(
         command: &'a UntilCommand,
         source_map: &crate::comments::SourceMap<'_>,
+        cached_close_span: Option<Span>,
     ) -> Self {
-        Self::do_done(&command.body, command.span, command.done_span, source_map)
+        Self::do_done(
+            &command.body,
+            command.span,
+            command.done_span,
+            source_map,
+            cached_close_span,
+        )
     }
 
     pub(crate) fn select_command(
         command: &'a SelectCommand,
         source_map: &crate::comments::SourceMap<'_>,
+        cached_close_span: Option<Span>,
     ) -> Self {
         Self::do_done(
             &command.body,
             command.span,
             Some(command.done_span),
             source_map,
+            cached_close_span,
         )
     }
 
     pub(crate) fn arithmetic_for_command(
         command: &'a ArithmeticForCommand,
         source_map: &crate::comments::SourceMap<'_>,
+        cached_close_span: Option<Span>,
     ) -> Self {
-        Self::do_done(&command.body, command.span, command.done_span, source_map)
+        Self::do_done(
+            &command.body,
+            command.span,
+            command.done_span,
+            source_map,
+            cached_close_span,
+        )
     }
 
     pub(crate) fn single_body_command(
@@ -138,15 +178,21 @@ impl<'a> CompoundBodySite<'a> {
         source_map: &crate::comments::SourceMap<'_>,
     ) -> Option<Self> {
         match command {
-            CompoundCommand::For(command) => Some(Self::for_command(command, source_map)),
-            CompoundCommand::Repeat(command) => Some(Self::repeat_command(command, source_map)),
-            CompoundCommand::Foreach(command) => Some(Self::foreach_command(command, source_map)),
-            CompoundCommand::ArithmeticFor(command) => {
-                Some(Self::arithmetic_for_command(command, source_map))
+            CompoundCommand::For(command) => Some(Self::for_command(command, source_map, None)),
+            CompoundCommand::Repeat(command) => {
+                Some(Self::repeat_command(command, source_map, None))
             }
-            CompoundCommand::While(command) => Some(Self::while_command(command, source_map)),
-            CompoundCommand::Until(command) => Some(Self::until_command(command, source_map)),
-            CompoundCommand::Select(command) => Some(Self::select_command(command, source_map)),
+            CompoundCommand::Foreach(command) => {
+                Some(Self::foreach_command(command, source_map, None))
+            }
+            CompoundCommand::ArithmeticFor(command) => {
+                Some(Self::arithmetic_for_command(command, source_map, None))
+            }
+            CompoundCommand::While(command) => Some(Self::while_command(command, source_map, None)),
+            CompoundCommand::Until(command) => Some(Self::until_command(command, source_map, None)),
+            CompoundCommand::Select(command) => {
+                Some(Self::select_command(command, source_map, None))
+            }
             _ => None,
         }
     }
@@ -256,13 +302,16 @@ impl<'a> CompoundBodySite<'a> {
         enclosing_span: Span,
         done_span: Option<Span>,
         source_map: &crate::comments::SourceMap<'_>,
+        cached_close_span: Option<Span>,
     ) -> Self {
-        let close_span = super::render_policy::done_close_span(
-            source_map.source(),
-            source_map,
-            enclosing_span,
-            done_span,
-        );
+        let close_span = cached_close_span.or_else(|| {
+            super::render_policy::done_close_span(
+                source_map.source(),
+                source_map,
+                enclosing_span,
+                done_span,
+            )
+        });
         let upper_bound = close_span.map(|span| span.start.offset).unwrap_or_else(|| {
             done_span.map_or(enclosing_span.end.offset, |span| span.start.offset)
         });
@@ -294,7 +343,7 @@ impl<'a> CompoundBodySite<'a> {
         let close_span = source_map
             .close_delimiter_span(enclosing_span, CloseDelimiterKind::RightBrace)
             .unwrap_or_else(|| {
-                normalized_close_keyword_span(
+                super::render_policy::normalized_close_keyword_span(
                     source_map.source(),
                     source_map,
                     right_brace_span,

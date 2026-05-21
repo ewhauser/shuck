@@ -72,6 +72,7 @@ pub(super) fn case_item_single_body_stmt_can_inline(
     source: &str,
     source_map: &SourceMap<'_>,
     pattern_body_terminator_was_inline: bool,
+    facts: &FormatterFacts<'_>,
 ) -> bool {
     let [stmt] = item.body.as_slice() else {
         return false;
@@ -79,11 +80,11 @@ pub(super) fn case_item_single_body_stmt_can_inline(
     if let Command::Compound(CompoundCommand::If(command)) = &stmt.command {
         return pattern_body_terminator_was_inline
             && case_item_close_paren_shares_line_with_body(item, source, source_map)
-            && case_item_if_close_shares_terminator(command, item, source, source_map);
+            && case_item_if_close_shares_terminator(command, item, source, facts);
     }
     if let Command::Compound(CompoundCommand::Case(command)) = &stmt.command {
         return pattern_body_terminator_was_inline
-            && case_item_case_close_shares_terminator(command, item, source, source_map);
+            && case_item_case_close_shares_terminator(command, item, source, facts);
     }
     true
 }
@@ -92,12 +93,12 @@ fn case_item_if_close_shares_terminator(
     command: &IfCommand,
     item: &CaseItem,
     source: &str,
-    source_map: &SourceMap<'_>,
+    facts: &FormatterFacts<'_>,
 ) -> bool {
     let Some(terminator_span) = item.terminator_span else {
         return false;
     };
-    let fi_span = command_if_close_span(command, source, source_map);
+    let fi_span = facts.if_close_span(command);
     let fi_end = fi_span.end.offset.min(source.len());
     let terminator_start = terminator_span.start.offset.min(source.len());
     source
@@ -109,12 +110,12 @@ fn case_item_case_close_shares_terminator(
     command: &CaseCommand,
     item: &CaseItem,
     source: &str,
-    source_map: &SourceMap<'_>,
+    facts: &FormatterFacts<'_>,
 ) -> bool {
     let Some(terminator_span) = item.terminator_span else {
         return false;
     };
-    let Some(esac_span) = last_shell_keyword_span(source, source_map, command.span, "esac") else {
+    let Some(esac_span) = facts.case_command(command).esac_span() else {
         return false;
     };
     let esac_end = esac_span.end.offset.min(source.len());

@@ -45,7 +45,7 @@ impl IfLayoutPlan {
         let IfSyntax::ThenFi { then_span, .. } = command.syntax else {
             unreachable!("brace if cannot be planned as then/fi");
         };
-        let fi_span = command_if_close_span(command, context.source, context.source_map());
+        let fi_span = context.facts.if_close_span(command);
         let style = then_fi_if_style(command, then_span, fi_span, context);
 
         Self {

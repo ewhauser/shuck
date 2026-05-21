@@ -573,7 +573,11 @@ where
             }
         }
 
-        let site = CompoundBodySite::for_command(command, self.source_map());
+        let site = CompoundBodySite::for_command(
+            command,
+            self.source_map(),
+            self.facts().compound_close_span_for_span(command.span),
+        );
         self.format_loop_body_site(site, "; ", "for body uses do, direct, or brace syntax")
     }
 
@@ -607,7 +611,11 @@ where
     pub(super) fn format_repeat(&mut self, command: &RepeatCommand) -> Result<()> {
         self.write_text("repeat ");
         self.write_word(&command.count);
-        let site = CompoundBodySite::repeat_command(command, self.source_map());
+        let site = CompoundBodySite::repeat_command(
+            command,
+            self.source_map(),
+            self.facts().compound_close_span_for_span(command.span),
+        );
         self.format_loop_body_site(site, " ", "repeat body uses do, direct, or brace syntax")
     }
 
@@ -637,7 +645,11 @@ where
     pub(super) fn format_foreach(&mut self, command: &ForeachCommand) -> Result<()> {
         self.write_text("foreach ");
         self.write_text(command.variable.as_ref());
-        let site = CompoundBodySite::foreach_command(command, self.source_map());
+        let site = CompoundBodySite::foreach_command(
+            command,
+            self.source_map(),
+            self.facts().compound_close_span_for_span(command.span),
+        );
         match command.syntax {
             ForeachSyntax::ParenBrace { .. } => {
                 self.write_parenthesized_word_list(Some(&command.words));
@@ -656,18 +668,30 @@ where
         self.write_text("select ");
         self.write_text(command.variable.as_ref());
         self.write_for_in_words(Some(&command.words), None);
-        let site = CompoundBodySite::select_command(command, self.source_map());
+        let site = CompoundBodySite::select_command(
+            command,
+            self.source_map(),
+            self.facts().compound_close_span_for_span(command.span),
+        );
         self.format_do_done_body(site, "done")?;
         Ok(())
     }
 
     pub(super) fn format_while(&mut self, command: &WhileCommand) -> Result<()> {
-        let site = CompoundBodySite::while_command(command, self.source_map());
+        let site = CompoundBodySite::while_command(
+            command,
+            self.source_map(),
+            self.facts().compound_close_span_for_span(command.span),
+        );
         self.format_loop("while", &command.condition, site)
     }
 
     pub(super) fn format_until(&mut self, command: &UntilCommand) -> Result<()> {
-        let site = CompoundBodySite::until_command(command, self.source_map());
+        let site = CompoundBodySite::until_command(
+            command,
+            self.source_map(),
+            self.facts().compound_close_span_for_span(command.span),
+        );
         self.format_loop("until", &command.condition, site)
     }
 
@@ -919,6 +943,7 @@ where
                     self.source(),
                     self.source_map(),
                     pattern_body_terminator_was_inline,
+                    self.facts(),
                 )
                 && (item_was_inline_in_source
                     || (pattern_suffix_comment.is_some()
@@ -1215,7 +1240,11 @@ where
         self.write_text("; ");
         self.write_text(&step);
         self.write_text("))");
-        let site = CompoundBodySite::arithmetic_for_command(command, self.source_map());
+        let site = CompoundBodySite::arithmetic_for_command(
+            command,
+            self.source_map(),
+            self.facts().compound_close_span_for_span(command.span),
+        );
         self.format_do_done_body(site, "done")
     }
 
