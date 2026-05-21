@@ -154,7 +154,7 @@ pub(crate) fn widen_backtick_command_substitution_span(
     }
 
     let end_offset = shuck_ast::raw_shell::RawShellScanner::new(source)
-        .skip_legacy_backtick_construct(span.start.offset + 1)?;
+        .skip_legacy_backtick_substitution_body(span.start.offset + 1)?;
     let start = locator.position_at_offset(span.start.offset)?;
     let end = locator.position_at_offset(end_offset)?;
     Some(Span::from_positions(start, end))
@@ -169,6 +169,7 @@ mod tests {
     use super::{
         CommandSubstitutionSpanVisitor, WordTraversalContext, normalize_command_substitution_spans,
         unquoted_command_substitution_part_spans, walk_word_subtree,
+        widen_backtick_command_substitution_span,
     };
     use crate::Locator;
 
@@ -242,5 +243,20 @@ printf '%s\\n' \"left \"$(printf '%s' dollar)\" right\" \"left \"`printf '%s' ti
             .collect::<Vec<_>>();
 
         assert_eq!(spans, vec!["$(printf '%s' dollar)"]);
+    }
+
+    #[test]
+    fn backtick_span_widening_stops_at_unescaped_backtick_inside_double_quote() {
+        let source = "`echo \"`\" tail`";
+        let line_index = LineIndex::new(source);
+        let locator = Locator::new(source, &line_index);
+        let partial = Span::from_positions(
+            locator.position_at_offset(0).unwrap(),
+            locator.position_at_offset(1).unwrap(),
+        );
+
+        let widened = widen_backtick_command_substitution_span(partial, locator).unwrap();
+
+        assert_eq!(widened.slice(source), "`echo \"`");
     }
 }
