@@ -34,6 +34,7 @@ use std::path::Path;
 use shuck_ast::File;
 use shuck_parser::{Error as ParseError, parser::Parser};
 
+use crate::context::RenderContext;
 use crate::facts::FormatterFacts;
 
 /// Formatter option types exposed by the shell formatter.
@@ -160,12 +161,7 @@ fn format_output(
 trait RenderMode {
     type Output;
 
-    fn render(
-        source: &str,
-        file: &File,
-        resolved: &ResolvedShellFormatOptions,
-        facts: &FormatterFacts<'_>,
-    ) -> Result<Self::Output>;
+    fn render(file: &File, context: RenderContext<'_, '_>) -> Result<Self::Output>;
 }
 
 struct BufferedRender;
@@ -173,18 +169,12 @@ struct BufferedRender;
 impl RenderMode for BufferedRender {
     type Output = String;
 
-    fn render(
-        source: &str,
-        file: &File,
-        resolved: &ResolvedShellFormatOptions,
-        facts: &FormatterFacts<'_>,
-    ) -> Result<Self::Output> {
-        let mut output =
-            streaming::format_file_streaming_with_facts(source, file, resolved, facts)?;
-        if resolved.minify() {
-            preserve_initial_shebang(source, &mut output, resolved.line_ending());
+    fn render(file: &File, context: RenderContext<'_, '_>) -> Result<Self::Output> {
+        let mut output = streaming::format_file_streaming(file, context)?;
+        if context.options.minify() {
+            preserve_initial_shebang(context.source, &mut output, context.options.line_ending());
         }
-        ensure_single_trailing_newline(&mut output, resolved.line_ending());
+        ensure_single_trailing_newline(&mut output, context.options.line_ending());
 
         Ok(output)
     }
@@ -195,13 +185,8 @@ struct CompareRender;
 impl RenderMode for CompareRender {
     type Output = bool;
 
-    fn render(
-        source: &str,
-        file: &File,
-        resolved: &ResolvedShellFormatOptions,
-        facts: &FormatterFacts<'_>,
-    ) -> Result<Self::Output> {
-        streaming::format_file_streaming_matches_source_with_facts(source, file, resolved, facts)
+    fn render(file: &File, context: RenderContext<'_, '_>) -> Result<Self::Output> {
+        streaming::format_file_streaming_matches_source(file, context)
     }
 }
 
@@ -216,7 +201,8 @@ fn render_file<M: RenderMode>(
 
     let facts = FormatterFacts::build(source, &file, resolved);
     let resolved = resolved.clone().with_line_ending(facts.line_ending());
-    M::render(source, &file, &resolved, &facts)
+    let context = RenderContext::new(source, &resolved, &facts);
+    M::render(&file, context)
 }
 
 fn formatted_source_from_output(source: &str, output: String) -> FormattedSource {

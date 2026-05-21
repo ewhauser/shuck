@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 
 use crate::command::trim_unescaped_trailing_whitespace;
-use crate::context::RenderContext;
+use crate::context::{FragmentFormatter, RenderContext};
 use crate::facts::{FormatterFacts, classify_sequence_contains_multiline_literal_source};
 use crate::options::{IndentStyle, ResolvedShellFormatOptions};
 use crate::raw_syntax::{
@@ -11,7 +11,6 @@ use crate::raw_syntax::{
     normalize_raw_pipeline_continuations, redirect_operator_end, refine_common_indent,
 };
 use crate::scan::line_indent_before_offset as line_indent_before_source_offset;
-use crate::streaming::format_stmt_sequence_streaming_to_buf;
 use shuck_ast::{
     ArithmeticAssignOp, ArithmeticBinaryOp, ArithmeticExpansionSyntax, ArithmeticExpr,
     ArithmeticExprNode, ArithmeticLvalue, ArithmeticPostfixOp, ArithmeticUnaryOp, BinaryOp,

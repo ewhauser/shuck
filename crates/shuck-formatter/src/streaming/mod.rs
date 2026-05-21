@@ -119,42 +119,33 @@ fn move_interspersed_redirects_after_arguments<'a>(parts: &mut Vec<SimpleCommand
     *parts = reordered;
 }
 
-pub(crate) fn format_file_streaming_with_facts(
-    source: &str,
-    file: &File,
-    options: &ResolvedShellFormatOptions,
-    facts: &FormatterFacts<'_>,
-) -> Result<String> {
-    let mut formatter = ShellRenderer::new(source, options, facts);
+pub(crate) fn format_file_streaming(file: &File, context: RenderContext<'_, '_>) -> Result<String> {
+    let mut formatter = ShellRenderer::new(context);
     formatter.format_stmt_sequence(&file.body, None)?;
 
     Ok(formatter.finish_into_string())
 }
 
-pub(crate) fn format_file_streaming_matches_source_with_facts(
-    source: &str,
+pub(crate) fn format_file_streaming_matches_source(
     file: &File,
-    options: &ResolvedShellFormatOptions,
-    facts: &FormatterFacts<'_>,
+    context: RenderContext<'_, '_>,
 ) -> Result<bool> {
-    let mut formatter = ShellRenderer::new_compare(source, options, facts);
+    let mut formatter = ShellRenderer::new_compare(context);
     formatter.format_stmt_sequence(&file.body, None)?;
 
     Ok(formatter.finish_matches_source())
 }
 
 pub(crate) fn format_stmt_sequence_streaming_to_buf(
-    source: &str,
+    context: RenderContext<'_, '_>,
     statements: &StmtSeq,
-    options: &ResolvedShellFormatOptions,
-    facts: &FormatterFacts<'_>,
     upper_bound: Option<usize>,
     output: &mut String,
 ) -> Result<()> {
     let mut nested_output = mem::take(output);
     nested_output.clear();
 
-    let mut formatter = ShellRenderer::with_output_buffer(source, options, facts, nested_output);
+    let mut formatter = ShellRenderer::with_output_buffer(context, nested_output);
     formatter.format_stmt_sequence(statements, upper_bound)?;
     *output = formatter.finish_into_string();
     Ok(())
@@ -190,30 +181,17 @@ struct ShellRenderer<'source, 'facts, S> {
 }
 
 impl<'source, 'facts> ShellRenderer<'source, 'facts, BufferSink> {
-    fn new(
-        source: &'source str,
-        options: &ResolvedShellFormatOptions,
-        facts: &'facts FormatterFacts<'source>,
-    ) -> Self {
+    fn new(context: RenderContext<'source, 'facts>) -> Self {
         Self::with_writer(
-            source,
-            options,
-            facts,
-            ShellWriter::new_buffer(source, options),
+            context,
+            ShellWriter::new_buffer(context.source, context.options),
         )
     }
 
-    fn with_output_buffer(
-        source: &'source str,
-        options: &ResolvedShellFormatOptions,
-        facts: &'facts FormatterFacts<'source>,
-        output: String,
-    ) -> Self {
+    fn with_output_buffer(context: RenderContext<'source, 'facts>, output: String) -> Self {
         Self::with_writer(
-            source,
-            options,
-            facts,
-            ShellWriter::with_output_buffer(options, output),
+            context,
+            ShellWriter::with_output_buffer(context.options, output),
         )
     }
 
@@ -223,16 +201,10 @@ impl<'source, 'facts> ShellRenderer<'source, 'facts, BufferSink> {
 }
 
 impl<'source, 'facts> ShellRenderer<'source, 'facts, CompareSink<'source>> {
-    fn new_compare(
-        source: &'source str,
-        options: &ResolvedShellFormatOptions,
-        facts: &'facts FormatterFacts<'source>,
-    ) -> Self {
+    fn new_compare(context: RenderContext<'source, 'facts>) -> Self {
         Self::with_writer(
-            source,
-            options,
-            facts,
-            ShellWriter::new_compare(source, options),
+            context,
+            ShellWriter::new_compare(context.source, context.options),
         )
     }
 
@@ -245,16 +217,11 @@ impl<'source, 'facts, S> ShellRenderer<'source, 'facts, S>
 where
     S: StreamSink,
 {
-    fn with_writer(
-        source: &'source str,
-        options: &ResolvedShellFormatOptions,
-        facts: &'facts FormatterFacts<'source>,
-        writer: ShellWriter<S>,
-    ) -> Self {
+    fn with_writer(context: RenderContext<'source, 'facts>, writer: ShellWriter<S>) -> Self {
         Self {
-            source,
-            options: options.clone(),
-            facts,
+            source: context.source,
+            options: context.options.clone(),
+            facts: context.facts,
             scratch: String::new(),
             writer,
             pipeline_continuation_indent: 1,

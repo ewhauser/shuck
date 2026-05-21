@@ -1,6 +1,5 @@
 use std::sync::{Arc, OnceLock};
 
-use memchr::memchr_iter;
 use shuck_ast::{Comment, Position, Span, TextSize};
 use shuck_indexer::{IndexedComment, Indexer, LineIndex};
 
@@ -20,6 +19,7 @@ struct SourceMapData {
 
 impl<'a> SourceMap<'a> {
     #[must_use]
+    #[cfg(test)]
     pub fn new(source: &'a str) -> Self {
         Self::new_with_alignment(source, true)
     }
@@ -57,12 +57,13 @@ impl<'a> SourceMap<'a> {
         Self::from_parts(source, line_index, hash_offsets, track_alignment)
     }
 
+    #[cfg(test)]
     fn new_with_alignment(source: &'a str, track_alignment: bool) -> Self {
         let bytes = source.as_bytes();
 
         let mut hash_offsets = Vec::new();
 
-        for offset in memchr_iter(b'#', bytes) {
+        for offset in memchr::memchr_iter(b'#', bytes) {
             hash_offsets.push(offset);
         }
 
