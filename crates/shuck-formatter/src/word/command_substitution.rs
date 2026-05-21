@@ -56,164 +56,506 @@ pub(super) fn push_raw_command_substitution_with_normalized_spacing(
         push_raw_shell_text_with_normalized_redirect_spacing(target, raw);
         return;
     }
-    let normalized_pipeline = normalize_raw_pipeline_continuations(raw);
-    let raw = normalized_pipeline.as_deref().unwrap_or(raw);
-    let normalized_close_continuations =
-        normalize_continuations_before_substitution_close_lines(raw);
-    let raw = normalized_close_continuations.as_deref().unwrap_or(raw);
-    let outer_indent = line_indent_before_source_offset(source, start_offset).unwrap_or("");
-    let mut quote = QuoteState::default();
-    let raw_lines = raw.split('\n').collect::<Vec<_>>();
-    let Some((first, lines)) = raw_lines.split_first() else {
-        return;
-    };
-    target.push_str(first);
-    quote.scan_line(first);
-    let mut previous_pipeline_indent: Option<String> = None;
-    let mut continuation_pipeline_stage_indent: Option<String> = None;
-    let mut compound_indents = RawCompoundIndentState::default();
-    let outer_shell_indent = normalized_raw_shell_indent(outer_indent, options);
-    let mut continuation_indent: Option<String> = line_without_continuation_backslash(first)
-        .and_then(|continued| {
-            let starts_command_substitution =
-                first.trim_start_matches([' ', '\t']).starts_with("$(");
-            (starts_command_substitution && !continued.contains(')'))
-                .then(|| source_indent_plus_one_unit(&outer_shell_indent, options))
-        });
-    let mut literal_exit_continuation_indent: Option<String> = None;
-    for (line_index, line) in lines.iter().enumerate() {
-        let line = *line;
+    RawShellBlockFormatter::format_to(
+        target,
+        raw,
+        source,
+        start_offset,
+        options,
+        RawShellBlockPolicy::command_substitution_word(),
+    );
+}
+
+#[derive(Clone, Copy)]
+struct RawShellBlockPolicy {
+    normalize_comment_continuations: bool,
+    scan_first_line: bool,
+    seed_open_continuation_indent: bool,
+    multiline_literal_policy: RawShellBlockLiteralPolicy,
+    pipeline_policy: RawShellBlockPipelinePolicy,
+    body_indent_policy: RawShellBlockBodyIndentPolicy,
+}
+
+impl RawShellBlockPolicy {
+    fn command_substitution_word() -> Self {
+        Self {
+            normalize_comment_continuations: false,
+            scan_first_line: true,
+            seed_open_continuation_indent: true,
+            multiline_literal_policy: RawShellBlockLiteralPolicy::NormalizeContinuations,
+            pipeline_policy: RawShellBlockPipelinePolicy::NestedWord,
+            body_indent_policy: RawShellBlockBodyIndentPolicy::None,
+        }
+    }
+
+    fn block_command_substitution_body() -> Self {
+        Self {
+            normalize_comment_continuations: true,
+            scan_first_line: false,
+            seed_open_continuation_indent: false,
+            multiline_literal_policy: RawShellBlockLiteralPolicy::PreserveSource,
+            pipeline_policy: RawShellBlockPipelinePolicy::BodyLine,
+            body_indent_policy: RawShellBlockBodyIndentPolicy::StripFirstBodyIndent,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RawShellBlockLiteralPolicy {
+    NormalizeContinuations,
+    PreserveSource,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RawShellBlockPipelinePolicy {
+    NestedWord,
+    BodyLine,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RawShellBlockBodyIndentPolicy {
+    None,
+    StripFirstBodyIndent,
+}
+
+#[derive(Default)]
+struct RawShellBlockLinePlan {
+    force_preserve_line_indent: bool,
+    forced_rendered_indent: Option<String>,
+    used_continuation_indent: bool,
+    in_compound_body: bool,
+    closes_substitution_wrapper: bool,
+}
+
+struct RawShellBlockFormatter<'source, 'options> {
+    options: &'options ResolvedShellFormatOptions,
+    outer_indent: &'source str,
+    policy: RawShellBlockPolicy,
+    normalized_pipeline_continuation: bool,
+    quote: QuoteState,
+    previous_pipeline_indent: Option<String>,
+    continuation_pipeline_stage_indent: Option<String>,
+    continuation_indent: Option<String>,
+    literal_exit_continuation_indent: Option<String>,
+    compound_indents: RawCompoundIndentState,
+    body_indent: Option<String>,
+}
+
+impl<'source, 'options> RawShellBlockFormatter<'source, 'options> {
+    fn format_to(
+        target: &mut String,
+        raw: &'source str,
+        source: &'source str,
+        start_offset: usize,
+        options: &'options ResolvedShellFormatOptions,
+        policy: RawShellBlockPolicy,
+    ) {
+        let normalized_pipeline = normalize_raw_pipeline_continuations(raw);
+        let normalized_pipeline_continuation = normalized_pipeline.is_some();
+        let raw = normalized_pipeline.as_deref().unwrap_or(raw);
+        let normalized_comment_continuations = policy
+            .normalize_comment_continuations
+            .then(|| normalize_continuations_before_comment_lines(raw))
+            .flatten();
+        let raw = normalized_comment_continuations.as_deref().unwrap_or(raw);
+        let normalized_close_continuations =
+            normalize_continuations_before_substitution_close_lines(raw);
+        let raw = normalized_close_continuations.as_deref().unwrap_or(raw);
+        let outer_indent = line_indent_before_source_offset(source, start_offset).unwrap_or("");
+        let raw_lines = raw.split('\n').collect::<Vec<_>>();
+        let Some((first, lines)) = raw_lines.split_first() else {
+            return;
+        };
+
+        target.push_str(first);
+        let mut formatter = Self {
+            options,
+            outer_indent,
+            policy,
+            normalized_pipeline_continuation,
+            quote: QuoteState::default(),
+            previous_pipeline_indent: None,
+            continuation_pipeline_stage_indent: None,
+            continuation_indent: None,
+            literal_exit_continuation_indent: None,
+            compound_indents: RawCompoundIndentState::default(),
+            body_indent: None,
+        };
+        formatter.scan_and_seed_first_line(first);
+        for (line_index, line) in lines.iter().enumerate() {
+            formatter.push_line(target, line, lines, line_index);
+        }
+    }
+
+    fn scan_and_seed_first_line(&mut self, first: &str) {
+        if self.policy.scan_first_line {
+            self.quote.scan_line(first);
+        }
+        if self.policy.seed_open_continuation_indent {
+            let outer_shell_indent = normalized_raw_shell_indent(self.outer_indent, self.options);
+            self.continuation_indent =
+                line_without_continuation_backslash(first).and_then(|continued| {
+                    let starts_command_substitution =
+                        first.trim_start_matches([' ', '\t']).starts_with("$(");
+                    (starts_command_substitution && !continued.contains(')'))
+                        .then(|| source_indent_plus_one_unit(&outer_shell_indent, self.options))
+                });
+        }
+    }
+
+    fn push_line(&mut self, target: &mut String, line: &str, lines: &[&str], line_index: usize) {
         target.push('\n');
-        if quote.in_multiline_literal() {
-            let line_continues = line_without_continuation_backslash(line).is_some();
-            if let Some(previous_indent) = continuation_indent.as_deref() {
-                let stripped = line
-                    .strip_prefix(outer_indent)
-                    .unwrap_or_else(|| strip_one_indent_unit(line, options));
-                let content = stripped.trim_start_matches([' ', '\t']);
-                target.push_str(previous_indent);
-                target.push_str(content);
-            } else {
-                target.push_str(line);
-            }
-            quote.scan_line(line);
-            continuation_indent = if line_continues {
-                if quote.in_multiline_literal() {
-                    continuation_indent.clone()
-                } else {
-                    continuation_indent
-                        .clone()
-                        .or_else(|| literal_exit_continuation_indent.take())
-                        .or_else(|| Some(source_indent_plus_one_unit("", options)))
-                }
-            } else {
-                if !quote.in_multiline_literal() {
-                    literal_exit_continuation_indent = None;
-                }
-                None
-            };
-            continue;
+        if self.quote.in_multiline_literal() {
+            self.push_multiline_literal_line(target, line);
+            return;
+        }
+
+        let mut line =
+            strip_outer_indent_or_one_unit(line, self.outer_indent, self.options).to_string();
+        let source_indent_for_compound_shift = line_leading_shell_indent(&line).to_string();
+        if let Some(shifted) = self.compound_indents.shifted_line(&line, self.options) {
+            line = shifted;
+        }
+
+        let carried_pipeline_indent = self.previous_pipeline_indent.clone();
+        let plan = self.plan_line_adjustments(
+            &mut line,
+            carried_pipeline_indent.as_deref(),
+            lines,
+            line_index,
+        );
+        let (indent, content) = raw_line_parts(&line);
+        let body_indent_for_line =
+            self.body_indent_for_line(&plan, carried_pipeline_indent.is_some(), indent, content);
+        let rendered_indent = if plan.closes_substitution_wrapper {
+            push_raw_shell_line_with_rendered_indent(target, &line, self.options, "");
+            String::new()
+        } else if let Some(rendered_indent) = plan.forced_rendered_indent.as_deref() {
+            push_raw_shell_line_with_rendered_indent(target, &line, self.options, rendered_indent);
+            rendered_indent.to_string()
         } else {
-            let mut line = strip_outer_indent_or_one_unit(line, outer_indent, options).to_string();
-            let source_indent_for_compound_shift = line_leading_shell_indent(&line).to_string();
-            if let Some(shifted) = compound_indents.shifted_line(&line, options) {
-                line = shifted;
-            }
-            let (indent, content) = raw_line_parts(&line);
-            let carried_pipeline_indent = previous_pipeline_indent.clone();
-            if let Some(previous_indent) = carried_pipeline_indent.as_deref()
-                && !content.trim().is_empty()
-                && raw_indent_units(indent, options) < raw_indent_units(previous_indent, options)
-            {
-                line = format!("{previous_indent}{content}");
-            }
-            let (indent, content) = raw_line_parts(&line);
-            let closes_substitution_wrapper = raw_line_closes_substitution_wrapper(content)
-                && raw_block_line_is_outer_substitution_close(lines, line_index);
-            if let Some(previous_indent) = continuation_indent.as_deref()
-                && !content.trim().is_empty()
-                && !content.starts_with('#')
-                && !closes_substitution_wrapper
-                && normalized_raw_shell_indent(indent, options) != previous_indent
-            {
-                line = format!("{previous_indent}{content}");
-            }
-            let (indent, content) = raw_line_parts(&line);
-            if let Some(child_indent) =
-                compound_indents.child_indent_if_underindented(indent, content, options)
-            {
-                line = format!("{child_indent}{content}");
-            }
-            let (indent, content) = raw_line_parts(&line);
-            let used_continuation_indent = continuation_indent.is_some();
-            let rendered_indent = if closes_substitution_wrapper {
-                push_raw_shell_line_with_rendered_indent(target, &line, options, "");
-                String::new()
-            } else {
-                push_raw_shell_line_with_normalized_source_indent(target, &line, options, None);
-                rendered_raw_shell_indent_for_line(indent, content, None, options)
-            };
-            let line_closes_pipeline_stage_compound =
-                compound_indents.closes_pipeline_stage(content);
-            let line_is_pipeline_continuation_stage = carried_pipeline_indent.is_some();
-            let continued_pipeline_stage_indent = continuation_pipeline_stage_indent.clone();
-            previous_pipeline_indent = if content.trim().is_empty() {
-                None
-            } else if content.starts_with('#') {
-                carried_pipeline_indent
-            } else if line_ends_with_raw_continuation_operator(&line) {
-                carried_pipeline_indent.or_else(|| {
-                    let indent = line_leading_shell_indent(&line);
-                    Some(
-                        if content.starts_with('-') || line_closes_pipeline_stage_compound {
-                            if raw_line_closes_inline_brace_group_before_pipeline(content) {
-                                continued_pipeline_stage_indent.unwrap_or_else(|| {
-                                    source_indent_minus_one_unit(indent, options)
-                                })
-                            } else {
-                                indent.to_string()
-                            }
-                        } else {
-                            source_indent_plus_one_unit(indent, options)
-                        },
-                    )
-                })
-            } else {
-                None
-            };
-            let line_continues = line_without_continuation_backslash(&line).is_some();
-            let line_indent = line_leading_shell_indent(&line).to_string();
-            quote.scan_line(&line);
-            compound_indents.update_line(
-                content,
-                &source_indent_for_compound_shift,
-                &rendered_indent,
-                indent,
-                line_is_pipeline_continuation_stage,
-                options,
+            push_raw_shell_line_with_normalized_source_indent(
+                target,
+                &line,
+                self.options,
+                body_indent_for_line.as_deref(),
             );
-            if line_continues {
-                if line_is_pipeline_continuation_stage && !used_continuation_indent {
-                    continuation_pipeline_stage_indent = Some(line_indent.clone());
+            rendered_raw_shell_indent_for_line(
+                indent,
+                content,
+                body_indent_for_line.as_deref(),
+                self.options,
+            )
+        };
+        let line_is_pipeline_continuation_stage = carried_pipeline_indent.is_some();
+        self.previous_pipeline_indent =
+            self.next_pipeline_indent(&line, content, carried_pipeline_indent, &rendered_indent);
+        let line_continues = line_without_continuation_backslash(&line).is_some();
+        let line_indent = line_leading_shell_indent(&line).to_string();
+        self.quote.scan_line(&line);
+        self.update_continuation_pipeline_stage(
+            line_continues,
+            line_is_pipeline_continuation_stage,
+            plan.used_continuation_indent,
+            &line_indent,
+        );
+        if self.quote.in_multiline_literal()
+            && plan.used_continuation_indent
+            && self.policy.multiline_literal_policy
+                == RawShellBlockLiteralPolicy::NormalizeContinuations
+        {
+            self.literal_exit_continuation_indent = Some(line_indent.clone());
+        }
+        self.continuation_indent = self.next_continuation_indent(
+            line_continues,
+            content,
+            plan.used_continuation_indent,
+            &rendered_indent,
+            &line_indent,
+        );
+        self.compound_indents.update_line(
+            content,
+            &source_indent_for_compound_shift,
+            &rendered_indent,
+            indent,
+            line_is_pipeline_continuation_stage,
+            self.options,
+        );
+    }
+
+    fn push_multiline_literal_line(&mut self, target: &mut String, line: &str) {
+        match self.policy.multiline_literal_policy {
+            RawShellBlockLiteralPolicy::NormalizeContinuations => {
+                let line_continues = line_without_continuation_backslash(line).is_some();
+                if let Some(previous_indent) = self.continuation_indent.as_deref() {
+                    let stripped = line
+                        .strip_prefix(self.outer_indent)
+                        .unwrap_or_else(|| strip_one_indent_unit(line, self.options));
+                    let content = stripped.trim_start_matches([' ', '\t']);
+                    target.push_str(previous_indent);
+                    target.push_str(content);
+                } else {
+                    target.push_str(line);
                 }
-            } else if used_continuation_indent {
-                continuation_pipeline_stage_indent = None;
-            }
-            if quote.in_multiline_literal() && used_continuation_indent {
-                literal_exit_continuation_indent = Some(line_indent.clone());
-            }
-            continuation_indent = if line_continues {
-                Some(
-                    if quote.in_multiline_literal() || used_continuation_indent {
-                        line_indent
+                self.quote.scan_line(line);
+                self.continuation_indent = if line_continues {
+                    if self.quote.in_multiline_literal() {
+                        self.continuation_indent.clone()
                     } else {
-                        source_indent_plus_one_unit(&line_indent, options)
+                        self.continuation_indent
+                            .clone()
+                            .or_else(|| self.literal_exit_continuation_indent.take())
+                            .or_else(|| Some(source_indent_plus_one_unit("", self.options)))
+                    }
+                } else {
+                    if !self.quote.in_multiline_literal() {
+                        self.literal_exit_continuation_indent = None;
+                    }
+                    None
+                };
+            }
+            RawShellBlockLiteralPolicy::PreserveSource => {
+                target.push_str(line);
+                self.quote.scan_line(line);
+                let (indent, content) = raw_line_parts(line);
+                self.previous_pipeline_indent = if content.trim().is_empty() {
+                    None
+                } else if line_ends_with_raw_continuation_operator(line) {
+                    Some(indent.to_string())
+                } else {
+                    None
+                };
+            }
+        }
+    }
+
+    fn plan_line_adjustments(
+        &mut self,
+        line: &mut String,
+        carried_pipeline_indent: Option<&str>,
+        lines: &[&str],
+        line_index: usize,
+    ) -> RawShellBlockLinePlan {
+        match self.policy.pipeline_policy {
+            RawShellBlockPipelinePolicy::NestedWord => {
+                self.plan_nested_word_line(line, carried_pipeline_indent, lines, line_index)
+            }
+            RawShellBlockPipelinePolicy::BodyLine => {
+                self.plan_body_line(line, carried_pipeline_indent, lines, line_index)
+            }
+        }
+    }
+
+    fn plan_nested_word_line(
+        &mut self,
+        line: &mut String,
+        carried_pipeline_indent: Option<&str>,
+        lines: &[&str],
+        line_index: usize,
+    ) -> RawShellBlockLinePlan {
+        let mut plan = RawShellBlockLinePlan::default();
+        let (indent, content) = raw_line_parts(line);
+        if let Some(previous_indent) = carried_pipeline_indent
+            && !content.trim().is_empty()
+            && raw_indent_units(indent, self.options)
+                < raw_indent_units(previous_indent, self.options)
+        {
+            *line = format!("{previous_indent}{content}");
+        }
+
+        let (indent, content) = raw_line_parts(line);
+        plan.closes_substitution_wrapper = raw_line_closes_substitution_wrapper(content)
+            && raw_block_line_is_outer_substitution_close(lines, line_index);
+        if let Some(previous_indent) = self.continuation_indent.as_deref()
+            && !content.trim().is_empty()
+            && !content.starts_with('#')
+            && !plan.closes_substitution_wrapper
+            && normalized_raw_shell_indent(indent, self.options) != previous_indent
+        {
+            *line = format!("{previous_indent}{content}");
+        }
+
+        let (indent, content) = raw_line_parts(line);
+        if let Some(child_indent) =
+            self.compound_indents
+                .child_indent_if_underindented(indent, content, self.options)
+        {
+            *line = format!("{child_indent}{content}");
+        }
+        plan.used_continuation_indent = self.continuation_indent.is_some();
+        plan
+    }
+
+    fn plan_body_line(
+        &mut self,
+        line: &mut String,
+        carried_pipeline_indent: Option<&str>,
+        lines: &[&str],
+        line_index: usize,
+    ) -> RawShellBlockLinePlan {
+        let mut plan = RawShellBlockLinePlan::default();
+        let (indent, content) = raw_line_parts(line);
+        if let Some(previous_indent) = carried_pipeline_indent
+            && !content.trim().is_empty()
+            && !raw_line_closes_substitution_wrapper(content)
+        {
+            let desired_indent = if self.normalized_pipeline_continuation {
+                previous_indent.to_string()
+            } else {
+                source_indent_plus_one_unit(previous_indent, self.options)
+            };
+            if raw_indent_units(indent, self.options)
+                < raw_indent_units(&desired_indent, self.options)
+            {
+                *line = format!("{desired_indent}{content}");
+                plan.force_preserve_line_indent = true;
+            }
+        }
+
+        let (indent, content) = raw_line_parts(line);
+        plan.in_compound_body = self.compound_indents.in_body(content);
+        if let Some(child_indent) =
+            self.compound_indents
+                .child_indent_if_underindented(indent, content, self.options)
+        {
+            *line = format!("{child_indent}{content}");
+            plan.force_preserve_line_indent = true;
+        }
+
+        let (_, content) = raw_line_parts(line);
+        if let Some(previous_indent) = self.continuation_indent.take()
+            && !content.trim().is_empty()
+            && !content.starts_with('#')
+            && !raw_line_closes_substitution_wrapper(content)
+        {
+            plan.forced_rendered_indent = Some(previous_indent);
+            plan.force_preserve_line_indent = true;
+            plan.used_continuation_indent = true;
+        }
+        if self.compound_indents.comments.len() > 1 && self.compound_indents.closes_last(content) {
+            plan.force_preserve_line_indent = true;
+        }
+        plan.closes_substitution_wrapper = raw_line_closes_substitution_wrapper(content)
+            && raw_block_line_is_outer_substitution_close(lines, line_index);
+        plan
+    }
+
+    fn body_indent_for_line(
+        &mut self,
+        plan: &RawShellBlockLinePlan,
+        carried_pipeline_indent: bool,
+        indent: &str,
+        content: &str,
+    ) -> Option<String> {
+        if self.policy.body_indent_policy == RawShellBlockBodyIndentPolicy::None {
+            return None;
+        }
+
+        let leading_block_comment = self.body_indent.is_none() && content.starts_with('#');
+        if self.body_indent.is_none()
+            && !content.trim().is_empty()
+            && !content.starts_with('#')
+            && !plan.closes_substitution_wrapper
+        {
+            self.body_indent = Some(indent.to_string());
+        }
+        let is_pipeline_continuation = carried_pipeline_indent && !content.trim().is_empty();
+        if plan.force_preserve_line_indent || is_pipeline_continuation || plan.in_compound_body {
+            None
+        } else if leading_block_comment {
+            Some(String::new())
+        } else {
+            self.body_indent.clone()
+        }
+    }
+
+    fn next_pipeline_indent(
+        &self,
+        line: &str,
+        content: &str,
+        carried_pipeline_indent: Option<String>,
+        rendered_indent: &str,
+    ) -> Option<String> {
+        if content.trim().is_empty() {
+            return None;
+        }
+        if content.starts_with('#') {
+            return carried_pipeline_indent;
+        }
+        if !line_ends_with_raw_continuation_operator(line) {
+            return None;
+        }
+
+        match self.policy.pipeline_policy {
+            RawShellBlockPipelinePolicy::NestedWord => carried_pipeline_indent.or_else(|| {
+                let indent = line_leading_shell_indent(line);
+                let line_closes_pipeline_stage_compound =
+                    self.compound_indents.closes_pipeline_stage(content);
+                let continued_pipeline_stage_indent =
+                    self.continuation_pipeline_stage_indent.clone();
+                Some(
+                    if content.starts_with('-') || line_closes_pipeline_stage_compound {
+                        if raw_line_closes_inline_brace_group_before_pipeline(content) {
+                            continued_pipeline_stage_indent.unwrap_or_else(|| {
+                                source_indent_minus_one_unit(indent, self.options)
+                            })
+                        } else {
+                            indent.to_string()
+                        }
+                    } else {
+                        source_indent_plus_one_unit(indent, self.options)
                     },
                 )
-            } else {
-                None
-            };
-            continue;
+            }),
+            RawShellBlockPipelinePolicy::BodyLine => {
+                carried_pipeline_indent.or_else(|| Some(rendered_indent.to_string()))
+            }
+        }
+    }
+
+    fn update_continuation_pipeline_stage(
+        &mut self,
+        line_continues: bool,
+        line_is_pipeline_continuation_stage: bool,
+        used_continuation_indent: bool,
+        line_indent: &str,
+    ) {
+        if self.policy.pipeline_policy != RawShellBlockPipelinePolicy::NestedWord {
+            return;
+        }
+        if line_continues {
+            if line_is_pipeline_continuation_stage && !used_continuation_indent {
+                self.continuation_pipeline_stage_indent = Some(line_indent.to_string());
+            }
+        } else if used_continuation_indent {
+            self.continuation_pipeline_stage_indent = None;
+        }
+    }
+
+    fn next_continuation_indent(
+        &self,
+        line_continues: bool,
+        content: &str,
+        used_continuation_indent: bool,
+        rendered_indent: &str,
+        line_indent: &str,
+    ) -> Option<String> {
+        match self.policy.pipeline_policy {
+            RawShellBlockPipelinePolicy::NestedWord => line_continues.then(|| {
+                if self.quote.in_multiline_literal() || used_continuation_indent {
+                    line_indent.to_string()
+                } else {
+                    source_indent_plus_one_unit(line_indent, self.options)
+                }
+            }),
+            RawShellBlockPipelinePolicy::BodyLine => (line_continues && !content.starts_with('#'))
+                .then(|| {
+                    if used_continuation_indent {
+                        rendered_indent.to_string()
+                    } else {
+                        source_indent_plus_one_unit(rendered_indent, self.options)
+                    }
+                }),
         }
     }
 }
@@ -1006,152 +1348,14 @@ pub(super) fn push_raw_block_command_substitution_without_outer_indent(
     start_offset: usize,
     options: &ResolvedShellFormatOptions,
 ) {
-    let normalized_pipeline = normalize_raw_pipeline_continuations(raw);
-    let normalized_pipeline_continuation = normalized_pipeline.is_some();
-    let raw = normalized_pipeline.as_deref().unwrap_or(raw);
-    let normalized_comment_continuations = normalize_continuations_before_comment_lines(raw);
-    let raw = normalized_comment_continuations.as_deref().unwrap_or(raw);
-    let normalized_close_continuations =
-        normalize_continuations_before_substitution_close_lines(raw);
-    let raw = normalized_close_continuations.as_deref().unwrap_or(raw);
-    let outer_indent = line_indent_before_source_offset(source, start_offset).unwrap_or("");
-    let raw_lines = raw.split('\n').collect::<Vec<_>>();
-    let Some((first, lines)) = raw_lines.split_first() else {
-        return;
-    };
-    target.push_str(first);
-    let mut body_indent: Option<String> = None;
-    let mut previous_pipeline_indent: Option<String> = None;
-    let mut continuation_indent: Option<String> = None;
-    let mut compound_indents = RawCompoundIndentState::default();
-    let mut quote = QuoteState::default();
-    for (line_index, line) in lines.iter().enumerate() {
-        let line = *line;
-        target.push('\n');
-        if quote.in_multiline_literal() {
-            target.push_str(line);
-            quote.scan_line(line);
-            let (indent, content) = raw_line_parts(line);
-            previous_pipeline_indent = if content.trim().is_empty() {
-                None
-            } else if line_ends_with_raw_continuation_operator(line) {
-                Some(indent.to_string())
-            } else {
-                None
-            };
-            continue;
-        }
-
-        let mut line = strip_outer_indent_or_one_unit(line, outer_indent, options).to_string();
-        let source_indent_for_compound_shift = line_leading_shell_indent(&line).to_string();
-        if let Some(shifted) = compound_indents.shifted_line(&line, options) {
-            line = shifted;
-        }
-        let carried_pipeline_indent = previous_pipeline_indent.clone();
-        let mut force_preserve_line_indent = false;
-        let (indent, content) = raw_line_parts(&line);
-        if let Some(previous_indent) = previous_pipeline_indent.as_deref()
-            && !content.trim().is_empty()
-            && !raw_line_closes_substitution_wrapper(content)
-        {
-            let desired_indent = if normalized_pipeline_continuation {
-                previous_indent.to_string()
-            } else {
-                source_indent_plus_one_unit(previous_indent, options)
-            };
-            if raw_indent_units(indent, options) < raw_indent_units(&desired_indent, options) {
-                line = format!("{desired_indent}{content}");
-                force_preserve_line_indent = true;
-            }
-        }
-        let (indent, content) = raw_line_parts(&line);
-        let in_compound_body = compound_indents.in_body(content);
-        if let Some(child_indent) =
-            compound_indents.child_indent_if_underindented(indent, content, options)
-        {
-            line = format!("{child_indent}{content}");
-            force_preserve_line_indent = true;
-        }
-        let (indent, content) = raw_line_parts(&line);
-        let mut forced_rendered_indent = None;
-        let mut used_continuation_indent = false;
-        if let Some(previous_indent) = continuation_indent.take()
-            && !content.trim().is_empty()
-            && !content.starts_with('#')
-            && !raw_line_closes_substitution_wrapper(content)
-        {
-            forced_rendered_indent = Some(previous_indent);
-            force_preserve_line_indent = true;
-            used_continuation_indent = true;
-        }
-        if compound_indents.comments.len() > 1 && compound_indents.closes_last(content) {
-            force_preserve_line_indent = true;
-        }
-        let closes_substitution_wrapper = raw_line_closes_substitution_wrapper(content)
-            && raw_block_line_is_outer_substitution_close(lines, line_index);
-        let leading_block_comment = body_indent.is_none() && content.starts_with('#');
-        if body_indent.is_none()
-            && !content.trim().is_empty()
-            && !content.starts_with('#')
-            && !closes_substitution_wrapper
-        {
-            body_indent = Some(indent.to_string());
-        }
-        let is_pipeline_continuation =
-            carried_pipeline_indent.is_some() && !content.trim().is_empty();
-        let body_indent_for_line =
-            if force_preserve_line_indent || is_pipeline_continuation || in_compound_body {
-                None
-            } else if leading_block_comment {
-                Some("")
-            } else {
-                body_indent.as_deref()
-            };
-        let rendered_indent = if closes_substitution_wrapper {
-            push_raw_shell_line_with_rendered_indent(target, &line, options, "");
-            String::new()
-        } else if let Some(rendered_indent) = forced_rendered_indent.as_deref() {
-            push_raw_shell_line_with_rendered_indent(target, &line, options, rendered_indent);
-            rendered_indent.to_string()
-        } else {
-            push_raw_shell_line_with_normalized_source_indent(
-                target,
-                &line,
-                options,
-                body_indent_for_line,
-            );
-            rendered_raw_shell_indent_for_line(indent, content, body_indent_for_line, options)
-        };
-        let line_is_pipeline_continuation_stage = carried_pipeline_indent.is_some();
-        previous_pipeline_indent = if content.trim().is_empty() {
-            None
-        } else if content.starts_with('#') {
-            carried_pipeline_indent
-        } else if line_ends_with_raw_continuation_operator(&line) {
-            carried_pipeline_indent.or_else(|| Some(rendered_indent.clone()))
-        } else {
-            None
-        };
-        let line_continues = line_without_continuation_backslash(&line).is_some();
-        quote.scan_line(&line);
-        continuation_indent = if line_continues && !content.starts_with('#') {
-            Some(if used_continuation_indent {
-                rendered_indent.clone()
-            } else {
-                source_indent_plus_one_unit(&rendered_indent, options)
-            })
-        } else {
-            None
-        };
-        compound_indents.update_line(
-            content,
-            &source_indent_for_compound_shift,
-            &rendered_indent,
-            indent,
-            line_is_pipeline_continuation_stage,
-            options,
-        );
-    }
+    RawShellBlockFormatter::format_to(
+        target,
+        raw,
+        source,
+        start_offset,
+        options,
+        RawShellBlockPolicy::block_command_substitution_body(),
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
