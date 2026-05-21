@@ -78,121 +78,183 @@ pub(crate) fn render_escaped_multiline_word_syntax_to_buf(
     render_word_syntax_internal(word, context, false, rendered);
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum WordRenderDecision<'source> {
+    NormalizedCommandSubstitutionPadding { normalized: String },
+    PreserveEscapedCommandSubstitution { raw: &'source str },
+    PreserveSingleLineEscapedQuoteCommandSubstitution { raw: &'source str },
+    NormalizedCompoundAssignmentContinuations { normalized: String },
+    NormalizedUnquotedContinuations { normalized: String },
+    NormalizedEmptyParameterReplacementDelimiters { normalized: String },
+    PreserveMultilineDoubleQuotedRaw { raw: &'source str },
+    RenderParts { raw_fallback: Option<&'source str> },
+    RenderSyntaxWithRawFallback { raw: &'source str },
+    RenderSyntax,
+}
+
+impl<'source> WordRenderDecision<'source> {
+    fn for_word(
+        word: &Word,
+        context: RenderContext<'source, '_>,
+        preserve_escaped_multiline_words: bool,
+    ) -> Self {
+        let source = context.source;
+        let options = context.options;
+        let preserve_raw = !options.simplify() && !options.minify();
+        let raw = raw_word_source_slice(word, source);
+
+        // Keep these raw-preservation checks ordered from most-specific source
+        // repair to broadest syntax fallback.
+        if preserve_raw
+            && !word_is_single_quoted_only(word)
+            && let Some(raw) = raw
+            && let Some(normalized) = normalize_raw_command_substitution_padding(raw)
+        {
+            let normalized = normalize_raw_arithmetic_command_substitution_padding(&normalized)
+                .or_else(|| normalize_raw_arithmetic_expansion_padding(&normalized))
+                .unwrap_or(normalized);
+            if !raw_command_substitution_needs_structural_spacing(&normalized) {
+                return Self::NormalizedCommandSubstitutionPadding { normalized };
+            }
+        }
+
+        if preserve_escaped_multiline_words
+            && word_has_escaped_command_substitution(word, source)
+            && let Some(raw) = raw
+        {
+            return Self::PreserveEscapedCommandSubstitution { raw };
+        }
+
+        if preserve_raw
+            && let Some(raw) = raw
+            && raw_single_line_escaped_quote_command_substitution_should_preserve(raw)
+        {
+            return Self::PreserveSingleLineEscapedQuoteCommandSubstitution { raw };
+        }
+
+        if preserve_raw
+            && let Some(raw) = raw
+            && let Some(normalized) = normalize_raw_compound_assignment_word_continuations(raw)
+        {
+            return Self::NormalizedCompoundAssignmentContinuations { normalized };
+        }
+
+        if preserve_raw
+            && !word_needs_special_rendering(word)
+            && let Some(raw) = raw
+            && let Some(normalized) = normalize_raw_unquoted_word_continuations(raw)
+        {
+            return Self::NormalizedUnquotedContinuations { normalized };
+        }
+
+        if preserve_raw
+            && let Some(raw) = raw
+            && let Some(normalized) = normalize_raw_empty_parameter_replacement_delimiters(raw)
+        {
+            return Self::NormalizedEmptyParameterReplacementDelimiters { normalized };
+        }
+
+        if preserve_raw
+            && let Some(raw) = raw
+            && (word_has_multiline_double_quoted_source(word, source)
+                || (raw.starts_with('"') && raw.contains("\\\n")))
+            && !word_is_quoted_formattable_command_substitution_only(word, source)
+            && (preserve_escaped_multiline_words || !raw_escaped_multiline_double_quoted_word(raw))
+            && could_need_preserve_raw_syntax(raw)
+        {
+            return Self::PreserveMultilineDoubleQuotedRaw { raw };
+        }
+
+        if word_needs_formatter_rendering(word, context) {
+            return Self::RenderParts {
+                raw_fallback: preserve_raw.then_some(raw).flatten(),
+            };
+        }
+
+        if preserve_raw
+            && let Some(raw) = raw
+            && could_need_preserve_raw_syntax(raw)
+        {
+            return Self::RenderSyntaxWithRawFallback { raw };
+        }
+
+        Self::RenderSyntax
+    }
+
+    fn render(
+        self,
+        word: &Word,
+        context: RenderContext<'_, '_>,
+        preserve_escaped_multiline_words: bool,
+        rendered: &mut String,
+    ) {
+        let source = context.source;
+        let options = context.options;
+
+        match self {
+            Self::NormalizedCommandSubstitutionPadding { normalized } => {
+                push_raw_shell_text_with_normalized_redirect_spacing(rendered, &normalized);
+            }
+            Self::PreserveEscapedCommandSubstitution { raw }
+            | Self::PreserveSingleLineEscapedQuoteCommandSubstitution { raw } => {
+                rendered.push_str(raw);
+            }
+            Self::NormalizedCompoundAssignmentContinuations { normalized }
+            | Self::NormalizedUnquotedContinuations { normalized }
+            | Self::NormalizedEmptyParameterReplacementDelimiters { normalized } => {
+                rendered.push_str(&normalized);
+            }
+            Self::PreserveMultilineDoubleQuotedRaw { raw } => {
+                push_raw_word_with_normalized_command_redirect_spacing(
+                    rendered, word, raw, source, options,
+                );
+            }
+            Self::RenderParts { raw_fallback } => {
+                let start = rendered.len();
+                if render_word_parts(
+                    word.parts.as_slice(),
+                    context,
+                    preserve_escaped_multiline_words,
+                    rendered,
+                )
+                .is_err()
+                {
+                    unreachable!("writing into a String should not fail");
+                }
+                if let Some(raw) = raw_fallback
+                    && should_preserve_special_rendered_raw_syntax(raw, &rendered[start..])
+                {
+                    rendered.truncate(start);
+                    push_preserved_raw_word_source(rendered, word, raw, source, options);
+                }
+            }
+            Self::RenderSyntaxWithRawFallback { raw } => {
+                let start = rendered.len();
+                word.render_syntax_to_buf(source, rendered);
+                if should_preserve_raw_syntax(raw, &rendered[start..]) {
+                    rendered.truncate(start);
+                    push_preserved_raw_word_source(rendered, word, raw, source, options);
+                }
+            }
+            Self::RenderSyntax => {
+                word.render_syntax_to_buf(source, rendered);
+            }
+        }
+    }
+}
+
 pub(super) fn render_word_syntax_internal(
     word: &Word,
     context: RenderContext<'_, '_>,
     preserve_escaped_multiline_words: bool,
     rendered: &mut String,
 ) {
-    let source = context.source;
-    let options = context.options;
-    let preserve_raw = !options.simplify() && !options.minify();
-
-    if preserve_raw
-        && !word_is_single_quoted_only(word)
-        && let Some(raw) = raw_word_source_slice(word, source)
-        && let Some(normalized) = normalize_raw_command_substitution_padding(raw)
-    {
-        let normalized = normalize_raw_arithmetic_command_substitution_padding(&normalized)
-            .or_else(|| normalize_raw_arithmetic_expansion_padding(&normalized))
-            .unwrap_or(normalized);
-        if !raw_command_substitution_needs_structural_spacing(&normalized) {
-            push_raw_shell_text_with_normalized_redirect_spacing(rendered, &normalized);
-            return;
-        }
-    }
-
-    if preserve_escaped_multiline_words
-        && word_has_escaped_command_substitution(word, source)
-        && let Some(raw) = raw_word_source_slice(word, source)
-    {
-        rendered.push_str(raw);
-        return;
-    }
-
-    if preserve_raw
-        && let Some(raw) = raw_word_source_slice(word, source)
-        && raw_single_line_escaped_quote_command_substitution_should_preserve(raw)
-    {
-        rendered.push_str(raw);
-        return;
-    }
-
-    if preserve_raw
-        && let Some(raw) = raw_word_source_slice(word, source)
-        && let Some(normalized) = normalize_raw_compound_assignment_word_continuations(raw)
-    {
-        rendered.push_str(&normalized);
-        return;
-    }
-
-    if preserve_raw
-        && !word_needs_special_rendering(word)
-        && let Some(raw) = raw_word_source_slice(word, source)
-        && let Some(normalized) = normalize_raw_unquoted_word_continuations(raw)
-    {
-        rendered.push_str(&normalized);
-        return;
-    }
-
-    if preserve_raw
-        && let Some(raw) = raw_word_source_slice(word, source)
-        && let Some(normalized) = normalize_raw_empty_parameter_replacement_delimiters(raw)
-    {
-        rendered.push_str(&normalized);
-        return;
-    }
-
-    if preserve_raw
-        && let Some(raw) = raw_word_source_slice(word, source)
-        && (word_has_multiline_double_quoted_source(word, source)
-            || (raw.starts_with('"') && raw.contains("\\\n")))
-        && !word_is_quoted_formattable_command_substitution_only(word, source)
-        && (preserve_escaped_multiline_words || !raw_escaped_multiline_double_quoted_word(raw))
-        && could_need_preserve_raw_syntax(raw)
-    {
-        push_raw_word_with_normalized_command_redirect_spacing(
-            rendered, word, raw, source, options,
-        );
-        return;
-    }
-
-    if word_needs_formatter_rendering(word, context) {
-        let start = rendered.len();
-        if render_word_parts(
-            word.parts.as_slice(),
-            context,
-            preserve_escaped_multiline_words,
-            rendered,
-        )
-        .is_err()
-        {
-            unreachable!("writing into a String should not fail");
-        }
-        if preserve_raw
-            && let Some(slice) = raw_word_source_slice(word, source)
-            && should_preserve_special_rendered_raw_syntax(slice, &rendered[start..])
-        {
-            rendered.truncate(start);
-            push_preserved_raw_word_source(rendered, word, slice, source, options);
-        }
-        return;
-    }
-
-    if preserve_raw
-        && let Some(slice) = raw_word_source_slice(word, source)
-        && could_need_preserve_raw_syntax(slice)
-    {
-        let start = rendered.len();
-        word.render_syntax_to_buf(source, rendered);
-        if should_preserve_raw_syntax(slice, &rendered[start..]) {
-            rendered.truncate(start);
-            push_preserved_raw_word_source(rendered, word, slice, source, options);
-        }
-        return;
-    }
-
-    word.render_syntax_to_buf(source, rendered);
+    WordRenderDecision::for_word(word, context, preserve_escaped_multiline_words).render(
+        word,
+        context,
+        preserve_escaped_multiline_words,
+        rendered,
+    );
 }
 
 /// Returns `true` when a word contains a command-substitution node whose raw
@@ -855,5 +917,121 @@ pub(super) fn render_double_quoted_literal(rendered: &mut String, text: &str) {
             }
             _ => rendered.push(ch),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::options::ShellFormatOptions;
+    use shuck_ast::{Command, File};
+    use shuck_parser::parser::Parser;
+
+    fn parse_with_facts<'source>(
+        source: &'source str,
+        options: &ShellFormatOptions,
+    ) -> (File, ResolvedShellFormatOptions, FormatterFacts<'source>) {
+        let resolved = options.resolve_for_format(source, None);
+        let file = Parser::with_dialect(source, resolved.dialect())
+            .parse()
+            .unwrap()
+            .file;
+        let facts = FormatterFacts::build(source, &file, &resolved);
+        (file, resolved, facts)
+    }
+
+    fn first_arg_word(file: &File) -> &Word {
+        let Command::Simple(command) = &file.body[0].command else {
+            panic!("expected first statement to be a simple command");
+        };
+        command.args.first().expect("expected an argument word")
+    }
+
+    fn decision_for_first_arg<'source>(
+        source: &'source str,
+        options: &ShellFormatOptions,
+        preserve_escaped_multiline_words: bool,
+    ) -> WordRenderDecision<'source> {
+        let (file, resolved, facts) = parse_with_facts(source, options);
+        let context = RenderContext::new(source, &resolved, &facts);
+        WordRenderDecision::for_word(
+            first_arg_word(&file),
+            context,
+            preserve_escaped_multiline_words,
+        )
+    }
+
+    #[test]
+    fn decision_normalizes_command_substitution_padding_before_structural_rendering() {
+        let decision = decision_for_first_arg(
+            "echo \"$( printf x )\"\n",
+            &ShellFormatOptions::default(),
+            true,
+        );
+
+        assert_eq!(
+            decision,
+            WordRenderDecision::NormalizedCommandSubstitutionPadding {
+                normalized: "\"$(printf x)\"".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn decision_preserves_escaped_command_substitutions_when_allowed() {
+        let decision =
+            decision_for_first_arg("echo \"\\$(git)\"\n", &ShellFormatOptions::default(), true);
+
+        assert_eq!(
+            decision,
+            WordRenderDecision::PreserveEscapedCommandSubstitution {
+                raw: "\"\\$(git)\""
+            }
+        );
+    }
+
+    #[test]
+    fn decision_normalizes_unquoted_word_continuations_before_fallbacks() {
+        let decision =
+            decision_for_first_arg("echo foo\\\nbar\n", &ShellFormatOptions::default(), true);
+
+        assert_eq!(
+            decision,
+            WordRenderDecision::NormalizedUnquotedContinuations {
+                normalized: "foobar".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn decision_routes_special_words_through_part_renderer_with_raw_fallback() {
+        let decision =
+            decision_for_first_arg("echo $(( 1 + 2 ))\n", &ShellFormatOptions::default(), true);
+
+        assert_eq!(
+            decision,
+            WordRenderDecision::RenderParts {
+                raw_fallback: Some("$(( 1 + 2 ))")
+            }
+        );
+    }
+
+    #[test]
+    fn decision_uses_raw_fallback_for_preservable_plain_syntax() {
+        let decision =
+            decision_for_first_arg("echo foo\\ bar\n", &ShellFormatOptions::default(), true);
+
+        assert_eq!(
+            decision,
+            WordRenderDecision::RenderSyntaxWithRawFallback { raw: "foo\\ bar" }
+        );
+    }
+
+    #[test]
+    fn decision_skips_raw_fallbacks_when_simplifying() {
+        let options = ShellFormatOptions::default().with_simplify(true);
+        let decision = decision_for_first_arg("echo foo\\ bar\n", &options, true);
+
+        assert_eq!(decision, WordRenderDecision::RenderSyntax);
     }
 }
