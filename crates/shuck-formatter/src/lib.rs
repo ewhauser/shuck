@@ -137,39 +137,83 @@ pub fn format_file_ast(
     Ok(formatted_source_from_output(source, output))
 }
 
-fn check_file(source: &str, mut file: File, resolved: ResolvedShellFormatOptions) -> Result<bool> {
+fn check_file(source: &str, file: File, resolved: ResolvedShellFormatOptions) -> Result<bool> {
     if resolved.minify() {
-        let output = format_output(source, file, &resolved)?;
+        let output = render_file::<BufferedRender>(source, file, &resolved)?;
         return Ok(output == source);
     }
 
-    if resolved.simplify() {
-        simplify::simplify_file(&mut file, source);
-    }
-
-    let facts = FormatterFacts::build(source, &file, &resolved);
-    let resolved = resolved.with_line_ending(facts.line_ending());
-    streaming::format_file_streaming_matches_source_with_facts(source, &file, &resolved, &facts)
+    render_file::<CompareRender>(source, file, &resolved)
 }
 
 fn format_output(
     source: &str,
-    mut file: File,
+    file: File,
     resolved: &ResolvedShellFormatOptions,
 ) -> Result<String> {
+    render_file::<BufferedRender>(source, file, resolved)
+}
+
+trait RenderMode {
+    type Output;
+
+    fn render(
+        source: &str,
+        file: &File,
+        resolved: &ResolvedShellFormatOptions,
+        facts: &FormatterFacts<'_>,
+    ) -> Result<Self::Output>;
+}
+
+struct BufferedRender;
+
+impl RenderMode for BufferedRender {
+    type Output = String;
+
+    fn render(
+        source: &str,
+        file: &File,
+        resolved: &ResolvedShellFormatOptions,
+        facts: &FormatterFacts<'_>,
+    ) -> Result<Self::Output> {
+        let mut output =
+            streaming::format_file_streaming_with_facts(source, file, resolved, facts)?;
+        if resolved.minify() {
+            preserve_initial_shebang(source, &mut output, resolved.line_ending());
+        }
+        ensure_single_trailing_newline(&mut output, resolved.line_ending());
+
+        Ok(output)
+    }
+}
+
+struct CompareRender;
+
+impl RenderMode for CompareRender {
+    type Output = bool;
+
+    fn render(
+        source: &str,
+        file: &File,
+        resolved: &ResolvedShellFormatOptions,
+        facts: &FormatterFacts<'_>,
+    ) -> Result<Self::Output> {
+        streaming::format_file_streaming_matches_source_with_facts(source, file, resolved, facts)
+    }
+}
+
+fn render_file<M: RenderMode>(
+    source: &str,
+    mut file: File,
+    resolved: &ResolvedShellFormatOptions,
+) -> Result<M::Output> {
     if resolved.simplify() || resolved.minify() {
         simplify::simplify_file(&mut file, source);
     }
 
     let facts = FormatterFacts::build(source, &file, resolved);
     let resolved = resolved.clone().with_line_ending(facts.line_ending());
-    let mut output = streaming::format_file_streaming_with_facts(source, &file, &resolved, &facts)?;
-    if resolved.minify() {
-        preserve_initial_shebang(source, &mut output, resolved.line_ending());
-    }
-    ensure_single_trailing_newline(&mut output, resolved.line_ending());
-
-    Ok(output)
+    M::render(source, &file, &resolved, &facts)
 }
 
 fn formatted_source_from_output(source: &str, output: String) -> FormattedSource {

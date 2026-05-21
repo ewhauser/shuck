@@ -54,7 +54,7 @@ use crate::word::{
     word_gap_end_before_trailing_continuation, word_has_multiline_literal_source,
     word_is_quoted_command_substitution_only, word_is_quoted_formattable_command_substitution_only,
 };
-use writer::{PendingHeredoc, ShellWriter};
+use writer::{BufferSink, CompareSink, PendingHeredoc, ShellWriter, StreamSink};
 
 #[derive(Clone, Copy)]
 enum SimpleCommandPart<'a> {
@@ -171,17 +171,17 @@ enum HeredocTailTextMode {
     Assignment,
 }
 
-struct ShellRenderer<'source, 'facts> {
+struct ShellRenderer<'source, 'facts, S> {
     source: &'source str,
     options: ResolvedShellFormatOptions,
     facts: &'facts FormatterFacts<'source>,
     scratch: String,
-    writer: ShellWriter<'source>,
+    writer: ShellWriter<S>,
     pipeline_continuation_indent: usize,
     filter_next_group_body_leading_before_open: bool,
 }
 
-impl<'source, 'facts> ShellRenderer<'source, 'facts> {
+impl<'source, 'facts> ShellRenderer<'source, 'facts, BufferSink> {
     fn new(
         source: &'source str,
         options: &ResolvedShellFormatOptions,
@@ -192,19 +192,6 @@ impl<'source, 'facts> ShellRenderer<'source, 'facts> {
             options,
             facts,
             ShellWriter::new_buffer(source, options),
-        )
-    }
-
-    fn new_compare(
-        source: &'source str,
-        options: &ResolvedShellFormatOptions,
-        facts: &'facts FormatterFacts<'source>,
-    ) -> Self {
-        Self::with_writer(
-            source,
-            options,
-            facts,
-            ShellWriter::new_compare(source, options),
         )
     }
 
@@ -222,11 +209,39 @@ impl<'source, 'facts> ShellRenderer<'source, 'facts> {
         )
     }
 
+    fn finish_into_string(self) -> String {
+        self.writer.finish_into_string()
+    }
+}
+
+impl<'source, 'facts> ShellRenderer<'source, 'facts, CompareSink<'source>> {
+    fn new_compare(
+        source: &'source str,
+        options: &ResolvedShellFormatOptions,
+        facts: &'facts FormatterFacts<'source>,
+    ) -> Self {
+        Self::with_writer(
+            source,
+            options,
+            facts,
+            ShellWriter::new_compare(source, options),
+        )
+    }
+
+    fn finish_matches_source(self) -> bool {
+        self.writer.finish_matches_source()
+    }
+}
+
+impl<'source, 'facts, S> ShellRenderer<'source, 'facts, S>
+where
+    S: StreamSink,
+{
     fn with_writer(
         source: &'source str,
         options: &ResolvedShellFormatOptions,
         facts: &'facts FormatterFacts<'source>,
-        writer: ShellWriter<'source>,
+        writer: ShellWriter<S>,
     ) -> Self {
         Self {
             source,
@@ -237,14 +252,6 @@ impl<'source, 'facts> ShellRenderer<'source, 'facts> {
             pipeline_continuation_indent: 1,
             filter_next_group_body_leading_before_open: false,
         }
-    }
-
-    fn finish_into_string(self) -> String {
-        self.writer.finish_into_string()
-    }
-
-    fn finish_matches_source(self) -> bool {
-        self.writer.finish_matches_source()
     }
 
     fn push_output_str(&mut self, text: &str) {

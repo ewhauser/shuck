@@ -1,6 +1,9 @@
 use super::*;
 
-impl<'source, 'facts> ShellRenderer<'source, 'facts> {
+impl<'source, 'facts, S> ShellRenderer<'source, 'facts, S>
+where
+    S: StreamSink,
+{
     pub(super) fn can_inline_body(&self, commands: &StmtSeq, enclosing_span: Span) -> bool {
         self.can_inline_body_with_upper_bound(
             commands,

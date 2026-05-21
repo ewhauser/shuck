@@ -1,6 +1,9 @@
 use super::*;
 
-impl<'source, 'facts> ShellRenderer<'source, 'facts> {
+impl<'source, 'facts, S> ShellRenderer<'source, 'facts, S>
+where
+    S: StreamSink,
+{
     pub(super) fn write_rendered_shell_text(&mut self, text: &str) {
         if text.contains('\n') {
             if self.line_start() {

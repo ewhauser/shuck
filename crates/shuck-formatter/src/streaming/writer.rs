@@ -9,14 +9,18 @@ pub(super) struct PendingHeredoc {
     pub(super) strip_tabs: bool,
 }
 
-enum StreamOutput<'source> {
-    Buffer(String),
-    Compare(CompareSink<'source>),
+pub(super) trait StreamSink {
+    fn push_char(&mut self, ch: char);
+    fn push_str(&mut self, text: &str);
 }
 
-pub(super) struct ShellWriter<'source> {
+pub(super) struct BufferSink {
+    buffer: String,
+}
+
+pub(super) struct ShellWriter<S> {
     options: ResolvedShellFormatOptions,
-    output: StreamOutput<'source>,
+    output: S,
     indent_buffer: String,
     indent_level: usize,
     column: usize,
@@ -25,23 +29,37 @@ pub(super) struct ShellWriter<'source> {
     pending_heredocs: Vec<PendingHeredoc>,
 }
 
-impl<'source> ShellWriter<'source> {
-    pub(super) fn new_buffer(source: &'source str, options: &ResolvedShellFormatOptions) -> Self {
-        Self::with_output(
-            options,
-            StreamOutput::Buffer(String::with_capacity(source.len())),
-        )
-    }
-
-    pub(super) fn new_compare(source: &'source str, options: &ResolvedShellFormatOptions) -> Self {
-        Self::with_output(options, StreamOutput::Compare(CompareSink::new(source)))
+impl ShellWriter<BufferSink> {
+    pub(super) fn new_buffer(source: &str, options: &ResolvedShellFormatOptions) -> Self {
+        Self::with_output(options, BufferSink::with_capacity(source.len()))
     }
 
     pub(super) fn with_output_buffer(options: &ResolvedShellFormatOptions, output: String) -> Self {
-        Self::with_output(options, StreamOutput::Buffer(output))
+        Self::with_output(options, BufferSink::new(output))
     }
 
-    fn with_output(options: &ResolvedShellFormatOptions, output: StreamOutput<'source>) -> Self {
+    pub(super) fn finish_into_string(mut self) -> String {
+        self.flush_pending_heredocs();
+        self.output.finish_into_string()
+    }
+}
+
+impl<'source> ShellWriter<CompareSink<'source>> {
+    pub(super) fn new_compare(source: &'source str, options: &ResolvedShellFormatOptions) -> Self {
+        Self::with_output(options, CompareSink::new(source))
+    }
+
+    pub(super) fn finish_matches_source(mut self) -> bool {
+        self.flush_pending_heredocs();
+        self.output.finish(self.options.line_ending())
+    }
+}
+
+impl<S> ShellWriter<S>
+where
+    S: StreamSink,
+{
+    fn with_output(options: &ResolvedShellFormatOptions, output: S) -> Self {
         Self {
             options: options.clone(),
             output,
@@ -52,17 +70,6 @@ impl<'source> ShellWriter<'source> {
             line_start: true,
             pending_heredocs: Vec::new(),
         }
-    }
-
-    pub(super) fn finish_into_string(mut self) -> String {
-        self.flush_pending_heredocs();
-        self.output.finish_into_string()
-    }
-
-    pub(super) fn finish_matches_source(mut self) -> bool {
-        self.flush_pending_heredocs();
-        self.output
-            .finish_matches_source(self.options.line_ending())
     }
 
     pub(super) fn indent_level(&self) -> usize {
@@ -311,37 +318,33 @@ impl<'source> ShellWriter<'source> {
     }
 }
 
-impl<'source> StreamOutput<'source> {
-    fn push_char(&mut self, ch: char) {
-        match self {
-            Self::Buffer(buffer) => buffer.push(ch),
-            Self::Compare(compare) => compare.push_char(ch),
+impl BufferSink {
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            buffer: String::with_capacity(capacity),
         }
     }
 
-    fn push_str(&mut self, text: &str) {
-        match self {
-            Self::Buffer(buffer) => buffer.push_str(text),
-            Self::Compare(compare) => compare.push_str(text),
-        }
+    fn new(buffer: String) -> Self {
+        Self { buffer }
     }
 
     fn finish_into_string(self) -> String {
-        match self {
-            Self::Buffer(buffer) => buffer,
-            Self::Compare(_) => panic!("comparison formatter cannot yield a String"),
-        }
-    }
-
-    fn finish_matches_source(mut self, line_ending: LineEnding) -> bool {
-        match &mut self {
-            Self::Buffer(_) => panic!("buffer formatter cannot compare against the source"),
-            Self::Compare(compare) => compare.finish(line_ending),
-        }
+        self.buffer
     }
 }
 
-struct CompareSink<'source> {
+impl StreamSink for BufferSink {
+    fn push_char(&mut self, ch: char) {
+        self.buffer.push(ch);
+    }
+
+    fn push_str(&mut self, text: &str) {
+        self.buffer.push_str(text);
+    }
+}
+
+pub(super) struct CompareSink<'source> {
     source: &'source str,
     matched_bytes: usize,
     pending_tail: String,
@@ -417,5 +420,15 @@ impl<'source> CompareSink<'source> {
             }
             _ => self.mismatch = true,
         }
+    }
+}
+
+impl StreamSink for CompareSink<'_> {
+    fn push_char(&mut self, ch: char) {
+        CompareSink::push_char(self, ch);
+    }
+
+    fn push_str(&mut self, text: &str) {
+        CompareSink::push_str(self, text);
     }
 }
