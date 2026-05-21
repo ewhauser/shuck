@@ -1,6 +1,9 @@
 use super::*;
 
-impl<'source, 'facts> ShellRenderer<'source, 'facts> {
+impl<'source, 'facts, S> ShellRenderer<'source, 'facts, S>
+where
+    S: StreamSink,
+{
     pub(super) fn format_redirect_list(&mut self, redirects: &[Redirect]) {
         let source = self.source();
         let mut index = 0;

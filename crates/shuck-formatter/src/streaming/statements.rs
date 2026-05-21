@@ -1,6 +1,9 @@
 use super::*;
 
-impl<'source, 'facts> ShellRenderer<'source, 'facts> {
+impl<'source, 'facts, S> ShellRenderer<'source, 'facts, S>
+where
+    S: StreamSink,
+{
     pub(super) fn format_stmt_sequence(
         &mut self,
         statements: &StmtSeq,

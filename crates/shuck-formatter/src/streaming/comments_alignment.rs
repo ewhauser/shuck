@@ -1,6 +1,9 @@
 use super::*;
 
-impl<'source, 'facts> ShellRenderer<'source, 'facts> {
+impl<'source, 'facts, S> ShellRenderer<'source, 'facts, S>
+where
+    S: StreamSink,
+{
     pub(super) fn write_comment(&mut self, comment: &SourceComment<'_>) {
         self.write_text(comment.text());
     }

@@ -1,6 +1,9 @@
 use super::*;
 
-impl<'source, 'facts> ShellRenderer<'source, 'facts> {
+impl<'source, 'facts, S> ShellRenderer<'source, 'facts, S>
+where
+    S: StreamSink,
+{
     pub(super) fn format_if(&mut self, command: &IfCommand) -> Result<()> {
         match command.syntax {
             IfSyntax::ThenFi { .. } => self.format_then_fi_if(command),
