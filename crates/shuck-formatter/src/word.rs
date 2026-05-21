@@ -943,6 +943,14 @@ fn render_word_part(
                 {
                     rendered.push_str(&block);
                 } else if stmt_seq_contains_comments(facts, body) {
+                    let fallback = RawCommandSubstitutionCommentFallback {
+                        raw,
+                        body,
+                        source,
+                        span_start: span.start.offset,
+                        options,
+                        facts,
+                    };
                     if commented_command_substitution_can_use_structural_formatter(body) {
                         let rendered_start = rendered.len();
                         if render_command_substitution(
@@ -966,27 +974,11 @@ fn render_word_part(
                             );
                         } else {
                             push_raw_command_substitution_comment_fallback(
-                                rendered,
-                                raw,
-                                body,
-                                source,
-                                span.start.offset,
-                                options,
-                                facts,
-                                false,
+                                rendered, fallback, false,
                             );
                         }
                     } else {
-                        push_raw_command_substitution_comment_fallback(
-                            rendered,
-                            raw,
-                            body,
-                            source,
-                            span.start.offset,
-                            options,
-                            facts,
-                            true,
-                        );
+                        push_raw_command_substitution_comment_fallback(rendered, fallback, true);
                     }
                 } else if let Some(block) =
                     render_inline_raw_command_substitution_as_block(raw, options)
@@ -1508,16 +1500,30 @@ fn stmt_seq_has_heredoc(facts: Option<&FormatterFacts<'_>>, sequence: &StmtSeq) 
     )
 }
 
+#[derive(Clone, Copy)]
+struct RawCommandSubstitutionCommentFallback<'source, 'facts> {
+    raw: &'source str,
+    body: &'source shuck_ast::StmtSeq,
+    source: &'source str,
+    span_start: usize,
+    options: &'source ResolvedShellFormatOptions,
+    facts: Option<&'source FormatterFacts<'facts>>,
+}
+
 fn push_raw_command_substitution_comment_fallback(
     rendered: &mut String,
-    raw: &str,
-    body: &shuck_ast::StmtSeq,
-    source: &str,
-    span_start: usize,
-    options: &ResolvedShellFormatOptions,
-    facts: Option<&FormatterFacts<'_>>,
+    fallback: RawCommandSubstitutionCommentFallback<'_, '_>,
     try_normalized_body: bool,
 ) {
+    let RawCommandSubstitutionCommentFallback {
+        raw,
+        body,
+        source,
+        span_start,
+        options,
+        facts,
+    } = fallback;
+
     if push_inline_raw_command_substitution_as_block(rendered, raw, options) {
         return;
     }

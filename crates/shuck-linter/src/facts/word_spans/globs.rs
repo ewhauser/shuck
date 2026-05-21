@@ -1408,15 +1408,7 @@ pub(crate) fn matching_group_end(bytes: &[u8], open_index: usize) -> Option<usiz
 }
 
 pub(crate) fn byte_is_backslash_escaped(bytes: &[u8], index: usize) -> bool {
-    let mut cursor = index;
-    let mut backslashes = 0usize;
-
-    while cursor > 0 && bytes[cursor - 1] == b'\\' {
-        backslashes += 1;
-        cursor -= 1;
-    }
-
-    backslashes % 2 == 1
+    shuck_ast::raw_shell::byte_is_backslash_escaped(bytes, index)
 }
 
 pub(crate) fn is_extglob_operator(byte: u8) -> bool {
