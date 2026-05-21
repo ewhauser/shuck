@@ -14,6 +14,7 @@ mod ast;
 mod command_resolution;
 #[doc(hidden)]
 mod name;
+pub mod raw_shell;
 #[doc(hidden)]
 mod span;
 #[doc(hidden)]

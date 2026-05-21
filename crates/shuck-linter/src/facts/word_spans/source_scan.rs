@@ -1,14 +1,12 @@
 use super::*;
+use shuck_ast::raw_shell;
 
 pub(crate) fn span_contains(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
 }
 
 pub(crate) fn advance_shell_char(text: &str, index: usize) -> usize {
-    text[index..]
-        .chars()
-        .next()
-        .map_or(index + 1, |ch| index + ch.len_utf8())
+    raw_shell::advance_shell_char(text, index)
 }
 
 pub(crate) fn collect_scan_span_excluding(
@@ -49,19 +47,7 @@ pub(crate) fn span_is_backslash_escaped(span: Span, source: &str) -> bool {
 }
 
 pub(crate) fn offset_is_backslash_escaped(offset: usize, source: &str) -> bool {
-    if offset == 0 {
-        return false;
-    }
-
-    let bytes = source.as_bytes();
-    let mut index = offset;
-    let mut backslash_count = 0usize;
-    while index > 0 && bytes[index - 1] == b'\\' {
-        backslash_count += 1;
-        index -= 1;
-    }
-
-    backslash_count % 2 == 1
+    raw_shell::offset_is_backslash_escaped(source, offset)
 }
 
 pub(crate) fn span_is_escaped(span: Span, source: &str) -> bool {
