@@ -832,7 +832,7 @@ impl<'a> Parser<'a> {
         }
         self.skip_newlines()?;
 
-        let (body, done_span) = if self.at(TokenKind::LeftBrace) {
+        let (body, done_span, end_span) = if self.at(TokenKind::LeftBrace) {
             let body = self.parse_brace_group(BraceBodyContext::Ordinary)?;
             let span = Self::compound_span(&body);
             (
@@ -844,6 +844,7 @@ impl<'a> Parser<'a> {
                     ))],
                 ),
                 None,
+                self.current_span,
             )
         } else {
             // Expect 'do'
@@ -866,7 +867,11 @@ impl<'a> Parser<'a> {
             }
             let done_span = self.current_span;
             self.advance();
-            (Self::stmt_seq_with_span(body_span, body), Some(done_span))
+            (
+                Self::stmt_seq_with_span(body_span, body),
+                Some(done_span),
+                done_span,
+            )
         };
 
         Ok(CompoundCommand::ArithmeticFor(Box::new(
@@ -883,7 +888,7 @@ impl<'a> Parser<'a> {
                 right_paren_span,
                 done_span,
                 body,
-                span: start_span.merge(self.current_span),
+                span: start_span.merge(end_span),
             },
         )))
     }
