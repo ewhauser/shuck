@@ -7,6 +7,7 @@ use crate::scan::{
     matching_if_close_start, normalized_close_keyword_span, refine_common_indent,
     shell_comment_can_start, skip_escaped_or_quoted,
 };
+use crate::visit::{self, AstVisitor};
 use crate::word::{
     matching_raw_command_substitution_close, normalize_raw_pipeline_continuations,
     render_arithmetic_expr_to_buf, render_word_syntax_to_buf, render_word_syntax_with_facts_to_buf,
@@ -15,7 +16,7 @@ use shuck_ast::{
     AnonymousFunctionCommand, ArithmeticExprNode, ArrayElem, Assignment, AssignmentValue,
     BackgroundOperator, BinaryCommand, BinaryOp, BuiltinCommand, CaseItem, CaseTerminator, Command,
     CompoundCommand, DeclClause, DeclOperand, ForSyntax, ForeachSyntax, FunctionDef, IfCommand,
-    IfSyntax, RedirectKind, RepeatSyntax, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
+    IfSyntax, Redirect, RedirectKind, RepeatSyntax, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
     StmtTerminator, Subscript, VarRef, Word, WordPart,
 };
 
@@ -873,38 +874,47 @@ pub(crate) fn render_source_text_to_buf(text: &SourceText, source: &str, rendere
 }
 
 pub(crate) fn has_heredoc(stmt: &Stmt) -> bool {
-    stmt.redirects.iter().any(|redirect| {
-        matches!(
-            redirect.kind,
-            RedirectKind::HereDoc | RedirectKind::HereDocStrip
-        )
-    }) || match &stmt.command {
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => false,
-        Command::Binary(command) => has_heredoc(&command.left) || has_heredoc(&command.right),
-        Command::Compound(command) => {
-            compound_contains_child(command, has_heredoc, stmt_seq_has_heredoc)
-        }
-        Command::Function(function) => has_heredoc(&function.body),
-        Command::AnonymousFunction(function) => has_heredoc(&function.body),
-    }
+    let mut visitor = HeredocFinder::default();
+    visitor.visit_stmt(stmt);
+    visitor.found
 }
 
-pub(crate) fn compound_contains_child(
-    command: &CompoundCommand,
-    mut stmt_predicate: impl FnMut(&Stmt) -> bool,
-    mut seq_predicate: impl FnMut(&StmtSeq) -> bool,
-) -> bool {
-    let mut found = false;
-    for_each_compound_child(command, |child| {
-        if found {
-            return;
+pub(crate) fn stmt_seq_has_heredoc(commands: &StmtSeq) -> bool {
+    let mut visitor = HeredocFinder::default();
+    visitor.visit_stmt_seq(commands);
+    visitor.found
+}
+
+#[derive(Default)]
+struct HeredocFinder {
+    found: bool,
+}
+
+impl AstVisitor for HeredocFinder {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if !self.found {
+            visit::walk_stmt(self, stmt);
         }
-        found = match child {
-            CompoundChild::Stmt(stmt) => stmt_predicate(stmt),
-            CompoundChild::Sequence(sequence) => seq_predicate(sequence),
-        };
-    });
-    found
+    }
+
+    fn visit_stmt_seq(&mut self, sequence: &StmtSeq) {
+        if !self.found {
+            visit::walk_stmt_seq(self, sequence);
+        }
+    }
+
+    fn visit_redirect(&mut self, redirect: &Redirect) {
+        if matches!(
+            redirect.kind,
+            RedirectKind::HereDoc | RedirectKind::HereDocStrip
+        ) {
+            self.found = true;
+        } else {
+            visit::walk_redirect(self, redirect);
+        }
+    }
+
+    fn visit_word(&mut self, _word: &Word) {}
 }
 
 enum CompoundChild<'a> {
@@ -958,10 +968,6 @@ fn for_each_compound_child(command: &CompoundCommand, mut visitor: impl FnMut(Co
             visitor(CompoundChild::Sequence(&command.always_body));
         }
     }
-}
-
-pub(crate) fn stmt_seq_has_heredoc(commands: &StmtSeq) -> bool {
-    commands.iter().any(has_heredoc)
 }
 
 pub(crate) fn stmt_verbatim_span_with_source_map(stmt: &Stmt, source_map: &SourceMap<'_>) -> Span {
@@ -1703,6 +1709,33 @@ pub(crate) fn builtin_like_parts(
             &command.assignments,
             command.code.as_ref(),
             &command.extra_args,
+        ),
+    }
+}
+
+pub(crate) fn builtin_like_parts_mut(
+    command: &mut BuiltinCommand,
+) -> (&mut [Assignment], Option<&mut Word>, &mut [Word]) {
+    match command {
+        BuiltinCommand::Break(command) => (
+            &mut command.assignments,
+            command.depth.as_mut(),
+            &mut command.extra_args,
+        ),
+        BuiltinCommand::Continue(command) => (
+            &mut command.assignments,
+            command.depth.as_mut(),
+            &mut command.extra_args,
+        ),
+        BuiltinCommand::Return(command) => (
+            &mut command.assignments,
+            command.code.as_mut(),
+            &mut command.extra_args,
+        ),
+        BuiltinCommand::Exit(command) => (
+            &mut command.assignments,
+            command.code.as_mut(),
+            &mut command.extra_args,
         ),
     }
 }

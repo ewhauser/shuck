@@ -1,18 +1,18 @@
 use std::collections::{HashMap, HashSet};
 
 use shuck_ast::{
-    AnonymousFunctionCommand, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, Assignment,
-    AssignmentValue, BinaryCommand, BinaryOp, BuiltinCommand, CaseCommand, CaseItem, Command,
-    CommandSubstitutionSyntax, CompoundCommand, ConditionalCommand, ConditionalExpr, DeclClause,
-    DeclOperand, File, ForCommand, ForeachCommand, FunctionDef, Heredoc, HeredocBody,
-    HeredocBodyPart, IfCommand, Pattern, PatternPart, Redirect, RepeatCommand, SelectCommand, Span,
-    Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
+    AnonymousFunctionCommand, ArithmeticExprNode, Assignment, AssignmentValue, BinaryCommand,
+    BinaryOp, CaseCommand, CaseItem, Command, CommandSubstitutionSyntax, CompoundCommand,
+    ConditionalCommand, ConditionalExpr, File, ForCommand, ForeachCommand, FunctionDef, Heredoc,
+    HeredocBody, HeredocBodyPart, HeredocBodyPartNode, IfCommand, Pattern, Redirect, RepeatCommand,
+    SelectCommand, Span, Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand, WhileCommand,
+    Word, WordPart, WordPartNode,
 };
 use shuck_ast::{TextRange, TextSize};
 use shuck_indexer::{CommentIndex, IndexedComment, Indexer, IndexerOptions, LineIndex};
 
 use crate::command::{
-    array_elem_parts, branch_open_keyword_start, builtin_like_parts, case_item_body_upper_bound,
+    array_elem_parts, branch_open_keyword_start, case_item_body_upper_bound,
     case_item_was_inline_in_source, collect_binary_list_first as collect_binary_list_first_with,
     collect_pipeline_parts, command_group_commands, done_close_span, group_attachment_span,
     group_open_suffix, group_was_inline_in_source, if_close_span,
@@ -27,6 +27,7 @@ use crate::comments::{
 };
 use crate::options::{LineEnding, ResolvedShellFormatOptions};
 use crate::scan::{BranchPrefixComment, last_shell_keyword_start};
+use crate::visit::{self, AstVisitor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct FactSpan {
@@ -741,48 +742,10 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_command(&mut self, command: &Command) {
-        match command {
-            Command::Simple(command) => {
-                for assignment in &command.assignments {
-                    self.visit_assignment(assignment);
-                }
-                self.visit_word(&command.name);
-                for word in &command.args {
-                    self.visit_word(word);
-                }
-            }
-            Command::Builtin(command) => self.visit_builtin_command(command),
-            Command::Decl(command) => self.visit_decl_clause(command),
-            Command::Binary(command) => self.visit_binary_command(command),
-            Command::Compound(command) => self.visit_compound_command(command),
-            Command::Function(function) => self.visit_function(function),
-            Command::AnonymousFunction(function) => self.visit_anonymous_function(function),
-        }
-    }
-
-    fn visit_builtin_command(&mut self, command: &BuiltinCommand) {
-        let (_, _, assignments, primary, extra_args) = builtin_like_parts(command);
-        for assignment in assignments {
-            self.visit_assignment(assignment);
-        }
-        if let Some(primary) = primary {
-            self.visit_word(primary);
-        }
-        for word in extra_args {
-            self.visit_word(word);
-        }
-    }
-
-    fn visit_decl_clause(&mut self, command: &DeclClause) {
-        for assignment in &command.assignments {
-            self.visit_assignment(assignment);
-        }
-        for operand in &command.operands {
-            match operand {
-                DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => self.visit_word(word),
-                DeclOperand::Name(_) => {}
-                DeclOperand::Assignment(assignment) => self.visit_assignment(assignment),
-            }
+        if let Command::Binary(command) = command {
+            self.visit_binary_command(command);
+        } else {
+            visit::walk_command(self, command);
         }
     }
 
@@ -1155,40 +1118,15 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_conditional_expr(&mut self, expression: &ConditionalExpr) {
-        match expression {
-            ConditionalExpr::Binary(expr) => {
-                self.visit_conditional_expr(expr.left.as_ref());
-                self.visit_conditional_expr(expr.right.as_ref());
-            }
-            ConditionalExpr::Unary(expr) => self.visit_conditional_expr(expr.expr.as_ref()),
-            ConditionalExpr::Parenthesized(expr) => self.visit_conditional_expr(expr.expr.as_ref()),
-            ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => self.visit_word(word),
-            ConditionalExpr::Pattern(pattern) => self.visit_pattern(pattern),
-            ConditionalExpr::VarRef(_) => {}
-        }
+        visit::walk_conditional_expr(self, expression);
     }
 
     fn visit_pattern(&mut self, pattern: &Pattern) {
-        for part in &pattern.parts {
-            match &part.kind {
-                PatternPart::Group { patterns, .. } => {
-                    for pattern in patterns {
-                        self.visit_pattern(pattern);
-                    }
-                }
-                PatternPart::Word(word) => self.visit_word(word),
-                PatternPart::Literal(_)
-                | PatternPart::AnyString
-                | PatternPart::AnyChar
-                | PatternPart::CharClass(_) => {}
-            }
-        }
+        visit::walk_pattern(self, pattern);
     }
 
     fn visit_word(&mut self, word: &Word) {
-        for part in &word.parts {
-            self.visit_word_part(&part.kind, part.span);
-        }
+        visit::walk_word(self, word);
     }
 
     fn visit_word_part(&mut self, part: &WordPart, span: Span) {
@@ -1266,43 +1204,53 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_arithmetic_expr(&mut self, expr: &ArithmeticExprNode) {
-        match &expr.kind {
-            ArithmeticExpr::ShellWord(word) => self.visit_word(word),
-            ArithmeticExpr::Indexed { index, .. } => self.visit_arithmetic_expr(index),
-            ArithmeticExpr::Parenthesized { expression } => self.visit_arithmetic_expr(expression),
-            ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
-                self.visit_arithmetic_expr(expr);
-            }
-            ArithmeticExpr::Binary { left, right, .. } => {
-                self.visit_arithmetic_expr(left);
-                self.visit_arithmetic_expr(right);
-            }
-            ArithmeticExpr::Conditional {
-                condition,
-                then_expr,
-                else_expr,
-            } => {
-                self.visit_arithmetic_expr(condition);
-                self.visit_arithmetic_expr(then_expr);
-                self.visit_arithmetic_expr(else_expr);
-            }
-            ArithmeticExpr::Assignment { target, value, .. } => {
-                self.visit_arithmetic_lvalue(target);
-                self.visit_arithmetic_expr(value);
-            }
-            ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
-        }
-    }
-
-    fn visit_arithmetic_lvalue(&mut self, target: &ArithmeticLvalue) {
-        match target {
-            ArithmeticLvalue::Indexed { index, .. } => self.visit_arithmetic_expr(index),
-            ArithmeticLvalue::Variable(_) => {}
-        }
+        visit::walk_arithmetic_expr(self, expr);
     }
 
     fn source_map(&self) -> &SourceMap<'source> {
         &self.facts.source_map
+    }
+}
+
+impl<'source, 'options> AstVisitor for FormatterFactsBuilder<'source, 'options> {
+    fn visit_stmt_seq(&mut self, sequence: &StmtSeq) {
+        self.visit_sequence(sequence, None, None);
+    }
+
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        FormatterFactsBuilder::visit_stmt(self, stmt);
+    }
+
+    fn visit_command(&mut self, command: &Command) {
+        FormatterFactsBuilder::visit_command(self, command);
+    }
+
+    fn visit_compound_command(&mut self, command: &CompoundCommand) {
+        FormatterFactsBuilder::visit_compound_command(self, command);
+    }
+
+    fn visit_function(&mut self, function: &FunctionDef) {
+        FormatterFactsBuilder::visit_function(self, function);
+    }
+
+    fn visit_anonymous_function(&mut self, function: &AnonymousFunctionCommand) {
+        FormatterFactsBuilder::visit_anonymous_function(self, function);
+    }
+
+    fn visit_redirect(&mut self, redirect: &Redirect) {
+        FormatterFactsBuilder::visit_redirect(self, redirect);
+    }
+
+    fn visit_assignment(&mut self, assignment: &Assignment) {
+        FormatterFactsBuilder::visit_assignment(self, assignment);
+    }
+
+    fn visit_word_part(&mut self, part: &WordPartNode) {
+        FormatterFactsBuilder::visit_word_part(self, &part.kind, part.span);
+    }
+
+    fn visit_heredoc_body_part(&mut self, part: &HeredocBodyPartNode) {
+        FormatterFactsBuilder::visit_heredoc_body_part(self, &part.kind, part.span);
     }
 }
 

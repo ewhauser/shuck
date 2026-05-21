@@ -1,9 +1,6 @@
 use std::fmt::Write as _;
 
-use crate::command::{
-    array_elem_parts, builtin_like_parts, compound_contains_child, stmt_seq_has_heredoc,
-    trim_unescaped_trailing_whitespace,
-};
+use crate::command::{array_elem_parts, stmt_seq_has_heredoc, trim_unescaped_trailing_whitespace};
 use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
 use crate::options::{IndentStyle, ResolvedShellFormatOptions};
@@ -14,13 +11,13 @@ use crate::scan::{
     shell_comment_can_start,
 };
 use crate::streaming::format_stmt_sequence_streaming_to_buf;
+use crate::visit::{self, AstVisitor};
 use shuck_ast::{
     ArithmeticAssignOp, ArithmeticBinaryOp, ArithmeticExpansionSyntax, ArithmeticExpr,
     ArithmeticExprNode, ArithmeticLvalue, ArithmeticPostfixOp, ArithmeticUnaryOp, Assignment,
-    AssignmentValue, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command,
-    CommandSubstitutionSyntax, CompoundCommand, ConditionalExpr, HeredocBody, HeredocBodyPart,
-    ParameterOp, Pattern, PatternPart, Redirect, Stmt, StmtSeq, SubscriptSelector, VarRef, Word,
-    WordPart, WordPartNode,
+    AssignmentValue, BinaryOp, BourneParameterExpansion, Command, CommandSubstitutionSyntax,
+    CompoundCommand, HeredocBody, HeredocBodyPart, ParameterOp, Pattern, PatternPart, Redirect,
+    Stmt, StmtSeq, SubscriptSelector, VarRef, Word, WordPart, WordPartNode,
 };
 
 pub(crate) fn word_gap_end_before_trailing_continuation(word: &Word, source: &str) -> usize {
@@ -172,134 +169,54 @@ fn word_part_has_multiline_literal_source(
 }
 
 fn stmt_seq_has_multiline_literal_source(sequence: &StmtSeq, source: &str) -> bool {
-    sequence
-        .iter()
-        .any(|stmt| stmt_has_multiline_literal_source(stmt, source))
+    let mut visitor = MultilineLiteralFinder::new(source);
+    visitor.visit_stmt_seq(sequence);
+    visitor.found
 }
 
-fn stmt_has_multiline_literal_source(stmt: &Stmt, source: &str) -> bool {
-    command_has_multiline_literal_source(&stmt.command, source)
-        || stmt
-            .redirects
-            .iter()
-            .any(|redirect| redirect_has_multiline_literal_source(redirect, source))
+struct MultilineLiteralFinder<'source> {
+    source: &'source str,
+    found: bool,
 }
 
-fn words_have_multiline_literal_source(words: &[Word], source: &str) -> bool {
-    words
-        .iter()
-        .any(|word| word_has_multiline_literal_source(word, source))
-}
-
-fn assignments_have_multiline_literal_source(assignments: &[Assignment], source: &str) -> bool {
-    assignments
-        .iter()
-        .any(|assignment| assignment_has_multiline_literal_source(assignment, source))
-}
-
-fn command_has_multiline_literal_source(command: &Command, source: &str) -> bool {
-    match command {
-        Command::Simple(command) => {
-            word_has_multiline_literal_source(&command.name, source)
-                || words_have_multiline_literal_source(&command.args, source)
-                || assignments_have_multiline_literal_source(&command.assignments, source)
-        }
-        Command::Builtin(command) => builtin_has_multiline_literal_source(command, source),
-        Command::Decl(command) => {
-            assignments_have_multiline_literal_source(&command.assignments, source)
-                || command.operands.iter().any(|operand| match operand {
-                    shuck_ast::DeclOperand::Flag(word) | shuck_ast::DeclOperand::Dynamic(word) => {
-                        word_has_multiline_literal_source(word, source)
-                    }
-                    shuck_ast::DeclOperand::Assignment(assignment) => {
-                        assignment_has_multiline_literal_source(assignment, source)
-                    }
-                    shuck_ast::DeclOperand::Name(_) => false,
-                })
-        }
-        Command::Binary(command) => {
-            stmt_has_multiline_literal_source(&command.left, source)
-                || stmt_has_multiline_literal_source(&command.right, source)
-        }
-        Command::Compound(command) => compound_has_multiline_literal_source(command, source),
-        Command::Function(command) => stmt_has_multiline_literal_source(&command.body, source),
-        Command::AnonymousFunction(command) => {
-            words_have_multiline_literal_source(&command.args, source)
-                || stmt_has_multiline_literal_source(&command.body, source)
+impl<'source> MultilineLiteralFinder<'source> {
+    fn new(source: &'source str) -> Self {
+        Self {
+            source,
+            found: false,
         }
     }
 }
 
-fn builtin_has_multiline_literal_source(command: &BuiltinCommand, source: &str) -> bool {
-    let (_, _, assignments, primary, extra_args) = builtin_like_parts(command);
-    builtin_args_have_multiline_literal_source(primary, extra_args, assignments, source)
-}
-
-fn builtin_args_have_multiline_literal_source(
-    primary: Option<&Word>,
-    extra_args: &[Word],
-    assignments: &[Assignment],
-    source: &str,
-) -> bool {
-    primary.is_some_and(|word| word_has_multiline_literal_source(word, source))
-        || words_have_multiline_literal_source(extra_args, source)
-        || assignments_have_multiline_literal_source(assignments, source)
-}
-
-fn compound_has_multiline_literal_source(command: &CompoundCommand, source: &str) -> bool {
-    compound_words_have_multiline_literal_source(command, source)
-        || compound_contains_child(
-            command,
-            |stmt| stmt_has_multiline_literal_source(stmt, source),
-            |sequence| stmt_seq_has_multiline_literal_source(sequence, source),
-        )
-}
-
-fn compound_words_have_multiline_literal_source(command: &CompoundCommand, source: &str) -> bool {
-    match command {
-        CompoundCommand::For(command) => {
-            command
-                .targets
-                .iter()
-                .any(|target| word_has_multiline_literal_source(&target.word, source))
-                || command
-                    .words
-                    .as_deref()
-                    .is_some_and(|words| words_have_multiline_literal_source(words, source))
+impl AstVisitor for MultilineLiteralFinder<'_> {
+    fn visit_stmt_seq(&mut self, sequence: &StmtSeq) {
+        if !self.found {
+            visit::walk_stmt_seq(self, sequence);
         }
-        CompoundCommand::Repeat(command) => {
-            word_has_multiline_literal_source(&command.count, source)
-        }
-        CompoundCommand::Foreach(command) => {
-            words_have_multiline_literal_source(&command.words, source)
-        }
-        CompoundCommand::Case(command) => word_has_multiline_literal_source(&command.word, source),
-        CompoundCommand::Select(command) => {
-            words_have_multiline_literal_source(&command.words, source)
-        }
-        CompoundCommand::Conditional(command) => {
-            conditional_expr_has_multiline_literal_source(&command.expression, source)
-        }
-        _ => false,
     }
-}
 
-fn conditional_expr_has_multiline_literal_source(expr: &ConditionalExpr, source: &str) -> bool {
-    match expr {
-        ConditionalExpr::Binary(expr) => {
-            conditional_expr_has_multiline_literal_source(&expr.left, source)
-                || conditional_expr_has_multiline_literal_source(&expr.right, source)
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if !self.found {
+            visit::walk_stmt(self, stmt);
         }
-        ConditionalExpr::Unary(expr) => {
-            conditional_expr_has_multiline_literal_source(&expr.expr, source)
+    }
+
+    fn visit_command(&mut self, command: &Command) {
+        if !self.found {
+            visit::walk_command(self, command);
         }
-        ConditionalExpr::Parenthesized(expr) => {
-            conditional_expr_has_multiline_literal_source(&expr.expr, source)
-        }
-        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
-            word_has_multiline_literal_source(word, source)
-        }
-        ConditionalExpr::Pattern(_) | ConditionalExpr::VarRef(_) => false,
+    }
+
+    fn visit_redirect(&mut self, redirect: &Redirect) {
+        self.found |= redirect_has_multiline_literal_source(redirect, self.source);
+    }
+
+    fn visit_assignment(&mut self, assignment: &Assignment) {
+        self.found |= assignment_has_multiline_literal_source(assignment, self.source);
+    }
+
+    fn visit_word(&mut self, word: &Word) {
+        self.found |= word_has_multiline_literal_source(word, self.source);
     }
 }
 
@@ -1741,31 +1658,37 @@ fn parameter_prefers_raw_source(
 }
 
 fn stmt_seq_contains_comments(sequence: &StmtSeq) -> bool {
-    !sequence.leading_comments.is_empty()
-        || !sequence.trailing_comments.is_empty()
-        || sequence.iter().any(stmt_contains_comments)
+    let mut visitor = CommentFinder::default();
+    visitor.visit_stmt_seq(sequence);
+    visitor.found
 }
 
-fn stmt_contains_comments(stmt: &Stmt) -> bool {
-    !stmt.leading_comments.is_empty()
-        || stmt.inline_comment.is_some()
-        || command_contains_comments(&stmt.command)
+#[derive(Default)]
+struct CommentFinder {
+    found: bool,
 }
 
-fn command_contains_comments(command: &Command) -> bool {
-    match command {
-        Command::Binary(command) => {
-            stmt_contains_comments(&command.left) || stmt_contains_comments(&command.right)
+impl AstVisitor for CommentFinder {
+    fn visit_stmt_seq(&mut self, sequence: &StmtSeq) {
+        if self.found {
+            return;
         }
-        Command::Compound(command) => compound_contains_comments(command),
-        Command::Function(function) => stmt_contains_comments(&function.body),
-        Command::AnonymousFunction(function) => stmt_contains_comments(&function.body),
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => false,
+        self.found =
+            !sequence.leading_comments.is_empty() || !sequence.trailing_comments.is_empty();
+        if !self.found {
+            visit::walk_stmt_seq(self, sequence);
+        }
     }
-}
 
-fn compound_contains_comments(command: &CompoundCommand) -> bool {
-    compound_contains_child(command, stmt_contains_comments, stmt_seq_contains_comments)
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if self.found {
+            return;
+        }
+        self.found = !stmt.leading_comments.is_empty() || stmt.inline_comment.is_some();
+        if !self.found {
+            visit::walk_stmt(self, stmt);
+        }
+    }
 }
 
 fn push_raw_command_substitution_comment_fallback(
@@ -3389,19 +3312,48 @@ fn render_inline_raw_command_substitution_as_block(
 }
 
 fn stmt_seq_contains_multistatement_pipeline_brace_group(statements: &StmtSeq) -> bool {
-    statements
-        .iter()
-        .any(stmt_contains_multistatement_pipeline_brace_group)
+    let mut visitor = PipelineBraceGroupFinder::default();
+    visitor.visit_stmt_seq(statements);
+    visitor.found
 }
 
-fn stmt_contains_multistatement_pipeline_brace_group(stmt: &Stmt) -> bool {
-    match &stmt.command {
-        Command::Binary(binary) if matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
-            stmt_contains_multistatement_pipeline_brace_group(&binary.left)
-                || stmt_contains_multistatement_pipeline_brace_group(&binary.right)
+#[derive(Default)]
+struct PipelineBraceGroupFinder {
+    found: bool,
+    in_pipeline: bool,
+}
+
+impl AstVisitor for PipelineBraceGroupFinder {
+    fn visit_stmt_seq(&mut self, sequence: &StmtSeq) {
+        if !self.found {
+            visit::walk_stmt_seq(self, sequence);
         }
-        Command::Compound(CompoundCommand::BraceGroup(body)) => body.len() > 1,
-        _ => false,
+    }
+
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if !self.found {
+            visit::walk_stmt(self, stmt);
+        }
+    }
+
+    fn visit_command(&mut self, command: &Command) {
+        if self.found {
+            return;
+        }
+
+        match command {
+            Command::Binary(binary) if matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
+                let previous = self.in_pipeline;
+                self.in_pipeline = true;
+                self.visit_stmt(&binary.left);
+                self.visit_stmt(&binary.right);
+                self.in_pipeline = previous;
+            }
+            Command::Compound(CompoundCommand::BraceGroup(body)) if self.in_pipeline => {
+                self.found = body.len() > 1;
+            }
+            _ => {}
+        }
     }
 }
 

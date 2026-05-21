@@ -22,6 +22,8 @@ mod simplify;
 #[allow(missing_docs)]
 mod streaming;
 #[allow(missing_docs)]
+mod visit;
+#[allow(missing_docs)]
 mod word;
 
 use std::path::Path;

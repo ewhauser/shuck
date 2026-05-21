@@ -1,13 +1,12 @@
 use shuck_ast::{
-    ArrayElem, Assignment, AssignmentValue, BourneParameterExpansion, BuiltinCommand, Command,
-    CompoundCommand, ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalExpr,
-    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, DeclClause, DeclOperand, File,
-    FunctionDef, HeredocBody, HeredocBodyPart, ParameterExpansion, ParameterExpansionSyntax,
-    ParameterOp, Pattern, PatternPart, Redirect, RedirectTarget, SourceText, Stmt, StmtSeq, VarRef,
+    BourneParameterExpansion, Command, CompoundCommand, ConditionalBinaryExpr, ConditionalBinaryOp,
+    ConditionalExpr, ConditionalUnaryExpr, ConditionalUnaryOp, File, HeredocBody, HeredocBodyPart,
+    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, SourceText, Stmt, StmtSeq, VarRef,
     Word, WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget,
 };
 
-use crate::command::{array_elem_value_word_mut, render_var_ref_to_buf};
+use crate::command::render_var_ref_to_buf;
+use crate::visit::{self, AstVisitorMut};
 use crate::word::parameter_defaulting_operator;
 
 const PAREN_CLEANUP: &str = "paren-cleanup";
@@ -79,17 +78,54 @@ impl RewriteCounts {
 
 pub fn simplify_file(file: &mut File, source: &str) -> SimplifyReport {
     let counts = RewriteCounts::default();
-    simplify_stmt_seq(&mut file.body, source, &counts);
+    {
+        let mut visitor = SimplifyVisitor {
+            source,
+            counts: &counts,
+            mode: SimplifyTraversalMode::Full,
+        };
+        visitor.visit_file(file);
+    }
     counts.into_report()
 }
 
-fn simplify_stmt_seq(commands: &mut StmtSeq, source: &str, counts: &RewriteCounts) -> usize {
-    let mut stmt_visitor = |stmt: &mut Stmt, source: &str| {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SimplifyTraversalMode {
+    Full,
+    HeredocCommandSubstitution,
+}
+
+struct SimplifyVisitor<'source, 'counts> {
+    source: &'source str,
+    counts: &'counts RewriteCounts,
+    mode: SimplifyTraversalMode,
+}
+
+impl SimplifyVisitor<'_, '_> {
+    fn with_mode(
+        &mut self,
+        mode: SimplifyTraversalMode,
+        visit: impl FnOnce(&mut Self) -> usize,
+    ) -> usize {
+        let previous = self.mode;
+        self.mode = mode;
+        let changes = visit(self);
+        self.mode = previous;
+        changes
+    }
+}
+
+impl AstVisitorMut for SimplifyVisitor<'_, '_> {
+    fn enter_stmt(&mut self, stmt: &mut Stmt) -> usize {
+        if self.mode == SimplifyTraversalMode::HeredocCommandSubstitution {
+            return 0;
+        }
+
         let mut changes = 0;
 
         if let Command::Compound(CompoundCommand::Conditional(conditional)) = &mut stmt.command {
-            let count = simplify_conditional_expr(&mut conditional.expression, source);
-            counts.add_conditionals(count);
+            let count = simplify_conditional_expr(&mut conditional.expression, self.source);
+            self.counts.add_conditionals(count);
             changes += count;
         }
 
@@ -99,41 +135,82 @@ fn simplify_stmt_seq(commands: &mut StmtSeq, source: &str, counts: &RewriteCount
             && stmt.terminator.is_none()
         {
             let count = collapse_nested_subshell_sequence(commands);
-            counts.add_nested_subshells(count);
+            self.counts.add_nested_subshells(count);
             changes += count;
         }
 
         changes
-    };
+    }
 
-    let mut word_visitor = |word: &mut Word| {
+    fn visit_word(&mut self, word: &mut Word) -> usize {
+        let mut changes = if self.mode == SimplifyTraversalMode::Full {
+            visit::walk_word_surface_source_texts_mut(self, word)
+        } else {
+            0
+        };
+
         let nested_subshells = collapse_nested_subshells_in_word(word);
-        counts.add_nested_subshells(nested_subshells);
+        self.counts.add_nested_subshells(nested_subshells);
+        changes += nested_subshells;
 
-        let quote_tightening = tighten_literal_quotes(word, source);
-        counts.add_quote_tightening(quote_tightening);
+        let quote_tightening = tighten_literal_quotes(word, self.source);
+        self.counts.add_quote_tightening(quote_tightening);
+        changes += quote_tightening;
 
-        nested_subshells + quote_tightening
-    };
+        changes
+    }
 
-    let mut source_text_visitor = |text: &mut SourceText, source: &str| {
-        let paren_cleanup = transform_source_text(text, source, strip_single_outer_parens);
-        counts.add_paren_cleanup(paren_cleanup);
+    fn visit_heredoc_body(&mut self, body: &mut HeredocBody) -> usize {
+        let mut count = 0;
+
+        for part in &mut body.parts {
+            count += match &mut part.kind {
+                HeredocBodyPart::CommandSubstitution {
+                    body: command_body, ..
+                } => self.with_mode(
+                    SimplifyTraversalMode::HeredocCommandSubstitution,
+                    |visitor| visitor.visit_stmt_seq(command_body),
+                ),
+                HeredocBodyPart::ArithmeticExpansion { expression, .. } => {
+                    self.visit_source_text(expression)
+                }
+                HeredocBodyPart::Parameter(parameter) => self.visit_parameter_expansion(parameter),
+                HeredocBodyPart::Literal(_) | HeredocBodyPart::Variable(_) => 0,
+            };
+        }
+
+        if count > 0 {
+            body.source_backed = false;
+        }
+
+        count
+    }
+
+    fn visit_parameter_expansion(&mut self, parameter: &mut ParameterExpansion) -> usize {
+        let count = visit::walk_parameter_expansion_surface_source_texts_mut(self, parameter);
+        if count > 0 {
+            parameter.raw_body = SourceText::cooked(
+                parameter.raw_body.span(),
+                render_parameter_raw_body(parameter, self.source),
+            );
+        }
+        count
+    }
+
+    fn visit_source_text(&mut self, text: &mut SourceText) -> usize {
+        if self.mode == SimplifyTraversalMode::HeredocCommandSubstitution {
+            return 0;
+        }
+
+        let paren_cleanup = transform_source_text(text, self.source, strip_single_outer_parens);
+        self.counts.add_paren_cleanup(paren_cleanup);
 
         let arithmetic_vars =
-            transform_source_text(text, source, simplify_arithmetic_variables_text);
-        counts.add_arithmetic_vars(arithmetic_vars);
+            transform_source_text(text, self.source, simplify_arithmetic_variables_text);
+        self.counts.add_arithmetic_vars(arithmetic_vars);
 
         paren_cleanup + arithmetic_vars
-    };
-
-    walk_stmt_seq(
-        commands,
-        source,
-        &mut stmt_visitor,
-        &mut word_visitor,
-        &mut source_text_visitor,
-    )
+    }
 }
 
 fn collapse_nested_subshell_sequence(commands: &mut StmtSeq) -> usize {
@@ -172,857 +249,6 @@ fn collapse_nested_subshells_in_word(word: &mut Word) -> usize {
             _ => 0,
         })
         .sum()
-}
-
-fn walk_stmt_seq(
-    commands: &mut StmtSeq,
-    source: &str,
-    stmt_visitor: &mut dyn FnMut(&mut Stmt, &str) -> usize,
-    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
-    source_text_visitor: &mut dyn FnMut(&mut SourceText, &str) -> usize,
-) -> usize {
-    commands
-        .iter_mut()
-        .map(|command| {
-            walk_stmt(
-                command,
-                source,
-                stmt_visitor,
-                word_visitor,
-                source_text_visitor,
-            )
-        })
-        .sum()
-}
-
-fn walk_stmt(
-    stmt: &mut Stmt,
-    source: &str,
-    stmt_visitor: &mut dyn FnMut(&mut Stmt, &str) -> usize,
-    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
-    source_text_visitor: &mut dyn FnMut(&mut SourceText, &str) -> usize,
-) -> usize {
-    let mut changes = stmt_visitor(stmt, source);
-    changes += match &mut stmt.command {
-        Command::Simple(command) => {
-            let mut count = 0;
-            for assignment in &mut command.assignments {
-                count += walk_assignment(assignment, source, source_text_visitor, word_visitor);
-            }
-            count += walk_word(&mut command.name, source, word_visitor, source_text_visitor);
-            count += walk_words(&mut command.args, source, word_visitor, source_text_visitor);
-            count
-        }
-        Command::Builtin(command) => {
-            walk_builtin(command, source, word_visitor, source_text_visitor)
-        }
-        Command::Decl(command) => {
-            walk_decl_clause(command, source, word_visitor, source_text_visitor)
-        }
-        Command::Binary(command) => {
-            walk_stmt(
-                &mut command.left,
-                source,
-                stmt_visitor,
-                word_visitor,
-                source_text_visitor,
-            ) + walk_stmt(
-                &mut command.right,
-                source,
-                stmt_visitor,
-                word_visitor,
-                source_text_visitor,
-            )
-        }
-        Command::Compound(compound) => walk_compound(
-            compound,
-            source,
-            stmt_visitor,
-            word_visitor,
-            source_text_visitor,
-        ),
-        Command::Function(function) => walk_function(
-            function,
-            source,
-            stmt_visitor,
-            word_visitor,
-            source_text_visitor,
-        ),
-        Command::AnonymousFunction(function) => walk_anonymous_function(
-            function,
-            source,
-            stmt_visitor,
-            word_visitor,
-            source_text_visitor,
-        ),
-    };
-    for redirect in &mut stmt.redirects {
-        changes += walk_redirect(redirect, source, word_visitor, source_text_visitor);
-    }
-    changes
-}
-
-fn walk_builtin(
-    command: &mut BuiltinCommand,
-    source: &str,
-    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
-    source_text_visitor: &mut dyn FnMut(&mut SourceText, &str) -> usize,
-) -> usize {
-    let (assignments, primary, extra_args) = builtin_like_parts_mut(command);
-    walk_builtin_like(
-        assignments,
-        primary,
-        extra_args,
-        source,
-        word_visitor,
-        source_text_visitor,
-    )
-}
-
-fn walk_builtin_like(
-    assignments: &mut [Assignment],
-    primary: Option<&mut Word>,
-    extra_args: &mut [Word],
-    source: &str,
-    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
-    source_text_visitor: &mut dyn FnMut(&mut SourceText, &str) -> usize,
-) -> usize {
-    let mut count = 0;
-    for assignment in assignments {
-        count += walk_assignment(assignment, source, source_text_visitor, word_visitor);
-    }
-    if let Some(primary) = primary {
-        count += walk_word(primary, source, word_visitor, source_text_visitor);
-    }
-    count += walk_words(extra_args, source, word_visitor, source_text_visitor);
-    count
-}
-
-fn builtin_like_parts_mut(
-    command: &mut BuiltinCommand,
-) -> (&mut [Assignment], Option<&mut Word>, &mut [Word]) {
-    match command {
-        BuiltinCommand::Break(command) => (
-            &mut command.assignments,
-            command.depth.as_mut(),
-            &mut command.extra_args,
-        ),
-        BuiltinCommand::Continue(command) => (
-            &mut command.assignments,
-            command.depth.as_mut(),
-            &mut command.extra_args,
-        ),
-        BuiltinCommand::Return(command) => (
-            &mut command.assignments,
-            command.code.as_mut(),
-            &mut command.extra_args,
-        ),
-        BuiltinCommand::Exit(command) => (
-            &mut command.assignments,
-            command.code.as_mut(),
-            &mut command.extra_args,
-        ),
-    }
-}
-
-fn walk_decl_clause(
-    command: &mut DeclClause,
-    source: &str,
-    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
-    source_text_visitor: &mut dyn FnMut(&mut SourceText, &str) -> usize,
-) -> usize {
-    let mut count = 0;
-    for assignment in &mut command.assignments {
-        count += walk_assignment(assignment, source, source_text_visitor, word_visitor);
-    }
-    for operand in &mut command.operands {
-        count += match operand {
-            DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                walk_word(word, source, word_visitor, source_text_visitor)
-            }
-            DeclOperand::Name(name) => walk_var_ref(name, source, source_text_visitor),
-            DeclOperand::Assignment(assignment) => {
-                walk_assignment(assignment, source, source_text_visitor, word_visitor)
-            }
-        };
-    }
-    count
-}
-
-fn walk_function(
-    function: &mut FunctionDef,
-    source: &str,
-    stmt_visitor: &mut dyn FnMut(&mut Stmt, &str) -> usize,
-    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
-    source_text_visitor: &mut dyn FnMut(&mut SourceText, &str) -> usize,
-) -> usize {
-    let mut count = 0;
-    for entry in &mut function.header.entries {
-        count += walk_word(&mut entry.word, source, word_visitor, source_text_visitor);
-    }
-    count
-        + walk_stmt(
-            function.body.as_mut(),
-            source,
-            stmt_visitor,
-            word_visitor,
-            source_text_visitor,
-        )
-}
-
-fn walk_anonymous_function(
-    function: &mut shuck_ast::AnonymousFunctionCommand,
-    source: &str,
-    stmt_visitor: &mut dyn FnMut(&mut Stmt, &str) -> usize,
-    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
-    source_text_visitor: &mut dyn FnMut(&mut SourceText, &str) -> usize,
-) -> usize {
-    let mut count = walk_stmt(
-        function.body.as_mut(),
-        source,
-        stmt_visitor,
-        word_visitor,
-        source_text_visitor,
-    );
-    count += walk_words(
-        &mut function.args,
-        source,
-        word_visitor,
-        source_text_visitor,
-    );
-    count
-}
-
-fn walk_compound(
-    command: &mut CompoundCommand,
-    source: &str,
-    stmt_visitor: &mut dyn FnMut(&mut Stmt, &str) -> usize,
-    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
-    source_text_visitor: &mut dyn FnMut(&mut SourceText, &str) -> usize,
-) -> usize {
-    match command {
-        CompoundCommand::If(command) => {
-            let mut count = 0;
-            count += walk_stmt_seq(
-                &mut command.condition,
-                source,
-                stmt_visitor,
-                word_visitor,
-                source_text_visitor,
-            );
-            count += walk_stmt_seq(
-                &mut command.then_branch,
-                source,
-                stmt_visitor,
-                word_visitor,
-                source_text_visitor,
-            );
-            for (condition, body) in &mut command.elif_branches {
-                count += walk_stmt_seq(
-                    condition,
-                    source,
-                    stmt_visitor,
-                    word_visitor,
-                    source_text_visitor,
-                );
-                count += walk_stmt_seq(
-                    body,
-                    source,
-                    stmt_visitor,
-                    word_visitor,
-                    source_text_visitor,
-                );
-            }
-            if let Some(body) = &mut command.else_branch {
-                count += walk_stmt_seq(
-                    body,
-                    source,
-                    stmt_visitor,
-                    word_visitor,
-                    source_text_visitor,
-                );
-            }
-            count
-        }
-        CompoundCommand::For(command) => {
-            command.words.as_deref_mut().map_or(0, |words| {
-                walk_words(words, source, word_visitor, source_text_visitor)
-            }) + walk_stmt_seq(
-                &mut command.body,
-                source,
-                stmt_visitor,
-                word_visitor,
-                source_text_visitor,
-            )
-        }
-        CompoundCommand::Repeat(command) => {
-            walk_word(
-                &mut command.count,
-                source,
-                word_visitor,
-                source_text_visitor,
-            ) + walk_stmt_seq(
-                &mut command.body,
-                source,
-                stmt_visitor,
-                word_visitor,
-                source_text_visitor,
-            )
-        }
-        CompoundCommand::Foreach(command) => {
-            walk_words(
-                &mut command.words,
-                source,
-                word_visitor,
-                source_text_visitor,
-            ) + walk_stmt_seq(
-                &mut command.body,
-                source,
-                stmt_visitor,
-                word_visitor,
-                source_text_visitor,
-            )
-        }
-        CompoundCommand::ArithmeticFor(command) => walk_stmt_seq(
-            &mut command.body,
-            source,
-            stmt_visitor,
-            word_visitor,
-            source_text_visitor,
-        ),
-        CompoundCommand::While(command) => {
-            walk_stmt_seq(
-                &mut command.condition,
-                source,
-                stmt_visitor,
-                word_visitor,
-                source_text_visitor,
-            ) + walk_stmt_seq(
-                &mut command.body,
-                source,
-                stmt_visitor,
-                word_visitor,
-                source_text_visitor,
-            )
-        }
-        CompoundCommand::Until(command) => {
-            walk_stmt_seq(
-                &mut command.condition,
-                source,
-                stmt_visitor,
-                word_visitor,
-                source_text_visitor,
-            ) + walk_stmt_seq(
-                &mut command.body,
-                source,
-                stmt_visitor,
-                word_visitor,
-                source_text_visitor,
-            )
-        }
-        CompoundCommand::Case(command) => {
-            let mut count = walk_word(&mut command.word, source, word_visitor, source_text_visitor);
-            for item in &mut command.cases {
-                for pattern in &mut item.patterns {
-                    count += walk_pattern(pattern, source, word_visitor, source_text_visitor);
-                }
-                count += walk_stmt_seq(
-                    &mut item.body,
-                    source,
-                    stmt_visitor,
-                    word_visitor,
-                    source_text_visitor,
-                );
-            }
-            count
-        }
-        CompoundCommand::Select(command) => {
-            walk_words(
-                &mut command.words,
-                source,
-                word_visitor,
-                source_text_visitor,
-            ) + walk_stmt_seq(
-                &mut command.body,
-                source,
-                stmt_visitor,
-                word_visitor,
-                source_text_visitor,
-            )
-        }
-        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            walk_stmt_seq(
-                commands,
-                source,
-                stmt_visitor,
-                word_visitor,
-                source_text_visitor,
-            )
-        }
-        CompoundCommand::Arithmetic(_) => 0,
-        CompoundCommand::Time(command) => command.command.as_mut().map_or(0, |command| {
-            walk_stmt(
-                command,
-                source,
-                stmt_visitor,
-                word_visitor,
-                source_text_visitor,
-            )
-        }),
-        CompoundCommand::Conditional(command) => {
-            let mut count = 0;
-            count += walk_conditional_words(
-                &mut command.expression,
-                source,
-                word_visitor,
-                source_text_visitor,
-            );
-            count
-        }
-        CompoundCommand::Coproc(command) => walk_stmt(
-            command.body.as_mut(),
-            source,
-            stmt_visitor,
-            word_visitor,
-            source_text_visitor,
-        ),
-        CompoundCommand::Always(command) => {
-            walk_stmt_seq(
-                &mut command.body,
-                source,
-                stmt_visitor,
-                word_visitor,
-                source_text_visitor,
-            ) + walk_stmt_seq(
-                &mut command.always_body,
-                source,
-                stmt_visitor,
-                word_visitor,
-                source_text_visitor,
-            )
-        }
-    }
-}
-
-fn walk_redirect(
-    redirect: &mut Redirect,
-    source: &str,
-    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
-    source_text_visitor: &mut dyn FnMut(&mut SourceText, &str) -> usize,
-) -> usize {
-    match &mut redirect.target {
-        RedirectTarget::Word(word) => walk_word(word, source, word_visitor, source_text_visitor),
-        RedirectTarget::Heredoc(heredoc) => {
-            walk_word(
-                &mut heredoc.delimiter.raw,
-                source,
-                word_visitor,
-                source_text_visitor,
-            ) + walk_heredoc_body(&mut heredoc.body, source, word_visitor, source_text_visitor)
-        }
-    }
-}
-
-fn walk_var_ref(
-    name: &mut VarRef,
-    source: &str,
-    visitor: &mut dyn FnMut(&mut SourceText, &str) -> usize,
-) -> usize {
-    name.subscript.as_mut().map_or(0, |subscript| {
-        let mut count = visitor(&mut subscript.text, source);
-        if let Some(raw) = &mut subscript.raw {
-            count += visitor(raw, source);
-        }
-        count
-    })
-}
-
-fn walk_assignment(
-    assignment: &mut Assignment,
-    source: &str,
-    source_text_visitor: &mut dyn FnMut(&mut SourceText, &str) -> usize,
-    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
-) -> usize {
-    let mut count = walk_var_ref(&mut assignment.target, source, source_text_visitor);
-    count += match &mut assignment.value {
-        AssignmentValue::Scalar(word) => walk_word(word, source, word_visitor, source_text_visitor),
-        AssignmentValue::Compound(array) => {
-            let mut inner = 0;
-            for element in &mut array.elements {
-                match element {
-                    ArrayElem::Sequential(_) => {}
-                    ArrayElem::Keyed { key, .. } | ArrayElem::KeyedAppend { key, .. } => {
-                        inner += walk_subscript(key, source, source_text_visitor);
-                    }
-                }
-                inner += walk_word(
-                    array_elem_value_word_mut(element),
-                    source,
-                    word_visitor,
-                    source_text_visitor,
-                );
-            }
-            inner
-        }
-    };
-    count
-}
-
-fn walk_subscript(
-    subscript: &mut shuck_ast::Subscript,
-    source: &str,
-    visitor: &mut dyn FnMut(&mut SourceText, &str) -> usize,
-) -> usize {
-    let mut count = visitor(&mut subscript.text, source);
-    if let Some(raw) = &mut subscript.raw {
-        count += visitor(raw, source);
-    }
-    count
-}
-
-fn walk_word(
-    word: &mut Word,
-    source: &str,
-    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
-    source_text_visitor: &mut dyn FnMut(&mut SourceText, &str) -> usize,
-) -> usize {
-    let mut count = rewrite_word_source_texts(word, source, source_text_visitor);
-    count += word_visitor(word);
-    count
-}
-
-fn walk_words(
-    words: &mut [Word],
-    source: &str,
-    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
-    source_text_visitor: &mut dyn FnMut(&mut SourceText, &str) -> usize,
-) -> usize {
-    words
-        .iter_mut()
-        .map(|word| walk_word(word, source, word_visitor, source_text_visitor))
-        .sum()
-}
-
-fn walk_heredoc_body(
-    body: &mut HeredocBody,
-    source: &str,
-    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
-    source_text_visitor: &mut dyn FnMut(&mut SourceText, &str) -> usize,
-) -> usize {
-    let mut count = 0;
-
-    for part in &mut body.parts {
-        count += match &mut part.kind {
-            HeredocBodyPart::CommandSubstitution {
-                body: command_body, ..
-            } => walk_stmt_seq(
-                command_body,
-                source,
-                &mut |_: &mut Stmt, _: &str| 0,
-                word_visitor,
-                &mut |_, _| 0,
-            ),
-            HeredocBodyPart::ArithmeticExpansion { expression, .. } => {
-                source_text_visitor(expression, source)
-            }
-            HeredocBodyPart::Parameter(parameter) => {
-                rewrite_parameter_source_texts(parameter, source, source_text_visitor)
-            }
-            HeredocBodyPart::Literal(_) | HeredocBodyPart::Variable(_) => 0,
-        };
-    }
-
-    if count > 0 {
-        body.source_backed = false;
-    }
-
-    count
-}
-
-fn walk_pattern(
-    pattern: &mut Pattern,
-    source: &str,
-    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
-    source_text_visitor: &mut dyn FnMut(&mut SourceText, &str) -> usize,
-) -> usize {
-    let mut count = 0;
-
-    for part in &mut pattern.parts {
-        count += match &mut part.kind {
-            PatternPart::Group { patterns, .. } => {
-                let mut inner = 0;
-                for pattern in patterns {
-                    inner += walk_pattern(pattern, source, word_visitor, source_text_visitor);
-                }
-                inner
-            }
-            PatternPart::Word(word) => walk_word(word, source, word_visitor, source_text_visitor),
-            PatternPart::CharClass(text) => source_text_visitor(text, source),
-            PatternPart::Literal(_) | PatternPart::AnyString | PatternPart::AnyChar => 0,
-        };
-    }
-
-    count
-}
-
-fn walk_conditional_words(
-    expression: &mut ConditionalExpr,
-    source: &str,
-    word_visitor: &mut dyn FnMut(&mut Word) -> usize,
-    source_text_visitor: &mut dyn FnMut(&mut SourceText, &str) -> usize,
-) -> usize {
-    match expression {
-        ConditionalExpr::Binary(ConditionalBinaryExpr { left, right, .. }) => {
-            walk_conditional_words(left, source, word_visitor, source_text_visitor)
-                + walk_conditional_words(right, source, word_visitor, source_text_visitor)
-        }
-        ConditionalExpr::Unary(ConditionalUnaryExpr { expr, .. })
-        | ConditionalExpr::Parenthesized(ConditionalParenExpr { expr, .. }) => {
-            walk_conditional_words(expr, source, word_visitor, source_text_visitor)
-        }
-        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
-            walk_word(word, source, word_visitor, source_text_visitor)
-        }
-        ConditionalExpr::Pattern(pattern) => {
-            walk_pattern(pattern, source, word_visitor, source_text_visitor)
-        }
-        ConditionalExpr::VarRef(reference) => walk_var_ref(reference, source, source_text_visitor),
-    }
-}
-
-fn rewrite_var_ref_source_texts(
-    reference: &mut VarRef,
-    source: &str,
-    visitor: &mut (impl FnMut(&mut SourceText, &str) -> usize + ?Sized),
-) -> usize {
-    reference.subscript.as_mut().map_or(0, |subscript| {
-        rewrite_subscript_source_texts(subscript, source, visitor)
-    })
-}
-
-fn rewrite_subscript_source_texts(
-    subscript: &mut shuck_ast::Subscript,
-    source: &str,
-    visitor: &mut (impl FnMut(&mut SourceText, &str) -> usize + ?Sized),
-) -> usize {
-    let mut count = visitor(&mut subscript.text, source);
-    if let Some(raw) = &mut subscript.raw {
-        count += visitor(raw, source);
-    }
-    count
-}
-
-fn rewrite_optional<T>(value: &mut Option<T>, f: impl FnOnce(&mut T) -> usize) -> usize {
-    value.as_mut().map_or(0, f)
-}
-
-fn rewrite_pattern_source_texts(
-    pattern: &mut Pattern,
-    source: &str,
-    visitor: &mut (impl FnMut(&mut SourceText, &str) -> usize + ?Sized),
-) -> usize {
-    pattern
-        .parts
-        .iter_mut()
-        .map(|part| match &mut part.kind {
-            PatternPart::CharClass(text) => visitor(text, source),
-            PatternPart::Group { patterns, .. } => patterns
-                .iter_mut()
-                .map(|pattern| rewrite_pattern_source_texts(pattern, source, visitor))
-                .sum(),
-            PatternPart::Word(word) => rewrite_word_source_texts(word, source, visitor),
-            PatternPart::Literal(_) | PatternPart::AnyString | PatternPart::AnyChar => 0,
-        })
-        .sum()
-}
-
-fn rewrite_word_source_texts(
-    word: &mut Word,
-    source: &str,
-    visitor: &mut (impl FnMut(&mut SourceText, &str) -> usize + ?Sized),
-) -> usize {
-    word.parts
-        .iter_mut()
-        .map(|part| rewrite_word_part_source_texts(part, source, visitor))
-        .sum()
-}
-
-fn rewrite_word_part_source_texts(
-    part: &mut WordPartNode,
-    source: &str,
-    visitor: &mut (impl FnMut(&mut SourceText, &str) -> usize + ?Sized),
-) -> usize {
-    match &mut part.kind {
-        WordPart::ZshQualifiedGlob(glob) => {
-            glob.segments
-                .iter_mut()
-                .map(|segment| rewrite_zsh_glob_segment_source_texts(segment, source, visitor))
-                .sum::<usize>()
-                + glob.qualifiers.as_mut().map_or(0, |group| {
-                    rewrite_zsh_glob_qualifier_group_source_texts(group, source, visitor)
-                })
-        }
-        WordPart::SingleQuoted { value, .. } => visitor(value, source),
-        WordPart::DoubleQuoted { parts, .. } => parts
-            .iter_mut()
-            .map(|part| rewrite_word_part_source_texts(part, source, visitor))
-            .sum(),
-        WordPart::ArithmeticExpansion { expression, .. } => visitor(expression, source),
-        WordPart::Parameter(parameter) => {
-            rewrite_parameter_source_texts(parameter, source, visitor)
-        }
-        WordPart::ParameterExpansion {
-            reference,
-            operator,
-            operand,
-            ..
-        } => {
-            rewrite_var_ref_source_texts(reference, source, visitor)
-                + rewrite_optional(operand, |operand| visitor(operand, source))
-                + rewrite_parameter_op_source_texts(operator, source, visitor)
-        }
-        WordPart::Length(reference)
-        | WordPart::ArrayAccess(reference)
-        | WordPart::ArrayLength(reference)
-        | WordPart::ArrayIndices(reference)
-        | WordPart::Transformation { reference, .. } => {
-            rewrite_var_ref_source_texts(reference, source, visitor)
-        }
-        WordPart::Substring {
-            reference,
-            offset,
-            length,
-            ..
-        }
-        | WordPart::ArraySlice {
-            reference,
-            offset,
-            length,
-            ..
-        } => {
-            rewrite_var_ref_source_texts(reference, source, visitor)
-                + visitor(offset, source)
-                + rewrite_optional(length, |length| visitor(length, source))
-        }
-        WordPart::IndirectExpansion {
-            reference,
-            operand,
-            operator,
-            ..
-        } => {
-            rewrite_var_ref_source_texts(reference, source, visitor)
-                + rewrite_optional(operand, |operand| visitor(operand, source))
-                + rewrite_optional(operator, |operator| {
-                    rewrite_parameter_op_source_texts(operator, source, visitor)
-                })
-        }
-        WordPart::Literal(_)
-        | WordPart::Variable(_)
-        | WordPart::CommandSubstitution { .. }
-        | WordPart::ProcessSubstitution { .. }
-        | WordPart::PrefixMatch { .. } => 0,
-    }
-}
-
-fn rewrite_zsh_glob_segment_source_texts(
-    segment: &mut shuck_ast::ZshGlobSegment,
-    source: &str,
-    visitor: &mut (impl FnMut(&mut SourceText, &str) -> usize + ?Sized),
-) -> usize {
-    match segment {
-        shuck_ast::ZshGlobSegment::Pattern(pattern) => {
-            rewrite_pattern_source_texts(pattern, source, visitor)
-        }
-        shuck_ast::ZshGlobSegment::InlineControl(_) => 0,
-    }
-}
-
-fn rewrite_zsh_glob_qualifier_group_source_texts(
-    group: &mut shuck_ast::ZshGlobQualifierGroup,
-    source: &str,
-    visitor: &mut (impl FnMut(&mut SourceText, &str) -> usize + ?Sized),
-) -> usize {
-    group
-        .fragments
-        .iter_mut()
-        .map(|fragment| match fragment {
-            shuck_ast::ZshGlobQualifier::Negation { .. }
-            | shuck_ast::ZshGlobQualifier::Flag { .. } => 0,
-            shuck_ast::ZshGlobQualifier::LetterSequence { text, .. } => visitor(text, source),
-            shuck_ast::ZshGlobQualifier::NumericArgument { start, end, .. } => {
-                visitor(start, source) + rewrite_optional(end, |end| visitor(end, source))
-            }
-        })
-        .sum()
-}
-
-fn rewrite_parameter_source_texts(
-    parameter: &mut ParameterExpansion,
-    source: &str,
-    visitor: &mut (impl FnMut(&mut SourceText, &str) -> usize + ?Sized),
-) -> usize {
-    let count = match &mut parameter.syntax {
-        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
-            BourneParameterExpansion::Access { reference }
-            | BourneParameterExpansion::Length { reference }
-            | BourneParameterExpansion::Indices { reference }
-            | BourneParameterExpansion::Transformation { reference, .. } => {
-                rewrite_var_ref_source_texts(reference, source, visitor)
-            }
-            BourneParameterExpansion::Indirect {
-                reference,
-                operator,
-                operand,
-                ..
-            } => {
-                rewrite_var_ref_source_texts(reference, source, visitor)
-                    + rewrite_optional(operand, |operand| visitor(operand, source))
-                    + rewrite_optional(operator, |operator| {
-                        rewrite_parameter_op_source_texts(operator, source, visitor)
-                    })
-            }
-            BourneParameterExpansion::PrefixMatch { .. } => 0,
-            BourneParameterExpansion::Slice {
-                reference,
-                offset,
-                length,
-                ..
-            } => {
-                rewrite_var_ref_source_texts(reference, source, visitor)
-                    + visitor(offset, source)
-                    + rewrite_optional(length, |length| visitor(length, source))
-            }
-            BourneParameterExpansion::Operation {
-                reference,
-                operator,
-                operand,
-                ..
-            } => {
-                rewrite_var_ref_source_texts(reference, source, visitor)
-                    + rewrite_optional(operand, |operand| visitor(operand, source))
-                    + rewrite_parameter_op_source_texts(operator, source, visitor)
-            }
-        },
-        ParameterExpansionSyntax::Zsh(syntax) => match &mut syntax.target {
-            ZshExpansionTarget::Reference(reference) => {
-                rewrite_var_ref_source_texts(reference, source, visitor)
-            }
-            ZshExpansionTarget::Word(word) => rewrite_word_source_texts(word, source, visitor),
-            ZshExpansionTarget::Nested(parameter) => {
-                rewrite_parameter_source_texts(parameter, source, visitor)
-            }
-            ZshExpansionTarget::Empty => 0,
-        },
-    };
-
-    if count > 0 {
-        parameter.raw_body = SourceText::cooked(
-            parameter.raw_body.span(),
-            render_parameter_raw_body(parameter, source),
-        );
-    }
-
-    count
 }
 
 fn render_parameter_raw_body(parameter: &ParameterExpansion, source: &str) -> String {
@@ -1264,32 +490,6 @@ fn render_var_ref_syntax(reference: &VarRef, source: &str) -> String {
     let mut rendered = String::new();
     render_var_ref_to_buf(reference, source, &mut rendered);
     rendered
-}
-
-fn rewrite_parameter_op_source_texts(
-    operator: &mut ParameterOp,
-    source: &str,
-    visitor: &mut (impl FnMut(&mut SourceText, &str) -> usize + ?Sized),
-) -> usize {
-    match operator {
-        ParameterOp::RemovePrefixShort { pattern }
-        | ParameterOp::RemovePrefixLong { pattern }
-        | ParameterOp::RemoveSuffixShort { pattern }
-        | ParameterOp::RemoveSuffixLong { pattern } => {
-            rewrite_pattern_source_texts(pattern, source, visitor)
-        }
-        ParameterOp::ReplaceFirst {
-            pattern,
-            replacement,
-            ..
-        }
-        | ParameterOp::ReplaceAll {
-            pattern,
-            replacement,
-            ..
-        } => rewrite_pattern_source_texts(pattern, source, visitor) + visitor(replacement, source),
-        _ => 0,
-    }
 }
 
 fn transform_source_text(
