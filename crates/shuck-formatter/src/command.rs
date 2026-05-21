@@ -6,9 +6,7 @@ use crate::raw_syntax::{
     matching_raw_command_substitution_close, normalize_raw_pipeline_continuations,
     refine_common_indent, shell_comment_can_start, skip_escaped_or_quoted,
 };
-use crate::scan::{
-    branch_keyword_offset, last_uncommented_shell_keyword_before, normalized_close_keyword_span,
-};
+use crate::source::SourceView;
 use crate::word::{render_arithmetic_expr_to_buf, render_word_syntax_to_buf};
 use shuck_ast::{
     AnonymousFunctionCommand, ArithmeticExprNode, ArithmeticForCommand, ArrayElem, Assignment,

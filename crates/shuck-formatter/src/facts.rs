@@ -30,10 +30,10 @@ use crate::command::{
     stmt_verbatim_span_with_source_map, trim_unescaped_trailing_whitespace,
 };
 use crate::comments::{
-    CommentAttachmentModel, SequenceCommentAttachment, SourceComment, SourceMap,
+    BranchPrefixComment, CommentAttachmentModel, SequenceCommentAttachment, SourceComment,
+    SourceMap,
 };
 use crate::options::{LineEnding, ResolvedShellFormatOptions};
-use crate::scan::{BranchPrefixComment, last_shell_keyword_end, source_between_offsets};
 use crate::source::{SourceView, command_substitution_source_starts_with_body_line};
 use crate::streaming::comments_alignment::CommentAlignmentFacts;
 use crate::visit::{self, AstVisitor};
@@ -3851,12 +3851,13 @@ fn stmt_first_content_offset(
 }
 
 fn gap_has_blank_line(source: &str, start: usize, end: usize) -> bool {
-    source_between_offsets(source, start, end)
+    SourceView::new(source)
+        .slice_between(start, end)
         .is_some_and(|gap| gap.bytes().filter(|byte| *byte == b'\n').count() >= 2)
 }
 
 fn gap_has_empty_physical_line(source: &str, start: usize, end: usize) -> bool {
-    let Some(gap) = source_between_offsets(source, start, end) else {
+    let Some(gap) = SourceView::new(source).slice_between(start, end) else {
         return false;
     };
     let bytes = gap.as_bytes();
@@ -3877,7 +3878,7 @@ fn gap_has_empty_physical_line(source: &str, start: usize, end: usize) -> bool {
 }
 
 fn gap_starts_with_empty_physical_line(source: &str, start: usize, end: usize) -> bool {
-    let Some(gap) = source_between_offsets(source, start, end) else {
+    let Some(gap) = SourceView::new(source).slice_between(start, end) else {
         return false;
     };
     for byte in gap.bytes() {
@@ -3904,7 +3905,10 @@ fn case_has_blank_line_after_in(command: &CaseCommand, source: &str) -> bool {
     let Some(prefix) = source.get(start..end) else {
         return false;
     };
-    let Some(in_end) = last_shell_keyword_end(prefix, "in") else {
+    let Some(in_end) = SourceView::new(prefix)
+        .last_shell_keyword_start_between(0, prefix.len(), "in")
+        .map(|start| start + "in".len())
+    else {
         return false;
     };
     gap_has_empty_physical_line(source, start + in_end, end)

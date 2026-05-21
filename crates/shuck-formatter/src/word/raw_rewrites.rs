@@ -1457,7 +1457,7 @@ pub(super) fn source_indent_units_before_offset(
     offset: usize,
     options: &ResolvedShellFormatOptions,
 ) -> usize {
-    let Some(indent) = line_indent_before_source_offset(source, offset) else {
+    let Some(indent) = SourceView::new(source).line_indent_before_offset(offset) else {
         return 0;
     };
     raw_indent_units(indent, options)

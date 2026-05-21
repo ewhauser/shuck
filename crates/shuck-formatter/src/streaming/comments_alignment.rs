@@ -95,7 +95,7 @@ where
         &self,
         statements: &StmtSeq,
         index: usize,
-        attachments: Option<&crate::facts::SequenceFacts<'source>>,
+        attachments: Option<SequenceRenderSnapshot<'source, 'facts>>,
     ) -> usize {
         attachments
             .map(|attachment| attachment.first_rendered_line_for(index + 1))

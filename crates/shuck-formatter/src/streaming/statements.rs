@@ -107,7 +107,9 @@ where
         let source = self.source();
         let compact_layout = self.options().compact_layout();
         let minify = self.options().minify();
-        let attachments = (!minify).then(|| self.facts().sequence(statements, upper_bound).clone());
+        let facts = self.facts;
+        let attachments =
+            (!minify).then(|| SequenceRenderSnapshot::new(facts.sequence(statements, upper_bound)));
         let compact = compact_layout
             && attachments
                 .as_ref()
@@ -135,7 +137,7 @@ where
         if first_leading_min_offset.is_none()
             && attachments
                 .as_ref()
-                .is_some_and(crate::facts::SequenceFacts::is_ambiguous)
+                .is_some_and(|sequence| sequence.is_ambiguous())
             && let Some(span) = sequence_verbatim_span(statements, self.source_map())
         {
             if let Some(attachment) = attachments.as_ref()
@@ -188,7 +190,7 @@ where
                 if matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
                     let current_end = self.stmt_rendered_end_line(stmt);
                     let next_start =
-                        self.stmt_sequence_next_start_line(statements, index, attachments.as_ref());
+                        self.stmt_sequence_next_start_line(statements, index, attachments);
                     let breaks = if stmt_is_redirect_only(&statements[index + 1], source)
                         || !self.facts().background_has_explicit_line_break(stmt)
                     {
@@ -202,7 +204,7 @@ where
                 } else {
                     let current_end = self.stmt_rendered_end_line(stmt);
                     let next_start =
-                        self.stmt_sequence_next_start_line(statements, index, attachments.as_ref());
+                        self.stmt_sequence_next_start_line(statements, index, attachments);
                     self.write_line_breaks(line_gap_break_count(current_end, next_start));
                 }
             }

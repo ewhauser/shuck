@@ -476,6 +476,13 @@ impl<'a> SourceComment<'a> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BranchPrefixComment {
+    pub(crate) offset: usize,
+    pub(crate) text: String,
+    pub(crate) source_indent: usize,
+}
+
 /// Formatter-owned attachment view over parser-indexed comments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CommentAttachmentModel<'a> {
