@@ -575,3 +575,58 @@ jobs:
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "This job is blocking, so large corpus failures fail CI." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  formatter-oracle-large-corpus:
+    name: "formatter oracle large corpus"
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: "Install Nix"
+        uses: DeterminateSystems/determinate-nix-action@32cb6a5ae30bb0dfc996fa7baf8bf1ed28442fa4 # v3.17.3
+      - uses: DeterminateSystems/flakehub-cache-action@77fe95416299b8d1351b57bf10a1042a0ed75708 # v3.17.3
+      - name: "Download large corpus cache"
+        run: |
+          gh release download v0.0.0-test-files -R ewhauser/shuck -p 'shuck-cache-v3.tar.zst' -D /tmp
+          echo "880356ce713decb75c894a488c7a5f9cbeef2e3f76e43bb04525ebab4211ccd7  /tmp/shuck-cache-v3.tar.zst" | sha256sum -c -
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: "Extract large corpus cache"
+        run: tar --zstd -xf /tmp/shuck-cache-v3.tar.zst -C "$GITHUB_WORKSPACE"
+      - name: "Run formatter oracle large corpus tests"
+        id: formatter-oracle
+        shell: bash
+        env:
+          SHUCK_SHFMT_ORACLE_MAX_DURATION_SECS: "300"
+        run: |
+          set -o pipefail
+          mkdir -p target/formatter-oracle-report
+          nix develop --command make NIX_DEVELOP= test-oracle-shfmt-large-corpus 2>&1 | tee target/formatter-oracle-report/latest.log
+      - name: "Upload formatter oracle log"
+        if: always() && steps.formatter-oracle.outcome != 'cancelled'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: formatter-oracle-large-corpus-log
+          path: target/formatter-oracle-report/latest.log
+          if-no-files-found: ignore
+      - name: "Summarize formatter oracle result"
+        if: always()
+        run: |
+          echo "Formatter oracle large corpus outcome: ${{ steps.formatter-oracle.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          summary_line="$(grep 'large corpus shfmt oracle summary:' target/formatter-oracle-report/latest.log | tail -n 1 || true)"
+          if [ -n "$summary_line" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "$summary_line" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${{ steps.formatter-oracle.outcome }}" = "failure" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "This job is blocking, so formatter oracle regressions fail CI." >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -1,0 +1,2980 @@
+schema: 1
+entries:
+- path_suffix: 89luca89__distrobox__distrobox-assemble
+  hunks:
+  - start_line: 732
+    end_line: 738
+  diff_hash: 3a21a52b762bc97308eb9d3dea22c1d695a37f16e0c354ea662cb880ed57f6d6
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: 89luca89__distrobox__distrobox-enter
+  hunks:
+  - start_line: 436
+    end_line: 443
+  diff_hash: 7b48c039f935d50c4dd00a08af9aab48888e288b481e9774941c396ac3330215
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: HariSekhon__DevOps-Bash-tools__aws__aws_s3_bucket.sh
+  hunks:
+  - start_line: 96
+    end_line: 125
+  diff_hash: 5ca3b6e7abbdb67ceb8b5e6d00b11d74fdbf57aad8b5eb9b5c775048ae479f20
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__misc__libydpdict__libydpdict.SlackBuild
+  hunks:
+  - start_line: 65
+    end_line: 80
+  diff_hash: 82a49666a66c7e335edd6c61375de510e5a27e4bb91ae53539ef42b315fc8276
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__network__linphone-desktop__linphone-desktop.SlackBuild
+  hunks:
+  - start_line: 135
+    end_line: 141
+  - start_line: 292
+    end_line: 298
+  diff_hash: 6b135bed0ecd15ba9c2812473c43cd082fb439badee1bf7107766db22f663877
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__network__squid__rc.squid
+  hunks:
+  - start_line: 49
+    end_line: 55
+  diff_hash: 78a2e30b2fd33530cf8d70bcb7cf5dd1ff0493771c324465ca2488f1275ff33c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__network__sshguard__rc.sshguard
+  hunks:
+  - start_line: 4
+    end_line: 15
+  - start_line: 20
+    end_line: 26
+  - start_line: 31
+    end_line: 37
+  - start_line: 42
+    end_line: 48
+  diff_hash: cb21b8714f212bc7faf1441d3332045f2743d739d993fb535fb0c5ad1ff356d2
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__office__evolution__evolution.SlackBuild
+  hunks:
+  - start_line: 139
+    end_line: 147
+  diff_hash: 1db6d1e1e761e8d4f7e0640c29bd6a7325c6c115ab78983158a5b8da14f0cf12
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__office__remind__remind.SlackBuild
+  hunks:
+  - start_line: 100
+    end_line: 155
+  diff_hash: 1f42893243464aeae47be769deaecbb641196a67a3d13db28233a891dfef53ad
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__office__smoffice2016__planmaker16
+  hunks:
+  - start_line: 1
+    end_line: 13
+  diff_hash: 4bebde30d6e43cc44fc09e3d5bee1039b4ef69b1e6dffe43c1bd68b0ab2745f1
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__office__smoffice2016__presentations16
+  hunks:
+  - start_line: 1
+    end_line: 13
+  diff_hash: 46734ab1ca04c05bf5974d171bc5c14a4d842fee8686f08b6e53b87869356d4b
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__office__smoffice2016__textmaker16
+  hunks:
+  - start_line: 1
+    end_line: 13
+  diff_hash: 736975111bd5f181d060f650dee7bda234a186f4766f7e2d5525814eb13d3b1f
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__python__python2-yenc__python2-yenc.SlackBuild
+  hunks:
+  - start_line: 60
+    end_line: 66
+  diff_hash: 164e4fb86064ad37e72c28ad34588e8f76947fad4823470dad2f508b5523afa1
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__system__jenkins__files__rc.jenkins
+  hunks:
+  - start_line: 71
+    end_line: 77
+  diff_hash: 595441392bd066c1b8503423ef87eac3cd8132eff3d62532cef41ce02c67a588
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__system__mongodb__files__rc.mongodb
+  hunks:
+  - start_line: 18
+    end_line: 24
+  - start_line: 26
+    end_line: 31
+  diff_hash: c46d63e4d228d22c54e37dbb55c7ed0d8feebe10438d37e1aa7a27d4a53773db
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__system__msitools__msitools.SlackBuild
+  hunks:
+  - start_line: 84
+    end_line: 90
+  diff_hash: 43700a956c06fb0d48a54406b61c391c99f047e584b0c319aee03f2a32d8afc0
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__system__pytrash__pytrash.SlackBuild
+  hunks:
+  - start_line: 92
+    end_line: 98
+  diff_hash: d1a6e9090041f1c069c823f03cb7b22c2bc861cb8cc8aad38d3d982ce86a0c85
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__system__smokeping__rc.smokeping-slave
+  hunks:
+  - start_line: 69
+    end_line: 75
+  diff_hash: 4f3e38b24ba218e4473adf819fc7247e0bbbe97fef6dc110c61eed442ffae23c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__system__spman__spman.SlackBuild
+  hunks:
+  - start_line: 106
+    end_line: 112
+  diff_hash: ad47c76a91b79ebba5189eff028c656bb49859d47969df627b388e468614e3a8
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__system__tabbed__tabbed.SlackBuild
+  hunks:
+  - start_line: 90
+    end_line: 97
+  diff_hash: d5fcbe6162c38585b365cd3ec91174ed134b1926cf90137193e0078819289540
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__system__twin__twin.SlackBuild
+  hunks:
+  - start_line: 108
+    end_line: 114
+  diff_hash: 29fa1d51ea082cdf425e72d28ed56997b67b38fce112dfd1a8c5da684d4c5da9
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: SlackBuildsOrg__slackbuilds__system__xen__xen.SlackBuild
+  hunks:
+  - start_line: 92
+    end_line: 98
+  - start_line: 102
+    end_line: 108
+  diff_hash: 9649cbb18458d091ffdcf5613f799287f005a58c3baf97304c0f9e5a5f6554ca
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: acmesh-official__acme.sh__acme.sh
+  hunks:
+  - start_line: 4891
+    end_line: 4900
+  - start_line: 4999
+    end_line: 5005
+  - start_line: 6558
+    end_line: 6564
+  diff_hash: f53d8a207c81ebe31b75b470c817e03f09c5b632326fa948afed5c96711caf3f
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: acmesh-official__acme.sh__deploy__ruckus.sh
+  hunks:
+  - start_line: 180
+    end_line: 185
+  diff_hash: 5a6b8428b3703a3d1daeb3ea283ec0799c1d8ff4841d25e70732c40888feb568
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: acmesh-official__acme.sh__dnsapi__dns_gcloud.sh
+  hunks:
+  - start_line: 141
+    end_line: 153
+  diff_hash: 01a0a2a25c3b3a10f8a364d8896411e908d8cc5b39331a64e934e5c8a0f2589c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: acmesh-official__acme.sh__dnsapi__dns_timeweb.sh
+  hunks:
+  - start_line: 140
+    end_line: 146
+  - start_line: 178
+    end_line: 184
+  - start_line: 347
+    end_line: 360
+  - start_line: 383
+    end_line: 395
+  diff_hash: 2f0aef40bc805031eda6f87970b6c2fec3f543d3f5e7127685bae62729ce144e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: acmesh-official__acme.sh__notify__opsgenie.sh
+  hunks:
+  - start_line: 112
+    end_line: 120
+  diff_hash: e46731d63d125bd0fcf2ece980aab21f43b021d758bd383c86fcf27990813c69
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__bak2dvd__bak2dvd
+  hunks:
+  - start_line: 443
+    end_line: 449
+  diff_hash: dc0350c15cdc832114e67d58a300121873bbc07c24d40cce6ff93aeba168c1fe
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__bash-snippets__bash-snippets
+  hunks:
+  - start_line: 40
+    end_line: 46
+  - start_line: 57
+    end_line: 65
+  - start_line: 78
+    end_line: 86
+  diff_hash: 0bfe7714f340f63c987f69946b90781f82903dee9659e18fffb4505da49d8579
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__cheat__cheat
+  hunks:
+  - start_line: 39
+    end_line: 45
+  diff_hash: 6dd5e6edd792cf04b6941338df1ffe62c1ec819a45634f711f7598b89e9fcf10
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__cloudup__cloudup
+  hunks:
+  - start_line: 36
+    end_line: 42
+  - start_line: 120
+    end_line: 136
+  - start_line: 150
+    end_line: 158
+  - start_line: 215
+    end_line: 225
+  - start_line: 245
+    end_line: 267
+  - start_line: 327
+    end_line: 341
+  diff_hash: bcc0194fc25e0c8f6cce801fda9ca4f49b520e478c41bc4d00629e7ceb09d0c5
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__crypt__crypt
+  hunks:
+  - start_line: 18
+    end_line: 24
+  diff_hash: e7432f65786f256ec90de046e59d6a36b594a1b2f93c6900bfe1a16eb2635566
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__cryptocurrency__cryptocurrency
+  hunks:
+  - start_line: 152
+    end_line: 158
+  diff_hash: 2e0fbca3f6b538a2dc726cced24f7880e638fa4fd62a1e3b31d630449f21e17c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__currency__currency
+  hunks:
+  - start_line: 133
+    end_line: 139
+  diff_hash: a0b9e6ba8cd720e24c740a4c411f9f300617199d2ac80485f375bc48cd48868c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__extras__Linux__maps__maps
+  hunks:
+  - start_line: 40
+    end_line: 46
+  - start_line: 255
+    end_line: 264
+  diff_hash: 9aade232ad3d7ce9d736595a5f39b0c28bc9b6ad1b4f0922c0076ea802059baf
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__geo__geo
+  hunks:
+  - start_line: 196
+    end_line: 202
+  diff_hash: a0f6d74deacdc5bd73acf5878c1e74358303ad14e2b51a44bd93d4310ecaf553
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__gist__gist
+  hunks:
+  - start_line: 769
+    end_line: 778
+  diff_hash: 0e9ec367469e96d86a1bbda9c19c067d9b52d5832935335e66dbf5c6cb50d59f
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__lyrics__lyrics
+  hunks:
+  - start_line: 127
+    end_line: 133
+  - start_line: 135
+    end_line: 150
+  - start_line: 235
+    end_line: 249
+  diff_hash: 06d30b44e016c96f747f17abdada32acdde94cd6a9ce17007f033e05ab631344
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__meme__meme
+  hunks:
+  - start_line: 87
+    end_line: 93
+  diff_hash: 7f337f68bbd854f9fabf5d91ff7cd29b7dd80d04234c4156b4c92435e2951a9e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__movies__movies
+  hunks:
+  - start_line: 73
+    end_line: 86
+  diff_hash: 667f02a08c6bcc5c521096fbd82547224f74adfcbad09613cca660fc020dafa3
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__movies__tmdb
+  hunks:
+  - start_line: 57
+    end_line: 63
+  - start_line: 146
+    end_line: 155
+  diff_hash: 59886ba3d0841c00d2c29f4ab9d4f8c7b50d0cf9658c97a0637c2fe65a5f4310
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__newton__newton
+  hunks:
+  - start_line: 36
+    end_line: 42
+  - start_line: 101
+    end_line: 113
+  - start_line: 116
+    end_line: 143
+  - start_line: 227
+    end_line: 245
+  diff_hash: 25259dab68b60cafc41898d50f28ce552e564f3d25ccd2a6e1cb49318af4ceaa
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__pwned__pwned
+  hunks:
+  - start_line: 57
+    end_line: 74
+  diff_hash: 44da9d54ca4ce4ed0c13c0dcceb682f2eaa949b44def86b8390b934d472332e8
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__qrify__qrify
+  hunks:
+  - start_line: 175
+    end_line: 181
+  diff_hash: c694695a2c2304d35f366d721e00628e1e36262b6c22247d1b06881600465ce0
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__short__short
+  hunks:
+  - start_line: 35
+    end_line: 41
+  diff_hash: ac2a7ee7efb54fd28e0bfb2c38981ea10895ffe0cf4bbd701a60a84f30e5903a
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__siteciphers__siteciphers
+  hunks:
+  - start_line: 118
+    end_line: 124
+  diff_hash: 9dcca1906d6471e7a8bde75ac2038a3f2ebc6fcc5bd99ad6ebef8eec883869a9
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__skeleton
+  hunks:
+  - start_line: 128
+    end_line: 134
+  diff_hash: 4e6e2df8767a46385cb5f1f3d05c427d0945be9d34ff649e4d9b2dd7bd46e8c1
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__stocks__stocks
+  hunks:
+  - start_line: 60
+    end_line: 66
+  diff_hash: 1194ea82070c52e3af046afbd379107f11ac75d4a36a78f725401276c2920b9c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__taste__taste
+  hunks:
+  - start_line: 76
+    end_line: 82
+  diff_hash: c04e3d240dccf05cbb56c2f0e939876b08bbccd620123ea153700ebfbbee896d
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__todo__todo
+  hunks:
+  - start_line: 103
+    end_line: 109
+  - start_line: 276
+    end_line: 292
+  diff_hash: e3ddbb24d131f2dc457c2a5803d6bd27866bf52c790c204c6bbefca699cac02b
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__transfer__transfer
+  hunks:
+  - start_line: 123
+    end_line: 137
+  diff_hash: 01b4bbbda0aee9c9662c5f812b5e9b60460ea7151cf0a9f4513d6581035a283c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__weather__weather
+  hunks:
+  - start_line: 57
+    end_line: 63
+  diff_hash: 7a5aec6ef9f3f541d0c45e162a0ad4c476f744d11b5f10c2a831ce34a093e27e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alexanderepstein__Bash-Snippets__ytview__ytview
+  hunks:
+  - start_line: 39
+    end_line: 45
+  diff_hash: 51c07db36bb55474d4d5580f819c40ff7fec8f69da7db160f46463425710ddd4
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alpinelinux__aports__.githooks__pre-commit
+  hunks:
+  - start_line: 102
+    end_line: 108
+  diff_hash: 476f35123340d5074f53f1e3f9c464a380c225fb387f8c4636262bc129978a65
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alpinelinux__aports__community__dnscrypt-proxy__dnscrypt-proxy.setup
+  hunks:
+  - start_line: 235
+    end_line: 241
+  diff_hash: a2177d3a17c0effe804f3b065a83d3942dd41f30c015c5470f0a436f04847507
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alpinelinux__aports__community__mautrix-gmessages__mautrix-gmessages.post-upgrade
+  hunks:
+  - start_line: 4
+    end_line: 14
+  diff_hash: b1d08486672645cebaee150a2e0d8b25f0c52bb045e274e4704a3f05f1f8b710
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alpinelinux__aports__community__py3-email-validator__py3-email-validator.post-upgrade
+  hunks:
+  - start_line: 4
+    end_line: 9
+  diff_hash: eef5f8711c32bd93f81b87059bfdb00ba2de2674257a0a6d218c5aa84426b636
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alpinelinux__aports__main__awall__setup-firewall
+  hunks:
+  - start_line: 86
+    end_line: 92
+  diff_hash: 40990cd49dc758e79260f7e80b463711f0592ae77a34d3699246b8b875d6be05
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alpinelinux__aports__main__rsyslog__rsyslog.post-upgrade
+  hunks:
+  - start_line: 5
+    end_line: 16
+  diff_hash: caaa02f6a54a1a8d66fe22965c19c4be289a9bd1ce7f7916c72dad34df599107
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alpinelinux__aports__main__syslog-ng__syslog-ng.post-upgrade
+  hunks:
+  - start_line: 5
+    end_line: 21
+  diff_hash: 06fb91394ca76a3d77c5d087d04dfbefa0637339d7e762fc5e394410766277cd
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alpinelinux__aports__scripts__mkimg.arm.sh
+  hunks:
+  - start_line: 60
+    end_line: 66
+  diff_hash: 8d06b533ef2c9296b90fb6c3989a5571f5ea1bb86738303e48beb407fdd0b891
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: alpinelinux__aports__scripts__mkimg.base.sh
+  hunks:
+  - start_line: 154
+    end_line: 170
+  - start_line: 200
+    end_line: 206
+  diff_hash: 548446693400e66c47322f18d674024b2b606a7222d51bd7bf20eedf206ccfbe
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: aristocratos__bashtop__bashtop
+  hunks:
+  - start_line: 299
+    end_line: 307
+  - start_line: 514
+    end_line: 522
+  - start_line: 526
+    end_line: 534
+  - start_line: 566
+    end_line: 572
+  - start_line: 591
+    end_line: 597
+  - start_line: 724
+    end_line: 730
+  - start_line: 932
+    end_line: 938
+  - start_line: 1000
+    end_line: 1069
+  - start_line: 1211
+    end_line: 1249
+  - start_line: 1306
+    end_line: 1327
+  - start_line: 1334
+    end_line: 1349
+  - start_line: 1391
+    end_line: 1423
+  - start_line: 1498
+    end_line: 1504
+  - start_line: 1562
+    end_line: 1568
+  - start_line: 1585
+    end_line: 1593
+  - start_line: 1609
+    end_line: 1636
+  - start_line: 1676
+    end_line: 1682
+  - start_line: 1695
+    end_line: 1701
+  - start_line: 1728
+    end_line: 1736
+  - start_line: 1752
+    end_line: 1787
+  - start_line: 1876
+    end_line: 1882
+  - start_line: 1931
+    end_line: 1939
+  - start_line: 1951
+    end_line: 1960
+  - start_line: 2001
+    end_line: 2032
+  - start_line: 2084
+    end_line: 2090
+  - start_line: 2111
+    end_line: 2119
+  - start_line: 2133
+    end_line: 2139
+  - start_line: 2143
+    end_line: 2154
+  - start_line: 2208
+    end_line: 2220
+  - start_line: 2244
+    end_line: 2326
+  - start_line: 2363
+    end_line: 2371
+  - start_line: 2456
+    end_line: 2464
+  - start_line: 2512
+    end_line: 2518
+  - start_line: 2540
+    end_line: 2546
+  - start_line: 2670
+    end_line: 2676
+  - start_line: 2824
+    end_line: 2832
+  - start_line: 2876
+    end_line: 2882
+  - start_line: 2927
+    end_line: 2933
+  - start_line: 3006
+    end_line: 3012
+  - start_line: 3147
+    end_line: 3155
+  - start_line: 3164
+    end_line: 3170
+  - start_line: 3182
+    end_line: 3190
+  - start_line: 3192
+    end_line: 3198
+  - start_line: 3219
+    end_line: 3225
+  - start_line: 3242
+    end_line: 3250
+  - start_line: 3256
+    end_line: 3262
+  - start_line: 3300
+    end_line: 3306
+  - start_line: 3429
+    end_line: 3437
+  - start_line: 3463
+    end_line: 3471
+  - start_line: 3629
+    end_line: 3637
+  - start_line: 3789
+    end_line: 3795
+  - start_line: 3904
+    end_line: 3910
+  - start_line: 3973
+    end_line: 3980
+  - start_line: 4112
+    end_line: 4120
+  - start_line: 4134
+    end_line: 4142
+  - start_line: 4394
+    end_line: 4402
+  - start_line: 4417
+    end_line: 4428
+  - start_line: 4574
+    end_line: 4587
+  - start_line: 4607
+    end_line: 4622
+  - start_line: 4649
+    end_line: 4657
+  - start_line: 4814
+    end_line: 4857
+  - start_line: 4916
+    end_line: 4924
+  - start_line: 5049
+    end_line: 5060
+  - start_line: 5073
+    end_line: 5081
+  - start_line: 5139
+    end_line: 5147
+  - start_line: 5163
+    end_line: 5171
+  - start_line: 5174
+    end_line: 5182
+  - start_line: 5186
+    end_line: 5194
+  - start_line: 5198
+    end_line: 5206
+  - start_line: 5567
+    end_line: 5575
+  - start_line: 5582
+    end_line: 5588
+  diff_hash: 0eb6d492998dfc9926f7385cb5a6f360d80c831c0a9ba2e7438bce2d8e1365f4
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: basecamp__omarchy__bin__omarchy-theme-set-keyboard-f16
+  hunks:
+  - start_line: 8
+    end_line: 18
+  diff_hash: 38c04efca1ded1cc66bbf727ae024bf918af29496c0468bf839366205c29192f
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bats-core__bats-core__contrib__semver
+  hunks:
+  - start_line: 243
+    end_line: 261
+  diff_hash: a7933bf9029b9a6d6e452b24bb45b4c13478e4641ce7e8357c33b0923149cec9
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bats-core__bats-core__lib__bats-core__common.bash
+  hunks:
+  - start_line: 163
+    end_line: 169
+  - start_line: 193
+    end_line: 199
+  diff_hash: e6069641c6d91254c502f7a150f0d9f3b16fe7962bbe60dfd7a455958ea03dc2
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bats-core__bats-core__lib__bats-core__tracing.bash
+  hunks:
+  - start_line: 322
+    end_line: 329
+  diff_hash: 57957f267de7f8ed592ddea15ee44908f53c42a096fc50bc6901d598e6d4f7f2
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bin456789__reinstall__get-frpc-url.sh
+  hunks:
+  - start_line: 38
+    end_line: 44
+  - start_line: 116
+    end_line: 121
+  diff_hash: effc89720cf32322e05d425bdc1c0a12e15a1b2c3ab845a411b8daac117ecd62
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bin456789__reinstall__reinstall.sh
+  hunks:
+  - start_line: 545
+    end_line: 555
+  - start_line: 1057
+    end_line: 1064
+  - start_line: 1489
+    end_line: 1495
+  - start_line: 1555
+    end_line: 1564
+  - start_line: 2196
+    end_line: 2202
+  - start_line: 2280
+    end_line: 2286
+  - start_line: 4629
+    end_line: 4640
+  diff_hash: 12572252a8974980b0ae59f6d0e8efe6584c577a62b66142e1e50d5b24e2d349
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bin456789__reinstall__trans.sh
+  hunks:
+  - start_line: 2503
+    end_line: 2510
+  - start_line: 4068
+    end_line: 4075
+  - start_line: 5802
+    end_line: 5811
+  - start_line: 5877
+    end_line: 5887
+  - start_line: 6323
+    end_line: 6350
+  - start_line: 6357
+    end_line: 6367
+  - start_line: 6415
+    end_line: 6421
+  - start_line: 6429
+    end_line: 6438
+  - start_line: 6462
+    end_line: 6469
+  - start_line: 6485
+    end_line: 6491
+  - start_line: 6552
+    end_line: 6573
+  - start_line: 6632
+    end_line: 6643
+  - start_line: 6682
+    end_line: 6688
+  - start_line: 6782
+    end_line: 6788
+  - start_line: 6808
+    end_line: 6819
+  - start_line: 6833
+    end_line: 6839
+  diff_hash: a1fa89c0269ed8baadc698f2a2e3628f2942a526009bf27c9d112ac9f691e177
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bin456789__reinstall__windows-driver-utils.sh
+  hunks:
+  - start_line: 246
+    end_line: 252
+  - start_line: 302
+    end_line: 308
+  diff_hash: f51b541d142c9b543e947ce3f86d8a8f2a75a27ebc6176b6806666fb8b5e873a
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bitnami__containers__bitnami__cassandra__5.0__debian-12__rootfs__opt__bitnami__scripts__libcassandra.sh
+  hunks:
+  - start_line: 752
+    end_line: 758
+  - start_line: 788
+    end_line: 794
+  diff_hash: c96b6eb665a5ccc5ad6154c7396d567a87f62c83bbbba0cc655669f8ce0ecbc7
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bitnami__containers__bitnami__kafka__4.2__debian-12__rootfs__opt__bitnami__scripts__libkafka.sh
+  hunks:
+  - start_line: 627
+    end_line: 633
+  diff_hash: 25a0a9f0f206c575206cb3c2997c36d5978cf790fc9a9edc3b5e389a60675ed4
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bitnami__containers__bitnami__mongodb-sharded__8.2__debian-12__rootfs__opt__bitnami__scripts__libmongodb.sh
+  hunks:
+  - start_line: 460
+    end_line: 466
+  - start_line: 515
+    end_line: 521
+  - start_line: 540
+    end_line: 546
+  diff_hash: 17b7dbf2de5b55c5395e19895985029e47b5ed56206d03dcab0962d13f2224a2
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bitnami__containers__bitnami__mongodb__8.2__debian-12__rootfs__opt__bitnami__scripts__libmongodb.sh
+  hunks:
+  - start_line: 460
+    end_line: 466
+  - start_line: 515
+    end_line: 521
+  - start_line: 540
+    end_line: 546
+  diff_hash: 4aed591f68eccc675b738363c6636f9ee3827fdf7b7d57527a302a0ad3e1bd0a
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bitnami__containers__bitnami__openldap__2.6__debian-12__rootfs__opt__bitnami__scripts__libopenldap.sh
+  hunks:
+  - start_line: 571
+    end_line: 585
+  diff_hash: d5f7590147cfca0b9844cc50ca5424fafddb816f76fffdc11a5a9074edee7d3d
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bitnami__containers__bitnami__postgresql-repmgr__18__debian-12__rootfs__opt__bitnami__scripts__libpostgresql.sh
+  hunks:
+  - start_line: 398
+    end_line: 404
+  - start_line: 415
+    end_line: 421
+  - start_line: 541
+    end_line: 547
+  - start_line: 559
+    end_line: 565
+  diff_hash: 7945ff128938ae43df71438afaa50ec2b8ed12cefeaf0917368496cff260f081
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bitnami__containers__bitnami__postgresql-repmgr__18__debian-12__rootfs__opt__bitnami__scripts__librepmgr.sh
+  hunks:
+  - start_line: 349
+    end_line: 355
+  diff_hash: eff03abe080a5671ce1c2b6452676890dcda5e8a129a3ca1f36c9dbf10923164
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bitnami__containers__bitnami__postgresql__18__debian-12__rootfs__opt__bitnami__scripts__libautoctl.sh
+  hunks:
+  - start_line: 63
+    end_line: 69
+  diff_hash: 2dae1d05c8727dc759900d7cd6fd59dc79d76b1be6565c42332c0e1b4e4b4a9e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bitnami__containers__bitnami__postgresql__18__debian-12__rootfs__opt__bitnami__scripts__libpostgresql.sh
+  hunks:
+  - start_line: 398
+    end_line: 404
+  - start_line: 415
+    end_line: 421
+  - start_line: 541
+    end_line: 547
+  - start_line: 559
+    end_line: 565
+  diff_hash: 9971786372efd0fd387c4b5120febf83f7171b27da2c083b7be3ede04ae94de5
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bitnami__containers__bitnami__scylladb__2026.1__debian-12__rootfs__opt__bitnami__scripts__libscylladb.sh
+  hunks:
+  - start_line: 787
+    end_line: 793
+  - start_line: 823
+    end_line: 829
+  diff_hash: fcdbe3a4ae767422d091616d0aef80e6abc53ad19d3265ec764d2d8d9643ddc9
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bitnami__containers__bitnami__wildfly__39__debian-12__rootfs__opt__bitnami__scripts__libwildfly.sh
+  hunks:
+  - start_line: 151
+    end_line: 159
+  diff_hash: af3aeacda2011a850a53daaf53aee7862dc0022829d9660977ea7d77089e9dcf
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__hotplug.d__iface__50-olsrd
+  hunks:
+  - start_line: 51
+    end_line: 64
+  - start_line: 71
+    end_line: 126
+  diff_hash: 4ffccb4c25b65e30b4a919faa57e04e85b1df8d8faf7bc2b97bca6720583fbb2
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__hotplug.d__iface__60-dyndns
+  hunks:
+  - start_line: 175
+    end_line: 182
+  diff_hash: adf4da5badac8dedcce1d1166f8700fbbb6d41c35dc86f5bd416c0100a03e915
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__init.d__crashlog_apport
+  hunks:
+  - start_line: 88
+    end_line: 100
+  diff_hash: 9085bf9134a093c9cfa38c84361f66ca0204c82d0ff71d5dce7c597f6728b15d
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__init.d__netfilter
+  hunks:
+  - start_line: 10
+    end_line: 17
+  diff_hash: 31c5bc097179085616c5bada14ad487a3903dbbf5419e4c711033cce6ae2e5c3
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__init.d__override_uci_vars
+  hunks:
+  - start_line: 803
+    end_line: 810
+  - start_line: 2433
+    end_line: 2439
+  diff_hash: f28cde859c1c279817dbcc081c373216a4fe9aa81122d73f1745ddb9e616745b
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__init.d__zram
+  hunks:
+  - start_line: 7
+    end_line: 18
+  diff_hash: b43be4edd8e9fae31dd90de5bbf46bca8d832fd38406d4220638758140442701
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__1wire
+  hunks:
+  - start_line: 155
+    end_line: 161
+  diff_hash: 6ce8626857f03c9103fdbc975db235395f7dc74036249b5d37b2b1073c72b885
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__cron
+  hunks:
+  - start_line: 255
+    end_line: 306
+  diff_hash: d46bdb618c87ab3fda6627c1e440f31c562d6094d6dadd5ce2245bd55e4ecc20
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__db
+  hunks:
+  - start_line: 27
+    end_line: 59
+  - start_line: 154
+    end_line: 160
+  - start_line: 181
+    end_line: 189
+  diff_hash: 8a9bb07918ee5f9c570771d7f82c93dd79a3b0f076d23550ce3071e07bc08b76
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__firmware
+  hunks:
+  - start_line: 1338
+    end_line: 1344
+  diff_hash: e02ce29b35bc6a80aa8a9615ed008e996ca0fc48a6ea2a89b6f643be057d80c7
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__http
+  hunks:
+  - start_line: 184
+    end_line: 191
+  - start_line: 193
+    end_line: 201
+  diff_hash: 7e443b91cf41dcfac6ea027858f03facaec16bf44f4163c61971d1a9cbe3242b
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__ipsystem
+  hunks:
+  - start_line: 114
+    end_line: 122
+  - start_line: 141
+    end_line: 157
+  - start_line: 161
+    end_line: 180
+  - start_line: 290
+    end_line: 351
+  diff_hash: b5de1775b617b86a1747333a1aeca35b9138a806a8bd5c13644c631a1061e271
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__list
+  hunks:
+  - start_line: 4
+    end_line: 11
+  diff_hash: bdf510ff64442ff6022b7cdc8e60ad0c117b40acf50c4d8a980f0b81b5aad4cd
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__mail
+  hunks:
+  - start_line: 69
+    end_line: 80
+  - start_line: 466
+    end_line: 473
+  diff_hash: 5871b2b9f2d697c48d11ca0505a1552cea68932d9fb41d32fc418ee4459da30b
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__net
+  hunks:
+  - start_line: 860
+    end_line: 867
+  diff_hash: cdc3b626f61cfec28550cac9c3636ee79d37ca9a0675bdbdec51abacecaff75c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__rrd
+  hunks:
+  - start_line: 83
+    end_line: 94
+  - start_line: 235
+    end_line: 241
+  - start_line: 404
+    end_line: 414
+  - start_line: 419
+    end_line: 426
+  diff_hash: bf0f53b9ffaa099ed8c319e4df628b6a78990cfcaf71480945a7e7c285b58fc4
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__sanitizer
+  hunks:
+  - start_line: 60
+    end_line: 66
+  - start_line: 323
+    end_line: 329
+  diff_hash: 55438f87d449fbb0e7a14196d584d9c3ee75c9192d5ce19fad1f21b8e1189290
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__scheduler
+  hunks:
+  - start_line: 5
+    end_line: 18
+  - start_line: 71
+    end_line: 81
+  - start_line: 220
+    end_line: 226
+  diff_hash: dda4b9c5d20d9f45a94847fd25ea019e3645e225dd5ae4c2e70ac085da8a198e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__speedtest
+  hunks:
+  - start_line: 416
+    end_line: 422
+  - start_line: 456
+    end_line: 462
+  diff_hash: 11fc6481e0bf00e0ed83fb626185469219321da843f26106227c8bf08c7aed65
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__stopwatch
+  hunks:
+  - start_line: 45
+    end_line: 51
+  diff_hash: cfd434eab7a6680e72264b045581b96473b063683819bedba11d16c23ff17166
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__system
+  hunks:
+  - start_line: 137
+    end_line: 145
+  - start_line: 479
+    end_line: 485
+  - start_line: 618
+    end_line: 624
+  - start_line: 844
+    end_line: 854
+  diff_hash: f4aff4e14a7a07882feed59770034f0346e476ce34b489674f42ff599863785d
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__tool
+  hunks:
+  - start_line: 175
+    end_line: 181
+  - start_line: 377
+    end_line: 384
+  - start_line: 389
+    end_line: 395
+  diff_hash: 7662f0ed7111a3588cc1ac96e7d381ed37efe1cc642a64e4d37a9c629a310a10
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__tunnel
+  hunks:
+  - start_line: 400
+    end_line: 406
+  diff_hash: 6a3ab14220cda58435ff457a66c7de318e1a4b1cee7c6d8effe1f9c965c492a0
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__watch
+  hunks:
+  - start_line: 1666
+    end_line: 1672
+  - start_line: 2246
+    end_line: 2252
+  diff_hash: 94cb4917cb78ab8eafa671af1fa92b7e78a689783026c78d032d54007c0c73d5
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__weblogin
+  hunks:
+  - start_line: 142
+    end_line: 152
+  - start_line: 536
+    end_line: 542
+  diff_hash: aba7a758d5b0181a8a74d19dbd687057f491cfec8589ab07a653ecaf333f5f79
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua__wifi
+  hunks:
+  - start_line: 68
+    end_line: 74
+  - start_line: 284
+    end_line: 290
+  - start_line: 1515
+    end_line: 1520
+  - start_line: 2259
+    end_line: 2265
+  diff_hash: 5f88ae59fcb5a06ae85e4b61eba46d51cc606efdfc9de74618ce75c8958fc6f7
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua_init
+  hunks:
+  - start_line: 28
+    end_line: 35
+  diff_hash: f74ca76b1ecd51b825ae8d998e618870d63e4c68a2628c54fed26581f8f82cb9
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua_init.user_essential_nfuser.include
+  hunks:
+  - start_line: 31
+    end_line: 38
+  - start_line: 108
+    end_line: 114
+  diff_hash: c3eb4cc20804c40235820439cc243107ea33ccd57ea5549068bc74453f7364e6
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua_init.user_fake_missing_logread
+  hunks:
+  - start_line: 1
+    end_line: 7
+  diff_hash: 79cf1d51db791a14ab15069b78d1f38076cca9cf5ab41112df9eedec3ebb138c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__etc__kalua_init.user_fake_missing_uci
+  hunks:
+  - start_line: 1
+    end_line: 7
+  - start_line: 66
+    end_line: 70
+  diff_hash: 2a9f4f5652c2839f0c57d05f76c2510ad7e67a79bc9439d4361e9cbed99ce130
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__usr__sbin__cron.build_netjson.sh
+  hunks:
+  - start_line: 133
+    end_line: 139
+  diff_hash: 0401e1233e1ca5a2ff4cbeb7610dfe121d1f3b57f2962f82adfc7631756de158
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__usr__sbin__cron.evaluate_ulogd_syslogemu_fff+
+  hunks:
+  - start_line: 286
+    end_line: 294
+  diff_hash: feb03107452527c5c31c976bc9a2e06a9c4a4c85489281b5348a99e5d4aa3a81
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__usr__sbin__cron.minutely
+  hunks:
+  - start_line: 303
+    end_line: 310
+  diff_hash: 93b60c714f1509ec12031c69a09f26bbe58ee1f5686fc5c892490dc5142c0337
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__usr__sbin__cron.minutely.check_ubus
+  hunks:
+  - start_line: 59
+    end_line: 67
+  diff_hash: 45ce84259ad6aaebe8dec21bb61bcf4037239da900bb6f89e9f7a4821e5e687d
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__usr__sbin__cron.monitoring
+  hunks:
+  - start_line: 117
+    end_line: 122
+  diff_hash: 0e2e645b8b146203e33e1b07eae0ec0e2d31a7cfde8172eff0999ef9ba221691
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__usr__sbin__cron.pingchecker
+  hunks:
+  - start_line: 29
+    end_line: 34
+  diff_hash: 6ef487a6e151fb56fd5d3faee63d2e636d865a4334072a2a54698b5aba25c652
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__www__cgi-bin-chip
+  hunks:
+  - start_line: 8
+    end_line: 15
+  diff_hash: 0916b28f9963224862a2fe22e4b9ffc65653c7b82c5477921ae72e79fd8d95c5
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__www__cgi-bin-tunnel.sh
+  hunks:
+  - start_line: 32
+    end_line: 40
+  diff_hash: 8967d78ed5ee2abe1e6b4e37d19a90ab6f1ede7ee4a2d473519c8ce7ab2c69ed
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-addons__www__cgi-bin__userdb
+  hunks:
+  - start_line: 90
+    end_line: 97
+  - start_line: 665
+    end_line: 680
+  diff_hash: 12499d9171ba3ae7c19608574b65d5111ac87f1471065a9b2414484e9c1ca0e7
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-build__apply_profile.code
+  hunks:
+  - start_line: 238
+    end_line: 245
+  - start_line: 621
+    end_line: 628
+  - start_line: 630
+    end_line: 638
+  - start_line: 1660
+    end_line: 1672
+  - start_line: 1878
+    end_line: 1884
+  diff_hash: 78074453b39582f1ce3233d4a76e2ffbe2837fd8c717d999f27fffeafa5b5dcb
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-build__build.sh
+  hunks:
+  - start_line: 689
+    end_line: 695
+  - start_line: 2983
+    end_line: 2989
+  - start_line: 3001
+    end_line: 3007
+  - start_line: 3028
+    end_line: 3034
+  - start_line: 3060
+    end_line: 3066
+  - start_line: 3245
+    end_line: 3252
+  - start_line: 3366
+    end_line: 3372
+  - start_line: 3646
+    end_line: 3652
+  - start_line: 4021
+    end_line: 4027
+  diff_hash: 2267d815c21f5aa35cda757a74412783b235db9560e18eaea789726908ded720
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-monitoring__apply_new_network.sh
+  hunks:
+  - start_line: 18
+    end_line: 25
+  - start_line: 66
+    end_line: 72
+  diff_hash: 15ecc0a74b312456d655bc6e87c7a1686d158b88eac4ee26a382378df29db06c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-monitoring__compress_vds_files.sh
+  hunks:
+  - start_line: 74
+    end_line: 80
+  diff_hash: 6999bad02f170c7d712f79e334226fe66a2560314c2bced27487b9da0260a23e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-monitoring__crashlog_build_html.sh
+  hunks:
+  - start_line: 100
+    end_line: 106
+  diff_hash: 76ff39402bb8493ccf117390c1f7836a777cf3f5d74dfde8333d338e12c911f4
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-monitoring__meshrdf_generate_map.sh
+  hunks:
+  - start_line: 1
+    end_line: 7
+  diff_hash: 853f8b347939c349c2c019b3b0e602583da95ba6c796625bf1b013c7924a4bfb
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-monitoring__meshrdf_generate_netjson.sh
+  hunks:
+  - start_line: 271
+    end_line: 288
+  - start_line: 300
+    end_line: 307
+  - start_line: 326
+    end_line: 334
+  - start_line: 352
+    end_line: 361
+  - start_line: 369
+    end_line: 375
+  - start_line: 377
+    end_line: 387
+  diff_hash: c70bee3b43561290d77f7163314b3a907b816f1e3d5607329f59ae688dfcbe8d
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh
+  hunks:
+  - start_line: 3802
+    end_line: 3808
+  diff_hash: d96d88f142a7813ea56b56786dd5c6858d6f134b5a0b51d464dff4672a29d638
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-monitoring__monitoring_standalone_generic.sh
+  hunks:
+  - start_line: 53
+    end_line: 71
+  - start_line: 84
+    end_line: 95
+  diff_hash: 77de09294cbaf5466ebf8982e315837f7b6cf238ae6151c9c02f862ef40d01f0
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__openwrt-patches__reghack__regulatory.bin.calculator.sh
+  hunks:
+  - start_line: 15
+    end_line: 27
+  diff_hash: 8516fd56542b0a067bba1a9f41220cce9c118980f2fb04b28585a240046dbf4b
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: bittorf__kalua__tests__test_all.sh
+  hunks:
+  - start_line: 277
+    end_line: 283
+  diff_hash: 776d7a39169ec7f94c09087d008479cc135d5cd8b6110e36989a59609813592c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: community-scripts__ProxmoxVE__ct__immich.sh
+  hunks:
+  - start_line: 78
+    end_line: 86
+  diff_hash: b48b4876e93b8720f3b979f515e2a1196fc0caaf09683ee01efe8eae1b206f5a
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: community-scripts__ProxmoxVE__install__immich-install.sh
+  hunks:
+  - start_line: 35
+    end_line: 43
+  diff_hash: d7935f4797d879692d5a43345e47ecd840390cdef02da86cba930f8de0b1d98f
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: community-scripts__ProxmoxVE__misc__build.func
+  hunks:
+  - start_line: 542
+    end_line: 556
+  - start_line: 740
+    end_line: 746
+  - start_line: 1691
+    end_line: 1697
+  - start_line: 5429
+    end_line: 5441
+  - start_line: 5452
+    end_line: 5463
+  - start_line: 5493
+    end_line: 5504
+  - start_line: 5518
+    end_line: 5534
+  diff_hash: 323b8ee7b29875eba173c8665546bae65eec6f61b2cf83495c26303af5762b50
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: community-scripts__ProxmoxVE__misc__tools.func
+  hunks:
+  - start_line: 3256
+    end_line: 3262
+  - start_line: 3272
+    end_line: 3278
+  - start_line: 3442
+    end_line: 3447
+  - start_line: 3542
+    end_line: 3547
+  - start_line: 3658
+    end_line: 3663
+  - start_line: 8169
+    end_line: 8174
+  diff_hash: af8b791e79622f99e7c28bb6d866eb9be8dfba607fa83a98e943bf7d435127b5
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: community-scripts__ProxmoxVE__tools__addon__add-tailscale-lxc.sh
+  hunks:
+  - start_line: 147
+    end_line: 154
+  diff_hash: b0e89072b64a1318820f6d2435216ca4a5691b48c88936bad55667ced67f9b5f
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: community-scripts__ProxmoxVE__tools__pve__post-pbs-install.sh
+  hunks:
+  - start_line: 196
+    end_line: 202
+  diff_hash: 493bcee2e6c90b2294617d1544852f83c2d118baefdf6ed089772cdf1d28ef5f
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: community-scripts__ProxmoxVE__turnkey__turnkey.sh
+  hunks:
+  - start_line: 190
+    end_line: 206
+  diff_hash: 4d230093fed3b9be3c65b23239ec227ed2ed90fb205912bca25a81d3c70dcfde
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: community-scripts__ProxmoxVE__vm__docker-vm.sh
+  hunks:
+  - start_line: 585
+    end_line: 591
+  diff_hash: b09cc81a1f4999e82acf0a6a93b461fc72f9b81d10e84cbe010f2202b5f45ff3
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: dehydrated-io__dehydrated__dehydrated
+  hunks:
+  - start_line: 932
+    end_line: 938
+  diff_hash: 718d4b0d9be49be25fa992c63d00add90d00eb890b6a747cc3272581fe21b122
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: docker-library__official-images__.github__workflows__generate.sh
+  hunks:
+  - start_line: 32
+    end_line: 38
+  - start_line: 50
+    end_line: 56
+  diff_hash: e21dc34b0acbe46bdc5034acc88b1bd5eb97b327cecd4d48fd04693dd3b03d4e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: docker-library__official-images__diff-pr.sh
+  hunks:
+  - start_line: 199
+    end_line: 205
+  - start_line: 242
+    end_line: 262
+  - start_line: 280
+    end_line: 286
+  - start_line: 289
+    end_line: 297
+  - start_line: 411
+    end_line: 417
+  diff_hash: ca2e93e0d7a72e182ad6fa94aed008af723ba91dec72b282544c2171cfa8d50b
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: docker-library__official-images__naughty-commits.sh
+  hunks:
+  - start_line: 19
+    end_line: 35
+  diff_hash: bcb2517b15b05a1e6f32a84109fdf07b938d396ffa0d04102a7a69d462437511
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: docker-library__official-images__test__tests__cassandra-basics__run.sh
+  hunks:
+  - start_line: 13
+    end_line: 28
+  diff_hash: 7c8b267ae2534f985cda7a32cc9a3aca2c13bfd4e06612b772231c584fbec8a0
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: docker-library__official-images__test__tests__mongo-basics__run.sh
+  hunks:
+  - start_line: 44
+    end_line: 57
+  diff_hash: 0a79c2c57e4c56da9182726e3ab371946f212c75f9e836e4f458036b54d71f46
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: docker-library__official-images__test__tests__rabbitmq-tls__run.sh
+  hunks:
+  - start_line: 13
+    end_line: 26
+  diff_hash: 73a5e87f851aec6e865ba705a2812a01c1d76a9d1f9e58b64509055a895a6686
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: docker-library__official-images__test__tests__redis-basics__run.sh
+  hunks:
+  - start_line: 26
+    end_line: 39
+  diff_hash: 476664dd9b5bc308ad2fc9663459dd0ba43635890d38d140b15796770729b5a7
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: docker-mailserver__docker-mailserver__target__bin__listmailuser
+  hunks:
+  - start_line: 96
+    end_line: 102
+  diff_hash: 24e5b6fcf205f01c6667c8efa703e3667682a2fb75ba3f000650a4ea675e46b5
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: docker-mailserver__docker-mailserver__target__bin__rspamd-dkim
+  hunks:
+  - start_line: 197
+    end_line: 203
+  diff_hash: 3ad5013747cf0999ccff4c680fe27d8b061d6b90e39a36668a16e8b29b0c856d
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: docker-mailserver__docker-mailserver__target__scripts__helpers__database__manage__dovecot-quotas.sh
+  hunks:
+  - start_line: 27
+    end_line: 31
+  diff_hash: d1bd5b2b1f4c64c25c251ce2cff4746d0307081dea9a40c6cc87cd9d1ad3c61c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: docker-mailserver__docker-mailserver__target__scripts__helpers__database__manage__postfix-virtual.sh
+  hunks:
+  - start_line: 51
+    end_line: 55
+  diff_hash: 5a67ef1eff89c4f3e9651a3bde38b0dd9c06a56062fc8ab0345fa7d2873ba11e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: docker-mailserver__docker-mailserver__target__scripts__helpers__ssl.sh
+  hunks:
+  - start_line: 366
+    end_line: 373
+  diff_hash: 86acaab39fa128f676e0de76a102618f0a7d029991ab1dfadd605cba1c75052f
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: docker__docker-bench-security__functions__helper_lib.sh
+  hunks:
+  - start_line: 1
+    end_line: 7
+  diff_hash: 733697fe702d5b81e73c951573100b111d3b4188078bee2f9822af6cb3d11b32
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: dokku__dokku__plugins__haproxy-vhosts__internal-functions
+  hunks:
+  - start_line: 36
+    end_line: 44
+  diff_hash: 922ed18e307b91f83897226e412b9fe320631ec1f9dcba5bca77dbb2123ed3b2
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: dokku__dokku__plugins__traefik-vhosts__internal-functions
+  hunks:
+  - start_line: 56
+    end_line: 75
+  diff_hash: 98397a6e21a7dfcd4e2ff86e8cc55bd0d290edf6b378b943d33c534fe5da9375
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: dylanaraps__neofetch__neofetch
+  hunks:
+  - start_line: 2223
+    end_line: 2229
+  - start_line: 2706
+    end_line: 2712
+  - start_line: 2797
+    end_line: 2803
+  - start_line: 2906
+    end_line: 2916
+  - start_line: 2990
+    end_line: 3010
+  - start_line: 3084
+    end_line: 3091
+  - start_line: 3274
+    end_line: 3280
+  - start_line: 3522
+    end_line: 3534
+  - start_line: 3620
+    end_line: 3626
+  - start_line: 3731
+    end_line: 3737
+  - start_line: 3746
+    end_line: 3754
+  - start_line: 3759
+    end_line: 3765
+  - start_line: 4013
+    end_line: 4022
+  - start_line: 4098
+    end_line: 4104
+  - start_line: 4221
+    end_line: 4227
+  - start_line: 4376
+    end_line: 4382
+  - start_line: 4479
+    end_line: 4490
+  - start_line: 4888
+    end_line: 4894
+  - start_line: 4920
+    end_line: 4926
+  - start_line: 4943
+    end_line: 4953
+  diff_hash: c6335ad3154fdd0696e9e8d75ed7ccac1c2c8784bdaba2a6d9866446886573e9
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: gentoo__gentoo__app-forensics__rkhunter__files__rkhunter-1.4.cron
+  hunks:
+  - start_line: 91
+    end_line: 98
+  diff_hash: a045b983c67b57e1922da3a204c7585b993127b46ec06ace129e7c6bfd5fcc34
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: gentoo__gentoo__dev-lang__ocaml__files__ocaml-rebuild.sh
+  hunks:
+  - start_line: 21
+    end_line: 27
+  diff_hash: 2319e1d2ee2e97f37fb28362b6b64c1cbacb0b386ec805ff399a39ff65dfa03a
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: gentoo__gentoo__dev-util__nvidia-cuda-toolkit__files__cuda-config.in
+  hunks:
+  - start_line: 5
+    end_line: 14
+  diff_hash: a99ae643aaaf8b8eba5372ccbc143bb9268bf67845c1c4f233e0d301865c6cbb
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: gentoo__gentoo__dev-util__schroot__files__11gentoo
+  hunks:
+  - start_line: 40
+    end_line: 47
+  diff_hash: d2d49eb94cae883bae241708188c248c87005b46aa2acab288059f2d60f8f5fd
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: gentoo__gentoo__eclass__tests__verify-sig.sh
+  hunks:
+  - start_line: 45
+    end_line: 61
+  diff_hash: 1cd4d28c1f29d07fbcad9914ed165f162f6a827b81bb894578dd651a876140db
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: gentoo__gentoo__net-im__discord__files__launcher-r1.sh
+  hunks:
+  - start_line: 11
+    end_line: 20
+  diff_hash: 60349845430b1d2e4ecd0b63e8ce88bf054030525f9996fe47c31cb239bfe0b8
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: gentoo__gentoo__net-im__discord__files__launcher.sh
+  hunks:
+  - start_line: 11
+    end_line: 19
+  diff_hash: 531f891442da9266f4543e37629ddecc3481acb0e3ac109660e68aa7b13a62a3
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: gentoo__gentoo__net-misc__rabbitmq-server__files__rabbitmq-script-wrapper
+  hunks:
+  - start_line: 36
+    end_line: 43
+  diff_hash: 89354799382c6327809f4e61dad556237c19b5276613a437d9e2fddbabdea767
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: gentoo__gentoo__sys-apps__kexec-tools__files__kexec-auto-load
+  hunks:
+  - start_line: 38
+    end_line: 51
+  diff_hash: a840693488e0e319fe19bf8fedbde0753c302973db882225c5c9cddd61142155
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: gentoo__gentoo__sys-apps__less__files__lesspipe-r3.sh
+  hunks:
+  - start_line: 263
+    end_line: 269
+  diff_hash: 81ceeabeee2ecee170af2f842129083940e21ff4c212b3cf5b6dd493456989e2
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: gentoo__gentoo__sys-apps__less__files__lesspipe-r4.sh
+  hunks:
+  - start_line: 263
+    end_line: 269
+  diff_hash: d13d91ee0c366730cbcce70b82dad67c2edf9ba34b3ef68b6ff49d3990235f1e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: gentoo__gentoo__sys-power__acpid__files__acpid-1.0.6-default.sh
+  hunks:
+  - start_line: 35
+    end_line: 40
+  diff_hash: 0e049cc7ca0df69f4edab597f501245319fa039e6f79100f79bb79ea96f9e8d9
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: google__oss-fuzz__projects__arrow__build.sh
+  hunks:
+  - start_line: 45
+    end_line: 51
+  - start_line: 57
+    end_line: 63
+  - start_line: 68
+    end_line: 74
+  diff_hash: 86ce5f137257da286c48ccb79e618b4e208787da2996f63f85f2a06a186f2fcb
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: google__oss-fuzz__projects__envoy__build.sh
+  hunks:
+  - start_line: 45
+    end_line: 57
+  diff_hash: e3a85d44a5497282b504420ef07d889517abf926966bb2ab5fb5246402e872f9
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: google__oss-fuzz__projects__esp-v2__build.sh
+  hunks:
+  - start_line: 50
+    end_line: 62
+  diff_hash: 8281470a73c3b7f8b0f7015bf895a3bc0299318624261cd6f3a50503d275c39f
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: google__oss-fuzz__projects__guice__build.sh
+  hunks:
+  - start_line: 16
+    end_line: 23
+  - start_line: 33
+    end_line: 40
+  diff_hash: f02cc4df8783e20834619e26e7f3726098ab1e57f59a31192fefa54f28a03fb5
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: google__oss-fuzz__projects__ogre__build.sh
+  hunks:
+  - start_line: 39
+    end_line: 45
+  diff_hash: acbb13b34a88b43659c2884469e6e22f921e08b05be8316fb6863c6fc538e6fe
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: google__oss-fuzz__projects__spring-cloud-commons__build.sh
+  hunks:
+  - start_line: 27
+    end_line: 52
+  diff_hash: bdc0104ade463e9a53f3520473367906a2f1037e6fa4236c79dff7f94a4e0ac2
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: google__oss-fuzz__projects__tensorflow__build.sh
+  hunks:
+  - start_line: 122
+    end_line: 129
+  diff_hash: 919bc30c67eb211a568e8ba7777ca04a43920be713578ade5b251ce0a617b736
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: google__oss-fuzz__projects__usbguard__build.sh
+  hunks:
+  - start_line: 68
+    end_line: 74
+  diff_hash: 97819f15e7cdf703c46ea97be42a55c4ce27a84a713e24dfe90a5e01bdbc0711
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: google__oss-fuzz__projects__xmlpull__build.sh
+  hunks:
+  - start_line: 16
+    end_line: 23
+  diff_hash: 4c324f425dc5cccec04def514023ee94caba079a168b1ee69dcbbabf7fde52c6
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: helmuthdu__aui__lilo
+  hunks:
+  - start_line: 1036
+    end_line: 1042
+  - start_line: 1097
+    end_line: 1103
+  - start_line: 1162
+    end_line: 1168
+  - start_line: 1193
+    end_line: 1199
+  - start_line: 3117
+    end_line: 3123
+  diff_hash: 21442dfe11689af2a522746a46b23e0d078fb43fcd0f385f9d585bab627c9ce1
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: helmuthdu__aui__sharedfuncs
+  hunks:
+  - start_line: 97
+    end_line: 116
+  - start_line: 133
+    end_line: 139
+  - start_line: 161
+    end_line: 187
+  - start_line: 194
+    end_line: 200
+  - start_line: 254
+    end_line: 260
+  - start_line: 299
+    end_line: 305
+  - start_line: 307
+    end_line: 313
+  - start_line: 317
+    end_line: 323
+  - start_line: 338
+    end_line: 370
+  - start_line: 373
+    end_line: 379
+  - start_line: 384
+    end_line: 390
+  - start_line: 398
+    end_line: 411
+  - start_line: 417
+    end_line: 430
+  - start_line: 437
+    end_line: 443
+  - start_line: 459
+    end_line: 480
+  - start_line: 488
+    end_line: 494
+  - start_line: 510
+    end_line: 516
+  - start_line: 542
+    end_line: 548
+  - start_line: 557
+    end_line: 597
+  - start_line: 601
+    end_line: 614
+  - start_line: 639
+    end_line: 645
+  diff_hash: cccff3184e6451b10cd29cbaf6ef4e265b35462bc896688566b2d5f7a186edf4
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: hwdsl2__setup-ipsec-vpn__extras__ikev2setup.sh
+  hunks:
+  - start_line: 208
+    end_line: 214
+  diff_hash: c6d7b163cd8e812c2be86a44fc3234389d0afa13a5756d9676573b91d73d9703
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: hwdsl2__setup-ipsec-vpn__vpnsetup.sh
+  hunks:
+  - start_line: 205
+    end_line: 211
+  diff_hash: f0ec995458430b0ad3a4d7086938d55512a3753ad1c52c437639323fcfc4fc27
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: hwdsl2__setup-ipsec-vpn__vpnsetup_alpine.sh
+  hunks:
+  - start_line: 144
+    end_line: 150
+  diff_hash: 901a89075889679a3501a1db483f86e9466f7fb1a91a6fcda66a62b8142c20f5
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: hwdsl2__setup-ipsec-vpn__vpnsetup_amzn.sh
+  hunks:
+  - start_line: 130
+    end_line: 136
+  diff_hash: 30a4c03f94080e120207a6b138058041c51b009e8652d1ad6162e47a3d81c534
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: hwdsl2__setup-ipsec-vpn__vpnsetup_centos.sh
+  hunks:
+  - start_line: 182
+    end_line: 188
+  diff_hash: 25d81b8b581f7f9ca116b081ceac13d93516761116ae2b8fdd772d690a5471bc
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: hwdsl2__setup-ipsec-vpn__vpnsetup_ubuntu.sh
+  hunks:
+  - start_line: 178
+    end_line: 184
+  diff_hash: abb48e1f6f2943c933b4dd565572fa462d95bb981b39b28ac8ccaec5f9e5906b
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: itzg__docker-minecraft-server__scripts__start-deployKetting
+  hunks:
+  - start_line: 4
+    end_line: 15
+  diff_hash: 02050bcb797f82aeb349e8bced636c5dfb23589e86aeb0ba63eb47a30d0cfbc0
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: itzg__docker-minecraft-server__scripts__start-deployLeaf
+  hunks:
+  - start_line: 22
+    end_line: 39
+  diff_hash: 38eca3417fa17b35466d4592c1d589ecfd5ed36d12bb7ee57ef12393d9d643dc
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: itzg__docker-minecraft-server__scripts__start-deployMohist
+  hunks:
+  - start_line: 27
+    end_line: 35
+  diff_hash: 38f305427ff51b5594149888597b188363e9a7d1b2367350818ae90c9ac36f6f
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: itzg__docker-minecraft-server__scripts__start-deployNanoLimbo
+  hunks:
+  - start_line: 4
+    end_line: 15
+  diff_hash: e4186e7acb14c61dc9910c65db6a72800a7050c77e598f84b87078a667cd7d48
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: itzg__docker-minecraft-server__scripts__start-deployPoseidon
+  hunks:
+  - start_line: 22
+    end_line: 33
+  diff_hash: 935b937c89ce410e3a550c6bb4d6de8c7411313b0a58bf43d8c37a26ae646a9d
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: jessfraz__dotfiles__.bash_prompt
+  hunks:
+  - start_line: 50
+    end_line: 56
+  diff_hash: 28e7209b0356cfe6a068cb5ee53a6fd2b9e6cd33ab46eb64580132626bd7b74b
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: jessfraz__dotfiles__.dockerfunc
+  hunks:
+  - start_line: 50
+    end_line: 71
+  diff_hash: 59aa2a775f32f8f10a9021de71a7e226807ac0b195b0e524fd1a8fffbe707273
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: jessfraz__dotfiles__bin__install.sh
+  hunks:
+  - start_line: 255
+    end_line: 261
+  diff_hash: ec97ffec45f2641322ace1e09528eadc4036b2ddd19994f3be04537973e8b904
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: juewuy__ShellCrash__scripts__menus__6_core_config.sh
+  hunks:
+  - start_line: 19
+    end_line: 25
+  diff_hash: 41a5163f9ec6d778f7bb044494b7d6ab959589d2f1d293f45eece639d1b87e08
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: juewuy__ShellCrash__scripts__menus__9_upgrade.sh
+  hunks:
+  - start_line: 1101
+    end_line: 1107
+  diff_hash: 089e551bbcaba7055e448121f7951c6ce31e3b2a9aacd5e6734814cfcd1e3e12
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: juewuy__ShellCrash__scripts__menus__bot_tg.sh
+  hunks:
+  - start_line: 283
+    end_line: 289
+  diff_hash: 5989172f5c0e05427d1e87334f65c3611dd8ccd344e61d0a98be7ed4f9c49485
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: juewuy__ShellCrash__scripts__starts__afstart.sh
+  hunks:
+  - start_line: 42
+    end_line: 48
+  diff_hash: a5c25ef49c690e9e0798e54a0ac616c75d940a4467b48711d356ed52aa3c5271
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: juewuy__ShellCrash__scripts__starts__clash_modify.sh
+  hunks:
+  - start_line: 154
+    end_line: 160
+  diff_hash: 4304df09a8ee42780572d445a413c539f4f0ad9de1484339706203b006a313e9
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: juewuy__ShellCrash__scripts__starts__fw_nftables.sh
+  hunks:
+  - start_line: 101
+    end_line: 107
+  diff_hash: 636a6ecea12193c0767c545fa16f5a17e9708eba29cb4cf11144c5317850b781
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: ko1nksm__shellspec__contrib__bugs.sh
+  hunks:
+  - start_line: 346
+    end_line: 352
+  diff_hash: 21c2425ef85f4c2342ad315685eda91faf60134c284482227fe0f91145d354a0
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: ko1nksm__shellspec__install.sh
+  hunks:
+  - start_line: 295
+    end_line: 301
+  diff_hash: 5ad7fb465fec6af1b2819f2e477430aa586155e7b876242cdf061bbab056f27d
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: ko1nksm__shellspec__lib__core__dsl.sh
+  hunks:
+  - start_line: 157
+    end_line: 168
+  - start_line: 532
+    end_line: 542
+  diff_hash: 0336f42cf73523034b3fe1388c3a7f966844b0a800bb76103882add680d7a83e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: ko1nksm__shellspec__lib__core__evaluation.sh
+  hunks:
+  - start_line: 89
+    end_line: 95
+  - start_line: 254
+    end_line: 260
+  diff_hash: 0f3f0794032d83eccd9448634d46e92b11a67852c61566ccaed961d08bf012ce
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: ko1nksm__shellspec__lib__libexec.sh
+  hunks:
+  - start_line: 47
+    end_line: 53
+  - start_line: 167
+    end_line: 173
+  diff_hash: 252b56063a05e2c79a195940dd65e885c28254935211c843f9f87b40446ae39a
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: ko1nksm__shellspec__lib__libexec__list.sh
+  hunks:
+  - start_line: 18
+    end_line: 26
+  - start_line: 42
+    end_line: 48
+  diff_hash: bc3ea24b842c1038890c1532835039e14c2345f0d9b6a19586d6d0b2d9d974b7
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: ko1nksm__shellspec__lib__libexec__optparser__parser_definition_generated.sh
+  hunks:
+  - start_line: 622
+    end_line: 628
+  - start_line: 1102
+    end_line: 1108
+  - start_line: 1112
+    end_line: 1118
+  diff_hash: 44b329f538d1ae036040cb45f7a6fe23b1f891567d11c5e826fa7ba6c36f748d
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: ko1nksm__shellspec__lib__libexec__reporter.sh
+  hunks:
+  - start_line: 98
+    end_line: 104
+  diff_hash: e886130f3f48afac2fbb3e8fdc82b04a772395759118d8b515258a23b3c763a1
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: ko1nksm__shellspec__lib__libexec__reporter__documentation_formatter.sh
+  hunks:
+  - start_line: 21
+    end_line: 27
+  - start_line: 29
+    end_line: 35
+  diff_hash: fb5a2ad7065af265be5c906e5186f63cd651565abc4f94d8950d77f71444bb1b
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: ko1nksm__shellspec__libexec__shellspec-inspection.sh
+  hunks:
+  - start_line: 35
+    end_line: 41
+  - start_line: 64
+    end_line: 70
+  - start_line: 271
+    end_line: 276
+  diff_hash: a00f3eb41599a3572bead7b5d399ad5c685a4dc0137bb275cfd63bc4ab701948
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: ko1nksm__shellspec__libexec__shellspec-list.sh
+  hunks:
+  - start_line: 37
+    end_line: 43
+  diff_hash: ddb2a77bdb3b4bc4f57ab89db4543bf7245509f2862b2805fd07eb94974a13f1
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: ko1nksm__shellspec__libexec__shellspec-runner.sh
+  hunks:
+  - start_line: 24
+    end_line: 30
+  - start_line: 195
+    end_line: 203
+  diff_hash: 997903fb13f2dc085faf7c799b37743f59ba3f9c41e00f8be18cf7dedda8c4f3
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: ko1nksm__shellspec__libexec__shellspec-syntax-check.sh
+  hunks:
+  - start_line: 58
+    end_line: 64
+  diff_hash: 3a1b067c5d53ff58b3fde1ea58d0753aa12d77d3d5345269d40c352761bf9806
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: ko1nksm__shellspec__shellspec
+  hunks:
+  - start_line: 475
+    end_line: 481
+  diff_hash: baa97e68dfc2e3bd0b5ec1f49fd936ef06520ecbc74d459b61621b4d9c7ce0b2
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: ko1nksm__shellspec__spec__libexec__prechecker_spec.sh
+  hunks:
+  - start_line: 74
+    end_line: 80
+  - start_line: 101
+    end_line: 107
+  diff_hash: c2490adff32f4dc347d1e0dfd3e6df73a51bb701a1f0edda38a5d8bc3dd581b0
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: ko1nksm__shellspec__spec__libexec_spec.sh
+  hunks:
+  - start_line: 213
+    end_line: 222
+  diff_hash: 67b87e1de24f3d0583295384e58faad49773900add69b69bdd662b17c08e3be2
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: kward__shunit2__lib__versions
+  hunks:
+  - start_line: 216
+    end_line: 222
+  diff_hash: ffd797a4209552fabe1fe2a43d5d4a9ded53b1c6ef3387e748404ebe3085cc53
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: kward__shunit2__shunit2_failures_test.sh
+  hunks:
+  - start_line: 42
+    end_line: 50
+  - start_line: 52
+    end_line: 58
+  diff_hash: 87823a8df1417b00cbbe00eca62180247f302775c9c97a0a8879bc76984a5bb1
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: kward__shunit2__shunit2_xml_time_test.sh
+  hunks:
+  - start_line: 101
+    end_line: 107
+  diff_hash: ee30fc1a6d8aa5389638d0e25cdba87ace45200d3881ecbe62a73db14e518c67
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: kward__shunit2__test_runner
+  hunks:
+  - start_line: 100
+    end_line: 108
+  diff_hash: ac5e67d62e7dacd439aaaca3dc350b07cc38d9ed627c8ee4a0b80a165aff9bb5
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: leebaird__discover__dev-container-scanner.sh
+  hunks:
+  - start_line: 768
+    end_line: 774
+  diff_hash: 1a0e923a29f88f73615148eea981a98c3a3550ade8fea556ae7eb6a9963f6f3e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: leebaird__discover__misc__crack-wifi.sh
+  hunks:
+  - start_line: 397
+    end_line: 403
+  diff_hash: e9ff3e43872017a0da40f01a36d3c14760e1faa9cacb9b397661d048d7cbd2a9
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: lmc999__RegionRestrictionCheck__check.sh
+  hunks:
+  - start_line: 1057
+    end_line: 1063
+  diff_hash: a92283b1ee1588fe537ade0b50ef3d00605b0a1b7ce2599aae067f24ee97e539
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: masonr__yet-another-bench-script__yabs.sh
+  hunks:
+  - start_line: 708
+    end_line: 723
+  - start_line: 954
+    end_line: 960
+  diff_hash: b8db03e6a70e15dfe50fb53c8d157a92964dbe15e821f76e5215b4d675831c00
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: megastep__makeself__makeself.sh
+  hunks:
+  - start_line: 450
+    end_line: 456
+  - start_line: 861
+    end_line: 867
+  diff_hash: 66db37ccea36a1c9cf92be539cb3e69cee6fde8f9152df067a015b848d4ea1a0
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: megastep__makeself__test__run-testlinter.sh
+  hunks:
+  - start_line: 19
+    end_line: 28
+  diff_hash: 83031da4664396b63289b96c23b6f0d1eace25ec7451f2c1e40e88858556ab9f
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: moovweb__gvm__examples__native__depcomp
+  hunks:
+  - start_line: 119
+    end_line: 127
+  - start_line: 555
+    end_line: 563
+  diff_hash: b6e6d424dcd3afbccb6c392b3e4421c6e415d16817992a9ee2bd0e0f2170b14d
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: moovweb__gvm__examples__native__install-sh
+  hunks:
+  - start_line: 150
+    end_line: 156
+  - start_line: 298
+    end_line: 327
+  - start_line: 342
+    end_line: 352
+  - start_line: 445
+    end_line: 451
+  - start_line: 480
+    end_line: 497
+  - start_line: 507
+    end_line: 539
+  diff_hash: b73bc579bcedd7ef4b21a24b544fffafa3148a1169e34b883a02fcabd3a8efc6
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: moovweb__gvm__scripts__function__find_path_upwards
+  hunks:
+  - start_line: 21
+    end_line: 28
+  diff_hash: eed3d8c1d9c7dfdd02e6076104fe362329e95baf3f6eeb419dd89b3037e5c21a
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: nextcloud__docker__generate-stackbrew-library.sh
+  hunks:
+  - start_line: 40
+    end_line: 53
+  - start_line: 77
+    end_line: 83
+  diff_hash: 19bd94e4c9c41118a521dcfd9baa94302dc0ebc2f10314c46b2608a3b48f30de
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: nextcloud__docker__update.sh
+  hunks:
+  - start_line: 183
+    end_line: 192
+  diff_hash: 26a505e59397d0036a24a43bba3cf56665d350245a1bd9fe24f9e05b7b8e5c2e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: nvm-sh__nvm__install.sh
+  hunks:
+  - start_line: 344
+    end_line: 350
+  diff_hash: ca60206e32695105b7f912e2505ab1f75ddd6f21cd649b78f300e3abb0019258
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: nvm-sh__nvm__nvm.sh
+  hunks:
+  - start_line: 384
+    end_line: 394
+  - start_line: 398
+    end_line: 434
+  - start_line: 873
+    end_line: 880
+  - start_line: 1582
+    end_line: 1590
+  - start_line: 1593
+    end_line: 1602
+  - start_line: 1716
+    end_line: 1724
+  - start_line: 1756
+    end_line: 1763
+  - start_line: 1772
+    end_line: 1782
+  - start_line: 2431
+    end_line: 2438
+  - start_line: 3362
+    end_line: 3368
+  diff_hash: e1027d21cbc8b60ca7fc7a4fd10d2e47998e53178cf9ce68c746839f58e7186a
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: nvm-sh__nvm__test__fast__Unit tests__nvm_install_no_progress_bar
+  hunks:
+  - start_line: 82
+    end_line: 88
+  diff_hash: 30a44d64272db1bd06606a7617eb3be6dbf1a50240c06ed8d13c8d4fefb4960a
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: ohmyzsh__ohmyzsh__plugins__gitfast__git-prompt.sh
+  hunks:
+  - start_line: 482
+    end_line: 499
+  diff_hash: 6c9cf691a5b1b7cd263fe440fa4bf7f5dd6eae33fde71fb48e316b804bd4ef63
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: openrc__openrc__test__check-obsolete-functions.sh
+  hunks:
+  - start_line: 4
+    end_line: 14
+  diff_hash: baa50850aa9e3a94f04f47e84a4e923a13fb8c794eb8446baeb81e9f64bed5ca
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: openrc__openrc__test__check-spacing-style.sh
+  hunks:
+  - start_line: 4
+    end_line: 21
+  diff_hash: cc1d332173e41680ff88ad06b513eec8a11dac7de8012748ac9f9f78c50cd505
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: openrc__openrc__test__check-trailing-whitespace.sh
+  hunks:
+  - start_line: 5
+    end_line: 15
+  diff_hash: c9580bd59a7ba20669501e471a254c08a144c85573d674a15e40bdc0adfdcc58
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: openrc__openrc__test__check-xfunc-usage.sh
+  hunks:
+  - start_line: 4
+    end_line: 19
+  diff_hash: 2228f66645af314551c0f310b5d5483b9df6367b09334ac23068578205ae5ae9
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: openvpn__easy-rsa__easyrsa3__easyrsa
+  hunks:
+  - start_line: 806
+    end_line: 812
+  - start_line: 1121
+    end_line: 1127
+  - start_line: 1159
+    end_line: 1195
+  - start_line: 1550
+    end_line: 1556
+  - start_line: 3127
+    end_line: 3133
+  - start_line: 4742
+    end_line: 4749
+  - start_line: 5129
+    end_line: 5139
+  - start_line: 5830
+    end_line: 5836
+  - start_line: 6464
+    end_line: 6547
+  - start_line: 6706
+    end_line: 6714
+  - start_line: 6865
+    end_line: 6887
+  diff_hash: deea67c138bfad7f69394fa184006decce5b9c0da11778a359fb4abe400f0b9c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: paulirish__dotfiles__bin__git-overwritten
+  hunks:
+  - start_line: 104
+    end_line: 109
+  diff_hash: 0f08718a9d1492c92817d7bcbd5fd87db8e649be2b041fe22b77c22a64ac653a
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: pi-hole__pi-hole__advanced__Scripts__piholeDebug.sh
+  hunks:
+  - start_line: 583
+    end_line: 593
+  diff_hash: 8f6ae2aa5a8038fa5d9b66898384303f1fe7b07cfc9cd4be095efb393e9e60f4
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: pi-hole__pi-hole__automated install__basic-install.sh
+  hunks:
+  - start_line: 168
+    end_line: 179
+  - start_line: 888
+    end_line: 899
+  - start_line: 2133
+    end_line: 2139
+  diff_hash: 2dcb80a38596eec4d5b4423dcc158451dfa5f5c9a6404617dd564d97ec78842b
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: pi-hole__pi-hole__gravity.sh
+  hunks:
+  - start_line: 492
+    end_line: 502
+  diff_hash: 68712921c86e68f07e3f3c2551c8a41d2f19a860742d8c282affeadcadde5dec
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: pyenv__pyenv__libexec__pyenv
+  hunks:
+  - start_line: 14
+    end_line: 22
+  diff_hash: a738c55679902443937ce92628c9c872a0772b4b83362fb76dbe1b1e2bdfafab
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: pyenv__pyenv__libexec__pyenv-latest
+  hunks:
+  - start_line: 62
+    end_line: 82
+  diff_hash: 17c60508e0f23e786961444b75cd9a376208271777edaa0bf53b9def678ccfe9
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: pyenv__pyenv__libexec__pyenv-rehash
+  hunks:
+  - start_line: 19
+    end_line: 25
+  - start_line: 69
+    end_line: 76
+  diff_hash: 89da13bdf39430ad3d2189838d3f35720620314b48f7b6734ec33d566d235c9c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: pyenv__pyenv__libexec__pyenv-versions
+  hunks:
+  - start_line: 167
+    end_line: 173
+  diff_hash: cc7ad642582cd97708355955e0d16a2695d43e1b12785c1ff4027dc1bdfb7664
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: pyenv__pyenv__plugins__python-build__bin__python-build
+  hunks:
+  - start_line: 101
+    end_line: 109
+  - start_line: 247
+    end_line: 254
+  - start_line: 1557
+    end_line: 1564
+  diff_hash: e86bbb0460cb66df550c680a49f03cd51b0081c282a320f92215aa206a31ccae
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: pyenv__pyenv__plugins__python-build__test__test_helper.bash
+  hunks:
+  - start_line: 82
+    end_line: 90
+  - start_line: 123
+    end_line: 131
+  diff_hash: 22bdddd0e638abaabc33ec9238e3219cef74090887a42ca30d2250bd455f9993
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: pyenv__pyenv__test__test_helper.bash
+  hunks:
+  - start_line: 48
+    end_line: 56
+  - start_line: 86
+    end_line: 94
+  diff_hash: db6d0d24ecc6bdc2ade88eb2f465ca56f2eba9e39aa7ff52764756945f373b36
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: pystardust__ani-cli__ani-cli
+  hunks:
+  - start_line: 141
+    end_line: 153
+  - start_line: 504
+    end_line: 510
+  diff_hash: 6496515e80d42f3f1aa84829d61b78a95a62770066180308fe8d7b8006edef5b
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rbenv__rbenv__libexec__rbenv
+  hunks:
+  - start_line: 14
+    end_line: 22
+  diff_hash: 352a6dc5f72057e43d277c9f761ec4c862186b19e126b81d7356108bebae8dbb
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rbenv__rbenv__test__test_helper.bash
+  hunks:
+  - start_line: 27
+    end_line: 35
+  - start_line: 63
+    end_line: 71
+  diff_hash: 7e3ab1d11eea02eac16de4eff115b6a6052cc05c10f992225674c2a6ee3fd178
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: romkatv__powerlevel10k__gitstatus__gitstatus.plugin.sh
+  hunks:
+  - start_line: 426
+    end_line: 433
+  diff_hash: 58a349fbd27e87dda67b407c91fb9362d5e25b59b7be098fe4fc477d7a803059
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__binscripts__rvm-installer
+  hunks:
+  - start_line: 497
+    end_line: 504
+  diff_hash: b0dd85b18f1598503a2e78ececcad005b9feb3c4d4c9b536a5ab9abee106063c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__contrib__ps1_functions
+  hunks:
+  - start_line: 56
+    end_line: 69
+  diff_hash: a8ae1c883542cbf8de55a13c9838547bec398d14750cb083cea1cbb82d6d317e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__base
+  hunks:
+  - start_line: 4
+    end_line: 20
+  diff_hash: a6959fea2488ed24ad3ebb86060c95339f1513483bb07bba53aa6034de9e0718
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__cleanup
+  hunks:
+  - start_line: 55
+    end_line: 62
+  - start_line: 97
+    end_line: 104
+  diff_hash: 4ad3f585436559975816cd9e3f6f120b05c60b3d65a2279a82eccf9f8480d913
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__fix-permissions
+  hunks:
+  - start_line: 23
+    end_line: 30
+  diff_hash: 2589f83312880d98451e7ed85489ff1b389dcdd714fd4af3aeb409705a99cf49
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__build_config
+  hunks:
+  - start_line: 155
+    end_line: 161
+  diff_hash: 9996e208bfe9538a27310ea9c0903af2128f0675731c340d5d31e65f3fe65374
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__build_requirements_helpers
+  hunks:
+  - start_line: 68
+    end_line: 75
+  - start_line: 133
+    end_line: 142
+  diff_hash: 207de8915ec70b1a422c388b6831b79b29cdec749bdbbb7e5664a7546ec58e4c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__build_undesired_helpers
+  hunks:
+  - start_line: 22
+    end_line: 29
+  diff_hash: 6cc0812d8e0e2b9257e5a5a34ae701e053daf154230d07db587028b594784a1a
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__checksum
+  hunks:
+  - start_line: 68
+    end_line: 76
+  diff_hash: 8520f6c0ee03198e8412ad8dfd32ea2c6a274e2718a75ac4ad819c29e300fa98
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__env
+  hunks:
+  - start_line: 213
+    end_line: 221
+  diff_hash: c0433f15be8dfaeda0b217636d1a23f2259f76f89812c6cdcd046d426a7f2ac9
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__gemset
+  hunks:
+  - start_line: 331
+    end_line: 337
+  - start_line: 426
+    end_line: 433
+  - start_line: 480
+    end_line: 486
+  diff_hash: 5217f9d0529becf8d89a79e36d6435ef38eafa5f902f6b37523f2e49c3d90863
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__manage__base
+  hunks:
+  - start_line: 26
+    end_line: 33
+  - start_line: 98
+    end_line: 106
+  diff_hash: ce60e974a3f9f3c2b8656a64c6c975974c4c188b4215c6331ba6073722c61fce
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__manage__base_remove
+  hunks:
+  - start_line: 149
+    end_line: 156
+  diff_hash: 4ab5d09c653260c35bf59cc99f61dab9cb3d31285446acebd4743e0cd98a5747
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__pkg
+  hunks:
+  - start_line: 47
+    end_line: 54
+  diff_hash: 28168e162f3f93a535f7c30915a1982afd0a9d23914ffc79ae16adc40e2bae5a
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__requirements__opensuse
+  hunks:
+  - start_line: 20
+    end_line: 26
+  diff_hash: 101c27106e7d68a3cf5220ca82e63ce710831b09eb31297d6cd618c3c579090f
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__requirements__osx_brew
+  hunks:
+  - start_line: 102
+    end_line: 109
+  diff_hash: 91a7c7feff07497fd8911709b1f662a18c20a11773a78a09d418ba7cf2c75fd5
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__requirements__osx_fink
+  hunks:
+  - start_line: 1
+    end_line: 7
+  diff_hash: 77f16582fde31671eb40ee9150da73c7c492bf2fb2ac877982a4830e2decfcea
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__requirements__osx_port
+  hunks:
+  - start_line: 1
+    end_line: 7
+  - start_line: 153
+    end_line: 164
+  diff_hash: e2d3cb0375e24ba34254924b2ade6d39af7a82e2f6cae9817abd68d69fb56792
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__requirements__smf
+  hunks:
+  - start_line: 1
+    end_line: 7
+  diff_hash: 7407bc41a092e8e2986cc2610fc29f7d95d44bd1bcc61700449d60f95644c60c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__reset
+  hunks:
+  - start_line: 49
+    end_line: 59
+  diff_hash: bf2497871d3beae9d17eab9e1024cb246b3077b80b6daccd58ea433b1dc65a03
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__rubygems
+  hunks:
+  - start_line: 350
+    end_line: 362
+  diff_hash: 2ca7e43ddf409af8b5530edcd9f00a24df3ac14620b823b92f60e0e1c9faccbb
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__rvmrc_env
+  hunks:
+  - start_line: 37
+    end_line: 45
+  diff_hash: 78bec938edf03dd9d14db5f2f548c9b00d01d060b98267d982477dc370d129d5
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__selector
+  hunks:
+  - start_line: 68
+    end_line: 74
+  - start_line: 280
+    end_line: 286
+  - start_line: 409
+    end_line: 416
+  diff_hash: c4f49d7bcc7dcbe927a039b1b5d50d50a2de924ce06fcaf4aa07d14b864760a0
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__selector_late
+  hunks:
+  - start_line: 33
+    end_line: 51
+  diff_hash: 15acd46873b0e78212ac1e687ce74c6542fa3c18397fdd5f0c702da569cad7b8
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__selector_parse
+  hunks:
+  - start_line: 15
+    end_line: 25
+  diff_hash: a62e3e8b8415364631360ce8742de47a801465c902bbc2f0c636e70990a94808
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__functions__utility_logging
+  hunks:
+  - start_line: 45
+    end_line: 53
+  diff_hash: 957ae4152a4b09dff85d62bd76767798fa08005ab3e772c21de56029181f216c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__gemsets
+  hunks:
+  - start_line: 55
+    end_line: 63
+  - start_line: 73
+    end_line: 81
+  - start_line: 538
+    end_line: 545
+  diff_hash: 68a5f9ea049806eb6915d750859a2fcb3c52184292ae67bfbaae9e969e0f1071
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__hook
+  hunks:
+  - start_line: 31
+    end_line: 44
+  diff_hash: 93c4a0dd255f837d1e3088440564cf487ffb4974a6f052db9f445fa1e7880f20
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__info
+  hunks:
+  - start_line: 34
+    end_line: 41
+  diff_hash: cc6b9e2240bd1d6b1de392d53fe2c2cf9678b90938891ce07b92ac981eacc01a
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__list
+  hunks:
+  - start_line: 51
+    end_line: 58
+  - start_line: 98
+    end_line: 104
+  - start_line: 166
+    end_line: 173
+  - start_line: 214
+    end_line: 220
+  diff_hash: 0a3a504fcd8707be8d13c4a80fbd29b48e2a6212cce3e270d2213194e61dbc63
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__migrate
+  hunks:
+  - start_line: 157
+    end_line: 171
+  - start_line: 242
+    end_line: 249
+  diff_hash: 4f4f23ec29891f19a200d65b9ff43875153c06313838eb8d1ecdaa109254e278
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__mount
+  hunks:
+  - start_line: 19
+    end_line: 27
+  - start_line: 51
+    end_line: 68
+  - start_line: 149
+    end_line: 155
+  - start_line: 436
+    end_line: 447
+  - start_line: 534
+    end_line: 540
+  - start_line: 547
+    end_line: 556
+  diff_hash: 14db69cb49b61c41b7ad4449784c3ccdde470c50f8a76b0eda09fabc42413e21
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__osx-ssl-certs
+  hunks:
+  - start_line: 7
+    end_line: 15
+  diff_hash: f507b550e82386323bf3858c4f80047be4a84c19b4eb6085bb63609413d7cef8
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__repair
+  hunks:
+  - start_line: 28
+    end_line: 34
+  - start_line: 109
+    end_line: 117
+  diff_hash: f5990425855f42ff812f0697ae65ce225b1c9dfb401d1190abf25640d7d3eecc
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: rvm__rvm__scripts__rvm
+  hunks:
+  - start_line: 46
+    end_line: 62
+  diff_hash: 2eee43eb08ec129bca069e66e020b9aae8e042da1d921288d86c882fd04146bd
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__bash_completion.d__000_bash_completion_compat.bash
+  hunks:
+  - start_line: 63
+    end_line: 69
+  diff_hash: c6f678d700d645d025c75c0ee06a9e33a174794fbe8d995bd520f88f90106aab
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__arch.bash
+  hunks:
+  - start_line: 43
+    end_line: 48
+  diff_hash: 4ff09275aa8b44ce7a112bac6a8f38a5eec374535a37d9341f0cac927f5c5a17
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__configure.bash
+  hunks:
+  - start_line: 31
+    end_line: 38
+  diff_hash: 5682dcddbbda1805194ba56afe484f2522ec8d745331650f7f93f47e15977077
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__convert.bash
+  hunks:
+  - start_line: 53
+    end_line: 58
+  diff_hash: 085e53e6452fc02fefc06ece8afd06f037c19c792ac543ec523000303aedc579
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__cvs.bash
+  hunks:
+  - start_line: 255
+    end_line: 261
+  diff_hash: 15e806a53f8167e79281fee431e7832df982c264cb82626fe774bf5adefa423a
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__dpkg.bash
+  hunks:
+  - start_line: 3
+    end_line: 31
+  diff_hash: af6c9610585f90ecd2173413c7460d33ca69cc98da3c1ecb82f657405cc8a336
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__env.bash
+  hunks:
+  - start_line: 8
+    end_line: 14
+  diff_hash: 0b701c6ca483ada3e47157d254c61f9df593bf9c9e7266948036ee96693eaafd
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__gcc.bash
+  hunks:
+  - start_line: 66
+    end_line: 75
+  diff_hash: 8a621b282469d04d3c5381821ecbc61276b838bc9f470eec654a39621b09c697
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__gdb.bash
+  hunks:
+  - start_line: 30
+    end_line: 36
+  diff_hash: c4b34564c26c8a1d8b2e7b2a2abdb53f906f1c8155c9c2f78000e326fdb092d3
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__ip.bash
+  hunks:
+  - start_line: 105
+    end_line: 119
+  - start_line: 537
+    end_line: 549
+  diff_hash: 026e7462cde4e73baf7d66a0d72f8b00d8907e646d8ee0115ac799441c3d0393
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__java.bash
+  hunks:
+  - start_line: 70
+    end_line: 76
+  diff_hash: 4ba31f1b86fbd8c5b878c71a75541db394454f95c6a33392f21fbfc9aa8ee567
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__perl.bash
+  hunks:
+  - start_line: 46
+    end_line: 54
+  diff_hash: 5c78922e90e9e9aa37be99283565268f806ea55ca7ab66245cd6318085cfb300
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__pkg-get.bash
+  hunks:
+  - start_line: 65
+    end_line: 70
+  diff_hash: 6413e740157c124bc5b8502951253881278abf08836ace69ce7740bd573ee6cc
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__postsuper.bash
+  hunks:
+  - start_line: 16
+    end_line: 28
+  diff_hash: 524a692f600fefaf91b4359f3e6cdda5238601ac05c1fe35bbe64b86015465a1
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__ps.bash
+  hunks:
+  - start_line: 57
+    end_line: 64
+  diff_hash: 05b652afbdbcb34bafb6bf6a8c1af2dbd7a3752797732107f24835191fbedc76
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__python.bash
+  hunks:
+  - start_line: 92
+    end_line: 98
+  diff_hash: d16e792b297c198266fa3d53ebc65fda642fac95f1b297f6ecee1697161c5ee3
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__ri.bash
+  hunks:
+  - start_line: 21
+    end_line: 36
+  - start_line: 95
+    end_line: 111
+  diff_hash: 00693ec5e19872836cf8851291c91b8ef16123d245ffce52e6cbd8ac789563d6
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__screen.bash
+  hunks:
+  - start_line: 113
+    end_line: 118
+  diff_hash: 83cfeb7b1c93645e69e5e18d78b2991c42a3b80f662c86e066a0987a6ca8fc04
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__svcadm.bash
+  hunks:
+  - start_line: 78
+    end_line: 84
+  diff_hash: 3321a0e1c487d2a4f86d5a36735346d6ef1b710ccf842c72218ad1523603891e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__tmux.bash
+  hunks:
+  - start_line: 229
+    end_line: 238
+  diff_hash: c0784f42c6fdb955e7032803ad7bd0ed251da3e780fbb0cd0d209ba1afeca127
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__tshark.bash
+  hunks:
+  - start_line: 105
+    end_line: 111
+  diff_hash: ae9e031cf903fa169962e4c997e53c09c532aca50092fdcd89dcad4c998561fc
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__update-alternatives.bash
+  hunks:
+  - start_line: 82
+    end_line: 92
+  diff_hash: e4f9b79480aabd22835c5529712175d1e081a0f4356242c99ee0b060025601f3
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__wol.bash
+  hunks:
+  - start_line: 14
+    end_line: 19
+  diff_hash: adc4bcbef84388159b6eb6eb75635d783de120198ddbd08d81e3038af544c923
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-core__xfreerdp.bash
+  hunks:
+  - start_line: 59
+    end_line: 67
+  diff_hash: a5ca266d7e8f72d286a4de6e24cad22f693ea562d1b4c0e9ed479b8f4d7d86cf
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: scop__bash-completion__completions-fallback__umount.linux.bash
+  hunks:
+  - start_line: 23
+    end_line: 29
+  - start_line: 65
+    end_line: 71
+  diff_hash: 2ef619cd0f19f0c902348001d50a40e3b0e7262e18f5c5f718642b1f79a91fe1
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: super-linter__super-linter__lib__functions__buildFileList.sh
+  hunks:
+  - start_line: 26
+    end_line: 44
+  - start_line: 70
+    end_line: 96
+  - start_line: 99
+    end_line: 108
+  diff_hash: 01f95163ecb0e8d56ad43074be2e4a2dcad6a5023779fda2a143cfd808cd03d5
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: super-linter__super-linter__lib__functions__output.sh
+  hunks:
+  - start_line: 142
+    end_line: 161
+  diff_hash: 3f834d29f4a0487e0d49f7eaae6a7182981bbb5095400c8be1fea9afbeaebac8
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: super-linter__super-linter__lib__functions__setupSSH.sh
+  hunks:
+  - start_line: 13
+    end_line: 25
+  diff_hash: 9d530de98012bd45b20165c229671feb3ea1eac17c62bfccb3b902ed9d31aaae
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: super-linter__super-linter__test__lib__outputTest.sh
+  hunks:
+  - start_line: 286
+    end_line: 297
+  diff_hash: d8ec42fe401047fb56b01739f74ae1b710a7914dd5c19fa433cae5c0df8e924d
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: swoodford__aws__ec2-associate-elastic-ip.sh
+  hunks:
+  - start_line: 10
+    end_line: 16
+  diff_hash: b3e5461bf34687aa5202db6972229f326cadbd5fd046588d2cbe16335cd6672e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: swoodford__aws__s3-remove-glacier-objects.sh
+  hunks:
+  - start_line: 92
+    end_line: 98
+  diff_hash: 59c714d88b50bf94d2bb336ead31cf4ec903081a0bfc75eb8d8ed231d37e2c93
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__disabled-packages__php7__build.sh
+  hunks:
+  - start_line: 92
+    end_line: 98
+  diff_hash: 39c44bf57501e64e7e764430fe3c5fcc484e5371a10c50578e4782f0d8e05578
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__aalib__build.sh
+  hunks:
+  - start_line: 18
+    end_line: 30
+  diff_hash: 86804daa5b4515d50df57344f56ed10630218635c63ead15d9d809e9707f44af
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__deno__build.sh
+  hunks:
+  - start_line: 167
+    end_line: 175
+  diff_hash: 1370536e1ebb75d3bff267ffd2ae305b677161729023795111bb17f369c63663
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__dotnet10.0__build.sh
+  hunks:
+  - start_line: 124
+    end_line: 131
+  diff_hash: 5e6a307adc34942cd653d61847f0a6d9327e7d739d70079d0f797ac1198984b8
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__dotnet8.0__build.sh
+  hunks:
+  - start_line: 120
+    end_line: 127
+  diff_hash: b8fd68f6b934b9b4ad73a6356cdf5999469210de010086068c2b124c176ba78f
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__dotnet9.0__build.sh
+  hunks:
+  - start_line: 125
+    end_line: 132
+  diff_hash: e5846db27251492e108cfa641d95086a2691abdb90fa56c4ddf779970a23ab9c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__glulxe__build.sh
+  hunks:
+  - start_line: 5
+    end_line: 12
+  diff_hash: c2d9f1488b4e125215f4011336333648831a553386a19a675b34bc3b9b69d5c4
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__hilbish__build.sh
+  hunks:
+  - start_line: 4
+    end_line: 12
+  diff_hash: 26b87bb7beb9b6804c6e20eb3a0d9c59a7bd663ef8c40726ac406fc36ac4f138
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__jackett__build.sh
+  hunks:
+  - start_line: 48
+    end_line: 54
+  diff_hash: 996301ca8a623c695dcdb2cfb68ac8fc228838b7d59a7f22b5518dabf4ff2234
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__llama-cpp__build.sh
+  hunks:
+  - start_line: 54
+    end_line: 60
+  diff_hash: 748eebd1faca5c590fa1a4b78f57f7ba3bcf2d5c505b1170f3480197b14a1d07
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__lux-cli__build.sh
+  hunks:
+  - start_line: 18
+    end_line: 34
+  diff_hash: e6fb3adcea9d49f753344fef715ad72c9349c82c49070ed047f0f3d156b4441d
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__ncdu2__build.sh
+  hunks:
+  - start_line: 31
+    end_line: 47
+  diff_hash: 5d1681bca9dba8a7dfb36a15981dfa01ce5e8230ba11b6ad02f44b3f80f819f9
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__ncspot__build.sh
+  hunks:
+  - start_line: 38
+    end_line: 44
+  diff_hash: 15d8b31c91f71ef0843eb6a70dd170d4d737ba934f52975fa595ac5c9b922ee9
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__ncurses__build.sh
+  hunks:
+  - start_line: 14
+    end_line: 61
+  diff_hash: 4d1b5af7d110a5652e174101721d8aa775f3eeb9c026589726a0b6bb184ea182
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__opencl-vendor-driver__postinst.sh
+  hunks:
+  - start_line: 15
+    end_line: 56
+  diff_hash: 3a9c2f4faa3127a806d1a2ea8902094238528871d66334f14be0dc531664cd61
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__oxlint__build.sh
+  hunks:
+  - start_line: 14
+    end_line: 30
+  diff_hash: 9023f8c0fc4c11c8db8d885ce0a3a9ff43c31bb008df6181910e5cccaf4a40db
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__php__build.sh
+  hunks:
+  - start_line: 121
+    end_line: 130
+  diff_hash: b095a8060b2e36118c2a0003238aaa02116d58f6d53381f9b378af06b63b75de
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__privoxy__build.sh
+  hunks:
+  - start_line: 24
+    end_line: 33
+  diff_hash: 9c722956fb61e71ed8fea688e4fa24d8e205b9cc98ab7a29877b513b9b11dc83
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__rabbitmq-server__build.sh
+  hunks:
+  - start_line: 22
+    end_line: 28
+  diff_hash: 8b00f153fd4cfa501b8ed7c7477c52ea9937c0303f010de2827a2dcc14c627ec
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__samba__build.sh
+  hunks:
+  - start_line: 139
+    end_line: 145
+  diff_hash: 1451cf8a3779c8c3b47209019c0853718acabc43d99d768b81ab378dd516edb1
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__packages__zsh__build.sh
+  hunks:
+  - start_line: 82
+    end_line: 103
+  diff_hash: b9dfb784b79f02c441e6382e447337eb62c3886a1adb21285bac391e46866b45
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__bin__update-checksum
+  hunks:
+  - start_line: 62
+    end_line: 86
+  diff_hash: 3400a7553c6527f8a450e87227dad3851260f2d32eb46f1e744ed7e18608c299
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__bin__update-packages
+  hunks:
+  - start_line: 87
+    end_line: 93
+  - start_line: 128
+    end_line: 134
+  - start_line: 435
+    end_line: 441
+  - start_line: 601
+    end_line: 625
+  - start_line: 628
+    end_line: 634
+  diff_hash: 91949121390a18656cdf3f420eeb987a702ffe907310400e4fe7ed4738cb7024
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__build__setup__termux_setup_gir.sh
+  hunks:
+  - start_line: 66
+    end_line: 79
+  - start_line: 85
+    end_line: 91
+  diff_hash: a07f2ed36d791b846efa94cb8627740f59525a5a26c330d5a8edf1a16aa2f8c3
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__build__setup__termux_setup_ldc.sh
+  hunks:
+  - start_line: 46
+    end_line: 55
+  diff_hash: b14b4084b5e43488b081eb9d4802c6b03804bc32daea81c3562fb31334fc75a0
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__build__setup__termux_setup_no_integrated_as.sh
+  hunks:
+  - start_line: 33
+    end_line: 51
+  diff_hash: 4f6c895a7f5b70b3c9d892d61069b5a3ebd9fb5a9a7b89aac9959704d2007bd4
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__build__termux_download.sh
+  hunks:
+  - start_line: 36
+    end_line: 50
+  diff_hash: c427b019bab0b484639b14dc380708c40ab3ab31c5714a595e997ccc89fe47c3
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__build__termux_download_ubuntu_packages.sh
+  hunks:
+  - start_line: 52
+    end_line: 60
+  diff_hash: c1cfba83089b0f4369d0eb5c91dff075e11a3a4721c15da077e9e7241688c21b
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__build__termux_step_install_license.sh
+  hunks:
+  - start_line: 30
+    end_line: 39
+  - start_line: 50
+    end_line: 58
+  - start_line: 65
+    end_line: 71
+  diff_hash: c80cfbccdb30c580f86ac737403be3cc94eb014d5bd1136c34cfe28dc26f569b
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__build__termux_step_massage.sh
+  hunks:
+  - start_line: 272
+    end_line: 284
+  diff_hash: 5d147d59cbf18a4bb7b0a6bfdfd64c111f1d998459ff028a03f559788e3aaf28
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__build__termux_step_setup_variables.sh
+  hunks:
+  - start_line: 169
+    end_line: 175
+  - start_line: 184
+    end_line: 190
+  diff_hash: c007d976fefaedeea22cb8fe94e713cf1995687a6fa6cf9591c2ac74a0acd86c
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__lint-packages.sh
+  hunks:
+  - start_line: 822
+    end_line: 828
+  diff_hash: 8fa4de3f6fe23ef9013995a42ad06b3c2c5a2a4b0d2d34201826ce478a12bbf1
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__properties.sh
+  hunks:
+  - start_line: 2147
+    end_line: 2156
+  diff_hash: f6f2b991c88ed26580f24967e9d0d6170d26918f77230a7a0c07a5a226799387
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__setup-cgct.sh
+  hunks:
+  - start_line: 16
+    end_line: 24
+  diff_hash: aba0cbfa2bbe443d782aaf930b3c555ca62b2c666b313609f4d1fa12b66ff895
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__updates__api__termux_github_api_get_tag.sh
+  hunks:
+  - start_line: 113
+    end_line: 124
+  - start_line: 127
+    end_line: 138
+  diff_hash: 3613568e127cbec8b3bffdbdd1f24f5e1f6de4b387c5d61c27a0063921640d56
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__updates__api__termux_gitlab_api_get_tag.sh
+  hunks:
+  - start_line: 79
+    end_line: 90
+  - start_line: 93
+    end_line: 104
+  diff_hash: dbeb15318c842822fbc7db35e5185210c864ed892ef6ff0ecc9ca0bc585c21da
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__updates__internal__termux_github_graphql.sh
+  hunks:
+  - start_line: 16
+    end_line: 22
+  - start_line: 108
+    end_line: 113
+  diff_hash: a1cde5299d352bea0404dde6acf0e2ab6fbb942dff73fbd726c3a3b899570781
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__updates__utils__termux_pkg_is_update_needed.sh
+  hunks:
+  - start_line: 34
+    end_line: 43
+  diff_hash: 77dff0341f2b365693d35299fca8336e33fa7e696b45ff1630b7804b55dc16c0
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__updates__utils__termux_pkg_upgrade_version.sh
+  hunks:
+  - start_line: 159
+    end_line: 164
+  - start_line: 177
+    end_line: 182
+  diff_hash: 56464ee2714854d457e65c77fe48608a7977777c723d2510ea8069cd1c0bc7e7
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__scripts__utils__termux_reuse_pr_build_artifacts.sh
+  hunks:
+  - start_line: 29
+    end_line: 35
+  - start_line: 101
+    end_line: 112
+  - start_line: 228
+    end_line: 239
+  - start_line: 262
+    end_line: 273
+  - start_line: 282
+    end_line: 293
+  diff_hash: 03b6d46bf4cd8ff8b1ac2c97603e17c9636f90aa8cda6bffb83488573cfb023d
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__x11-packages__carbonyl-host-tools__build.sh
+  hunks:
+  - start_line: 286
+    end_line: 307
+  diff_hash: 22c0f105da69561dc7e004affc2b1d7892ae02a0f3e90473d747ea5eacb7c86e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__x11-packages__chromium-host-tools__build.sh
+  hunks:
+  - start_line: 399
+    end_line: 420
+  diff_hash: f5a03098d67164f2aacdc7ebe8051f36ba8e78c3fd4a1c3bbf24af64444c48aa
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__x11-packages__electron-host-tools-for-code-oss__build.sh
+  hunks:
+  - start_line: 344
+    end_line: 354
+  - start_line: 356
+    end_line: 366
+  diff_hash: fc2670f514b2e7b8afc908482ba9500ba6d1a62625b898d350f87a2a53ef8d28
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__x11-packages__gimp__build.sh
+  hunks:
+  - start_line: 80
+    end_line: 91
+  diff_hash: d055430dcc38a6498e7447c3e925a0b39792c3355b7faaba5b63a7976a7ca76e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__x11-packages__ncspot-mpris__build.sh
+  hunks:
+  - start_line: 38
+    end_line: 44
+  diff_hash: b61bbde087eaa844dc8ffbf4e5ce5c83b14991bea6d4905e3a0e62e0c5793bb3
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__x11-packages__wezterm-nightly__build.sh
+  hunks:
+  - start_line: 37
+    end_line: 43
+  diff_hash: de08f2b0d418e78b417dbe12086194a0b3cd41fb25618b2779f21fe5f86d1ba6
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: termux__termux-packages__x11-packages__wireshark-qt__build.sh
+  hunks:
+  - start_line: 33
+    end_line: 49
+  diff_hash: 6024320e796cc7814617bad6ab1d1f33212b758fc3b37323d15da5445b0257ce
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: tj__git-extras__bin__git-brv
+  hunks:
+  - start_line: 1
+    end_line: 8
+  - start_line: 39
+    end_line: 51
+  diff_hash: 596c5133124a552227ad82b272c646684b6f92a35922cd405bdda717ef6332b6
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: tj__git-extras__bin__git-bulk
+  hunks:
+  - start_line: 223
+    end_line: 229
+  diff_hash: be0783d51dc5a35053a9e742a3a7b444bff7e59d1b0e00d93b88d03675ecf66e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: tj__git-extras__bin__git-changelog
+  hunks:
+  - start_line: 399
+    end_line: 405
+  diff_hash: d5106021952ea6affa784e73efc1f085284c5922db2f0e096f692f0e9300c364
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: tj__git-extras__bin__git-effort
+  hunks:
+  - start_line: 74
+    end_line: 82
+  diff_hash: f6017724a90064e83ca63d0061e905c84200ce4cf47441503ae9abefffe4b614
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: tj__git-extras__bin__git-guilt
+  hunks:
+  - start_line: 70
+    end_line: 76
+  diff_hash: 204bd800e478ebf1e4a1883268b8e40cf38d9f95a11d6abb766ef73d79216b32
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: tj__git-extras__bin__git-scp
+  hunks:
+  - start_line: 60
+    end_line: 66
+  diff_hash: 6c68aa870a2ab2547ca3721b0f6f3682093f26886d575f9f7a3504e6f7c5149e
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: tj__git-extras__bin__git-sed
+  hunks:
+  - start_line: 74
+    end_line: 80
+  diff_hash: 6a61f6d67a7a1166e1b9a5bc10469a2af687cf1d2beaddb99e66a0564105c472
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: tmux-plugins__tmux-resurrect__scripts__save.sh
+  hunks:
+  - start_line: 126
+    end_line: 133
+  diff_hash: 304ab9d2725dbc4358bd1736c8ca7ecf9c3e00406971f262527af673f8caadc6
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: tmux-plugins__tpm__tests__helpers__tpm.sh
+  hunks:
+  - start_line: 8
+    end_line: 13
+  diff_hash: 197908c1815bcb3cbd144e9754817b3c8c24441b62456210f5b9c0f4fdbd3fba
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: v1s1t0r1sh3r3__airgeddon__airgeddon.sh
+  hunks:
+  - start_line: 82
+    end_line: 128
+  - start_line: 12212
+    end_line: 12250
+  - start_line: 12395
+    end_line: 12409
+  - start_line: 12422
+    end_line: 12526
+  - start_line: 18239
+    end_line: 18261
+  diff_hash: 09f2401de7d2eae67f10cea5e75640a9a57a03e7451f03cb38e096f7fdb8bd54
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: void-linux__void-packages__common__hooks__post-install__15-qt-private-api.sh
+  hunks:
+  - start_line: 45
+    end_line: 56
+  diff_hash: 43a0cfdd78abe3d1df0c45a46f0b05fa613937e0bf9ef102cb78c74ee2391e14
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: void-linux__void-packages__srcpkgs__brother-dcp197c-cupswrapper__files__cupswrapper.void
+  hunks:
+  - start_line: 152
+    end_line: 176
+  diff_hash: 4a0170c46da4e6c2dcbfa93b22f232bb77a0448cc70330a930359566278b26cb
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: void-linux__void-packages__srcpkgs__memtest86+__files__20_memtest86+
+  hunks:
+  - start_line: 24
+    end_line: 36
+  - start_line: 44
+    end_line: 56
+  diff_hash: 9d1fc354bc3ee22c1ae843bb0e4f637daa08b9033b93eb538cd47414987674a9
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: void-linux__void-packages__srcpkgs__systemd-boot__files__kernel.d__systemd-boot.post-install
+  hunks:
+  - start_line: 62
+    end_line: 76
+  diff_hash: ac0bbf48d5efb02bd0efdd3805c017857b393f11367d35088dfd1ae3939158f4
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
+- path_suffix: xwmx__nb__bin__notes
+  hunks:
+  - start_line: 65
+    end_line: 71
+  diff_hash: da91ca476b53e15b717a1aa569137c1ed1a58269593f51c2890b7ac0ea65f70f
+  reason: Known formatter difference from the shfmt oracle at this corpus snapshot.

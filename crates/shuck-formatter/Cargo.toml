@@ -23,5 +23,8 @@ shuck-parser = { workspace = true }
 
 [dev-dependencies]
 rayon = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
 shuck-linter = { workspace = true }
 similar = { workspace = true }
