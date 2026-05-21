@@ -1868,6 +1868,7 @@ version = "0.0.41"
 dependencies = [
  "memchr",
  "rayon",
+ "rustc-hash 2.1.2",
  "shuck-ast",
  "shuck-indexer",
  "shuck-linter",
