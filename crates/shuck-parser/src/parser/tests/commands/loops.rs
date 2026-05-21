@@ -517,6 +517,10 @@ fn test_parse_zsh_while_loop_with_brace_body() {
     };
 
     assert!(redirects.is_empty());
+    assert_eq!(
+        command.span.slice(input),
+        "while (( -- count + 1 )) {\n  echo hi\n}"
+    );
     assert_eq!(command.body.len(), 1);
     let (body_compound, body_redirects) = expect_compound(&command.body[0]);
     let AstCompoundCommand::BraceGroup(body) = body_compound else {
@@ -524,6 +528,28 @@ fn test_parse_zsh_while_loop_with_brace_body() {
     };
     assert!(body_redirects.is_empty());
     assert_eq!(body.len(), 1);
+}
+
+#[test]
+fn test_parse_zsh_until_brace_body_span_stops_at_closing_brace() {
+    let input = "until (( ready )) {\n  echo hi\n}\necho next\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    assert_eq!(script.body.len(), 2);
+    let (compound, redirects) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Until(command) = compound else {
+        panic!("expected until loop");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(
+        command.span.slice(input),
+        "until (( ready )) {\n  echo hi\n}"
+    );
+    assert_eq!(expect_simple(&script.body[1]).name.render(input), "echo");
 }
 
 #[test]

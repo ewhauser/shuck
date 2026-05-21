@@ -908,7 +908,8 @@ impl<'a> Parser<'a> {
         let condition = Self::stmt_seq_with_span(condition_span, condition);
 
         let (body, done_span, end_span) = if allow_brace_body && self.at(TokenKind::LeftBrace) {
-            let body = self.parse_brace_group(BraceBodyContext::Ordinary)?;
+            let (body, close_span) =
+                self.parse_brace_group_with_close_span(BraceBodyContext::Ordinary)?;
             let span = Self::compound_span(&body);
             (
                 Self::stmt_seq_with_span(
@@ -919,7 +920,7 @@ impl<'a> Parser<'a> {
                     ))],
                 ),
                 None,
-                span,
+                close_span,
             )
         } else if let Some((body, left_brace_span, right_brace_span)) = allow_brace_body
             .then(|| self.try_parse_compact_zsh_brace_body(BraceBodyContext::Ordinary))
@@ -986,7 +987,8 @@ impl<'a> Parser<'a> {
         let condition = Self::stmt_seq_with_span(condition_span, condition);
 
         let (body, done_span, end_span) = if allow_brace_body && self.at(TokenKind::LeftBrace) {
-            let body = self.parse_brace_group(BraceBodyContext::Ordinary)?;
+            let (body, close_span) =
+                self.parse_brace_group_with_close_span(BraceBodyContext::Ordinary)?;
             let span = Self::compound_span(&body);
             (
                 Self::stmt_seq_with_span(
@@ -997,7 +999,7 @@ impl<'a> Parser<'a> {
                     ))],
                 ),
                 None,
-                span,
+                close_span,
             )
         } else if let Some((body, left_brace_span, right_brace_span)) = allow_brace_body
             .then(|| self.try_parse_compact_zsh_brace_body(BraceBodyContext::Ordinary))
