@@ -1,5 +1,52 @@
 use super::*;
 
+fn arithmetic_command_is_followed_by_inline_branch_keyword(span: Span, source: &str) -> bool {
+    let Some(after) = source.get(span.end.offset.min(source.len())..) else {
+        return false;
+    };
+    let trimmed = after.trim_start_matches([' ', '\t', '\r']);
+    let after_separator = trimmed
+        .strip_prefix(';')
+        .map(|rest| rest.trim_start_matches([' ', '\t', '\r']))
+        .unwrap_or(trimmed);
+
+    shell_keyword_prefix(after_separator, "then") || shell_keyword_prefix(after_separator, "do")
+}
+
+fn shell_keyword_prefix(text: &str, keyword: &str) -> bool {
+    let Some(rest) = text.strip_prefix(keyword) else {
+        return false;
+    };
+    rest.chars()
+        .next()
+        .is_none_or(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n' | ';' | '&' | '|'))
+}
+
+fn trim_final_line_ending(text: &mut String) {
+    if text.ends_with("\r\n") {
+        text.truncate(text.len().saturating_sub(2));
+    } else if text.ends_with('\n') {
+        text.truncate(text.len().saturating_sub(1));
+    }
+}
+
+fn loop_condition_has_multiple_commands(condition: &StmtSeq) -> bool {
+    condition.len() > 1
+}
+
+fn time_inner_stmt_needs_trailing_comment(stmt: &Stmt) -> bool {
+    match &stmt.command {
+        Command::Simple(_)
+        | Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Compound(CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_)) => {
+            true
+        }
+        Command::Binary(command) => time_inner_stmt_needs_trailing_comment(&command.right),
+        _ => false,
+    }
+}
+
 impl<'source, 'facts, S> ShellRenderer<'source, 'facts, S>
 where
     S: StreamSink,

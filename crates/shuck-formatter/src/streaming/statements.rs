@@ -1,5 +1,73 @@
 use super::*;
 
+#[derive(Clone, Copy)]
+pub(super) enum SimpleCommandPart<'a> {
+    Assignment(&'a Assignment),
+    Name,
+    Argument(&'a Word),
+    Redirect(&'a Redirect),
+}
+
+impl SimpleCommandPart<'_> {
+    fn start_offset(&self, command: &SimpleCommand) -> usize {
+        match self {
+            Self::Assignment(assignment) => assignment.span.start.offset,
+            Self::Name => command.name.span.start.offset,
+            Self::Argument(word) => word.span.start.offset,
+            Self::Redirect(redirect) => redirect.span.start.offset,
+        }
+    }
+
+    fn end_offset(&self, command: &SimpleCommand) -> usize {
+        match self {
+            Self::Assignment(assignment) => assignment.span.end.offset,
+            Self::Name => command.name.span.end.offset,
+            Self::Argument(word) => word.span.end.offset,
+            Self::Redirect(redirect) => redirect.span.end.offset,
+        }
+    }
+
+    fn bare_command_gap_end(&self, command: &SimpleCommand, source: &str) -> usize {
+        match self {
+            Self::Argument(word) => word_gap_end_before_trailing_continuation(word, source),
+            _ => self.end_offset(command),
+        }
+    }
+}
+
+fn move_interspersed_redirects_after_arguments<'a>(parts: &mut Vec<SimpleCommandPart<'a>>) {
+    let mut saw_argument = false;
+    let mut deferred_redirects = Vec::new();
+    let mut reordered = Vec::with_capacity(parts.len());
+
+    for part in parts.drain(..) {
+        match part {
+            SimpleCommandPart::Argument(_) => {
+                saw_argument = true;
+                reordered.push(part);
+            }
+            SimpleCommandPart::Redirect(_) if saw_argument => deferred_redirects.push(part),
+            _ => reordered.push(part),
+        }
+    }
+
+    reordered.extend(deferred_redirects);
+    *parts = reordered;
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct BinaryListItem<'a> {
+    operator: BinaryOp,
+    operator_span: Span,
+    stmt: &'a Stmt,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) enum MultilineCompoundAssignmentPlacement {
+    Inline,
+    Standalone,
+}
+
 impl<'source, 'facts, S> ShellRenderer<'source, 'facts, S>
 where
     S: StreamSink,
@@ -1212,5 +1280,139 @@ where
         self.write_text(" esac");
         self.write_close_suffix_after_span(esac_span);
         Ok(())
+    }
+}
+
+fn redirect_has_adjacent_numeric_fd_prefix(
+    previous_part: Option<SimpleCommandPart<'_>>,
+    redirect: &Redirect,
+    command: &SimpleCommand,
+    source: &str,
+) -> bool {
+    if matches!(redirect.kind, RedirectKind::OutputBoth) {
+        return false;
+    }
+    let Some(SimpleCommandPart::Argument(word)) = previous_part else {
+        return false;
+    };
+    if word.span.end.offset != redirect.span.start.offset {
+        return false;
+    }
+    let Some(raw) = source.get(word.span.start.offset..word.span.end.offset) else {
+        return false;
+    };
+    raw.chars().all(|ch| ch.is_ascii_digit())
+        && word.span.start.offset > command.name.span.end.offset
+}
+
+fn brace_group_last_stmt_allows_done_without_semicolon(commands: &StmtSeq) -> bool {
+    let Some(last) = commands.last() else {
+        return false;
+    };
+    command_allows_done_without_semicolon(&last.command)
+}
+
+fn command_allows_done_without_semicolon(command: &Command) -> bool {
+    match command {
+        Command::Compound(command) => compound_allows_done_without_semicolon(command),
+        Command::Binary(binary) => command_allows_done_without_semicolon(&binary.right.command),
+        _ => false,
+    }
+}
+
+fn compound_allows_done_without_semicolon(command: &CompoundCommand) -> bool {
+    match command {
+        CompoundCommand::Case(_) => true,
+        CompoundCommand::BraceGroup(commands)
+        | CompoundCommand::For(ForCommand { body: commands, .. })
+        | CompoundCommand::Repeat(RepeatCommand { body: commands, .. })
+        | CompoundCommand::Foreach(ForeachCommand { body: commands, .. })
+        | CompoundCommand::While(WhileCommand { body: commands, .. })
+        | CompoundCommand::Until(UntilCommand { body: commands, .. })
+        | CompoundCommand::Select(SelectCommand { body: commands, .. }) => {
+            brace_group_last_stmt_allows_done_without_semicolon(commands)
+        }
+        CompoundCommand::ArithmeticFor(command) => {
+            brace_group_last_stmt_allows_done_without_semicolon(&command.body)
+        }
+        _ => false,
+    }
+}
+
+fn sequence_verbatim_span(statements: &StmtSeq, source_map: &SourceMap<'_>) -> Option<Span> {
+    statements
+        .iter()
+        .map(|stmt| stmt_verbatim_span_with_source_map(stmt, source_map))
+        .reduce(Span::merge)
+}
+
+fn multiline_compound_assignment_line_extra_indent(
+    line: &str,
+    closes_inline_assignment: bool,
+) -> usize {
+    if line.is_empty() {
+        return 0;
+    }
+    if closes_inline_assignment && line == ")" {
+        return 0;
+    }
+    if closes_inline_assignment
+        && let Some(rest) = line.strip_prefix(')')
+        && !rest.is_empty()
+        && !rest.starts_with([' ', '\t'])
+    {
+        return 0;
+    }
+    1
+}
+
+fn stmt_is_pipeline(stmt: &Stmt) -> bool {
+    matches!(
+        &stmt.command,
+        Command::Binary(command) if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll)
+    )
+}
+
+fn stmt_is_redirect_only(stmt: &Stmt, source: &str) -> bool {
+    matches!(
+        &stmt.command,
+        Command::Simple(command)
+            if command.assignments.is_empty()
+                && command.args.is_empty()
+                && stmt_source_starts_with_redirect(stmt, source)
+    )
+}
+
+fn stmt_source_starts_with_redirect(stmt: &Stmt, source: &str) -> bool {
+    let text = stmt_span(stmt)
+        .slice(source)
+        .trim_start_matches([' ', '\t']);
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+        index += 1;
+    }
+    matches!(bytes.get(index), Some(b'<' | b'>'))
+}
+
+fn collect_command_list_first<'a>(
+    command: &'a BinaryCommand,
+    rest: &mut Vec<BinaryListItem<'a>>,
+) -> &'a Stmt {
+    collect_binary_list_first_with(command, rest, &|command| BinaryListItem {
+        operator: command.op,
+        operator_span: command.op_span,
+        stmt: command.right.as_ref(),
+    })
+}
+
+fn list_item_separator(operator: BinaryOp, inline: bool) -> &'static str {
+    match (operator, inline) {
+        (BinaryOp::And, true) => " && ",
+        (BinaryOp::And, false) => " &&",
+        (BinaryOp::Or, true) => " || ",
+        (BinaryOp::Or, false) => " ||",
+        (BinaryOp::Pipe | BinaryOp::PipeAll, true) => "; ",
+        (BinaryOp::Pipe | BinaryOp::PipeAll, false) => ";",
     }
 }
