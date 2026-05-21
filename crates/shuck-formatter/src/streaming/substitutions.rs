@@ -1,5 +1,653 @@
 use super::*;
 
+#[derive(Debug, Clone, Copy)]
+pub(super) enum HeredocTailTextMode {
+    Rendered,
+    Assignment,
+}
+
+pub(super) fn assignment_contains_command_heredoc(assignment: &Assignment) -> bool {
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => word_contains_command_heredoc(word),
+        AssignmentValue::Compound(array) => array
+            .elements
+            .iter()
+            .any(|element| word_contains_command_heredoc(array_elem_parts(element).1)),
+    }
+}
+
+pub(super) fn compound_assignment_is_single_case_command_substitution(
+    assignment: &Assignment,
+) -> bool {
+    let AssignmentValue::Compound(array) = &assignment.value else {
+        return false;
+    };
+    let [ArrayElem::Sequential(word)] = array.elements.as_slice() else {
+        return false;
+    };
+    let [part] = word.parts.as_slice() else {
+        return false;
+    };
+    let WordPart::CommandSubstitution { body, .. } = &part.kind else {
+        return false;
+    };
+    matches!(
+        body.as_slice(),
+        [stmt]
+            if !stmt.negated
+                && stmt.redirects.is_empty()
+                && matches!(&stmt.command, Command::Compound(CompoundCommand::Case(_)))
+    )
+}
+
+pub(super) fn word_contains_command_heredoc(word: &Word) -> bool {
+    word.parts
+        .iter()
+        .any(|part| word_part_contains_command_heredoc(&part.kind))
+}
+
+pub(super) fn heredoc_body_contains_command_substitution(body: &HeredocBody) -> bool {
+    body.parts
+        .iter()
+        .any(|part| matches!(part.kind, HeredocBodyPart::CommandSubstitution { .. }))
+}
+
+fn word_part_contains_command_heredoc(part: &WordPart) -> bool {
+    match part {
+        WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
+            classify_sequence_contains_heredoc(body)
+        }
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| word_part_contains_command_heredoc(&part.kind)),
+        _ => false,
+    }
+}
+
+pub(super) fn normalize_escaped_multiline_word_command_substitution_indent(
+    rendered: &str,
+    options: &ResolvedShellFormatOptions,
+) -> Option<String> {
+    let normalized = rendered.strip_prefix('$').unwrap_or(rendered);
+    if !normalized.starts_with("\"\\\n") && !normalized.starts_with("\"\\\r\n") {
+        return None;
+    }
+
+    let indent = options.indent_prefix(1);
+    let mut output = String::with_capacity(rendered.len() + indent.len() * 4);
+    let mut changed = false;
+    let mut command_substitution_depth = 0usize;
+
+    for (index, line) in rendered.split('\n').enumerate() {
+        if index > 0 {
+            output.push('\n');
+        }
+
+        let trimmed = line.trim_start_matches([' ', '\t']);
+        if command_substitution_depth > 0 {
+            if !line.is_empty() {
+                output.push_str(&indent);
+                changed = true;
+            }
+            output.push_str(line);
+            if trimmed.starts_with(')') {
+                command_substitution_depth = command_substitution_depth.saturating_sub(1);
+            }
+            if trimmed.ends_with("$(") {
+                command_substitution_depth += 1;
+            }
+            continue;
+        }
+
+        output.push_str(line);
+        if trimmed.ends_with("$(") {
+            command_substitution_depth = 1;
+        }
+    }
+
+    changed.then_some(output)
+}
+
+pub(super) fn normalize_rendered_leading_list_operator_continuations(
+    rendered: &str,
+) -> Option<String> {
+    let mut output = Vec::<String>::new();
+    let mut changed = false;
+
+    for line in rendered.split('\n') {
+        let mut current = line.to_string();
+        if let Some((operator, rest)) = leading_list_operator_line_parts(line)
+            && let Some(previous) = output.last_mut()
+            && let Some(prefix_len) = line_without_continuation_backslash(previous).map(str::len)
+        {
+            previous.truncate(prefix_len);
+            previous.push(' ');
+            previous.push_str(operator);
+            current.clear();
+            current.push_str(rest);
+            changed = true;
+        }
+        output.push(current);
+    }
+
+    changed.then(|| output.join("\n"))
+}
+
+fn leading_list_operator_line_parts(line: &str) -> Option<(&'static str, &str)> {
+    let trimmed = line.trim_start_matches([' ', '\t', '\r']);
+    let (operator, rest) = if let Some(rest) = trimmed.strip_prefix("||") {
+        ("||", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("&&") {
+        ("&&", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("|&") {
+        ("|&", rest)
+    } else if let Some(rest) = trimmed.strip_prefix('|') {
+        if trimmed.starts_with("|)") {
+            return None;
+        }
+        ("|", rest)
+    } else {
+        return None;
+    };
+
+    Some((operator, rest.trim_start_matches([' ', '\t', '\r'])))
+}
+
+pub(super) fn normalize_scalar_assignment_unquoted_continuations(
+    assignment: &Assignment,
+    source: &str,
+    facts: &FormatterFacts,
+) -> Option<String> {
+    if assignment_source_has_command_substitution(assignment, source) {
+        return None;
+    }
+    let AssignmentValue::Scalar(_) = &assignment.value else {
+        return None;
+    };
+    if !facts.has_raw_continuation_backslash_between(
+        assignment.span.start.offset,
+        assignment.span.end.offset,
+    ) {
+        return None;
+    }
+
+    let raw = assignment.span.slice(source);
+    let mut head = String::new();
+    render_assignment_head_to_buf(assignment, source, &mut head);
+    let raw_value = raw.strip_prefix(&head)?;
+    let normalized_value = normalize_raw_unquoted_word_continuations(raw_value)?;
+    let mut normalized = head;
+    normalized.push_str(&normalized_value);
+    Some(normalized)
+}
+
+pub(super) fn assignment_has_quoted_backslash_continuation_literal(
+    assignment: &Assignment,
+    source: &str,
+) -> bool {
+    let AssignmentValue::Scalar(_) = &assignment.value else {
+        return false;
+    };
+    let raw = assignment.span.slice(source);
+    raw.contains("\\\n")
+        && RawShellText::new(raw).quoted_backslash_continuation()
+        && !raw.contains("$(")
+        && !raw.contains('`')
+        && !raw.contains("<(")
+        && !raw.contains(">(")
+}
+
+pub(super) fn assignment_source_has_command_substitution(
+    assignment: &Assignment,
+    source: &str,
+) -> bool {
+    let raw = assignment.span.slice(source);
+    raw.contains("$(") || raw.contains('`') || raw.contains("<(") || raw.contains(">(")
+}
+
+pub(super) fn assignment_source_has_leading_pipe_continuation(
+    assignment: &Assignment,
+    source: &str,
+) -> bool {
+    let raw = assignment.span.slice(source);
+    let mut rest = raw;
+    while let Some(index) = rest.find("\\\n") {
+        let after_break = &rest[index + 2..];
+        let trimmed = after_break.trim_start_matches([' ', '\t', '\r']);
+        if trimmed.starts_with('|') && !trimmed.starts_with("||") {
+            return true;
+        }
+        rest = after_break;
+    }
+    false
+}
+
+pub(super) fn assignment_value_is_quoted_formattable_command_substitution_only(
+    assignment: &Assignment,
+    facts: &FormatterFacts<'_>,
+) -> bool {
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => {
+            word_is_quoted_formattable_command_substitution_only_with_facts(word, facts)
+        }
+        AssignmentValue::Compound(_) => false,
+    }
+}
+
+pub(super) fn assignment_value_is_quoted_command_substitution_only(
+    assignment: &Assignment,
+) -> bool {
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => word_is_quoted_command_substitution_only(word),
+        AssignmentValue::Compound(_) => false,
+    }
+}
+
+#[derive(Clone, Copy)]
+enum MultilineLiteralQuote {
+    Single,
+    Double,
+}
+
+fn multiline_literal_quote_state_after_line(
+    line: &str,
+    mut quote: Option<MultilineLiteralQuote>,
+) -> Option<MultilineLiteralQuote> {
+    let mut escaped = false;
+    for ch in line.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match quote {
+            Some(MultilineLiteralQuote::Single) => {
+                if ch == '\'' {
+                    quote = None;
+                }
+            }
+            Some(MultilineLiteralQuote::Double) => {
+                if ch == '\\' {
+                    escaped = true;
+                } else if ch == '"' {
+                    quote = None;
+                }
+            }
+            None => {
+                if ch == '\'' {
+                    quote = Some(MultilineLiteralQuote::Single);
+                } else if ch == '"' {
+                    quote = Some(MultilineLiteralQuote::Double);
+                } else if ch == '\\' {
+                    escaped = true;
+                }
+            }
+        }
+    }
+    quote
+}
+
+pub(super) fn pipeline_operator_breaks(
+    statements: &[&Stmt],
+    operators: &[(BinaryOp, Span)],
+    source: &str,
+    source_map: &SourceMap<'_>,
+) -> Vec<bool> {
+    let mut breaks = Vec::with_capacity(operators.len());
+    for (statement, (_, operator_span)) in statements.iter().skip(1).zip(operators.iter()) {
+        let next_start =
+            interstitial_comment_end(statement, operator_span.end.offset, source, source_map);
+        breaks.push(
+            source_map.operator_starts_or_ends_line(*operator_span)
+                || source_map.contains_newline_between(operator_span.end.offset, next_start),
+        );
+    }
+
+    breaks
+}
+
+fn command_substitution_assignment_line_needs_context_indent(
+    remaining: &str,
+    options: &ResolvedShellFormatOptions,
+) -> bool {
+    match options.indent_style() {
+        IndentStyle::Tab => !remaining.starts_with(' '),
+        IndentStyle::Space => true,
+    }
+}
+
+fn command_substitution_assignment_line_closes_block(remaining: &str) -> bool {
+    remaining
+        .lines()
+        .next()
+        .is_some_and(|line| line.trim_start_matches([' ', '\t']).starts_with(')'))
+}
+
+pub(super) fn interstitial_comment_end(
+    stmt: &Stmt,
+    operator_end: usize,
+    source: &str,
+    source_map: &SourceMap<'_>,
+) -> usize {
+    stmt_start_after_operator(stmt, operator_end, source, source_map)
+}
+
+fn emitted_line_indent_column(
+    line: &str,
+    pipeline_indent_column: Option<usize>,
+    add_context_indent: bool,
+    base_indent_column: usize,
+    options: &ResolvedShellFormatOptions,
+) -> usize {
+    pipeline_indent_column.unwrap_or_else(|| {
+        let line_indent = rendered_line_indent_column(line, options);
+        if add_context_indent {
+            base_indent_column + line_indent
+        } else {
+            line_indent
+        }
+    })
+}
+
+fn rendered_line_indent_column(line: &str, options: &ResolvedShellFormatOptions) -> usize {
+    let mut column = 0;
+    for ch in line.chars() {
+        match ch {
+            '\t' if matches!(options.indent_style(), IndentStyle::Tab) => column += 1,
+            ' ' => column += 1,
+            _ => break,
+        }
+    }
+    column
+}
+
+fn rendered_line_with_indent_column(
+    line: &str,
+    column: usize,
+    options: &ResolvedShellFormatOptions,
+) -> String {
+    let content = line.trim_start_matches([' ', '\t']);
+    let mut rendered = String::with_capacity(line.len());
+    options.push_indent_columns(&mut rendered, column);
+    rendered.push_str(content);
+    rendered
+}
+
+fn command_substitution_shell_text_indent_column(
+    line: &str,
+    line_starts_in_quote: bool,
+    emitted_indent_column: usize,
+    base_indent_column: usize,
+    indent_unit: usize,
+) -> Option<usize> {
+    if line_starts_in_quote {
+        return None;
+    }
+    let content = line.trim_end_matches(['\r', '\n']);
+    let scan_start = command_substitution_context_start(content).unwrap_or(0);
+    let trimmed = content[scan_start..].trim_start_matches([' ', '\t']);
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+    if inline_assignment_command_substitution_context(content, scan_start) {
+        Some(base_indent_column + indent_unit)
+    } else {
+        Some(emitted_indent_column)
+    }
+}
+
+fn inline_assignment_command_substitution_context(content: &str, scan_start: usize) -> bool {
+    if scan_start == 0 {
+        return false;
+    }
+    let prefix = content[..scan_start.saturating_sub(2)].trim_end_matches([' ', '\t']);
+    prefix.ends_with('"') && prefix.contains('=')
+}
+
+fn next_command_substitution_pipeline_indent_column(
+    continuation: CommandSubstitutionPipelineContinuation,
+    starts_with_block_command_substitution: bool,
+    inline_pipeline_indent_column: usize,
+    active_shell_pipeline_indent_column: Option<usize>,
+    active_shell_line_was_pipeline_stage: bool,
+    indent_unit: usize,
+    current_pipeline_indent_column: Option<usize>,
+) -> Option<usize> {
+    match continuation {
+        CommandSubstitutionPipelineContinuation::None => None,
+        CommandSubstitutionPipelineContinuation::Comment => current_pipeline_indent_column,
+        CommandSubstitutionPipelineContinuation::StructuralPipe {
+            line_started_in_quote,
+        } => {
+            if !starts_with_block_command_substitution {
+                Some(inline_pipeline_indent_column)
+            } else if line_started_in_quote && active_shell_line_was_pipeline_stage {
+                active_shell_pipeline_indent_column
+            } else if line_started_in_quote {
+                active_shell_pipeline_indent_column.map(|column| column + indent_unit)
+            } else {
+                None
+            }
+        }
+    }
+}
+
+fn strip_assignment_context_indent<'a>(
+    line: &'a str,
+    base_indent_column: usize,
+    options: &ResolvedShellFormatOptions,
+) -> &'a str {
+    if base_indent_column == 0 {
+        return line;
+    }
+
+    match options.indent_style() {
+        IndentStyle::Tab => {
+            let leading_tabs = line.bytes().take_while(|byte| *byte == b'\t').count();
+            if leading_tabs <= base_indent_column {
+                line
+            } else {
+                &line[base_indent_column..]
+            }
+        }
+        IndentStyle::Space => {
+            let leading_spaces = line.bytes().take_while(|byte| *byte == b' ').count();
+            if leading_spaces <= base_indent_column {
+                line
+            } else {
+                &line[base_indent_column..]
+            }
+        }
+    }
+}
+
+pub(super) fn normalize_literal_assignment_command_substitution_pipelines(
+    text: &str,
+    continuation_indent: &str,
+) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut indent_next = false;
+    let mut changed = false;
+    let mut rest = text;
+
+    while !rest.is_empty() {
+        let (line, next, had_newline) = split_first_line(rest);
+
+        let trimmed_start = line.trim_start_matches([' ', '\t']);
+        let is_continuation_comment = indent_next && trimmed_start.starts_with('#');
+        let indent_line = indent_next && !line.trim_matches([' ', '\t', '\r']).is_empty();
+
+        if indent_line {
+            output.push_str(continuation_indent);
+            output.push_str(trimmed_start);
+            changed |= !line.starts_with(continuation_indent)
+                || line[continuation_indent.len()..].starts_with([' ', '\t']);
+        } else {
+            output.push_str(line);
+        }
+
+        if had_newline {
+            output.push('\n');
+        }
+
+        let line_to_check = if indent_line { trimmed_start } else { line };
+        indent_next = if is_continuation_comment {
+            true
+        } else if indent_next {
+            rendered_line_ends_with_structural_pipe_continuation(line_to_check)
+        } else {
+            rendered_line_opens_command_substitution_pipeline(line_to_check)
+        };
+
+        rest = next;
+    }
+
+    if changed { output } else { text.to_string() }
+}
+
+pub(super) fn conditional_binary_has_explicit_rhs_break(
+    expression: &ConditionalBinaryExpr,
+    source_map: &SourceMap<'_>,
+) -> bool {
+    if !matches!(
+        expression.op,
+        ConditionalBinaryOp::And | ConditionalBinaryOp::Or
+    ) {
+        return false;
+    }
+    source_map.operator_starts_or_ends_line(expression.op_span)
+        || source_map.contains_newline_between(
+            expression.left.span().end.offset,
+            expression.op_span.start.offset,
+        )
+        || source_map.contains_newline_between(
+            expression.op_span.end.offset,
+            expression.right.span().start.offset,
+        )
+}
+
+pub(super) fn conditional_expr_contains_command_substitution(expression: &ConditionalExpr) -> bool {
+    match expression {
+        ConditionalExpr::Binary(expr) => {
+            conditional_expr_contains_command_substitution(&expr.left)
+                || conditional_expr_contains_command_substitution(&expr.right)
+        }
+        ConditionalExpr::Unary(expr) => conditional_expr_contains_command_substitution(&expr.expr),
+        ConditionalExpr::Parenthesized(expr) => {
+            conditional_expr_contains_command_substitution(&expr.expr)
+        }
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            word_contains_command_substitution(word)
+        }
+        ConditionalExpr::Pattern(pattern) => pattern_contains_command_substitution(pattern),
+        ConditionalExpr::VarRef(_) => false,
+    }
+}
+
+fn pattern_contains_command_substitution(pattern: &Pattern) -> bool {
+    pattern.parts.iter().any(|part| match &part.kind {
+        PatternPart::Group { patterns, .. } => {
+            patterns.iter().any(pattern_contains_command_substitution)
+        }
+        PatternPart::Word(word) => word_contains_command_substitution(word),
+        PatternPart::Literal(_)
+        | PatternPart::AnyString
+        | PatternPart::AnyChar
+        | PatternPart::CharClass(_) => false,
+    })
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum WordSubstitutionKind {
+    Command,
+    Process,
+}
+
+fn word_contains_substitution(word: &Word, kind: WordSubstitutionKind) -> bool {
+    word.parts
+        .iter()
+        .any(|part| word_part_contains_substitution(&part.kind, kind))
+}
+
+pub(super) fn word_contains_command_substitution(word: &Word) -> bool {
+    word_contains_substitution(word, WordSubstitutionKind::Command)
+}
+
+pub(super) fn word_contains_process_substitution(word: &Word) -> bool {
+    word_contains_substitution(word, WordSubstitutionKind::Process)
+}
+
+pub(super) fn word_source_has_shell_substitution(word: &Word, source: &str) -> bool {
+    let raw = word.span.slice(source);
+    rendered_text_has_shell_substitution(raw)
+}
+
+pub(super) fn rendered_text_has_shell_substitution(text: &str) -> bool {
+    text.contains("$(") || text.contains('`') || text.contains("<(") || text.contains(">(")
+}
+
+pub(super) fn rendered_text_starts_with_block_command_substitution(text: &str) -> bool {
+    text.lines()
+        .next()
+        .is_some_and(|line| line.trim_end_matches([' ', '\t', '\r']).ends_with("$("))
+}
+
+pub(super) fn rendered_text_starts_like_assignment_with_substitution(text: &str) -> bool {
+    let first_line = text.lines().next().unwrap_or(text);
+    let substitution_start = ["$(", "`", "<(", ">("]
+        .iter()
+        .filter_map(|marker| first_line.find(marker))
+        .min()
+        .unwrap_or(first_line.len());
+    first_line[..substitution_start].contains('=')
+}
+
+pub(super) fn rendered_text_has_leading_list_operator_line(text: &str) -> bool {
+    text.lines().skip(1).any(|line| {
+        let trimmed = line.trim_start_matches([' ', '\t', '\r']);
+        (trimmed.starts_with('|') && !trimmed.starts_with("|)")) || trimmed.starts_with("&&")
+    })
+}
+
+fn word_part_contains_substitution(part: &WordPart, kind: WordSubstitutionKind) -> bool {
+    match part {
+        WordPart::CommandSubstitution { .. } => kind == WordSubstitutionKind::Command,
+        WordPart::ProcessSubstitution { .. } => kind == WordSubstitutionKind::Process,
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| word_part_contains_substitution(&part.kind, kind)),
+        WordPart::ArithmeticExpansion {
+            expression_word_ast,
+            ..
+        } => word_contains_substitution(expression_word_ast, kind),
+        WordPart::ParameterExpansion {
+            operand_word_ast, ..
+        } => operand_word_ast
+            .as_deref()
+            .is_some_and(|word| word_contains_substitution(word, kind)),
+        WordPart::IndirectExpansion {
+            operand_word_ast, ..
+        } => operand_word_ast
+            .as_deref()
+            .is_some_and(|word| word_contains_substitution(word, kind)),
+        WordPart::Substring {
+            offset_word_ast,
+            length_word_ast,
+            ..
+        }
+        | WordPart::ArraySlice {
+            offset_word_ast,
+            length_word_ast,
+            ..
+        } => {
+            word_contains_substitution(offset_word_ast, kind)
+                || length_word_ast
+                    .as_deref()
+                    .is_some_and(|word| word_contains_substitution(word, kind))
+        }
+        _ => false,
+    }
+}
+
 impl<'source, 'facts, S> ShellRenderer<'source, 'facts, S>
 where
     S: StreamSink,

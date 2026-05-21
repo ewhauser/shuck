@@ -155,3 +155,187 @@ where
         }
     }
 }
+
+fn raw_redirect_source_slice<'a>(redirect: &Redirect, source: &'a str) -> Option<&'a str> {
+    let span = redirect.span;
+    (span.start.offset < span.end.offset && span.end.offset <= source.len())
+        .then(|| span.slice(source))
+}
+
+fn should_preserve_raw_redirect(raw: &str) -> bool {
+    raw.contains(">&$")
+        || raw.contains("<&$")
+        || raw.contains(">&-")
+        || raw.contains("<&-")
+        || raw.contains(">&/")
+        || raw.contains("<&/")
+}
+
+pub(super) fn append_both_redirect_pair_matches_source(
+    redirect: &Redirect,
+    next: &Redirect,
+    source: &str,
+) -> bool {
+    if !matches!(redirect.kind, RedirectKind::Append)
+        || redirect.fd.is_some()
+        || redirect.fd_var.is_some()
+    {
+        return false;
+    }
+    if !matches!(next.kind, RedirectKind::DupOutput)
+        || next.fd != Some(2)
+        || next
+            .word_target()
+            .and_then(|word| word.try_static_text(source))
+            .is_none_or(|target| target != "1")
+    {
+        return false;
+    }
+
+    let Some(raw) = raw_redirect_source_slice(redirect, source) else {
+        return false;
+    };
+    if raw.starts_with("&>>") {
+        return true;
+    }
+    if raw.starts_with(">>") {
+        let Some(operator_start) = redirect.span.start.offset.checked_sub(1) else {
+            return false;
+        };
+        return source
+            .as_bytes()
+            .get(operator_start)
+            .is_some_and(|byte| *byte == b'&');
+    }
+    false
+}
+
+fn redirect_target_starts_on_continuation_line(
+    redirect: &Redirect,
+    facts: &FormatterFacts<'_>,
+) -> bool {
+    let target_start = redirect
+        .word_target()
+        .map(|word| word.span.start.offset)
+        .or_else(|| {
+            redirect
+                .heredoc()
+                .map(|heredoc| heredoc.delimiter.span.start.offset)
+        });
+    let Some(target_start) = target_start else {
+        return false;
+    };
+    facts.has_continuation_line_start_between(redirect.span.start.offset, target_start)
+}
+
+fn should_render_explicit_fd(fd: i32, kind: RedirectKind) -> bool {
+    match kind {
+        RedirectKind::Output
+        | RedirectKind::Clobber
+        | RedirectKind::Append
+        | RedirectKind::DupOutput
+        | RedirectKind::OutputBoth => fd != 1,
+        RedirectKind::Input
+        | RedirectKind::ReadWrite
+        | RedirectKind::HereDoc
+        | RedirectKind::HereDocStrip
+        | RedirectKind::HereString
+        | RedirectKind::DupInput => fd != 0,
+    }
+}
+
+fn redirect_source_has_explicit_fd(redirect: &Redirect, source: &str, fd: i32) -> bool {
+    let Some(raw) = raw_redirect_source_slice(redirect, source) else {
+        return false;
+    };
+    let rendered_fd = fd.to_string();
+    raw.trim_start().starts_with(&rendered_fd)
+}
+
+fn needs_space_before_target(kind: RedirectKind, target: &str, space_redirects: bool) -> bool {
+    if target.is_empty() {
+        return false;
+    }
+    if space_redirects && !matches!(kind, RedirectKind::DupOutput | RedirectKind::DupInput) {
+        return true;
+    }
+    !matches!(kind, RedirectKind::DupOutput | RedirectKind::DupInput)
+        && target
+            .as_bytes()
+            .first()
+            .is_some_and(|byte| matches!(byte, b'<' | b'>' | b'&'))
+}
+
+fn normalized_redirect_target(kind: RedirectKind, target: &str) -> &str {
+    if matches!(
+        kind,
+        RedirectKind::Output
+            | RedirectKind::Clobber
+            | RedirectKind::Append
+            | RedirectKind::Input
+            | RedirectKind::ReadWrite
+            | RedirectKind::HereDoc
+            | RedirectKind::HereDocStrip
+            | RedirectKind::HereString
+            | RedirectKind::OutputBoth
+    ) {
+        target.trim_start_matches([' ', '\t', '\r'])
+    } else {
+        target
+    }
+}
+
+fn here_string_target_is_multiline_literal(target: &str) -> bool {
+    let target = target.strip_prefix('$').unwrap_or(target);
+    target.starts_with("\"\n")
+        || target.starts_with("\"\\\n")
+        || target.starts_with("'\n")
+        || target.starts_with("$'\n")
+        || target.starts_with("\"\r\n")
+        || target.starts_with("\"\\\r\n")
+        || target.starts_with("'\r\n")
+        || target.starts_with("$'\r\n")
+}
+
+pub(super) fn redirect_list_needs_leading_space(
+    command_span: Span,
+    redirects: &[Redirect],
+    source: &str,
+) -> bool {
+    redirects.first().is_none_or(|redirect| {
+        !redirect_is_attached_process_substitution(command_span, redirect, source)
+    })
+}
+
+pub(super) fn redirect_list_starts_on_continuation_line(
+    command_span: Span,
+    redirects: &[Redirect],
+    facts: &FormatterFacts<'_>,
+) -> bool {
+    let Some(redirect) = redirects.first() else {
+        return false;
+    };
+    if command_span == Span::new() || redirect.span.start.offset <= command_span.end.offset {
+        return false;
+    }
+    facts.has_continuation_line_start_between(command_span.end.offset, redirect.span.start.offset)
+}
+
+pub(super) fn redirect_is_attached_process_substitution(
+    _command_span: Span,
+    redirect: &Redirect,
+    source: &str,
+) -> bool {
+    let start = redirect.span.start.offset;
+    let bytes = source.as_bytes();
+    let attached_after_equals = start > 0 && bytes.get(start - 1).is_some_and(|byte| *byte == b'=')
+        || start > 1
+            && bytes
+                .get(start - 1)
+                .is_some_and(|byte| matches!(*byte, b'<' | b'>'))
+            && bytes.get(start - 2).is_some_and(|byte| *byte == b'=');
+    attached_after_equals
+        && raw_redirect_source_slice(redirect, source).is_some_and(|raw| {
+            raw.starts_with("<(") || raw.starts_with(">(") || raw.starts_with('(')
+        })
+}
