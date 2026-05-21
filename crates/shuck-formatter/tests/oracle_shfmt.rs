@@ -17,7 +17,7 @@ use similar::TextDiff;
 const MAX_ORACLE_DIFF_LINES: usize = 200;
 const MAX_LARGE_CORPUS_FAILURES: usize = 25;
 const SHFMT_LARGE_CORPUS_TIMEOUT: Duration = Duration::from_secs(10);
-const LARGE_CORPUS_MAX_DURATION: Duration = Duration::from_secs(60);
+const DEFAULT_LARGE_CORPUS_MAX_DURATION_SECS: usize = 60;
 const LARGE_CORPUS_PROGRESS_INTERVAL: usize = 1_000;
 const LARGE_CORPUS_SLOW_FIXTURE: Duration = Duration::from_secs(3);
 const LARGE_CORPUS_ENV: &str = "SHUCK_TEST_LARGE_CORPUS";
@@ -25,6 +25,7 @@ const LARGE_CORPUS_ROOT_ENV: &str = "SHUCK_LARGE_CORPUS_ROOT";
 const LARGE_CORPUS_SHARD_ENV: &str = "TEST_SHARD_INDEX";
 const LARGE_CORPUS_SHARDS_ENV: &str = "TEST_TOTAL_SHARDS";
 const LARGE_CORPUS_SAMPLE_PERCENT_ENV: &str = "SHUCK_LARGE_CORPUS_SAMPLE_PERCENT";
+const LARGE_CORPUS_MAX_DURATION_ENV: &str = "SHUCK_SHFMT_ORACLE_MAX_DURATION_SECS";
 const LARGE_CORPUS_CACHE_DIR_NAME: &str = ".cache/large-corpus";
 const SHFMT_ALLOWLIST_UPDATE_ENV: &str = "SHUCK_UPDATE_SHFMT_LARGE_CORPUS_ALLOWLIST";
 const SHFMT_ALLOWLIST_SCHEMA: u32 = 1;
@@ -420,6 +421,7 @@ fn large_corpus_matches_shfmt() {
     }
 
     let elapsed = large_corpus_started.elapsed();
+    let max_duration = large_corpus_max_duration();
     eprintln!(
         "large corpus shfmt oracle summary: fixtures={} compared={} matched={} mismatches={} reviewed_mismatches={} blocking_mismatches={} shuck_errors={} shfmt_errors={} shfmt_skips={} unsupported_dialects={} non_utf8={} stale_allowlist={} elapsed={:.2}s max_elapsed={}s",
         fixtures.len(),
@@ -435,13 +437,13 @@ fn large_corpus_matches_shfmt() {
         non_utf8,
         stale_allowlist_entries.len(),
         elapsed.as_secs_f64(),
-        LARGE_CORPUS_MAX_DURATION.as_secs(),
+        max_duration.as_secs(),
     );
 
-    let timing_failure = if elapsed > LARGE_CORPUS_MAX_DURATION {
+    let timing_failure = if elapsed > max_duration {
         format!(
             "large corpus shfmt oracle exceeded {}s limit (took {:.2}s)\n\n",
-            LARGE_CORPUS_MAX_DURATION.as_secs(),
+            max_duration.as_secs(),
             elapsed.as_secs_f64(),
         )
     } else {
@@ -449,14 +451,20 @@ fn large_corpus_matches_shfmt() {
     };
 
     assert!(
-        large_corpus_oracle_passes(elapsed, &shuck_errors, &shfmt_errors, &blocking_mismatches),
+        large_corpus_oracle_passes(
+            elapsed,
+            max_duration,
+            &shuck_errors,
+            &shfmt_errors,
+            &blocking_mismatches
+        ),
         "large corpus shfmt oracle found {} shuck error(s), {} shfmt error(s), {} blocking mismatch(es), and {} reviewed mismatch(es) in {:.2}s (limit {}s):\n\n{}{}{}{}",
         shuck_errors.len(),
         shfmt_errors.len(),
         blocking_mismatches.len(),
         reviewed_mismatches,
         elapsed.as_secs_f64(),
-        LARGE_CORPUS_MAX_DURATION.as_secs(),
+        max_duration.as_secs(),
         timing_failure,
         format_failure_list("shuck formatter errors", &shuck_errors),
         format_failure_list("shfmt harness errors", &shfmt_errors),
@@ -1185,14 +1193,23 @@ fn indent_detail(detail: &str) -> String {
 
 fn large_corpus_oracle_passes(
     elapsed: Duration,
+    max_duration: Duration,
     shuck_errors: &[String],
     shfmt_errors: &[String],
     blocking_mismatches: &[String],
 ) -> bool {
-    elapsed <= LARGE_CORPUS_MAX_DURATION
+    elapsed <= max_duration
         && shuck_errors.is_empty()
         && shfmt_errors.is_empty()
         && blocking_mismatches.is_empty()
+}
+
+fn large_corpus_max_duration() -> Duration {
+    Duration::from_secs(filtered_env_int(
+        LARGE_CORPUS_MAX_DURATION_ENV,
+        DEFAULT_LARGE_CORPUS_MAX_DURATION_SECS,
+        |value| value > 0,
+    ) as u64)
 }
 
 fn format_failure_list(title: &str, failures: &[String]) -> String {
@@ -1396,6 +1413,7 @@ mod tests {
     fn shuck_formatter_errors_remain_blocking() {
         assert!(!large_corpus_oracle_passes(
             Duration::from_secs(1),
+            Duration::from_secs(60),
             &["repo__script.sh: parse error".to_owned()],
             &[],
             &[],
