@@ -1,14 +1,16 @@
 use crate::comments::SourceMap;
 use crate::facts::{FormatterFacts, classify_stmt_contains_heredoc};
 use crate::options::ResolvedShellFormatOptions;
+use crate::raw_syntax::{
+    RawShellText, common_nonempty_shell_indent, leading_shell_indent,
+    matching_raw_command_substitution_close, normalize_raw_pipeline_continuations,
+    refine_common_indent, shell_comment_can_start, skip_escaped_or_quoted,
+};
 use crate::scan::{
-    RawShellScanner, branch_keyword_offset, common_nonempty_shell_indent, last_shell_keyword_start,
-    last_uncommented_shell_keyword_before, leading_shell_indent, matching_done_close_start,
-    matching_if_close_start, normalized_close_keyword_span, refine_common_indent,
-    shell_comment_can_start, skip_escaped_or_quoted,
+    branch_keyword_offset, last_shell_keyword_start, last_uncommented_shell_keyword_before,
+    matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
 };
 use crate::word::{
-    matching_raw_command_substitution_close, normalize_raw_pipeline_continuations,
     render_arithmetic_expr_to_buf, render_word_syntax_to_buf, render_word_syntax_with_facts_to_buf,
 };
 use shuck_ast::{
@@ -353,7 +355,7 @@ pub(crate) fn multiline_compound_assignment_layout(
         })
         .collect::<Vec<_>>();
     for line in &mut lines {
-        *line = trim_inline_command_substitution_open_padding(line);
+        *line = RawShellText::new(line).trim_command_substitution_open_padding();
     }
     let lines = normalize_multiline_compound_assignment_command_substitutions(lines);
 
@@ -362,42 +364,6 @@ pub(crate) fn multiline_compound_assignment_layout(
         open_inline: !open_line.trim().is_empty(),
         close_inline: !close_line.trim().is_empty(),
     })
-}
-
-fn trim_inline_command_substitution_open_padding(line: &str) -> String {
-    let mut rendered = String::with_capacity(line.len());
-    let mut cursor = 0usize;
-    let mut index = 0usize;
-    let mut in_single_quotes = false;
-    let mut in_double_quotes = false;
-    let mut escaped = false;
-
-    while index < line.len() {
-        let Some(ch) = line[index..].chars().next() else {
-            break;
-        };
-        let next_index = index + ch.len_utf8();
-        if escaped {
-            escaped = false;
-        } else if ch == '\\' && !in_single_quotes {
-            escaped = true;
-        } else if ch == '\'' && !in_double_quotes {
-            in_single_quotes = !in_single_quotes;
-        } else if ch == '"' && !in_single_quotes {
-            in_double_quotes = !in_double_quotes;
-        } else if !in_single_quotes && line[index..].starts_with("$(") {
-            rendered.push_str(&line[cursor..index + 2]);
-            index += 2;
-            while line[index..].starts_with([' ', '\t']) {
-                index += 1;
-            }
-            cursor = index;
-            continue;
-        }
-        index = next_index;
-    }
-    rendered.push_str(&line[cursor..]);
-    rendered
 }
 
 fn normalize_multiline_compound_assignment_command_substitutions(
@@ -453,7 +419,8 @@ fn multiline_compound_assignment_command_substitution_range<T: AsRef<str>>(
     lines: &[T],
     open_index: usize,
 ) -> Option<(usize, usize, bool)> {
-    if !line_has_unclosed_command_substitution_open(lines.get(open_index)?.as_ref()) {
+    if !RawShellText::new(lines.get(open_index)?.as_ref()).has_unclosed_command_substitution_open()
+    {
         return None;
     }
     let close_index =
@@ -551,13 +518,6 @@ pub(crate) fn multiline_compound_assignment_command_substitution_body_prefix(
     }
 }
 
-pub(crate) fn line_has_unclosed_command_substitution_open(line: &str) -> bool {
-    let Some(open) = line.find("$(") else {
-        return false;
-    };
-    !line[open + 2..].contains(')')
-}
-
 fn normalize_multiline_compound_assignment_line(
     line: &str,
     common_indent: &str,
@@ -593,32 +553,19 @@ fn normalize_multiline_compound_assignment_line(
             }
         })
         .unwrap_or(trimmed);
-    let normalized =
-        if preserve_line_continuation && line_starts_with_redirect_continuation(stripped) {
-            format!("\t{}", stripped.trim_start_matches([' ', '\t']))
-        } else if preserve_line_continuation {
-            canonicalize_multiline_compound_assignment_residual_indent(
-                stripped,
-                residual_space_indent_width,
-            )
-        } else {
-            stripped.trim_start_matches([' ', '\t']).to_string()
-        };
+    let normalized = if preserve_line_continuation
+        && RawShellText::new(stripped).starts_with_redirect_continuation()
+    {
+        format!("\t{}", stripped.trim_start_matches([' ', '\t']))
+    } else if preserve_line_continuation {
+        canonicalize_multiline_compound_assignment_residual_indent(
+            stripped,
+            residual_space_indent_width,
+        )
+    } else {
+        stripped.trim_start_matches([' ', '\t']).to_string()
+    };
     normalize_multiline_compound_assignment_spacing(&normalized)
-}
-
-fn line_starts_with_redirect_continuation(line: &str) -> bool {
-    let trimmed = line.trim_start_matches([' ', '\t']);
-    let bytes = trimmed.as_bytes();
-    let mut index = 0;
-    while bytes.get(index).is_some_and(u8::is_ascii_digit) {
-        index += 1;
-    }
-    match bytes.get(index) {
-        Some(b'<' | b'>') => true,
-        Some(b'&') => bytes.get(index + 1) == Some(&b'>'),
-        _ => false,
-    }
 }
 
 fn trim_multiline_compound_assignment_line_continuation(line: &str) -> &str {
@@ -629,21 +576,13 @@ fn trim_multiline_compound_assignment_line_continuation(line: &str) -> &str {
         .rev()
         .take_while(|byte| **byte == b'\\')
         .count();
-    if trailing_backslashes % 2 == 1 && !line_continuation_is_inside_unclosed_substitution(trimmed)
+    if trailing_backslashes % 2 == 1
+        && !RawShellText::new(trimmed).continuation_inside_unclosed_substitution()
     {
         trimmed[..trimmed.len().saturating_sub(1)].trim_end_matches([' ', '\t'])
     } else {
         trimmed
     }
-}
-
-fn line_continuation_is_inside_unclosed_substitution(line: &str) -> bool {
-    let Some(before_continuation) = line.strip_suffix('\\') else {
-        return false;
-    };
-
-    RawShellScanner::new(before_continuation)
-        .has_unclosed_substitution_before(before_continuation.len())
 }
 
 fn multiline_compound_assignment_common_body_indent(lines: &[&str], open_inline: bool) -> String {

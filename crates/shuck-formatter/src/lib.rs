@@ -16,6 +16,8 @@ mod facts;
 #[allow(missing_docs)]
 mod options;
 #[allow(missing_docs)]
+mod raw_syntax;
+#[allow(missing_docs)]
 mod scan;
 #[allow(missing_docs)]
 mod simplify;
@@ -290,7 +292,7 @@ fn trailing_backslash_count(text: &str) -> usize {
 
 fn trailing_backslash_is_in_comment(text: &str) -> bool {
     let line = text.rsplit_once('\n').map_or(text, |(_, line)| line);
-    scan::RawShellScanner::new(line)
+    raw_syntax::RawShellScanner::new(line)
         .find_comment(0, line.len())
         .is_some()
 }

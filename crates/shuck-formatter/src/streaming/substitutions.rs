@@ -83,7 +83,7 @@ where
         let mut next_block_line_is_pipeline_stage = false;
         let mut next_block_line_aligns_with_command_continuation = false;
         let mut command_continuation_active = false;
-        let mut pipeline_quote_state = RenderedLineQuoteState::default();
+        let mut pipeline_quote_state = RawLineQuoteState::default();
         let mut remaining = text;
         while !remaining.is_empty() {
             let line_started_as_command_continuation = command_continuation_active;
