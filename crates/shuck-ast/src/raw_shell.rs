@@ -553,6 +553,25 @@ impl<'source> RawShellScanner<'source> {
         None
     }
 
+    /// Skips a legacy backtick command substitution body during recovery scanning.
+    ///
+    /// Unlike shell word scanning, this stops at the first unescaped backtick even when
+    /// an earlier quote in the partially parsed body is not balanced.
+    #[must_use]
+    pub fn skip_legacy_backtick_substitution_body(&self, mut index: usize) -> Option<usize> {
+        let bytes = self.source.as_bytes();
+
+        while index < self.upper {
+            match bytes[index] {
+                b'\\' => index = advance_escaped_shell_char(self.source, index).min(self.upper),
+                b'`' => return Some(index + 1),
+                _ => index = advance_shell_char(self.source, index).min(self.upper),
+            }
+        }
+
+        None
+    }
+
     fn comment_starts_at(&self, offset: usize) -> bool {
         self.source[offset..self.upper].starts_with('#')
             && shell_comment_can_start(self.source, offset)
@@ -647,5 +666,22 @@ mod tests {
         let raw = "echo '$(nope)' $(date) $((1 + 2))";
         let scanner = RawShellScanner::new(raw);
         assert_eq!(scanner.next_command_substitution(0), Some((15, 21)));
+    }
+
+    #[test]
+    fn legacy_backtick_substitution_body_stops_at_first_unescaped_backtick() {
+        let raw = "`echo \"`\" tail`";
+        let scanner = RawShellScanner::new(raw);
+        assert_eq!(
+            scanner.skip_legacy_backtick_substitution_body(1),
+            Some("`echo \"`".len()),
+        );
+    }
+
+    #[test]
+    fn legacy_backtick_construct_keeps_quote_aware_word_scan_behavior() {
+        let raw = "`echo \"`\" tail`";
+        let scanner = RawShellScanner::new(raw);
+        assert_eq!(scanner.skip_legacy_backtick_construct(1), Some(raw.len()));
     }
 }
