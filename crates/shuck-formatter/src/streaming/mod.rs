@@ -33,12 +33,12 @@ use crate::command::{
     multiline_compound_assignment_layout, multiline_compound_assignment_lines,
     render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
     render_subscript_to_buf, render_var_ref_to_buf, simple_command_uses_synthetic_words,
-    slice_span, stmt_attachment_span, stmt_format_span, stmt_render_start_line,
-    stmt_seq_has_heredoc, stmt_span, stmt_start_after_operator, stmt_verbatim_span_with_source_map,
+    slice_span, stmt_attachment_span, stmt_format_span, stmt_render_start_line, stmt_span,
+    stmt_start_after_operator, stmt_verbatim_span_with_source_map,
     trim_unescaped_trailing_whitespace,
 };
 use crate::comments::{SourceComment, SourceMap};
-use crate::facts::FormatterFacts;
+use crate::facts::{FormatterFacts, classify_sequence_contains_heredoc};
 use crate::options::{IndentStyle, ResolvedShellFormatOptions};
 use crate::scan::{
     BranchPrefixComment, heredoc_start, last_shell_keyword_start,
@@ -46,13 +46,12 @@ use crate::scan::{
     skip_double_quoted, skip_single_quoted, source_between_offsets,
 };
 use crate::word::{
-    assignment_value_has_multiline_literal_source as assignment_has_multiline_literal_source,
     normalize_raw_empty_parameter_replacement_delimiters,
     normalize_raw_unquoted_word_continuations, render_arithmetic_expr_to_buf,
     render_escaped_multiline_word_syntax_with_facts_to_buf, render_heredoc_body_to_buf,
     render_pattern_syntax_to_buf, render_word_syntax_with_facts_to_buf,
-    word_gap_end_before_trailing_continuation, word_has_multiline_literal_source,
-    word_is_quoted_command_substitution_only, word_is_quoted_formattable_command_substitution_only,
+    word_gap_end_before_trailing_continuation, word_is_quoted_command_substitution_only,
+    word_is_quoted_formattable_command_substitution_only_with_facts,
 };
 use writer::{BufferSink, CompareSink, PendingHeredoc, ShellWriter, StreamSink};
 
@@ -448,7 +447,7 @@ fn heredoc_body_contains_command_substitution(body: &HeredocBody) -> bool {
 fn word_part_contains_command_heredoc(part: &WordPart) -> bool {
     match part {
         WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
-            stmt_seq_has_heredoc(body)
+            classify_sequence_contains_heredoc(body)
         }
         WordPart::DoubleQuoted { parts, .. } => parts
             .iter()
@@ -936,11 +935,11 @@ fn assignment_source_has_leading_pipe_continuation(assignment: &Assignment, sour
 
 fn assignment_value_is_quoted_formattable_command_substitution_only(
     assignment: &Assignment,
-    source: &str,
+    facts: &FormatterFacts<'_>,
 ) -> bool {
     match &assignment.value {
         AssignmentValue::Scalar(word) => {
-            word_is_quoted_formattable_command_substitution_only(word, source)
+            word_is_quoted_formattable_command_substitution_only_with_facts(word, facts)
         }
         AssignmentValue::Compound(_) => false,
     }

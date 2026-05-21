@@ -1,5 +1,5 @@
 use crate::comments::SourceMap;
-use crate::facts::FormatterFacts;
+use crate::facts::{FormatterFacts, classify_stmt_contains_heredoc};
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
     branch_keyword_offset, common_nonempty_shell_indent, last_shell_keyword_start,
@@ -7,7 +7,6 @@ use crate::scan::{
     matching_if_close_start, normalized_close_keyword_span, refine_common_indent,
     shell_comment_can_start, skip_escaped_or_quoted,
 };
-use crate::visit::{self, AstVisitor};
 use crate::word::{
     matching_raw_command_substitution_close, normalize_raw_pipeline_continuations,
     render_arithmetic_expr_to_buf, render_word_syntax_to_buf, render_word_syntax_with_facts_to_buf,
@@ -16,8 +15,8 @@ use shuck_ast::{
     AnonymousFunctionCommand, ArithmeticExprNode, ArrayElem, Assignment, AssignmentValue,
     BackgroundOperator, BinaryCommand, BinaryOp, BuiltinCommand, CaseItem, CaseTerminator, Command,
     CompoundCommand, DeclClause, DeclOperand, ForSyntax, ForeachSyntax, FunctionDef, IfCommand,
-    IfSyntax, Redirect, RedirectKind, RepeatSyntax, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
-    StmtTerminator, Subscript, VarRef, Word, WordPart,
+    IfSyntax, RepeatSyntax, SimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator,
+    Subscript, VarRef, Word, WordPart,
 };
 
 pub(crate) fn array_elem_parts(element: &ArrayElem) -> (Option<&Subscript>, &Word, &'static str) {
@@ -873,50 +872,6 @@ pub(crate) fn render_source_text_to_buf(text: &SourceText, source: &str, rendere
     }
 }
 
-pub(crate) fn has_heredoc(stmt: &Stmt) -> bool {
-    let mut visitor = HeredocFinder::default();
-    visitor.visit_stmt(stmt);
-    visitor.found
-}
-
-pub(crate) fn stmt_seq_has_heredoc(commands: &StmtSeq) -> bool {
-    let mut visitor = HeredocFinder::default();
-    visitor.visit_stmt_seq(commands);
-    visitor.found
-}
-
-#[derive(Default)]
-struct HeredocFinder {
-    found: bool,
-}
-
-impl AstVisitor for HeredocFinder {
-    fn visit_stmt(&mut self, stmt: &Stmt) {
-        if !self.found {
-            visit::walk_stmt(self, stmt);
-        }
-    }
-
-    fn visit_stmt_seq(&mut self, sequence: &StmtSeq) {
-        if !self.found {
-            visit::walk_stmt_seq(self, sequence);
-        }
-    }
-
-    fn visit_redirect(&mut self, redirect: &Redirect) {
-        if matches!(
-            redirect.kind,
-            RedirectKind::HereDoc | RedirectKind::HereDocStrip
-        ) {
-            self.found = true;
-        } else {
-            visit::walk_redirect(self, redirect);
-        }
-    }
-
-    fn visit_word(&mut self, _word: &Word) {}
-}
-
 enum CompoundChild<'a> {
     Stmt(&'a Stmt),
     Sequence(&'a StmtSeq),
@@ -1542,7 +1497,7 @@ fn stmt_group_attachment_end_offset(
 
     match &stmt.command {
         Command::Function(_) | Command::AnonymousFunction(_) => stmt_span(stmt).end.offset,
-        _ if has_heredoc(stmt) => {
+        _ if classify_stmt_contains_heredoc(stmt) => {
             stmt_verbatim_span_with_source_map(stmt, source_map)
                 .end
                 .offset
@@ -1841,7 +1796,7 @@ pub(crate) fn rendered_stmt_end_line(
         Command::Function(_) | Command::AnonymousFunction(_) => {
             span_render_end_line(stmt_span(stmt), source, source_map)
         }
-        _ if has_heredoc(stmt) => span_render_end_line(
+        _ if classify_stmt_contains_heredoc(stmt) => span_render_end_line(
             stmt_verbatim_span_with_source_map(stmt, source_map),
             source,
             source_map,
@@ -1906,7 +1861,7 @@ pub(crate) fn should_render_verbatim(
     (!options.simplify()
         && matches!(&stmt.command, Command::Simple(command) if simple_command_uses_synthetic_words(command, source_map.source())))
         || (options.keep_padding() && stmt_has_alignment_sensitive_padding(stmt, source_map))
-        || (has_heredoc(stmt)
+        || (classify_stmt_contains_heredoc(stmt)
             && !matches!(stmt.command, Command::Binary(_))
             && stmt_has_trailing_comment(stmt, source_map))
 }

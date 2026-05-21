@@ -4,9 +4,9 @@ use shuck_ast::{
     AnonymousFunctionCommand, ArithmeticExprNode, Assignment, AssignmentValue, BinaryCommand,
     BinaryOp, CaseCommand, CaseItem, Command, CommandSubstitutionSyntax, CompoundCommand,
     ConditionalCommand, ConditionalExpr, File, ForCommand, ForeachCommand, FunctionDef, Heredoc,
-    HeredocBody, HeredocBodyPart, HeredocBodyPartNode, IfCommand, Pattern, Redirect, RepeatCommand,
-    SelectCommand, Span, Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand, WhileCommand,
-    Word, WordPart, WordPartNode,
+    HeredocBody, HeredocBodyPart, HeredocBodyPartNode, IfCommand, Pattern, Redirect, RedirectKind,
+    RepeatCommand, SelectCommand, Span, Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand,
+    WhileCommand, Word, WordPart, WordPartNode,
 };
 use shuck_ast::{TextRange, TextSize};
 use shuck_indexer::{CommentIndex, IndexedComment, Indexer, IndexerOptions, LineIndex};
@@ -20,7 +20,7 @@ use crate::command::{
     matching_group_close, rendered_stmt_end_line, should_render_verbatim, stmt_attachment_span,
     stmt_format_span, stmt_group_attachment_or_verbatim_span, stmt_has_trailing_comment,
     stmt_render_start_line, stmt_span, stmt_start_after_operator,
-    stmt_verbatim_span_with_source_map,
+    stmt_verbatim_span_with_source_map, trim_unescaped_trailing_whitespace,
 };
 use crate::comments::{
     CommentAttachmentModel, SequenceCommentAttachment, SourceComment, SourceMap,
@@ -206,6 +206,7 @@ pub(crate) struct StmtFacts {
     rendered_end_line: usize,
     has_trailing_comment: bool,
     preserve_verbatim: bool,
+    contains_heredoc: bool,
 }
 
 impl StmtFacts {
@@ -228,6 +229,10 @@ impl StmtFacts {
     pub(crate) fn preserve_verbatim(&self) -> bool {
         self.preserve_verbatim
     }
+
+    pub(crate) fn contains_heredoc(&self) -> bool {
+        self.contains_heredoc
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -241,6 +246,10 @@ pub(crate) struct SequenceFacts<'source> {
     has_blank_line_before_close: bool,
     body_content_end: usize,
     close_gap_start: usize,
+    contains_comments: bool,
+    contains_heredoc: bool,
+    contains_multiline_literal_source: bool,
+    contains_multistatement_pipeline_brace_group: bool,
 }
 
 impl<'source> SequenceFacts<'source> {
@@ -255,6 +264,10 @@ impl<'source> SequenceFacts<'source> {
             has_blank_line_before_close: false,
             body_content_end: 0,
             close_gap_start: 0,
+            contains_comments: false,
+            contains_heredoc: false,
+            contains_multiline_literal_source: false,
+            contains_multistatement_pipeline_brace_group: false,
         }
     }
 
@@ -276,6 +289,22 @@ impl<'source> SequenceFacts<'source> {
 
     pub(crate) fn has_comments(&self) -> bool {
         self.comments.has_comments()
+    }
+
+    pub(crate) fn contains_comments(&self) -> bool {
+        self.contains_comments
+    }
+
+    pub(crate) fn contains_heredoc(&self) -> bool {
+        self.contains_heredoc
+    }
+
+    pub(crate) fn contains_multiline_literal_source(&self) -> bool {
+        self.contains_multiline_literal_source
+    }
+
+    pub(crate) fn contains_multistatement_pipeline_brace_group(&self) -> bool {
+        self.contains_multistatement_pipeline_brace_group
     }
 
     pub(crate) fn first_rendered_line_for(&self, index: usize) -> usize {
@@ -315,10 +344,22 @@ impl<'source> SequenceFacts<'source> {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct WordFacts {
+    has_multiline_literal_source: bool,
+}
+
+impl WordFacts {
+    pub(crate) fn has_multiline_literal_source(&self) -> bool {
+        self.has_multiline_literal_source
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct FormatterFacts<'source> {
     source_map: SourceMap<'source>,
     stmt_facts: HashMap<FactSpan, StmtFacts>,
     sequence_facts: HashMap<SequenceSiteKey, SequenceFacts<'source>>,
+    word_facts: HashMap<FactSpan, WordFacts>,
     pipeline_breaks: HashSet<FactSpan>,
     list_item_breaks: HashSet<FactSpan>,
     background_breaks: HashSet<FactSpan>,
@@ -362,16 +403,73 @@ impl<'source> FormatterFacts<'source> {
         upper_bound: Option<usize>,
     ) -> &SequenceFacts<'source> {
         let key = SequenceSiteKey::new(sequence, upper_bound);
-        self.sequence_facts.get(&key).unwrap_or_else(|| {
-            let Some(facts) = self
-                .sequence_facts
+        self.sequence_facts
+            .get(&key)
+            .unwrap_or_else(|| self.sequence_by_span(key.span))
+    }
+
+    fn sequence_by_span(&self, span: FactSpan) -> &SequenceFacts<'source> {
+        let Some(facts) = self
+            .sequence_facts
+            .iter()
+            .find_map(|(candidate, facts)| (candidate.span == span).then_some(facts))
+        else {
+            unreachable!("missing sequence facts");
+        };
+        facts
+    }
+
+    pub(crate) fn word_has_multiline_literal_source(&self, word: &Word) -> bool {
+        self.word_facts.get(&FactSpan::from(word.span)).map_or_else(
+            || classify_word_has_multiline_literal_source(word, self.source_map.source()),
+            WordFacts::has_multiline_literal_source,
+        )
+    }
+
+    pub(crate) fn assignment_value_has_multiline_literal_source(
+        &self,
+        assignment: &Assignment,
+    ) -> bool {
+        match &assignment.value {
+            AssignmentValue::Scalar(word) => self.word_has_multiline_literal_source(word),
+            AssignmentValue::Compound(array) => array
+                .elements
                 .iter()
-                .find_map(|(candidate, facts)| (candidate.span == key.span).then_some(facts))
-            else {
-                unreachable!("missing sequence facts");
-            };
-            facts
-        })
+                .any(|element| self.word_has_multiline_literal_source(array_elem_parts(element).1)),
+        }
+    }
+
+    pub(crate) fn assignment_has_multiline_literal_source(
+        &self,
+        assignment: &Assignment,
+        source: &str,
+    ) -> bool {
+        self.assignment_value_has_multiline_literal_source(assignment)
+            || matches!(&assignment.value, AssignmentValue::Scalar(_))
+                && assignment_has_raw_backslash_continuation_literal(assignment, source)
+    }
+
+    pub(crate) fn sequence_contains_comments(&self, sequence: &StmtSeq) -> bool {
+        self.sequence_by_span(FactSpan::from(sequence.span))
+            .contains_comments()
+    }
+
+    pub(crate) fn sequence_contains_heredoc(&self, sequence: &StmtSeq) -> bool {
+        self.sequence_by_span(FactSpan::from(sequence.span))
+            .contains_heredoc()
+    }
+
+    pub(crate) fn sequence_contains_multiline_literal_source(&self, sequence: &StmtSeq) -> bool {
+        self.sequence_by_span(FactSpan::from(sequence.span))
+            .contains_multiline_literal_source()
+    }
+
+    pub(crate) fn sequence_contains_multistatement_pipeline_brace_group(
+        &self,
+        sequence: &StmtSeq,
+    ) -> bool {
+        self.sequence_by_span(FactSpan::from(sequence.span))
+            .contains_multistatement_pipeline_brace_group()
     }
 
     pub(crate) fn pipeline_has_explicit_line_break(&self, pipeline: &BinaryCommand) -> bool {
@@ -392,6 +490,10 @@ impl<'source> FormatterFacts<'source> {
                     .then_some(FactSpan::from(stmt_span(stmt)))
             })
             .is_some_and(|key| self.background_breaks.contains(&key))
+    }
+
+    pub(crate) fn stmt_contains_heredoc(&self, stmt: &Stmt) -> bool {
+        self.stmt(stmt).contains_heredoc()
     }
 
     pub(crate) fn group_was_inline_in_source(&self, commands: &StmtSeq) -> bool {
@@ -566,6 +668,7 @@ impl<'source> FormatterFacts<'source> {
     pub(crate) fn len(&self) -> usize {
         self.stmt_facts.len()
             + self.sequence_facts.len()
+            + self.word_facts.len()
             + self.pipeline_breaks.len()
             + self.list_item_breaks.len()
             + self.background_breaks.len()
@@ -576,6 +679,343 @@ impl<'source> FormatterFacts<'source> {
             + self.case_facts.len()
             + self.case_item_facts.len()
             + self.indexer.region_index().heredoc_ranges().len()
+    }
+}
+
+pub(crate) fn classify_word_has_multiline_literal_source(word: &Word, source: &str) -> bool {
+    if raw_word_source_slice(word, source).is_some_and(|raw| {
+        raw.contains("\\\n")
+            && word_has_multiline_double_quoted_source(word, source)
+            && !word_is_quoted_command_substitution_only(word)
+    }) {
+        return true;
+    }
+
+    word_part_nodes_any(&word.parts, &mut |part| {
+        word_part_has_multiline_literal_source(&part.kind, part.span, source)
+    })
+}
+
+pub(crate) fn classify_sequence_contains_multiline_literal_source(
+    sequence: &StmtSeq,
+    source: &str,
+) -> bool {
+    let mut visitor = MultilineLiteralFinder::new(source);
+    visitor.visit_stmt_seq(sequence);
+    visitor.found
+}
+
+pub(crate) fn classify_sequence_contains_comments(sequence: &StmtSeq) -> bool {
+    let mut visitor = CommentFinder::default();
+    visitor.visit_stmt_seq(sequence);
+    visitor.found
+}
+
+pub(crate) fn classify_stmt_contains_heredoc(stmt: &Stmt) -> bool {
+    let mut visitor = HeredocFinder::default();
+    visitor.visit_stmt(stmt);
+    visitor.found
+}
+
+pub(crate) fn classify_sequence_contains_heredoc(sequence: &StmtSeq) -> bool {
+    let mut visitor = HeredocFinder::default();
+    visitor.visit_stmt_seq(sequence);
+    visitor.found
+}
+
+pub(crate) fn classify_sequence_contains_multistatement_pipeline_brace_group(
+    statements: &StmtSeq,
+) -> bool {
+    let mut visitor = PipelineBraceGroupFinder::default();
+    visitor.visit_stmt_seq(statements);
+    visitor.found
+}
+
+fn word_part_nodes_any(
+    parts: &[WordPartNode],
+    predicate: &mut impl FnMut(&WordPartNode) -> bool,
+) -> bool {
+    parts.iter().any(|part| {
+        predicate(part)
+            || matches!(
+                &part.kind,
+                WordPart::DoubleQuoted { parts, .. }
+                    if word_part_nodes_any(parts.as_slice(), predicate)
+            )
+    })
+}
+
+fn word_part_has_multiline_literal_source(part: &WordPart, span: Span, source: &str) -> bool {
+    match part {
+        WordPart::Literal(text) => text.as_str(source, span).contains('\n'),
+        WordPart::SingleQuoted { value, dollar } => {
+            if *dollar {
+                raw_source_slice(span, source).is_some_and(|raw| raw.contains('\n'))
+            } else {
+                value.slice(source).contains('\n')
+            }
+        }
+        WordPart::CommandSubstitution { body, .. } => {
+            classify_sequence_contains_multiline_literal_source(body, source)
+                || (classify_sequence_contains_comments(body)
+                    && raw_source_slice(span, source).is_some_and(|raw| {
+                        raw.contains('\n')
+                            && !command_substitution_source_starts_with_body_line(raw)
+                    }))
+        }
+        WordPart::ProcessSubstitution { body, .. } => {
+            classify_sequence_contains_multiline_literal_source(body, source)
+                || (classify_sequence_contains_comments(body)
+                    && raw_source_slice(span, source).is_some_and(|raw| raw.contains('\n')))
+        }
+        _ => false,
+    }
+}
+
+fn redirect_has_multiline_literal_source(redirect: &Redirect, source: &str) -> bool {
+    redirect
+        .word_target()
+        .is_some_and(|word| classify_word_has_multiline_literal_source(word, source))
+        || redirect.heredoc().is_some_and(|heredoc| {
+            classify_word_has_multiline_literal_source(&heredoc.delimiter.raw, source)
+        })
+}
+
+fn assignment_has_multiline_literal_source(assignment: &Assignment, source: &str) -> bool {
+    assignment_value_has_multiline_literal_source(assignment, source)
+        || matches!(&assignment.value, AssignmentValue::Scalar(_))
+            && assignment_has_raw_backslash_continuation_literal(assignment, source)
+}
+
+fn assignment_value_has_multiline_literal_source(assignment: &Assignment, source: &str) -> bool {
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => classify_word_has_multiline_literal_source(word, source),
+        AssignmentValue::Compound(array) => array.elements.iter().any(|element| {
+            classify_word_has_multiline_literal_source(array_elem_parts(element).1, source)
+        }),
+    }
+}
+
+fn assignment_has_raw_backslash_continuation_literal(
+    assignment: &Assignment,
+    source: &str,
+) -> bool {
+    let raw = assignment.span.slice(source);
+    raw.contains("\\\n")
+        && !raw.contains("$(")
+        && !raw.contains('`')
+        && !raw.contains("<(")
+        && !raw.contains(">(")
+}
+
+struct MultilineLiteralFinder<'source> {
+    source: &'source str,
+    found: bool,
+}
+
+impl<'source> MultilineLiteralFinder<'source> {
+    fn new(source: &'source str) -> Self {
+        Self {
+            source,
+            found: false,
+        }
+    }
+}
+
+impl AstVisitor for MultilineLiteralFinder<'_> {
+    fn visit_stmt_seq(&mut self, sequence: &StmtSeq) {
+        if !self.found {
+            visit::walk_stmt_seq(self, sequence);
+        }
+    }
+
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if !self.found {
+            visit::walk_stmt(self, stmt);
+        }
+    }
+
+    fn visit_command(&mut self, command: &Command) {
+        if !self.found {
+            visit::walk_command(self, command);
+        }
+    }
+
+    fn visit_redirect(&mut self, redirect: &Redirect) {
+        self.found |= redirect_has_multiline_literal_source(redirect, self.source);
+    }
+
+    fn visit_assignment(&mut self, assignment: &Assignment) {
+        self.found |= assignment_has_multiline_literal_source(assignment, self.source);
+    }
+
+    fn visit_word(&mut self, word: &Word) {
+        self.found |= classify_word_has_multiline_literal_source(word, self.source);
+    }
+}
+
+#[derive(Default)]
+struct CommentFinder {
+    found: bool,
+}
+
+impl AstVisitor for CommentFinder {
+    fn visit_stmt_seq(&mut self, sequence: &StmtSeq) {
+        if self.found {
+            return;
+        }
+        self.found =
+            !sequence.leading_comments.is_empty() || !sequence.trailing_comments.is_empty();
+        if !self.found {
+            visit::walk_stmt_seq(self, sequence);
+        }
+    }
+
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if self.found {
+            return;
+        }
+        self.found = !stmt.leading_comments.is_empty() || stmt.inline_comment.is_some();
+        if !self.found {
+            visit::walk_stmt(self, stmt);
+        }
+    }
+}
+
+#[derive(Default)]
+struct HeredocFinder {
+    found: bool,
+}
+
+impl AstVisitor for HeredocFinder {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if !self.found {
+            visit::walk_stmt(self, stmt);
+        }
+    }
+
+    fn visit_stmt_seq(&mut self, sequence: &StmtSeq) {
+        if !self.found {
+            visit::walk_stmt_seq(self, sequence);
+        }
+    }
+
+    fn visit_redirect(&mut self, redirect: &Redirect) {
+        if matches!(
+            redirect.kind,
+            RedirectKind::HereDoc | RedirectKind::HereDocStrip
+        ) {
+            self.found = true;
+        } else {
+            visit::walk_redirect(self, redirect);
+        }
+    }
+
+    fn visit_word(&mut self, _word: &Word) {}
+}
+
+#[derive(Default)]
+struct PipelineBraceGroupFinder {
+    found: bool,
+    in_pipeline: bool,
+}
+
+impl AstVisitor for PipelineBraceGroupFinder {
+    fn visit_stmt_seq(&mut self, sequence: &StmtSeq) {
+        if !self.found {
+            visit::walk_stmt_seq(self, sequence);
+        }
+    }
+
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if !self.found {
+            visit::walk_stmt(self, stmt);
+        }
+    }
+
+    fn visit_command(&mut self, command: &Command) {
+        if self.found {
+            return;
+        }
+
+        match command {
+            Command::Binary(binary) if matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
+                let previous = self.in_pipeline;
+                self.in_pipeline = true;
+                self.visit_stmt(&binary.left);
+                self.visit_stmt(&binary.right);
+                self.in_pipeline = previous;
+            }
+            Command::Compound(CompoundCommand::BraceGroup(body)) if self.in_pipeline => {
+                self.found = body.len() > 1;
+            }
+            _ => {}
+        }
+    }
+}
+
+fn word_has_multiline_double_quoted_source(word: &Word, source: &str) -> bool {
+    word_part_nodes_any(&word.parts, &mut |part| {
+        matches!(&part.kind, WordPart::DoubleQuoted { .. })
+            && raw_source_slice(part.span, source).is_some_and(|raw| raw.contains('\n'))
+    })
+}
+
+fn word_is_quoted_command_substitution_only(word: &Word) -> bool {
+    quoted_command_substitution_only_body(word).is_some()
+}
+
+fn quoted_command_substitution_only_body(word: &Word) -> Option<&StmtSeq> {
+    let [
+        shuck_ast::WordPartNode {
+            kind:
+                WordPart::DoubleQuoted {
+                    parts,
+                    dollar: false,
+                },
+            ..
+        },
+    ] = word.parts.as_slice()
+    else {
+        return None;
+    };
+
+    let mut substitution_body = None;
+    for part in parts {
+        match &part.kind {
+            WordPart::CommandSubstitution { body, .. } if substitution_body.is_none() => {
+                substitution_body = Some(body);
+            }
+            WordPart::Literal(text) if text.is_empty() => {}
+            _ => return None,
+        }
+    }
+
+    substitution_body
+}
+
+fn command_substitution_source_starts_with_body_line(raw: &str) -> bool {
+    if raw.starts_with(['\n', '\r']) {
+        return true;
+    }
+    raw.strip_prefix("$(")
+        .is_some_and(|after_open| after_open.starts_with(['\n', '\r']))
+}
+
+fn raw_word_source_slice<'a>(word: &Word, source: &'a str) -> Option<&'a str> {
+    raw_source_slice(word.span, source)
+}
+
+fn raw_source_slice(span: Span, source: &str) -> Option<&str> {
+    if span.start.offset >= span.end.offset || span.end.offset > source.len() {
+        return None;
+    }
+
+    let slice = span.slice(source);
+    if slice.contains('\n') {
+        Some(slice)
+    } else {
+        Some(trim_unescaped_trailing_whitespace(slice))
     }
 }
 
@@ -751,6 +1191,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 source_map,
                 stmt_facts: HashMap::new(),
                 sequence_facts: HashMap::new(),
+                word_facts: HashMap::new(),
                 pipeline_breaks: HashSet::new(),
                 list_item_breaks: HashSet::new(),
                 background_breaks: HashSet::new(),
@@ -824,6 +1265,12 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     .map(|(span, _)| span)
             })
         });
+        facts.contains_comments = classify_sequence_contains_comments(sequence);
+        facts.contains_heredoc = classify_sequence_contains_heredoc(sequence);
+        facts.contains_multiline_literal_source =
+            classify_sequence_contains_multiline_literal_source(sequence, self.source);
+        facts.contains_multistatement_pipeline_brace_group =
+            classify_sequence_contains_multistatement_pipeline_brace_group(sequence);
         let group_attachment_span = group_open_char.and_then(|open| {
             let close = match open {
                 '{' => '}',
@@ -939,6 +1386,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     fn visit_stmt(&mut self, stmt: &Stmt) {
         let stmt_key = FactSpan::from(stmt_span(stmt));
         if !self.facts.stmt_facts.contains_key(&stmt_key) {
+            let contains_heredoc = classify_stmt_contains_heredoc(stmt);
             let preserve_verbatim = should_render_verbatim(stmt, self.source_map(), self.options);
             let render_span = if preserve_verbatim {
                 stmt_verbatim_span_with_source_map(stmt, self.source_map())
@@ -958,6 +1406,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     rendered_end_line: rendered_stmt_end_line(stmt, self.source, self.source_map()),
                     has_trailing_comment: stmt_has_trailing_comment(stmt, self.source_map()),
                     preserve_verbatim,
+                    contains_heredoc,
                 },
             );
         }
@@ -1401,6 +1850,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             self.visit_word(word);
         }
         if let Some(heredoc) = redirect.heredoc() {
+            self.visit_word(&heredoc.delimiter.raw);
             self.visit_heredoc_body(&heredoc.body);
         }
     }
@@ -1425,7 +1875,21 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_word(&mut self, word: &Word) {
+        let word_key = FactSpan::from(word.span);
+        if self.facts.word_facts.contains_key(&word_key) {
+            return;
+        }
+
         visit::walk_word(self, word);
+        self.facts.word_facts.insert(
+            word_key,
+            WordFacts {
+                has_multiline_literal_source: classify_word_has_multiline_literal_source(
+                    word,
+                    self.source,
+                ),
+            },
+        );
     }
 
     fn visit_word_part(&mut self, part: &WordPart, span: Span) {
@@ -2531,6 +2995,49 @@ mod tests {
                 .close_suffix_comment_after_span(case_facts.esac_span().unwrap())
                 .is_some()
         );
+    }
+
+    #[test]
+    fn records_non_layout_classification_facts() {
+        let source = "value=\"one\ntwo\"\ncat <<EOF\nhi\nEOF\nfoo | { a; b; }\n";
+        let (file, facts) = build_facts(source);
+
+        let Command::Simple(command) = &file.body[0].command else {
+            panic!("expected simple assignment");
+        };
+        let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+            panic!("expected scalar assignment");
+        };
+
+        assert!(facts.word_has_multiline_literal_source(word));
+        assert!(facts.stmt(&file.body[1]).contains_heredoc());
+        assert!(facts.sequence_contains_heredoc(&file.body));
+        assert!(facts.sequence_contains_multistatement_pipeline_brace_group(&file.body));
+    }
+
+    #[test]
+    fn records_nested_sequence_comment_classification_facts() {
+        let source = "value=$(echo hi\n  # note\n)\n";
+        let (file, facts) = build_facts(source);
+
+        let Command::Simple(command) = &file.body[0].command else {
+            panic!("expected simple assignment");
+        };
+        let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+            panic!("expected scalar assignment");
+        };
+        let [
+            WordPartNode {
+                kind: WordPart::CommandSubstitution { body, .. },
+                ..
+            },
+        ] = word.parts.as_slice()
+        else {
+            panic!("expected command substitution word");
+        };
+
+        assert!(facts.sequence_contains_comments(body));
+        assert!(facts.word_has_multiline_literal_source(word));
     }
 
     #[test]

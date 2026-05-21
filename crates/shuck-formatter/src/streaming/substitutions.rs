@@ -280,11 +280,11 @@ where
         {
             self.write_shell_text_with_heredoc_tails(&scratch, true);
         } else if scratch.contains('\n')
-            && (word_is_quoted_formattable_command_substitution_only(word, self.source())
+            && (word_is_quoted_formattable_command_substitution_only_with_facts(word, self.facts())
                 || word_contains_process_substitution(word))
         {
             self.write_text_preserving_current_line_indent(&scratch);
-        } else if word_has_multiline_literal_source(word, self.source()) {
+        } else if self.facts().word_has_multiline_literal_source(word) {
             if scratch.contains('\n')
                 && (word_contains_command_substitution(word)
                     || rendered_text_has_shell_substitution(&scratch))
@@ -368,7 +368,7 @@ where
         } else if scratch.contains('\n')
             && assignment_value_is_quoted_formattable_command_substitution_only(
                 assignment,
-                self.source(),
+                self.facts(),
             )
         {
             self.write_text_preserving_current_line_indent(&scratch);
@@ -377,7 +377,10 @@ where
         {
             if compound_assignment_is_single_case_command_substitution(assignment) {
                 self.write_text_preserving_current_line_indent(&scratch);
-            } else if assignment_has_multiline_literal_source(assignment, self.source()) {
+            } else if self
+                .facts()
+                .assignment_has_multiline_literal_source(assignment, self.source())
+            {
                 if assignment_value_is_quoted_command_substitution_only(assignment) {
                     self.write_command_substitution_assignment_text(&scratch);
                 } else if assignment_source_has_leading_pipe_continuation(assignment, self.source())
@@ -396,7 +399,10 @@ where
             } else {
                 self.write_text_preserving_current_line_indent(&scratch);
             }
-        } else if assignment_has_multiline_literal_source(assignment, self.source()) {
+        } else if self
+            .facts()
+            .assignment_has_multiline_literal_source(assignment, self.source())
+        {
             self.write_rendered_shell_text(&scratch);
         } else {
             self.write_text(&scratch);
@@ -483,7 +489,10 @@ where
         assignment: &Assignment,
     ) -> bool {
         let source = self.source();
-        if !assignment_has_multiline_literal_source(assignment, source) {
+        if !self
+            .facts()
+            .assignment_has_multiline_literal_source(assignment, source)
+        {
             return false;
         }
 
