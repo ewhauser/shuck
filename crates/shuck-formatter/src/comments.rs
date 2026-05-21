@@ -154,10 +154,7 @@ impl<'a> SourceMap<'a> {
     }
 
     #[must_use]
-    pub(crate) fn source_comment_for_indexed(
-        &self,
-        comment: &IndexedComment,
-    ) -> Option<SourceComment<'a>> {
+    fn source_comment_for_indexed(&self, comment: &IndexedComment) -> Option<SourceComment<'a>> {
         let start = usize::from(comment.range.start());
         let end = usize::from(comment.range.end());
         (start < end && end <= self.source.len()).then(|| SourceComment {
@@ -423,6 +420,71 @@ impl<'a> SourceComment<'a> {
     }
 }
 
+/// Formatter-owned attachment view over parser-indexed comments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CommentAttachmentModel<'a> {
+    comments: Box<[SourceComment<'a>]>,
+}
+
+impl<'a> CommentAttachmentModel<'a> {
+    pub(crate) fn from_indexer(source_map: &SourceMap<'a>, indexer: &Indexer) -> Self {
+        let mut comments = indexer
+            .comment_index()
+            .comments()
+            .iter()
+            .filter(|comment| !indexer.region_index().is_heredoc(comment.range.start()))
+            .filter_map(|comment| source_map.source_comment_for_indexed(comment))
+            .collect::<Vec<_>>();
+        comments.sort_by_key(|comment| comment.span().start.offset);
+
+        Self {
+            comments: comments.into_boxed_slice(),
+        }
+    }
+
+    pub(crate) fn attach_sequence(
+        &self,
+        lower_bound: usize,
+        upper_bound: Option<usize>,
+        skip_span: Option<Span>,
+        child_spans: &[Span],
+    ) -> SequenceCommentAttachment<'a> {
+        let comments = self.comment_window(lower_bound, upper_bound);
+        if child_spans.is_empty() {
+            let dangling = comments
+                .iter()
+                .copied()
+                .filter(|comment| {
+                    upper_bound.is_none_or(|limit| comment.span().end.offset <= limit)
+                })
+                .filter(|comment| {
+                    skip_span.is_none_or(|span| !span_contains_comment(span, *comment))
+                })
+                .collect::<Vec<_>>();
+            let ambiguous = dangling.iter().any(SourceComment::inline);
+            return SequenceCommentAttachment::with_dangling(dangling, ambiguous);
+        }
+
+        compute_sequence_attachment(comments, child_spans, upper_bound, skip_span)
+    }
+
+    fn comment_window(
+        &self,
+        lower_bound: usize,
+        upper_bound: Option<usize>,
+    ) -> &[SourceComment<'a>] {
+        let start_index = self
+            .comments
+            .partition_point(|comment| comment.span().start.offset < lower_bound);
+        let end_index = upper_bound.map_or(self.comments.len(), |limit| {
+            self.comments
+                .partition_point(|comment| comment.span().start.offset < limit)
+        });
+
+        &self.comments[start_index..end_index.max(start_index)]
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SequenceCommentAttachment<'a> {
     leading: Vec<Vec<SourceComment<'a>>>,
@@ -484,10 +546,9 @@ fn compute_sequence_attachment<'a>(
     child_spans: &[Span],
     upper_bound: Option<usize>,
     skip_span: Option<Span>,
-    start_index: usize,
 ) -> SequenceCommentAttachment<'a> {
     let mut attachment = SequenceCommentAttachment::new(child_spans.len());
-    if child_spans.is_empty() || start_index >= items.len() {
+    if child_spans.is_empty() || items.is_empty() {
         return attachment;
     }
 
@@ -499,7 +560,7 @@ fn compute_sequence_attachment<'a>(
     let limit_end = upper_bound.unwrap_or(usize::MAX);
     let mut child_cursor = 0;
 
-    let mut index = start_index;
+    let mut index = 0;
     while index < items.len() {
         let comment = items[index];
         let start = comment.span.start.offset;
@@ -592,15 +653,6 @@ fn compute_sequence_attachment<'a>(
     attachment
 }
 
-pub(crate) fn inspect_sequence_comments_in_window<'a>(
-    items: &[SourceComment<'a>],
-    child_spans: &[Span],
-    upper_bound: Option<usize>,
-    skip_span: Option<Span>,
-) -> SequenceCommentAttachment<'a> {
-    compute_sequence_attachment(items, child_spans, upper_bound, skip_span, 0)
-}
-
 fn advance_comment_run<'a>(
     items: &[SourceComment<'a>],
     start_index: usize,
@@ -624,7 +676,7 @@ fn advance_comment_run<'a>(
     index
 }
 
-pub(crate) fn span_contains_comment(span: Span, comment: SourceComment<'_>) -> bool {
+fn span_contains_comment(span: Span, comment: SourceComment<'_>) -> bool {
     span.start.offset <= comment.span.start.offset && comment.span.end.offset <= span.end.offset
 }
 
@@ -640,6 +692,8 @@ fn contains_offset_in_range(offsets: &[usize], start: usize, end: usize) -> bool
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shuck_indexer::{Indexer, IndexerOptions};
+    use shuck_parser::parser::Parser;
 
     #[test]
     fn source_map_uses_indexed_lines_and_comment_contexts() {
@@ -680,6 +734,31 @@ mod tests {
         assert_eq!(line_starts(&source_map), vec![0, source.len()]);
         assert_eq!(source_map.first_non_whitespace_for_line(0), Some(0));
         assert!(!source_map.has_alignment_padding_between(3, 6));
+    }
+
+    #[test]
+    fn comment_attachment_model_uses_indexed_comments() {
+        let source =
+            "echo '# not a comment'\n# leading\necho hi # inline\ncat <<EOF\n# heredoc\nEOF\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::for_file_with_options(
+            source,
+            &output.file,
+            IndexerOptions::new().with_source_layout_indexes(true),
+        );
+        let source_map = SourceMap::from_indexer(source, &indexer, true);
+
+        let attachments = CommentAttachmentModel::from_indexer(&source_map, &indexer);
+        let starts = attachments
+            .comments
+            .iter()
+            .map(|comment| comment.span().start.offset)
+            .collect::<Vec<_>>();
+
+        assert!(!starts.contains(&source.find("# not a comment").unwrap()));
+        assert!(starts.contains(&source.find("# leading").unwrap()));
+        assert!(starts.contains(&source.find("# inline").unwrap()));
+        assert!(!starts.contains(&source.find("# heredoc").unwrap()));
     }
 
     fn line_starts(source_map: &SourceMap<'_>) -> Vec<usize> {

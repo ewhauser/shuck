@@ -22,8 +22,7 @@ use crate::command::{
     stmt_verbatim_span_with_source_map,
 };
 use crate::comments::{
-    SequenceCommentAttachment, SourceComment, SourceMap, inspect_sequence_comments_in_window,
-    span_contains_comment,
+    CommentAttachmentModel, SequenceCommentAttachment, SourceComment, SourceMap,
 };
 use crate::options::{LineEnding, ResolvedShellFormatOptions};
 use crate::scan::{BranchPrefixComment, last_shell_keyword_start};
@@ -494,7 +493,7 @@ struct FormatterFactsBuilder<'source, 'options> {
     source: &'source str,
     options: &'options ResolvedShellFormatOptions,
     facts: FormatterFacts<'source>,
-    source_comments: Box<[SourceComment<'source>]>,
+    comment_attachments: CommentAttachmentModel<'source>,
 }
 
 impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
@@ -504,6 +503,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         indexer: Indexer,
     ) -> Self {
         let source_map = SourceMap::from_indexer(source, &indexer, options.keep_padding());
+        let comment_attachments = CommentAttachmentModel::from_indexer(&source_map, &indexer);
 
         Self {
             source,
@@ -519,28 +519,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 inline_case_item_bodies: HashSet::new(),
                 indexer,
             },
-            source_comments: Box::from([]),
+            comment_attachments,
         }
     }
 
     fn build(mut self, file: &File) -> FormatterFacts<'source> {
-        let mut source_comments = self
-            .facts
-            .indexer
-            .comment_index()
-            .comments()
-            .iter()
-            .filter(|comment| {
-                !self
-                    .facts
-                    .indexer
-                    .region_index()
-                    .is_heredoc(comment.range.start())
-            })
-            .filter_map(|comment| self.source_map().source_comment_for_indexed(comment))
-            .collect::<Vec<_>>();
-        source_comments.sort_by_key(|comment| comment.span().start.offset);
-        self.source_comments = source_comments.into_boxed_slice();
         self.visit_sequence(&file.body, None, None);
         self.facts
     }
@@ -610,35 +593,25 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         let lower_bound = group_attachment_span
             .map(|span| span.start.offset.min(comment_lower_bound))
             .unwrap_or(comment_lower_bound);
-        let comment_window = self.comment_window(lower_bound, sequence_limit);
 
         if sequence.is_empty() {
-            let dangling: Vec<_> = comment_window
-                .iter()
-                .copied()
-                .filter(|comment| {
-                    sequence_limit.is_none_or(|limit| comment.span().end.offset <= limit)
-                })
-                .filter(|comment| {
-                    facts
-                        .group_open_suffix_span
-                        .is_none_or(|span| !span_contains_comment(span, *comment))
-                })
-                .collect();
-            let ambiguous = dangling.iter().any(SourceComment::inline);
-            facts.comments = SequenceCommentAttachment::with_dangling(dangling, ambiguous);
+            facts.comments = self.comment_attachments.attach_sequence(
+                lower_bound,
+                sequence_limit,
+                facts.group_open_suffix_span,
+                &[],
+            );
         } else {
             let child_spans = sequence
                 .iter()
                 .map(|stmt| self.facts.stmt(stmt).attachment_span())
                 .collect::<Vec<_>>();
-            let attachment = inspect_sequence_comments_in_window(
-                comment_window,
-                &child_spans,
+            facts.comments = self.comment_attachments.attach_sequence(
+                lower_bound,
                 sequence_limit,
                 facts.group_open_suffix_span,
+                &child_spans,
             );
-            facts.comments = attachment;
 
             for (index, stmt) in sequence.iter().enumerate() {
                 facts.first_rendered_lines[index] = facts
@@ -677,21 +650,6 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         }
 
         self.facts.sequence_facts.insert(key, facts);
-    }
-
-    fn comment_window(
-        &self,
-        lower_bound: usize,
-        upper_bound: Option<usize>,
-    ) -> &[SourceComment<'source>] {
-        let start_index = self
-            .source_comments
-            .partition_point(|comment| comment.span().start.offset < lower_bound);
-        let end_index = upper_bound.map_or(self.source_comments.len(), |limit| {
-            self.source_comments
-                .partition_point(|comment| comment.span().start.offset < limit)
-        });
-        &self.source_comments[start_index..end_index.max(start_index)]
     }
 
     fn visit_stmt(&mut self, stmt: &Stmt) {
