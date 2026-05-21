@@ -53,6 +53,7 @@ use crate::word::{
     word_gap_end_before_trailing_continuation, word_is_quoted_command_substitution_only,
     word_is_quoted_formattable_command_substitution_only_with_facts,
 };
+use shape::{ExpandedThenFiIfLayout, ThenFiIfLayout};
 use writer::{BufferSink, CompareSink, PendingHeredoc, ShellWriter, StreamSink};
 
 #[derive(Clone, Copy)]
