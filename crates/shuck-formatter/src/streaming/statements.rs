@@ -37,6 +37,24 @@ impl SimpleCommandPart<'_> {
 
 fn move_interspersed_redirects_after_arguments<'a>(parts: &mut Vec<SimpleCommandPart<'a>>) {
     let mut saw_argument = false;
+    let mut needs_reorder = false;
+
+    for part in parts.iter() {
+        match part {
+            SimpleCommandPart::Argument(_) => saw_argument = true,
+            SimpleCommandPart::Redirect(_) if saw_argument => {
+                needs_reorder = true;
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    if !needs_reorder {
+        return;
+    }
+
+    saw_argument = false;
     let mut deferred_redirects = Vec::new();
     let mut reordered = Vec::with_capacity(parts.len());
 
