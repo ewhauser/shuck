@@ -181,47 +181,6 @@ fn stmt_compound_close_span(
     };
     match command {
         CompoundCommand::If(command) => Some(if_close_span(command, source, source_map)),
-        CompoundCommand::For(command) => match command.syntax {
-            ForSyntax::InDoDone { done_span, .. } | ForSyntax::ParenDoDone { done_span, .. } => {
-                done_close_span(source, source_map, command.span, Some(done_span))
-            }
-            ForSyntax::InBrace {
-                right_brace_span, ..
-            }
-            | ForSyntax::ParenBrace {
-                right_brace_span, ..
-            } => normalized_brace_close_span(source, source_map, command.span, right_brace_span),
-            ForSyntax::InDirect { .. } | ForSyntax::ParenDirect { .. } => None,
-        },
-        CompoundCommand::Repeat(command) => match command.syntax {
-            RepeatSyntax::DoDone { done_span, .. } => {
-                done_close_span(source, source_map, command.span, Some(done_span))
-            }
-            RepeatSyntax::Brace {
-                right_brace_span, ..
-            } => normalized_brace_close_span(source, source_map, command.span, right_brace_span),
-            RepeatSyntax::Direct => None,
-        },
-        CompoundCommand::Foreach(command) => match command.syntax {
-            ForeachSyntax::InDoDone { done_span, .. } => {
-                done_close_span(source, source_map, command.span, Some(done_span))
-            }
-            ForeachSyntax::ParenBrace {
-                right_brace_span, ..
-            } => normalized_brace_close_span(source, source_map, command.span, right_brace_span),
-        },
-        CompoundCommand::ArithmeticFor(command) => {
-            done_close_span(source, source_map, command.span, command.done_span)
-        }
-        CompoundCommand::While(command) => {
-            done_close_span(source, source_map, command.span, command.done_span)
-        }
-        CompoundCommand::Until(command) => {
-            done_close_span(source, source_map, command.span, command.done_span)
-        }
-        CompoundCommand::Select(command) => {
-            done_close_span(source, source_map, command.span, Some(command.done_span))
-        }
         CompoundCommand::Case(command) => source_map
             .close_delimiter_span(command.span, CloseDelimiterKind::Esac)
             .or_else(|| {
@@ -232,19 +191,9 @@ fn stmt_compound_close_span(
                     "esac",
                 ))
             }),
-        _ => None,
+        _ => CompoundBodySite::single_body_command(command, source_map)
+            .and_then(|site| site.close_span()),
     }
-}
-
-fn normalized_brace_close_span(
-    source: &str,
-    source_map: &crate::comments::SourceMap<'_>,
-    command_span: Span,
-    span: Span,
-) -> Option<Span> {
-    source_map
-        .close_delimiter_span(command_span, CloseDelimiterKind::RightBrace)
-        .or_else(|| Some(normalized_close_keyword_span(source, source_map, span, "}")))
 }
 
 pub(crate) fn if_close_span(

@@ -579,7 +579,7 @@ where
         close: &'static str,
     ) -> Result<()> {
         let body = site.body();
-        let body_upper_bound = site.renderer_upper_bound();
+        let body_upper_bound = site.bounds().render_end();
         let close_span = site.close_span();
         let enclosing_span = site.enclosing_span();
         let has_open_suffix = self
@@ -632,7 +632,7 @@ where
         open: &'static str,
     ) -> Result<()> {
         let body = site.body();
-        let body_upper_bound = site.renderer_upper_bound();
+        let body_upper_bound = site.bounds().render_end();
         let close_span = site.close_span();
 
         self.write_text(open);
