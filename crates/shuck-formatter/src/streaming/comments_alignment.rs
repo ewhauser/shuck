@@ -54,9 +54,7 @@ where
     pub(super) fn emit_trailing_comments_for_stmt(&mut self, comments: &[SourceComment<'_>]) {
         for comment in comments {
             let current_code_column = self.column().saturating_sub(self.line_indent_column());
-            let padding = trailing_comment_padding(
-                self.source(),
-                self.source_map(),
+            let padding = self.facts().trailing_comment_padding(
                 comment,
                 current_code_column,
                 self.line_indent_column(),
@@ -140,118 +138,172 @@ where
         else {
             return;
         };
-        self.write_comment_with_padding(&comment, close_suffix_comment_padding);
+        let current_code_column = self.column().saturating_sub(self.line_indent_column());
+        let padding = self.facts().close_suffix_comment_padding(
+            &comment,
+            current_code_column,
+            self.line_indent_column(),
+        );
+        self.write_spaces(padding);
+        self.write_comment(&comment);
     }
 
-    pub(super) fn write_comment_with_padding(
+    pub(super) fn write_trailing_comment(
         &mut self,
         comment: &SourceComment<'_>,
-        padding_for: impl FnOnce(&str, &SourceMap<'_>, &SourceComment<'_>, usize, usize) -> usize,
+        nudge_aligned: bool,
     ) {
         let current_code_column = self.column().saturating_sub(self.line_indent_column());
-        let padding = padding_for(
-            self.source(),
-            self.source_map(),
+        let mut padding = self.facts().trailing_comment_padding(
             comment,
             current_code_column,
             self.line_indent_column(),
         );
+        if nudge_aligned
+            && self
+                .facts()
+                .trailing_comment_has_alignment(comment, self.line_indent_column())
+        {
+            padding += 1;
+        }
         self.write_spaces(padding);
         self.write_comment(comment);
     }
 
     pub(super) fn write_suffix_comment_after_span(&mut self, span: Span, nudge_aligned: bool) {
-        let Some(comment) = self.suffix_comment_from_span(span) else {
+        let Some(comment) = self.facts().suffix_comment_for_span(span) else {
             self.write_space();
             self.write_text(span.slice(self.source()).trim_start());
             return;
         };
-        let current_code_column = self.column().saturating_sub(self.line_indent_column());
-        let mut padding = trailing_comment_padding(
-            self.source(),
-            self.source_map(),
-            &comment,
-            current_code_column,
-            self.line_indent_column(),
-        );
-        if nudge_aligned
-            && trailing_comment_alignment_column(
-                self.source(),
-                self.source_map(),
-                &comment,
-                self.line_indent_column(),
-            )
+        self.write_trailing_comment(&comment, nudge_aligned);
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CommentAlignmentFacts {
+    source_indent_column: usize,
+    trailing_target_column: Option<usize>,
+    trailing_indent_adjust: usize,
+    close_suffix_target_column: Option<usize>,
+}
+
+impl CommentAlignmentFacts {
+    pub(crate) fn new(
+        source: &str,
+        source_map: &SourceMap<'_>,
+        comment: &SourceComment<'_>,
+    ) -> Self {
+        let source_indent_column = source_map
+            .line_indent_before_offset(comment.span().start.offset)
+            .map_or(0, |indent| indent.chars().count());
+        Self {
+            source_indent_column,
+            trailing_target_column: trailing_comment_alignment_column(
+                source,
+                source_map,
+                comment,
+                source_indent_column,
+            ),
+            trailing_indent_adjust: trailing_comment_tab_indent_adjust(source, source_map, comment),
+            close_suffix_target_column: aligned_close_suffix_comment_target_column(
+                source,
+                source_map,
+                comment,
+                source_indent_column,
+            ),
+        }
+    }
+
+    pub(crate) fn trailing_padding(
+        &self,
+        source: &str,
+        source_map: &SourceMap<'_>,
+        comment: &SourceComment<'_>,
+        current_code_column: usize,
+        current_indent_column: usize,
+    ) -> usize {
+        let Some(target_column) =
+            self.trailing_target_column(source, source_map, comment, current_indent_column)
+        else {
+            return 1;
+        };
+        target_column
+            .saturating_sub(current_code_column.saturating_add(self.trailing_indent_adjust))
+            .max(1)
+    }
+
+    pub(crate) fn has_trailing_alignment(
+        &self,
+        source: &str,
+        source_map: &SourceMap<'_>,
+        comment: &SourceComment<'_>,
+        current_indent_column: usize,
+    ) -> bool {
+        self.trailing_target_column(source, source_map, comment, current_indent_column)
             .is_some()
+    }
+
+    pub(crate) fn close_suffix_padding(
+        &self,
+        source: &str,
+        source_map: &SourceMap<'_>,
+        comment: &SourceComment<'_>,
+        current_code_column: usize,
+        current_indent_column: usize,
+    ) -> usize {
+        if let Some(target_column) =
+            self.close_suffix_target_column(source, source_map, comment, current_indent_column)
         {
-            padding += 1;
+            return target_column
+                .saturating_sub(current_indent_column + current_code_column)
+                .max(1);
         }
-        self.write_spaces(padding);
-        self.write_comment(&comment);
+        self.trailing_padding(
+            source,
+            source_map,
+            comment,
+            current_code_column,
+            current_indent_column,
+        )
     }
 
-    pub(super) fn suffix_comment_from_span(&self, span: Span) -> Option<SourceComment<'source>> {
-        let source = self.source();
-        let raw = span.slice(source);
-        let leading_padding = raw.len() - raw.trim_start_matches([' ', '\t']).len();
-        let comment = raw[leading_padding..].trim_end_matches([' ', '\t', '\r']);
-        if !comment.starts_with('#') {
-            return None;
+    fn trailing_target_column(
+        &self,
+        source: &str,
+        source_map: &SourceMap<'_>,
+        comment: &SourceComment<'_>,
+        current_indent_column: usize,
+    ) -> Option<usize> {
+        if current_indent_column == self.source_indent_column {
+            return self.trailing_target_column;
         }
-        let absolute_start = span.start.offset + leading_padding;
-        let absolute_end = absolute_start + comment.len();
-        self.source_map()
-            .source_comment_for_offsets(absolute_start, absolute_end)
-    }
-}
-
-pub(super) fn trailing_comment_padding(
-    source: &str,
-    source_map: &SourceMap<'_>,
-    comment: &SourceComment<'_>,
-    current_code_column: usize,
-    current_indent_column: usize,
-) -> usize {
-    let Some(target_column) =
         trailing_comment_alignment_column(source, source_map, comment, current_indent_column)
-    else {
-        return 1;
-    };
-    let indent_adjust = trailing_comment_tab_indent_adjust(source, source_map, comment);
-    target_column
-        .saturating_sub(current_code_column.saturating_add(indent_adjust))
-        .max(1)
-}
-
-pub(super) fn close_suffix_comment_padding(
-    source: &str,
-    source_map: &SourceMap<'_>,
-    comment: &SourceComment<'_>,
-    current_code_column: usize,
-    current_indent_column: usize,
-) -> usize {
-    if let Some(padding) = aligned_close_suffix_comment_padding(
-        source,
-        source_map,
-        comment,
-        current_code_column,
-        current_indent_column,
-    ) {
-        return padding;
     }
-    trailing_comment_padding(
-        source,
-        source_map,
-        comment,
-        current_code_column,
-        current_indent_column,
-    )
+
+    fn close_suffix_target_column(
+        &self,
+        source: &str,
+        source_map: &SourceMap<'_>,
+        comment: &SourceComment<'_>,
+        current_indent_column: usize,
+    ) -> Option<usize> {
+        if current_indent_column == self.source_indent_column {
+            return self.close_suffix_target_column;
+        }
+        aligned_close_suffix_comment_target_column(
+            source,
+            source_map,
+            comment,
+            current_indent_column,
+        )
+    }
 }
 
-fn aligned_close_suffix_comment_padding(
+fn aligned_close_suffix_comment_target_column(
     source: &str,
     source_map: &SourceMap<'_>,
     comment: &SourceComment<'_>,
-    current_code_column: usize,
     current_indent_column: usize,
 ) -> Option<usize> {
     let entries = close_suffix_comment_alignment_entries(source, source_map, comment)?;
@@ -269,22 +321,19 @@ fn aligned_close_suffix_comment_padding(
             .unwrap_or(1)
     }
     .max(1);
-    let target_column = entries
-        .iter()
-        .map(|entry| {
-            rendered_close_suffix_source_indent(
-                entry.source_indent,
-                current.source_indent,
-                current_indent_column,
-                source_indent_unit,
-            ) + entry.code_width
-        })
-        .max()?
-        + 1;
     Some(
-        target_column
-            .saturating_sub(current_indent_column + current_code_column)
-            .max(1),
+        entries
+            .iter()
+            .map(|entry| {
+                rendered_close_suffix_source_indent(
+                    entry.source_indent,
+                    current.source_indent,
+                    current_indent_column,
+                    source_indent_unit,
+                ) + entry.code_width
+            })
+            .max()?
+            + 1,
     )
 }
 

@@ -14,7 +14,7 @@ use shuck_ast::{
 
 mod branches;
 mod case_layout;
-mod comments_alignment;
+pub(crate) mod comments_alignment;
 mod compounds;
 mod conditions;
 mod gaps;
@@ -79,14 +79,12 @@ use case_layout::{
     case_prefix_comment_uses_body_indent, comment_looks_like_disabled_case_pattern,
     trim_trailing_pattern_line_continuation,
 };
-use comments_alignment::{
-    inline_comment_code_width, trailing_comment_alignment_column, trailing_comment_padding,
-};
+use comments_alignment::inline_comment_code_width;
 use conditions::{
-    condition_keyword_on_previous_non_empty_line, condition_stmt_command_end,
-    elif_condition_has_explicit_statement_break, if_condition_has_explicit_statement_break,
-    if_condition_starts_after_keyword, loop_condition_starts_after_keyword,
-    raw_grouped_if_condition, stmt_sequence_renders_with_subshell_open,
+    condition_keyword_on_previous_non_empty_line, elif_condition_has_explicit_statement_break,
+    if_condition_has_explicit_statement_break, if_condition_starts_after_keyword,
+    loop_condition_starts_after_keyword, raw_grouped_if_condition,
+    stmt_sequence_renders_with_subshell_open,
 };
 use gaps::{
     gap_has_blank_line, group_close_offset, stmt_rendered_end_line_after_format,

@@ -1425,6 +1425,9 @@ default_format_ast_cases! {
     aligns_case_terminator_comments_after_pattern_pipe_spacing:
         "case \"$mac\" in\n  19|'6470028b2260') PORT=7534 ;; # first\n  16|'6470028b1ba2') PORT= ;; # second\n  8|'f4ec38c9c32c') PORT=7783 ;; # third\nesac\n"
         => "case \"$mac\" in\n19 | '6470028b2260') PORT=7534 ;; # first\n16 | '6470028b1ba2') PORT= ;;     # second\n8 | 'f4ec38c9c32c') PORT=7783 ;;  # third\nesac\n";
+    aligns_case_terminator_comments_when_single_digit_patterns_have_source_padding:
+        "case \"$mac\" in\n\t19|'6470028b2260') PORT=7534 ;; # first\n\t16|'6470028b1ba2') PORT= ;; # second\n\t 8|'f4ec38c9c32c') PORT=7783 ;; # third\n\t 6|'b2487abecab8') PORT=7528 ;; # fourth\nesac\n"
+        => "case \"$mac\" in\n19 | '6470028b2260') PORT=7534 ;; # first\n16 | '6470028b1ba2') PORT= ;;     # second\n8 | 'f4ec38c9c32c') PORT=7783 ;;  # third\n6 | 'b2487abecab8') PORT=7528 ;;  # fourth\nesac\n";
     preserves_case_suffix_comments_before_commented_compound_body:
         "case $x in\n*) # default branch\n# explain\nif test -n \"$x\"; then\n  echo \"$x\"\nfi\n;;\nesac\n"
         => "case $x in\n*) # default branch\n\t# explain\n\tif test -n \"$x\"; then\n\t\techo \"$x\"\n\tfi\n\t;;\nesac\n";

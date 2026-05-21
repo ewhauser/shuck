@@ -246,7 +246,7 @@ where
             if_branch_upper_bound(command, 0, source, self.source_map(), self.facts());
         let then_site =
             CompoundBodySite::if_then_branch(command, &command.then_branch, then_upper_bound);
-        if !self.write_condition_separator_suffix_comment(&command.condition, then_span) {
+        if !self.write_condition_separator_suffix_comment(then_span) {
             self.write_compound_body_open_suffix(then_site);
         }
         self.format_if_branch_body_site_with_open_suffix(then_site, false)?;
@@ -394,15 +394,12 @@ where
         let Some((start, end)) = self.facts().if_next_branch_region(command, branch_index) else {
             return;
         };
-        let comments = self
-            .facts()
-            .branch_prefix_facts(start, end)
-            .comments()
-            .to_vec();
+        let branch_facts = self.facts().branch_prefix_facts(start, end);
+        let comments = branch_facts.comments();
         if comments.is_empty() {
             return;
         }
-        let disabled_branch_block = branch_prefix_comments_use_disabled_body_indent(&comments);
+        let disabled_branch_block = branch_prefix_comments_use_disabled_body_indent(comments);
         self.newline();
         for (index, comment) in comments.iter().enumerate() {
             if disabled_branch_block {
@@ -480,38 +477,12 @@ where
         self.write_suffix_comment_after_span(span, false);
     }
 
-    pub(super) fn write_condition_separator_suffix_comment(
-        &mut self,
-        condition: &StmtSeq,
-        then_span: Span,
-    ) -> bool {
-        let Some(comment) = self.condition_separator_suffix_comment(condition, then_span) else {
+    pub(super) fn write_condition_separator_suffix_comment(&mut self, then_span: Span) -> bool {
+        let Some(comment) = self.facts().suffix_comment_for_span(then_span) else {
             return false;
         };
-        self.write_comment_with_padding(&comment, trailing_comment_padding);
+        self.write_trailing_comment(&comment, false);
         true
-    }
-
-    pub(super) fn condition_separator_suffix_comment(
-        &self,
-        condition: &StmtSeq,
-        then_span: Span,
-    ) -> Option<SourceComment<'source>> {
-        let source_map = self.source_map();
-        let start = condition.last().map(condition_stmt_command_end)?;
-        let end = then_span.start.offset.min(source_map.source().len());
-        if start >= end {
-            return None;
-        }
-        let comment = source_map.first_source_comment_between(start, end)?;
-        let before_comment = source_map.slice_between(start, comment.span().start.offset)?;
-        if !before_comment
-            .chars()
-            .all(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n' | ';'))
-        {
-            return None;
-        }
-        Some(comment)
     }
 
     pub(super) fn write_unmodeled_branch_background_terminator(
@@ -881,26 +852,7 @@ where
         }
         self.write_text(")");
         if let Some(comment) = &pattern_suffix_comment {
-            let current_code_column = self.column().saturating_sub(self.line_indent_column());
-            let mut padding = trailing_comment_padding(
-                self.source(),
-                self.source_map(),
-                comment,
-                current_code_column,
-                self.line_indent_column(),
-            );
-            if trailing_comment_alignment_column(
-                self.source(),
-                self.source_map(),
-                comment,
-                self.line_indent_column(),
-            )
-            .is_some()
-            {
-                padding += 1;
-            }
-            self.write_spaces(padding);
-            self.write_comment(comment);
+            self.write_trailing_comment(comment, true);
         }
 
         if item.body.is_empty() {
@@ -1028,7 +980,7 @@ where
     pub(super) fn write_case_terminator(&mut self, item: &CaseItem) {
         self.write_text(case_terminator(item.terminator));
         if let Some(comment) = self.facts().case_item(item).terminator_suffix_comment() {
-            self.write_comment_with_padding(&comment, trailing_comment_padding);
+            self.write_trailing_comment(&comment, false);
         }
     }
 
