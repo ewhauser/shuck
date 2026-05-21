@@ -1123,49 +1123,9 @@ impl<'source, 'annotations> LayoutAnnotationPass<'source, 'annotations> {
     }
 
     fn word_has_multiline_literal_source(&self, word: &Word) -> bool {
-        if raw_word_source_slice(word, self.source).is_some_and(|raw| {
-            raw.contains("\\\n")
-                && word_has_multiline_double_quoted_source(word, self.source)
-                && !word_is_quoted_command_substitution_only(word)
-        }) {
-            return true;
-        }
-
-        word_part_nodes_any(&word.parts, &mut |part| {
-            self.word_part_has_multiline_literal_source(&part.kind, part.span)
+        word_has_multiline_literal_source_with_sequence_layout(word, self.source, |body| {
+            self.annotations.sequence(body)
         })
-    }
-
-    fn word_part_has_multiline_literal_source(&self, part: &WordPart, span: Span) -> bool {
-        match part {
-            WordPart::Literal(text) => text.as_str(self.source, span).contains('\n'),
-            WordPart::SingleQuoted { value, dollar } => {
-                if *dollar {
-                    raw_source_slice(span, self.source).is_some_and(|raw| raw.contains('\n'))
-                } else {
-                    value.slice(self.source).contains('\n')
-                }
-            }
-            WordPart::CommandSubstitution { body, .. } => {
-                self.annotations
-                    .sequence(body)
-                    .contains_multiline_literal_source
-                    || (self.annotations.sequence(body).contains_comments
-                        && raw_source_slice(span, self.source).is_some_and(|raw| {
-                            raw.contains('\n')
-                                && !command_substitution_source_starts_with_body_line(raw)
-                        }))
-            }
-            WordPart::ProcessSubstitution { body, .. } => {
-                self.annotations
-                    .sequence(body)
-                    .contains_multiline_literal_source
-                    || (self.annotations.sequence(body).contains_comments
-                        && raw_source_slice(span, self.source)
-                            .is_some_and(|raw| raw.contains('\n')))
-            }
-            _ => false,
-        }
     }
 
     fn redirect_has_multiline_literal_source(&self, redirect: &Redirect) -> bool {
@@ -1272,6 +1232,63 @@ impl AstVisitor for LayoutAnnotationPass<'_, '_> {
 
         let summary = self.word_layout(word);
         self.annotations.words.insert(key, summary);
+    }
+}
+
+fn word_has_multiline_literal_source_with_sequence_layout(
+    word: &Word,
+    source: &str,
+    mut sequence_layout: impl FnMut(&StmtSeq) -> LayoutSummary,
+) -> bool {
+    if raw_word_source_slice(word, source).is_some_and(|raw| {
+        raw.contains("\\\n")
+            && word_has_multiline_double_quoted_source(word, source)
+            && !word_is_quoted_command_substitution_only(word)
+    }) {
+        return true;
+    }
+
+    word_part_nodes_any(&word.parts, &mut |part| {
+        word_part_has_multiline_literal_source_with_sequence_layout(
+            &part.kind,
+            part.span,
+            source,
+            &mut sequence_layout,
+        )
+    })
+}
+
+fn word_part_has_multiline_literal_source_with_sequence_layout(
+    part: &WordPart,
+    span: Span,
+    source: &str,
+    sequence_layout: &mut impl FnMut(&StmtSeq) -> LayoutSummary,
+) -> bool {
+    match part {
+        WordPart::Literal(text) => text.as_str(source, span).contains('\n'),
+        WordPart::SingleQuoted { value, dollar } => {
+            if *dollar {
+                raw_source_slice(span, source).is_some_and(|raw| raw.contains('\n'))
+            } else {
+                value.slice(source).contains('\n')
+            }
+        }
+        WordPart::CommandSubstitution { body, .. } => {
+            let layout = sequence_layout(body);
+            layout.contains_multiline_literal_source
+                || (layout.contains_comments
+                    && raw_source_slice(span, source).is_some_and(|raw| {
+                        raw.contains('\n')
+                            && !command_substitution_source_starts_with_body_line(raw)
+                    }))
+        }
+        WordPart::ProcessSubstitution { body, .. } => {
+            let layout = sequence_layout(body);
+            layout.contains_multiline_literal_source
+                || (layout.contains_comments
+                    && raw_source_slice(span, source).is_some_and(|raw| raw.contains('\n')))
+        }
+        _ => false,
     }
 }
 
@@ -2742,11 +2759,9 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         for part in &word.parts {
             layout.merge(self.visit_word_part(&part.kind, part.span));
         }
-        layout.contains_multiline_literal_source |= raw_word_source_slice(word, self.source)
-            .is_some_and(|raw| {
-                raw.contains("\\\n")
-                    && word_has_multiline_double_quoted_source(word, self.source)
-                    && !word_is_quoted_command_substitution_only(word)
+        layout.contains_multiline_literal_source =
+            word_has_multiline_literal_source_with_sequence_layout(word, self.source, |body| {
+                self.layout.sequence(body)
             });
         layout.contains_heredoc = false;
         layout.contains_multistatement_pipeline_brace_group = false;

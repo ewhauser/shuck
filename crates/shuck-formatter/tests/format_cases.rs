@@ -964,6 +964,9 @@ default_format_ast_cases! {
     inserts_empty_replacement_delimiter_after_escaped_quote_replacements:
         "playlist=\"${playlist//\\\\\"/\\\\\\\\\"}\"\nplaylist=\"${playlist//'/\\\\'}\"\n"
         => "playlist=\"${playlist//\\\\\"/\\\\\\\\\"/}\"\nplaylist=\"${playlist//'/\\\\'/}\"\n";
+    indents_multiline_parameter_replacement_payloads:
+        "f() {\n  value=${value//nl/\nX${padding}}\n}\n"
+        => "f() {\n\tvalue=${value//nl/\n\tX${padding}}\n}\n";
     preserves_negative_parameter_slice_offset_spacing:
         "if [ \"${filename: -5}\" != .orig ]; then\n  echo no\nfi\n"
         => "if [ \"${filename: -5}\" != .orig ]; then\n\techo no\nfi\n";
