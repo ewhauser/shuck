@@ -100,21 +100,6 @@ pub(crate) fn should_render_verbatim_with_heredoc(
             && stmt_has_trailing_comment(stmt, source_map))
 }
 
-pub(crate) fn stmt_attachment_span(
-    stmt: &Stmt,
-    source: &str,
-    source_map: &crate::comments::SourceMap<'_>,
-    options: &crate::options::ResolvedShellFormatOptions,
-) -> Span {
-    stmt_attachment_span_with_heredoc(
-        stmt,
-        source,
-        source_map,
-        options,
-        classify_stmt_contains_heredoc,
-    )
-}
-
 pub(crate) fn stmt_attachment_span_with_heredoc<F>(
     stmt: &Stmt,
     source: &str,
@@ -171,7 +156,13 @@ where
     } else {
         complete_stmt_span(
             stmt,
-            command_attachment_span(&stmt.command, source, source_map, options),
+            command_attachment_span_with_heredoc(
+                &stmt.command,
+                source,
+                source_map,
+                options,
+                stmt_contains_heredoc,
+            ),
         )
     };
     extend_compound_close_suffix_attachment_span(span, compound_close_span, source_map)
@@ -301,56 +292,91 @@ fn span_starts_with_keyword(source: &str, span: Span, keyword: &str) -> bool {
     source.get(start..end) == Some(keyword)
 }
 
-fn command_attachment_span(
+fn command_attachment_span_with_heredoc<F>(
     command: &Command,
     source: &str,
     source_map: &crate::comments::SourceMap<'_>,
     options: &crate::options::ResolvedShellFormatOptions,
-) -> Span {
+    stmt_contains_heredoc: F,
+) -> Span
+where
+    F: Fn(&Stmt) -> bool + Copy,
+{
     match command {
-        Command::Binary(command) => {
-            stmt_attachment_span(&command.left, source, source_map, options).merge(
-                stmt_attachment_span(&command.right, source, source_map, options),
-            )
-        }
+        Command::Binary(command) => stmt_attachment_span_with_heredoc(
+            &command.left,
+            source,
+            source_map,
+            options,
+            stmt_contains_heredoc,
+        )
+        .merge(stmt_attachment_span_with_heredoc(
+            &command.right,
+            source,
+            source_map,
+            options,
+            stmt_contains_heredoc,
+        )),
         _ => command_format_span(command),
     }
 }
 
-pub(crate) fn stmt_render_start_line(
+pub(crate) fn stmt_render_start_line_with_heredoc<F>(
     stmt: &Stmt,
     source: &str,
     source_map: &crate::comments::SourceMap<'_>,
     options: &crate::options::ResolvedShellFormatOptions,
-) -> usize {
+    stmt_contains_heredoc: F,
+) -> usize
+where
+    F: Fn(&Stmt) -> bool + Copy,
+{
     if let Some((commands, open)) = command_group_commands(&stmt.command) {
-        group_render_start_line(stmt, commands.as_slice(), source, source_map, open, options)
+        group_render_start_line_with_heredoc(
+            stmt,
+            commands.as_slice(),
+            source,
+            source_map,
+            open,
+            options,
+            stmt_contains_heredoc,
+        )
     } else {
-        stmt_attachment_span(stmt, source, source_map, options)
+        stmt_attachment_span_with_heredoc(stmt, source, source_map, options, stmt_contains_heredoc)
             .start
             .line
     }
 }
 
-fn group_render_start_line(
+fn group_render_start_line_with_heredoc<F>(
     stmt: &Stmt,
     commands: &[Stmt],
     source: &str,
     source_map: &crate::comments::SourceMap<'_>,
     open: char,
     options: &crate::options::ResolvedShellFormatOptions,
-) -> usize {
-    group_attachment_span(commands, source_map, open, matching_group_close(open))
-        .map(|span| span.start.line)
-        .or_else(|| {
-            find_empty_group_open_offset(source, stmt_span(stmt).start.offset, open)
-                .map(|offset| source_map.line_number_for_offset(offset))
-        })
-        .unwrap_or_else(|| {
-            stmt_attachment_span(stmt, source, source_map, options)
-                .start
-                .line
-        })
+    stmt_contains_heredoc: F,
+) -> usize
+where
+    F: Fn(&Stmt) -> bool + Copy,
+{
+    group_attachment_span_with_heredoc(
+        commands,
+        source_map,
+        open,
+        matching_group_close(open),
+        stmt_contains_heredoc,
+    )
+    .map(|span| span.start.line)
+    .or_else(|| {
+        find_empty_group_open_offset(source, stmt_span(stmt).start.offset, open)
+            .map(|offset| source_map.line_number_for_offset(offset))
+    })
+    .unwrap_or_else(|| {
+        stmt_attachment_span_with_heredoc(stmt, source, source_map, options, stmt_contains_heredoc)
+            .start
+            .line
+    })
 }
 
 fn stmt_has_alignment_sensitive_padding(

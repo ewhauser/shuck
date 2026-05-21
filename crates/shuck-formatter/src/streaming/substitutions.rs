@@ -19,13 +19,16 @@ enum RenderedFragment<'text> {
     },
 }
 
-pub(super) fn assignment_contains_command_heredoc(assignment: &Assignment) -> bool {
+pub(super) fn assignment_contains_command_heredoc(
+    assignment: &Assignment,
+    facts: &FormatterFacts<'_>,
+) -> bool {
     match &assignment.value {
-        AssignmentValue::Scalar(word) => word_contains_command_heredoc(word),
+        AssignmentValue::Scalar(word) => word_contains_command_heredoc(word, facts),
         AssignmentValue::Compound(array) => array
             .elements
             .iter()
-            .any(|element| word_contains_command_heredoc(array_elem_parts(element).1)),
+            .any(|element| word_contains_command_heredoc(array_elem_parts(element).1, facts)),
     }
 }
 
@@ -53,10 +56,10 @@ pub(super) fn compound_assignment_is_single_case_command_substitution(
     )
 }
 
-pub(super) fn word_contains_command_heredoc(word: &Word) -> bool {
+pub(super) fn word_contains_command_heredoc(word: &Word, facts: &FormatterFacts<'_>) -> bool {
     word.parts
         .iter()
-        .any(|part| word_part_contains_command_heredoc(&part.kind))
+        .any(|part| word_part_contains_command_heredoc(&part.kind, facts))
 }
 
 pub(super) fn heredoc_body_contains_command_substitution(body: &HeredocBody) -> bool {
@@ -65,14 +68,14 @@ pub(super) fn heredoc_body_contains_command_substitution(body: &HeredocBody) -> 
         .any(|part| matches!(part.kind, HeredocBodyPart::CommandSubstitution { .. }))
 }
 
-fn word_part_contains_command_heredoc(part: &WordPart) -> bool {
+fn word_part_contains_command_heredoc(part: &WordPart, facts: &FormatterFacts<'_>) -> bool {
     match part {
         WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
-            classify_sequence_contains_heredoc(body)
+            facts.sequence_contains_heredoc(body)
         }
         WordPart::DoubleQuoted { parts, .. } => parts
             .iter()
-            .any(|part| word_part_contains_command_heredoc(&part.kind)),
+            .any(|part| word_part_contains_command_heredoc(&part.kind, facts)),
         _ => false,
     }
 }
@@ -970,7 +973,7 @@ where
         };
 
         if rendered_shell_text_has_heredoc_tail(rendered)
-            && (word_contains_command_heredoc(word)
+            && (word_contains_command_heredoc(word, self.facts())
                 || word_source_has_shell_substitution(word, self.source())
                 || rendered_has_shell_substitution())
         {
@@ -1042,7 +1045,7 @@ where
         };
 
         if rendered_shell_text_has_heredoc_tail(rendered)
-            && (assignment_contains_command_heredoc(assignment)
+            && (assignment_contains_command_heredoc(assignment, self.facts())
                 || assignment_has_command_substitution()
                 || rendered_has_shell_substitution())
         {

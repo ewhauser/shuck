@@ -158,7 +158,7 @@ impl<'source> WordRenderDecision<'source> {
             && let Some(raw) = raw
             && (word_has_multiline_double_quoted_source(word, source)
                 || (raw.starts_with('"') && raw.contains("\\\n")))
-            && !word_is_quoted_formattable_command_substitution_only(word, source)
+            && !word_is_quoted_formattable_command_substitution_only_with_facts(word, context.facts)
             && (preserve_escaped_multiline_words || !raw_escaped_multiline_double_quoted_word(raw))
             && could_need_preserve_raw_syntax(raw)
         {
@@ -384,14 +384,6 @@ pub(super) fn word_has_multiline_double_quoted_source(word: &Word, source: &str)
         matches!(&part.kind, WordPart::DoubleQuoted { .. })
             && raw_source_slice(part.span, source).is_some_and(|raw| raw.contains('\n'))
     })
-}
-
-pub(crate) fn word_is_quoted_formattable_command_substitution_only(
-    word: &Word,
-    source: &str,
-) -> bool {
-    quoted_command_substitution_only_body(word)
-        .is_some_and(|body| !classify_sequence_contains_multiline_literal_source(body, source))
 }
 
 pub(crate) fn word_is_quoted_formattable_command_substitution_only_with_facts(

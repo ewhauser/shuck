@@ -163,8 +163,7 @@ where
 
         for (index, stmt) in statements.iter().enumerate() {
             if let Some(attachment) = attachments.as_ref() {
-                let next_line =
-                    stmt_render_start_line(stmt, self.source(), self.source_map(), self.options());
+                let next_line = self.facts().stmt(stmt).rendered_start_line();
                 if index == 0
                     && let Some(min_offset) = first_leading_min_offset
                 {
@@ -898,12 +897,9 @@ where
         stmt: &Stmt,
         min_comment_start: Option<usize>,
     ) -> Result<()> {
-        let statement_start =
-            stmt_attachment_span(stmt, self.source(), self.source_map(), self.options())
-                .start
-                .offset;
-        let next_line =
-            stmt_render_start_line(stmt, self.source(), self.source_map(), self.options());
+        let stmt_facts = self.facts().stmt(stmt);
+        let statement_start = stmt_facts.attachment_span().start.offset;
+        let next_line = stmt_facts.rendered_start_line();
         let leading = stmt
             .leading_comments
             .iter()

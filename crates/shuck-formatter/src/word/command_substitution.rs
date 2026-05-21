@@ -1074,10 +1074,6 @@ pub(super) fn command_substitution_layout(
         if command_substitution_source_closes_on_own_line(raw) {
             return CommandSubstitutionLayout::Block;
         }
-        if command_substitution_source_parses_as_multiple_statements(raw, context.options.dialect())
-        {
-            return CommandSubstitutionLayout::Block;
-        }
         if command_substitution_source_prefers_continued_inline_body(raw) {
             return CommandSubstitutionLayout::InlineContinued;
         }
@@ -1097,26 +1093,6 @@ pub(super) fn command_substitution_layout(
     } else {
         CommandSubstitutionLayout::Inline
     }
-}
-
-pub(super) fn command_substitution_source_parses_as_multiple_statements(
-    raw: &str,
-    dialect: shuck_parser::ShellDialect,
-) -> bool {
-    if raw.contains('\n') || !raw.contains(';') {
-        return false;
-    }
-
-    let Some(body) = raw_dollar_command_substitution_body(raw) else {
-        return false;
-    };
-    let body = body.trim();
-    if body.is_empty() {
-        return false;
-    }
-
-    let parsed = shuck_parser::parser::Parser::with_dialect(body, dialect).parse();
-    !parsed.is_err() && parsed.file.body.len() > 1
 }
 
 pub(super) fn push_inline_raw_command_substitution_as_block(

@@ -46,16 +46,16 @@ pub(crate) use self::compound_assignments::{
     multiline_compound_assignment_layout, multiline_compound_assignment_lines,
 };
 pub(crate) use self::groups::{
-    group_attachment_span, group_attachment_span_with_heredoc, group_open_suffix,
-    group_was_inline_in_source, matching_group_close,
-    stmt_group_attachment_or_verbatim_span_with_heredoc, stmt_start_after_operator,
+    group_attachment_span_with_heredoc, group_open_suffix, group_was_inline_in_source,
+    matching_group_close, stmt_group_attachment_or_verbatim_span_with_heredoc,
+    stmt_start_after_operator,
 };
 pub(crate) use self::render_policy::{
     case_item_body_upper_bound, case_item_was_inline_in_source, compound_close_span,
     done_close_span, if_close_span, line_gap_break_count, normalized_close_keyword_span,
-    rendered_stmt_end_line_with_heredoc, should_render_verbatim_with_heredoc, stmt_attachment_span,
+    rendered_stmt_end_line_with_heredoc, should_render_verbatim_with_heredoc,
     stmt_attachment_span_with_heredoc_and_compound_close, stmt_has_trailing_comment,
-    stmt_render_start_line,
+    stmt_render_start_line_with_heredoc,
 };
 pub(crate) use self::spans::{
     anonymous_function_attachment_span, anonymous_function_header_span, builtin_like_parts,

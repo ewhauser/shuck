@@ -2,7 +2,7 @@ use std::fmt::Write as _;
 
 use crate::command::trim_unescaped_trailing_whitespace;
 use crate::context::{FragmentFormatter, RenderContext};
-use crate::facts::{FormatterFacts, classify_sequence_contains_multiline_literal_source};
+use crate::facts::FormatterFacts;
 use crate::options::{IndentStyle, ResolvedShellFormatOptions};
 use crate::raw_syntax::{
     QuoteState, RawShellScanner, RawShellText, common_nonempty_shell_indent, heredoc_start,

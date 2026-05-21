@@ -19,6 +19,7 @@ pub(super) fn stmt_rendered_end_line_after_format(
     stmt: &Stmt,
     source: &str,
     source_map: &SourceMap<'_>,
+    facts: &FormatterFacts,
     fallback: usize,
 ) -> usize {
     if matches!(stmt.terminator, Some(StmtTerminator::Semicolon))
@@ -33,17 +34,15 @@ pub(super) fn stmt_rendered_end_line_after_format(
                 command.right.as_ref(),
                 source,
                 source_map,
+                facts,
                 fallback,
             );
         }
         _ if stmt.redirects.is_empty() && stmt.terminator.is_none() => {
             if let Some((commands, open)) = command_group_commands(&stmt.command)
-                && let Some(span) = group_attachment_span(
-                    commands.as_slice(),
-                    source_map,
-                    open,
-                    matching_group_close(open),
-                )
+                && let Some(span) = facts
+                    .sequence(commands, Some(stmt_span(stmt).end.offset))
+                    .group_attachment_span()
             {
                 let close = matching_group_close(open);
                 let close_offset = group_close_offset(
