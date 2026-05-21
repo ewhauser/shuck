@@ -2,7 +2,7 @@ use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::scan::{
-    branch_keyword_offset, common_nonempty_shell_indent, last_shell_keyword_start,
+    RawShellScanner, branch_keyword_offset, common_nonempty_shell_indent, last_shell_keyword_start,
     last_uncommented_shell_keyword_before, leading_shell_indent, matching_done_close_start,
     matching_if_close_start, normalized_close_keyword_span, refine_common_indent,
     shell_comment_can_start, skip_escaped_or_quoted,
@@ -643,37 +643,8 @@ fn line_continuation_is_inside_unclosed_substitution(line: &str) -> bool {
         return false;
     };
 
-    let mut depth = 0usize;
-    let mut chars = before_continuation.chars().peekable();
-    let mut in_single_quotes = false;
-    let mut in_double_quotes = false;
-    while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            chars.next();
-            continue;
-        }
-        if ch == '\'' && !in_double_quotes {
-            in_single_quotes = !in_single_quotes;
-            continue;
-        }
-        if ch == '"' && !in_single_quotes {
-            in_double_quotes = !in_double_quotes;
-            continue;
-        }
-        if in_single_quotes {
-            continue;
-        }
-        match ch {
-            '$' | '<' | '>' if chars.peek().is_some_and(|next| *next == '(') => {
-                chars.next();
-                depth += 1;
-            }
-            ')' if depth > 0 => depth -= 1,
-            _ => {}
-        }
-    }
-
-    depth > 0
+    RawShellScanner::new(before_continuation)
+        .has_unclosed_substitution_before(before_continuation.len())
 }
 
 fn multiline_compound_assignment_common_body_indent(lines: &[&str], open_inline: bool) -> String {

@@ -81,23 +81,9 @@ pub(crate) fn line_has_shell_comment_before(source: &str, offset: usize) -> bool
     let line_start = source[..upper]
         .rfind('\n')
         .map_or(0, |newline| newline.saturating_add(1));
-    let mut cursor = line_start;
-    while cursor < upper {
-        let Some(ch) = source[cursor..].chars().next() else {
-            break;
-        };
-        match ch {
-            '\'' => {
-                cursor = skip_single_quoted(source, cursor + ch.len_utf8(), upper);
-            }
-            '"' => {
-                cursor = skip_double_quoted(source, cursor + ch.len_utf8(), upper);
-            }
-            '#' if shell_comment_can_start(source, cursor) => return true,
-            _ => cursor += ch.len_utf8(),
-        }
-    }
-    false
+    RawShellScanner::bounded(source, upper)
+        .find_comment(line_start, upper)
+        .is_some()
 }
 
 pub(crate) fn branch_keyword_offset(
@@ -294,34 +280,384 @@ pub(crate) fn shell_comment_can_start(source: &str, offset: usize) -> bool {
         .is_none_or(|ch| ch == '\n' || ch.is_whitespace() || matches!(ch, ';' | '&' | '|'))
 }
 
-pub(crate) fn skip_single_quoted(source: &str, mut offset: usize, upper: usize) -> usize {
-    while offset < upper {
-        let Some(ch) = source[offset..].chars().next() else {
-            break;
-        };
-        offset += ch.len_utf8();
-        if ch == '\'' {
-            break;
-        }
-    }
-    offset
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RawQuoteKind {
+    Single,
+    Double,
+    Backtick,
 }
 
-pub(crate) fn skip_double_quoted(source: &str, mut offset: usize, upper: usize) -> usize {
-    while offset < upper {
-        let Some(ch) = source[offset..].chars().next() else {
-            break;
-        };
-        offset += ch.len_utf8();
-        if ch == '\\' {
-            if let Some(escaped) = source[offset..].chars().next() {
-                offset += escaped.len_utf8();
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct QuoteState {
+    quote: Option<RawQuoteKind>,
+    escaped: bool,
+}
+
+impl QuoteState {
+    pub(crate) fn in_multiline_literal(&self) -> bool {
+        self.quote.is_some()
+    }
+
+    pub(crate) fn in_single_quotes(&self) -> bool {
+        self.quote == Some(RawQuoteKind::Single)
+    }
+
+    pub(crate) fn in_quotes(&self) -> bool {
+        self.quote.is_some()
+    }
+
+    pub(crate) fn consume_raw_char(&mut self, ch: char, include_backticks: bool) -> bool {
+        if self.escaped {
+            self.escaped = false;
+            return true;
+        }
+
+        match self.quote {
+            Some(RawQuoteKind::Single) => {
+                if ch == '\'' {
+                    self.quote = None;
+                }
+                true
             }
-        } else if ch == '"' {
-            break;
+            Some(RawQuoteKind::Double) => {
+                if ch == '"' {
+                    self.quote = None;
+                } else if ch == '\\' {
+                    self.escaped = true;
+                }
+                true
+            }
+            Some(RawQuoteKind::Backtick) if include_backticks => {
+                if ch == '`' {
+                    self.quote = None;
+                } else if ch == '\\' {
+                    self.escaped = true;
+                }
+                true
+            }
+            _ if ch == '\\' => {
+                self.escaped = true;
+                true
+            }
+            _ if ch == '\'' => {
+                self.quote = Some(RawQuoteKind::Single);
+                true
+            }
+            _ if ch == '"' => {
+                self.quote = Some(RawQuoteKind::Double);
+                true
+            }
+            _ if include_backticks && ch == '`' => {
+                self.quote = Some(RawQuoteKind::Backtick);
+                true
+            }
+            _ => false,
         }
     }
-    offset
+
+    pub(crate) fn consume_shell_word_char(&mut self, ch: char) -> bool {
+        if self.escaped {
+            self.escaped = false;
+            return true;
+        }
+
+        match self.quote {
+            Some(RawQuoteKind::Single) => {
+                if ch == '\'' {
+                    self.quote = None;
+                }
+                true
+            }
+            Some(RawQuoteKind::Double) => {
+                if ch == '"' {
+                    self.quote = None;
+                    return true;
+                }
+                if ch == '\\' {
+                    self.escaped = true;
+                    return true;
+                }
+                false
+            }
+            _ if ch == '\\' => {
+                self.escaped = true;
+                true
+            }
+            _ if ch == '\'' => {
+                self.quote = Some(RawQuoteKind::Single);
+                true
+            }
+            _ if ch == '"' => {
+                self.quote = Some(RawQuoteKind::Double);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub(crate) fn scan_line(&mut self, line: &str) {
+        self.escaped = false;
+        for (index, ch) in line.char_indices() {
+            match self.quote {
+                Some(RawQuoteKind::Single) => {
+                    if ch == '\'' {
+                        self.quote = None;
+                    }
+                }
+                Some(RawQuoteKind::Double) => {
+                    if ch == '"' && !self.escaped {
+                        self.quote = None;
+                    }
+                }
+                _ => {
+                    if ch == '#' && shell_comment_can_start(line, index) {
+                        break;
+                    }
+                    if ch == '\'' || (ch == '"' && !self.escaped) {
+                        self.quote = Some(if ch == '\'' {
+                            RawQuoteKind::Single
+                        } else {
+                            RawQuoteKind::Double
+                        });
+                    }
+                }
+            }
+
+            self.escaped = ch == '\\' && !self.escaped;
+            if ch != '\\' {
+                self.escaped = false;
+            }
+        }
+        self.escaped = false;
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RawShellScanner<'source> {
+    source: &'source str,
+    upper: usize,
+}
+
+impl<'source> RawShellScanner<'source> {
+    pub(crate) fn new(source: &'source str) -> Self {
+        Self::bounded(source, source.len())
+    }
+
+    pub(crate) fn bounded(source: &'source str, upper: usize) -> Self {
+        Self {
+            source,
+            upper: upper.min(source.len()),
+        }
+    }
+
+    pub(crate) fn skip_single_quoted_body(&self, mut offset: usize) -> usize {
+        while offset < self.upper {
+            let Some(ch) = self.source[offset..].chars().next() else {
+                break;
+            };
+            offset += ch.len_utf8();
+            if ch == '\'' {
+                break;
+            }
+        }
+        offset
+    }
+
+    pub(crate) fn skip_double_quoted_body(&self, mut offset: usize) -> usize {
+        while offset < self.upper {
+            let Some(ch) = self.source[offset..].chars().next() else {
+                break;
+            };
+            offset += ch.len_utf8();
+            if ch == '\\' {
+                if let Some(escaped) = self.source[offset..].chars().next() {
+                    offset += escaped.len_utf8();
+                }
+            } else if ch == '"' {
+                break;
+            }
+        }
+        offset
+    }
+
+    pub(crate) fn skip_escaped_or_quoted_at(&self, offset: usize) -> Option<usize> {
+        let ch = self.source[offset..].chars().next()?;
+        let next = offset + ch.len_utf8();
+        match ch {
+            '\\' => Some(
+                self.source[next..self.upper]
+                    .chars()
+                    .next()
+                    .map_or(next, |escaped| next + escaped.len_utf8()),
+            ),
+            '\'' => Some(self.skip_single_quoted_body(next)),
+            '"' => Some(self.skip_double_quoted_body(next)),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn skip_quoted_or_comment_at(&self, offset: usize) -> Option<usize> {
+        self.skip_escaped_or_quoted_at(offset).or_else(|| {
+            self.comment_starts_at(offset)
+                .then(|| self.comment_end_from(offset))
+        })
+    }
+
+    pub(crate) fn find_comment(&self, start: usize, upper: usize) -> Option<usize> {
+        let mut offset = start.min(self.upper);
+        let upper = upper.min(self.upper);
+        while offset < upper {
+            if let Some(next) = self.skip_escaped_or_quoted_at(offset) {
+                offset = next;
+                continue;
+            }
+
+            let ch = self.source[offset..].chars().next()?;
+            if ch == '#' && shell_comment_can_start(self.source, offset) {
+                return Some(offset);
+            }
+            offset += ch.len_utf8();
+        }
+        None
+    }
+
+    pub(crate) fn is_escaped(&self, index: usize) -> bool {
+        let mut backslashes = 0usize;
+        for ch in self.source[..index.min(self.source.len())].chars().rev() {
+            if ch == '\\' {
+                backslashes += 1;
+            } else {
+                break;
+            }
+        }
+        backslashes % 2 == 1
+    }
+
+    pub(crate) fn matching_command_substitution_close(&self, body_start: usize) -> Option<usize> {
+        let mut quote = QuoteState::default();
+        let mut paren_depth = 0usize;
+        let mut index = body_start.min(self.upper);
+
+        while index < self.upper {
+            let ch = self.source[index..].chars().next()?;
+            let next_index = index + ch.len_utf8();
+            if quote.consume_raw_char(ch, false) {
+                index = next_index;
+                continue;
+            }
+
+            match ch {
+                '(' => paren_depth += 1,
+                ')' => {
+                    if paren_depth == 0 {
+                        return Some(index);
+                    }
+                    paren_depth -= 1;
+                }
+                _ => {}
+            }
+
+            index = next_index;
+        }
+
+        None
+    }
+
+    pub(crate) fn next_command_substitution(&self, mut index: usize) -> Option<(usize, usize)> {
+        let bytes = self.source.as_bytes();
+        let mut quote = QuoteState::default();
+
+        while index + 1 < self.upper {
+            let ch = self.source[index..].chars().next()?;
+            let next_index = index + ch.len_utf8();
+            if quote.consume_shell_word_char(ch) {
+                index = next_index;
+                continue;
+            }
+
+            if !quote.in_single_quotes()
+                && bytes[index] == b'$'
+                && bytes[index + 1] == b'('
+                && bytes.get(index + 2).is_none_or(|byte| *byte != b'(')
+                && let Some(close_offset) = self.matching_command_substitution_close(index + 2)
+            {
+                return Some((index, close_offset));
+            }
+            index = next_index;
+        }
+
+        None
+    }
+
+    pub(crate) fn has_unclosed_substitution_before(&self, upper: usize) -> bool {
+        let mut depth = 0usize;
+        let mut index = 0usize;
+        let upper = upper.min(self.upper);
+        let mut in_single_quotes = false;
+        let mut in_double_quotes = false;
+
+        while index < upper {
+            let Some(ch) = self.source[index..].chars().next() else {
+                break;
+            };
+            let next_index = index + ch.len_utf8();
+
+            if ch == '\\' {
+                index = self.source[next_index..upper]
+                    .chars()
+                    .next()
+                    .map_or(next_index, |escaped| next_index + escaped.len_utf8());
+                continue;
+            }
+            if ch == '\'' && !in_double_quotes {
+                in_single_quotes = !in_single_quotes;
+                index = next_index;
+                continue;
+            }
+            if ch == '"' && !in_single_quotes {
+                in_double_quotes = !in_double_quotes;
+                index = next_index;
+                continue;
+            }
+            if in_single_quotes {
+                index = next_index;
+                continue;
+            }
+
+            let bytes = self.source.as_bytes();
+            match ch {
+                '$' | '<' | '>' if bytes.get(index + 1) == Some(&b'(') => {
+                    depth += 1;
+                    index = index.saturating_add(2);
+                    continue;
+                }
+                ')' if depth > 0 => depth -= 1,
+                _ => {}
+            }
+            index = next_index;
+        }
+
+        depth > 0
+    }
+
+    fn comment_starts_at(&self, offset: usize) -> bool {
+        self.source[offset..self.upper].starts_with('#')
+            && shell_comment_can_start(self.source, offset)
+    }
+
+    fn comment_end_from(&self, offset: usize) -> usize {
+        self.source[offset..self.upper]
+            .find('\n')
+            .map_or(self.upper, |newline| offset + newline + 1)
+    }
+}
+
+pub(crate) fn skip_single_quoted(source: &str, offset: usize, upper: usize) -> usize {
+    RawShellScanner::bounded(source, upper).skip_single_quoted_body(offset)
+}
+
+pub(crate) fn skip_double_quoted(source: &str, offset: usize, upper: usize) -> usize {
+    RawShellScanner::bounded(source, upper).skip_double_quoted_body(offset)
 }
 
 pub(crate) fn skip_escaped_or_quoted(
@@ -330,18 +666,8 @@ pub(crate) fn skip_escaped_or_quoted(
     upper: usize,
     ch: char,
 ) -> Option<usize> {
-    let next = offset + ch.len_utf8();
-    match ch {
-        '\\' => Some(
-            source[next..upper]
-                .chars()
-                .next()
-                .map_or(next, |escaped| next + escaped.len_utf8()),
-        ),
-        '\'' => Some(skip_single_quoted(source, next, upper)),
-        '"' => Some(skip_double_quoted(source, next, upper)),
-        _ => None,
-    }
+    debug_assert_eq!(source[offset..].chars().next(), Some(ch));
+    RawShellScanner::bounded(source, upper).skip_escaped_or_quoted_at(offset)
 }
 
 pub(crate) fn normalized_close_keyword_span(
@@ -389,9 +715,10 @@ fn matching_close_keyword_start(
     let upper = span.end.offset.min(source.len());
     let mut offset = span.start.offset.min(upper);
     let mut depth = 0usize;
+    let scanner = RawShellScanner::bounded(source, upper);
     while offset < upper {
         let ch = source[offset..].chars().next()?;
-        if let Some(next) = shell_quoted_or_comment_end(source, offset, upper, ch) {
+        if let Some(next) = scanner.skip_quoted_or_comment_at(offset) {
             offset = next;
             continue;
         }
@@ -416,20 +743,41 @@ fn matching_close_keyword_start(
     None
 }
 
-fn shell_quoted_or_comment_end(
-    source: &str,
-    offset: usize,
-    upper: usize,
-    ch: char,
-) -> Option<usize> {
-    match ch {
-        '\'' => Some(skip_single_quoted(source, offset + ch.len_utf8(), upper)),
-        '"' => Some(skip_double_quoted(source, offset + ch.len_utf8(), upper)),
-        '#' if shell_comment_can_start(source, offset) => Some(
-            source[offset..]
-                .find('\n')
-                .map_or(upper, |newline| offset + newline + 1),
-        ),
-        _ => None,
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_scanner_finds_shell_comments_outside_quotes() {
+        let scanner = RawShellScanner::new("echo '# no' \"# no\" value#no # yes");
+
+        assert_eq!(scanner.find_comment(0, scanner.source.len()), Some(28));
+    }
+
+    #[test]
+    fn raw_scanner_matches_nested_command_substitutions() {
+        let raw = "$(echo \"$(date +%s)\" '(')";
+        let scanner = RawShellScanner::new(raw);
+
+        assert_eq!(
+            scanner.matching_command_substitution_close(2),
+            Some(raw.len() - 1)
+        );
+    }
+
+    #[test]
+    fn raw_scanner_finds_unclosed_process_substitution() {
+        let raw = "cat <(printf '%s\\n' \"$(value)\"";
+        let scanner = RawShellScanner::new(raw);
+
+        assert!(scanner.has_unclosed_substitution_before(raw.len()));
+    }
+
+    #[test]
+    fn raw_scanner_skips_escaped_command_substitutions() {
+        let raw = r#"echo \$(skip) "$(keep)" '$(skip)'"#;
+        let scanner = RawShellScanner::new(raw);
+
+        assert_eq!(scanner.next_command_substitution(0), Some((15, 21)));
     }
 }

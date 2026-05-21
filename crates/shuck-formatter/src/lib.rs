@@ -246,36 +246,9 @@ fn trailing_backslash_count(text: &str) -> usize {
 
 fn trailing_backslash_is_in_comment(text: &str) -> bool {
     let line = text.rsplit_once('\n').map_or(text, |(_, line)| line);
-    let mut in_single_quotes = false;
-    let mut in_double_quotes = false;
-    let mut escaped = false;
-
-    for (index, ch) in line.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        match ch {
-            '\\' if !in_single_quotes => {
-                escaped = true;
-            }
-            '\'' if !in_double_quotes => {
-                in_single_quotes = !in_single_quotes;
-            }
-            '"' if !in_single_quotes => {
-                in_double_quotes = !in_double_quotes;
-            }
-            '#' if !in_single_quotes
-                && !in_double_quotes
-                && scan::shell_comment_can_start(line, index) =>
-            {
-                return true;
-            }
-            _ => {}
-        }
-    }
-
-    false
+    scan::RawShellScanner::new(line)
+        .find_comment(0, line.len())
+        .is_some()
 }
 
 fn map_parse_error(error: ParseError) -> FormatError {
