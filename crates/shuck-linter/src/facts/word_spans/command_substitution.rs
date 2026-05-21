@@ -131,93 +131,16 @@ pub(crate) fn widen_dollar_paren_command_substitution_span(
     locator: Locator<'_>,
 ) -> Option<Span> {
     let source = locator.source();
-    let mut index = span.start.offset;
     let bytes = source.as_bytes();
-    if bytes.get(index)? != &b'$' || bytes.get(index + 1)? != &b'(' {
+    if bytes.get(span.start.offset)? != &b'$' || bytes.get(span.start.offset + 1)? != &b'(' {
         return None;
     }
-    index += 2;
 
-    let mut depth = 1usize;
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-
-    while index < bytes.len() {
-        let byte = bytes[index];
-
-        if in_single_quote {
-            if byte == b'\'' {
-                in_single_quote = false;
-            }
-            index += 1;
-            continue;
-        }
-
-        if in_double_quote {
-            match byte {
-                b'\\' => {
-                    index = index.saturating_add(2);
-                    continue;
-                }
-                b'"' => {
-                    in_double_quote = false;
-                    index += 1;
-                    continue;
-                }
-                b'$' if bytes.get(index + 1) == Some(&b'(') => {
-                    depth += 1;
-                    index += 2;
-                    continue;
-                }
-                b')' => {
-                    depth = depth.saturating_sub(1);
-                    index += 1;
-                    if depth == 0 {
-                        let start = locator.position_at_offset(span.start.offset)?;
-                        let end = locator.position_at_offset(index)?;
-                        return Some(Span::from_positions(start, end));
-                    }
-                    continue;
-                }
-                _ => {
-                    index += 1;
-                    continue;
-                }
-            }
-        }
-
-        match byte {
-            b'\\' => {
-                index = index.saturating_add(2);
-            }
-            b'\'' => {
-                in_single_quote = true;
-                index += 1;
-            }
-            b'"' => {
-                in_double_quote = true;
-                index += 1;
-            }
-            b'$' if bytes.get(index + 1) == Some(&b'(') => {
-                depth += 1;
-                index += 2;
-            }
-            b')' => {
-                depth = depth.saturating_sub(1);
-                index += 1;
-                if depth == 0 {
-                    let start = locator.position_at_offset(span.start.offset)?;
-                    let end = locator.position_at_offset(index)?;
-                    return Some(Span::from_positions(start, end));
-                }
-            }
-            _ => {
-                index += 1;
-            }
-        }
-    }
-
-    None
+    let end_offset = shuck_ast::raw_shell::RawShellScanner::new(source)
+        .skip_balanced_shell_construct(span.start.offset + 2, b'(', b')')?;
+    let start = locator.position_at_offset(span.start.offset)?;
+    let end = locator.position_at_offset(end_offset)?;
+    Some(Span::from_positions(start, end))
 }
 
 pub(crate) fn widen_backtick_command_substitution_span(
@@ -225,27 +148,16 @@ pub(crate) fn widen_backtick_command_substitution_span(
     locator: Locator<'_>,
 ) -> Option<Span> {
     let source = locator.source();
-    let mut index = span.start.offset;
     let bytes = source.as_bytes();
-    if bytes.get(index)? != &b'`' {
+    if bytes.get(span.start.offset)? != &b'`' {
         return None;
     }
-    index += 1;
 
-    while index < bytes.len() {
-        match bytes[index] {
-            b'\\' => index = index.saturating_add(2),
-            b'`' => {
-                index += 1;
-                let start = locator.position_at_offset(span.start.offset)?;
-                let end = locator.position_at_offset(index)?;
-                return Some(Span::from_positions(start, end));
-            }
-            _ => index += 1,
-        }
-    }
-
-    None
+    let end_offset = shuck_ast::raw_shell::RawShellScanner::new(source)
+        .skip_legacy_backtick_construct(span.start.offset + 1)?;
+    let start = locator.position_at_offset(span.start.offset)?;
+    let end = locator.position_at_offset(end_offset)?;
+    Some(Span::from_positions(start, end))
 }
 
 #[cfg(test)]
