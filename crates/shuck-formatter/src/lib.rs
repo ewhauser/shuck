@@ -100,15 +100,8 @@ pub fn format_source(
     path: Option<&Path>,
     options: &ShellFormatOptions,
 ) -> Result<FormattedSource> {
-    let resolved = options.resolve_for_format(source, path);
-
-    let dialect = resolved.dialect();
-    let parsed = Parser::with_dialect(source, dialect).parse();
-    if parsed.is_err() {
-        return Err(map_parse_error(parsed.strict_error()));
-    }
-
-    format_file_ast(source, parsed.file, path, options)
+    let parsed = parse_and_resolve(source, path, options)?;
+    format_file_ast_resolved(source, parsed.file, &parsed.resolved)
 }
 
 #[doc(hidden)]
@@ -117,15 +110,8 @@ pub fn source_is_formatted(
     path: Option<&Path>,
     options: &ShellFormatOptions,
 ) -> Result<bool> {
-    let resolved = options.resolve_for_format(source, path);
-
-    let dialect = resolved.dialect();
-    let parsed = Parser::with_dialect(source, dialect).parse();
-    if parsed.is_err() {
-        return Err(map_parse_error(parsed.strict_error()));
-    }
-
-    check_file(source, parsed.file, resolved)
+    let parsed = parse_and_resolve(source, path, options)?;
+    check_file(source, parsed.file, &parsed.resolved)
 }
 
 /// Formats a parsed shell file using the provided options.
@@ -136,18 +122,48 @@ pub fn format_file_ast(
     options: &ShellFormatOptions,
 ) -> Result<FormattedSource> {
     let resolved = options.resolve_for_format(source, path);
-    let output = format_output(source, file, &resolved)?;
+    format_file_ast_resolved(source, file, &resolved)
+}
+
+struct ParsedFormatInput {
+    file: File,
+    resolved: ResolvedShellFormatOptions,
+}
+
+fn parse_and_resolve(
+    source: &str,
+    path: Option<&Path>,
+    options: &ShellFormatOptions,
+) -> Result<ParsedFormatInput> {
+    let resolved = options.resolve_for_format(source, path);
+    let parsed = Parser::with_dialect(source, resolved.dialect()).parse();
+    if parsed.is_err() {
+        return Err(map_parse_error(parsed.strict_error()));
+    }
+
+    Ok(ParsedFormatInput {
+        file: parsed.file,
+        resolved,
+    })
+}
+
+fn format_file_ast_resolved(
+    source: &str,
+    file: File,
+    resolved: &ResolvedShellFormatOptions,
+) -> Result<FormattedSource> {
+    let output = format_output(source, file, resolved)?;
 
     Ok(formatted_source_from_output(source, output))
 }
 
-fn check_file(source: &str, file: File, resolved: ResolvedShellFormatOptions) -> Result<bool> {
+fn check_file(source: &str, file: File, resolved: &ResolvedShellFormatOptions) -> Result<bool> {
     if resolved.minify() {
-        let output = render_file::<BufferedRender>(source, file, &resolved)?;
+        let output = render_file::<BufferedRender>(source, file, resolved)?;
         return Ok(output == source);
     }
 
-    render_file::<CompareRender>(source, file, &resolved)
+    render_file::<CompareRender>(source, file, resolved)
 }
 
 fn format_output(
