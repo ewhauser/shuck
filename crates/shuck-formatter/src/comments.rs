@@ -497,6 +497,10 @@ impl<'a> CommentAttachmentModel<'a> {
         compute_sequence_attachment(comments, child_spans, upper_bound, skip_span)
     }
 
+    pub(crate) fn comments(&self) -> &[SourceComment<'a>] {
+        &self.comments
+    }
+
     fn comment_window(
         &self,
         lower_bound: usize,

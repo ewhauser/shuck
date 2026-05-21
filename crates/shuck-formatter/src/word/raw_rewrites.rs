@@ -908,7 +908,7 @@ pub(super) fn normalize_raw_command_substitution_padding(raw: &str) -> Option<St
                 if normalized_body.starts_with('(') {
                     rendered.push(' ');
                 }
-                rendered.push_str(&normalized_body);
+                rendered.push_str(normalized_body);
                 rendered.push(')');
                 cursor = close_offset + 1;
             }

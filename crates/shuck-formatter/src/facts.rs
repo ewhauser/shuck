@@ -18,10 +18,10 @@ use crate::command::{
     CompoundBodySite, array_elem_parts, builtin_like_parts, case_item_body_upper_bound,
     case_item_was_inline_in_source, case_terminator,
     collect_binary_list_first as collect_binary_list_first_with, collect_pipeline_parts,
-    command_group_commands, group_attachment_span_with_heredoc, group_open_suffix,
-    group_was_inline_in_source, if_close_span, if_next_branch_region_with_body_end,
-    matching_group_close, rendered_stmt_end_line_with_heredoc, should_render_verbatim_with_heredoc,
-    stmt_attachment_span_with_heredoc, stmt_format_span,
+    command_format_span, command_group_commands, group_attachment_span_with_heredoc,
+    group_open_suffix, group_was_inline_in_source, if_close_span,
+    if_next_branch_region_with_body_end, matching_group_close, rendered_stmt_end_line_with_heredoc,
+    should_render_verbatim_with_heredoc, stmt_attachment_span_with_heredoc, stmt_format_span,
     stmt_group_attachment_or_verbatim_span_with_heredoc, stmt_has_trailing_comment,
     stmt_render_start_line, stmt_span, stmt_start_after_operator,
     stmt_verbatim_span_with_source_map, trim_unescaped_trailing_whitespace,
@@ -34,6 +34,7 @@ use crate::scan::{
     BranchPrefixComment, last_shell_keyword_end, last_shell_keyword_start, source_between_offsets,
 };
 use crate::source::{SourceView, command_substitution_source_starts_with_body_line};
+use crate::streaming::comments_alignment::CommentAlignmentFacts;
 use crate::visit::{self, AstVisitor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1286,6 +1287,8 @@ pub(crate) struct FormatterFacts<'source> {
     inline_group_sequences: HashSet<FactSpan>,
     inline_case_item_bodies: HashSet<FactSpan>,
     branch_prefix_facts: HashMap<OffsetRegionKey, BranchPrefixFacts>,
+    comment_alignment: HashMap<FactSpan, CommentAlignmentFacts>,
+    suffix_comments: HashMap<FactSpan, SourceComment<'source>>,
     close_suffix_comments: HashMap<FactSpan, SourceComment<'source>>,
     case_facts: HashMap<FactSpan, CaseCommandFacts>,
     case_item_facts: HashMap<FactSpan, CaseItemFacts<'source>>,
@@ -1434,6 +1437,65 @@ impl<'source> FormatterFacts<'source> {
             .get(&FactSpan::from(span))
             .copied()
             .or_else(|| self.source_map.suffix_comment_after_span(span))
+    }
+
+    pub(crate) fn suffix_comment_for_span(&self, span: Span) -> Option<SourceComment<'source>> {
+        self.suffix_comments.get(&FactSpan::from(span)).copied()
+    }
+
+    pub(crate) fn trailing_comment_padding(
+        &self,
+        comment: &SourceComment<'_>,
+        current_code_column: usize,
+        current_indent_column: usize,
+    ) -> usize {
+        self.comment_alignment
+            .get(&FactSpan::from(comment.span()))
+            .map_or(1, |alignment| {
+                alignment.trailing_padding(
+                    self.source_map.source(),
+                    &self.source_map,
+                    comment,
+                    current_code_column,
+                    current_indent_column,
+                )
+            })
+    }
+
+    pub(crate) fn trailing_comment_has_alignment(
+        &self,
+        comment: &SourceComment<'_>,
+        current_indent_column: usize,
+    ) -> bool {
+        self.comment_alignment
+            .get(&FactSpan::from(comment.span()))
+            .is_some_and(|alignment| {
+                alignment.has_trailing_alignment(
+                    self.source_map.source(),
+                    &self.source_map,
+                    comment,
+                    current_indent_column,
+                )
+            })
+    }
+
+    pub(crate) fn close_suffix_comment_padding(
+        &self,
+        comment: &SourceComment<'_>,
+        current_code_column: usize,
+        current_indent_column: usize,
+    ) -> usize {
+        self.comment_alignment
+            .get(&FactSpan::from(comment.span()))
+            .map_or(1, |alignment| {
+                alignment.close_suffix_padding(
+                    self.source_map.source(),
+                    &self.source_map,
+                    comment,
+                    current_code_column,
+                    current_indent_column,
+                )
+            })
     }
 
     pub(crate) fn branch_prefix_facts(&self, start: usize, end: usize) -> BranchPrefixFacts {
@@ -1595,6 +1657,8 @@ impl<'source> FormatterFacts<'source> {
             + self.inline_group_sequences.len()
             + self.inline_case_item_bodies.len()
             + self.branch_prefix_facts.len()
+            + self.comment_alignment.len()
+            + self.suffix_comments.len()
             + self.close_suffix_comments.len()
             + self.case_facts.len()
             + self.case_item_facts.len()
@@ -1873,6 +1937,16 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     ) -> Self {
         let source_map = SourceMap::from_indexer(source, &indexer, options.keep_padding());
         let comment_attachments = CommentAttachmentModel::from_indexer(&source_map, &indexer);
+        let comment_alignment = comment_attachments
+            .comments()
+            .iter()
+            .map(|comment| {
+                (
+                    FactSpan::from(comment.span()),
+                    CommentAlignmentFacts::new(source, &source_map, comment),
+                )
+            })
+            .collect();
 
         Self {
             source,
@@ -1888,6 +1962,8 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 inline_group_sequences: HashSet::default(),
                 inline_case_item_bodies: HashSet::default(),
                 branch_prefix_facts: HashMap::default(),
+                comment_alignment,
+                suffix_comments: HashMap::default(),
                 close_suffix_comments: HashMap::default(),
                 case_facts: HashMap::default(),
                 case_item_facts: HashMap::default(),
@@ -2012,6 +2088,9 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     .map(|(span, _)| span)
             })
         });
+        if let Some(span) = facts.group_open_suffix_span {
+            self.record_suffix_attachment(span);
+        }
         let layout = self.record_sequence_layout(sequence);
         facts.contains_comments = layout.contains_comments;
         facts.contains_heredoc = layout.contains_heredoc;
@@ -2331,6 +2410,18 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         };
         self.visit_sequence(&command.condition, condition_upper_bound, None);
         let brace_syntax = matches!(command.syntax, shuck_ast::IfSyntax::Brace { .. });
+        if let shuck_ast::IfSyntax::ThenFi { then_span, .. } = command.syntax
+            && let Some(comment) = condition_separator_suffix_comment(
+                &command.condition,
+                then_span,
+                self.source,
+                self.source_map(),
+            )
+        {
+            self.facts
+                .suffix_comments
+                .insert(FactSpan::from(then_span), comment);
+        }
         let then_upper_bound =
             if_branch_upper_bound(command, 0, self.source, self.source_map(), &self.facts);
         let then_site =
@@ -2662,6 +2753,14 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         if let Some(comment) = self.source_map().suffix_comment_after_span(span) {
             self.facts
                 .close_suffix_comments
+                .insert(FactSpan::from(span), comment);
+        }
+    }
+
+    fn record_suffix_attachment(&mut self, span: Span) {
+        if let Some(comment) = suffix_comment_from_span(self.source, self.source_map(), span) {
+            self.facts
+                .suffix_comments
                 .insert(FactSpan::from(span), comment);
         }
     }
@@ -3326,6 +3425,64 @@ fn if_close_start(command: &IfCommand, source_map: &SourceMap<'_>) -> usize {
         .offset
 }
 
+fn suffix_comment_from_span<'source>(
+    source: &'source str,
+    source_map: &SourceMap<'source>,
+    span: Span,
+) -> Option<SourceComment<'source>> {
+    let raw = span.slice(source);
+    let leading_padding = raw.len() - raw.trim_start_matches([' ', '\t']).len();
+    let comment = raw[leading_padding..].trim_end_matches([' ', '\t', '\r']);
+    if !comment.starts_with('#') {
+        return None;
+    }
+    let absolute_start = span.start.offset + leading_padding;
+    let absolute_end = absolute_start + comment.len();
+    source_map.source_comment_for_offsets(absolute_start, absolute_end)
+}
+
+fn condition_separator_suffix_comment<'source>(
+    condition: &StmtSeq,
+    then_span: Span,
+    source: &'source str,
+    source_map: &SourceMap<'source>,
+) -> Option<SourceComment<'source>> {
+    let start = condition.last().map(condition_stmt_command_end)?;
+    let end = then_span.start.offset.min(source.len());
+    if start >= end {
+        return None;
+    }
+    let region = source.get(start..end)?;
+    let comment_rel = region.find('#')?;
+    let before_comment = region.get(..comment_rel)?;
+    if !before_comment
+        .chars()
+        .all(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n' | ';'))
+    {
+        return None;
+    }
+    let comment_start = start + comment_rel;
+    let line_end = source
+        .get(comment_start..end)?
+        .find('\n')
+        .map_or(end, |offset| comment_start + offset);
+    let comment = source
+        .get(comment_start..line_end)?
+        .trim_end_matches([' ', '\t', '\r']);
+    source_map.source_comment_for_offsets(comment_start, comment_start + comment.len())
+}
+
+fn condition_stmt_command_end(stmt: &Stmt) -> usize {
+    let mut end = command_format_span(&stmt.command).end.offset;
+    if end == 0 {
+        end = stmt_span(stmt).end.offset;
+    }
+    for redirect in &stmt.redirects {
+        end = end.max(redirect.span.end.offset);
+    }
+    end
+}
+
 fn if_branch_upper_bound(
     command: &IfCommand,
     branch_index: usize,
@@ -3456,8 +3613,28 @@ mod tests {
         };
 
         let sequence = facts.sequence(inner, Some(body[0].span.end.offset));
-        assert!(sequence.group_open_suffix_span().is_some());
+        let span = sequence
+            .group_open_suffix_span()
+            .expect("expected group open suffix span");
+        let comment = facts
+            .suffix_comment_for_span(span)
+            .expect("expected suffix comment attachment");
+        assert_eq!(comment.text(), "# note");
         assert!(sequence.leading_for(0).is_empty());
+    }
+
+    #[test]
+    fn precomputes_trailing_comment_alignment_targets() {
+        let source = "one  # a\ntwo_long  # b\n";
+        let (file, facts) = build_facts(source);
+        let sequence = facts.sequence(&file.body, None);
+        let comment = sequence
+            .trailing_for(0)
+            .first()
+            .expect("expected first trailing comment");
+
+        assert!(facts.trailing_comment_has_alignment(comment, 0));
+        assert_eq!(facts.trailing_comment_padding(comment, "one".len(), 0), 6);
     }
 
     #[test]
