@@ -4,21 +4,21 @@ use shuck_ast::{
     AnonymousFunctionCommand, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, Assignment,
     AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, CaseCommand, CaseItem,
     Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalCommand, ConditionalExpr,
-    DeclOperand, File, ForCommand, ForeachCommand, FunctionDef, Heredoc, HeredocBody,
-    HeredocBodyPart, HeredocBodyPartNode, IfCommand, ParameterExpansion, ParameterExpansionSyntax,
-    ParameterOp, Pattern, PatternPart, Redirect, RedirectKind, RedirectTarget, RepeatCommand,
-    SelectCommand, Span, Stmt, StmtSeq, StmtTerminator, Subscript, TimeCommand, UntilCommand,
-    VarRef, WhileCommand, Word, WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget,
+    DeclOperand, File, ForCommand, FunctionDef, Heredoc, HeredocBody, HeredocBodyPart,
+    HeredocBodyPartNode, IfCommand, ParameterExpansion, ParameterExpansionSyntax, ParameterOp,
+    Pattern, PatternPart, Redirect, RedirectKind, RedirectTarget, RepeatCommand, SelectCommand,
+    Span, Stmt, StmtSeq, StmtTerminator, Subscript, TimeCommand, UntilCommand, VarRef,
+    WhileCommand, Word, WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget,
     ZshGlobSegment,
 };
 use shuck_ast::{TextRange, TextSize};
 use shuck_indexer::{CommentIndex, IndexedComment, Indexer, IndexerOptions, LineIndex};
 
 use crate::command::{
-    array_elem_parts, branch_open_keyword_start, builtin_like_parts, case_item_body_upper_bound,
+    CompoundBodySite, array_elem_parts, builtin_like_parts, case_item_body_upper_bound,
     case_item_was_inline_in_source, case_terminator,
     collect_binary_list_first as collect_binary_list_first_with, collect_pipeline_parts,
-    command_group_commands, done_close_span, group_attachment_span_with_heredoc, group_open_suffix,
+    command_group_commands, group_attachment_span_with_heredoc, group_open_suffix,
     group_was_inline_in_source, if_close_span, if_next_branch_region_with_body_end,
     matching_group_close, rendered_stmt_end_line_with_heredoc, should_render_verbatim_with_heredoc,
     stmt_attachment_span_with_heredoc, stmt_format_span,
@@ -1970,16 +1970,18 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         self.visit_sequence_with_suffix(sequence, upper_bound, group_open_char, None, None);
     }
 
-    fn visit_do_done_body(&mut self, body: &StmtSeq, span: Span) {
-        let close_span = done_close_span(self.source_map().source(), self.source_map(), span, None);
-        self.record_close_suffix(close_span);
+    fn visit_compound_body_site(&mut self, site: CompoundBodySite<'_>) {
+        if let Some(open) = site.group_open_char() {
+            self.record_inline_group_sequence(site.body(), open, matching_group_close(open));
+        }
         self.visit_sequence_with_suffix(
-            body,
-            Some(done_body_upper_bound(self.source_map(), span)),
-            None,
-            branch_open_suffix_span(body, self.source_map(), "do"),
-            branch_open_end_offset(body, self.source_map().source(), "do"),
+            site.body(),
+            Some(site.facts_upper_bound()),
+            site.group_open_char(),
+            site.open_suffix_span(self.source_map()),
+            site.open_end_offset(self.source),
         );
+        self.record_close_suffix(site.close_span());
     }
 
     fn record_inline_group_sequence(&mut self, body: &StmtSeq, open: char, close: char) {
@@ -2282,39 +2284,8 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 for word in &command.words {
                     self.visit_word(word);
                 }
-                let group_open_char =
-                    matches!(command.syntax, shuck_ast::ForeachSyntax::ParenBrace { .. })
-                        .then_some('{');
-                if group_open_char.is_some() {
-                    self.record_inline_group_sequence(&command.body, '{', '}');
-                }
-                self.visit_sequence_with_suffix(
-                    &command.body,
-                    Some(foreach_body_upper_bound(command, self.source_map())),
-                    group_open_char,
-                    group_open_char
-                        .is_none()
-                        .then(|| {
-                            matches!(command.syntax, shuck_ast::ForeachSyntax::InDoDone { .. })
-                                .then(|| {
-                                    branch_open_suffix_span(&command.body, self.source_map(), "do")
-                                })
-                                .flatten()
-                        })
-                        .flatten(),
-                    group_open_char
-                        .is_none()
-                        .then(|| branch_open_end_offset(&command.body, self.source, "do"))
-                        .flatten(),
-                );
-                if matches!(command.syntax, shuck_ast::ForeachSyntax::InDoDone { .. }) {
-                    self.record_close_suffix(done_close_span(
-                        self.source_map().source(),
-                        self.source_map(),
-                        command.span,
-                        None,
-                    ));
-                }
+                let site = CompoundBodySite::foreach_command(command, self.source_map());
+                self.visit_compound_body_site(site);
             }
             CompoundCommand::ArithmeticFor(command) => {
                 if let Some(expr) = &command.init_ast {
@@ -2326,7 +2297,8 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 if let Some(expr) = &command.step_ast {
                     self.visit_arithmetic_expr(expr);
                 }
-                self.visit_do_done_body(&command.body, command.span);
+                let site = CompoundBodySite::arithmetic_for_command(command, self.source_map());
+                self.visit_compound_body_site(site);
             }
             CompoundCommand::While(command) => self.visit_while(command),
             CompoundCommand::Until(command) => self.visit_until(command),
@@ -2370,44 +2342,22 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         };
         self.visit_sequence(&command.condition, condition_upper_bound, None);
         let brace_syntax = matches!(command.syntax, shuck_ast::IfSyntax::Brace { .. });
-        let group_open_char = brace_syntax.then_some('{');
-        if brace_syntax {
-            self.record_inline_group_sequence(&command.then_branch, '{', '}');
-        }
-        self.visit_sequence_with_suffix(
-            &command.then_branch,
-            Some(if_branch_upper_bound(
-                command,
-                0,
-                self.source,
-                self.source_map(),
-                &self.facts,
-            )),
-            group_open_char,
-            (!brace_syntax)
-                .then(|| branch_open_suffix_span(&command.then_branch, self.source_map(), "then"))
-                .flatten(),
-            (!brace_syntax)
-                .then(|| branch_open_end_offset(&command.then_branch, self.source, "then"))
-                .flatten(),
-        );
+        let then_upper_bound =
+            if_branch_upper_bound(command, 0, self.source, self.source_map(), &self.facts);
+        let then_site =
+            CompoundBodySite::if_then_branch(command, &command.then_branch, then_upper_bound);
+        self.visit_compound_body_site(then_site);
         for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
-            let body_upper_bound = Some(if_branch_upper_bound(
+            let body_upper_bound = if_branch_upper_bound(
                 command,
                 index + 1,
                 self.source,
                 self.source_map(),
                 &self.facts,
-            ));
+            );
+            let body_site = CompoundBodySite::if_then_branch(command, body, body_upper_bound);
             if brace_syntax {
-                self.record_inline_group_sequence(body, '{', '}');
-                self.visit_sequence_with_suffix(
-                    body,
-                    body_upper_bound,
-                    group_open_char,
-                    None,
-                    None,
-                );
+                self.visit_compound_body_site(body_site);
             }
             let condition_upper_bound = if brace_syntax {
                 group_attachment_span_with_heredoc(
@@ -2419,35 +2369,17 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 )
                 .map(|span| span.start.offset)
             } else {
-                branch_open_keyword_start(body, self.source_map().source(), "then")
+                body_site.open_keyword_start(self.source)
             };
             self.visit_sequence(condition, condition_upper_bound, None);
             if !brace_syntax {
-                self.visit_sequence_with_suffix(
-                    body,
-                    body_upper_bound,
-                    group_open_char,
-                    branch_open_suffix_span(body, self.source_map(), "then"),
-                    branch_open_end_offset(body, self.source, "then"),
-                );
+                self.visit_compound_body_site(body_site);
             }
         }
         if let Some(else_branch) = &command.else_branch {
-            if brace_syntax {
-                self.record_inline_group_sequence(else_branch, '{', '}');
-            }
-            let upper_bound = Some(if_close_start(command, self.source_map()));
-            self.visit_sequence_with_suffix(
-                else_branch,
-                upper_bound,
-                group_open_char,
-                (!brace_syntax)
-                    .then(|| branch_open_suffix_span(else_branch, self.source_map(), "else"))
-                    .flatten(),
-                (!brace_syntax)
-                    .then(|| branch_open_end_offset(else_branch, self.source, "else"))
-                    .flatten(),
-            );
+            let upper_bound = if_close_start(command, self.source_map());
+            let site = CompoundBodySite::if_else_branch(command, else_branch, upper_bound);
+            self.visit_compound_body_site(site);
         }
         self.record_if_branch_prefix_facts(command);
         self.record_close_suffix(Some(if_close_span(command, self.source, self.source_map())));
@@ -2462,94 +2394,28 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 self.visit_word(word);
             }
         }
-        let group_open_char = matches!(
-            command.syntax,
-            shuck_ast::ForSyntax::InBrace { .. } | shuck_ast::ForSyntax::ParenBrace { .. }
-        )
-        .then_some('{');
-        if group_open_char.is_some() {
-            self.record_inline_group_sequence(&command.body, '{', '}');
-        }
-        self.visit_sequence_with_suffix(
-            &command.body,
-            Some(for_body_upper_bound(command, self.source_map())),
-            group_open_char,
-            group_open_char
-                .is_none()
-                .then(|| {
-                    matches!(
-                        command.syntax,
-                        shuck_ast::ForSyntax::InDoDone { .. }
-                            | shuck_ast::ForSyntax::ParenDoDone { .. }
-                    )
-                    .then(|| branch_open_suffix_span(&command.body, self.source_map(), "do"))
-                    .flatten()
-                })
-                .flatten(),
-            group_open_char
-                .is_none()
-                .then(|| branch_open_end_offset(&command.body, self.source, "do"))
-                .flatten(),
-        );
-        if matches!(
-            command.syntax,
-            shuck_ast::ForSyntax::InDoDone { .. } | shuck_ast::ForSyntax::ParenDoDone { .. }
-        ) {
-            self.record_close_suffix(done_close_span(
-                self.source_map().source(),
-                self.source_map(),
-                command.span,
-                None,
-            ));
-        }
+        let site = CompoundBodySite::for_command(command, self.source_map());
+        self.visit_compound_body_site(site);
     }
 
     fn visit_repeat(&mut self, command: &RepeatCommand) {
         self.visit_word(&command.count);
-        let group_open_char =
-            matches!(command.syntax, shuck_ast::RepeatSyntax::Brace { .. }).then_some('{');
-        if group_open_char.is_some() {
-            self.record_inline_group_sequence(&command.body, '{', '}');
-        }
-        self.visit_sequence_with_suffix(
-            &command.body,
-            Some(repeat_body_upper_bound(command, self.source_map())),
-            group_open_char,
-            group_open_char
-                .is_none()
-                .then(|| {
-                    matches!(command.syntax, shuck_ast::RepeatSyntax::DoDone { .. })
-                        .then(|| branch_open_suffix_span(&command.body, self.source_map(), "do"))
-                        .flatten()
-                })
-                .flatten(),
-            group_open_char
-                .is_none()
-                .then(|| branch_open_end_offset(&command.body, self.source, "do"))
-                .flatten(),
-        );
-        if matches!(command.syntax, shuck_ast::RepeatSyntax::DoDone { .. }) {
-            self.record_close_suffix(done_close_span(
-                self.source_map().source(),
-                self.source_map(),
-                command.span,
-                None,
-            ));
-        }
+        let site = CompoundBodySite::repeat_command(command, self.source_map());
+        self.visit_compound_body_site(site);
     }
 
     fn visit_while(&mut self, command: &WhileCommand) {
-        let condition_upper_bound =
-            branch_open_keyword_start(&command.body, self.source_map().source(), "do");
+        let site = CompoundBodySite::while_command(command, self.source_map());
+        let condition_upper_bound = site.open_keyword_start(self.source);
         self.visit_sequence(&command.condition, condition_upper_bound, None);
-        self.visit_do_done_body(&command.body, command.span);
+        self.visit_compound_body_site(site);
     }
 
     fn visit_until(&mut self, command: &UntilCommand) {
-        let condition_upper_bound =
-            branch_open_keyword_start(&command.body, self.source_map().source(), "do");
+        let site = CompoundBodySite::until_command(command, self.source_map());
+        let condition_upper_bound = site.open_keyword_start(self.source);
         self.visit_sequence(&command.condition, condition_upper_bound, None);
-        self.visit_do_done_body(&command.body, command.span);
+        self.visit_compound_body_site(site);
     }
 
     fn visit_case(&mut self, command: &CaseCommand) {
@@ -2584,7 +2450,8 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         for word in &command.words {
             self.visit_word(word);
         }
-        self.visit_do_done_body(&command.body, command.span);
+        let site = CompoundBodySite::select_command(command, self.source_map());
+        self.visit_compound_body_site(site);
     }
 
     fn visit_time(&mut self, command: &TimeCommand) {
@@ -2615,36 +2482,12 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_function_body(&mut self, body: &Stmt, function_end_offset: usize) {
-        if !body.negated
-            && body.redirects.is_empty()
-            && body.terminator.is_none()
-            && let Some((commands, open)) = command_group_commands(&body.command)
-        {
-            self.visit_function_group_body(
-                commands,
-                function_end_offset,
-                open,
-                matching_group_close(open),
-            );
+        if let Some(site) = CompoundBodySite::function_group_body(body, function_end_offset) {
+            self.visit_compound_body_site(site);
             self.record_stmt_layout(body);
         } else {
             self.visit_stmt(body);
         }
-    }
-
-    fn visit_function_group_body(
-        &mut self,
-        commands: &StmtSeq,
-        function_end_offset: usize,
-        open: char,
-        close: char,
-    ) {
-        if group_was_inline_in_source(commands.as_slice(), self.source_map(), open, close) {
-            self.facts
-                .inline_group_sequences
-                .insert(FactSpan::from(commands.span));
-        }
-        self.visit_sequence(commands, Some(function_end_offset), Some(open));
     }
 
     fn visit_redirect(&mut self, redirect: &Redirect) {
@@ -3078,26 +2921,6 @@ fn pipeline_has_explicit_line_break(
     false
 }
 
-fn branch_open_suffix_span(
-    sequence: &StmtSeq,
-    source_map: &SourceMap<'_>,
-    keyword: &str,
-) -> Option<Span> {
-    let source = source_map.source();
-    let keyword_offset = branch_open_keyword_start(sequence, source, keyword)?;
-    let (_, line_end) = source_map.line_bounds_for_offset(keyword_offset)?;
-    let suffix_start = keyword_offset + keyword.len();
-    let suffix = source.get(suffix_start..line_end)?;
-    suffix
-        .trim_start_matches(char::is_whitespace)
-        .starts_with('#')
-        .then(|| source_map.span_for_offsets(suffix_start, line_end))
-}
-
-fn branch_open_end_offset(sequence: &StmtSeq, source: &str, keyword: &str) -> Option<usize> {
-    branch_open_keyword_start(sequence, source, keyword).map(|start| start + keyword.len())
-}
-
 fn sequence_comment_lower_bound(sequence: &StmtSeq, source_map: &SourceMap<'_>) -> usize {
     let mut lower_bound = sequence.span.start.offset;
     for comment in &sequence.leading_comments {
@@ -3124,64 +2947,6 @@ fn sequence_comment_lower_bound(sequence: &StmtSeq, source_map: &SourceMap<'_>) 
 fn case_close_span(command: &CaseCommand, source_map: &SourceMap<'_>) -> Option<Span> {
     let start = last_shell_keyword_start(source_map.source(), command.span, "esac")?;
     Some(source_map.span_for_offsets(start, start + "esac".len()))
-}
-
-fn done_body_upper_bound(source_map: &SourceMap<'_>, span: Span) -> usize {
-    done_close_span(source_map.source(), source_map, span, None)
-        .map_or(span.end.offset, |close| close.start.offset)
-}
-
-fn for_body_upper_bound(command: &ForCommand, source_map: &SourceMap<'_>) -> usize {
-    match command.syntax {
-        shuck_ast::ForSyntax::InDoDone { done_span, .. }
-        | shuck_ast::ForSyntax::ParenDoDone { done_span, .. } => done_close_span(
-            source_map.source(),
-            source_map,
-            command.span,
-            Some(done_span),
-        )
-        .map_or(done_span.start.offset, |span| span.start.offset),
-        shuck_ast::ForSyntax::InBrace {
-            right_brace_span, ..
-        }
-        | shuck_ast::ForSyntax::ParenBrace {
-            right_brace_span, ..
-        } => right_brace_span.start.offset,
-        shuck_ast::ForSyntax::InDirect { .. } | shuck_ast::ForSyntax::ParenDirect { .. } => {
-            command.span.end.offset
-        }
-    }
-}
-
-fn foreach_body_upper_bound(command: &ForeachCommand, source_map: &SourceMap<'_>) -> usize {
-    match command.syntax {
-        shuck_ast::ForeachSyntax::InDoDone { done_span, .. } => done_close_span(
-            source_map.source(),
-            source_map,
-            command.span,
-            Some(done_span),
-        )
-        .map_or(done_span.start.offset, |span| span.start.offset),
-        shuck_ast::ForeachSyntax::ParenBrace {
-            right_brace_span, ..
-        } => right_brace_span.start.offset,
-    }
-}
-
-fn repeat_body_upper_bound(command: &RepeatCommand, source_map: &SourceMap<'_>) -> usize {
-    match command.syntax {
-        shuck_ast::RepeatSyntax::DoDone { done_span, .. } => done_close_span(
-            source_map.source(),
-            source_map,
-            command.span,
-            Some(done_span),
-        )
-        .map_or(done_span.start.offset, |span| span.start.offset),
-        shuck_ast::RepeatSyntax::Brace {
-            right_brace_span, ..
-        } => right_brace_span.start.offset,
-        shuck_ast::RepeatSyntax::Direct => command.span.end.offset,
-    }
 }
 
 fn group_close_offset(

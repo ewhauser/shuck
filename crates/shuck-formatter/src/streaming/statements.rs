@@ -555,27 +555,15 @@ where
         }
     }
 
-    pub(super) fn format_done_body(
-        &mut self,
-        body: &StmtSeq,
-        enclosing_span: Span,
-        done_span: Option<Span>,
-    ) -> Result<()> {
-        let close_span =
-            command_done_close_span(self.source(), self.source_map(), enclosing_span, done_span);
-        self.format_do_done_body(body, enclosing_span, close_span, "done")
-    }
-
     pub(super) fn format_do_done_body(
         &mut self,
-        body: &StmtSeq,
-        enclosing_span: Span,
-        close_span: Option<Span>,
+        site: CompoundBodySite<'_>,
         close: &'static str,
     ) -> Result<()> {
-        let body_upper_bound = close_span
-            .map(|span| span.start.offset)
-            .unwrap_or(enclosing_span.end.offset);
+        let body = site.body();
+        let body_upper_bound = site.renderer_upper_bound();
+        let close_span = site.close_span();
+        let enclosing_span = site.enclosing_span();
         let has_open_suffix = self
             .facts()
             .sequence(body, Some(body_upper_bound))
@@ -608,33 +596,29 @@ where
             }
         }
 
-        self.format_multiline_do_done_body(body, enclosing_span, close_span, close, "; do")
+        self.format_multiline_do_done_body(site, close, "; do")
     }
 
     pub(super) fn format_split_do_done_body(
         &mut self,
-        body: &StmtSeq,
-        enclosing_span: Span,
-        close_span: Option<Span>,
+        site: CompoundBodySite<'_>,
         close: &'static str,
     ) -> Result<()> {
-        self.format_multiline_do_done_body(body, enclosing_span, close_span, close, "do")
+        self.format_multiline_do_done_body(site, close, "do")
     }
 
     pub(super) fn format_multiline_do_done_body(
         &mut self,
-        body: &StmtSeq,
-        enclosing_span: Span,
-        close_span: Option<Span>,
+        site: CompoundBodySite<'_>,
         close: &'static str,
         open: &'static str,
     ) -> Result<()> {
-        let body_upper_bound = close_span
-            .map(|span| span.start.offset)
-            .unwrap_or(enclosing_span.end.offset);
+        let body = site.body();
+        let body_upper_bound = site.renderer_upper_bound();
+        let close_span = site.close_span();
 
         self.write_text(open);
-        self.write_sequence_open_suffix(body, Some(body_upper_bound));
+        self.write_compound_body_open_suffix(site);
         let preserve_open_blank = self
             .facts()
             .sequence(body, Some(body_upper_bound))
