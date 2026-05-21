@@ -21,12 +21,13 @@ use crate::command::{
     CompoundBodySite, array_elem_parts, builtin_like_parts, case_item_body_upper_bound,
     case_item_was_inline_in_source, case_terminator,
     collect_binary_list_first as collect_binary_list_first_with, collect_pipeline_parts,
-    command_format_span, command_group_commands, group_attachment_span_with_heredoc,
+    command_format_span, command_group_commands,
+    compound_close_span as command_compound_close_span, group_attachment_span_with_heredoc,
     group_open_suffix, group_was_inline_in_source, if_close_span,
     if_next_branch_region_with_body_end, matching_group_close, rendered_stmt_end_line_with_heredoc,
-    should_render_verbatim_with_heredoc, stmt_attachment_span_with_heredoc, stmt_format_span,
-    stmt_group_attachment_or_verbatim_span_with_heredoc, stmt_has_trailing_comment,
-    stmt_render_start_line, stmt_span, stmt_start_after_operator,
+    should_render_verbatim_with_heredoc, stmt_attachment_span_with_heredoc_and_compound_close,
+    stmt_format_span, stmt_group_attachment_or_verbatim_span_with_heredoc,
+    stmt_has_trailing_comment, stmt_render_start_line, stmt_span, stmt_start_after_operator,
     stmt_verbatim_span_with_source_map, trim_unescaped_trailing_whitespace,
 };
 use crate::comments::{
@@ -1614,6 +1615,7 @@ pub(crate) struct FormatterFacts<'source> {
     background_breaks: HashSet<FactSpan>,
     inline_group_sequences: HashSet<FactSpan>,
     inline_case_item_bodies: HashSet<FactSpan>,
+    compound_close_spans: HashMap<FactSpan, Span>,
     comment_plan: CommentPlan<'source>,
     indexer: Indexer,
 }
@@ -1746,6 +1748,30 @@ impl<'source> FormatterFacts<'source> {
             .contains(&FactSpan::from(commands.span))
     }
 
+    pub(crate) fn compound_close_span(&self, command: &CompoundCommand) -> Option<Span> {
+        compound_close_key(command).and_then(|key| self.compound_close_spans.get(&key).copied())
+    }
+
+    pub(crate) fn compound_close_span_for_span(&self, span: Span) -> Option<Span> {
+        self.compound_close_spans
+            .get(&FactSpan::from(span))
+            .copied()
+    }
+
+    pub(crate) fn stmt_compound_close_span(&self, stmt: &Stmt) -> Option<Span> {
+        let Command::Compound(command) = &stmt.command else {
+            return None;
+        };
+        self.compound_close_span(command)
+    }
+
+    pub(crate) fn if_close_span(&self, command: &IfCommand) -> Span {
+        self.compound_close_spans
+            .get(&FactSpan::from(command.span))
+            .copied()
+            .unwrap_or_else(|| if_close_span(command, self.source_map.source(), &self.source_map))
+    }
+
     pub(crate) fn case_item_was_inline_in_source(&self, item: &CaseItem) -> bool {
         self.inline_case_item_bodies
             .contains(&FactSpan::from(item.body.span))
@@ -1808,9 +1834,7 @@ impl<'source> FormatterFacts<'source> {
                 .first_comment_offset()
                 .unwrap_or(end)
         } else {
-            if_close_span(command, self.source_map.source(), &self.source_map)
-                .start
-                .offset
+            self.if_close_span(command).start.offset
         }
     }
 
@@ -1933,6 +1957,7 @@ impl<'source> FormatterFacts<'source> {
             + self.background_breaks.len()
             + self.inline_group_sequences.len()
             + self.inline_case_item_bodies.len()
+            + self.compound_close_spans.len()
             + self.comment_plan.len()
             + self.indexer.region_index().heredoc_ranges().len()
     }
@@ -2225,6 +2250,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 background_breaks: HashSet::default(),
                 inline_group_sequences: HashSet::default(),
                 inline_case_item_bodies: HashSet::default(),
+                compound_close_spans: HashMap::default(),
                 comment_plan,
                 indexer,
             },
@@ -2236,6 +2262,26 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     fn build(mut self, file: &File) -> FormatterFacts<'source> {
         let _ = self.visit_sequence(&file.body, None, None);
         self.facts
+    }
+
+    fn cache_compound_close_span(&mut self, command: &CompoundCommand) -> Option<Span> {
+        let key = compound_close_key(command)?;
+        if let Some(span) = self.facts.compound_close_spans.get(&key).copied() {
+            return Some(span);
+        }
+
+        let span = command_compound_close_span(command, self.source, self.source_map());
+        if let Some(span) = span {
+            self.facts.compound_close_spans.insert(key, span);
+        }
+        span
+    }
+
+    fn cached_close(&self, span: Span) -> Option<Span> {
+        self.facts
+            .compound_close_spans
+            .get(&FactSpan::from(span))
+            .copied()
     }
 
     fn visit_sequence(
@@ -2504,12 +2550,13 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             stmt_format_span(stmt)
         };
         let stmt_contains_heredoc = |stmt: &Stmt| self.layout.stmt(stmt).contains_heredoc;
-        let attachment_span = stmt_attachment_span_with_heredoc(
+        let attachment_span = stmt_attachment_span_with_heredoc_and_compound_close(
             stmt,
             self.source,
             self.source_map(),
             self.options,
             stmt_contains_heredoc,
+            self.facts.stmt_compound_close_span(stmt),
         );
         let rendered_end_line = rendered_stmt_end_line_with_heredoc(
             stmt,
@@ -2648,6 +2695,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_compound_command(&mut self, command: &CompoundCommand) -> LayoutSummary {
+        let cached_close_span = self.cache_compound_close_span(command);
         match LayoutClassifier::compound_command(command) {
             LayoutCompoundCommand::If(command) => self.visit_if(command),
             LayoutCompoundCommand::For(command) => self.visit_for(command),
@@ -2657,7 +2705,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 for word in &command.words {
                     summary.merge(self.visit_word(word));
                 }
-                let site = CompoundBodySite::foreach_command(command, self.source_map());
+                let site = CompoundBodySite::foreach_command(
+                    command,
+                    self.source_map(),
+                    cached_close_span,
+                );
                 summary.merge(self.visit_compound_body_site(site));
                 summary
             }
@@ -2672,7 +2724,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 if let Some(expr) = &command.step_ast {
                     summary.merge(self.visit_arithmetic_expr(expr));
                 }
-                let site = CompoundBodySite::arithmetic_for_command(command, self.source_map());
+                let site = CompoundBodySite::arithmetic_for_command(
+                    command,
+                    self.source_map(),
+                    cached_close_span,
+                );
                 summary.merge(self.visit_compound_body_site(site));
                 summary
             }
@@ -2773,12 +2829,12 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             }
         }
         if let Some(else_branch) = &command.else_branch {
-            let upper_bound = if_close_start(command, self.source_map());
+            let upper_bound = self.facts.if_close_span(command).start.offset;
             let site = CompoundBodySite::if_else_branch(command, else_branch, upper_bound);
             summary.merge(self.visit_compound_body_site(site));
         }
         self.record_if_branch_prefix_facts(command);
-        self.record_close_suffix(Some(if_close_span(command, self.source, self.source_map())));
+        self.record_close_suffix(Some(self.facts.if_close_span(command)));
         summary
     }
 
@@ -2792,20 +2848,32 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 summary.merge(self.visit_word(word));
             }
         }
-        let site = CompoundBodySite::for_command(command, self.source_map());
+        let site = CompoundBodySite::for_command(
+            command,
+            self.source_map(),
+            self.cached_close(command.span),
+        );
         summary.merge(self.visit_compound_body_site(site));
         summary
     }
 
     fn visit_repeat(&mut self, command: &RepeatCommand) -> LayoutSummary {
         let mut summary = self.visit_word(&command.count);
-        let site = CompoundBodySite::repeat_command(command, self.source_map());
+        let site = CompoundBodySite::repeat_command(
+            command,
+            self.source_map(),
+            self.cached_close(command.span),
+        );
         summary.merge(self.visit_compound_body_site(site));
         summary
     }
 
     fn visit_while(&mut self, command: &WhileCommand) -> LayoutSummary {
-        let site = CompoundBodySite::while_command(command, self.source_map());
+        let site = CompoundBodySite::while_command(
+            command,
+            self.source_map(),
+            self.cached_close(command.span),
+        );
         let condition_upper_bound = site.open_keyword_start(self.source);
         let mut summary = self.visit_sequence(&command.condition, condition_upper_bound, None);
         summary.merge(self.visit_compound_body_site(site));
@@ -2813,7 +2881,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_until(&mut self, command: &UntilCommand) -> LayoutSummary {
-        let site = CompoundBodySite::until_command(command, self.source_map());
+        let site = CompoundBodySite::until_command(
+            command,
+            self.source_map(),
+            self.cached_close(command.span),
+        );
         let condition_upper_bound = site.open_keyword_start(self.source);
         let mut summary = self.visit_sequence(&command.condition, condition_upper_bound, None);
         summary.merge(self.visit_compound_body_site(site));
@@ -2852,7 +2924,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         for word in &command.words {
             summary.merge(self.visit_word(word));
         }
-        let site = CompoundBodySite::select_command(command, self.source_map());
+        let site = CompoundBodySite::select_command(
+            command,
+            self.source_map(),
+            self.cached_close(command.span),
+        );
         summary.merge(self.visit_compound_body_site(site));
         summary
     }
@@ -3483,7 +3559,9 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn build_case_command_facts(&self, command: &CaseCommand) -> CaseCommandFacts {
-        let esac_span = case_close_span(command, self.source_map());
+        let esac_span = self
+            .cached_close(command.span)
+            .or_else(|| case_close_span(command, self.source_map()));
         let body_fallback_upper_bound = esac_span
             .map(|span| span.start.offset)
             .unwrap_or(command.span.end.offset);
@@ -4111,10 +4189,42 @@ fn case_item_key(item: &CaseItem) -> FactSpan {
     FactSpan::from_offsets(start, end)
 }
 
-fn if_close_start(command: &IfCommand, source_map: &SourceMap<'_>) -> usize {
-    if_close_span(command, source_map.source(), source_map)
-        .start
-        .offset
+fn compound_close_key(command: &CompoundCommand) -> Option<FactSpan> {
+    let span = match command {
+        CompoundCommand::If(command) => command.span,
+        CompoundCommand::For(command) => match command.syntax {
+            shuck_ast::ForSyntax::InDoDone { .. }
+            | shuck_ast::ForSyntax::ParenDoDone { .. }
+            | shuck_ast::ForSyntax::InBrace { .. }
+            | shuck_ast::ForSyntax::ParenBrace { .. } => command.span,
+            shuck_ast::ForSyntax::InDirect { .. } | shuck_ast::ForSyntax::ParenDirect { .. } => {
+                return None;
+            }
+        },
+        CompoundCommand::Repeat(command) => match command.syntax {
+            shuck_ast::RepeatSyntax::DoDone { .. } | shuck_ast::RepeatSyntax::Brace { .. } => {
+                command.span
+            }
+            shuck_ast::RepeatSyntax::Direct => return None,
+        },
+        CompoundCommand::Foreach(command) => match command.syntax {
+            shuck_ast::ForeachSyntax::InDoDone { .. }
+            | shuck_ast::ForeachSyntax::ParenBrace { .. } => command.span,
+        },
+        CompoundCommand::ArithmeticFor(command) => command.span,
+        CompoundCommand::While(command) => command.span,
+        CompoundCommand::Until(command) => command.span,
+        CompoundCommand::Case(command) => command.span,
+        CompoundCommand::Select(command) => command.span,
+        CompoundCommand::Subshell(_)
+        | CompoundCommand::BraceGroup(_)
+        | CompoundCommand::Arithmetic(_)
+        | CompoundCommand::Time(_)
+        | CompoundCommand::Conditional(_)
+        | CompoundCommand::Coproc(_)
+        | CompoundCommand::Always(_) => return None,
+    };
+    Some(FactSpan::from(span))
 }
 
 fn suffix_comment_from_span<'source>(
@@ -4179,7 +4289,7 @@ fn if_branch_upper_bound(
     command: &IfCommand,
     branch_index: usize,
     source: &str,
-    source_map: &SourceMap<'_>,
+    _source_map: &SourceMap<'_>,
     facts: &FormatterFacts<'_>,
 ) -> usize {
     if let Some((start, end)) = if_next_branch_region(command, branch_index, source) {
@@ -4187,7 +4297,7 @@ fn if_branch_upper_bound(
             .branch_prefix_first_comment_offset(start, end)
             .unwrap_or(end)
     } else {
-        if_close_start(command, source_map)
+        facts.if_close_span(command).start.offset
     }
 }
 
@@ -4470,6 +4580,26 @@ mod tests {
                 .close_suffix_comment_plan_after_span(case_facts.esac_span().unwrap())
                 .is_some()
         );
+    }
+
+    #[test]
+    fn brace_form_loop_close_suffix_comments_extend_attachment_span() {
+        let source =
+            "for key value in a b c d; { print -r -- \"$key:$value\"; } # close\nprint done\n";
+        let file = Parser::with_dialect(source, shuck_parser::ShellDialect::Zsh)
+            .parse()
+            .unwrap()
+            .file;
+        let resolved = ShellFormatOptions::default()
+            .with_dialect(ShellDialect::Zsh)
+            .resolve(source, Some(Path::new("test.zsh")));
+        let facts = FormatterFacts::build(source, &file, &resolved);
+        let stmt = &file.body[0];
+        let attachment = facts.stmt(stmt).attachment_span().slice(source);
+
+        assert!(facts.stmt_compound_close_span(stmt).is_some());
+        assert!(attachment.ends_with("# close"));
+        assert!(!attachment.contains("print done"));
     }
 
     #[test]

@@ -4,7 +4,7 @@ pub(super) fn if_branch_upper_bound(
     command: &IfCommand,
     branch_index: usize,
     source: &str,
-    source_map: &SourceMap<'_>,
+    _source_map: &SourceMap<'_>,
     facts: &FormatterFacts<'_>,
 ) -> usize {
     if let Some((start, end)) = if_next_branch_region(command, branch_index, source, facts) {
@@ -12,9 +12,7 @@ pub(super) fn if_branch_upper_bound(
             .branch_prefix_first_comment_offset(start, end)
             .unwrap_or(end)
     } else {
-        command_if_close_span(command, source, source_map)
-            .start
-            .offset
+        facts.if_close_span(command).start.offset
     }
 }
 

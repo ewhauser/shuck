@@ -124,6 +124,27 @@ pub(crate) fn stmt_attachment_span_with_heredoc<F>(
 where
     F: Fn(&Stmt) -> bool + Copy,
 {
+    stmt_attachment_span_with_heredoc_and_compound_close(
+        stmt,
+        source,
+        source_map,
+        options,
+        stmt_contains_heredoc,
+        stmt_compound_close_span(stmt, source, source_map),
+    )
+}
+
+pub(crate) fn stmt_attachment_span_with_heredoc_and_compound_close<F>(
+    stmt: &Stmt,
+    source: &str,
+    source_map: &crate::comments::SourceMap<'_>,
+    options: &crate::options::ResolvedShellFormatOptions,
+    stmt_contains_heredoc: F,
+    compound_close_span: Option<Span>,
+) -> Span
+where
+    F: Fn(&Stmt) -> bool + Copy,
+{
     let span = if should_render_verbatim_with_heredoc(
         stmt,
         source_map,
@@ -152,16 +173,15 @@ where
             command_attachment_span(&stmt.command, source, source_map, options),
         )
     };
-    extend_compound_close_suffix_attachment_span(span, stmt, source, source_map)
+    extend_compound_close_suffix_attachment_span(span, compound_close_span, source_map)
 }
 
 fn extend_compound_close_suffix_attachment_span(
     span: Span,
-    stmt: &Stmt,
-    source: &str,
+    close_span: Option<Span>,
     source_map: &crate::comments::SourceMap<'_>,
 ) -> Span {
-    let Some(close_span) = stmt_compound_close_span(stmt, source, source_map) else {
+    let Some(close_span) = close_span else {
         return span;
     };
     if let Some(comment) = source_map.suffix_comment_after_span(close_span) {
@@ -171,7 +191,7 @@ fn extend_compound_close_suffix_attachment_span(
     }
 }
 
-fn stmt_compound_close_span(
+pub(crate) fn stmt_compound_close_span(
     stmt: &Stmt,
     source: &str,
     source_map: &crate::comments::SourceMap<'_>,
@@ -179,6 +199,14 @@ fn stmt_compound_close_span(
     let Command::Compound(command) = &stmt.command else {
         return None;
     };
+    compound_close_span(command, source, source_map)
+}
+
+pub(crate) fn compound_close_span(
+    command: &CompoundCommand,
+    source: &str,
+    source_map: &crate::comments::SourceMap<'_>,
+) -> Option<Span> {
     match command {
         CompoundCommand::If(command) => Some(if_close_span(command, source, source_map)),
         CompoundCommand::Case(command) => source_map
@@ -251,7 +279,7 @@ fn close_keyword_at_span_end(
         .then(|| source_map.span_for_offsets(start, span_end))
 }
 
-fn normalized_close_keyword_span(
+pub(super) fn normalized_close_keyword_span(
     source: &str,
     source_map: &crate::comments::SourceMap<'_>,
     span: Span,

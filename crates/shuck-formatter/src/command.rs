@@ -55,10 +55,10 @@ pub(crate) use self::groups::{
     stmt_group_attachment_or_verbatim_span_with_heredoc, stmt_start_after_operator,
 };
 pub(crate) use self::render_policy::{
-    case_item_body_upper_bound, case_item_was_inline_in_source, if_close_span,
+    case_item_body_upper_bound, case_item_was_inline_in_source, compound_close_span, if_close_span,
     line_gap_break_count, rendered_stmt_end_line_with_heredoc, should_render_verbatim_with_heredoc,
-    stmt_attachment_span, stmt_attachment_span_with_heredoc, stmt_has_trailing_comment,
-    stmt_render_start_line,
+    stmt_attachment_span, stmt_attachment_span_with_heredoc_and_compound_close,
+    stmt_has_trailing_comment, stmt_render_start_line,
 };
 pub(crate) use self::spans::{
     anonymous_function_attachment_span, anonymous_function_header_span, builtin_like_parts,
