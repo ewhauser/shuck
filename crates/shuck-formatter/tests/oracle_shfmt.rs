@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -7,6 +8,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use shuck_formatter::{FormattedSource, ShellDialect, ShellFormatOptions, format_file_ast};
 use shuck_parser::parser::Parser;
 use similar::TextDiff;
@@ -23,6 +26,11 @@ const LARGE_CORPUS_SHARD_ENV: &str = "TEST_SHARD_INDEX";
 const LARGE_CORPUS_SHARDS_ENV: &str = "TEST_TOTAL_SHARDS";
 const LARGE_CORPUS_SAMPLE_PERCENT_ENV: &str = "SHUCK_LARGE_CORPUS_SAMPLE_PERCENT";
 const LARGE_CORPUS_CACHE_DIR_NAME: &str = ".cache/large-corpus";
+const SHFMT_ALLOWLIST_UPDATE_ENV: &str = "SHUCK_UPDATE_SHFMT_LARGE_CORPUS_ALLOWLIST";
+const SHFMT_ALLOWLIST_SCHEMA: u32 = 1;
+const SHFMT_ALLOWLIST_REL_PATH: &str = "tests/testdata/shfmt-large-corpus-allowlist.yaml";
+const DEFAULT_SHFMT_ALLOWLIST_REASON: &str =
+    "Known formatter difference from the shfmt oracle at this corpus snapshot.";
 const LARGE_CORPUS_STATIC_IGNORE_SUFFIXES: &[&str] = &[
     "super-linter__super-linter__test__linters__bash__shell_bad_1.sh",
     "super-linter__super-linter__test__linters__bash_exec__shell_bad_1.sh",
@@ -65,6 +73,12 @@ struct LargeCorpusConfig {
     sample_percent: usize,
 }
 
+impl LargeCorpusConfig {
+    fn covers_full_corpus(&self) -> bool {
+        self.shard_index == 0 && self.total_shards == 1 && self.sample_percent == 100
+    }
+}
+
 #[derive(Debug, Clone)]
 struct LargeCorpusFixture {
     path: PathBuf,
@@ -74,6 +88,121 @@ struct LargeCorpusFixture {
 struct FormatterOracleConfig {
     shfmt_language: &'static str,
     options: ShellFormatOptions,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ShfmtDiffHunk {
+    start_line: usize,
+    end_line: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ShfmtLargeCorpusAllowlistEntry {
+    path_suffix: String,
+    hunks: Vec<ShfmtDiffHunk>,
+    diff_hash: String,
+    reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ShfmtLargeCorpusAllowlistDocument {
+    schema: u32,
+    #[serde(default)]
+    entries: Vec<ShfmtLargeCorpusAllowlistEntry>,
+}
+
+impl Default for ShfmtLargeCorpusAllowlistDocument {
+    fn default() -> Self {
+        Self {
+            schema: SHFMT_ALLOWLIST_SCHEMA,
+            entries: Vec::new(),
+        }
+    }
+}
+
+impl ShfmtLargeCorpusAllowlistDocument {
+    fn validate(&self, path: &Path) -> Result<(), String> {
+        if self.schema != SHFMT_ALLOWLIST_SCHEMA {
+            return Err(format!(
+                "unsupported shfmt large-corpus allowlist schema {} in {}; expected {}",
+                self.schema,
+                path.display(),
+                SHFMT_ALLOWLIST_SCHEMA
+            ));
+        }
+
+        let mut seen_paths = HashSet::new();
+        for (index, entry) in self.entries.iter().enumerate() {
+            entry.validate(path, index + 1)?;
+            if !seen_paths.insert(entry.path_suffix.as_str()) {
+                return Err(format!(
+                    "duplicate shfmt allowlist path_suffix `{}` in {}",
+                    entry.path_suffix,
+                    path.display()
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl ShfmtLargeCorpusAllowlistEntry {
+    fn validate(&self, path: &Path, entry_index: usize) -> Result<(), String> {
+        if self.path_suffix.trim().is_empty() {
+            return Err(format!(
+                "invalid shfmt allowlist entry {entry_index} in {}: path_suffix cannot be empty",
+                path.display()
+            ));
+        }
+        if self.hunks.is_empty() {
+            return Err(format!(
+                "invalid shfmt allowlist entry {entry_index} in {}: hunks cannot be empty",
+                path.display()
+            ));
+        }
+        if self.diff_hash.len() != 64 || !self.diff_hash.chars().all(|ch| ch.is_ascii_hexdigit()) {
+            return Err(format!(
+                "invalid shfmt allowlist entry {entry_index} in {}: diff_hash must be a SHA-256 hex digest",
+                path.display()
+            ));
+        }
+        if self.reason.trim().is_empty() {
+            return Err(format!(
+                "invalid shfmt allowlist entry {entry_index} in {}: reason cannot be empty",
+                path.display()
+            ));
+        }
+
+        for hunk in &self.hunks {
+            if hunk.end_line < hunk.start_line {
+                return Err(format!(
+                    "invalid shfmt allowlist entry {entry_index} in {}: hunk end_line is before start_line",
+                    path.display()
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ShfmtOracleMismatch {
+    filename: String,
+    hunks: Vec<ShfmtDiffHunk>,
+    diff_hash: String,
+    diff: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ShfmtMismatchClassification {
+    Reviewed { entry_index: usize },
+    ChangedKnown { reason: String },
+    New,
 }
 
 #[derive(Debug)]
@@ -86,8 +215,9 @@ struct LargeCorpusFixtureResult {
 #[derive(Debug)]
 enum LargeCorpusComparison {
     Matched,
-    Mismatch(String),
+    Mismatch(ShfmtOracleMismatch),
     ShuckError(String),
+    ShfmtError(String),
     ShfmtSkip,
     UnsupportedDialect,
     NonUtf8,
@@ -100,6 +230,7 @@ struct LargeCorpusProgress {
     matched: AtomicUsize,
     mismatches: AtomicUsize,
     shuck_errors: AtomicUsize,
+    shfmt_errors: AtomicUsize,
     shfmt_skips: AtomicUsize,
     unsupported_dialects: AtomicUsize,
     non_utf8: AtomicUsize,
@@ -163,6 +294,8 @@ fn large_corpus_matches_shfmt() {
         return;
     };
 
+    let update_allowlist = env_truthy(SHFMT_ALLOWLIST_UPDATE_ENV, false);
+    let allowlist = (!update_allowlist).then(load_shfmt_large_corpus_allowlist);
     let large_corpus_started = Instant::now();
     probe_shfmt().expect("shfmt not found on PATH; run under `nix develop`");
 
@@ -204,7 +337,8 @@ fn large_corpus_matches_shfmt() {
     let mut non_utf8 = 0usize;
     let mut shfmt_skips = 0usize;
     let mut shuck_errors = Vec::new();
-    let mut mismatches = Vec::new();
+    let mut shfmt_errors = Vec::new();
+    let mut mismatches = Vec::<ShfmtOracleMismatch>::new();
 
     for result in results {
         if result.elapsed >= LARGE_CORPUS_SLOW_FIXTURE {
@@ -227,6 +361,9 @@ fn large_corpus_matches_shfmt() {
                 compared += 1;
                 shuck_errors.push(error);
             }
+            LargeCorpusComparison::ShfmtError(error) => {
+                shfmt_errors.push(error);
+            }
             LargeCorpusComparison::ShfmtSkip => {
                 shfmt_skips += 1;
             }
@@ -239,17 +376,64 @@ fn large_corpus_matches_shfmt() {
         }
     }
 
+    if update_allowlist {
+        write_shfmt_large_corpus_allowlist(&mismatches);
+    }
+
+    let mut reviewed_mismatches = 0usize;
+    let mut blocking_mismatches = Vec::new();
+    let mut matched_allowlist_indices = HashSet::new();
+
+    if let Some(allowlist) = &allowlist {
+        for mismatch in &mismatches {
+            match classify_shfmt_mismatch(allowlist, mismatch) {
+                ShfmtMismatchClassification::Reviewed { entry_index } => {
+                    reviewed_mismatches += 1;
+                    matched_allowlist_indices.insert(entry_index);
+                }
+                ShfmtMismatchClassification::ChangedKnown { reason } => {
+                    blocking_mismatches.push(format_shfmt_mismatch_failure(mismatch, &reason));
+                }
+                ShfmtMismatchClassification::New => {
+                    blocking_mismatches.push(format_shfmt_mismatch_failure(
+                        mismatch,
+                        "new formatter difference from the shfmt oracle",
+                    ));
+                }
+            }
+        }
+    }
+
+    let stale_allowlist_entries = allowlist
+        .as_ref()
+        .filter(|_| cfg.covers_full_corpus())
+        .map(|allowlist| stale_shfmt_allowlist_entries(allowlist, &matched_allowlist_indices))
+        .unwrap_or_default();
+    if !stale_allowlist_entries.is_empty() {
+        eprintln!(
+            "{}",
+            format_failure_list(
+                "stale shfmt formatter allowlist entries (nonblocking cleanup hints)",
+                &stale_allowlist_entries,
+            )
+        );
+    }
+
     let elapsed = large_corpus_started.elapsed();
     eprintln!(
-        "large corpus shfmt oracle summary: fixtures={} compared={} matched={} mismatches={} shuck_errors={} shfmt_skips={} unsupported_dialects={} non_utf8={} elapsed={:.2}s max_elapsed={}s",
+        "large corpus shfmt oracle summary: fixtures={} compared={} matched={} mismatches={} reviewed_mismatches={} blocking_mismatches={} shuck_errors={} shfmt_errors={} shfmt_skips={} unsupported_dialects={} non_utf8={} stale_allowlist={} elapsed={:.2}s max_elapsed={}s",
         fixtures.len(),
         compared,
         matched,
         mismatches.len(),
+        reviewed_mismatches,
+        blocking_mismatches.len(),
         shuck_errors.len(),
+        shfmt_errors.len(),
         shfmt_skips,
         unsupported_dialects,
         non_utf8,
+        stale_allowlist_entries.len(),
         elapsed.as_secs_f64(),
         LARGE_CORPUS_MAX_DURATION.as_secs(),
     );
@@ -265,15 +449,18 @@ fn large_corpus_matches_shfmt() {
     };
 
     assert!(
-        elapsed <= LARGE_CORPUS_MAX_DURATION && shuck_errors.is_empty() && mismatches.is_empty(),
-        "large corpus shfmt oracle found {} shuck error(s) and {} mismatch(es) in {:.2}s (limit {}s):\n\n{}{}{}",
+        large_corpus_oracle_passes(elapsed, &shuck_errors, &shfmt_errors, &blocking_mismatches),
+        "large corpus shfmt oracle found {} shuck error(s), {} shfmt error(s), {} blocking mismatch(es), and {} reviewed mismatch(es) in {:.2}s (limit {}s):\n\n{}{}{}{}",
         shuck_errors.len(),
-        mismatches.len(),
+        shfmt_errors.len(),
+        blocking_mismatches.len(),
+        reviewed_mismatches,
         elapsed.as_secs_f64(),
         LARGE_CORPUS_MAX_DURATION.as_secs(),
         timing_failure,
         format_failure_list("shuck formatter errors", &shuck_errors),
-        format_failure_list("formatter mismatches", &mismatches),
+        format_failure_list("shfmt harness errors", &shfmt_errors),
+        format_failure_list("blocking formatter mismatches", &blocking_mismatches),
     );
 }
 
@@ -283,6 +470,7 @@ impl LargeCorpusProgress {
             LargeCorpusComparison::Matched => (true, &self.matched),
             LargeCorpusComparison::Mismatch(_) => (true, &self.mismatches),
             LargeCorpusComparison::ShuckError(_) => (true, &self.shuck_errors),
+            LargeCorpusComparison::ShfmtError(_) => (false, &self.shfmt_errors),
             LargeCorpusComparison::ShfmtSkip => (false, &self.shfmt_skips),
             LargeCorpusComparison::UnsupportedDialect => (false, &self.unsupported_dialects),
             LargeCorpusComparison::NonUtf8 => (false, &self.non_utf8),
@@ -295,11 +483,12 @@ impl LargeCorpusProgress {
         let processed = self.processed.fetch_add(1, Ordering::Relaxed) + 1;
         if processed.is_multiple_of(LARGE_CORPUS_PROGRESS_INTERVAL) {
             eprintln!(
-                "large corpus shfmt oracle progress: processed={processed}/{total} compared={} matched={} mismatches={} shuck_errors={} shfmt_skips={} unsupported_dialects={} non_utf8={}",
+                "large corpus shfmt oracle progress: processed={processed}/{total} compared={} matched={} mismatches={} shuck_errors={} shfmt_errors={} shfmt_skips={} unsupported_dialects={} non_utf8={}",
                 self.compared.load(Ordering::Relaxed),
                 self.matched.load(Ordering::Relaxed),
                 self.mismatches.load(Ordering::Relaxed),
                 self.shuck_errors.load(Ordering::Relaxed),
+                self.shfmt_errors.load(Ordering::Relaxed),
                 self.shfmt_skips.load(Ordering::Relaxed),
                 self.unsupported_dialects.load(Ordering::Relaxed),
                 self.non_utf8.load(Ordering::Relaxed),
@@ -327,7 +516,15 @@ fn compare_large_corpus_fixture(fixture: &LargeCorpusFixture) -> LargeCorpusFixt
 
     let shfmt = match try_run_shfmt(&source, &filename, format_config.shfmt_language) {
         Ok(output) => output,
-        Err(_) => return finish(filename, LargeCorpusComparison::ShfmtSkip),
+        Err(ShfmtRunError::Unsupported) => {
+            return finish(filename, LargeCorpusComparison::ShfmtSkip);
+        }
+        Err(ShfmtRunError::Harness(error)) => {
+            return finish(
+                filename.clone(),
+                LargeCorpusComparison::ShfmtError(format!("{filename}: {error}")),
+            );
+        }
     };
 
     let shuck = match try_run_shuck_formatter(&source, &filename, &format_config.options) {
@@ -341,7 +538,7 @@ fn compare_large_corpus_fixture(fixture: &LargeCorpusFixture) -> LargeCorpusFixt
         }
     };
 
-    let comparison = render_oracle_mismatch(&filename, &filename, &shfmt, &shuck)
+    let comparison = build_oracle_mismatch(&filename, &shfmt, &shuck)
         .map(LargeCorpusComparison::Mismatch)
         .unwrap_or(LargeCorpusComparison::Matched);
 
@@ -452,7 +649,13 @@ fn run_shfmt(source: &str, filename: &str, flags: &[&str]) -> String {
     String::from_utf8(output.stdout).expect("utf8 shfmt output")
 }
 
-fn try_run_shfmt(source: &str, filename: &str, language: &str) -> Result<String, String> {
+#[derive(Debug)]
+enum ShfmtRunError {
+    Unsupported,
+    Harness(String),
+}
+
+fn try_run_shfmt(source: &str, filename: &str, language: &str) -> Result<String, ShfmtRunError> {
     let mut command = Command::new("shfmt");
     command
         .arg("-filename")
@@ -462,20 +665,22 @@ fn try_run_shfmt(source: &str, filename: &str, language: &str) -> Result<String,
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let mut child = command
+        .spawn()
+        .map_err(|error| ShfmtRunError::Harness(error.to_string()))?;
     child
         .stdin
         .as_mut()
-        .ok_or_else(|| "failed to open shfmt stdin".to_string())?
+        .ok_or_else(|| ShfmtRunError::Harness("failed to open shfmt stdin".to_string()))?
         .write_all(source.as_bytes())
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| ShfmtRunError::Harness(error.to_string()))?;
     let output = child
         .wait_with_output_timeout(SHFMT_LARGE_CORPUS_TIMEOUT)
-        .map_err(|error| error.to_string())?;
+        .map_err(ShfmtRunError::Harness)?;
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+        return Err(ShfmtRunError::Unsupported);
     }
-    String::from_utf8(output.stdout).map_err(|error| error.to_string())
+    String::from_utf8(output.stdout).map_err(|error| ShfmtRunError::Harness(error.to_string()))
 }
 
 trait ChildTimeoutExt {
@@ -542,19 +747,72 @@ fn render_oracle_mismatch(
     shfmt: &str,
     shuck: &str,
 ) -> Option<String> {
+    build_oracle_mismatch(filename, shfmt, shuck).map(|mismatch| {
+        format!(
+            "oracle mismatch for {case_name}\n{}",
+            truncate_diff(&mismatch.diff)
+        )
+    })
+}
+
+fn build_oracle_mismatch(filename: &str, shfmt: &str, shuck: &str) -> Option<ShfmtOracleMismatch> {
     if shfmt == shuck {
         return None;
     }
 
-    let diff = TextDiff::from_lines(shfmt, shuck)
+    let raw_diff = TextDiff::from_lines(shfmt, shuck)
         .unified_diff()
         .header(&format!("shfmt/{filename}"), &format!("shuck/{filename}"))
         .to_string();
+    let diff = normalize_diff_body(&raw_diff);
+    let hunks = parse_shfmt_diff_hunks(&diff);
 
-    Some(format!(
-        "oracle mismatch for {case_name}\n{}",
-        truncate_diff(&diff)
-    ))
+    Some(ShfmtOracleMismatch {
+        filename: filename.to_owned(),
+        hunks,
+        diff_hash: sha256_hex(&diff),
+        diff,
+    })
+}
+
+fn normalize_diff_body(diff: &str) -> String {
+    diff.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+fn sha256_hex(text: &str) -> String {
+    let digest = Sha256::digest(text.as_bytes());
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        hex.push_str(&format!("{byte:02x}"));
+    }
+    hex
+}
+
+fn parse_shfmt_diff_hunks(diff: &str) -> Vec<ShfmtDiffHunk> {
+    diff.lines().filter_map(parse_shfmt_hunk_header).collect()
+}
+
+fn parse_shfmt_hunk_header(line: &str) -> Option<ShfmtDiffHunk> {
+    let header = line.strip_prefix("@@ ")?;
+    let old_spec = header.split_whitespace().next()?.strip_prefix('-')?;
+    let (start_line, len) = parse_unified_diff_range(old_spec)?;
+    let end_line = if len == 0 {
+        start_line
+    } else {
+        start_line + len - 1
+    };
+
+    Some(ShfmtDiffHunk {
+        start_line,
+        end_line,
+    })
+}
+
+fn parse_unified_diff_range(spec: &str) -> Option<(usize, usize)> {
+    let (start, len) = spec
+        .split_once(',')
+        .map_or((spec, "1"), |(start, len)| (start, len));
+    Some((start.parse().ok()?, len.parse().ok()?))
 }
 
 fn truncate_diff(diff: &str) -> String {
@@ -763,6 +1021,180 @@ fn sample_fixtures(
         .collect()
 }
 
+fn shfmt_allowlist_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(SHFMT_ALLOWLIST_REL_PATH)
+}
+
+fn load_shfmt_large_corpus_allowlist() -> ShfmtLargeCorpusAllowlistDocument {
+    let path = shfmt_allowlist_path();
+    if !path.exists() {
+        return ShfmtLargeCorpusAllowlistDocument::default();
+    }
+
+    let data =
+        fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+    let allowlist: ShfmtLargeCorpusAllowlistDocument =
+        serde_yaml::from_str(&data).unwrap_or_else(|err| {
+            panic!(
+                "parse shfmt large-corpus allowlist {}: {err}",
+                path.display()
+            )
+        });
+    allowlist
+        .validate(&path)
+        .unwrap_or_else(|err| panic!("{err}"));
+    allowlist
+}
+
+fn write_shfmt_large_corpus_allowlist(mismatches: &[ShfmtOracleMismatch]) {
+    let path = shfmt_allowlist_path();
+    let allowlist = shfmt_allowlist_document_from_mismatches(mismatches);
+    allowlist
+        .validate(&path)
+        .unwrap_or_else(|err| panic!("{err}"));
+    let yaml = serde_yaml::to_string(&allowlist)
+        .unwrap_or_else(|err| panic!("serialize {}: {err}", path.display()));
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .unwrap_or_else(|err| panic!("create {}: {err}", parent.display()));
+    }
+    fs::write(&path, yaml).unwrap_or_else(|err| panic!("write {}: {err}", path.display()));
+    eprintln!(
+        "wrote {} shfmt large-corpus allowlist entrie(s) to {}",
+        allowlist.entries.len(),
+        path.display(),
+    );
+}
+
+fn shfmt_allowlist_document_from_mismatches(
+    mismatches: &[ShfmtOracleMismatch],
+) -> ShfmtLargeCorpusAllowlistDocument {
+    let mut entries = mismatches
+        .iter()
+        .map(|mismatch| ShfmtLargeCorpusAllowlistEntry {
+            path_suffix: mismatch.filename.clone(),
+            hunks: mismatch.hunks.clone(),
+            diff_hash: mismatch.diff_hash.clone(),
+            reason: DEFAULT_SHFMT_ALLOWLIST_REASON.to_owned(),
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|a, b| {
+        a.path_suffix
+            .cmp(&b.path_suffix)
+            .then_with(|| a.hunks.cmp(&b.hunks))
+            .then_with(|| a.diff_hash.cmp(&b.diff_hash))
+    });
+
+    ShfmtLargeCorpusAllowlistDocument {
+        schema: SHFMT_ALLOWLIST_SCHEMA,
+        entries,
+    }
+}
+
+fn classify_shfmt_mismatch(
+    allowlist: &ShfmtLargeCorpusAllowlistDocument,
+    mismatch: &ShfmtOracleMismatch,
+) -> ShfmtMismatchClassification {
+    let mut path_matched = false;
+    let mut hunk_matched = false;
+
+    for (entry_index, entry) in allowlist.entries.iter().enumerate() {
+        if !mismatch_path_matches(&mismatch.filename, &entry.path_suffix) {
+            continue;
+        }
+        path_matched = true;
+
+        if entry.hunks != mismatch.hunks {
+            continue;
+        }
+        hunk_matched = true;
+
+        if entry.diff_hash == mismatch.diff_hash {
+            return ShfmtMismatchClassification::Reviewed { entry_index };
+        }
+    }
+
+    if hunk_matched {
+        return ShfmtMismatchClassification::ChangedKnown {
+            reason: "known formatter oracle location changed output; diff hash no longer matches"
+                .to_owned(),
+        };
+    }
+    if path_matched {
+        return ShfmtMismatchClassification::ChangedKnown {
+            reason: "known formatter oracle fixture now differs at a different shfmt line range"
+                .to_owned(),
+        };
+    }
+
+    ShfmtMismatchClassification::New
+}
+
+fn mismatch_path_matches(filename: &str, path_suffix: &str) -> bool {
+    filename == path_suffix || filename.ends_with(path_suffix)
+}
+
+fn stale_shfmt_allowlist_entries(
+    allowlist: &ShfmtLargeCorpusAllowlistDocument,
+    matched_allowlist_indices: &HashSet<usize>,
+) -> Vec<String> {
+    allowlist
+        .entries
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !matched_allowlist_indices.contains(index))
+        .map(|(_, entry)| {
+            format!(
+                "{} shfmt_lines={} diff_hash={}",
+                entry.path_suffix,
+                format_hunk_ranges(&entry.hunks),
+                entry.diff_hash,
+            )
+        })
+        .collect()
+}
+
+fn format_shfmt_mismatch_failure(mismatch: &ShfmtOracleMismatch, reason: &str) -> String {
+    format!(
+        "{}\n{}",
+        mismatch.filename,
+        indent_detail(&format!(
+            "reason: {reason}\nshfmt_lines: {}\ndiff_hash: {}\n{}",
+            format_hunk_ranges(&mismatch.hunks),
+            mismatch.diff_hash,
+            truncate_diff(&mismatch.diff),
+        )),
+    )
+}
+
+fn format_hunk_ranges(hunks: &[ShfmtDiffHunk]) -> String {
+    hunks
+        .iter()
+        .map(|hunk| format!("{}-{}", hunk.start_line, hunk.end_line))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn indent_detail(detail: &str) -> String {
+    detail
+        .lines()
+        .map(|line| format!("  {line}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn large_corpus_oracle_passes(
+    elapsed: Duration,
+    shuck_errors: &[String],
+    shfmt_errors: &[String],
+    blocking_mismatches: &[String],
+) -> bool {
+    elapsed <= LARGE_CORPUS_MAX_DURATION
+        && shuck_errors.is_empty()
+        && shfmt_errors.is_empty()
+        && blocking_mismatches.is_empty()
+}
+
 fn format_failure_list(title: &str, failures: &[String]) -> String {
     if failures.is_empty() {
         return String::new();
@@ -828,4 +1260,154 @@ fn oracle_cases() -> Vec<OracleCase> {
             .with_shfmt_flags(&["-ln=mksh"])
             .with_options(ShellFormatOptions::default().with_dialect(ShellDialect::Mksh)),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hunk(start_line: usize, end_line: usize) -> ShfmtDiffHunk {
+        ShfmtDiffHunk {
+            start_line,
+            end_line,
+        }
+    }
+
+    fn mismatch(filename: &str, hunks: Vec<ShfmtDiffHunk>, diff_hash: &str) -> ShfmtOracleMismatch {
+        ShfmtOracleMismatch {
+            filename: filename.to_owned(),
+            hunks,
+            diff_hash: diff_hash.to_owned(),
+            diff: "--- shfmt/file\n+++ shuck/file\n@@ -1 +1 @@\n-a\n+b\n".to_owned(),
+        }
+    }
+
+    fn allowlist(
+        entries: Vec<ShfmtLargeCorpusAllowlistEntry>,
+    ) -> ShfmtLargeCorpusAllowlistDocument {
+        ShfmtLargeCorpusAllowlistDocument {
+            schema: SHFMT_ALLOWLIST_SCHEMA,
+            entries,
+        }
+    }
+
+    fn entry(
+        path_suffix: &str,
+        hunks: Vec<ShfmtDiffHunk>,
+        diff_hash: &str,
+    ) -> ShfmtLargeCorpusAllowlistEntry {
+        ShfmtLargeCorpusAllowlistEntry {
+            path_suffix: path_suffix.to_owned(),
+            hunks,
+            diff_hash: diff_hash.to_owned(),
+            reason: "known local formatter oracle difference".to_owned(),
+        }
+    }
+
+    #[test]
+    fn exact_allowlist_match_is_nonblocking() {
+        let allowlist = allowlist(vec![entry(
+            "repo__script.sh",
+            vec![hunk(10, 12)],
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        )]);
+        let mismatch = mismatch(
+            "repo__script.sh",
+            vec![hunk(10, 12)],
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        );
+
+        assert_eq!(
+            classify_shfmt_mismatch(&allowlist, &mismatch),
+            ShfmtMismatchClassification::Reviewed { entry_index: 0 }
+        );
+    }
+
+    #[test]
+    fn committed_allowlist_loads_and_validates() {
+        assert!(shfmt_allowlist_path().is_file());
+
+        let allowlist = load_shfmt_large_corpus_allowlist();
+
+        assert_eq!(allowlist.schema, SHFMT_ALLOWLIST_SCHEMA);
+    }
+
+    #[test]
+    fn same_location_with_changed_hash_is_blocking() {
+        let allowlist = allowlist(vec![entry(
+            "repo__script.sh",
+            vec![hunk(10, 12)],
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        )]);
+        let mismatch = mismatch(
+            "repo__script.sh",
+            vec![hunk(10, 12)],
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        );
+
+        assert!(matches!(
+            classify_shfmt_mismatch(&allowlist, &mismatch),
+            ShfmtMismatchClassification::ChangedKnown { .. }
+        ));
+    }
+
+    #[test]
+    fn new_path_line_mismatch_is_blocking() {
+        let allowlist = allowlist(vec![entry(
+            "repo__script.sh",
+            vec![hunk(10, 12)],
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        )]);
+        let mismatch = mismatch(
+            "other__script.sh",
+            vec![hunk(20, 24)],
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        );
+
+        assert_eq!(
+            classify_shfmt_mismatch(&allowlist, &mismatch),
+            ShfmtMismatchClassification::New
+        );
+    }
+
+    #[test]
+    fn missing_allowlist_entry_is_nonblocking_stale_hint() {
+        let allowlist = allowlist(vec![
+            entry(
+                "repo__script.sh",
+                vec![hunk(10, 12)],
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ),
+            entry(
+                "fixed__script.sh",
+                vec![hunk(2, 4)],
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            ),
+        ]);
+        let matched = HashSet::from([0]);
+
+        let stale = stale_shfmt_allowlist_entries(&allowlist, &matched);
+
+        assert_eq!(stale.len(), 1);
+        assert!(stale[0].contains("fixed__script.sh"));
+    }
+
+    #[test]
+    fn shuck_formatter_errors_remain_blocking() {
+        assert!(!large_corpus_oracle_passes(
+            Duration::from_secs(1),
+            &["repo__script.sh: parse error".to_owned()],
+            &[],
+            &[],
+        ));
+    }
+
+    #[test]
+    fn parse_shfmt_hunk_header_reads_shfmt_side_range() {
+        assert_eq!(
+            parse_shfmt_hunk_header("@@ -42,3 +42,4 @@"),
+            Some(hunk(42, 44))
+        );
+        assert_eq!(parse_shfmt_hunk_header("@@ -8 +8,2 @@"), Some(hunk(8, 8)));
+    }
 }
