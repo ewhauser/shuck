@@ -1,287 +1,7 @@
-use super::*;
+use super::super::*;
 
 impl<'a> Parser<'a> {
-    pub(super) fn push_word_part(
-        parts: &mut WordPartBuffer,
-        part: WordPart,
-        start: Position,
-        end: Position,
-    ) {
-        Self::push_word_part_node(
-            parts,
-            WordPartNode::new(part, Span::from_positions(start, end)),
-        );
-    }
-
-    pub(super) fn push_word_part_node(parts: &mut WordPartBuffer, part: WordPartNode) {
-        parts.push(part);
-    }
-
-    pub(super) fn flush_literal_part(
-        &self,
-        parts: &mut WordPartBuffer,
-        current: &mut String,
-        current_start: Position,
-        end: Position,
-        source_backed: bool,
-    ) {
-        if !current.is_empty() {
-            Self::push_word_part(
-                parts,
-                WordPart::Literal(self.literal_text(
-                    std::mem::take(current),
-                    current_start,
-                    end,
-                    source_backed,
-                )),
-                current_start,
-                end,
-            );
-        }
-    }
-
-    pub(super) fn word_part_buffer_with_capacity(capacity: usize) -> WordPartBuffer {
-        if capacity <= 2 {
-            WordPartBuffer::new()
-        } else {
-            WordPartBuffer::with_capacity(capacity)
-        }
-    }
-
-    pub(super) fn literal_text(
-        &self,
-        text: String,
-        start: Position,
-        end: Position,
-        source_backed: bool,
-    ) -> LiteralText {
-        let span = Span::from_positions(start, end);
-        if self.source_matches(span, &text) {
-            LiteralText::source()
-        } else if source_backed {
-            LiteralText::cooked_source(text)
-        } else {
-            LiteralText::owned(text)
-        }
-    }
-
-    pub(super) fn literal_text_from_str(
-        &self,
-        text: &str,
-        start: Position,
-        end: Position,
-        source_backed: bool,
-    ) -> LiteralText {
-        self.literal_text_impl(text, None, start, end, source_backed)
-    }
-
-    pub(super) fn literal_text_impl(
-        &self,
-        text: &str,
-        owned: Option<String>,
-        start: Position,
-        end: Position,
-        source_backed: bool,
-    ) -> LiteralText {
-        let span = Span::from_positions(start, end);
-        if self.source_matches(span, text) {
-            LiteralText::source()
-        } else if source_backed {
-            LiteralText::cooked_source(owned.unwrap_or_else(|| text.to_owned()))
-        } else {
-            LiteralText::owned(owned.unwrap_or_else(|| text.to_owned()))
-        }
-    }
-
-    pub(super) fn source_text(&self, text: String, start: Position, end: Position) -> SourceText {
-        let span = Span::from_positions(start, end);
-        if self.source_matches(span, &text) {
-            SourceText::source(span)
-        } else {
-            SourceText::cooked(span, text)
-        }
-    }
-
-    pub(super) fn source_text_from_str(
-        &self,
-        text: &str,
-        start: Position,
-        end: Position,
-    ) -> SourceText {
-        self.source_text_impl(text, None, start, end)
-    }
-
-    pub(super) fn source_text_impl(
-        &self,
-        text: &str,
-        owned: Option<String>,
-        start: Position,
-        end: Position,
-    ) -> SourceText {
-        let span = Span::from_positions(start, end);
-        if self.source_matches(span, text) {
-            SourceText::source(span)
-        } else {
-            SourceText::cooked(span, owned.unwrap_or_else(|| text.to_owned()))
-        }
-    }
-
-    pub(super) fn empty_source_text(&self, pos: Position) -> SourceText {
-        SourceText::source(Span::from_positions(pos, pos))
-    }
-
-    pub(super) fn input_prefix_ends_with(&self, end_offset: usize, ch: char) -> bool {
-        self.input
-            .get(..end_offset)
-            .is_some_and(|prefix| prefix.ends_with(ch))
-    }
-
-    pub(super) fn input_span_ends_with(&self, start: Position, end: Position, ch: char) -> bool {
-        self.input
-            .get(start.offset..end.offset)
-            .is_some_and(|slice| slice.ends_with(ch))
-    }
-
-    pub(super) fn input_suffix_starts_with(&self, start_offset: usize, ch: char) -> bool {
-        self.input
-            .get(start_offset..)
-            .is_some_and(|suffix| suffix.starts_with(ch))
-    }
-
-    pub(super) fn subscript_source_text(
-        &self,
-        raw: &str,
-        span: Span,
-    ) -> (SourceText, Option<SourceText>) {
-        if raw.len() >= 2
-            && ((raw.starts_with('"') && raw.ends_with('"'))
-                || (raw.starts_with('\'') && raw.ends_with('\'')))
-        {
-            let raw_text = raw.to_string();
-            let raw = if self.source_matches(span, raw) {
-                SourceText::source(span)
-            } else {
-                SourceText::cooked(span, raw_text.clone())
-            };
-            let cooked = raw_text[1..raw_text.len() - 1].to_string();
-            return (self.source_text(cooked, span.start, span.end), Some(raw));
-        }
-
-        let text = if self.source_matches(span, raw) {
-            SourceText::source(span)
-        } else {
-            SourceText::cooked(span, raw.to_string())
-        };
-        (text, None)
-    }
-
-    pub(super) fn subscript_from_source_text(
-        &self,
-        text: SourceText,
-        raw: Option<SourceText>,
-        interpretation: SubscriptInterpretation,
-    ) -> Subscript {
-        let kind = match text.slice(self.input).trim() {
-            "@" => SubscriptKind::Selector(SubscriptSelector::At),
-            "*" => SubscriptKind::Selector(SubscriptSelector::Star),
-            _ => SubscriptKind::Ordinary,
-        };
-        let word_ast = if matches!(kind, SubscriptKind::Ordinary) {
-            Some(self.parse_source_text_as_word(raw.as_ref().unwrap_or(&text)))
-        } else {
-            None
-        };
-        let arithmetic_ast = if matches!(kind, SubscriptKind::Ordinary) {
-            self.simple_subscript_arithmetic_ast(&text)
-                .or_else(|| self.maybe_parse_source_text_as_arithmetic(&text))
-        } else {
-            None
-        };
-        Subscript {
-            text,
-            raw,
-            kind,
-            interpretation,
-            word_ast,
-            arithmetic_ast,
-        }
-    }
-
-    pub(super) fn simple_subscript_arithmetic_ast(
-        &self,
-        text: &SourceText,
-    ) -> Option<ArithmeticExprNode> {
-        if !text.is_source_backed() {
-            return None;
-        }
-
-        let raw = text.slice(self.input);
-        if raw.is_empty() || raw.trim() != raw {
-            return None;
-        }
-
-        let span = text.span();
-        if raw.bytes().all(|byte| byte.is_ascii_digit()) {
-            return Some(ArithmeticExprNode::new(
-                ArithmeticExpr::Number(SourceText::source(span)),
-                span,
-            ));
-        }
-
-        if Self::is_valid_identifier(raw) {
-            return Some(ArithmeticExprNode::new(
-                ArithmeticExpr::Variable(Name::from(raw)),
-                span,
-            ));
-        }
-
-        None
-    }
-
-    pub(super) fn subscript_from_text(
-        &self,
-        raw: &str,
-        span: Span,
-        interpretation: SubscriptInterpretation,
-    ) -> Subscript {
-        let (text, raw) = self.subscript_source_text(raw, span);
-        self.subscript_from_source_text(text, raw, interpretation)
-    }
-
-    pub(super) fn var_ref(
-        &self,
-        name: impl Into<Name>,
-        name_span: Span,
-        subscript: Option<Subscript>,
-        span: Span,
-    ) -> VarRef {
-        VarRef {
-            name: name.into(),
-            name_span,
-            subscript: subscript.map(Box::new),
-            span,
-        }
-    }
-
-    pub(super) fn parameter_var_ref(
-        &self,
-        part_start: Position,
-        prefix: &str,
-        name: &str,
-        subscript: Option<Subscript>,
-        part_end: Position,
-    ) -> VarRef {
-        let name_start = part_start.advanced_by(prefix);
-        let name_span = Span::from_positions(name_start, name_start.advanced_by(name));
-        self.var_ref(
-            Name::from(name),
-            name_span,
-            subscript,
-            Span::from_positions(part_start, part_end),
-        )
-    }
-
-    pub(super) fn parameter_word_part_from_legacy(
+    pub(in crate::parser) fn parameter_word_part_from_legacy(
         &self,
         part: WordPart,
         part_start: Position,
@@ -388,7 +108,10 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    pub(super) fn enrich_parameter_operator(&self, operator: Box<ParameterOp>) -> Box<ParameterOp> {
+    pub(in crate::parser) fn enrich_parameter_operator(
+        &self,
+        operator: Box<ParameterOp>,
+    ) -> Box<ParameterOp> {
         match *operator {
             ParameterOp::ReplaceFirst {
                 pattern,
@@ -423,7 +146,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(super) fn parameter_raw_body_from_legacy(
+    pub(in crate::parser) fn parameter_raw_body_from_legacy(
         &self,
         part: &WordPart,
         span: Span,
@@ -451,7 +174,7 @@ impl<'a> Parser<'a> {
         SourceText::from(body)
     }
 
-    pub(super) fn zsh_parameter_word_part(
+    pub(in crate::parser) fn zsh_parameter_word_part(
         &mut self,
         raw_body: SourceText,
         part_start: Position,
@@ -465,7 +188,7 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    pub(super) fn parse_zsh_modifier_group(
+    pub(in crate::parser) fn parse_zsh_modifier_group(
         &self,
         text: &str,
         base: Position,
@@ -532,7 +255,7 @@ impl<'a> Parser<'a> {
         Some((close + 1, modifiers))
     }
 
-    pub(super) fn parse_zsh_parameter_syntax(
+    pub(in crate::parser) fn parse_zsh_parameter_syntax(
         &mut self,
         raw_body: &SourceText,
         base: Position,
@@ -627,7 +350,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(super) fn parse_zsh_target_from_text(
+    pub(in crate::parser) fn parse_zsh_target_from_text(
         &mut self,
         text: &str,
         base: Position,
@@ -657,22 +380,22 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(super) fn maybe_parse_loose_var_ref_target(&self, text: &str) -> Option<VarRef> {
+    pub(in crate::parser) fn maybe_parse_loose_var_ref_target(&self, text: &str) -> Option<VarRef> {
         let trimmed = text.trim();
         Self::looks_like_plain_parameter_access(trimmed).then(|| self.parse_loose_var_ref(trimmed))
     }
 
-    pub(super) fn is_plain_special_parameter_name(name: &str) -> bool {
+    pub(in crate::parser) fn is_plain_special_parameter_name(name: &str) -> bool {
         matches!(name, "#" | "$" | "!" | "*" | "@" | "?" | "-") || name == "0"
     }
 
-    pub(super) fn is_plain_parameter_access_name(name: &str) -> bool {
+    pub(in crate::parser) fn is_plain_parameter_access_name(name: &str) -> bool {
         Self::is_valid_identifier(name)
             || name.bytes().all(|byte| byte.is_ascii_digit())
             || Self::is_plain_special_parameter_name(name)
     }
 
-    pub(super) fn looks_like_plain_parameter_access(text: &str) -> bool {
+    pub(in crate::parser) fn looks_like_plain_parameter_access(text: &str) -> bool {
         let trimmed = text.trim();
         if trimmed.is_empty() {
             return false;
@@ -693,7 +416,7 @@ impl<'a> Parser<'a> {
                 .is_some_and(Self::is_plain_parameter_access_name)
     }
 
-    pub(super) fn parse_nested_parameter_target(
+    pub(in crate::parser) fn parse_nested_parameter_target(
         &mut self,
         text: &str,
         base: Position,
@@ -742,7 +465,7 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    pub(super) fn parse_loose_var_ref(&self, text: &str) -> VarRef {
+    pub(in crate::parser) fn parse_loose_var_ref(&self, text: &str) -> VarRef {
         let trimmed = text.trim();
         if let Some(open) = trimmed.find('[')
             && trimmed.ends_with(']')
@@ -770,7 +493,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(super) fn find_matching_parameter_end(&self, text: &str) -> Option<usize> {
+    pub(in crate::parser) fn find_matching_parameter_end(&self, text: &str) -> Option<usize> {
         let mut depth = 0_i32;
         let mut chars = text.char_indices().peekable();
 
@@ -792,7 +515,7 @@ impl<'a> Parser<'a> {
         None
     }
 
-    pub(super) fn find_zsh_operation_start(&self, text: &str) -> Option<usize> {
+    pub(in crate::parser) fn find_zsh_operation_start(&self, text: &str) -> Option<usize> {
         let mut bracket_depth = 0_usize;
         let mut in_single = false;
         let mut in_double = false;
@@ -823,7 +546,7 @@ impl<'a> Parser<'a> {
         None
     }
 
-    pub(super) fn zsh_operation_source_text(
+    pub(in crate::parser) fn zsh_operation_source_text(
         &self,
         text: &str,
         base: Position,
@@ -837,7 +560,7 @@ impl<'a> Parser<'a> {
         )
     }
 
-    pub(super) fn find_zsh_top_level_delimiter(
+    pub(in crate::parser) fn find_zsh_top_level_delimiter(
         &self,
         text: &str,
         delimiter: char,
@@ -893,7 +616,7 @@ impl<'a> Parser<'a> {
         None
     }
 
-    pub(super) fn zsh_simple_modifier_suffix_segment(segment: &str) -> bool {
+    pub(in crate::parser) fn zsh_simple_modifier_suffix_segment(segment: &str) -> bool {
         let mut chars = segment.chars();
         let Some(first) = chars.next() else {
             return false;
@@ -906,7 +629,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(super) fn zsh_modifier_suffix_candidate(rest: &str) -> bool {
+    pub(in crate::parser) fn zsh_modifier_suffix_candidate(rest: &str) -> bool {
         if rest.is_empty() {
             return false;
         }
@@ -925,7 +648,7 @@ impl<'a> Parser<'a> {
             .all(Self::zsh_simple_modifier_suffix_segment)
     }
 
-    pub(super) fn zsh_slice_candidate(rest: &str) -> bool {
+    pub(in crate::parser) fn zsh_slice_candidate(rest: &str) -> bool {
         let Some(first) = rest.chars().next() else {
             return false;
         };
@@ -937,7 +660,7 @@ impl<'a> Parser<'a> {
                 || matches!(first, '$' | '\'' | '"' | '(' | '{'))
     }
 
-    pub(super) fn parse_zsh_parameter_operation(
+    pub(in crate::parser) fn parse_zsh_parameter_operation(
         &self,
         text: &str,
         base: Position,
@@ -1061,170 +784,5 @@ impl<'a> Parser<'a> {
             word_ast: Box::new(self.parse_source_text_as_word(&text)),
             text,
         }
-    }
-
-    pub(super) fn parse_explicit_arithmetic_span(
-        &self,
-        span: Option<Span>,
-        context: &'static str,
-    ) -> Result<Option<ArithmeticExprNode>> {
-        let Some(span) = span else {
-            return Ok(None);
-        };
-        if span.slice(self.input).trim().is_empty() {
-            return Ok(None);
-        }
-        arithmetic::parse_expression(
-            span.slice(self.input),
-            span,
-            self.dialect,
-            self.max_depth.saturating_sub(self.current_depth),
-            self.fuel,
-        )
-        .map(Some)
-        .map_err(|error| match error {
-            Error::Parse { message, .. } => self.error(format!("{context}: {message}")),
-        })
-    }
-
-    pub(super) fn parse_source_text_as_arithmetic(
-        &self,
-        text: &SourceText,
-    ) -> Result<ArithmeticExprNode> {
-        arithmetic::parse_expression(
-            text.slice(self.input),
-            text.span(),
-            self.dialect,
-            self.max_depth.saturating_sub(self.current_depth),
-            self.fuel,
-        )
-    }
-
-    pub(super) fn maybe_parse_source_text_as_arithmetic(
-        &self,
-        text: &SourceText,
-    ) -> Option<ArithmeticExprNode> {
-        if !text.is_source_backed() {
-            return None;
-        }
-        self.parse_source_text_as_arithmetic(text).ok()
-    }
-
-    pub(super) fn parse_source_text_as_word(&self, text: &SourceText) -> Word {
-        if let Some(word) = self.simple_source_text_as_word(text) {
-            return word;
-        }
-
-        let span = text.span();
-        let nested_profile = self
-            .zsh_options_at_offset(span.start.offset)
-            .cloned()
-            .map(|options| ShellProfile::with_zsh_options(self.dialect, options))
-            .unwrap_or_else(|| self.shell_profile.clone());
-        let remaining_depth = self.max_depth.saturating_sub(self.current_depth);
-        if remaining_depth == 0 {
-            return self.word_with_single_part(
-                self.literal_part_from_text(text.slice(self.input), span, text.is_source_backed()),
-                span,
-            );
-        }
-        let reparse_depth = (remaining_depth - 1).min(SOURCE_TEXT_WORD_REPARSE_MAX_DEPTH);
-
-        if !text.is_source_backed()
-            && span.start.offset <= span.end.offset
-            && span.end.offset <= self.input.len()
-        {
-            let raw = span.slice(self.input);
-            if raw.contains("\\\"") {
-                return Self::parse_word_fragment_with_limits(
-                    self.input,
-                    raw,
-                    span,
-                    reparse_depth,
-                    self.fuel,
-                    nested_profile.clone(),
-                );
-            }
-        }
-
-        Self::parse_word_fragment_with_limits(
-            self.input,
-            text.slice(self.input),
-            text.span(),
-            reparse_depth,
-            self.fuel,
-            nested_profile,
-        )
-    }
-
-    pub(super) fn simple_source_text_as_word(&self, text: &SourceText) -> Option<Word> {
-        if !text.is_source_backed() {
-            return None;
-        }
-
-        let span = text.span();
-        let raw = text.slice(self.input);
-        if raw.is_empty() {
-            return Some(Word::literal_with_span("", span));
-        }
-
-        if let Some(word) = self.simple_quoted_source_text_as_word(raw, span) {
-            return Some(word);
-        }
-
-        if Self::word_text_needs_parse(raw)
-            || raw.contains(['\'', '"', '\\'])
-            || self.zsh_glob_word_parsing_enabled_at(span.start.offset)
-        {
-            return None;
-        }
-
-        Some(self.word_with_single_part(self.literal_part_from_text(raw, span, true), span))
-    }
-
-    pub(super) fn simple_quoted_source_text_as_word(&self, raw: &str, span: Span) -> Option<Word> {
-        if raw.len() < 2 {
-            return None;
-        }
-
-        let quote = raw.as_bytes()[0];
-        if quote != b'\'' && quote != b'"' || raw.as_bytes().last().copied() != Some(quote) {
-            return None;
-        }
-
-        let inner = &raw[1..raw.len() - 1];
-        if quote == b'\'' && inner.contains('\'') {
-            return None;
-        }
-
-        let inner_start = span.start.advanced_by(&raw[..1]);
-        let inner_end = inner_start.advanced_by(inner);
-        let inner_span = Span::from_positions(inner_start, inner_end);
-        let part = match quote {
-            b'\'' => self.single_quoted_part_from_text(inner, inner_span, span, false),
-            b'"' => {
-                if Self::word_text_needs_parse(inner) || inner.contains(['\\', '"']) {
-                    return None;
-                }
-                self.double_quoted_literal_part_from_text(inner, inner_span, span, true, false)
-            }
-            _ => unreachable!("quote is checked above"),
-        };
-        Some(self.word_with_single_part(part, span))
-    }
-
-    pub(super) fn parse_optional_source_text_as_word(
-        &self,
-        text: Option<&SourceText>,
-    ) -> Option<Word> {
-        text.map(|text| self.parse_source_text_as_word(text))
-    }
-
-    pub(super) fn source_matches(&self, span: Span, text: &str) -> bool {
-        span.start.offset <= span.end.offset
-            && self
-                .input
-                .get(span.start.offset..span.end.offset)
-                .is_some_and(|slice| slice == text)
     }
 }

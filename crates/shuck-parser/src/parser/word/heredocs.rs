@@ -1,42 +1,7 @@
-use super::*;
+use super::super::*;
 
 impl<'a> Parser<'a> {
-    pub(super) fn word_text_needs_parse(text: &str) -> bool {
-        memchr3(b'$', b'`', b'\0', text.as_bytes()).is_some()
-    }
-
-    pub(super) fn word_with_parts(&self, parts: Vec<WordPartNode>, span: Span) -> Word {
-        let brace_syntax = self.brace_syntax_from_parts(&parts, span.start.offset);
-        Word {
-            parts,
-            span,
-            brace_syntax,
-        }
-    }
-
-    pub(super) fn word_with_part_buffer(&self, parts: WordPartBuffer, span: Span) -> Word {
-        let brace_syntax = self.brace_syntax_from_parts(&parts, span.start.offset);
-        let parts = if parts.spilled() {
-            parts.into_vec()
-        } else {
-            let mut vec = Vec::with_capacity(parts.len());
-            vec.extend(parts);
-            vec
-        };
-        Word {
-            parts,
-            span,
-            brace_syntax,
-        }
-    }
-
-    pub(super) fn word_with_single_part(&self, part: WordPartNode, span: Span) -> Word {
-        let mut parts = WordPartBuffer::new();
-        parts.push(part);
-        self.word_with_part_buffer(parts, span)
-    }
-
-    pub(super) fn heredoc_body_with_parts(
+    pub(in crate::parser) fn heredoc_body_with_parts(
         &self,
         parts: Vec<HeredocBodyPartNode>,
         span: Span,
@@ -51,7 +16,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(super) fn heredoc_body_part_from_word_part_node(
+    pub(in crate::parser) fn heredoc_body_part_from_word_part_node(
         &self,
         part: WordPartNode,
         source_backed: bool,
@@ -101,7 +66,7 @@ impl<'a> Parser<'a> {
         HeredocBodyPartNode::new(kind, span)
     }
 
-    pub(super) fn literal_heredoc_body_part_from_word_part(
+    pub(in crate::parser) fn literal_heredoc_body_part_from_word_part(
         &self,
         part: WordPart,
         span: Span,
