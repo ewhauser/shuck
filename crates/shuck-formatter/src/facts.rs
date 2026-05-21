@@ -1449,17 +1449,13 @@ impl<'source> FormatterFacts<'source> {
         current_code_column: usize,
         current_indent_column: usize,
     ) -> usize {
-        self.comment_alignment
-            .get(&FactSpan::from(comment.span()))
-            .map_or(1, |alignment| {
-                alignment.trailing_padding(
-                    self.source_map.source(),
-                    &self.source_map,
-                    comment,
-                    current_code_column,
-                    current_indent_column,
-                )
-            })
+        self.comment_alignment_for(comment).trailing_padding(
+            self.source_map.source(),
+            &self.source_map,
+            comment,
+            current_code_column,
+            current_indent_column,
+        )
     }
 
     pub(crate) fn trailing_comment_has_alignment(
@@ -1467,16 +1463,12 @@ impl<'source> FormatterFacts<'source> {
         comment: &SourceComment<'_>,
         current_indent_column: usize,
     ) -> bool {
-        self.comment_alignment
-            .get(&FactSpan::from(comment.span()))
-            .is_some_and(|alignment| {
-                alignment.has_trailing_alignment(
-                    self.source_map.source(),
-                    &self.source_map,
-                    comment,
-                    current_indent_column,
-                )
-            })
+        self.comment_alignment_for(comment).has_trailing_alignment(
+            self.source_map.source(),
+            &self.source_map,
+            comment,
+            current_indent_column,
+        )
     }
 
     pub(crate) fn close_suffix_comment_padding(
@@ -1485,16 +1477,21 @@ impl<'source> FormatterFacts<'source> {
         current_code_column: usize,
         current_indent_column: usize,
     ) -> usize {
+        self.comment_alignment_for(comment).close_suffix_padding(
+            self.source_map.source(),
+            &self.source_map,
+            comment,
+            current_code_column,
+            current_indent_column,
+        )
+    }
+
+    fn comment_alignment_for(&self, comment: &SourceComment<'_>) -> CommentAlignmentFacts {
         self.comment_alignment
             .get(&FactSpan::from(comment.span()))
-            .map_or(1, |alignment| {
-                alignment.close_suffix_padding(
-                    self.source_map.source(),
-                    &self.source_map,
-                    comment,
-                    current_code_column,
-                    current_indent_column,
-                )
+            .copied()
+            .unwrap_or_else(|| {
+                CommentAlignmentFacts::new(self.source_map.source(), &self.source_map, comment)
             })
     }
 
