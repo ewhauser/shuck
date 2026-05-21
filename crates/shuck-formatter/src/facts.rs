@@ -33,6 +33,7 @@ use crate::options::{LineEnding, ResolvedShellFormatOptions};
 use crate::scan::{
     BranchPrefixComment, last_shell_keyword_end, last_shell_keyword_start, source_between_offsets,
 };
+use crate::source::{SourceView, command_substitution_source_starts_with_body_line};
 use crate::visit::{self, AstVisitor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1694,24 +1695,12 @@ fn quoted_command_substitution_only_body(word: &Word) -> Option<&StmtSeq> {
     substitution_body
 }
 
-fn command_substitution_source_starts_with_body_line(raw: &str) -> bool {
-    if raw.starts_with(['\n', '\r']) {
-        return true;
-    }
-    raw.strip_prefix("$(")
-        .is_some_and(|after_open| after_open.starts_with(['\n', '\r']))
-}
-
 fn raw_word_source_slice<'a>(word: &Word, source: &'a str) -> Option<&'a str> {
     raw_source_slice(word.span, source)
 }
 
 fn raw_source_slice(span: Span, source: &str) -> Option<&str> {
-    if span.start.offset >= span.end.offset || span.end.offset > source.len() {
-        return None;
-    }
-
-    let slice = span.slice(source);
+    let slice = SourceView::new(source).span_slice(span)?;
     if slice.contains('\n') {
         Some(slice)
     } else {
@@ -2963,11 +2952,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 self.source,
                 self.source_map(),
             ),
-            terminator_suffix_comment: case_item_terminator_suffix_comment(
-                item,
-                self.source,
-                self.source_map(),
-            ),
+            terminator_suffix_comment: case_item_terminator_suffix_comment(item, self.source_map()),
         }
     }
 
@@ -3492,42 +3477,25 @@ fn case_item_pattern_suffix_comment<'source>(
     if start >= end {
         return None;
     }
-    let between = source.get(start..end)?;
-    let line = between.split_once('\n').map_or(between, |(line, _)| line);
-    let comment_start = line.find('#')?;
-    let before = &line[..comment_start];
+    let (_, source_line_end) = source_map.line_bounds_for_offset(start)?;
+    let line_end = source_line_end.min(end);
+    let comment = source_map.first_source_comment_between(start, line_end)?;
+    let before = source_map.slice_between(start, comment.span().start.offset)?;
     if !before.contains(')') {
         return None;
     }
-    let comment = line[comment_start..].trim_end_matches([' ', '\t', '\r']);
-    let absolute_start = start + comment_start;
-    let absolute_end = absolute_start + comment.len();
-    source_map.source_comment_for_offsets(absolute_start, absolute_end)
+    Some(comment)
 }
 
 fn case_item_terminator_suffix_comment<'source>(
     item: &CaseItem,
-    source: &'source str,
     source_map: &SourceMap<'source>,
 ) -> Option<SourceComment<'source>> {
     let span = item.terminator_span?;
     if span.start.line != span.end.line {
         return None;
     }
-    let start = span.end.offset.min(source.len());
-    let suffix_source = source.get(start..)?;
-    let line_end = suffix_source
-        .find('\n')
-        .map_or(source.len(), |offset| start + offset);
-    let suffix = source.get(start..line_end)?;
-    let leading_padding = suffix.len() - suffix.trim_start_matches([' ', '\t']).len();
-    let comment = suffix[leading_padding..].trim_end_matches([' ', '\t', '\r']);
-    if !comment.starts_with('#') {
-        return None;
-    }
-    let absolute_start = start + leading_padding;
-    let absolute_end = absolute_start + comment.len();
-    source_map.source_comment_for_offsets(absolute_start, absolute_end)
+    source_map.suffix_comment_after_span(span)
 }
 
 fn case_item_source_prefix_comments<'source>(

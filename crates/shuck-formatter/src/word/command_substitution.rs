@@ -13,6 +13,7 @@ pub(super) fn push_raw_word_with_normalized_command_redirect_spacing(
     spans.sort_by_key(|span| span.start.offset);
     let mut cursor = word.span.start.offset;
     let word_end = word.span.end.offset.min(source.len());
+    let source_view = SourceView::new(source);
     let mut wrote_span = false;
     for span in spans {
         let start = span.start.offset;
@@ -20,10 +21,10 @@ pub(super) fn push_raw_word_with_normalized_command_redirect_spacing(
         if start < cursor || end > word_end || start >= end {
             continue;
         }
-        if let Some(prefix) = source.get(cursor..start) {
+        if let Some(prefix) = source_view.slice_between(cursor, start) {
             rendered.push_str(prefix);
         }
-        if let Some(command) = source.get(start..end) {
+        if let Some(command) = source_view.slice_between(start, end) {
             push_raw_command_substitution_with_normalized_spacing(
                 rendered, command, source, start, options,
             );
@@ -32,7 +33,7 @@ pub(super) fn push_raw_word_with_normalized_command_redirect_spacing(
         cursor = end;
     }
     if wrote_span {
-        if let Some(suffix) = source.get(cursor..word_end) {
+        if let Some(suffix) = source_view.slice_between(cursor, word_end) {
             rendered.push_str(suffix);
         }
     } else {
@@ -381,7 +382,7 @@ pub(super) fn source_trailing_escaped_horizontal_whitespace_before_offset(
     if source.as_bytes().get(close_offset) != Some(&b')') {
         return None;
     }
-    trailing_escaped_horizontal_whitespace(source.get(..close_offset)?)
+    trailing_escaped_horizontal_whitespace(SourceView::new(source).slice_between(0, close_offset)?)
 }
 
 pub(super) fn trailing_escaped_horizontal_whitespace(body: &str) -> Option<char> {
@@ -774,30 +775,6 @@ pub(super) fn command_substitution_source_parses_as_multiple_statements(
     !parsed.is_err() && parsed.file.body.len() > 1
 }
 
-pub(super) fn raw_dollar_command_substitution_body(raw: &str) -> Option<&str> {
-    raw.strip_prefix("$(")?;
-    let close_offset = matching_raw_command_substitution_close(raw, 2)?;
-    raw.get(2..close_offset)
-}
-
-pub(super) fn raw_dollar_command_substitution_slice(raw: &str) -> Option<&str> {
-    raw.strip_prefix("$(")?;
-    let close_offset = matching_raw_command_substitution_close(raw, 2)?;
-    raw.get(..close_offset + 1)
-}
-
-pub(super) fn command_substitution_source_starts_with_body_line(raw: &str) -> bool {
-    if raw.starts_with(['\n', '\r']) {
-        return true;
-    }
-    raw.strip_prefix("$(")
-        .is_some_and(|after_open| after_open.starts_with(['\n', '\r']))
-}
-
-pub(super) fn command_substitution_source_closes_on_own_line(raw: &str) -> bool {
-    substitution_source_closes_on_own_line(raw)
-}
-
 pub(super) fn push_inline_raw_command_substitution_as_block(
     target: &mut String,
     raw: &str,
@@ -1020,18 +997,6 @@ pub(super) fn inline_raw_body_relative_source_indent<'a>(
         return indent;
     };
     indent.strip_prefix(source_base_indent).unwrap_or("")
-}
-
-pub(super) fn command_substitution_source_prefers_continued_inline_body(raw: &str) -> bool {
-    let Some(after_open) = raw.strip_prefix("$(") else {
-        return false;
-    };
-    if after_open.starts_with(['\n', '\r']) {
-        return false;
-    }
-
-    raw.lines()
-        .any(|line| line.trim_end_matches([' ', '\t', '\r']).ends_with('\\'))
 }
 
 pub(super) fn push_raw_block_command_substitution_without_outer_indent(
@@ -1272,16 +1237,6 @@ pub(super) fn process_substitution_source_opens_to_body_line(raw: &str) -> bool 
     raw.get(2..).is_some_and(|body| {
         (raw.starts_with("<(") || raw.starts_with(">(")) && body.starts_with(['\n', '\r'])
     })
-}
-
-pub(super) fn substitution_source_closes_on_own_line(raw: &str) -> bool {
-    let Some(close_offset) = raw.rfind(')') else {
-        return false;
-    };
-    let line_start = raw[..close_offset]
-        .rfind('\n')
-        .map_or(0, |newline| newline.saturating_add(1));
-    line_start > 0 && raw[line_start..close_offset].trim().is_empty()
 }
 
 pub(super) fn trim_trailing_line_endings(rendered: &str) -> &str {

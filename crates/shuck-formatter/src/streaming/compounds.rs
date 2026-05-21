@@ -516,31 +516,21 @@ where
         condition: &StmtSeq,
         then_span: Span,
     ) -> Option<SourceComment<'source>> {
-        let source = self.source();
+        let source_map = self.source_map();
         let start = condition.last().map(condition_stmt_command_end)?;
-        let end = then_span.start.offset.min(source.len());
+        let end = then_span.start.offset.min(source_map.source().len());
         if start >= end {
             return None;
         }
-        let region = source.get(start..end)?;
-        let comment_rel = region.find('#')?;
-        let before_comment = region.get(..comment_rel)?;
+        let comment = source_map.first_source_comment_between(start, end)?;
+        let before_comment = source_map.slice_between(start, comment.span().start.offset)?;
         if !before_comment
             .chars()
             .all(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n' | ';'))
         {
             return None;
         }
-        let comment_start = start + comment_rel;
-        let line_end = source
-            .get(comment_start..end)?
-            .find('\n')
-            .map_or(end, |offset| comment_start + offset);
-        let comment = source
-            .get(comment_start..line_end)?
-            .trim_end_matches([' ', '\t', '\r']);
-        self.source_map()
-            .source_comment_for_offsets(comment_start, comment_start + comment.len())
+        Some(comment)
     }
 
     pub(super) fn write_unmodeled_branch_background_terminator(
@@ -1633,27 +1623,23 @@ where
             return None;
         }
 
-        let line_end = source[header_end..body_start]
+        let source_map = self.source_map();
+        let line_end = source_map
+            .slice_between(header_end, body_start)?
             .find('\n')
             .map(|offset| header_end + offset)
             .unwrap_or(body_start);
-        let between = source.get(header_end..line_end)?;
-        let comment_offset = between.find('#')?;
-        if between[..comment_offset].contains('{') {
+        let comment = source_map.first_source_comment_between(header_end, line_end)?;
+        let before_comment = source_map.slice_between(header_end, comment.span().start.offset)?;
+        if before_comment.contains('{') {
             return None;
         }
         let suffix_start = header_end;
-        let comment = source
-            .get(suffix_start..line_end)?
+        let comment_text = source_map
+            .slice_between(suffix_start, comment.span().end.offset)?
             .trim_end_matches([' ', '\t', '\r'])
             .to_string();
-        (!comment.is_empty()).then(|| {
-            (
-                self.source_map()
-                    .span_for_offsets(header_end + comment_offset, line_end),
-                comment,
-            )
-        })
+        (!comment_text.is_empty()).then(|| (comment.span(), comment_text))
     }
 
     pub(super) fn then_separator_for_condition(&self, commands: &StmtSeq) -> &'static str {

@@ -85,7 +85,7 @@ pub(super) fn group_verbatim_span_impl(
         return inner;
     };
     let wrapper_prefix_start = open_offset + open.len_utf8();
-    if !source[wrapper_prefix_start..inner.start.offset].contains('#') {
+    if !source_map.contains_comment_between(wrapper_prefix_start, inner.start.offset) {
         return inner;
     }
     let Some(close_offset) = find_group_close_offset(source, inner.end.offset, close) else {
@@ -106,11 +106,13 @@ pub(crate) fn group_open_suffix<'a>(
     let open_offset = find_group_open_offset_before_stmt(source_map, first_start, open)?;
     let (_, line_end) = source_map.line_bounds_for_offset(open_offset)?;
     let suffix_start = open_offset + open.len_utf8();
+    let comment = source_map.first_source_comment_between(suffix_start, line_end)?;
+    let prefix = source_map.slice_between(suffix_start, comment.span().start.offset)?;
+    if !prefix.chars().all(char::is_whitespace) {
+        return None;
+    }
     let suffix = source.get(suffix_start..line_end)?;
-    suffix
-        .trim_start_matches(char::is_whitespace)
-        .starts_with('#')
-        .then(|| (source_map.span_for_offsets(suffix_start, line_end), suffix))
+    Some((source_map.span_for_offsets(suffix_start, line_end), suffix))
 }
 
 pub(crate) fn group_attachment_span(

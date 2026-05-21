@@ -3,6 +3,8 @@ use std::sync::{Arc, OnceLock};
 use shuck_ast::{Comment, Position, Span, TextSize};
 use shuck_indexer::{IndexedComment, Indexer, LineIndex};
 
+use crate::source::SourceView;
+
 #[derive(Debug, Clone)]
 pub struct SourceMap<'a> {
     source: &'a str,
@@ -99,6 +101,16 @@ impl<'a> SourceMap<'a> {
     #[must_use]
     pub fn source(&self) -> &'a str {
         self.source
+    }
+
+    #[must_use]
+    pub(crate) fn view(&self) -> SourceView<'a> {
+        SourceView::new(self.source)
+    }
+
+    #[must_use]
+    pub(crate) fn slice_between(&self, start: usize, end: usize) -> Option<&'a str> {
+        self.view().slice_between(start, end)
     }
 
     #[must_use]
@@ -207,6 +219,22 @@ impl<'a> SourceMap<'a> {
             .get(index)
             .copied()
             .filter(|offset| *offset < end)
+    }
+
+    #[must_use]
+    pub(crate) fn first_source_comment_between(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Option<SourceComment<'a>> {
+        let comment_start = self.first_comment_between(start, end)?;
+        let (_, line_end) = self.line_bounds_for_offset(comment_start)?;
+        let comment_limit = line_end.min(end);
+        let comment = self
+            .source
+            .get(comment_start..comment_limit)?
+            .trim_end_matches([' ', '\t', '\r']);
+        self.source_comment_for_offsets(comment_start, comment_start + comment.len())
     }
 
     #[must_use]
