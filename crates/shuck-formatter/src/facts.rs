@@ -1280,6 +1280,7 @@ pub(crate) struct FormatterFacts<'source> {
     source_map: SourceMap<'source>,
     stmt_facts: HashMap<FactSpan, StmtFacts>,
     sequence_facts: HashMap<SequenceSiteKey, SequenceFacts<'source>>,
+    sequence_facts_by_span: HashMap<FactSpan, SequenceSiteKey>,
     word_facts: HashMap<FactSpan, WordFacts>,
     pipeline_breaks: HashSet<FactSpan>,
     list_item_breaks: HashSet<FactSpan>,
@@ -1332,11 +1333,10 @@ impl<'source> FormatterFacts<'source> {
     }
 
     fn sequence_by_span(&self, span: FactSpan) -> &SequenceFacts<'source> {
-        let Some(facts) = self
-            .sequence_facts
-            .iter()
-            .find_map(|(candidate, facts)| (candidate.span == span).then_some(facts))
-        else {
+        let Some(key) = self.sequence_facts_by_span.get(&span) else {
+            unreachable!("missing sequence facts");
+        };
+        let Some(facts) = self.sequence_facts.get(key) else {
             unreachable!("missing sequence facts");
         };
         facts
@@ -1647,6 +1647,7 @@ impl<'source> FormatterFacts<'source> {
     pub(crate) fn len(&self) -> usize {
         self.stmt_facts.len()
             + self.sequence_facts.len()
+            + self.sequence_facts_by_span.len()
             + self.word_facts.len()
             + self.pipeline_breaks.len()
             + self.list_item_breaks.len()
@@ -1952,6 +1953,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 source_map,
                 stmt_facts: HashMap::default(),
                 sequence_facts: HashMap::default(),
+                sequence_facts_by_span: HashMap::default(),
                 word_facts: HashMap::default(),
                 pipeline_breaks: HashSet::default(),
                 list_item_breaks: HashSet::default(),
@@ -1972,55 +1974,8 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn build(mut self, file: &File) -> FormatterFacts<'source> {
-        self.visit_sequence(&file.body, None, None);
+        let _ = self.visit_sequence(&file.body, None, None);
         self.facts
-    }
-
-    fn record_sequence_layout(&mut self, sequence: &StmtSeq) -> LayoutSummary {
-        let key = FactSpan::from(sequence.span);
-        if let Some(summary) = self.layout.sequences.get(&key).copied() {
-            return summary;
-        }
-
-        let mut summary = LayoutSummary::default().with_comments(
-            !sequence.leading_comments.is_empty() || !sequence.trailing_comments.is_empty(),
-        );
-        for stmt in sequence.iter() {
-            summary.merge(self.layout.stmt(stmt));
-        }
-        self.layout.sequences.insert(key, summary);
-        summary
-    }
-
-    fn record_stmt_layout(&mut self, stmt: &Stmt) -> LayoutSummary {
-        let key = FactSpan::from(stmt_span(stmt));
-        if let Some(summary) = self.layout.statements.get(&key).copied() {
-            return summary;
-        }
-
-        let mut summary = {
-            let reader = LayoutAnnotationPass::new(self.source, &mut self.layout);
-            reader.command_layout(&stmt.command)
-        }
-        .with_comments(!stmt.leading_comments.is_empty() || stmt.inline_comment.is_some());
-        for redirect in &stmt.redirects {
-            let reader = LayoutAnnotationPass::new(self.source, &mut self.layout);
-            summary.merge(reader.redirect_layout(redirect));
-        }
-        self.layout.statements.insert(key, summary);
-        summary
-    }
-
-    fn record_word_layout(&mut self, word: &Word) -> LayoutSummary {
-        let key = FactSpan::from(word.span);
-        if let Some(summary) = self.layout.words.get(&key).copied() {
-            return summary;
-        }
-
-        let reader = LayoutAnnotationPass::new(self.source, &mut self.layout);
-        let summary = reader.word_layout(word);
-        self.layout.words.insert(key, summary);
-        summary
     }
 
     fn visit_sequence(
@@ -2028,15 +1983,15 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         sequence: &StmtSeq,
         upper_bound: Option<usize>,
         group_open_char: Option<char>,
-    ) {
-        self.visit_sequence_with_suffix(sequence, upper_bound, group_open_char, None, None);
+    ) -> LayoutSummary {
+        self.visit_sequence_with_suffix(sequence, upper_bound, group_open_char, None, None)
     }
 
-    fn visit_compound_body_site(&mut self, site: CompoundBodySite<'_>) {
+    fn visit_compound_body_site(&mut self, site: CompoundBodySite<'_>) -> LayoutSummary {
         if let Some(open) = site.group_open_char() {
             self.record_inline_group_sequence(site.body(), open, matching_group_close(open));
         }
-        self.visit_sequence_with_suffix(
+        let summary = self.visit_sequence_with_suffix(
             site.body(),
             Some(site.facts_upper_bound()),
             site.group_open_char(),
@@ -2044,6 +1999,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             site.open_end_offset(self.source),
         );
         self.record_close_suffix(site.close_span());
+        summary
     }
 
     fn record_inline_group_sequence(&mut self, body: &StmtSeq, open: char, close: char) {
@@ -2061,7 +2017,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         group_open_char: Option<char>,
         open_suffix_span: Option<Span>,
         open_end_offset: Option<usize>,
-    ) {
+    ) -> LayoutSummary {
         let site = SequenceSite::new(
             sequence,
             upper_bound,
@@ -2069,14 +2025,27 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             open_suffix_span,
             open_end_offset,
         );
-        for stmt in sequence.iter() {
-            self.visit_stmt(stmt);
-        }
-
         let key = site.key();
         if self.facts.sequence_facts.contains_key(&key) {
-            return;
+            return self.layout.sequence(sequence);
         }
+
+        let layout_key = FactSpan::from(sequence.span);
+        let cached_layout = self.layout.sequences.get(&layout_key).copied();
+        let child_layouts = sequence
+            .iter()
+            .map(|stmt| self.visit_stmt(stmt))
+            .collect::<Vec<_>>();
+        let layout = cached_layout.unwrap_or_else(|| {
+            let mut summary = LayoutSummary::default().with_comments(
+                !sequence.leading_comments.is_empty() || !sequence.trailing_comments.is_empty(),
+            );
+            for child in child_layouts {
+                summary.merge(child);
+            }
+            summary
+        });
+        self.layout.sequences.entry(layout_key).or_insert(layout);
 
         let mut facts = SequenceFacts::new(sequence.len());
         facts.group_open_suffix_span = site.open_suffix_span.or_else(|| {
@@ -2088,7 +2057,6 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         if let Some(span) = facts.group_open_suffix_span {
             self.record_suffix_attachment(span);
         }
-        let layout = self.record_sequence_layout(sequence);
         facts.contains_comments = layout.contains_comments;
         facts.contains_heredoc = layout.contains_heredoc;
         facts.contains_multiline_literal_source = layout.contains_multiline_literal_source;
@@ -2216,16 +2184,27 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             }
         }
 
+        self.facts
+            .sequence_facts_by_span
+            .entry(key.span)
+            .or_insert(key);
         self.facts.sequence_facts.insert(key, facts);
+        layout
     }
 
-    fn visit_stmt(&mut self, stmt: &Stmt) {
+    fn visit_stmt(&mut self, stmt: &Stmt) -> LayoutSummary {
         let site = StmtSite::new(stmt);
         let stmt = site.stmt;
+        if let Some(layout) = self.layout.statements.get(&site.key).copied()
+            && self.facts.stmt_facts.contains_key(&site.key)
+        {
+            return layout;
+        }
         let already_recorded = self.facts.stmt_facts.contains_key(&site.key);
 
+        let mut redirect_layout = LayoutSummary::default();
         for redirect in &stmt.redirects {
-            self.visit_redirect(redirect);
+            redirect_layout.merge(self.visit_redirect(redirect));
         }
 
         if let Some((commands, open)) = command_group_commands(&stmt.command) {
@@ -2239,16 +2218,19 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     .inline_group_sequences
                     .insert(FactSpan::from(commands.span));
             }
-            self.visit_sequence(commands, Some(stmt_span(stmt).end.offset), Some(open));
+            let _ = self.visit_sequence(commands, Some(stmt_span(stmt).end.offset), Some(open));
         }
 
-        self.visit_command(&stmt.command);
+        let mut layout = self
+            .visit_command(&stmt.command)
+            .with_comments(!stmt.leading_comments.is_empty() || stmt.inline_comment.is_some());
+        layout.merge(redirect_layout);
+        self.layout.statements.insert(site.key, layout);
 
         if already_recorded {
-            return;
+            return layout;
         }
 
-        let layout = self.record_stmt_layout(stmt);
         let contains_heredoc = layout.contains_heredoc;
         let preserve_verbatim = should_render_verbatim_with_heredoc(
             stmt,
@@ -2286,19 +2268,74 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 contains_heredoc,
             },
         );
+        layout
     }
 
-    fn visit_command(&mut self, command: &Command) {
+    fn visit_command(&mut self, command: &Command) -> LayoutSummary {
         if let Command::Binary(command) = command {
-            self.visit_binary_command(command);
+            self.visit_binary_command(command)
         } else {
-            visit::walk_command(self, command);
+            self.visit_non_binary_command(command)
         }
     }
 
-    fn visit_binary_command(&mut self, command: &BinaryCommand) {
-        self.visit_stmt(command.left.as_ref());
-        self.visit_stmt(command.right.as_ref());
+    fn visit_non_binary_command(&mut self, command: &Command) -> LayoutSummary {
+        match command {
+            Command::Simple(command) => {
+                let mut summary = LayoutSummary::default();
+                for assignment in &command.assignments {
+                    summary.merge(self.visit_assignment(assignment));
+                }
+                summary.merge(self.visit_word(&command.name));
+                for word in &command.args {
+                    summary.merge(self.visit_word(word));
+                }
+                summary
+            }
+            Command::Builtin(command) => {
+                let (_, _, assignments, primary, extra_args) = builtin_like_parts(command);
+                let mut summary = LayoutSummary::default();
+                for assignment in assignments {
+                    summary.merge(self.visit_assignment(assignment));
+                }
+                if let Some(primary) = primary {
+                    summary.merge(self.visit_word(primary));
+                }
+                for word in extra_args {
+                    summary.merge(self.visit_word(word));
+                }
+                summary
+            }
+            Command::Decl(command) => {
+                let mut summary = LayoutSummary::default();
+                for assignment in &command.assignments {
+                    summary.merge(self.visit_assignment(assignment));
+                }
+                for operand in &command.operands {
+                    summary.merge(self.visit_decl_operand(operand));
+                }
+                summary
+            }
+            Command::Compound(command) => self.visit_compound_command(command),
+            Command::Function(function) => self.visit_function(function),
+            Command::AnonymousFunction(function) => self.visit_anonymous_function(function),
+            Command::Binary(_) => unreachable!("binary commands are handled separately"),
+        }
+    }
+
+    fn visit_decl_operand(&mut self, operand: &DeclOperand) -> LayoutSummary {
+        match operand {
+            DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => self.visit_word(word),
+            DeclOperand::Name(reference) => self.visit_var_ref(reference),
+            DeclOperand::Assignment(assignment) => self.visit_assignment(assignment),
+        }
+    }
+
+    fn visit_binary_command(&mut self, command: &BinaryCommand) -> LayoutSummary {
+        let mut summary = self.visit_stmt(command.left.as_ref());
+        summary.merge(self.visit_stmt(command.right.as_ref()));
+        summary.contains_multistatement_pipeline_brace_group =
+            self.command_contains_multistatement_pipeline_brace_group(command, false);
 
         if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll)
             && pipeline_has_explicit_line_break(command, self.source, self.source_map())
@@ -2338,32 +2375,37 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 previous = item.stmt;
             }
         }
+        summary
     }
 
-    fn visit_compound_command(&mut self, command: &CompoundCommand) {
+    fn visit_compound_command(&mut self, command: &CompoundCommand) -> LayoutSummary {
         match command {
             CompoundCommand::If(command) => self.visit_if(command),
             CompoundCommand::For(command) => self.visit_for(command),
             CompoundCommand::Repeat(command) => self.visit_repeat(command),
             CompoundCommand::Foreach(command) => {
+                let mut summary = LayoutSummary::default();
                 for word in &command.words {
-                    self.visit_word(word);
+                    summary.merge(self.visit_word(word));
                 }
                 let site = CompoundBodySite::foreach_command(command, self.source_map());
-                self.visit_compound_body_site(site);
+                summary.merge(self.visit_compound_body_site(site));
+                summary
             }
             CompoundCommand::ArithmeticFor(command) => {
+                let mut summary = LayoutSummary::default();
                 if let Some(expr) = &command.init_ast {
-                    self.visit_arithmetic_expr(expr);
+                    summary.merge(self.visit_arithmetic_expr(expr));
                 }
                 if let Some(expr) = &command.condition_ast {
-                    self.visit_arithmetic_expr(expr);
+                    summary.merge(self.visit_arithmetic_expr(expr));
                 }
                 if let Some(expr) = &command.step_ast {
-                    self.visit_arithmetic_expr(expr);
+                    summary.merge(self.visit_arithmetic_expr(expr));
                 }
                 let site = CompoundBodySite::arithmetic_for_command(command, self.source_map());
-                self.visit_compound_body_site(site);
+                summary.merge(self.visit_compound_body_site(site));
+                summary
             }
             CompoundCommand::While(command) => self.visit_while(command),
             CompoundCommand::Until(command) => self.visit_until(command),
@@ -2371,41 +2413,45 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             CompoundCommand::Select(command) => self.visit_select(command),
             CompoundCommand::Subshell(body) => {
                 self.record_inline_group_sequence(body, '(', ')');
-                self.visit_sequence(body, None, Some('('));
+                self.visit_sequence(body, None, Some('('))
             }
             CompoundCommand::BraceGroup(body) => {
                 self.record_inline_group_sequence(body, '{', '}');
-                self.visit_sequence(body, None, Some('{'));
+                self.visit_sequence(body, None, Some('{'))
             }
             CompoundCommand::Arithmetic(command) => {
                 if let Some(expr) = &command.expr_ast {
-                    self.visit_arithmetic_expr(expr);
+                    self.visit_arithmetic_expr(expr)
+                } else {
+                    LayoutSummary::default()
                 }
             }
             CompoundCommand::Time(command) => self.visit_time(command),
             CompoundCommand::Conditional(command) => self.visit_conditional(command),
             CompoundCommand::Coproc(command) => self.visit_stmt(command.body.as_ref()),
             CompoundCommand::Always(command) => {
-                self.visit_sequence(&command.body, Some(command.span.end.offset), Some('{'));
-                self.visit_sequence(
+                let mut summary =
+                    self.visit_sequence(&command.body, Some(command.span.end.offset), Some('{'));
+                summary.merge(self.visit_sequence(
                     &command.always_body,
                     Some(command.span.end.offset),
                     Some('{'),
-                );
+                ));
                 self.record_inline_group_sequence(&command.body, '{', '}');
                 self.record_inline_group_sequence(&command.always_body, '{', '}');
+                summary
             }
         }
     }
 
-    fn visit_if(&mut self, command: &IfCommand) {
+    fn visit_if(&mut self, command: &IfCommand) -> LayoutSummary {
         let condition_upper_bound = match command.syntax {
             shuck_ast::IfSyntax::ThenFi { then_span, .. } => Some(then_span.start.offset),
             shuck_ast::IfSyntax::Brace {
                 left_brace_span, ..
             } => Some(left_brace_span.start.offset),
         };
-        self.visit_sequence(&command.condition, condition_upper_bound, None);
+        let mut summary = self.visit_sequence(&command.condition, condition_upper_bound, None);
         let brace_syntax = matches!(command.syntax, shuck_ast::IfSyntax::Brace { .. });
         if let shuck_ast::IfSyntax::ThenFi { then_span, .. } = command.syntax
             && let Some(comment) = condition_separator_suffix_comment(
@@ -2423,7 +2469,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             if_branch_upper_bound(command, 0, self.source, self.source_map(), &self.facts);
         let then_site =
             CompoundBodySite::if_then_branch(command, &command.then_branch, then_upper_bound);
-        self.visit_compound_body_site(then_site);
+        summary.merge(self.visit_compound_body_site(then_site));
         for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
             let body_upper_bound = if_branch_upper_bound(
                 command,
@@ -2433,8 +2479,9 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 &self.facts,
             );
             let body_site = CompoundBodySite::if_then_branch(command, body, body_upper_bound);
+            let mut body_summary = None;
             if brace_syntax {
-                self.visit_compound_body_site(body_site);
+                body_summary = Some(self.visit_compound_body_site(body_site));
             }
             let condition_upper_bound = if brace_syntax {
                 group_attachment_span_with_heredoc(
@@ -2448,61 +2495,70 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             } else {
                 body_site.open_keyword_start(self.source)
             };
-            self.visit_sequence(condition, condition_upper_bound, None);
+            summary.merge(self.visit_sequence(condition, condition_upper_bound, None));
             if !brace_syntax {
-                self.visit_compound_body_site(body_site);
+                body_summary = Some(self.visit_compound_body_site(body_site));
+            }
+            if let Some(body_summary) = body_summary {
+                summary.merge(body_summary);
             }
         }
         if let Some(else_branch) = &command.else_branch {
             let upper_bound = if_close_start(command, self.source_map());
             let site = CompoundBodySite::if_else_branch(command, else_branch, upper_bound);
-            self.visit_compound_body_site(site);
+            summary.merge(self.visit_compound_body_site(site));
         }
         self.record_if_branch_prefix_facts(command);
         self.record_close_suffix(Some(if_close_span(command, self.source, self.source_map())));
+        summary
     }
 
-    fn visit_for(&mut self, command: &ForCommand) {
+    fn visit_for(&mut self, command: &ForCommand) -> LayoutSummary {
+        let mut summary = LayoutSummary::default();
         for target in &command.targets {
-            self.visit_word(&target.word);
+            summary.merge(self.visit_word(&target.word));
         }
         if let Some(words) = &command.words {
             for word in words {
-                self.visit_word(word);
+                summary.merge(self.visit_word(word));
             }
         }
         let site = CompoundBodySite::for_command(command, self.source_map());
-        self.visit_compound_body_site(site);
+        summary.merge(self.visit_compound_body_site(site));
+        summary
     }
 
-    fn visit_repeat(&mut self, command: &RepeatCommand) {
-        self.visit_word(&command.count);
+    fn visit_repeat(&mut self, command: &RepeatCommand) -> LayoutSummary {
+        let mut summary = self.visit_word(&command.count);
         let site = CompoundBodySite::repeat_command(command, self.source_map());
-        self.visit_compound_body_site(site);
+        summary.merge(self.visit_compound_body_site(site));
+        summary
     }
 
-    fn visit_while(&mut self, command: &WhileCommand) {
+    fn visit_while(&mut self, command: &WhileCommand) -> LayoutSummary {
         let site = CompoundBodySite::while_command(command, self.source_map());
         let condition_upper_bound = site.open_keyword_start(self.source);
-        self.visit_sequence(&command.condition, condition_upper_bound, None);
-        self.visit_compound_body_site(site);
+        let mut summary = self.visit_sequence(&command.condition, condition_upper_bound, None);
+        summary.merge(self.visit_compound_body_site(site));
+        summary
     }
 
-    fn visit_until(&mut self, command: &UntilCommand) {
+    fn visit_until(&mut self, command: &UntilCommand) -> LayoutSummary {
         let site = CompoundBodySite::until_command(command, self.source_map());
         let condition_upper_bound = site.open_keyword_start(self.source);
-        self.visit_sequence(&command.condition, condition_upper_bound, None);
-        self.visit_compound_body_site(site);
+        let mut summary = self.visit_sequence(&command.condition, condition_upper_bound, None);
+        summary.merge(self.visit_compound_body_site(site));
+        summary
     }
 
-    fn visit_case(&mut self, command: &CaseCommand) {
-        self.visit_word(&command.word);
+    fn visit_case(&mut self, command: &CaseCommand) -> LayoutSummary {
+        let mut summary = self.visit_word(&command.word);
         let case_command_facts = self.build_case_command_facts(command);
         self.record_close_suffix(case_command_facts.esac_span());
         let mut previous_item: Option<&CaseItem> = None;
         for item in &command.cases {
             for pattern in &item.patterns {
-                self.visit_pattern(pattern);
+                summary.merge(self.visit_pattern(pattern));
             }
             if case_item_was_inline_in_source(item) {
                 self.facts
@@ -2511,7 +2567,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             }
             let upper_bound =
                 case_item_body_upper_bound(item, case_command_facts.body_fallback_upper_bound());
-            self.visit_sequence(&item.body, upper_bound, None);
+            summary.merge(self.visit_sequence(&item.body, upper_bound, None));
             let item_facts = self.build_case_item_facts(item, previous_item, upper_bound);
             self.facts
                 .case_item_facts
@@ -2521,109 +2577,231 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         self.facts
             .case_facts
             .insert(FactSpan::from(command.span), case_command_facts);
+        summary
     }
 
-    fn visit_select(&mut self, command: &SelectCommand) {
+    fn visit_select(&mut self, command: &SelectCommand) -> LayoutSummary {
+        let mut summary = LayoutSummary::default();
         for word in &command.words {
-            self.visit_word(word);
+            summary.merge(self.visit_word(word));
         }
         let site = CompoundBodySite::select_command(command, self.source_map());
-        self.visit_compound_body_site(site);
+        summary.merge(self.visit_compound_body_site(site));
+        summary
     }
 
-    fn visit_time(&mut self, command: &TimeCommand) {
+    fn visit_time(&mut self, command: &TimeCommand) -> LayoutSummary {
         if let Some(inner) = &command.command {
-            self.visit_stmt(inner.as_ref());
+            let summary = self.visit_stmt(inner.as_ref());
             self.record_close_suffix(Some(stmt_format_span(inner.as_ref())));
-        }
-    }
-
-    fn visit_conditional(&mut self, command: &ConditionalCommand) {
-        self.visit_conditional_expr(&command.expression);
-    }
-
-    fn visit_function(&mut self, function: &FunctionDef) {
-        for entry in &function.header.entries {
-            self.visit_word(&entry.word);
-        }
-
-        self.visit_function_body(function.body.as_ref(), function.span.end.offset);
-    }
-
-    fn visit_anonymous_function(&mut self, function: &AnonymousFunctionCommand) {
-        for argument in &function.args {
-            self.visit_word(argument);
-        }
-
-        self.visit_function_body(function.body.as_ref(), function.span.end.offset);
-    }
-
-    fn visit_function_body(&mut self, body: &Stmt, function_end_offset: usize) {
-        if let Some(site) = CompoundBodySite::function_group_body(body, function_end_offset) {
-            self.visit_compound_body_site(site);
-            self.record_stmt_layout(body);
+            summary
         } else {
-            self.visit_stmt(body);
+            LayoutSummary::default()
         }
     }
 
-    fn visit_redirect(&mut self, redirect: &Redirect) {
+    fn visit_conditional(&mut self, command: &ConditionalCommand) -> LayoutSummary {
+        self.visit_conditional_expr(&command.expression)
+    }
+
+    fn visit_function(&mut self, function: &FunctionDef) -> LayoutSummary {
+        let mut summary = LayoutSummary::default();
+        for entry in &function.header.entries {
+            summary.merge(self.visit_word(&entry.word));
+        }
+
+        summary.merge(self.visit_function_body(function.body.as_ref(), function.span.end.offset));
+        summary
+    }
+
+    fn visit_anonymous_function(&mut self, function: &AnonymousFunctionCommand) -> LayoutSummary {
+        let mut summary = LayoutSummary::default();
+        for argument in &function.args {
+            summary.merge(self.visit_word(argument));
+        }
+
+        summary.merge(self.visit_function_body(function.body.as_ref(), function.span.end.offset));
+        summary
+    }
+
+    fn visit_function_body(&mut self, body: &Stmt, function_end_offset: usize) -> LayoutSummary {
+        if let Some(site) = CompoundBodySite::function_group_body(body, function_end_offset) {
+            let summary = self
+                .visit_compound_body_site(site)
+                .with_comments(!body.leading_comments.is_empty() || body.inline_comment.is_some());
+            self.layout
+                .statements
+                .insert(FactSpan::from(stmt_span(body)), summary);
+            summary
+        } else {
+            self.visit_stmt(body)
+        }
+    }
+
+    fn visit_redirect(&mut self, redirect: &Redirect) -> LayoutSummary {
         if let Some(word) = redirect.word_target() {
-            self.visit_word(word);
+            let mut summary = self.visit_word(word);
+            summary.contains_heredoc |= matches!(
+                redirect.kind,
+                RedirectKind::HereDoc | RedirectKind::HereDocStrip
+            );
+            return summary;
         }
         if let Some(heredoc) = redirect.heredoc() {
-            self.visit_word(&heredoc.delimiter.raw);
-            self.visit_heredoc_body(&heredoc.body);
+            let delimiter = self.visit_word(&heredoc.delimiter.raw);
+            let mut summary = delimiter;
+            summary.merge(self.visit_heredoc_body(&heredoc.body));
+            summary.contains_heredoc |= matches!(
+                redirect.kind,
+                RedirectKind::HereDoc | RedirectKind::HereDocStrip
+            );
+            summary.contains_multiline_literal_source = delimiter.contains_multiline_literal_source;
+            return summary;
+        }
+        LayoutSummary::default()
+    }
+
+    fn visit_assignment(&mut self, assignment: &Assignment) -> LayoutSummary {
+        let mut summary = self.visit_var_ref(&assignment.target);
+        let value_has_multiline_literal_source = match &assignment.value {
+            AssignmentValue::Scalar(word) => {
+                let word = self.visit_word(word);
+                summary.merge(word);
+                word.contains_multiline_literal_source
+            }
+            AssignmentValue::Compound(array) => {
+                let mut contains_multiline_literal_source = false;
+                for element in &array.elements {
+                    if let Some(key) = array_elem_parts(element).0 {
+                        summary.merge(self.visit_subscript(key));
+                    }
+                    let word = self.visit_word(array_elem_parts(element).1);
+                    contains_multiline_literal_source |= word.contains_multiline_literal_source;
+                    summary.merge(word);
+                }
+                contains_multiline_literal_source
+            }
+        };
+        summary.contains_multiline_literal_source = value_has_multiline_literal_source
+            || matches!(&assignment.value, AssignmentValue::Scalar(_))
+                && assignment_has_raw_backslash_continuation_literal(assignment, self.source);
+        summary
+    }
+
+    fn visit_conditional_expr(&mut self, expression: &ConditionalExpr) -> LayoutSummary {
+        match expression {
+            ConditionalExpr::Binary(expression) => {
+                let mut summary = self.visit_conditional_expr(&expression.left);
+                summary.merge(self.visit_conditional_expr(&expression.right));
+                summary
+            }
+            ConditionalExpr::Unary(expression) => self.visit_conditional_expr(&expression.expr),
+            ConditionalExpr::Parenthesized(expression) => {
+                self.visit_conditional_expr(&expression.expr)
+            }
+            ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => self.visit_word(word),
+            ConditionalExpr::Pattern(pattern) => self.visit_pattern(pattern),
+            ConditionalExpr::VarRef(reference) => self.visit_var_ref(reference),
         }
     }
 
-    fn visit_assignment(&mut self, assignment: &Assignment) {
-        visit::walk_assignment(self, assignment);
+    fn visit_pattern(&mut self, pattern: &Pattern) -> LayoutSummary {
+        let mut summary = LayoutSummary::default();
+        for part in &pattern.parts {
+            summary.merge(self.visit_pattern_part(&part.kind));
+        }
+        summary
     }
 
-    fn visit_conditional_expr(&mut self, expression: &ConditionalExpr) {
-        visit::walk_conditional_expr(self, expression);
+    fn visit_pattern_part(&mut self, part: &PatternPart) -> LayoutSummary {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                let mut summary = LayoutSummary::default();
+                for pattern in patterns {
+                    summary.merge(self.visit_pattern(pattern));
+                }
+                summary
+            }
+            PatternPart::Word(word) => self.visit_word(word),
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => LayoutSummary::default(),
+        }
     }
 
-    fn visit_pattern(&mut self, pattern: &Pattern) {
-        visit::walk_pattern(self, pattern);
-    }
-
-    fn visit_word(&mut self, word: &Word) {
+    fn visit_word(&mut self, word: &Word) -> LayoutSummary {
         let word_key = FactSpan::from(word.span);
-        if self.facts.word_facts.contains_key(&word_key) {
-            return;
+        if let Some(layout) = self.layout.words.get(&word_key).copied()
+            && self.facts.word_facts.contains_key(&word_key)
+        {
+            return layout;
         }
 
-        visit::walk_word(self, word);
-        let layout = self.record_word_layout(word);
+        let mut layout = LayoutSummary::default();
+        for part in &word.parts {
+            layout.merge(self.visit_word_part(&part.kind, part.span));
+        }
+        layout.contains_multiline_literal_source |= raw_word_source_slice(word, self.source)
+            .is_some_and(|raw| {
+                raw.contains("\\\n")
+                    && word_has_multiline_double_quoted_source(word, self.source)
+                    && !word_is_quoted_command_substitution_only(word)
+            });
+        layout.contains_heredoc = false;
+        layout.contains_multistatement_pipeline_brace_group = false;
+        self.layout.words.insert(word_key, layout);
         self.facts.word_facts.insert(
             word_key,
             WordFacts {
                 has_multiline_literal_source: layout.contains_multiline_literal_source,
             },
         );
+        layout
     }
 
-    fn visit_word_part(&mut self, part: &WordPart, span: Span) {
+    fn visit_word_part(&mut self, part: &WordPart, span: Span) -> LayoutSummary {
         match part {
+            WordPart::Literal(text) => LayoutSummary {
+                contains_multiline_literal_source: text.as_str(self.source, span).contains('\n'),
+                ..LayoutSummary::default()
+            },
+            WordPart::SingleQuoted { value, dollar } => LayoutSummary {
+                contains_multiline_literal_source: if *dollar {
+                    raw_source_slice(span, self.source).is_some_and(|raw| raw.contains('\n'))
+                } else {
+                    value.slice(self.source).contains('\n')
+                },
+                ..LayoutSummary::default()
+            },
             WordPart::CommandSubstitution { body, syntax }
                 if matches!(
                     *syntax,
                     CommandSubstitutionSyntax::DollarParen | CommandSubstitutionSyntax::Backtick
                 ) =>
             {
-                self.visit_sequence(body, Some(span.end.offset), None);
+                let mut summary = self.visit_sequence(body, Some(span.end.offset), None);
+                summary.contains_multiline_literal_source |= summary.contains_comments
+                    && raw_source_slice(span, self.source).is_some_and(|raw| {
+                        raw.contains('\n')
+                            && !command_substitution_source_starts_with_body_line(raw)
+                    });
+                summary
             }
             WordPart::ProcessSubstitution { body, .. } => {
-                self.visit_sequence(body, span.end.offset.checked_sub(1), None);
+                let mut summary = self.visit_sequence(body, span.end.offset.checked_sub(1), None);
+                summary.contains_multiline_literal_source |= summary.contains_comments
+                    && raw_source_slice(span, self.source).is_some_and(|raw| raw.contains('\n'));
+                summary
             }
             WordPart::ZshQualifiedGlob(glob) => {
+                let mut summary = LayoutSummary::default();
                 for segment in &glob.segments {
                     if let ZshGlobSegment::Pattern(pattern) = segment {
-                        self.visit_pattern(pattern);
+                        summary.merge(self.visit_pattern(pattern));
                     }
                 }
+                summary
             }
             WordPart::ArithmeticExpansion {
                 expression_ast: Some(expr),
@@ -2641,11 +2819,12 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 operand_word_ast,
                 ..
             } => {
-                self.visit_var_ref(reference);
-                self.visit_parameter_op(operator);
+                let mut summary = self.visit_var_ref(reference);
+                summary.merge(self.visit_parameter_op(operator));
                 if let Some(operand) = operand_word_ast {
-                    self.visit_word(operand);
+                    summary.merge(self.visit_word(operand));
                 }
+                summary
             }
             WordPart::Length(reference)
             | WordPart::ArrayAccess(reference)
@@ -2668,17 +2847,18 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 length_word_ast,
                 ..
             } => {
-                self.visit_var_ref(reference);
+                let mut summary = self.visit_var_ref(reference);
                 if let Some(expr) = offset_ast {
-                    self.visit_arithmetic_expr(expr);
+                    summary.merge(self.visit_arithmetic_expr(expr));
                 } else {
-                    self.visit_word(offset_word_ast);
+                    summary.merge(self.visit_word(offset_word_ast));
                 }
                 if let Some(expr) = length_ast {
-                    self.visit_arithmetic_expr(expr);
+                    summary.merge(self.visit_arithmetic_expr(expr));
                 } else if let Some(word) = length_word_ast {
-                    self.visit_word(word);
+                    summary.merge(self.visit_word(word));
                 }
+                summary
             }
             WordPart::IndirectExpansion {
                 reference,
@@ -2686,34 +2866,37 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 operand_word_ast,
                 ..
             } => {
-                self.visit_var_ref(reference);
+                let mut summary = self.visit_var_ref(reference);
                 if let Some(operator) = operator {
-                    self.visit_parameter_op(operator);
+                    summary.merge(self.visit_parameter_op(operator));
                 }
                 if let Some(operand) = operand_word_ast {
-                    self.visit_word(operand);
+                    summary.merge(self.visit_word(operand));
                 }
+                summary
             }
             WordPart::CommandSubstitution { .. }
-            | WordPart::Literal(_)
-            | WordPart::SingleQuoted { .. }
             | WordPart::Variable(_)
-            | WordPart::PrefixMatch { .. } => {}
+            | WordPart::PrefixMatch { .. } => LayoutSummary::default(),
             WordPart::DoubleQuoted { parts, .. } => {
+                let mut summary = LayoutSummary::default();
                 for part in parts {
-                    self.visit_word_part(&part.kind, part.span);
+                    summary.merge(self.visit_word_part(&part.kind, part.span));
                 }
+                summary
             }
         }
     }
 
-    fn visit_heredoc_body(&mut self, body: &HeredocBody) {
+    fn visit_heredoc_body(&mut self, body: &HeredocBody) -> LayoutSummary {
+        let mut summary = LayoutSummary::default();
         for part in &body.parts {
-            self.visit_heredoc_body_part(&part.kind, part.span);
+            summary.merge(self.visit_heredoc_body_part(&part.kind, part.span));
         }
+        summary
     }
 
-    fn visit_heredoc_body_part(&mut self, part: &HeredocBodyPart, span: Span) {
+    fn visit_heredoc_body_part(&mut self, part: &HeredocBodyPart, span: Span) -> LayoutSummary {
         match part {
             HeredocBodyPart::CommandSubstitution { body, syntax }
                 if matches!(
@@ -2721,7 +2904,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     CommandSubstitutionSyntax::DollarParen | CommandSubstitutionSyntax::Backtick
                 ) =>
             {
-                self.visit_sequence(body, Some(span.end.offset), None);
+                self.visit_sequence(body, Some(span.end.offset), None)
             }
             HeredocBodyPart::ArithmeticExpansion {
                 expression_ast: Some(expr),
@@ -2735,12 +2918,255 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             HeredocBodyPart::Parameter(parameter) => self.visit_parameter_expansion(parameter),
             HeredocBodyPart::Literal(_)
             | HeredocBodyPart::Variable(_)
-            | HeredocBodyPart::CommandSubstitution { .. } => {}
+            | HeredocBodyPart::CommandSubstitution { .. } => LayoutSummary::default(),
         }
     }
 
-    fn visit_arithmetic_expr(&mut self, expr: &ArithmeticExprNode) {
-        visit::walk_arithmetic_expr(self, expr);
+    fn visit_arithmetic_expr(&mut self, expr: &ArithmeticExprNode) -> LayoutSummary {
+        match &expr.kind {
+            ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => LayoutSummary::default(),
+            ArithmeticExpr::Indexed { index, .. } => self.visit_arithmetic_expr(index),
+            ArithmeticExpr::ShellWord(word) => self.visit_word(word),
+            ArithmeticExpr::Parenthesized { expression } => self.visit_arithmetic_expr(expression),
+            ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+                self.visit_arithmetic_expr(expr)
+            }
+            ArithmeticExpr::Binary { left, right, .. } => {
+                let mut summary = self.visit_arithmetic_expr(left);
+                summary.merge(self.visit_arithmetic_expr(right));
+                summary
+            }
+            ArithmeticExpr::Conditional {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
+                let mut summary = self.visit_arithmetic_expr(condition);
+                summary.merge(self.visit_arithmetic_expr(then_expr));
+                summary.merge(self.visit_arithmetic_expr(else_expr));
+                summary
+            }
+            ArithmeticExpr::Assignment { target, value, .. } => {
+                let mut summary = self.visit_arithmetic_lvalue(target);
+                summary.merge(self.visit_arithmetic_expr(value));
+                summary
+            }
+        }
+    }
+
+    fn visit_arithmetic_lvalue(&mut self, target: &ArithmeticLvalue) -> LayoutSummary {
+        match target {
+            ArithmeticLvalue::Variable(_) => LayoutSummary::default(),
+            ArithmeticLvalue::Indexed { index, .. } => self.visit_arithmetic_expr(index),
+        }
+    }
+
+    fn visit_var_ref(&mut self, reference: &VarRef) -> LayoutSummary {
+        reference
+            .subscript
+            .as_deref()
+            .map_or_else(LayoutSummary::default, |subscript| {
+                self.visit_subscript(subscript)
+            })
+    }
+
+    fn visit_subscript(&mut self, subscript: &Subscript) -> LayoutSummary {
+        let mut summary = subscript
+            .word_ast
+            .as_ref()
+            .map_or_else(LayoutSummary::default, |word| self.visit_word(word));
+        if let Some(expression) = &subscript.arithmetic_ast {
+            summary.merge(self.visit_arithmetic_expr(expression));
+        }
+        summary
+    }
+
+    fn visit_parameter_expansion(&mut self, parameter: &ParameterExpansion) -> LayoutSummary {
+        match &parameter.syntax {
+            ParameterExpansionSyntax::Bourne(syntax) => {
+                self.visit_bourne_parameter_expansion(syntax)
+            }
+            ParameterExpansionSyntax::Zsh(syntax) => {
+                let mut summary = match &syntax.target {
+                    ZshExpansionTarget::Reference(reference) => self.visit_var_ref(reference),
+                    ZshExpansionTarget::Nested(parameter) => {
+                        self.visit_parameter_expansion(parameter)
+                    }
+                    ZshExpansionTarget::Word(word) => self.visit_word(word),
+                    ZshExpansionTarget::Empty => LayoutSummary::default(),
+                };
+                for modifier in &syntax.modifiers {
+                    if let Some(word) = modifier.argument_word_ast() {
+                        summary.merge(self.visit_word(word));
+                    }
+                }
+                if let Some(operation) = &syntax.operation {
+                    summary.merge(self.visit_zsh_expansion_operation(operation));
+                }
+                summary
+            }
+        }
+    }
+
+    fn visit_bourne_parameter_expansion(
+        &mut self,
+        syntax: &BourneParameterExpansion,
+    ) -> LayoutSummary {
+        match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                self.visit_var_ref(reference)
+            }
+            BourneParameterExpansion::Indirect {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                let mut summary = self.visit_var_ref(reference);
+                if let Some(operator) = operator {
+                    summary.merge(self.visit_parameter_op(operator));
+                }
+                if let Some(operand) = operand_word_ast {
+                    summary.merge(self.visit_word(operand));
+                }
+                summary
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => LayoutSummary::default(),
+            BourneParameterExpansion::Slice {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            } => {
+                let mut summary = self.visit_var_ref(reference);
+                if let Some(expression) = offset_ast {
+                    summary.merge(self.visit_arithmetic_expr(expression));
+                } else {
+                    summary.merge(self.visit_word(offset_word_ast));
+                }
+                if let Some(expression) = length_ast {
+                    summary.merge(self.visit_arithmetic_expr(expression));
+                } else if let Some(word) = length_word_ast {
+                    summary.merge(self.visit_word(word));
+                }
+                summary
+            }
+            BourneParameterExpansion::Operation {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                let mut summary = self.visit_var_ref(reference);
+                summary.merge(self.visit_parameter_op(operator));
+                if let Some(operand) = operand_word_ast {
+                    summary.merge(self.visit_word(operand));
+                }
+                summary
+            }
+        }
+    }
+
+    fn visit_parameter_op(&mut self, operator: &ParameterOp) -> LayoutSummary {
+        match operator {
+            ParameterOp::RemovePrefixShort { pattern }
+            | ParameterOp::RemovePrefixLong { pattern }
+            | ParameterOp::RemoveSuffixShort { pattern }
+            | ParameterOp::RemoveSuffixLong { pattern } => self.visit_pattern(pattern),
+            ParameterOp::ReplaceFirst {
+                pattern,
+                replacement_word_ast,
+                ..
+            }
+            | ParameterOp::ReplaceAll {
+                pattern,
+                replacement_word_ast,
+                ..
+            } => {
+                let mut summary = self.visit_pattern(pattern);
+                summary.merge(self.visit_word(replacement_word_ast));
+                summary
+            }
+            ParameterOp::UseDefault
+            | ParameterOp::AssignDefault
+            | ParameterOp::UseReplacement
+            | ParameterOp::Error
+            | ParameterOp::UpperFirst
+            | ParameterOp::UpperAll
+            | ParameterOp::LowerFirst
+            | ParameterOp::LowerAll => LayoutSummary::default(),
+        }
+    }
+
+    fn visit_zsh_expansion_operation(
+        &mut self,
+        operation: &ZshExpansionOperation,
+    ) -> LayoutSummary {
+        match operation {
+            ZshExpansionOperation::PatternOperation {
+                operand_word_ast, ..
+            }
+            | ZshExpansionOperation::Defaulting {
+                operand_word_ast, ..
+            }
+            | ZshExpansionOperation::TrimOperation {
+                operand_word_ast, ..
+            } => self.visit_word(operand_word_ast),
+            ZshExpansionOperation::ReplacementOperation {
+                pattern_word_ast,
+                replacement_word_ast,
+                ..
+            } => {
+                let mut summary = self.visit_word(pattern_word_ast);
+                if let Some(replacement) = replacement_word_ast {
+                    summary.merge(self.visit_word(replacement));
+                }
+                summary
+            }
+            ZshExpansionOperation::Slice {
+                offset_word_ast,
+                length_word_ast,
+                ..
+            } => {
+                let mut summary = self.visit_word(offset_word_ast);
+                if let Some(length) = length_word_ast {
+                    summary.merge(self.visit_word(length));
+                }
+                summary
+            }
+            ZshExpansionOperation::Unknown { word_ast, .. } => self.visit_word(word_ast),
+        }
+    }
+
+    fn command_contains_multistatement_pipeline_brace_group(
+        &self,
+        command: &BinaryCommand,
+        in_pipeline: bool,
+    ) -> bool {
+        let in_pipeline = in_pipeline || matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll);
+        self.stmt_contains_multistatement_pipeline_brace_group(&command.left, in_pipeline)
+            || self.stmt_contains_multistatement_pipeline_brace_group(&command.right, in_pipeline)
+    }
+
+    fn stmt_contains_multistatement_pipeline_brace_group(
+        &self,
+        stmt: &Stmt,
+        in_pipeline: bool,
+    ) -> bool {
+        match &stmt.command {
+            Command::Binary(command)
+                if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) =>
+            {
+                self.command_contains_multistatement_pipeline_brace_group(command, in_pipeline)
+            }
+            Command::Compound(CompoundCommand::BraceGroup(body)) if in_pipeline => body.len() > 1,
+            _ => false,
+        }
     }
 
     fn record_close_suffix(&mut self, span: Option<Span>) {
