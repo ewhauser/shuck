@@ -55,17 +55,16 @@ impl<'source, 'facts> ShellRenderer<'source, 'facts> {
     pub(super) fn group_delimiters_attach_to_wrapped_body(
         &self,
         commands: &StmtSeq,
-        open_char: char,
+        _open_char: char,
     ) -> bool {
         let (Some(first), Some(last)) = (commands.first(), commands.last()) else {
             return false;
         };
-        let Some(group_span) = group_attachment_span(
-            commands.as_slice(),
-            self.source_map(),
-            open_char,
-            matching_group_close(open_char),
-        ) else {
+        let Some(group_span) = self
+            .facts()
+            .sequence(commands, None)
+            .group_attachment_span()
+        else {
             return false;
         };
 
@@ -111,8 +110,10 @@ impl<'source, 'facts> ShellRenderer<'source, 'facts> {
         {
             return false;
         }
-        let Some(group_span) =
-            group_attachment_span(commands.as_slice(), self.source_map(), '(', ')')
+        let Some(group_span) = self
+            .facts()
+            .sequence(commands, upper_bound)
+            .group_attachment_span()
         else {
             return false;
         };
