@@ -189,21 +189,12 @@ pub(super) fn parameter_prefers_raw_source(
     })
 }
 
-pub(super) fn stmt_seq_contains_comments(
-    facts: Option<&FormatterFacts<'_>>,
-    sequence: &StmtSeq,
-) -> bool {
-    facts.map_or_else(
-        || classify_sequence_contains_comments(sequence),
-        |facts| facts.sequence_contains_comments(sequence),
-    )
+pub(super) fn stmt_seq_contains_comments(facts: &FormatterFacts<'_>, sequence: &StmtSeq) -> bool {
+    facts.sequence_contains_comments(sequence)
 }
 
-pub(super) fn stmt_seq_has_heredoc(facts: Option<&FormatterFacts<'_>>, sequence: &StmtSeq) -> bool {
-    facts.map_or_else(
-        || classify_sequence_contains_heredoc(sequence),
-        |facts| facts.sequence_contains_heredoc(sequence),
-    )
+pub(super) fn stmt_seq_has_heredoc(facts: &FormatterFacts<'_>, sequence: &StmtSeq) -> bool {
+    facts.sequence_contains_heredoc(sequence)
 }
 
 pub(super) fn normalize_raw_backtick_command_substitution(raw: &str) -> Option<String> {
@@ -622,8 +613,9 @@ pub(super) fn render_inline_raw_command_substitution_as_block(
         return None;
     }
 
+    let context = RenderContext::new(body, options, &parsed_facts);
     let mut nested = String::new();
-    format_nested_stmt_sequence_to_buf(body, &parsed.file.body, options, None, None, &mut nested)?;
+    format_nested_stmt_sequence_to_buf(&parsed.file.body, context, None, &mut nested)?;
     let trimmed = trim_trailing_line_endings(&nested);
     if trimmed.is_empty() {
         return Some("$()".to_string());

@@ -31,13 +31,14 @@ use crate::command::{
     line_gap_break_count, matching_group_close,
     multiline_compound_assignment_command_substitution_body_prefix,
     multiline_compound_assignment_layout, multiline_compound_assignment_lines,
-    render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
+    render_assignment_head_to_buf, render_assignment_to_buf, render_background_operator,
     render_subscript_to_buf, render_var_ref_to_buf, simple_command_uses_synthetic_words,
     slice_span, stmt_attachment_span, stmt_format_span, stmt_render_start_line, stmt_span,
     stmt_start_after_operator, stmt_verbatim_span_with_source_map,
     trim_unescaped_trailing_whitespace,
 };
 use crate::comments::{SourceComment, SourceMap};
+use crate::context::RenderContext;
 use crate::facts::{FormatterFacts, classify_sequence_contains_heredoc};
 use crate::options::{IndentStyle, ResolvedShellFormatOptions};
 use crate::raw_syntax::{
@@ -55,8 +56,8 @@ use crate::scan::{
 use crate::word::{
     normalize_raw_empty_parameter_replacement_delimiters,
     normalize_raw_unquoted_word_continuations, render_arithmetic_expr_to_buf,
-    render_escaped_multiline_word_syntax_with_facts_to_buf, render_heredoc_body_to_buf,
-    render_pattern_syntax_to_buf, render_word_syntax_with_facts_to_buf,
+    render_escaped_multiline_word_syntax_to_buf, render_heredoc_body_to_buf,
+    render_pattern_syntax_to_buf, render_word_syntax_to_buf,
     word_gap_end_before_trailing_continuation, word_is_quoted_command_substitution_only,
     word_is_quoted_formattable_command_substitution_only_with_facts,
 };
@@ -278,7 +279,11 @@ where
     }
 
     fn source_map(&self) -> &SourceMap<'source> {
-        self.facts.source_map()
+        self.render_context().source_map()
+    }
+
+    fn render_context(&self) -> RenderContext<'source, '_> {
+        RenderContext::new(self.source(), self.options(), self.facts())
     }
 
     fn line_ending(&self) -> &'static str {
@@ -322,17 +327,8 @@ where
         self.scratch = scratch;
     }
 
-    fn render_word_with_facts_to_buffer(&self, word: &Word, rendered: &mut String) {
-        let source_map = self.source_map().clone();
-        let facts = self.facts();
-        render_word_syntax_with_facts_to_buf(
-            word,
-            self.source(),
-            self.options(),
-            &source_map,
-            facts,
-            rendered,
-        );
+    fn render_word_to_buffer(&self, word: &Word, rendered: &mut String) {
+        render_word_syntax_to_buf(word, self.render_context(), rendered);
     }
 
     fn write_rendered(

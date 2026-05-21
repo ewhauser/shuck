@@ -4,23 +4,15 @@ use super::*;
 pub(crate) fn render_arithmetic_expr_to_buf(
     rendered: &mut String,
     expr: &ArithmeticExprNode,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
 ) {
-    push_arithmetic_expr(
-        rendered,
-        expr,
-        ArithmeticContext::TopLevel,
-        false,
-        WordRenderEnv::new(source, options, None, None),
-    );
+    push_arithmetic_expr(rendered, expr, ArithmeticContext::TopLevel, false, context);
 }
 
 pub(super) fn render_arithmetic_subscript_expr_to_buf(
     rendered: &mut String,
     expr: &ArithmeticExprNode,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
     compact: bool,
 ) {
     push_arithmetic_expr(
@@ -28,7 +20,7 @@ pub(super) fn render_arithmetic_subscript_expr_to_buf(
         expr,
         ArithmeticContext::Subscript,
         compact,
-        WordRenderEnv::new(source, options, None, None),
+        context,
     );
 }
 
@@ -49,7 +41,7 @@ pub(super) fn push_arithmetic_expr(
     expr: &ArithmeticExprNode,
     context: ArithmeticContext,
     compact: bool,
-    env: WordRenderEnv<'_, '_>,
+    env: RenderContext<'_, '_>,
 ) {
     let needs_parentheses = arithmetic_needs_parentheses(expr, context);
     if needs_parentheses {
@@ -66,13 +58,7 @@ pub(super) fn push_arithmetic_expr(
             rendered.push(']');
         }
         ArithmeticExpr::ShellWord(word) => {
-            let word = render_arithmetic_shell_word(
-                word,
-                env.source,
-                env.options,
-                env.source_map,
-                env.facts,
-            );
+            let word = render_arithmetic_shell_word(word, env);
             if compact {
                 rendered.push_str(&compact_dynamic_arithmetic_subscript(
                     word.trim_matches([' ', '\t', '\r']),
@@ -167,7 +153,7 @@ pub(super) fn push_arithmetic_expr(
 pub(super) fn push_arithmetic_expansion_body(
     rendered: &mut String,
     expr: &ArithmeticExprNode,
-    env: WordRenderEnv<'_, '_>,
+    env: RenderContext<'_, '_>,
 ) {
     let mut body = String::new();
     push_arithmetic_expr(&mut body, expr, ArithmeticContext::TopLevel, false, env);
@@ -228,28 +214,14 @@ pub(super) fn arithmetic_lvalue_contains_command_substitution(target: &Arithmeti
     }
 }
 
-pub(super) fn render_arithmetic_shell_word(
-    word: &Word,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-    source_map: Option<&SourceMap<'_>>,
-    facts: Option<&FormatterFacts<'_>>,
-) -> String {
+pub(super) fn render_arithmetic_shell_word(word: &Word, context: RenderContext<'_, '_>) -> String {
     let render_with_context = || {
         let mut rendered = String::new();
-        render_word_syntax_internal(
-            word,
-            source,
-            options,
-            source_map,
-            facts,
-            true,
-            &mut rendered,
-        );
+        render_word_syntax_internal(word, context, true, &mut rendered);
         rendered
     };
 
-    if options.simplify() || options.minify() {
+    if context.options.simplify() || context.options.minify() {
         let [part] = word.parts.as_slice() else {
             return render_with_context();
         };
@@ -260,9 +232,9 @@ pub(super) fn render_arithmetic_shell_word(
                 reference.name.to_string()
             }
             WordPart::Parameter(parameter)
-                if is_plain_arithmetic_identifier(parameter.raw_body.slice(source)) =>
+                if is_plain_arithmetic_identifier(parameter.raw_body.slice(context.source)) =>
             {
-                parameter.raw_body.slice(source).to_string()
+                parameter.raw_body.slice(context.source).to_string()
             }
             _ => render_with_context(),
         };
@@ -404,7 +376,7 @@ pub(super) fn arithmetic_assign_operator(op: ArithmeticAssignOp) -> &'static str
 pub(super) fn push_arithmetic_lvalue(
     rendered: &mut String,
     target: &ArithmeticLvalue,
-    env: WordRenderEnv<'_, '_>,
+    env: RenderContext<'_, '_>,
 ) {
     match target {
         ArithmeticLvalue::Variable(name) => rendered.push_str(name),
@@ -421,18 +393,19 @@ pub(super) fn push_arithmetic_source_text(
     rendered: &mut String,
     text: &shuck_ast::SourceText,
     ast: Option<&ArithmeticExprNode>,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
 ) {
     if let Some(ast) = ast {
         match &ast.kind {
-            ArithmeticExpr::ShellWord(word) if !options.simplify() && !options.minify() => {
-                rendered.push_str(&render_arithmetic_slice_shell_word(word, source, options));
+            ArithmeticExpr::ShellWord(word)
+                if !context.options.simplify() && !context.options.minify() =>
+            {
+                rendered.push_str(&render_arithmetic_slice_shell_word(word, context));
             }
-            _ => render_arithmetic_subscript_expr_to_buf(rendered, ast, source, options, true),
+            _ => render_arithmetic_subscript_expr_to_buf(rendered, ast, context, true),
         }
     } else {
-        rendered.push_str(text.slice(source));
+        rendered.push_str(text.slice(context.source));
     }
 }
 
@@ -440,11 +413,10 @@ pub(super) fn push_parameter_slice_offset(
     rendered: &mut String,
     text: &shuck_ast::SourceText,
     ast: Option<&ArithmeticExprNode>,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
 ) {
     let mut offset = String::new();
-    push_arithmetic_source_text(&mut offset, text, ast, source, options);
+    push_arithmetic_source_text(&mut offset, text, ast, context);
     if offset.starts_with('-') {
         rendered.push(' ');
     }
@@ -453,11 +425,12 @@ pub(super) fn push_parameter_slice_offset(
 
 pub(super) fn render_arithmetic_slice_shell_word(
     word: &Word,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
 ) -> String {
     let [part] = word.parts.as_slice() else {
-        return render_word_syntax(word, source, options);
+        let mut rendered = String::new();
+        render_word_syntax_to_buf(word, context, &mut rendered);
+        return rendered;
     };
 
     match &part.kind {
@@ -469,9 +442,9 @@ pub(super) fn render_arithmetic_slice_shell_word(
         } => {
             let mut body = String::new();
             if let Some(ast) = expression_ast.as_deref() {
-                render_arithmetic_expr_to_buf(&mut body, ast, source, options);
+                render_arithmetic_expr_to_buf(&mut body, ast, context);
             } else {
-                body.push_str(expression.slice(source).trim());
+                body.push_str(expression.slice(context.source).trim());
             }
             let (open, close) = match syntax {
                 ArithmeticExpansionSyntax::DollarParenParen => ("$((", "))"),
@@ -479,7 +452,11 @@ pub(super) fn render_arithmetic_slice_shell_word(
             };
             format!("{open}{body}{close}")
         }
-        _ => render_word_syntax(word, source, options),
+        _ => {
+            let mut rendered = String::new();
+            render_word_syntax_to_buf(word, context, &mut rendered);
+            rendered
+        }
     }
 }
 
@@ -488,18 +465,14 @@ pub(super) fn push_arithmetic_expansion(
     expression: &shuck_ast::SourceText,
     expression_ast: Option<&ArithmeticExprNode>,
     syntax: ArithmeticExpansionSyntax,
-    env: WordRenderEnv<'_, '_>,
+    env: RenderContext<'_, '_>,
 ) {
     let expression_source = expression.slice(env.source);
     if matches!(syntax, ArithmeticExpansionSyntax::LegacyBracket) {
         push_trimmed_arithmetic_expansion_source(rendered, expression_source, syntax);
-    } else if let Some(formatted) = format_multiline_arithmetic_expansion_source(
-        expression_source,
-        syntax,
-        expression_ast,
-        env.source,
-        env.options,
-    ) {
+    } else if let Some(formatted) =
+        format_multiline_arithmetic_expansion_source(expression_source, syntax, expression_ast, env)
+    {
         rendered.push_str(&formatted);
     } else if arithmetic_expression_prefers_raw_source(expression_source)
         || !expression.is_source_backed()
@@ -542,8 +515,7 @@ pub(super) fn format_multiline_arithmetic_expansion_source(
     expression_source: &str,
     syntax: ArithmeticExpansionSyntax,
     expression_ast: Option<&ArithmeticExprNode>,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
 ) -> Option<String> {
     if !matches!(syntax, ArithmeticExpansionSyntax::DollarParenParen)
         || !expression_source.contains('\n')
@@ -555,13 +527,15 @@ pub(super) fn format_multiline_arithmetic_expansion_source(
     let operators = multiline_arithmetic_source_trailing_operators(expression_source)?;
     let mut rendered_body = String::new();
     if let Some(expression_ast) = expression_ast {
-        render_arithmetic_expr_to_buf(&mut rendered_body, expression_ast, source, options);
+        render_arithmetic_expr_to_buf(&mut rendered_body, expression_ast, context);
     } else {
         rendered_body.push_str(expression_source.trim());
     }
     let lines = split_rendered_arithmetic_body_at_source_operators(&rendered_body, &operators)?;
     let mut continuation_indent = String::new();
-    options.push_indent_units(&mut continuation_indent, 1);
+    context
+        .options
+        .push_indent_units(&mut continuation_indent, 1);
     let lines = lines
         .into_iter()
         .map(|line| format!("{continuation_indent}{line}"))
@@ -625,8 +599,7 @@ pub(super) fn arithmetic_expression_prefers_raw_source(expression_source: &str) 
 pub(super) fn push_var_ref(
     rendered: &mut String,
     reference: &VarRef,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
 ) {
     rendered.push_str(reference.name.as_ref());
     if let Some(subscript) = &reference.subscript {
@@ -637,12 +610,13 @@ pub(super) fn push_var_ref(
                 SubscriptSelector::Star => '*',
             });
         } else if let Some(ast) = subscript.arithmetic_ast.as_ref() {
-            let compact =
-                !arithmetic_subscript_prefers_spaced_expression(subscript.syntax_text(source));
-            render_arithmetic_subscript_expr_to_buf(rendered, ast, source, options, compact);
+            let compact = !arithmetic_subscript_prefers_spaced_expression(
+                subscript.syntax_text(context.source),
+            );
+            render_arithmetic_subscript_expr_to_buf(rendered, ast, context, compact);
         } else {
             rendered.push_str(&compact_dynamic_arithmetic_subscript(
-                subscript.syntax_text(source),
+                subscript.syntax_text(context.source),
             ));
         }
         rendered.push(']');

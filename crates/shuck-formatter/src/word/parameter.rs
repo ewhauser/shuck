@@ -7,9 +7,9 @@ use super::*;
 pub(super) fn push_parameter_word(
     rendered: &mut String,
     parameter: &shuck_ast::ParameterExpansion,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
 ) -> Result<(), std::fmt::Error> {
+    let source = context.source;
     let Some(syntax) = parameter.bourne() else {
         let raw = parameter.raw_body.slice(source);
         rendered.push_str("${");
@@ -20,13 +20,13 @@ pub(super) fn push_parameter_word(
 
     match syntax {
         BourneParameterExpansion::Access { reference } => {
-            push_braced_var_ref(rendered, "", reference, source, options);
+            push_braced_var_ref(rendered, "", reference, context);
         }
         BourneParameterExpansion::Length { reference } => {
-            push_braced_var_ref(rendered, "#", reference, source, options);
+            push_braced_var_ref(rendered, "#", reference, context);
         }
         BourneParameterExpansion::Indices { reference } => {
-            push_braced_var_ref(rendered, "!", reference, source, options);
+            push_braced_var_ref(rendered, "!", reference, context);
         }
         BourneParameterExpansion::Indirect {
             reference,
@@ -36,7 +36,7 @@ pub(super) fn push_parameter_word(
             ..
         } => {
             rendered.push_str("${!");
-            push_var_ref(rendered, reference, source, options);
+            push_var_ref(rendered, reference, context);
             if let Some(operator) = operator {
                 if *colon_variant {
                     rendered.push(':');
@@ -63,18 +63,12 @@ pub(super) fn push_parameter_word(
             ..
         } => {
             rendered.push_str("${");
-            push_var_ref(rendered, reference, source, options);
+            push_var_ref(rendered, reference, context);
             rendered.push(':');
-            push_parameter_slice_offset(rendered, offset, offset_ast.as_deref(), source, options);
+            push_parameter_slice_offset(rendered, offset, offset_ast.as_deref(), context);
             if let Some(length) = length {
                 rendered.push(':');
-                push_arithmetic_source_text(
-                    rendered,
-                    length,
-                    length_ast.as_deref(),
-                    source,
-                    options,
-                );
+                push_arithmetic_source_text(rendered, length, length_ast.as_deref(), context);
             }
             rendered.push('}');
         }
@@ -92,7 +86,7 @@ pub(super) fn push_parameter_word(
                 operand.as_ref(),
                 *colon_variant,
                 Some(parameter.span),
-                WordRenderEnv::new(source, options, None, None),
+                context,
             )?;
         }
         BourneParameterExpansion::Transformation {
@@ -100,7 +94,7 @@ pub(super) fn push_parameter_word(
             operator,
         } => {
             rendered.push_str("${");
-            push_var_ref(rendered, reference, source, options);
+            push_var_ref(rendered, reference, context);
             rendered.push('@');
             std::write!(rendered, "{operator}")?;
             rendered.push('}');
@@ -113,15 +107,17 @@ pub(super) fn push_parameter_word(
 pub(super) fn push_parameter_operand(
     rendered: &mut String,
     operand: &shuck_ast::SourceText,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
 ) {
-    let operand = compact_parameter_operand_subscripts(operand.slice(source));
+    let operand = compact_parameter_operand_subscripts(operand.slice(context.source));
     if operand.contains("$(") || operand.contains('`') {
         let mut normalized = String::new();
         push_raw_shell_text_with_normalized_redirect_spacing(&mut normalized, &operand);
         if let Some(command_normalized) =
-            normalize_inline_command_substitutions_in_parameter_operand(&normalized, options)
+            normalize_inline_command_substitutions_in_parameter_operand(
+                &normalized,
+                context.options,
+            )
         {
             rendered.push_str(&command_normalized);
         } else {
@@ -190,16 +186,11 @@ pub(super) fn normalize_inline_parameter_command_substitution_body(
     if parsed.is_err() {
         return None;
     }
+    let parsed_facts = FormatterFacts::build(trimmed, &parsed.file, options);
+    let context = RenderContext::new(trimmed, options, &parsed_facts);
 
     let mut nested = String::new();
-    format_nested_stmt_sequence_to_buf(
-        trimmed,
-        &parsed.file.body,
-        options,
-        None,
-        None,
-        &mut nested,
-    )?;
+    format_nested_stmt_sequence_to_buf(&parsed.file.body, context, None, &mut nested)?;
     let formatted = trim_trailing_line_endings(&nested);
     (!formatted.is_empty() && !formatted.contains('\n')).then(|| formatted.to_string())
 }
@@ -246,12 +237,12 @@ pub(super) fn render_parameter_expansion(
     operand: Option<&shuck_ast::SourceText>,
     colon_variant: bool,
     raw_parameter_span: Option<shuck_ast::Span>,
-    env: WordRenderEnv<'_, '_>,
+    env: RenderContext<'_, '_>,
 ) -> Result<(), std::fmt::Error> {
     let (source, options) = (env.source, env.options);
 
     rendered.push_str("${");
-    push_var_ref(rendered, reference, source, options);
+    push_var_ref(rendered, reference, env);
     match operator {
         ParameterOp::UseDefault
         | ParameterOp::AssignDefault
@@ -262,7 +253,7 @@ pub(super) fn render_parameter_expansion(
             }
             rendered.push_str(parameter_defaulting_operator(operator));
             if let Some(operand) = operand {
-                push_parameter_operand(rendered, operand, source, options);
+                push_parameter_operand(rendered, operand, env);
             }
         }
         ParameterOp::RemovePrefixShort { pattern }
@@ -277,7 +268,7 @@ pub(super) fn render_parameter_expansion(
                 _ => unreachable!(),
             };
             rendered.push_str(removal_operator);
-            render_pattern_syntax_to_buf(pattern, source, options, rendered);
+            render_pattern_syntax_to_buf(pattern, env, rendered);
         }
         ParameterOp::ReplaceFirst {
             pattern,
@@ -305,7 +296,7 @@ pub(super) fn render_parameter_expansion(
                 rendered.push('/');
                 rendered.push_str(raw_replacement);
             } else {
-                render_parameter_replacement_pattern(rendered, pattern, source, options);
+                render_parameter_replacement_pattern(rendered, pattern, env);
                 rendered.push('/');
                 push_parameter_replacement_text(rendered, replacement, source);
             }
@@ -371,9 +362,10 @@ pub(super) fn split_raw_parameter_replacement(raw: &str) -> (&str, &str) {
 pub(super) fn render_parameter_replacement_pattern(
     rendered: &mut String,
     pattern: &Pattern,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
 ) {
+    let source = context.source;
+    let options = context.options;
     if !options.simplify()
         && !options.minify()
         && let Some(raw) = raw_pattern_source_slice(pattern, source)
@@ -382,7 +374,7 @@ pub(super) fn render_parameter_replacement_pattern(
         return;
     }
 
-    render_pattern_syntax_to_buf(pattern, source, options, rendered);
+    render_pattern_syntax_to_buf(pattern, context, rendered);
 }
 
 pub(super) fn push_parameter_replacement_text(
@@ -409,12 +401,13 @@ pub(crate) fn parameter_defaulting_operator(operator: &ParameterOp) -> &'static 
 
 pub(crate) fn render_pattern_syntax_to_buf(
     pattern: &Pattern,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
     rendered: &mut String,
 ) {
+    let source = context.source;
+    let options = context.options;
     if pattern_needs_formatter_rendering(pattern) {
-        render_pattern_parts_syntax_to_buf(pattern, source, options, rendered);
+        render_pattern_parts_syntax_to_buf(pattern, context, rendered);
         return;
     }
 
@@ -447,14 +440,13 @@ pub(super) fn pattern_needs_formatter_rendering(pattern: &Pattern) -> bool {
 
 pub(super) fn render_pattern_parts_syntax_to_buf(
     pattern: &Pattern,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
+    context: RenderContext<'_, '_>,
     rendered: &mut String,
 ) {
     for part in &pattern.parts {
         match &part.kind {
             PatternPart::Word(word) => {
-                render_word_syntax_to_buf(word, source, options, rendered);
+                render_word_syntax_to_buf(word, context, rendered);
             }
             PatternPart::Group { kind, patterns } => {
                 let _ = std::write!(rendered, "{}(", kind.prefix());
@@ -462,7 +454,7 @@ pub(super) fn render_pattern_parts_syntax_to_buf(
                     if index > 0 {
                         rendered.push('|');
                     }
-                    render_pattern_syntax_to_buf(pattern, source, options, rendered);
+                    render_pattern_syntax_to_buf(pattern, context, rendered);
                 }
                 rendered.push(')');
             }
@@ -471,7 +463,7 @@ pub(super) fn render_pattern_parts_syntax_to_buf(
                     parts: vec![part.clone()],
                     span: part.span,
                 };
-                single.render_syntax_to_buf(source, rendered);
+                single.render_syntax_to_buf(context.source, rendered);
             }
         }
     }

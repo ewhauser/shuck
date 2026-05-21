@@ -268,7 +268,7 @@ where
 
     pub(super) fn format_simple_command(&mut self, command: &SimpleCommand) -> Result<()> {
         let mut rendered_name = self.take_scratch_buffer();
-        self.render_word_with_facts_to_buffer(&command.name, &mut rendered_name);
+        self.render_word_to_buffer(&command.name, &mut rendered_name);
         if command.args.is_empty()
             && command.assignments.len() == 1
             && rendered_name.is_empty()
@@ -288,7 +288,7 @@ where
         redirects: &[Redirect],
     ) {
         let mut rendered_name = self.take_scratch_buffer();
-        self.render_word_with_facts_to_buffer(&command.name, &mut rendered_name);
+        self.render_word_to_buffer(&command.name, &mut rendered_name);
         self.format_simple_command_parts(command, redirects, rendered_name);
     }
 

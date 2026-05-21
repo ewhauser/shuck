@@ -1234,7 +1234,7 @@ where
             && !expression_source.is_some_and(|source| source.contains('\n'))
         {
             let mut body = self.take_scratch_buffer();
-            render_arithmetic_expr_to_buf(&mut body, expr, self.source(), self.options());
+            render_arithmetic_expr_to_buf(&mut body, expr, self.render_context());
             self.write_text("((");
             self.write_text(&body);
             self.write_text("))");
@@ -1267,20 +1267,17 @@ where
         let init = format_arithmetic_for_clause_source(
             init,
             command.init_ast.as_ref(),
-            source,
-            self.options(),
+            self.render_context(),
         );
         let condition = format_arithmetic_for_clause_source(
             condition,
             command.condition_ast.as_ref(),
-            source,
-            self.options(),
+            self.render_context(),
         );
         let step = format_arithmetic_for_clause_source(
             step,
             command.step_ast.as_ref(),
-            source,
-            self.options(),
+            self.render_context(),
         );
         self.write_text("for ((");
         self.write_text(&init);
@@ -1387,10 +1384,7 @@ where
             && let Some(name) = function.header.entries[0].static_name.as_ref()
         {
             let mut rendered_entry = self.take_scratch_buffer();
-            self.render_word_with_facts_to_buffer(
-                &function.header.entries[0].word,
-                &mut rendered_entry,
-            );
+            self.render_word_to_buffer(&function.header.entries[0].word, &mut rendered_entry);
             let classic_single_name = name.as_str() == rendered_entry;
             self.restore_scratch_buffer(rendered_entry);
 
@@ -1834,7 +1828,7 @@ where
 
     pub(super) fn conditional_word_needs_tight_close(&mut self, word: &Word) -> bool {
         let mut rendered = self.take_scratch_buffer();
-        self.render_word_with_facts_to_buffer(word, &mut rendered);
+        self.render_word_to_buffer(word, &mut rendered);
         let needs_tight_close = matches!(
             rendered.as_str(),
             "!" | "-a"
