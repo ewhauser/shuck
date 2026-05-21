@@ -959,7 +959,7 @@ impl<'a> Parser<'a> {
             }
             let done_span = self.current_span;
             self.advance();
-            (body, Some(done_span), done_span)
+            (body, Some(done_span), self.current_span)
         };
 
         self.pop_depth();
@@ -1037,7 +1037,7 @@ impl<'a> Parser<'a> {
             }
             let done_span = self.current_span;
             self.advance();
-            (body, Some(done_span), done_span)
+            (body, Some(done_span), self.current_span)
         };
 
         self.pop_depth();
