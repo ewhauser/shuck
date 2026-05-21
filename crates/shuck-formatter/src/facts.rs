@@ -75,6 +75,52 @@ impl SequenceSiteKey {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct SequenceSite<'a> {
+    sequence: &'a StmtSeq,
+    upper_bound: Option<usize>,
+    group_open_char: Option<char>,
+    open_suffix_span: Option<Span>,
+    open_end_offset: Option<usize>,
+}
+
+impl<'a> SequenceSite<'a> {
+    fn new(
+        sequence: &'a StmtSeq,
+        upper_bound: Option<usize>,
+        group_open_char: Option<char>,
+        open_suffix_span: Option<Span>,
+        open_end_offset: Option<usize>,
+    ) -> Self {
+        Self {
+            sequence,
+            upper_bound,
+            group_open_char,
+            open_suffix_span,
+            open_end_offset,
+        }
+    }
+
+    fn key(self) -> SequenceSiteKey {
+        SequenceSiteKey::new(self.sequence, self.upper_bound)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct StmtSite<'a> {
+    stmt: &'a Stmt,
+    key: FactSpan,
+}
+
+impl<'a> StmtSite<'a> {
+    fn new(stmt: &'a Stmt) -> Self {
+        Self {
+            stmt,
+            key: FactSpan::from(stmt_span(stmt)),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct OffsetRegionKey {
     start: usize,
@@ -389,28 +435,31 @@ struct LayoutAnnotations {
 }
 
 impl LayoutAnnotations {
-    fn build(source: &str, file: &File) -> Self {
-        let mut pass = LayoutAnnotationPass::new(source);
-        pass.visit_stmt_seq(&file.body);
-        pass.annotations
-    }
-
     fn build_for_sequence(source: &str, sequence: &StmtSeq) -> Self {
-        let mut pass = LayoutAnnotationPass::new(source);
-        pass.visit_stmt_seq(sequence);
-        pass.annotations
+        let mut annotations = Self::default();
+        {
+            let mut pass = LayoutAnnotationPass::new(source, &mut annotations);
+            pass.visit_stmt_seq(sequence);
+        }
+        annotations
     }
 
     fn build_for_stmt(source: &str, stmt: &Stmt) -> Self {
-        let mut pass = LayoutAnnotationPass::new(source);
-        pass.visit_stmt(stmt);
-        pass.annotations
+        let mut annotations = Self::default();
+        {
+            let mut pass = LayoutAnnotationPass::new(source, &mut annotations);
+            pass.visit_stmt(stmt);
+        }
+        annotations
     }
 
     fn build_for_word(source: &str, word: &Word) -> Self {
-        let mut pass = LayoutAnnotationPass::new(source);
-        pass.visit_word(word);
-        pass.annotations
+        let mut annotations = Self::default();
+        {
+            let mut pass = LayoutAnnotationPass::new(source, &mut annotations);
+            pass.visit_word(word);
+        }
+        annotations
     }
 
     fn sequence(&self, sequence: &StmtSeq) -> LayoutSummary {
@@ -441,16 +490,16 @@ impl LayoutAnnotations {
     }
 }
 
-struct LayoutAnnotationPass<'source> {
+struct LayoutAnnotationPass<'source, 'annotations> {
     source: &'source str,
-    annotations: LayoutAnnotations,
+    annotations: &'annotations mut LayoutAnnotations,
 }
 
-impl<'source> LayoutAnnotationPass<'source> {
-    fn new(source: &'source str) -> Self {
+impl<'source, 'annotations> LayoutAnnotationPass<'source, 'annotations> {
+    fn new(source: &'source str, annotations: &'annotations mut LayoutAnnotations) -> Self {
         Self {
             source,
-            annotations: LayoutAnnotations::default(),
+            annotations,
         }
     }
 
@@ -1176,7 +1225,7 @@ impl<'source> LayoutAnnotationPass<'source> {
     }
 }
 
-impl AstVisitor for LayoutAnnotationPass<'_> {
+impl AstVisitor for LayoutAnnotationPass<'_, '_> {
     fn visit_stmt_seq(&mut self, sequence: &StmtSeq) {
         let key = FactSpan::from(sequence.span);
         if self.annotations.sequences.contains_key(&key) {
@@ -1861,9 +1910,55 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn build(mut self, file: &File) -> FormatterFacts<'source> {
-        self.layout = LayoutAnnotations::build(self.source, file);
         self.visit_sequence(&file.body, None, None);
         self.facts
+    }
+
+    fn record_sequence_layout(&mut self, sequence: &StmtSeq) -> LayoutSummary {
+        let key = FactSpan::from(sequence.span);
+        if let Some(summary) = self.layout.sequences.get(&key).copied() {
+            return summary;
+        }
+
+        let mut summary = LayoutSummary::default().with_comments(
+            !sequence.leading_comments.is_empty() || !sequence.trailing_comments.is_empty(),
+        );
+        for stmt in sequence.iter() {
+            summary.merge(self.layout.stmt(stmt));
+        }
+        self.layout.sequences.insert(key, summary);
+        summary
+    }
+
+    fn record_stmt_layout(&mut self, stmt: &Stmt) -> LayoutSummary {
+        let key = FactSpan::from(stmt_span(stmt));
+        if let Some(summary) = self.layout.statements.get(&key).copied() {
+            return summary;
+        }
+
+        let mut summary = {
+            let reader = LayoutAnnotationPass::new(self.source, &mut self.layout);
+            reader.command_layout(&stmt.command)
+        }
+        .with_comments(!stmt.leading_comments.is_empty() || stmt.inline_comment.is_some());
+        for redirect in &stmt.redirects {
+            let reader = LayoutAnnotationPass::new(self.source, &mut self.layout);
+            summary.merge(reader.redirect_layout(redirect));
+        }
+        self.layout.statements.insert(key, summary);
+        summary
+    }
+
+    fn record_word_layout(&mut self, word: &Word) -> LayoutSummary {
+        let key = FactSpan::from(word.span);
+        if let Some(summary) = self.layout.words.get(&key).copied() {
+            return summary;
+        }
+
+        let reader = LayoutAnnotationPass::new(self.source, &mut self.layout);
+        let summary = reader.word_layout(word);
+        self.layout.words.insert(key, summary);
+        summary
     }
 
     fn visit_sequence(
@@ -1903,29 +1998,36 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         open_suffix_span: Option<Span>,
         open_end_offset: Option<usize>,
     ) {
+        let site = SequenceSite::new(
+            sequence,
+            upper_bound,
+            group_open_char,
+            open_suffix_span,
+            open_end_offset,
+        );
         for stmt in sequence.iter() {
             self.visit_stmt(stmt);
         }
 
-        let key = SequenceSiteKey::new(sequence, upper_bound);
+        let key = site.key();
         if self.facts.sequence_facts.contains_key(&key) {
             return;
         }
 
         let mut facts = SequenceFacts::new(sequence.len());
-        facts.group_open_suffix_span = open_suffix_span.or_else(|| {
-            group_open_char.and_then(|open| {
+        facts.group_open_suffix_span = site.open_suffix_span.or_else(|| {
+            site.group_open_char.and_then(|open| {
                 group_open_suffix(sequence.as_slice(), self.source_map(), open)
                     .map(|(span, _)| span)
             })
         });
-        let layout = self.layout.sequence(sequence);
+        let layout = self.record_sequence_layout(sequence);
         facts.contains_comments = layout.contains_comments;
         facts.contains_heredoc = layout.contains_heredoc;
         facts.contains_multiline_literal_source = layout.contains_multiline_literal_source;
         facts.contains_multistatement_pipeline_brace_group =
             layout.contains_multistatement_pipeline_brace_group;
-        let group_attachment_span = group_open_char.and_then(|open| {
+        let group_attachment_span = site.group_open_char.and_then(|open| {
             let close = match open {
                 '{' => '}',
                 '(' => ')',
@@ -1948,7 +2050,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             .map(|comment| usize::from(comment.range.end()))
             .max()
             .unwrap_or(facts.body_content_end);
-        facts.open_end_offset = if let Some(open) = group_open_char {
+        facts.open_end_offset = if let Some(open) = site.group_open_char {
             facts
                 .group_open_suffix_span
                 .map(|span| span.end.offset)
@@ -1958,7 +2060,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                         .map(|span| span.start.offset.saturating_add(open.len_utf8()))
                 })
         } else {
-            open_end_offset
+            site.open_end_offset
         };
         facts.has_blank_line_after_open = facts.open_end_offset.is_some_and(|offset| {
             body_has_blank_line_after_open(
@@ -1969,22 +2071,23 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 &self.layout,
             )
         });
-        facts.has_blank_line_before_close =
-            if let (Some(open), Some(span)) = (group_open_char, facts.group_attachment_span) {
-                let close = matching_group_close(open);
-                let close_offset =
-                    group_close_offset(self.source, span, upper_bound, close, close.len_utf8());
+        facts.has_blank_line_before_close = if let (Some(open), Some(span)) =
+            (site.group_open_char, facts.group_attachment_span)
+        {
+            let close = matching_group_close(open);
+            let close_offset =
+                group_close_offset(self.source, span, site.upper_bound, close, close.len_utf8());
+            self.source_map()
+                .has_blank_line_immediately_before_offset(close_offset)
+        } else {
+            site.upper_bound.is_some_and(|offset| {
                 self.source_map()
-                    .has_blank_line_immediately_before_offset(close_offset)
-            } else {
-                upper_bound.is_some_and(|offset| {
-                    self.source_map()
-                        .has_blank_line_immediately_before_offset(offset)
-                })
-            };
+                    .has_blank_line_immediately_before_offset(offset)
+            })
+        };
         let sequence_limit = group_attachment_span
             .map(|span| span.end.offset)
-            .or(upper_bound);
+            .or(site.upper_bound);
 
         let comment_lower_bound = sequence_comment_lower_bound(sequence, self.source_map());
         let lower_bound = group_attachment_span
@@ -2050,46 +2153,9 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_stmt(&mut self, stmt: &Stmt) {
-        let stmt_key = FactSpan::from(stmt_span(stmt));
-        if !self.facts.stmt_facts.contains_key(&stmt_key) {
-            let contains_heredoc = self.layout.stmt(stmt).contains_heredoc;
-            let preserve_verbatim = should_render_verbatim_with_heredoc(
-                stmt,
-                self.source_map(),
-                self.options,
-                contains_heredoc,
-            );
-            let render_span = if preserve_verbatim {
-                stmt_verbatim_span_with_source_map(stmt, self.source_map())
-            } else {
-                stmt_format_span(stmt)
-            };
-            let stmt_contains_heredoc = |stmt: &Stmt| self.layout.stmt(stmt).contains_heredoc;
-            let attachment_span = stmt_attachment_span_with_heredoc(
-                stmt,
-                self.source,
-                self.source_map(),
-                self.options,
-                stmt_contains_heredoc,
-            );
-            let rendered_end_line = rendered_stmt_end_line_with_heredoc(
-                stmt,
-                self.source,
-                self.source_map(),
-                stmt_contains_heredoc,
-            );
-            self.facts.stmt_facts.insert(
-                stmt_key,
-                StmtFacts {
-                    attachment_span,
-                    render_span,
-                    rendered_end_line,
-                    has_trailing_comment: stmt_has_trailing_comment(stmt, self.source_map()),
-                    preserve_verbatim,
-                    contains_heredoc,
-                },
-            );
-        }
+        let site = StmtSite::new(stmt);
+        let stmt = site.stmt;
+        let already_recorded = self.facts.stmt_facts.contains_key(&site.key);
 
         for redirect in &stmt.redirects {
             self.visit_redirect(redirect);
@@ -2110,6 +2176,49 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         }
 
         self.visit_command(&stmt.command);
+
+        if already_recorded {
+            return;
+        }
+
+        let layout = self.record_stmt_layout(stmt);
+        let contains_heredoc = layout.contains_heredoc;
+        let preserve_verbatim = should_render_verbatim_with_heredoc(
+            stmt,
+            self.source_map(),
+            self.options,
+            contains_heredoc,
+        );
+        let render_span = if preserve_verbatim {
+            stmt_verbatim_span_with_source_map(stmt, self.source_map())
+        } else {
+            stmt_format_span(stmt)
+        };
+        let stmt_contains_heredoc = |stmt: &Stmt| self.layout.stmt(stmt).contains_heredoc;
+        let attachment_span = stmt_attachment_span_with_heredoc(
+            stmt,
+            self.source,
+            self.source_map(),
+            self.options,
+            stmt_contains_heredoc,
+        );
+        let rendered_end_line = rendered_stmt_end_line_with_heredoc(
+            stmt,
+            self.source,
+            self.source_map(),
+            stmt_contains_heredoc,
+        );
+        self.facts.stmt_facts.insert(
+            site.key,
+            StmtFacts {
+                attachment_span,
+                render_span,
+                rendered_end_line,
+                has_trailing_comment: stmt_has_trailing_comment(stmt, self.source_map()),
+                preserve_verbatim,
+                contains_heredoc,
+            },
+        );
     }
 
     fn visit_command(&mut self, command: &Command) {
@@ -2283,6 +2392,23 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 .flatten(),
         );
         for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
+            let body_upper_bound = Some(if_branch_upper_bound(
+                command,
+                index + 1,
+                self.source,
+                self.source_map(),
+                &self.facts,
+            ));
+            if brace_syntax {
+                self.record_inline_group_sequence(body, '{', '}');
+                self.visit_sequence_with_suffix(
+                    body,
+                    body_upper_bound,
+                    group_open_char,
+                    None,
+                    None,
+                );
+            }
             let condition_upper_bound = if brace_syntax {
                 group_attachment_span_with_heredoc(
                     body.as_slice(),
@@ -2296,26 +2422,15 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 branch_open_keyword_start(body, self.source_map().source(), "then")
             };
             self.visit_sequence(condition, condition_upper_bound, None);
-            if brace_syntax {
-                self.record_inline_group_sequence(body, '{', '}');
+            if !brace_syntax {
+                self.visit_sequence_with_suffix(
+                    body,
+                    body_upper_bound,
+                    group_open_char,
+                    branch_open_suffix_span(body, self.source_map(), "then"),
+                    branch_open_end_offset(body, self.source, "then"),
+                );
             }
-            self.visit_sequence_with_suffix(
-                body,
-                Some(if_branch_upper_bound(
-                    command,
-                    index + 1,
-                    self.source,
-                    self.source_map(),
-                    &self.facts,
-                )),
-                group_open_char,
-                (!brace_syntax)
-                    .then(|| branch_open_suffix_span(body, self.source_map(), "then"))
-                    .flatten(),
-                (!brace_syntax)
-                    .then(|| branch_open_end_offset(body, self.source, "then"))
-                    .flatten(),
-            );
         }
         if let Some(else_branch) = &command.else_branch {
             if brace_syntax {
@@ -2511,6 +2626,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 open,
                 matching_group_close(open),
             );
+            self.record_stmt_layout(body);
         } else {
             self.visit_stmt(body);
         }
@@ -2542,14 +2658,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_assignment(&mut self, assignment: &Assignment) {
-        match &assignment.value {
-            AssignmentValue::Scalar(word) => self.visit_word(word),
-            AssignmentValue::Compound(array) => {
-                for element in &array.elements {
-                    self.visit_word(array_elem_parts(element).1);
-                }
-            }
-        }
+        visit::walk_assignment(self, assignment);
     }
 
     fn visit_conditional_expr(&mut self, expression: &ConditionalExpr) {
@@ -2567,9 +2676,13 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         }
 
         visit::walk_word(self, word);
-        self.facts
-            .word_facts
-            .insert(word_key, self.layout.word_facts(word));
+        let layout = self.record_word_layout(word);
+        self.facts.word_facts.insert(
+            word_key,
+            WordFacts {
+                has_multiline_literal_source: layout.contains_multiline_literal_source,
+            },
+        );
     }
 
     fn visit_word_part(&mut self, part: &WordPart, span: Span) {
@@ -2585,10 +2698,22 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             WordPart::ProcessSubstitution { body, .. } => {
                 self.visit_sequence(body, span.end.offset.checked_sub(1), None);
             }
+            WordPart::ZshQualifiedGlob(glob) => {
+                for segment in &glob.segments {
+                    if let ZshGlobSegment::Pattern(pattern) = segment {
+                        self.visit_pattern(pattern);
+                    }
+                }
+            }
             WordPart::ArithmeticExpansion {
                 expression_ast: Some(expr),
                 ..
             } => self.visit_arithmetic_expr(expr),
+            WordPart::ArithmeticExpansion {
+                expression_ast: None,
+                expression_word_ast,
+                ..
+            } => self.visit_word(expression_word_ast),
             WordPart::Parameter(parameter) => self.visit_parameter_expansion(parameter),
             WordPart::ParameterExpansion {
                 reference,
@@ -2653,9 +2778,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             | WordPart::Literal(_)
             | WordPart::SingleQuoted { .. }
             | WordPart::Variable(_)
-            | WordPart::ArithmeticExpansion { .. }
-            | WordPart::PrefixMatch { .. }
-            | WordPart::ZshQualifiedGlob(_) => {}
+            | WordPart::PrefixMatch { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
                 for part in parts {
                     self.visit_word_part(&part.kind, part.span);
@@ -2884,6 +3007,10 @@ impl<'source, 'options> AstVisitor for FormatterFactsBuilder<'source, 'options> 
 
     fn visit_assignment(&mut self, assignment: &Assignment) {
         FormatterFactsBuilder::visit_assignment(self, assignment);
+    }
+
+    fn visit_word(&mut self, word: &Word) {
+        FormatterFactsBuilder::visit_word(self, word);
     }
 
     fn visit_word_part(&mut self, part: &WordPartNode) {

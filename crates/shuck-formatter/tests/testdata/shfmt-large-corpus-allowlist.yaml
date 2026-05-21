@@ -1060,9 +1060,7 @@ entries:
     end_line: 638
   - start_line: 1660
     end_line: 1672
-  - start_line: 1878
-    end_line: 1884
-  diff_hash: 78074453b39582f1ce3233d4a76e2ffbe2837fd8c717d999f27fffeafa5b5dcb
+  diff_hash: 932a87bbee4b7ee5f3342780cd370161580c4261112ebaf2c70615c82416ba69
   reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
 - path_suffix: bittorf__kalua__openwrt-build__build.sh
   hunks:
