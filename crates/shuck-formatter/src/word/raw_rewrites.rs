@@ -600,6 +600,9 @@ pub(super) fn render_inline_raw_command_substitution_as_block(
     if body.is_empty() {
         return None;
     }
+    if !raw_shell_body_may_render_as_block(body) {
+        return None;
+    }
 
     let fragment = FragmentFormatter::parse(body, options)?;
     let inline_multiline = fragment
@@ -633,6 +636,10 @@ pub(super) fn render_inline_raw_command_substitution_as_block(
         rendered.push_str("\n)");
     }
     Some(rendered)
+}
+
+fn raw_shell_body_may_render_as_block(body: &str) -> bool {
+    raw_shell_body_needs_structural_spacing(body) || raw_shell_body_has_async_separator(body)
 }
 
 pub(super) fn raw_body_contains_pipeline_multistatement_brace_group(body: &str) -> bool {
@@ -732,6 +739,40 @@ pub(super) fn raw_brace_group_has_multiple_commands(body_after_open: &str) -> bo
             _ => {}
         }
         index += 1;
+    }
+
+    false
+}
+
+fn raw_shell_body_has_async_separator(body: &str) -> bool {
+    let mut quote = QuoteState::default();
+    let mut index = 0usize;
+
+    while index < body.len() {
+        let rest = &body[index..];
+        let Some(ch) = rest.chars().next() else {
+            break;
+        };
+        let next_index = index + ch.len_utf8();
+
+        if quote.consume_raw_char(ch, true) {
+            index = next_index;
+            continue;
+        }
+
+        if rest.starts_with("$(")
+            && !rest.starts_with("$((")
+            && let Some(close_offset) = matching_raw_command_substitution_close(body, index + 2)
+        {
+            index = close_offset + 1;
+            continue;
+        }
+
+        if ch == '&' && !matches!(rest.as_bytes().get(1), Some(b'>')) {
+            return true;
+        }
+
+        index = next_index;
     }
 
     false
