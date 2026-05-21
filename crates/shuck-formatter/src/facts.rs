@@ -4193,21 +4193,23 @@ fn compound_close_key(command: &CompoundCommand) -> Option<FactSpan> {
     let span = match command {
         CompoundCommand::If(command) => command.span,
         CompoundCommand::For(command) => match command.syntax {
-            shuck_ast::ForSyntax::InDoDone { .. } | shuck_ast::ForSyntax::ParenDoDone { .. } => {
-                command.span
-            }
-            shuck_ast::ForSyntax::InDirect { .. }
+            shuck_ast::ForSyntax::InDoDone { .. }
+            | shuck_ast::ForSyntax::ParenDoDone { .. }
             | shuck_ast::ForSyntax::InBrace { .. }
-            | shuck_ast::ForSyntax::ParenDirect { .. }
-            | shuck_ast::ForSyntax::ParenBrace { .. } => return None,
+            | shuck_ast::ForSyntax::ParenBrace { .. } => command.span,
+            shuck_ast::ForSyntax::InDirect { .. } | shuck_ast::ForSyntax::ParenDirect { .. } => {
+                return None;
+            }
         },
         CompoundCommand::Repeat(command) => match command.syntax {
-            shuck_ast::RepeatSyntax::DoDone { .. } => command.span,
-            shuck_ast::RepeatSyntax::Direct | shuck_ast::RepeatSyntax::Brace { .. } => return None,
+            shuck_ast::RepeatSyntax::DoDone { .. } | shuck_ast::RepeatSyntax::Brace { .. } => {
+                command.span
+            }
+            shuck_ast::RepeatSyntax::Direct => return None,
         },
         CompoundCommand::Foreach(command) => match command.syntax {
-            shuck_ast::ForeachSyntax::InDoDone { .. } => command.span,
-            shuck_ast::ForeachSyntax::ParenBrace { .. } => return None,
+            shuck_ast::ForeachSyntax::InDoDone { .. }
+            | shuck_ast::ForeachSyntax::ParenBrace { .. } => command.span,
         },
         CompoundCommand::ArithmeticFor(command) => command.span,
         CompoundCommand::While(command) => command.span,
@@ -4578,6 +4580,26 @@ mod tests {
                 .close_suffix_comment_plan_after_span(case_facts.esac_span().unwrap())
                 .is_some()
         );
+    }
+
+    #[test]
+    fn brace_form_loop_close_suffix_comments_extend_attachment_span() {
+        let source =
+            "for key value in a b c d; { print -r -- \"$key:$value\"; } # close\nprint done\n";
+        let file = Parser::with_dialect(source, shuck_parser::ShellDialect::Zsh)
+            .parse()
+            .unwrap()
+            .file;
+        let resolved = ShellFormatOptions::default()
+            .with_dialect(ShellDialect::Zsh)
+            .resolve(source, Some(Path::new("test.zsh")));
+        let facts = FormatterFacts::build(source, &file, &resolved);
+        let stmt = &file.body[0];
+        let attachment = facts.stmt(stmt).attachment_span().slice(source);
+
+        assert!(facts.stmt_compound_close_span(stmt).is_some());
+        assert!(attachment.ends_with("# close"));
+        assert!(!attachment.contains("print done"));
     }
 
     #[test]
