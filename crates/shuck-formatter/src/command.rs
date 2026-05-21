@@ -779,16 +779,17 @@ fn for_each_compound_child(command: &CompoundCommand, mut visitor: impl FnMut(Co
 }
 
 pub(crate) fn stmt_verbatim_span_with_source_map(stmt: &Stmt, source_map: &SourceMap<'_>) -> Span {
-    stmt_verbatim_span_impl(stmt, source_map.source(), Some(source_map))
+    stmt_verbatim_span_impl(stmt, source_map)
 }
 
-fn stmt_verbatim_span_impl(stmt: &Stmt, source: &str, source_map: Option<&SourceMap<'_>>) -> Span {
+fn stmt_verbatim_span_impl(stmt: &Stmt, source_map: &SourceMap<'_>) -> Span {
+    let source = source_map.source();
     let command_span = if let Command::Simple(command) = &stmt.command
         && simple_command_uses_synthetic_words(command, source)
     {
-        synthetic_simple_command_verbatim_span(command, source, source_map)
+        synthetic_simple_command_verbatim_span(command, source_map)
     } else {
-        command_verbatim_span(&stmt.command, source, source_map)
+        command_verbatim_span(&stmt.command, source_map)
     };
     let mut span = command_span;
     for redirect in &stmt.redirects {
@@ -803,40 +804,24 @@ fn stmt_verbatim_span_impl(stmt: &Stmt, source: &str, source_map: Option<&Source
     non_empty_or_stmt_span(stmt, merge_stmt_background_span(stmt, span))
 }
 
-fn command_verbatim_span(
-    command: &Command,
-    source: &str,
-    source_map: Option<&SourceMap<'_>>,
-) -> Span {
+fn command_verbatim_span(command: &Command, source_map: &SourceMap<'_>) -> Span {
     match command {
         Command::Simple(command) => command.span,
         Command::Builtin(command) => builtin_like_parts(command).0,
         Command::Decl(command) => command.span,
-        Command::Binary(command) => stmt_verbatim_span_impl(&command.left, source, source_map)
-            .merge(stmt_verbatim_span_impl(&command.right, source, source_map)),
-        Command::Compound(command) => compound_verbatim_span(command, source, source_map),
-        Command::Function(command) => function_header_span(command).merge(
-            function_body_verbatim_span(&command.body, source, source_map),
-        ),
+        Command::Binary(command) => stmt_verbatim_span_impl(&command.left, source_map)
+            .merge(stmt_verbatim_span_impl(&command.right, source_map)),
+        Command::Compound(command) => compound_verbatim_span(command, source_map),
+        Command::Function(command) => function_header_span(command)
+            .merge(function_body_verbatim_span(&command.body, source_map)),
         Command::AnonymousFunction(command) => anonymous_function_header_span(command)
-            .merge(function_body_verbatim_span(
-                &command.body,
-                source,
-                source_map,
-            ))
+            .merge(function_body_verbatim_span(&command.body, source_map))
             .merge(words_span(&command.args)),
     }
 }
 
-fn function_body_verbatim_span(
-    body: &Stmt,
-    source: &str,
-    source_map: Option<&SourceMap<'_>>,
-) -> Span {
-    let mut span = stmt_verbatim_span_impl(body, source, source_map);
-    let Some(source_map) = source_map else {
-        return span;
-    };
+fn function_body_verbatim_span(body: &Stmt, source_map: &SourceMap<'_>) -> Span {
+    let mut span = stmt_verbatim_span_impl(body, source_map);
     if let Some(group_span) = command_group_attachment_span(&body.command, source_map) {
         span = merge_non_empty_span(span, group_span);
     }
@@ -1082,35 +1067,28 @@ fn compound_span(command: &CompoundCommand) -> Span {
     }
 }
 
-fn compound_verbatim_span(
-    command: &CompoundCommand,
-    source: &str,
-    source_map: Option<&SourceMap<'_>>,
-) -> Span {
+fn compound_verbatim_span(command: &CompoundCommand, source_map: &SourceMap<'_>) -> Span {
     match command {
         CompoundCommand::Subshell(commands) => {
-            group_verbatim_span_impl(commands.as_slice(), source, source_map, '(', ')')
+            group_verbatim_span_impl(commands.as_slice(), source_map, '(', ')')
         }
         CompoundCommand::BraceGroup(commands) => {
-            group_verbatim_span_impl(commands.as_slice(), source, source_map, '{', '}')
+            group_verbatim_span_impl(commands.as_slice(), source_map, '{', '}')
         }
-        _ => compound_verbatim_span_from_children(command, source, source_map),
+        _ => compound_verbatim_span_from_children(command, source_map),
     }
 }
 
 fn compound_verbatim_span_from_children(
     command: &CompoundCommand,
-    source: &str,
-    source_map: Option<&SourceMap<'_>>,
+    source_map: &SourceMap<'_>,
 ) -> Span {
     let mut span = compound_span(command);
     for_each_compound_child(command, |child| {
         span = match child {
-            CompoundChild::Stmt(stmt) => {
-                span.merge(stmt_verbatim_span_impl(stmt, source, source_map))
-            }
+            CompoundChild::Stmt(stmt) => span.merge(stmt_verbatim_span_impl(stmt, source_map)),
             CompoundChild::Sequence(sequence) => {
-                merge_stmt_sequence_verbatim_span(span, sequence, source, source_map)
+                merge_stmt_sequence_verbatim_span(span, sequence, source_map)
             }
         };
     });
@@ -1120,25 +1098,24 @@ fn compound_verbatim_span_from_children(
 fn merge_stmt_sequence_verbatim_span(
     mut span: Span,
     commands: &StmtSeq,
-    source: &str,
-    source_map: Option<&SourceMap<'_>>,
+    source_map: &SourceMap<'_>,
 ) -> Span {
     for command in commands.iter() {
-        span = merge_non_empty_span(span, stmt_verbatim_span_impl(command, source, source_map));
+        span = merge_non_empty_span(span, stmt_verbatim_span_impl(command, source_map));
     }
     span
 }
 
 fn group_verbatim_span_impl(
     commands: &[Stmt],
-    source: &str,
-    source_map: Option<&SourceMap<'_>>,
+    source_map: &SourceMap<'_>,
     open: char,
     close: char,
 ) -> Span {
+    let source = source_map.source();
     let inner = commands
         .iter()
-        .map(|command| stmt_verbatim_span_impl(command, source, source_map))
+        .map(|command| stmt_verbatim_span_impl(command, source_map))
         .reduce(Span::merge)
         .unwrap_or_default();
     if inner == Span::new() {
@@ -1156,12 +1133,7 @@ fn group_verbatim_span_impl(
         return inner;
     };
 
-    span_for_offsets(
-        source,
-        source_map,
-        open_offset,
-        close_offset + close.len_utf8(),
-    )
+    span_for_offsets(source_map, open_offset, close_offset + close.len_utf8())
 }
 
 pub(crate) fn group_open_suffix<'a>(
@@ -1675,17 +1647,8 @@ pub(crate) fn merge_non_empty_span(current: Span, next: Span) -> Span {
     }
 }
 
-fn span_for_offsets(
-    source: &str,
-    source_map: Option<&SourceMap<'_>>,
-    start: usize,
-    end: usize,
-) -> Span {
-    if let Some(source_map) = source_map {
-        source_map.span_for_offsets(start, end)
-    } else {
-        crate::comments::SourceMap::new(source).span_for_offsets(start, end)
-    }
+fn span_for_offsets(source_map: &SourceMap<'_>, start: usize, end: usize) -> Span {
+    source_map.span_for_offsets(start, end)
 }
 
 pub(crate) fn line_gap_break_count(current_line: usize, next_line: usize) -> usize {
@@ -1793,9 +1756,9 @@ pub(crate) fn simple_command_uses_synthetic_words(command: &SimpleCommand, sourc
 
 fn synthetic_simple_command_verbatim_span(
     command: &SimpleCommand,
-    source: &str,
-    source_map: Option<&SourceMap<'_>>,
+    source_map: &SourceMap<'_>,
 ) -> Span {
+    let source = source_map.source();
     let start = command.span.start.offset.min(source.len());
     let end = command.span.end.offset.min(source.len());
     let Some(raw) = source.get(start..end) else {
@@ -1817,7 +1780,7 @@ fn synthetic_simple_command_verbatim_span(
     };
     let command_end =
         trim_synthetic_simple_command_trailing_case_terminator(source, command_start, end);
-    span_for_offsets(source, source_map, command_start, command_end)
+    span_for_offsets(source_map, command_start, command_end)
 }
 
 fn trim_synthetic_simple_command_trailing_case_terminator(
@@ -2314,7 +2277,8 @@ mod tests {
             _ => panic!("expected brace group"),
         };
 
-        group_verbatim_span_impl(brace_group.as_slice(), source, None, '{', '}')
+        let source_map = SourceMap::new(source);
+        group_verbatim_span_impl(brace_group.as_slice(), &source_map, '{', '}')
     }
 
     #[test]

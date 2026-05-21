@@ -182,15 +182,8 @@ pub(super) fn normalize_inline_parameter_command_substitution_body(
         return None;
     }
 
-    let parsed = shuck_parser::parser::Parser::with_dialect(trimmed, options.dialect()).parse();
-    if parsed.is_err() {
-        return None;
-    }
-    let parsed_facts = FormatterFacts::build(trimmed, &parsed.file, options);
-    let context = RenderContext::new(trimmed, options, &parsed_facts);
-
-    let mut nested = String::new();
-    format_nested_stmt_sequence_to_buf(&parsed.file.body, context, None, &mut nested)?;
+    let fragment = FragmentFormatter::parse(trimmed, options)?;
+    let nested = fragment.format_body(None).ok()?;
     let formatted = trim_trailing_line_endings(&nested);
     (!formatted.is_empty() && !formatted.contains('\n')).then(|| formatted.to_string())
 }

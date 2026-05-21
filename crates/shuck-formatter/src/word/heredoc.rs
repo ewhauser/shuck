@@ -166,7 +166,9 @@ pub(super) fn render_heredoc_body_command_substitution(
 
     let context = RenderContext::new(source, options, facts);
     let mut nested = String::new();
-    format_nested_stmt_sequence_to_buf(body, context, Some(upper_bound), &mut nested)?;
+    context
+        .format_stmt_sequence_to_buf(body, Some(upper_bound), &mut nested)
+        .ok()?;
     let trimmed = trim_trailing_line_endings(&nested);
     if trimmed.is_empty() {
         rendered.push_str("$()");

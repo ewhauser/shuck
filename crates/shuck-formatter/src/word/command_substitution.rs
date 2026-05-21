@@ -286,7 +286,9 @@ pub(super) fn render_command_substitution(
     let source = context.source;
     let options = context.options;
     let mut nested = String::new();
-    format_nested_stmt_sequence_to_buf(body, context, Some(upper_bound), &mut nested)?;
+    context
+        .format_stmt_sequence_to_buf(body, Some(upper_bound), &mut nested)
+        .ok()?;
 
     let trimmed = trim_trailing_line_endings(&nested);
     let normalized_backtick_body;
@@ -350,23 +352,6 @@ pub(super) fn render_command_substitution(
     }
 
     Some(())
-}
-
-pub(super) fn format_nested_stmt_sequence_to_buf(
-    body: &StmtSeq,
-    context: RenderContext<'_, '_>,
-    upper_bound: Option<usize>,
-    rendered: &mut String,
-) -> Option<()> {
-    format_stmt_sequence_streaming_to_buf(
-        context.source,
-        body,
-        context.options,
-        context.facts,
-        upper_bound,
-        rendered,
-    )
-    .ok()
 }
 
 pub(super) fn restore_trailing_escaped_horizontal_whitespace(
@@ -601,15 +586,10 @@ pub(super) fn expand_inline_pipeline_brace_group_body(
         return None;
     }
 
-    let parsed = shuck_parser::parser::Parser::with_dialect(body, options.dialect()).parse();
-    if parsed.is_err() {
-        return None;
-    }
-    let parsed_facts = FormatterFacts::build(body, &parsed.file, options);
-    let context = RenderContext::new(body, options, &parsed_facts);
+    let fragment = FragmentFormatter::parse(body, options)?;
 
     let mut nested = String::new();
-    format_nested_stmt_sequence_to_buf(&parsed.file.body, context, None, &mut nested)?;
+    fragment.format_body_to_buf(None, &mut nested).ok()?;
     let trimmed = trim_trailing_line_endings(&nested);
     trimmed.contains('\n').then(|| trimmed.to_string())
 }
@@ -1223,7 +1203,9 @@ pub(super) fn render_process_substitution(
     let options = context.options;
     let has_heredoc = stmt_seq_has_heredoc(context.facts, body);
     let mut nested = String::new();
-    format_nested_stmt_sequence_to_buf(body, context, span.end.offset.checked_sub(1), &mut nested)?;
+    context
+        .format_stmt_sequence_to_buf(body, span.end.offset.checked_sub(1), &mut nested)
+        .ok()?;
 
     let prefix = if is_input { '<' } else { '>' };
     let trimmed = trim_trailing_line_endings(&nested);

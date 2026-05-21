@@ -601,28 +601,24 @@ pub(super) fn render_inline_raw_command_substitution_as_block(
         return None;
     }
 
-    let parsed = shuck_parser::parser::Parser::with_dialect(body, options.dialect()).parse();
-    if parsed.is_err() {
-        return None;
-    }
-    let parsed_facts = FormatterFacts::build(body, &parsed.file, options);
-    let inline_multiline = parsed_facts
-        .sequence_contains_multistatement_pipeline_brace_group(&parsed.file.body)
+    let fragment = FragmentFormatter::parse(body, options)?;
+    let inline_multiline = fragment
+        .facts()
+        .sequence_contains_multistatement_pipeline_brace_group(fragment.body())
         || raw_body_contains_pipeline_multistatement_brace_group(body);
-    if parsed.file.body.len() <= 1 && !inline_multiline {
+    if fragment.body_len() <= 1 && !inline_multiline {
         return None;
     }
 
-    let context = RenderContext::new(body, options, &parsed_facts);
     let mut nested = String::new();
-    format_nested_stmt_sequence_to_buf(&parsed.file.body, context, None, &mut nested)?;
+    fragment.format_body_to_buf(None, &mut nested).ok()?;
     let trimmed = trim_trailing_line_endings(&nested);
     if trimmed.is_empty() {
         return Some("$()".to_string());
     }
 
     let mut rendered = String::new();
-    if inline_multiline && parsed.file.body.len() == 1 {
+    if inline_multiline && fragment.body_len() == 1 {
         rendered.push_str("$(");
         push_command_substitution_inline_body(
             &mut rendered,
