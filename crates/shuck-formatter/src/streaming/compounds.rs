@@ -371,7 +371,9 @@ impl<'source, 'facts> ShellRenderer<'source, 'facts> {
     ) -> bool {
         let (branch_index, body) = if let Some(body) = command.else_branch.as_ref() {
             (command.elif_branches.len(), body)
-        } else if let Some((index, (_, body))) = command.elif_branches.iter().enumerate().last() {
+        } else if let Some((index, (_, body))) =
+            command.elif_branches.iter().enumerate().next_back()
+        {
             (index + 1, body)
         } else {
             (0, &command.then_branch)
