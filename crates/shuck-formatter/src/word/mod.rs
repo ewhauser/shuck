@@ -11,6 +11,14 @@ use crate::raw_syntax::{
     normalize_raw_pipeline_continuations, redirect_operator_end, refine_common_indent,
 };
 use crate::scan::line_indent_before_offset as line_indent_before_source_offset;
+use crate::source::{
+    SourceView, command_substitution_source_closes_on_own_line,
+    command_substitution_source_prefers_continued_inline_body,
+    command_substitution_source_starts_with_body_line,
+    dollar_command_substitution_body as raw_dollar_command_substitution_body,
+    dollar_command_substitution_slice as raw_dollar_command_substitution_slice,
+    substitution_source_closes_on_own_line,
+};
 use shuck_ast::{
     ArithmeticAssignOp, ArithmeticBinaryOp, ArithmeticExpansionSyntax, ArithmeticExpr,
     ArithmeticExprNode, ArithmeticLvalue, ArithmeticPostfixOp, ArithmeticUnaryOp, BinaryOp,

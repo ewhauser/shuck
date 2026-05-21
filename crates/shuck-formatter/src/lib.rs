@@ -23,6 +23,8 @@ mod scan;
 #[allow(missing_docs)]
 mod simplify;
 #[allow(missing_docs)]
+mod source;
+#[allow(missing_docs)]
 mod streaming;
 #[allow(missing_docs)]
 mod visit;
