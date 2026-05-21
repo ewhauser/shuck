@@ -1,10 +1,11 @@
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use shuck_ast::{
-    AnonymousFunctionCommand, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, Assignment,
-    AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, CaseCommand, CaseItem,
-    Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalCommand, ConditionalExpr,
-    DeclOperand, File, ForCommand, FunctionDef, Heredoc, HeredocBody, HeredocBodyPart,
+    AlwaysCommand, AnonymousFunctionCommand, ArithmeticCommand, ArithmeticExpr, ArithmeticExprNode,
+    ArithmeticForCommand, ArithmeticLvalue, Assignment, AssignmentValue, BinaryCommand, BinaryOp,
+    BourneParameterExpansion, CaseCommand, CaseItem, Command, CommandSubstitutionSyntax,
+    CompoundCommand, ConditionalCommand, ConditionalExpr, CoprocCommand, DeclOperand, File,
+    ForCommand, ForeachCommand, FunctionDef, Heredoc, HeredocBody, HeredocBodyPart,
     HeredocBodyPartNode, IfCommand, ParameterExpansion, ParameterExpansionSyntax, ParameterOp,
     Pattern, PatternPart, Redirect, RedirectKind, RedirectTarget, RepeatCommand, SelectCommand,
     Span, Stmt, StmtSeq, StmtTerminator, Subscript, TimeCommand, UntilCommand, VarRef,
@@ -429,6 +430,101 @@ impl LayoutSummary {
     }
 }
 
+// Keep command-shape classification shared between the annotation-only pass and
+// the fact-building pass so new AST variants cannot drift between them.
+struct LayoutClassifier;
+
+enum LayoutCommand<'a> {
+    Simple {
+        assignments: &'a [Assignment],
+        name: &'a Word,
+        args: &'a [Word],
+    },
+    Builtin {
+        assignments: &'a [Assignment],
+        primary: Option<&'a Word>,
+        extra_args: &'a [Word],
+    },
+    Decl {
+        assignments: &'a [Assignment],
+        operands: &'a [DeclOperand],
+    },
+    Binary(&'a BinaryCommand),
+    Compound(&'a CompoundCommand),
+    Function(&'a FunctionDef),
+    AnonymousFunction(&'a AnonymousFunctionCommand),
+}
+
+enum LayoutCompoundCommand<'a> {
+    If(&'a IfCommand),
+    For(&'a ForCommand),
+    Repeat(&'a RepeatCommand),
+    Foreach(&'a ForeachCommand),
+    ArithmeticFor(&'a ArithmeticForCommand),
+    While(&'a WhileCommand),
+    Until(&'a UntilCommand),
+    Case(&'a CaseCommand),
+    Select(&'a SelectCommand),
+    Subshell(&'a StmtSeq),
+    BraceGroup(&'a StmtSeq),
+    Arithmetic(&'a ArithmeticCommand),
+    Time(&'a TimeCommand),
+    Conditional(&'a ConditionalCommand),
+    Coproc(&'a CoprocCommand),
+    Always(&'a AlwaysCommand),
+}
+
+impl LayoutClassifier {
+    fn command(command: &Command) -> LayoutCommand<'_> {
+        match command {
+            Command::Simple(command) => LayoutCommand::Simple {
+                assignments: command.assignments.as_ref(),
+                name: &command.name,
+                args: command.args.as_slice(),
+            },
+            Command::Builtin(command) => {
+                let (_, _, assignments, primary, extra_args) = builtin_like_parts(command);
+                LayoutCommand::Builtin {
+                    assignments,
+                    primary,
+                    extra_args,
+                }
+            }
+            Command::Decl(command) => LayoutCommand::Decl {
+                assignments: command.assignments.as_ref(),
+                operands: command.operands.as_slice(),
+            },
+            Command::Binary(command) => LayoutCommand::Binary(command),
+            Command::Compound(command) => LayoutCommand::Compound(command),
+            Command::Function(command) => LayoutCommand::Function(command),
+            Command::AnonymousFunction(command) => LayoutCommand::AnonymousFunction(command),
+        }
+    }
+
+    fn compound_command(command: &CompoundCommand) -> LayoutCompoundCommand<'_> {
+        match command {
+            CompoundCommand::If(command) => LayoutCompoundCommand::If(command),
+            CompoundCommand::For(command) => LayoutCompoundCommand::For(command),
+            CompoundCommand::Repeat(command) => LayoutCompoundCommand::Repeat(command),
+            CompoundCommand::Foreach(command) => LayoutCompoundCommand::Foreach(command),
+            CompoundCommand::ArithmeticFor(command) => {
+                LayoutCompoundCommand::ArithmeticFor(command)
+            }
+            CompoundCommand::While(command) => LayoutCompoundCommand::While(command),
+            CompoundCommand::Until(command) => LayoutCompoundCommand::Until(command),
+            CompoundCommand::Case(command) => LayoutCompoundCommand::Case(command),
+            CompoundCommand::Select(command) => LayoutCompoundCommand::Select(command),
+            CompoundCommand::Subshell(body) => LayoutCompoundCommand::Subshell(body),
+            CompoundCommand::BraceGroup(body) => LayoutCompoundCommand::BraceGroup(body),
+            CompoundCommand::Arithmetic(command) => LayoutCompoundCommand::Arithmetic(command),
+            CompoundCommand::Time(command) => LayoutCompoundCommand::Time(command),
+            CompoundCommand::Conditional(command) => LayoutCompoundCommand::Conditional(command),
+            CompoundCommand::Coproc(command) => LayoutCompoundCommand::Coproc(command),
+            CompoundCommand::Always(command) => LayoutCompoundCommand::Always(command),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct LayoutAnnotations {
     sequences: HashMap<FactSpan, LayoutSummary>,
@@ -506,17 +602,24 @@ impl<'source, 'annotations> LayoutAnnotationPass<'source, 'annotations> {
     }
 
     fn command_layout(&self, command: &Command) -> LayoutSummary {
-        match command {
-            Command::Simple(command) => {
-                let mut summary = self.assignments_layout(&command.assignments);
-                summary.merge(self.annotations.word_summary(&command.name));
-                for word in &command.args {
+        match LayoutClassifier::command(command) {
+            LayoutCommand::Simple {
+                assignments,
+                name,
+                args,
+            } => {
+                let mut summary = self.assignments_layout(assignments);
+                summary.merge(self.annotations.word_summary(name));
+                for word in args {
                     summary.merge(self.annotations.word_summary(word));
                 }
                 summary
             }
-            Command::Builtin(command) => {
-                let (_, _, assignments, primary, extra_args) = builtin_like_parts(command);
+            LayoutCommand::Builtin {
+                assignments,
+                primary,
+                extra_args,
+            } => {
                 let mut summary = self.assignments_layout(assignments);
                 if let Some(primary) = primary {
                     summary.merge(self.annotations.word_summary(primary));
@@ -526,29 +629,32 @@ impl<'source, 'annotations> LayoutAnnotationPass<'source, 'annotations> {
                 }
                 summary
             }
-            Command::Decl(command) => {
-                let mut summary = self.assignments_layout(&command.assignments);
-                for operand in &command.operands {
+            LayoutCommand::Decl {
+                assignments,
+                operands,
+            } => {
+                let mut summary = self.assignments_layout(assignments);
+                for operand in operands {
                     summary.merge(self.decl_operand_layout(operand));
                 }
                 summary
             }
-            Command::Binary(command) => {
+            LayoutCommand::Binary(command) => {
                 let mut summary = self.annotations.stmt(&command.left);
                 summary.merge(self.annotations.stmt(&command.right));
                 summary.contains_multistatement_pipeline_brace_group =
                     self.command_contains_multistatement_pipeline_brace_group(command, false);
                 summary
             }
-            Command::Compound(command) => self.compound_command_layout(command),
-            Command::Function(function) => {
+            LayoutCommand::Compound(command) => self.compound_command_layout(command),
+            LayoutCommand::Function(function) => {
                 let mut summary = self.annotations.stmt(function.body.as_ref());
                 for entry in &function.header.entries {
                     summary.merge(self.annotations.word_summary(&entry.word));
                 }
                 summary
             }
-            Command::AnonymousFunction(function) => {
+            LayoutCommand::AnonymousFunction(function) => {
                 let mut summary = self.annotations.stmt(function.body.as_ref());
                 for argument in &function.args {
                     summary.merge(self.annotations.word_summary(argument));
@@ -559,8 +665,8 @@ impl<'source, 'annotations> LayoutAnnotationPass<'source, 'annotations> {
     }
 
     fn compound_command_layout(&self, command: &CompoundCommand) -> LayoutSummary {
-        match command {
-            CompoundCommand::If(command) => {
+        match LayoutClassifier::compound_command(command) {
+            LayoutCompoundCommand::If(command) => {
                 let mut summary = self.annotations.sequence(&command.condition);
                 summary.merge(self.annotations.sequence(&command.then_branch));
                 for (condition, body) in &command.elif_branches {
@@ -572,7 +678,7 @@ impl<'source, 'annotations> LayoutAnnotationPass<'source, 'annotations> {
                 }
                 summary
             }
-            CompoundCommand::For(command) => {
+            LayoutCompoundCommand::For(command) => {
                 let mut summary = LayoutSummary::default();
                 for target in &command.targets {
                     summary.merge(self.annotations.word_summary(&target.word));
@@ -585,12 +691,12 @@ impl<'source, 'annotations> LayoutAnnotationPass<'source, 'annotations> {
                 summary.merge(self.annotations.sequence(&command.body));
                 summary
             }
-            CompoundCommand::Repeat(command) => {
+            LayoutCompoundCommand::Repeat(command) => {
                 let mut summary = self.annotations.word_summary(&command.count);
                 summary.merge(self.annotations.sequence(&command.body));
                 summary
             }
-            CompoundCommand::Foreach(command) => {
+            LayoutCompoundCommand::Foreach(command) => {
                 let mut summary = LayoutSummary::default();
                 for word in &command.words {
                     summary.merge(self.annotations.word_summary(word));
@@ -598,7 +704,7 @@ impl<'source, 'annotations> LayoutAnnotationPass<'source, 'annotations> {
                 summary.merge(self.annotations.sequence(&command.body));
                 summary
             }
-            CompoundCommand::ArithmeticFor(command) => {
+            LayoutCompoundCommand::ArithmeticFor(command) => {
                 let mut summary = LayoutSummary::default();
                 if let Some(expr) = &command.init_ast {
                     summary.merge(self.arithmetic_expr_layout(expr));
@@ -612,17 +718,17 @@ impl<'source, 'annotations> LayoutAnnotationPass<'source, 'annotations> {
                 summary.merge(self.annotations.sequence(&command.body));
                 summary
             }
-            CompoundCommand::While(command) => {
+            LayoutCompoundCommand::While(command) => {
                 let mut summary = self.annotations.sequence(&command.condition);
                 summary.merge(self.annotations.sequence(&command.body));
                 summary
             }
-            CompoundCommand::Until(command) => {
+            LayoutCompoundCommand::Until(command) => {
                 let mut summary = self.annotations.sequence(&command.condition);
                 summary.merge(self.annotations.sequence(&command.body));
                 summary
             }
-            CompoundCommand::Case(command) => {
+            LayoutCompoundCommand::Case(command) => {
                 let mut summary = self.annotations.word_summary(&command.word);
                 for item in &command.cases {
                     for pattern in &item.patterns {
@@ -632,7 +738,7 @@ impl<'source, 'annotations> LayoutAnnotationPass<'source, 'annotations> {
                 }
                 summary
             }
-            CompoundCommand::Select(command) => {
+            LayoutCompoundCommand::Select(command) => {
                 let mut summary = LayoutSummary::default();
                 for word in &command.words {
                     summary.merge(self.annotations.word_summary(word));
@@ -640,26 +746,26 @@ impl<'source, 'annotations> LayoutAnnotationPass<'source, 'annotations> {
                 summary.merge(self.annotations.sequence(&command.body));
                 summary
             }
-            CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
+            LayoutCompoundCommand::Subshell(body) | LayoutCompoundCommand::BraceGroup(body) => {
                 self.annotations.sequence(body)
             }
-            CompoundCommand::Arithmetic(command) => command
+            LayoutCompoundCommand::Arithmetic(command) => command
                 .expr_ast
                 .as_ref()
                 .map_or_else(LayoutSummary::default, |expr| {
                     self.arithmetic_expr_layout(expr)
                 }),
-            CompoundCommand::Time(command) => command
+            LayoutCompoundCommand::Time(command) => command
                 .command
                 .as_ref()
                 .map_or_else(LayoutSummary::default, |command| {
                     self.annotations.stmt(command)
                 }),
-            CompoundCommand::Conditional(command) => {
+            LayoutCompoundCommand::Conditional(command) => {
                 self.conditional_expr_layout(&command.expression)
             }
-            CompoundCommand::Coproc(command) => self.annotations.stmt(&command.body),
-            CompoundCommand::Always(command) => {
+            LayoutCompoundCommand::Coproc(command) => self.annotations.stmt(&command.body),
+            LayoutCompoundCommand::Always(command) => {
                 let mut summary = self.annotations.sequence(&command.body);
                 summary.merge(self.annotations.sequence(&command.always_body));
                 summary
@@ -2289,28 +2395,34 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_command(&mut self, command: &Command) -> LayoutSummary {
-        if let Command::Binary(command) = command {
-            self.visit_binary_command(command)
-        } else {
-            self.visit_non_binary_command(command)
+        match LayoutClassifier::command(command) {
+            LayoutCommand::Binary(command) => self.visit_binary_command(command),
+            command => self.visit_non_binary_command(command),
         }
     }
 
-    fn visit_non_binary_command(&mut self, command: &Command) -> LayoutSummary {
+    fn visit_non_binary_command(&mut self, command: LayoutCommand<'_>) -> LayoutSummary {
         match command {
-            Command::Simple(command) => {
+            LayoutCommand::Simple {
+                assignments,
+                name,
+                args,
+            } => {
                 let mut summary = LayoutSummary::default();
-                for assignment in &command.assignments {
+                for assignment in assignments {
                     summary.merge(self.visit_assignment(assignment));
                 }
-                summary.merge(self.visit_word(&command.name));
-                for word in &command.args {
+                summary.merge(self.visit_word(name));
+                for word in args {
                     summary.merge(self.visit_word(word));
                 }
                 summary
             }
-            Command::Builtin(command) => {
-                let (_, _, assignments, primary, extra_args) = builtin_like_parts(command);
+            LayoutCommand::Builtin {
+                assignments,
+                primary,
+                extra_args,
+            } => {
                 let mut summary = LayoutSummary::default();
                 for assignment in assignments {
                     summary.merge(self.visit_assignment(assignment));
@@ -2323,20 +2435,23 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 }
                 summary
             }
-            Command::Decl(command) => {
+            LayoutCommand::Decl {
+                assignments,
+                operands,
+            } => {
                 let mut summary = LayoutSummary::default();
-                for assignment in &command.assignments {
+                for assignment in assignments {
                     summary.merge(self.visit_assignment(assignment));
                 }
-                for operand in &command.operands {
+                for operand in operands {
                     summary.merge(self.visit_decl_operand(operand));
                 }
                 summary
             }
-            Command::Compound(command) => self.visit_compound_command(command),
-            Command::Function(function) => self.visit_function(function),
-            Command::AnonymousFunction(function) => self.visit_anonymous_function(function),
-            Command::Binary(_) => unreachable!("binary commands are handled separately"),
+            LayoutCommand::Compound(command) => self.visit_compound_command(command),
+            LayoutCommand::Function(function) => self.visit_function(function),
+            LayoutCommand::AnonymousFunction(function) => self.visit_anonymous_function(function),
+            LayoutCommand::Binary(_) => unreachable!("binary commands are handled separately"),
         }
     }
 
@@ -2396,11 +2511,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn visit_compound_command(&mut self, command: &CompoundCommand) -> LayoutSummary {
-        match command {
-            CompoundCommand::If(command) => self.visit_if(command),
-            CompoundCommand::For(command) => self.visit_for(command),
-            CompoundCommand::Repeat(command) => self.visit_repeat(command),
-            CompoundCommand::Foreach(command) => {
+        match LayoutClassifier::compound_command(command) {
+            LayoutCompoundCommand::If(command) => self.visit_if(command),
+            LayoutCompoundCommand::For(command) => self.visit_for(command),
+            LayoutCompoundCommand::Repeat(command) => self.visit_repeat(command),
+            LayoutCompoundCommand::Foreach(command) => {
                 let mut summary = LayoutSummary::default();
                 for word in &command.words {
                     summary.merge(self.visit_word(word));
@@ -2409,7 +2524,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 summary.merge(self.visit_compound_body_site(site));
                 summary
             }
-            CompoundCommand::ArithmeticFor(command) => {
+            LayoutCompoundCommand::ArithmeticFor(command) => {
                 let mut summary = LayoutSummary::default();
                 if let Some(expr) = &command.init_ast {
                     summary.merge(self.visit_arithmetic_expr(expr));
@@ -2424,29 +2539,29 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 summary.merge(self.visit_compound_body_site(site));
                 summary
             }
-            CompoundCommand::While(command) => self.visit_while(command),
-            CompoundCommand::Until(command) => self.visit_until(command),
-            CompoundCommand::Case(command) => self.visit_case(command),
-            CompoundCommand::Select(command) => self.visit_select(command),
-            CompoundCommand::Subshell(body) => {
+            LayoutCompoundCommand::While(command) => self.visit_while(command),
+            LayoutCompoundCommand::Until(command) => self.visit_until(command),
+            LayoutCompoundCommand::Case(command) => self.visit_case(command),
+            LayoutCompoundCommand::Select(command) => self.visit_select(command),
+            LayoutCompoundCommand::Subshell(body) => {
                 self.record_inline_group_sequence(body, '(', ')');
                 self.visit_sequence(body, None, Some('('))
             }
-            CompoundCommand::BraceGroup(body) => {
+            LayoutCompoundCommand::BraceGroup(body) => {
                 self.record_inline_group_sequence(body, '{', '}');
                 self.visit_sequence(body, None, Some('{'))
             }
-            CompoundCommand::Arithmetic(command) => {
+            LayoutCompoundCommand::Arithmetic(command) => {
                 if let Some(expr) = &command.expr_ast {
                     self.visit_arithmetic_expr(expr)
                 } else {
                     LayoutSummary::default()
                 }
             }
-            CompoundCommand::Time(command) => self.visit_time(command),
-            CompoundCommand::Conditional(command) => self.visit_conditional(command),
-            CompoundCommand::Coproc(command) => self.visit_stmt(command.body.as_ref()),
-            CompoundCommand::Always(command) => {
+            LayoutCompoundCommand::Time(command) => self.visit_time(command),
+            LayoutCompoundCommand::Conditional(command) => self.visit_conditional(command),
+            LayoutCompoundCommand::Coproc(command) => self.visit_stmt(command.body.as_ref()),
+            LayoutCompoundCommand::Always(command) => {
                 let mut summary =
                     self.visit_sequence(&command.body, Some(command.span.end.offset), Some('{'));
                 summary.merge(self.visit_sequence(
