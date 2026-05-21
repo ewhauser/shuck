@@ -1238,20 +1238,7 @@ where
     }
 
     pub(super) fn can_format_case_inline(&self, command: &CaseCommand) -> bool {
-        command.cases.iter().all(|item| {
-            item.body.is_empty()
-                || item.body.len() == 1
-                    && (self.facts().case_item_was_inline_in_source(item)
-                        || case_item_pattern_body_terminator_was_inline_in_source(
-                            item,
-                            self.source(),
-                        )
-                        || case_item_body_was_inline_without_terminator(item))
-                    && !self
-                        .facts()
-                        .sequence(&item.body, Some(command.span.end.offset))
-                        .has_comments()
-        })
+        case_can_format_inline(command, self.render_context())
     }
 
     pub(super) fn format_inline_case(&mut self, command: &CaseCommand) -> Result<()> {

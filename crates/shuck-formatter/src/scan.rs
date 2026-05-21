@@ -12,7 +12,7 @@ pub(crate) fn branch_keyword_offset(
     SourceView::new(source).branch_keyword_offset(start, end, keyword)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BranchPrefixComment {
     pub(crate) offset: usize,
     pub(crate) text: String,

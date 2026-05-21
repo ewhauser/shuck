@@ -59,19 +59,18 @@ where
     }
 
     pub(super) fn format_then_fi_if(&mut self, command: &IfCommand) -> Result<()> {
-        let source = self.source();
-        let then_span = match command.syntax {
-            IfSyntax::ThenFi { then_span, .. } => then_span,
-            IfSyntax::Brace { .. } => unreachable!("brace if cannot be formatted as then/fi"),
-        };
-        let fi_span = command_if_close_span(command, source, self.source_map());
-        let layout = self.then_fi_if_layout(command, then_span, fi_span);
+        let plan = IfLayoutPlan::then_fi(command, self.render_context());
+        let IfLayoutPlan {
+            then_span,
+            fi_span,
+            style,
+        } = plan;
 
-        match layout {
-            ThenFiIfLayout::RawGroupedCondition { raw_condition } => {
+        match style {
+            IfLayoutStyle::RawGroupedCondition { raw_condition } => {
                 self.format_raw_grouped_then_fi_if(command, fi_span, &raw_condition)
             }
-            ThenFiIfLayout::SplitCondition => {
+            IfLayoutStyle::SplitCondition => {
                 self.format_split_condition_then_fi_if(command, then_span, fi_span)
             }
             layout => self.format_inline_condition_then_fi_if(command, then_span, fi_span, layout),
@@ -150,21 +149,21 @@ where
         command: &IfCommand,
         then_span: Span,
         fi_span: Span,
-        layout: ThenFiIfLayout,
+        layout: IfLayoutStyle,
     ) -> Result<()> {
         self.write_text("if ");
         self.format_inline_stmts(&command.condition)?;
         let then_separator = self.then_separator_for_condition(&command.condition);
 
         match layout {
-            ThenFiIfLayout::InlineThen => {
+            IfLayoutStyle::Inline(InlineIfLayout::Then) => {
                 self.write_text(then_separator);
                 self.write_space();
                 self.format_inline_stmts(&command.then_branch)?;
                 self.write_if_close("; fi", fi_span);
                 Ok(())
             }
-            ThenFiIfLayout::InlineThenElse => {
+            IfLayoutStyle::Inline(InlineIfLayout::ThenElse) => {
                 let Some(else_branch) = command.else_branch.as_ref() else {
                     unreachable!("inline then/else layout requires an else branch");
                 };
@@ -176,7 +175,7 @@ where
                 self.write_if_close("; fi", fi_span);
                 Ok(())
             }
-            ThenFiIfLayout::InlineThenMultilineElse => {
+            IfLayoutStyle::Inline(InlineIfLayout::ThenMultilineElse) => {
                 let Some(else_branch) = command.else_branch.as_ref() else {
                     unreachable!("inline then/multiline else layout requires an else branch");
                 };
@@ -197,14 +196,14 @@ where
                 self.finish_multiline_if_close(command, then_upper_bound, fi_span);
                 Ok(())
             }
-            ThenFiIfLayout::InlineThenNestedIf => {
+            IfLayoutStyle::Inline(InlineIfLayout::ThenNestedIf) => {
                 self.write_text(then_separator);
                 self.write_space();
                 self.format_stmt(&command.then_branch[0])?;
                 self.write_if_close("; fi", fi_span);
                 Ok(())
             }
-            ThenFiIfLayout::InlineChain => {
+            IfLayoutStyle::Inline(InlineIfLayout::Chain) => {
                 self.write_text(then_separator);
                 self.write_space();
                 self.format_inline_stmts(&command.then_branch)?;
@@ -222,10 +221,10 @@ where
                 self.write_if_close("; fi", fi_span);
                 Ok(())
             }
-            ThenFiIfLayout::Expanded(layout) => {
+            IfLayoutStyle::Expanded(layout) => {
                 self.format_expanded_then_fi_if(command, then_span, fi_span, then_separator, layout)
             }
-            ThenFiIfLayout::RawGroupedCondition { .. } | ThenFiIfLayout::SplitCondition => {
+            IfLayoutStyle::RawGroupedCondition { .. } | IfLayoutStyle::SplitCondition => {
                 unreachable!("non-inline if layout routed to inline emitter")
             }
         }
@@ -237,7 +236,7 @@ where
         then_span: Span,
         fi_span: Span,
         then_separator: &'static str,
-        layout: ExpandedThenFiIfLayout,
+        layout: ExpandedIfLayout,
     ) -> Result<()> {
         let source = self.source();
         let fi_upper_bound = fi_span.start.offset;
@@ -251,7 +250,7 @@ where
         }
         self.format_if_branch_body_site_with_open_suffix(then_site, false)?;
         for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
-            if matches!(layout, ExpandedThenFiIfLayout::Compact) {
+            if matches!(layout, ExpandedIfLayout::Compact) {
                 self.write_text("; elif ");
                 self.format_inline_stmts(condition)?;
                 self.write_text(self.then_separator_for_condition(condition));
@@ -266,8 +265,8 @@ where
         }
         if let Some(body) = &command.else_branch {
             match layout {
-                ExpandedThenFiIfLayout::Compact => self.write_text("; else"),
-                ExpandedThenFiIfLayout::Multiline { inline_else_close } => {
+                ExpandedIfLayout::Compact => self.write_text("; else"),
+                ExpandedIfLayout::Multiline { inline_else_close } => {
                     self.write_if_branch_prefix(command, command.elif_branches.len(), source);
                     if inline_else_close {
                         self.write_text("else ");
@@ -282,8 +281,8 @@ where
             self.format_if_branch_body_site(site)?;
         }
         match layout {
-            ExpandedThenFiIfLayout::Compact => self.write_if_close("; fi", fi_span),
-            ExpandedThenFiIfLayout::Multiline { .. } => {
+            ExpandedIfLayout::Compact => self.write_if_close("; fi", fi_span),
+            ExpandedIfLayout::Multiline { .. } => {
                 self.finish_multiline_if_close(command, then_upper_bound, fi_span);
             }
         }
@@ -703,59 +702,66 @@ where
     }
 
     pub(super) fn format_case(&mut self, command: &CaseCommand) -> Result<()> {
-        if !self.options().compact_layout()
-            && case_command_was_inline_in_source(command, self.source())
-            && self.can_format_case_inline(command)
-        {
+        let plan = CaseLayoutPlan::for_command(command, self.render_context());
+        let CaseLayoutPlan {
+            style,
+            body_fallback_upper_bound,
+            esac_span,
+        } = plan;
+        if matches!(&style, CaseLayoutStyle::Inline) {
             return self.format_inline_case(command);
         }
 
-        let case_facts = self.facts().case_command(command);
-        let esac_span = case_facts.esac_span();
-        let case_body_fallback = case_facts.body_fallback_upper_bound();
-        let case_has_blank_line_after_in = case_facts.has_blank_line_after_in();
-        let case_has_blank_line_before_esac = case_facts.has_blank_line_before_esac();
-        let case_suffix_comments = case_facts.suffix_comments_before_esac().to_vec();
         self.write_text("case ");
         self.write_word(&command.word);
         self.write_text(" in");
         self.write_case_open_suffix(command);
-        if self.options().compact_layout() {
+        if matches!(&style, CaseLayoutStyle::Compact) {
             for item in &command.cases {
                 self.write_space();
-                self.format_case_item(item, case_item_body_upper_bound(item, case_body_fallback))?;
+                self.format_case_item(
+                    item,
+                    case_item_body_upper_bound(item, body_fallback_upper_bound),
+                )?;
             }
             self.write_text(" esac");
             self.write_close_suffix_after_span(esac_span);
-        } else {
-            let header_item_count =
-                self.format_case_items_on_header_line(command, case_body_fallback)?;
+        } else if let CaseLayoutStyle::Multiline {
+            header_item_count,
+            blank_line_after_in,
+            close,
+        } = style
+        {
+            self.format_case_items_on_header_line(
+                command,
+                body_fallback_upper_bound,
+                header_item_count,
+            )?;
             for (offset, item) in command.cases[header_item_count..].iter().enumerate() {
                 let index = header_item_count + offset;
                 self.newline();
-                if header_item_count == 0 && index == 0 && case_has_blank_line_after_in {
+                if header_item_count == 0 && index == 0 && blank_line_after_in {
                     self.newline();
                 }
                 if index > 0 && self.facts().case_item(item).has_blank_line_before() {
                     self.newline();
                 }
-                self.format_case_item(item, case_item_body_upper_bound(item, case_body_fallback))?;
+                self.format_case_item(
+                    item,
+                    case_item_body_upper_bound(item, body_fallback_upper_bound),
+                )?;
             }
-            if case_suffix_comments.is_empty() {
-                if case_close_shares_line_with_last_item(command, esac_span, self.source()) {
-                    self.write_space();
-                } else {
-                    if case_has_blank_line_before_esac {
+            match close {
+                CaseCloseLayout::SameLine => self.write_space(),
+                CaseCloseLayout::NextLine { blank_before } => {
+                    if blank_before {
                         self.newline();
                     }
                     self.newline();
                 }
-            } else {
-                self.emit_case_suffix_comments_before_esac(
-                    command,
-                    &case_suffix_comments,
-                    esac_span,
-                );
+                CaseCloseLayout::SuffixComments(comments) => {
+                    self.emit_case_suffix_comments_before_esac(command, &comments, esac_span);
+                }
             }
             self.write_text("esac");
             self.write_close_suffix_after_span(esac_span);
@@ -767,21 +773,14 @@ where
         &mut self,
         command: &CaseCommand,
         case_body_fallback: usize,
-    ) -> Result<usize> {
-        let mut item_count = 0;
-        for item in &command.cases {
-            if !case_item_pattern_starts_on_case_header(command, item) {
-                break;
-            }
+        item_count: usize,
+    ) -> Result<()> {
+        for item in command.cases.iter().take(item_count) {
             let upper_bound = case_item_body_upper_bound(item, case_body_fallback);
-            if !self.facts().case_item(item).prefix_comments().is_empty() {
-                break;
-            }
             self.write_space();
             self.format_case_item(item, upper_bound)?;
-            item_count += 1;
         }
-        Ok(item_count)
+        Ok(())
     }
 
     pub(super) fn write_case_open_suffix(&mut self, command: &CaseCommand) {

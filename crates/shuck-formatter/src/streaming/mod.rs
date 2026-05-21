@@ -18,6 +18,7 @@ pub(crate) mod comments_alignment;
 mod compounds;
 mod conditions;
 mod gaps;
+mod layout_plan;
 mod redirects;
 mod shape;
 mod statements;
@@ -70,14 +71,12 @@ use branches::{
     unmodeled_branch_background_operator,
 };
 use case_layout::{
-    case_close_shares_line_with_last_item, case_command_was_inline_in_source,
     case_item_body_can_share_terminator, case_item_body_terminator_was_inline_in_source,
     case_item_body_was_inline_without_terminator, case_item_close_paren_shares_line_with_body,
     case_item_pattern_body_terminator_was_inline_in_source,
-    case_item_pattern_close_paren_on_own_line, case_item_pattern_starts_on_case_header,
-    case_item_single_body_stmt_can_inline, case_item_started_inline_without_terminator,
-    case_prefix_comment_uses_body_indent, comment_looks_like_disabled_case_pattern,
-    trim_trailing_pattern_line_continuation,
+    case_item_pattern_close_paren_on_own_line, case_item_single_body_stmt_can_inline,
+    case_item_started_inline_without_terminator, case_prefix_comment_uses_body_indent,
+    comment_looks_like_disabled_case_pattern, trim_trailing_pattern_line_continuation,
 };
 use comments_alignment::inline_comment_code_width;
 use conditions::{
@@ -90,11 +89,14 @@ use gaps::{
     gap_has_blank_line, group_close_offset, stmt_rendered_end_line_after_format,
     stmt_semicolon_terminator_starts_on_continuation_line, trim_trailing_gap_before_offset,
 };
+use layout_plan::{
+    CaseCloseLayout, CaseLayoutPlan, CaseLayoutStyle, ExpandedIfLayout, IfLayoutPlan,
+    IfLayoutStyle, InlineIfLayout, case_can_format_inline,
+};
 use redirects::{
     append_both_redirect_pair_matches_source, redirect_is_attached_process_substitution,
     redirect_list_needs_leading_space, redirect_list_starts_on_continuation_line,
 };
-use shape::{ExpandedThenFiIfLayout, ThenFiIfLayout};
 use substitutions::{
     assignment_source_has_command_substitution, conditional_binary_has_explicit_rhs_break,
     conditional_expr_contains_command_substitution, heredoc_body_contains_command_substitution,
