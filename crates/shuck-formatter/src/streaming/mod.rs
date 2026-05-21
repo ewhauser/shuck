@@ -8,8 +8,8 @@ use shuck_ast::{
     ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, CoprocCommand,
     DeclClause, DeclOperand, File, ForCommand, ForSyntax, ForeachCommand, ForeachSyntax,
     FunctionDef, HeredocBody, HeredocBodyPart, IfCommand, IfSyntax, Pattern, PatternPart, Redirect,
-    RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand, Span, Stmt, StmtSeq,
-    StmtTerminator, TimeCommand, UntilCommand, VarRef, WhileCommand, Word, WordPart,
+    RedirectKind, RepeatCommand, SelectCommand, SimpleCommand, Span, Stmt, StmtSeq, StmtTerminator,
+    TimeCommand, UntilCommand, VarRef, WhileCommand, Word, WordPart,
 };
 
 mod branches;
@@ -26,11 +26,11 @@ mod writer;
 
 use crate::Result;
 use crate::command::{
-    array_elem_parts, binary_operator, branch_open_keyword_start, builtin_like_parts,
-    case_item_body_upper_bound, case_terminator,
+    CompoundBodyOpen, CompoundBodySite, array_elem_parts, binary_operator,
+    branch_open_keyword_start, builtin_like_parts, case_item_body_upper_bound, case_terminator,
     collect_binary_list_first as collect_binary_list_first_with, collect_pipeline_parts,
-    command_format_span, command_group_commands, done_close_span as command_done_close_span,
-    format_arithmetic_command_source, format_arithmetic_for_clause_source, group_attachment_span,
+    command_format_span, command_group_commands, format_arithmetic_command_source,
+    format_arithmetic_for_clause_source, group_attachment_span,
     if_close_span as command_if_close_span, if_next_branch_region_with_body_end,
     line_gap_break_count, matching_group_close,
     multiline_compound_assignment_command_substitution_body_prefix,
