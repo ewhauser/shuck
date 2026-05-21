@@ -132,7 +132,8 @@ impl<'source, 'facts> ShellRenderer<'source, 'facts> {
     }
 
     pub(super) fn write_close_suffix_after_span(&mut self, close_span: Option<Span>) {
-        let Some(comment) = close_span.and_then(|span| self.close_suffix_comment_after_span(span))
+        let Some(comment) =
+            close_span.and_then(|span| self.facts().close_suffix_comment_after_span(span))
         else {
             return;
         };
@@ -197,12 +198,5 @@ impl<'source, 'facts> ShellRenderer<'source, 'facts> {
         let absolute_end = absolute_start + comment.len();
         self.source_map()
             .source_comment_for_offsets(absolute_start, absolute_end)
-    }
-
-    pub(super) fn close_suffix_comment_after_span(
-        &self,
-        close_span: Span,
-    ) -> Option<SourceComment<'source>> {
-        self.source_map().suffix_comment_after_span(close_span)
     }
 }

@@ -13,11 +13,12 @@ use shuck_indexer::{CommentIndex, IndexedComment, Indexer, IndexerOptions, LineI
 
 use crate::command::{
     array_elem_parts, branch_open_keyword_start, case_item_body_upper_bound,
-    case_item_was_inline_in_source, collect_binary_list_first as collect_binary_list_first_with,
-    collect_pipeline_parts, command_group_commands, done_close_span, group_attachment_span,
-    group_open_suffix, group_was_inline_in_source, if_close_span,
-    if_next_branch_region_with_body_end, matching_group_close, rendered_stmt_end_line,
-    should_render_verbatim, stmt_attachment_span, stmt_format_span, stmt_has_trailing_comment,
+    case_item_was_inline_in_source, case_terminator,
+    collect_binary_list_first as collect_binary_list_first_with, collect_pipeline_parts,
+    command_group_commands, done_close_span, group_attachment_span, group_open_suffix,
+    group_was_inline_in_source, if_close_span, if_next_branch_region_with_body_end,
+    matching_group_close, rendered_stmt_end_line, should_render_verbatim, stmt_attachment_span,
+    stmt_format_span, stmt_group_attachment_or_verbatim_span, stmt_has_trailing_comment,
     stmt_render_start_line, stmt_span, stmt_start_after_operator,
     stmt_verbatim_span_with_source_map,
 };
@@ -25,7 +26,9 @@ use crate::comments::{
     CommentAttachmentModel, SequenceCommentAttachment, SourceComment, SourceMap,
 };
 use crate::options::{LineEnding, ResolvedShellFormatOptions};
-use crate::scan::{BranchPrefixComment, last_shell_keyword_start};
+use crate::scan::{
+    BranchPrefixComment, last_shell_keyword_end, last_shell_keyword_start, source_between_offsets,
+};
 use crate::visit::{self, AstVisitor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -40,6 +43,10 @@ impl FactSpan {
             start: span.start.offset,
             end: span.end.offset,
         }
+    }
+
+    fn from_offsets(start: usize, end: usize) -> Self {
+        Self { start, end }
     }
 }
 
@@ -61,6 +68,134 @@ impl SequenceSiteKey {
             span: FactSpan::from(sequence.span),
             upper_bound,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct OffsetRegionKey {
+    start: usize,
+    end: usize,
+}
+
+impl OffsetRegionKey {
+    fn new(start: usize, end: usize) -> Self {
+        Self { start, end }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct BranchPrefixFacts {
+    comments: Vec<BranchPrefixComment>,
+    first_comment_offset: Option<usize>,
+    has_blank_line_before_keyword: bool,
+    has_blank_line_after_comments: bool,
+}
+
+impl BranchPrefixFacts {
+    fn new(source: &str, start: usize, end: usize, comments: Vec<BranchPrefixComment>) -> Self {
+        let first_comment_offset = comments.first().map(|comment| comment.offset);
+        let has_blank_line_before_keyword =
+            gap_has_empty_physical_line(source, start, first_comment_offset.unwrap_or(end));
+        let has_blank_line_after_comments = comments.last().is_some_and(|last| {
+            line_end_for_offset(source, last.offset)
+                .filter(|line_end| *line_end < end)
+                .is_some_and(|line_end| gap_has_empty_physical_line(source, line_end, end))
+        });
+
+        Self {
+            comments,
+            first_comment_offset,
+            has_blank_line_before_keyword,
+            has_blank_line_after_comments,
+        }
+    }
+
+    pub(crate) fn comments(&self) -> &[BranchPrefixComment] {
+        &self.comments
+    }
+
+    pub(crate) fn first_comment_offset(&self) -> Option<usize> {
+        self.first_comment_offset
+    }
+
+    pub(crate) fn has_blank_line_before_keyword(&self) -> bool {
+        self.has_blank_line_before_keyword
+    }
+
+    pub(crate) fn has_blank_line_after_comments(&self) -> bool {
+        self.has_blank_line_after_comments
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct CaseCommandFacts {
+    esac_span: Option<Span>,
+    body_fallback_upper_bound: usize,
+    has_blank_line_after_in: bool,
+    has_blank_line_before_esac: bool,
+    suffix_comments_before_esac: Vec<BranchPrefixComment>,
+}
+
+impl CaseCommandFacts {
+    pub(crate) fn esac_span(&self) -> Option<Span> {
+        self.esac_span
+    }
+
+    pub(crate) fn body_fallback_upper_bound(&self) -> usize {
+        self.body_fallback_upper_bound
+    }
+
+    pub(crate) fn has_blank_line_after_in(&self) -> bool {
+        self.has_blank_line_after_in
+    }
+
+    pub(crate) fn has_blank_line_before_esac(&self) -> bool {
+        self.has_blank_line_before_esac
+    }
+
+    pub(crate) fn suffix_comments_before_esac(&self) -> &[BranchPrefixComment] {
+        &self.suffix_comments_before_esac
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct CaseItemFacts<'source> {
+    suffix_comment_start_line: Option<usize>,
+    has_blank_line_before: bool,
+    has_blank_line_after_pattern: bool,
+    has_blank_line_before_terminator: bool,
+    prefix_comments: Vec<SourceComment<'source>>,
+    pattern_suffix_comment: Option<SourceComment<'source>>,
+    terminator_suffix_comment: Option<SourceComment<'source>>,
+}
+
+impl<'source> CaseItemFacts<'source> {
+    pub(crate) fn suffix_comment_start_line(&self) -> Option<usize> {
+        self.suffix_comment_start_line
+    }
+
+    pub(crate) fn has_blank_line_before(&self) -> bool {
+        self.has_blank_line_before
+    }
+
+    pub(crate) fn has_blank_line_after_pattern(&self) -> bool {
+        self.has_blank_line_after_pattern
+    }
+
+    pub(crate) fn has_blank_line_before_terminator(&self) -> bool {
+        self.has_blank_line_before_terminator
+    }
+
+    pub(crate) fn prefix_comments(&self) -> &[SourceComment<'source>] {
+        &self.prefix_comments
+    }
+
+    pub(crate) fn pattern_suffix_comment(&self) -> Option<SourceComment<'source>> {
+        self.pattern_suffix_comment
+    }
+
+    pub(crate) fn terminator_suffix_comment(&self) -> Option<SourceComment<'source>> {
+        self.terminator_suffix_comment
     }
 }
 
@@ -100,6 +235,12 @@ pub(crate) struct SequenceFacts<'source> {
     comments: SequenceCommentAttachment<'source>,
     first_rendered_lines: Vec<usize>,
     group_open_suffix_span: Option<Span>,
+    group_attachment_span: Option<Span>,
+    open_end_offset: Option<usize>,
+    has_blank_line_after_open: bool,
+    has_blank_line_before_close: bool,
+    body_content_end: usize,
+    close_gap_start: usize,
 }
 
 impl<'source> SequenceFacts<'source> {
@@ -108,6 +249,12 @@ impl<'source> SequenceFacts<'source> {
             comments: SequenceCommentAttachment::new(child_count),
             first_rendered_lines: vec![0; child_count],
             group_open_suffix_span: None,
+            group_attachment_span: None,
+            open_end_offset: None,
+            has_blank_line_after_open: false,
+            has_blank_line_before_close: false,
+            body_content_end: 0,
+            close_gap_start: 0,
         }
     }
 
@@ -141,6 +288,30 @@ impl<'source> SequenceFacts<'source> {
     pub(crate) fn group_open_suffix_span(&self) -> Option<Span> {
         self.group_open_suffix_span
     }
+
+    pub(crate) fn group_attachment_span(&self) -> Option<Span> {
+        self.group_attachment_span
+    }
+
+    pub(crate) fn open_end_offset(&self) -> Option<usize> {
+        self.open_end_offset
+    }
+
+    pub(crate) fn has_blank_line_after_open(&self) -> bool {
+        self.has_blank_line_after_open
+    }
+
+    pub(crate) fn has_blank_line_before_close(&self) -> bool {
+        self.has_blank_line_before_close
+    }
+
+    pub(crate) fn body_content_end(&self) -> usize {
+        self.body_content_end
+    }
+
+    pub(crate) fn close_gap_start(&self) -> usize {
+        self.close_gap_start
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -153,6 +324,10 @@ pub(crate) struct FormatterFacts<'source> {
     background_breaks: HashSet<FactSpan>,
     inline_group_sequences: HashSet<FactSpan>,
     inline_case_item_bodies: HashSet<FactSpan>,
+    branch_prefix_facts: HashMap<OffsetRegionKey, BranchPrefixFacts>,
+    close_suffix_comments: HashMap<FactSpan, SourceComment<'source>>,
+    case_facts: HashMap<FactSpan, CaseCommandFacts>,
+    case_item_facts: HashMap<FactSpan, CaseItemFacts<'source>>,
     indexer: Indexer,
 }
 
@@ -229,6 +404,68 @@ impl<'source> FormatterFacts<'source> {
             .contains(&FactSpan::from(item.body.span))
     }
 
+    pub(crate) fn close_suffix_comment_after_span(
+        &self,
+        span: Span,
+    ) -> Option<SourceComment<'source>> {
+        self.close_suffix_comments
+            .get(&FactSpan::from(span))
+            .copied()
+            .or_else(|| self.source_map.suffix_comment_after_span(span))
+    }
+
+    pub(crate) fn branch_prefix_facts(&self, start: usize, end: usize) -> BranchPrefixFacts {
+        let key = OffsetRegionKey::new(start, end);
+        self.branch_prefix_facts
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| {
+                BranchPrefixFacts::new(
+                    self.source_map.source(),
+                    start,
+                    end,
+                    self.branch_prefix_comments_from_source(start, end),
+                )
+            })
+    }
+
+    pub(crate) fn if_next_branch_region(
+        &self,
+        command: &IfCommand,
+        branch_index: usize,
+    ) -> Option<(usize, usize)> {
+        if_next_branch_region_with_body_end(
+            command,
+            branch_index,
+            self.source_map.source(),
+            |body| self.sequence(body, None).body_content_end(),
+        )
+    }
+
+    pub(crate) fn if_branch_upper_bound(&self, command: &IfCommand, branch_index: usize) -> usize {
+        if let Some((start, end)) = self.if_next_branch_region(command, branch_index) {
+            self.branch_prefix_facts(start, end)
+                .first_comment_offset()
+                .unwrap_or(end)
+        } else {
+            if_close_span(command, self.source_map.source(), &self.source_map)
+                .start
+                .offset
+        }
+    }
+
+    pub(crate) fn case_command(&self, command: &CaseCommand) -> &CaseCommandFacts {
+        self.case_facts
+            .get(&FactSpan::from(command.span))
+            .unwrap_or_else(|| unreachable!("missing case command facts"))
+    }
+
+    pub(crate) fn case_item(&self, item: &CaseItem) -> &CaseItemFacts<'source> {
+        self.case_item_facts
+            .get(&case_item_key(item))
+            .unwrap_or_else(|| unreachable!("missing case item facts"))
+    }
+
     pub(crate) fn offset_is_in_heredoc_body(&self, offset: usize) -> bool {
         self.indexer
             .region_index()
@@ -273,26 +510,15 @@ impl<'source> FormatterFacts<'source> {
             .any(|backslash| start <= backslash && backslash < end)
     }
 
-    pub(crate) fn line_end_for_offset(&self, offset: usize) -> Option<usize> {
-        let offset = TextSize::new(offset.min(self.source_map.source().len()) as u32);
-        let line = self.indexer.line_index().line_number(offset);
-        self.indexer
-            .line_index()
-            .line_range(line, self.source_map.source())
-            .map(|range| usize::from(range.end()))
-    }
-
     pub(crate) fn branch_prefix_first_comment_offset(
         &self,
         start: usize,
         end: usize,
     ) -> Option<usize> {
-        self.branch_prefix_comments(start, end)
-            .first()
-            .map(|comment| comment.offset)
+        self.branch_prefix_facts(start, end).first_comment_offset()
     }
 
-    pub(crate) fn branch_prefix_comments(
+    fn branch_prefix_comments_from_source(
         &self,
         start: usize,
         end: usize,
@@ -345,6 +571,10 @@ impl<'source> FormatterFacts<'source> {
             + self.background_breaks.len()
             + self.inline_group_sequences.len()
             + self.inline_case_item_bodies.len()
+            + self.branch_prefix_facts.len()
+            + self.close_suffix_comments.len()
+            + self.case_facts.len()
+            + self.case_item_facts.len()
             + self.indexer.region_index().heredoc_ranges().len()
     }
 }
@@ -489,6 +719,15 @@ fn own_line_comment_in_bounds(
     })
 }
 
+fn line_end_for_offset(source: &str, offset: usize) -> Option<usize> {
+    let offset = offset.min(source.len());
+    source.get(offset..).map(|suffix| {
+        suffix
+            .find('\n')
+            .map_or(source.len(), |index| offset + index)
+    })
+}
+
 struct FormatterFactsBuilder<'source, 'options> {
     source: &'source str,
     options: &'options ResolvedShellFormatOptions,
@@ -517,6 +756,10 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 background_breaks: HashSet::new(),
                 inline_group_sequences: HashSet::new(),
                 inline_case_item_bodies: HashSet::new(),
+                branch_prefix_facts: HashMap::new(),
+                close_suffix_comments: HashMap::new(),
+                case_facts: HashMap::new(),
+                case_item_facts: HashMap::new(),
                 indexer,
             },
             comment_attachments,
@@ -534,15 +777,18 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         upper_bound: Option<usize>,
         group_open_char: Option<char>,
     ) {
-        self.visit_sequence_with_suffix(sequence, upper_bound, group_open_char, None);
+        self.visit_sequence_with_suffix(sequence, upper_bound, group_open_char, None, None);
     }
 
     fn visit_do_done_body(&mut self, body: &StmtSeq, span: Span) {
+        let close_span = done_close_span(self.source_map().source(), self.source_map(), span, None);
+        self.record_close_suffix(close_span);
         self.visit_sequence_with_suffix(
             body,
             Some(done_body_upper_bound(self.source_map(), span)),
             None,
             branch_open_suffix_span(body, self.source_map(), "do"),
+            branch_open_end_offset(body, self.source_map().source(), "do"),
         );
     }
 
@@ -560,6 +806,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         upper_bound: Option<usize>,
         group_open_char: Option<char>,
         open_suffix_span: Option<Span>,
+        open_end_offset: Option<usize>,
     ) {
         for stmt in sequence.iter() {
             self.visit_stmt(stmt);
@@ -585,6 +832,43 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             };
             group_attachment_span(sequence.as_slice(), self.source_map(), open, close)
         });
+        facts.group_attachment_span = group_attachment_span;
+        facts.body_content_end =
+            sequence_body_content_end(sequence, self.source, &self.facts.indexer);
+        facts.close_gap_start = sequence
+            .trailing_comments
+            .iter()
+            .map(|comment| usize::from(comment.range.end()))
+            .max()
+            .unwrap_or(facts.body_content_end);
+        facts.open_end_offset = if let Some(open) = group_open_char {
+            facts
+                .group_open_suffix_span
+                .map(|span| span.end.offset)
+                .or_else(|| {
+                    facts
+                        .group_attachment_span
+                        .map(|span| span.start.offset.saturating_add(open.len_utf8()))
+                })
+        } else {
+            open_end_offset
+        };
+        facts.has_blank_line_after_open = facts.open_end_offset.is_some_and(|offset| {
+            body_has_blank_line_after_open(self.source, self.source_map(), offset, sequence)
+        });
+        facts.has_blank_line_before_close =
+            if let (Some(open), Some(span)) = (group_open_char, facts.group_attachment_span) {
+                let close = matching_group_close(open);
+                let close_offset =
+                    group_close_offset(self.source, span, upper_bound, close, close.len_utf8());
+                self.source_map()
+                    .has_blank_line_immediately_before_offset(close_offset)
+            } else {
+                upper_bound.is_some_and(|offset| {
+                    self.source_map()
+                        .has_blank_line_immediately_before_offset(offset)
+                })
+            };
         let sequence_limit = group_attachment_span
             .map(|span| span.end.offset)
             .or(upper_bound);
@@ -780,7 +1064,19 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                                 .flatten()
                         })
                         .flatten(),
+                    group_open_char
+                        .is_none()
+                        .then(|| branch_open_end_offset(&command.body, self.source, "do"))
+                        .flatten(),
                 );
+                if matches!(command.syntax, shuck_ast::ForeachSyntax::InDoDone { .. }) {
+                    self.record_close_suffix(done_close_span(
+                        self.source_map().source(),
+                        self.source_map(),
+                        command.span,
+                        None,
+                    ));
+                }
             }
             CompoundCommand::ArithmeticFor(command) => {
                 if let Some(expr) = &command.init_ast {
@@ -853,6 +1149,9 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             (!brace_syntax)
                 .then(|| branch_open_suffix_span(&command.then_branch, self.source_map(), "then"))
                 .flatten(),
+            (!brace_syntax)
+                .then(|| branch_open_end_offset(&command.then_branch, self.source, "then"))
+                .flatten(),
         );
         for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
             let condition_upper_bound = if brace_syntax {
@@ -878,6 +1177,9 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 (!brace_syntax)
                     .then(|| branch_open_suffix_span(body, self.source_map(), "then"))
                     .flatten(),
+                (!brace_syntax)
+                    .then(|| branch_open_end_offset(body, self.source, "then"))
+                    .flatten(),
             );
         }
         if let Some(else_branch) = &command.else_branch {
@@ -892,8 +1194,13 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 (!brace_syntax)
                     .then(|| branch_open_suffix_span(else_branch, self.source_map(), "else"))
                     .flatten(),
+                (!brace_syntax)
+                    .then(|| branch_open_end_offset(else_branch, self.source, "else"))
+                    .flatten(),
             );
         }
+        self.record_if_branch_prefix_facts(command);
+        self.record_close_suffix(Some(if_close_span(command, self.source, self.source_map())));
     }
 
     fn visit_for(&mut self, command: &ForCommand) {
@@ -929,7 +1236,22 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     .flatten()
                 })
                 .flatten(),
+            group_open_char
+                .is_none()
+                .then(|| branch_open_end_offset(&command.body, self.source, "do"))
+                .flatten(),
         );
+        if matches!(
+            command.syntax,
+            shuck_ast::ForSyntax::InDoDone { .. } | shuck_ast::ForSyntax::ParenDoDone { .. }
+        ) {
+            self.record_close_suffix(done_close_span(
+                self.source_map().source(),
+                self.source_map(),
+                command.span,
+                None,
+            ));
+        }
     }
 
     fn visit_repeat(&mut self, command: &RepeatCommand) {
@@ -951,7 +1273,19 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                         .flatten()
                 })
                 .flatten(),
+            group_open_char
+                .is_none()
+                .then(|| branch_open_end_offset(&command.body, self.source, "do"))
+                .flatten(),
         );
+        if matches!(command.syntax, shuck_ast::RepeatSyntax::DoDone { .. }) {
+            self.record_close_suffix(done_close_span(
+                self.source_map().source(),
+                self.source_map(),
+                command.span,
+                None,
+            ));
+        }
     }
 
     fn visit_while(&mut self, command: &WhileCommand) {
@@ -970,6 +1304,9 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
 
     fn visit_case(&mut self, command: &CaseCommand) {
         self.visit_word(&command.word);
+        let case_command_facts = self.build_case_command_facts(command);
+        self.record_close_suffix(case_command_facts.esac_span());
+        let mut previous_item: Option<&CaseItem> = None;
         for item in &command.cases {
             for pattern in &item.patterns {
                 self.visit_pattern(pattern);
@@ -979,15 +1316,18 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     .inline_case_item_bodies
                     .insert(FactSpan::from(item.body.span));
             }
-            self.visit_sequence(
-                &item.body,
-                case_item_body_upper_bound(
-                    item,
-                    case_body_fallback_upper_bound(command, self.source_map()),
-                ),
-                None,
-            );
+            let upper_bound =
+                case_item_body_upper_bound(item, case_command_facts.body_fallback_upper_bound());
+            self.visit_sequence(&item.body, upper_bound, None);
+            let item_facts = self.build_case_item_facts(item, previous_item, upper_bound);
+            self.facts
+                .case_item_facts
+                .insert(case_item_key(item), item_facts);
+            previous_item = Some(item);
         }
+        self.facts
+            .case_facts
+            .insert(FactSpan::from(command.span), case_command_facts);
     }
 
     fn visit_select(&mut self, command: &SelectCommand) {
@@ -1000,6 +1340,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     fn visit_time(&mut self, command: &TimeCommand) {
         if let Some(inner) = &command.command {
             self.visit_stmt(inner.as_ref());
+            self.record_close_suffix(Some(stmt_format_span(inner.as_ref())));
         }
     }
 
@@ -1165,6 +1506,154 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         visit::walk_arithmetic_expr(self, expr);
     }
 
+    fn record_close_suffix(&mut self, span: Option<Span>) {
+        let Some(span) = span else {
+            return;
+        };
+        if let Some(comment) = self.source_map().suffix_comment_after_span(span) {
+            self.facts
+                .close_suffix_comments
+                .insert(FactSpan::from(span), comment);
+        }
+    }
+
+    fn record_if_branch_prefix_facts(&mut self, command: &IfCommand) {
+        for branch_index in 0..=command.elif_branches.len() {
+            let Some((start, end)) =
+                if_next_branch_region_with_body_end(command, branch_index, self.source, |body| {
+                    self.facts.sequence(body, None).body_content_end()
+                })
+            else {
+                continue;
+            };
+            self.record_branch_prefix_facts(start, end);
+        }
+    }
+
+    fn record_branch_prefix_facts(&mut self, start: usize, end: usize) {
+        let comments = branch_prefix_comments_from_index(
+            self.source,
+            self.facts.indexer.line_index(),
+            self.facts.indexer.comment_index(),
+            start,
+            end,
+        )
+        .into_iter()
+        .filter(|comment| !self.facts.offset_is_in_heredoc_body(comment.offset))
+        .collect();
+        self.facts.branch_prefix_facts.insert(
+            OffsetRegionKey::new(start, end),
+            BranchPrefixFacts::new(self.source, start, end, comments),
+        );
+    }
+
+    fn build_case_command_facts(&self, command: &CaseCommand) -> CaseCommandFacts {
+        let esac_span = case_close_span(command, self.source_map());
+        let body_fallback_upper_bound = esac_span
+            .map(|span| span.start.offset)
+            .unwrap_or(command.span.end.offset);
+        let suffix_comments_before_esac = command
+            .cases
+            .last()
+            .and_then(|last_item| case_item_source_end_offset(last_item, self.source))
+            .map(|start| {
+                own_line_comments_in_region_from_index(
+                    self.source,
+                    self.facts.indexer.line_index(),
+                    self.facts.indexer.comment_index(),
+                    start,
+                    body_fallback_upper_bound,
+                )
+                .into_iter()
+                .filter(|comment| !self.facts.offset_is_in_heredoc_body(comment.offset))
+                .collect()
+            })
+            .unwrap_or_default();
+
+        CaseCommandFacts {
+            esac_span,
+            body_fallback_upper_bound,
+            has_blank_line_after_in: case_has_blank_line_after_in(command, self.source),
+            has_blank_line_before_esac: case_has_blank_line_before_esac(
+                command,
+                self.source,
+                esac_span,
+            ),
+            suffix_comments_before_esac,
+        }
+    }
+
+    fn build_case_item_facts(
+        &self,
+        item: &CaseItem,
+        previous_item: Option<&CaseItem>,
+        upper_bound: Option<usize>,
+    ) -> CaseItemFacts<'source> {
+        let sequence = self.facts.sequence(&item.body, upper_bound);
+        let first_body_line = sequence.first_rendered_line_for(0);
+        let first_body_stmt_line = item
+            .body
+            .first()
+            .map(|stmt| stmt_render_start_line(stmt, self.source, self.source_map(), self.options))
+            .unwrap_or(first_body_line);
+        let first_pattern_start = item
+            .patterns
+            .first()
+            .map(|pattern| pattern.span.start.offset);
+        let mut prefix_comments = first_pattern_start
+            .map(|start| {
+                let mut comments = sequence
+                    .leading_for(0)
+                    .iter()
+                    .copied()
+                    .filter(|comment| comment.span().start.offset < start)
+                    .collect::<Vec<_>>();
+                for comment in
+                    case_item_source_prefix_comments(self.source, self.source_map(), start)
+                {
+                    if !comments
+                        .iter()
+                        .any(|existing| existing.span().start.offset == comment.span().start.offset)
+                    {
+                        comments.push(comment);
+                    }
+                }
+                comments
+            })
+            .unwrap_or_default();
+        prefix_comments.sort_by_key(|comment| comment.span().start.offset);
+
+        CaseItemFacts {
+            suffix_comment_start_line: case_suffix_comment_start_line(item),
+            has_blank_line_before: previous_item.is_some_and(|previous| {
+                case_item_has_blank_line_before(previous, item, self.source)
+            }),
+            has_blank_line_after_pattern: case_item_has_blank_line_after_pattern(
+                item,
+                self.source,
+                first_body_line,
+                first_body_stmt_line,
+            ),
+            has_blank_line_before_terminator: case_item_has_blank_line_before_terminator(
+                item,
+                self.source,
+                sequence.close_gap_start(),
+            ),
+            prefix_comments,
+            pattern_suffix_comment: case_item_pattern_suffix_comment(
+                item,
+                upper_bound,
+                self.source,
+                self.source_map(),
+            ),
+            terminator_suffix_comment: case_item_terminator_suffix_comment(
+                item,
+                self.source,
+                self.source_map(),
+            ),
+        }
+    }
+
     fn source_map(&self) -> &SourceMap<'source> {
         &self.facts.source_map
     }
@@ -1284,6 +1773,10 @@ fn branch_open_suffix_span(
         .then(|| source_map.span_for_offsets(suffix_start, line_end))
 }
 
+fn branch_open_end_offset(sequence: &StmtSeq, source: &str, keyword: &str) -> Option<usize> {
+    branch_open_keyword_start(sequence, source, keyword).map(|start| start + keyword.len())
+}
+
 fn sequence_comment_lower_bound(sequence: &StmtSeq, source_map: &SourceMap<'_>) -> usize {
     let mut lower_bound = sequence.span.start.offset;
     for comment in &sequence.leading_comments {
@@ -1307,9 +1800,9 @@ fn sequence_comment_lower_bound(sequence: &StmtSeq, source_map: &SourceMap<'_>) 
     lower_bound
 }
 
-fn case_body_fallback_upper_bound(command: &CaseCommand, source_map: &SourceMap<'_>) -> usize {
-    last_shell_keyword_start(source_map.source(), command.span, "esac")
-        .unwrap_or(command.span.end.offset)
+fn case_close_span(command: &CaseCommand, source_map: &SourceMap<'_>) -> Option<Span> {
+    let start = last_shell_keyword_start(source_map.source(), command.span, "esac")?;
+    Some(source_map.span_for_offsets(start, start + "esac".len()))
 }
 
 fn done_body_upper_bound(source_map: &SourceMap<'_>, span: Span) -> usize {
@@ -1368,6 +1861,396 @@ fn repeat_body_upper_bound(command: &RepeatCommand, source_map: &SourceMap<'_>) 
         } => right_brace_span.start.offset,
         shuck_ast::RepeatSyntax::Direct => command.span.end.offset,
     }
+}
+
+fn group_close_offset(
+    source: &str,
+    span: Span,
+    upper_bound: Option<usize>,
+    close_char: char,
+    close_len: usize,
+) -> usize {
+    let fallback = span.end.offset.saturating_sub(close_len);
+    let search_end = upper_bound
+        .map(|offset| offset.saturating_add(close_len))
+        .unwrap_or(span.end.offset)
+        .min(source.len())
+        .max(span.start.offset);
+    source
+        .get(span.start.offset..search_end)
+        .and_then(|text| text.rfind(close_char))
+        .map_or(fallback, |offset| span.start.offset + offset)
+}
+
+fn sequence_body_content_end(body: &StmtSeq, source: &str, indexer: &Indexer) -> usize {
+    let mut end = body
+        .last()
+        .map(|stmt| stmt_span(stmt).end.offset)
+        .unwrap_or(body.span.end.offset);
+    if let Some(stmt) = body.last() {
+        for redirect in &stmt.redirects {
+            let Some(heredoc) = redirect.heredoc() else {
+                continue;
+            };
+            let heredoc_end = indexer
+                .region_index()
+                .heredoc_closing_marker_range(heredoc.body.span.to_range())
+                .map(|range| usize::from(range.end()))
+                .unwrap_or(heredoc.body.span.end.offset);
+            end = end.max(heredoc_end);
+        }
+    }
+    trim_trailing_gap_before_offset(source, end.min(source.len()))
+}
+
+fn trim_trailing_gap_before_offset(source: &str, mut offset: usize) -> usize {
+    let bytes = source.as_bytes();
+    while offset > 0 && matches!(bytes[offset - 1], b' ' | b'\t' | b'\r' | b'\n') {
+        offset -= 1;
+    }
+    offset
+}
+
+fn body_has_blank_line_after_open(
+    source: &str,
+    source_map: &SourceMap<'_>,
+    open_end_offset: usize,
+    commands: &StmtSeq,
+) -> bool {
+    let Some(mut first_start) = sequence_first_content_offset(commands, source_map) else {
+        return false;
+    };
+    if first_start <= open_end_offset
+        && let Some(stmt) = commands.first()
+    {
+        first_start = stmt_first_content_offset(stmt, source_map);
+    }
+    if source_map.line_number_for_offset(first_start)
+        == source_map.line_number_for_offset(open_end_offset)
+        && let Some(stmt) = commands.first()
+    {
+        first_start = stmt_first_content_offset(stmt, source_map);
+    }
+    let open_line = source_map.line_number_for_offset(open_end_offset);
+    let mut comment_search = open_end_offset;
+    while let Some(comment_start) = source_map.first_comment_between(comment_search, first_start) {
+        if source_map.line_number_for_offset(comment_start) != open_line {
+            first_start = comment_start;
+            break;
+        }
+        comment_search = comment_start.saturating_add(1);
+    }
+    gap_has_blank_line(source, open_end_offset, first_start)
+        || (source
+            .get(..open_end_offset.min(source.len()))
+            .is_some_and(|prefix| prefix.ends_with('\n'))
+            && gap_starts_with_empty_physical_line(source, open_end_offset, first_start))
+}
+
+fn sequence_first_content_offset(commands: &StmtSeq, source_map: &SourceMap<'_>) -> Option<usize> {
+    let mut first = commands
+        .leading_comments
+        .iter()
+        .map(|comment| usize::from(comment.range.start()))
+        .min();
+    if let Some(stmt) = commands.first() {
+        first = first
+            .into_iter()
+            .chain(
+                stmt.leading_comments
+                    .iter()
+                    .map(|comment| usize::from(comment.range.start())),
+            )
+            .chain(std::iter::once(stmt_first_content_offset(stmt, source_map)))
+            .min();
+    }
+    first
+}
+
+fn stmt_first_content_offset(stmt: &Stmt, source_map: &SourceMap<'_>) -> usize {
+    match &stmt.command {
+        Command::Binary(command) => stmt_first_content_offset(&command.left, source_map),
+        _ => {
+            stmt_group_attachment_or_verbatim_span(stmt, source_map)
+                .unwrap_or_else(|| stmt_verbatim_span_with_source_map(stmt, source_map))
+                .start
+                .offset
+        }
+    }
+}
+
+fn gap_has_blank_line(source: &str, start: usize, end: usize) -> bool {
+    source_between_offsets(source, start, end)
+        .is_some_and(|gap| gap.bytes().filter(|byte| *byte == b'\n').count() >= 2)
+}
+
+fn gap_has_empty_physical_line(source: &str, start: usize, end: usize) -> bool {
+    let Some(gap) = source_between_offsets(source, start, end) else {
+        return false;
+    };
+    let bytes = gap.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'\n' {
+            let mut next = index + 1;
+            while next < bytes.len() && matches!(bytes[next], b' ' | b'\t' | b'\r') {
+                next += 1;
+            }
+            if next < bytes.len() && bytes[next] == b'\n' {
+                return true;
+            }
+        }
+        index += 1;
+    }
+    false
+}
+
+fn gap_starts_with_empty_physical_line(source: &str, start: usize, end: usize) -> bool {
+    let Some(gap) = source_between_offsets(source, start, end) else {
+        return false;
+    };
+    for byte in gap.bytes() {
+        match byte {
+            b' ' | b'\t' | b'\r' => {}
+            b'\n' => return true,
+            _ => return false,
+        }
+    }
+    false
+}
+
+fn case_has_blank_line_after_in(command: &CaseCommand, source: &str) -> bool {
+    let Some(first_pattern_start) = command
+        .cases
+        .first()
+        .and_then(|item| item.patterns.first())
+        .map(|pattern| pattern.span.start.offset)
+    else {
+        return false;
+    };
+    let start = command.word.span.end.offset.min(source.len());
+    let end = first_pattern_start.min(source.len());
+    let Some(prefix) = source.get(start..end) else {
+        return false;
+    };
+    let Some(in_end) = last_shell_keyword_end(prefix, "in") else {
+        return false;
+    };
+    gap_has_empty_physical_line(source, start + in_end, end)
+}
+
+fn case_item_has_blank_line_before(previous: &CaseItem, item: &CaseItem, source: &str) -> bool {
+    let Some(start) = case_item_source_end_offset(previous, source) else {
+        return false;
+    };
+    let Some(end) = item
+        .patterns
+        .first()
+        .map(|pattern| pattern.span.start.offset)
+    else {
+        return false;
+    };
+    gap_has_empty_physical_line(source, start, end)
+}
+
+fn case_item_source_end_offset(item: &CaseItem, source: &str) -> Option<usize> {
+    let content_end = item
+        .body
+        .last()
+        .map(|stmt| stmt_format_span(stmt).end.offset)
+        .or_else(|| item.patterns.last().map(|pattern| pattern.span.end.offset))?;
+    if let Some(terminator_span) = item.terminator_span
+        && terminator_span.end.offset >= content_end
+        && terminator_span.end.offset <= source.len()
+    {
+        return Some(terminator_span.end.offset);
+    }
+    let stmt_end = content_end.min(source.len());
+    let line_end = source[stmt_end..]
+        .find(['\n', '\r'])
+        .map_or(source.len(), |offset| stmt_end + offset);
+    let terminator = case_terminator(item.terminator);
+    let end = source
+        .get(stmt_end..line_end)
+        .and_then(|tail| {
+            tail.find(terminator)
+                .map(|offset| stmt_end + offset + terminator.len())
+        })
+        .unwrap_or(stmt_end);
+    Some(end)
+}
+
+fn case_suffix_comment_start_line(item: &CaseItem) -> Option<usize> {
+    item.terminator_span
+        .map(|span| span.end.line)
+        .or_else(|| item.body.last().map(|stmt| stmt_span(stmt).end.line))
+        .or_else(|| item.patterns.last().map(|pattern| pattern.span.end.line))
+}
+
+fn case_has_blank_line_before_esac(
+    command: &CaseCommand,
+    source: &str,
+    esac_span: Option<Span>,
+) -> bool {
+    let Some(last_item) = command.cases.last() else {
+        return false;
+    };
+    let Some(start) = case_item_source_end_offset(last_item, source) else {
+        return false;
+    };
+    let Some(esac_start) = esac_span.map(|span| span.start.offset) else {
+        return false;
+    };
+    gap_has_blank_line(source, start, esac_start)
+}
+
+fn case_item_has_blank_line_after_pattern(
+    item: &CaseItem,
+    source: &str,
+    first_body_line: usize,
+    first_body_stmt_line: usize,
+) -> bool {
+    let Some(pattern_line) = item.patterns.last().map(|pattern| pattern.span.end.line) else {
+        return false;
+    };
+    let stmt_line = if first_body_line <= pattern_line {
+        first_body_stmt_line
+    } else {
+        first_body_line
+    };
+    if stmt_line == 0 || stmt_line <= pattern_line.saturating_add(1) {
+        return false;
+    }
+    let lines = source.lines().collect::<Vec<_>>();
+    ((pattern_line + 1)..stmt_line).any(|line| {
+        line.checked_sub(1)
+            .and_then(|index| lines.get(index))
+            .is_some_and(|text| text.trim_matches([' ', '\t', '\r']).is_empty())
+    })
+}
+
+fn case_item_has_blank_line_before_terminator(
+    item: &CaseItem,
+    source: &str,
+    content_end: usize,
+) -> bool {
+    let Some(terminator_start) = item.terminator_span.map(|span| span.start.offset) else {
+        return false;
+    };
+    !item.body.is_empty() && gap_has_empty_physical_line(source, content_end, terminator_start)
+}
+
+fn case_item_pattern_suffix_comment<'source>(
+    item: &CaseItem,
+    upper_bound: Option<usize>,
+    source: &'source str,
+    source_map: &SourceMap<'source>,
+) -> Option<SourceComment<'source>> {
+    let start = item.patterns.last()?.span.end.offset.min(source.len());
+    let end = item
+        .body
+        .first()
+        .map(|stmt| stmt_span(stmt).start.offset)
+        .or_else(|| item.terminator_span.map(|span| span.start.offset))
+        .or(upper_bound)
+        .unwrap_or(source.len())
+        .min(source.len());
+    if start >= end {
+        return None;
+    }
+    let between = source.get(start..end)?;
+    let line = between.split_once('\n').map_or(between, |(line, _)| line);
+    let comment_start = line.find('#')?;
+    let before = &line[..comment_start];
+    if !before.contains(')') {
+        return None;
+    }
+    let comment = line[comment_start..].trim_end_matches([' ', '\t', '\r']);
+    let absolute_start = start + comment_start;
+    let absolute_end = absolute_start + comment.len();
+    source_map.source_comment_for_offsets(absolute_start, absolute_end)
+}
+
+fn case_item_terminator_suffix_comment<'source>(
+    item: &CaseItem,
+    source: &'source str,
+    source_map: &SourceMap<'source>,
+) -> Option<SourceComment<'source>> {
+    let span = item.terminator_span?;
+    if span.start.line != span.end.line {
+        return None;
+    }
+    let start = span.end.offset.min(source.len());
+    let suffix_source = source.get(start..)?;
+    let line_end = suffix_source
+        .find('\n')
+        .map_or(source.len(), |offset| start + offset);
+    let suffix = source.get(start..line_end)?;
+    let leading_padding = suffix.len() - suffix.trim_start_matches([' ', '\t']).len();
+    let comment = suffix[leading_padding..].trim_end_matches([' ', '\t', '\r']);
+    if !comment.starts_with('#') {
+        return None;
+    }
+    let absolute_start = start + leading_padding;
+    let absolute_end = absolute_start + comment.len();
+    source_map.source_comment_for_offsets(absolute_start, absolute_end)
+}
+
+fn case_item_source_prefix_comments<'source>(
+    source: &'source str,
+    source_map: &SourceMap<'source>,
+    first_pattern_start: usize,
+) -> Vec<SourceComment<'source>> {
+    let Some((pattern_line_start, _)) = source_map.line_bounds_for_offset(first_pattern_start)
+    else {
+        return Vec::new();
+    };
+    if source
+        .get(pattern_line_start..first_pattern_start)
+        .is_some_and(|prefix| !prefix.trim_matches([' ', '\t', '\r']).is_empty())
+    {
+        return Vec::new();
+    }
+    let mut comments = Vec::new();
+    let mut next_start = pattern_line_start;
+    while let Some((start, end)) = source_map.previous_line_bounds(next_start) {
+        let Some(line) = source.get(start..end) else {
+            break;
+        };
+        let trimmed = line.trim_matches([' ', '\t', '\r']);
+        if trimmed.is_empty() {
+            next_start = start;
+            continue;
+        }
+        let leading_padding = line.len() - line.trim_start_matches([' ', '\t']).len();
+        let comment = &line[leading_padding..];
+        if !comment.starts_with('#') {
+            break;
+        }
+        let absolute_start = start + leading_padding;
+        let absolute_end = absolute_start + comment.trim_end_matches([' ', '\t', '\r']).len();
+        if let Some(comment) = source_map.source_comment_for_offsets(absolute_start, absolute_end) {
+            comments.push(comment);
+        }
+        next_start = start;
+    }
+    comments.reverse();
+    comments
+}
+
+fn case_item_key(item: &CaseItem) -> FactSpan {
+    let start = item
+        .patterns
+        .first()
+        .map(|pattern| pattern.span.start.offset)
+        .unwrap_or(item.body.span.start.offset);
+    let end = item
+        .terminator_span
+        .map(|span| span.end.offset)
+        .or_else(|| item.body.last().map(|stmt| stmt_span(stmt).end.offset))
+        .or_else(|| item.patterns.last().map(|pattern| pattern.span.end.offset))
+        .unwrap_or(item.body.span.end.offset);
+    FactSpan::from_offsets(start, end)
 }
 
 fn if_close_start(command: &IfCommand, source_map: &SourceMap<'_>) -> usize {
@@ -1510,6 +2393,26 @@ mod tests {
     }
 
     #[test]
+    fn captures_group_attachment_and_blank_line_layout() {
+        let source = "{\n\n  echo hi\n\n}\n";
+        let (file, facts) = build_facts(source);
+        let body = first_brace_group(&file);
+        let sequence = facts.sequence(body, None);
+
+        assert_eq!(
+            sequence
+                .group_attachment_span()
+                .expect("expected group attachment")
+                .slice(source),
+            source.trim_end()
+        );
+        assert!(sequence.open_end_offset().is_some());
+        assert!(sequence.has_blank_line_after_open());
+        assert!(sequence.has_blank_line_before_close());
+        assert_eq!(&source[..sequence.close_gap_start()], "{\n\n  echo hi");
+    }
+
+    #[test]
     fn captures_then_branch_open_suffix_comments() {
         let source = "if foo; then # note\n  bar\nfi\n";
         let (file, facts) = build_facts(source);
@@ -1534,6 +2437,31 @@ mod tests {
         assert!(sequence.group_open_suffix_span().is_some());
         assert!(!sequence.is_ambiguous());
         assert!(sequence.leading_for(0).is_empty());
+    }
+
+    #[test]
+    fn captures_branch_prefix_region_layout() {
+        let source = "if foo; then\n  one\n\n# keep with branch\n\nelif bar; then\n  two\nfi\n";
+        let (file, facts) = build_facts(source);
+        let command = match &file.body[0].command {
+            Command::Compound(CompoundCommand::If(command)) => command,
+            _ => panic!("expected if command"),
+        };
+        let (start, end) = facts
+            .if_next_branch_region(command, 0)
+            .expect("expected elif branch region");
+        let branch = facts.branch_prefix_facts(start, end);
+
+        assert_eq!(branch.comments().len(), 1);
+        assert_eq!(branch.comments()[0].text, "# keep with branch");
+        assert!(branch.has_blank_line_before_keyword());
+        assert!(branch.has_blank_line_after_comments());
+        assert_eq!(
+            facts.if_branch_upper_bound(command, 0),
+            branch
+                .first_comment_offset()
+                .expect("expected prefix comment")
+        );
     }
 
     #[test]
@@ -1562,6 +2490,47 @@ mod tests {
 
         assert!(facts.stmt(&file.body[0]).preserve_verbatim());
         assert!(facts.stmt(&file.body[1]).preserve_verbatim());
+    }
+
+    #[test]
+    fn captures_case_prefix_suffix_and_blank_line_regions() {
+        let source = "case value in\n\n  # before pattern\n  one) # pattern note\n    echo one\n\n    ;; # done note\n\n  # before close\nesac # close note\n";
+        let (file, facts) = build_facts(source);
+        let command = match &file.body[0].command {
+            Command::Compound(CompoundCommand::Case(command)) => command,
+            _ => panic!("expected case command"),
+        };
+        let case_facts = facts.case_command(command);
+        let item_facts = facts.case_item(&command.cases[0]);
+
+        assert!(case_facts.has_blank_line_after_in());
+        assert_eq!(case_facts.suffix_comments_before_esac().len(), 1);
+        assert_eq!(
+            case_facts.suffix_comments_before_esac()[0].text,
+            "# before close"
+        );
+        assert!(case_facts.has_blank_line_before_esac());
+        assert_eq!(item_facts.prefix_comments().len(), 1);
+        assert_eq!(item_facts.prefix_comments()[0].text(), "# before pattern");
+        assert_eq!(
+            item_facts
+                .pattern_suffix_comment()
+                .expect("expected pattern suffix")
+                .text(),
+            "# pattern note"
+        );
+        assert_eq!(
+            item_facts
+                .terminator_suffix_comment()
+                .expect("expected terminator suffix")
+                .text(),
+            "# done note"
+        );
+        assert!(
+            facts
+                .close_suffix_comment_after_span(case_facts.esac_span().unwrap())
+                .is_some()
+        );
     }
 
     #[test]

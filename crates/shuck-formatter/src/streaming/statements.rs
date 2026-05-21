@@ -562,29 +562,20 @@ impl<'source, 'facts> ShellRenderer<'source, 'facts> {
 
         self.write_text(open);
         self.write_sequence_open_suffix(body, Some(body_upper_bound));
-        let preserve_open_blank = body_has_blank_line_after_keyword(
-            self.source(),
-            self.source_map(),
-            enclosing_span.start.offset,
-            "do",
-            body,
-        );
+        let preserve_open_blank = self
+            .facts()
+            .sequence(body, Some(body_upper_bound))
+            .has_blank_line_after_open();
         self.format_body_with_upper_bound_and_open_blank(
             body,
             Some(body_upper_bound),
             preserve_open_blank,
         )?;
         self.write_unmodeled_branch_background_terminator(body, body_upper_bound);
-        if close_span.is_some_and(|span| {
-            self.source_map()
-                .has_blank_line_immediately_before_offset(span.start.offset)
-        }) || (close_span.is_none()
-            && source_has_blank_line_before_last_keyword(
-                self.source(),
-                self.source_map(),
-                enclosing_span,
-                close,
-            ))
+        if self
+            .facts()
+            .sequence(body, Some(body_upper_bound))
+            .has_blank_line_before_close()
         {
             self.newline();
         }
@@ -623,8 +614,10 @@ impl<'source, 'facts> ShellRenderer<'source, 'facts> {
         else {
             return false;
         };
-        let Some(group_span) =
-            group_attachment_span(commands.as_slice(), self.source_map(), '{', '}')
+        let Some(group_span) = self
+            .facts()
+            .sequence(commands, None)
+            .group_attachment_span()
         else {
             return false;
         };
@@ -652,8 +645,10 @@ impl<'source, 'facts> ShellRenderer<'source, 'facts> {
         let Command::Compound(CompoundCommand::BraceGroup(commands)) = &stmt.command else {
             return "; ";
         };
-        let Some(group_span) =
-            group_attachment_span(commands.as_slice(), self.source_map(), '{', '}')
+        let Some(group_span) = self
+            .facts()
+            .sequence(commands, None)
+            .group_attachment_span()
         else {
             return "; ";
         };

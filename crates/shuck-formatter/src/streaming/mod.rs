@@ -33,17 +33,17 @@ use crate::command::{
     multiline_compound_assignment_layout, multiline_compound_assignment_lines,
     render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
     render_subscript_to_buf, render_var_ref_to_buf, simple_command_uses_synthetic_words,
-    slice_span, stmt_attachment_span, stmt_format_span, stmt_group_attachment_or_verbatim_span,
-    stmt_render_start_line, stmt_seq_has_heredoc, stmt_span, stmt_start_after_operator,
-    stmt_verbatim_span_with_source_map, trim_unescaped_trailing_whitespace,
+    slice_span, stmt_attachment_span, stmt_format_span, stmt_render_start_line,
+    stmt_seq_has_heredoc, stmt_span, stmt_start_after_operator, stmt_verbatim_span_with_source_map,
+    trim_unescaped_trailing_whitespace,
 };
 use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
 use crate::options::{IndentStyle, ResolvedShellFormatOptions};
 use crate::scan::{
-    BranchPrefixComment, heredoc_start, last_shell_keyword_end, last_shell_keyword_start,
-    last_shell_keyword_start_between, line_without_continuation_backslash, redirect_operator_end,
-    shell_keyword_at, skip_double_quoted, skip_single_quoted, source_between_offsets,
+    BranchPrefixComment, heredoc_start, last_shell_keyword_start,
+    line_without_continuation_backslash, redirect_operator_end, shell_keyword_at,
+    skip_double_quoted, skip_single_quoted, source_between_offsets,
 };
 use crate::word::{
     assignment_value_has_multiline_literal_source as assignment_has_multiline_literal_source,
@@ -1220,120 +1220,6 @@ fn strip_outer_indent_after_first_line(raw: &str, outer_indent: &str) -> String 
     normalized
 }
 
-fn body_has_blank_line_after_open(
-    source: &str,
-    source_map: &SourceMap<'_>,
-    open_end_offset: usize,
-    commands: &StmtSeq,
-) -> bool {
-    let Some(mut first_start) = sequence_first_content_offset(commands, source_map) else {
-        return false;
-    };
-    if first_start <= open_end_offset
-        && let Some(stmt) = commands.first()
-    {
-        first_start = stmt_first_content_offset(stmt, source_map);
-    }
-    if source_map.line_number_for_offset(first_start)
-        == source_map.line_number_for_offset(open_end_offset)
-        && let Some(stmt) = commands.first()
-    {
-        first_start = stmt_first_content_offset(stmt, source_map);
-    }
-    let open_line = source_map.line_number_for_offset(open_end_offset);
-    let mut comment_search = open_end_offset;
-    while let Some(comment_start) = source_map.first_comment_between(comment_search, first_start) {
-        if source_map.line_number_for_offset(comment_start) != open_line {
-            first_start = comment_start;
-            break;
-        }
-        comment_search = comment_start.saturating_add(1);
-    }
-    gap_has_blank_line(source, open_end_offset, first_start)
-        || (source
-            .get(..open_end_offset.min(source.len()))
-            .is_some_and(|prefix| prefix.ends_with('\n'))
-            && gap_starts_with_empty_physical_line(source, open_end_offset, first_start))
-}
-
-fn body_has_blank_line_after_keyword(
-    source: &str,
-    source_map: &SourceMap<'_>,
-    search_start: usize,
-    keyword: &str,
-    commands: &StmtSeq,
-) -> bool {
-    let Some(first_start) = sequence_first_content_offset(commands, source_map) else {
-        return false;
-    };
-    let Some(prefix) = source.get(search_start.min(source.len())..first_start.min(source.len()))
-    else {
-        return false;
-    };
-    let Some(keyword_end) = last_shell_keyword_end(prefix, keyword) else {
-        return false;
-    };
-    gap_has_blank_line(source, search_start + keyword_end, first_start)
-}
-
-fn source_has_blank_line_before_last_keyword(
-    source: &str,
-    source_map: &SourceMap<'_>,
-    span: Span,
-    keyword: &str,
-) -> bool {
-    last_shell_keyword_span(source, source_map, span, keyword).is_some_and(|keyword_span| {
-        source_map.has_blank_line_immediately_before_offset(keyword_span.start.offset)
-    })
-}
-
-fn source_has_blank_line_before_last_keyword_after(
-    source: &str,
-    start_offset: usize,
-    span: Span,
-    keyword: &str,
-) -> bool {
-    let upper = span.end.offset.min(source.len());
-    let lower = start_offset.max(span.start.offset).min(upper);
-    let Some(keyword_start) = last_shell_keyword_start_between(source, lower, upper, keyword)
-    else {
-        return false;
-    };
-    gap_has_empty_physical_line(source, lower, keyword_start)
-}
-
-fn sequence_first_content_offset(commands: &StmtSeq, source_map: &SourceMap<'_>) -> Option<usize> {
-    let mut first = commands
-        .leading_comments
-        .iter()
-        .map(|comment| usize::from(comment.range.start()))
-        .min();
-    if let Some(stmt) = commands.first() {
-        first = first
-            .into_iter()
-            .chain(
-                stmt.leading_comments
-                    .iter()
-                    .map(|comment| usize::from(comment.range.start())),
-            )
-            .chain(std::iter::once(stmt_first_content_offset(stmt, source_map)))
-            .min();
-    }
-    first
-}
-
-fn stmt_first_content_offset(stmt: &Stmt, source_map: &SourceMap<'_>) -> usize {
-    match &stmt.command {
-        Command::Binary(command) => stmt_first_content_offset(&command.left, source_map),
-        _ => {
-            stmt_group_attachment_or_verbatim_span(stmt, source_map)
-                .unwrap_or_else(|| stmt_verbatim_span_with_source_map(stmt, source_map))
-                .start
-                .offset
-        }
-    }
-}
-
 fn stmt_sequence_renders_with_subshell_open(commands: &StmtSeq) -> bool {
     commands
         .first()
@@ -1374,105 +1260,8 @@ fn gap_has_blank_line(source: &str, start: usize, end: usize) -> bool {
         .is_some_and(|gap| gap.bytes().filter(|byte| *byte == b'\n').count() >= 2)
 }
 
-fn gap_has_empty_physical_line(source: &str, start: usize, end: usize) -> bool {
-    let Some(gap) = source_between_offsets(source, start, end) else {
-        return false;
-    };
-    let bytes = gap.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'\n' {
-            let mut next = index + 1;
-            while next < bytes.len() && matches!(bytes[next], b' ' | b'\t' | b'\r') {
-                next += 1;
-            }
-            if next < bytes.len() && bytes[next] == b'\n' {
-                return true;
-            }
-        }
-        index += 1;
-    }
-    false
-}
-
-fn gap_starts_with_empty_physical_line(source: &str, start: usize, end: usize) -> bool {
-    let Some(gap) = source_between_offsets(source, start, end) else {
-        return false;
-    };
-    for byte in gap.bytes() {
-        match byte {
-            b' ' | b'\t' | b'\r' => {}
-            b'\n' => return true,
-            _ => return false,
-        }
-    }
-    false
-}
-
-fn case_has_blank_line_after_in(command: &CaseCommand, source: &str) -> bool {
-    let Some(first_pattern_start) = command
-        .cases
-        .first()
-        .and_then(|item| item.patterns.first())
-        .map(|pattern| pattern.span.start.offset)
-    else {
-        return false;
-    };
-    let start = command.word.span.end.offset.min(source.len());
-    let end = first_pattern_start.min(source.len());
-    let Some(prefix) = source.get(start..end) else {
-        return false;
-    };
-    let Some(in_end) = last_shell_keyword_end(prefix, "in") else {
-        return false;
-    };
-    let gap_start = start + in_end;
-    gap_has_empty_physical_line(source, gap_start, end)
-}
-
 fn case_command_was_inline_in_source(command: &CaseCommand, source: &str) -> bool {
     command.span.slice(source).lines().nth(1).is_none()
-}
-
-fn case_item_has_blank_line_before(previous: &CaseItem, item: &CaseItem, source: &str) -> bool {
-    let Some(start) = case_item_source_end_offset(previous, source) else {
-        return false;
-    };
-    let Some(end) = item
-        .patterns
-        .first()
-        .map(|pattern| pattern.span.start.offset)
-    else {
-        return false;
-    };
-    gap_has_empty_physical_line(source, start, end)
-}
-
-fn case_item_source_end_offset(item: &CaseItem, source: &str) -> Option<usize> {
-    let content_end = item
-        .body
-        .last()
-        .map(|stmt| stmt_format_span(stmt).end.offset)
-        .or_else(|| item.patterns.last().map(|pattern| pattern.span.end.offset))?;
-    if let Some(terminator_span) = item.terminator_span
-        && terminator_span.end.offset >= content_end
-        && terminator_span.end.offset <= source.len()
-    {
-        return Some(terminator_span.end.offset);
-    }
-    let stmt_end = content_end.min(source.len());
-    let line_end = source[stmt_end..]
-        .find(['\n', '\r'])
-        .map_or(source.len(), |offset| stmt_end + offset);
-    let terminator = case_terminator(item.terminator);
-    let end = source
-        .get(stmt_end..line_end)
-        .and_then(|tail| {
-            tail.find(terminator)
-                .map(|offset| stmt_end + offset + terminator.len())
-        })
-        .unwrap_or(stmt_end);
-    Some(end)
 }
 
 fn case_item_body_terminator_was_inline_in_source(item: &CaseItem) -> bool {
@@ -1709,86 +1498,6 @@ fn trim_trailing_pattern_line_continuation(rendered: &mut String) {
         return;
     };
     rendered.truncate(stripped.len());
-}
-
-fn case_item_has_blank_line_after_pattern(
-    item: &CaseItem,
-    source: &str,
-    first_body_line: usize,
-    first_body_stmt_line: usize,
-) -> bool {
-    let Some(pattern_line) = item.patterns.last().map(|pattern| pattern.span.end.line) else {
-        return false;
-    };
-    let stmt_line = if first_body_line <= pattern_line {
-        first_body_stmt_line
-    } else {
-        first_body_line
-    };
-    if stmt_line == 0 {
-        return false;
-    }
-    if stmt_line <= pattern_line.saturating_add(1) {
-        return false;
-    }
-    let lines = source.lines().collect::<Vec<_>>();
-    ((pattern_line + 1)..stmt_line).any(|line| {
-        line.checked_sub(1)
-            .and_then(|index| lines.get(index))
-            .is_some_and(|text| text.trim_matches([' ', '\t', '\r']).is_empty())
-    })
-}
-
-fn case_item_has_blank_line_before_terminator(
-    item: &CaseItem,
-    source: &str,
-    facts: &FormatterFacts<'_>,
-) -> bool {
-    let Some(terminator_start) = item.terminator_span.map(|span| span.start.offset) else {
-        return false;
-    };
-    if item.body.is_empty() {
-        return false;
-    }
-    let content_end = sequence_close_gap_start(&item.body, source, facts);
-    gap_has_empty_physical_line(source, content_end, terminator_start)
-}
-
-fn case_suffix_comment_region_start(item: &CaseItem, source: &str) -> Option<usize> {
-    case_item_source_end_offset(item, source)
-}
-
-fn case_suffix_comment_start_line(item: &CaseItem) -> Option<usize> {
-    item.terminator_span
-        .map(|span| span.end.line)
-        .or_else(|| item.body.last().map(|stmt| stmt_span(stmt).end.line))
-        .or_else(|| item.patterns.last().map(|pattern| pattern.span.end.line))
-}
-
-fn sequence_close_gap_start(commands: &StmtSeq, source: &str, facts: &FormatterFacts<'_>) -> usize {
-    commands
-        .trailing_comments
-        .iter()
-        .map(|comment| usize::from(comment.range.end()))
-        .max()
-        .unwrap_or_else(|| branch_body_content_end(commands, source, facts))
-}
-
-fn case_has_blank_line_before_esac(command: &CaseCommand, source: &str) -> bool {
-    let Some(last_item) = command.cases.last() else {
-        return false;
-    };
-    let Some(start) = case_item_source_end_offset(last_item, source) else {
-        return false;
-    };
-    let end = command.span.end.offset.min(source.len());
-    let Some(gap) = source.get(start.min(source.len())..end) else {
-        return false;
-    };
-    let Some(esac_start) = gap.rfind("esac") else {
-        return false;
-    };
-    gap_has_blank_line(source, start, start + esac_start)
 }
 
 fn brace_group_last_stmt_allows_done_without_semicolon(commands: &StmtSeq) -> bool {
