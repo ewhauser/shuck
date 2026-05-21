@@ -71,28 +71,33 @@ impl<'a> CompoundBodySite<'a> {
         command: &'a WhileCommand,
         source_map: &crate::comments::SourceMap<'_>,
     ) -> Self {
-        Self::do_done(&command.body, command.span, None, source_map)
+        Self::do_done(&command.body, command.span, command.done_span, source_map)
     }
 
     pub(crate) fn until_command(
         command: &'a UntilCommand,
         source_map: &crate::comments::SourceMap<'_>,
     ) -> Self {
-        Self::do_done(&command.body, command.span, None, source_map)
+        Self::do_done(&command.body, command.span, command.done_span, source_map)
     }
 
     pub(crate) fn select_command(
         command: &'a SelectCommand,
         source_map: &crate::comments::SourceMap<'_>,
     ) -> Self {
-        Self::do_done(&command.body, command.span, None, source_map)
+        Self::do_done(
+            &command.body,
+            command.span,
+            Some(command.done_span),
+            source_map,
+        )
     }
 
     pub(crate) fn arithmetic_for_command(
         command: &'a ArithmeticForCommand,
         source_map: &crate::comments::SourceMap<'_>,
     ) -> Self {
-        Self::do_done(&command.body, command.span, None, source_map)
+        Self::do_done(&command.body, command.span, command.done_span, source_map)
     }
 
     pub(crate) fn if_then_branch(

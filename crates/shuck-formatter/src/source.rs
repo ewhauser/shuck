@@ -128,27 +128,6 @@ impl<'source> SourceView<'source> {
             && shell_keyword_boundaries_match(self.source, offset, end)
     }
 
-    pub(crate) fn matching_if_close_start(self, span: Span) -> Option<usize> {
-        self.matching_close_keyword_start(span, "fi", |source, offset, upper| {
-            shell_control_keyword_at(source, offset, upper, "if").then_some("if".len())
-        })
-    }
-
-    pub(crate) fn matching_done_close_start(self, span: Span) -> Option<usize> {
-        self.matching_close_keyword_start(span, "done", |source, offset, upper| {
-            ["for", "select", "while", "until", "foreach", "repeat"]
-                .iter()
-                .find(|keyword| shell_control_keyword_at(source, offset, upper, keyword))
-                .map(|_| {
-                    source[offset..]
-                        .chars()
-                        .take_while(char::is_ascii_alphabetic)
-                        .map(char::len_utf8)
-                        .sum()
-                })
-        })
-    }
-
     pub(crate) fn dollar_command_substitution(
         self,
     ) -> Option<DollarCommandSubstitutionSource<'source>> {
@@ -177,43 +156,6 @@ impl<'source> SourceView<'source> {
                 .rfind('\n')
                 .map_or(0, |newline| newline.saturating_add(1)),
         )
-    }
-
-    fn matching_close_keyword_start(
-        self,
-        span: Span,
-        close_keyword: &str,
-        mut open_len_at: impl FnMut(&str, usize, usize) -> Option<usize>,
-    ) -> Option<usize> {
-        let upper = span.end.offset.min(self.source.len());
-        let mut offset = span.start.offset.min(upper);
-        let mut depth = 0usize;
-        let scanner = RawShellScanner::bounded(self.source, upper);
-        while offset < upper {
-            let ch = self.source[offset..].chars().next()?;
-            if let Some(next) = scanner.skip_quoted_or_comment_at(offset) {
-                offset = next;
-                continue;
-            }
-
-            if let Some(open_len) = open_len_at(self.source, offset, upper) {
-                depth = depth.saturating_add(1);
-                offset += open_len;
-                continue;
-            }
-            if shell_control_keyword_at(self.source, offset, upper, close_keyword) {
-                if depth > 0 {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some(offset);
-                    }
-                }
-                offset += close_keyword.len();
-                continue;
-            }
-            offset += ch.len_utf8();
-        }
-        None
     }
 }
 
@@ -291,37 +233,6 @@ fn branch_keyword_candidate_matches(line: &str, start: usize, end: usize) -> boo
     before.is_empty() || before.ends_with(';') || before.ends_with('&')
 }
 
-fn shell_control_keyword_at(source: &str, offset: usize, upper: usize, keyword: &str) -> bool {
-    SourceView::new(source).shell_keyword_at(offset, upper, keyword)
-        && shell_keyword_has_command_prefix(source, offset)
-}
-
-fn shell_keyword_has_command_prefix(source: &str, offset: usize) -> bool {
-    let prefix = &source[..offset];
-    let Some((previous_offset, previous)) = prefix
-        .char_indices()
-        .rev()
-        .find(|(_, ch)| !matches!(ch, ' ' | '\t' | '\r'))
-    else {
-        return true;
-    };
-
-    if previous == '\n' || matches!(previous, ';' | '&' | '|' | '(' | ')' | '{' | '!') {
-        return true;
-    }
-
-    let word_end = previous_offset + previous.len_utf8();
-    let word_start = prefix[..word_end]
-        .char_indices()
-        .rev()
-        .find(|(_, ch)| !is_shell_keyword_char(*ch))
-        .map_or(0, |(index, ch)| index + ch.len_utf8());
-    matches!(
-        &prefix[word_start..word_end],
-        "do" | "then" | "else" | "elif" | "time" | "coproc"
-    )
-}
-
 fn shell_keyword_boundaries_match(text: &str, start: usize, end: usize) -> bool {
     let before = text[..start].chars().next_back();
     let after = text[end..].chars().next();
@@ -360,27 +271,5 @@ mod tests {
         assert!(command_substitution_source_prefers_continued_inline_body(
             "$(echo ok \\\n  && echo again)"
         ));
-    }
-
-    #[test]
-    fn source_view_skips_comments_when_matching_close_keywords() {
-        let source = "if true; then\n  echo fi # fi\nfi\n";
-        let span = Span {
-            start: shuck_ast::Position {
-                line: 1,
-                column: 1,
-                offset: 0,
-            },
-            end: shuck_ast::Position {
-                line: 3,
-                column: 3,
-                offset: source.len(),
-            },
-        };
-
-        assert_eq!(
-            SourceView::new(source).matching_if_close_start(span),
-            source.rfind("fi")
-        );
     }
 }

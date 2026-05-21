@@ -185,12 +185,14 @@ impl<'a> Parser<'a> {
         };
 
         if !brace_style {
-            self.expect_keyword(Keyword::Fi)?;
+            if !self.is_keyword(Keyword::Fi) {
+                self.pop_depth();
+                return Err(self.error("expected 'fi'"));
+            }
+            let fi_span = self.current_span;
+            self.advance();
             if let IfSyntax::ThenFi { then_span, .. } = syntax {
-                syntax = IfSyntax::ThenFi {
-                    then_span,
-                    fi_span: self.current_span,
-                };
+                syntax = IfSyntax::ThenFi { then_span, fi_span };
             }
         }
 

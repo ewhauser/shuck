@@ -12,7 +12,9 @@ use shuck_ast::{
     ZshGlobSegment,
 };
 use shuck_ast::{TextRange, TextSize};
-use shuck_indexer::{CommentIndex, IndexedComment, Indexer, IndexerOptions, LineIndex};
+use shuck_indexer::{
+    CloseDelimiterKind, CommentIndex, IndexedComment, Indexer, IndexerOptions, LineIndex,
+};
 
 use crate::command::{
     CompoundBodySite, array_elem_parts, builtin_like_parts, case_item_body_upper_bound,
@@ -30,9 +32,7 @@ use crate::comments::{
     CommentAttachmentModel, SequenceCommentAttachment, SourceComment, SourceMap,
 };
 use crate::options::{LineEnding, ResolvedShellFormatOptions};
-use crate::scan::{
-    BranchPrefixComment, last_shell_keyword_end, last_shell_keyword_start, source_between_offsets,
-};
+use crate::scan::{BranchPrefixComment, last_shell_keyword_end, source_between_offsets};
 use crate::source::{SourceView, command_substitution_source_starts_with_body_line};
 use crate::streaming::comments_alignment::CommentAlignmentFacts;
 use crate::visit::{self, AstVisitor};
@@ -3026,8 +3026,9 @@ fn sequence_comment_lower_bound(sequence: &StmtSeq, source_map: &SourceMap<'_>) 
 }
 
 fn case_close_span(command: &CaseCommand, source_map: &SourceMap<'_>) -> Option<Span> {
-    let start = last_shell_keyword_start(source_map.source(), command.span, "esac")?;
-    Some(source_map.span_for_offsets(start, start + "esac".len()))
+    source_map
+        .close_delimiter_span(command.span, CloseDelimiterKind::Esac)
+        .or_else(|| Some(command.esac_span))
 }
 
 fn group_close_offset(

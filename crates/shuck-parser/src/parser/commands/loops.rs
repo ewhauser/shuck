@@ -702,7 +702,12 @@ impl<'a> Parser<'a> {
         let body = Self::stmt_seq_with_span(body_span, body);
 
         // Expect 'done'
-        self.expect_keyword(Keyword::Done)?;
+        if !self.is_keyword(Keyword::Done) {
+            self.pop_depth();
+            return Err(self.error("expected 'done'"));
+        }
+        let done_span = self.current_span;
+        self.advance();
 
         self.pop_depth();
         Ok(CompoundCommand::Select(SelectCommand {
@@ -710,6 +715,7 @@ impl<'a> Parser<'a> {
             variable_span,
             words: words.into_vec(),
             body,
+            done_span,
             span: start_span.merge(self.current_span),
         }))
     }
@@ -826,7 +832,7 @@ impl<'a> Parser<'a> {
         }
         self.skip_newlines()?;
 
-        let (body, end_span) = if self.at(TokenKind::LeftBrace) {
+        let (body, done_span) = if self.at(TokenKind::LeftBrace) {
             let body = self.parse_brace_group(BraceBodyContext::Ordinary)?;
             let span = Self::compound_span(&body);
             (
@@ -837,7 +843,7 @@ impl<'a> Parser<'a> {
                         SmallVec::<[Redirect; 1]>::new(),
                     ))],
                 ),
-                self.current_span,
+                None,
             )
         } else {
             // Expect 'do'
@@ -860,7 +866,7 @@ impl<'a> Parser<'a> {
             }
             let done_span = self.current_span;
             self.advance();
-            (Self::stmt_seq_with_span(body_span, body), done_span)
+            (Self::stmt_seq_with_span(body_span, body), Some(done_span))
         };
 
         Ok(CompoundCommand::ArithmeticFor(Box::new(
@@ -875,8 +881,9 @@ impl<'a> Parser<'a> {
                 step_span,
                 step_ast,
                 right_paren_span,
+                done_span,
                 body,
-                span: start_span.merge(end_span),
+                span: start_span.merge(self.current_span),
             },
         )))
     }
@@ -895,7 +902,7 @@ impl<'a> Parser<'a> {
         let condition_span = Span::from_positions(condition_start, self.current_span.start);
         let condition = Self::stmt_seq_with_span(condition_span, condition);
 
-        let (body, end_span) = if allow_brace_body && self.at(TokenKind::LeftBrace) {
+        let (body, done_span) = if allow_brace_body && self.at(TokenKind::LeftBrace) {
             let body = self.parse_brace_group(BraceBodyContext::Ordinary)?;
             let span = Self::compound_span(&body);
             (
@@ -906,7 +913,7 @@ impl<'a> Parser<'a> {
                         SmallVec::<[Redirect; 1]>::new(),
                     ))],
                 ),
-                self.current_span,
+                None,
             )
         } else if let Some((body, left_brace_span, right_brace_span)) = allow_brace_body
             .then(|| self.try_parse_compact_zsh_brace_body(BraceBodyContext::Ordinary))
@@ -923,7 +930,7 @@ impl<'a> Parser<'a> {
                         SmallVec::<[Redirect; 1]>::new(),
                     ))],
                 ),
-                right_brace_span,
+                None,
             )
         } else {
             self.expect_keyword(Keyword::Do)?;
@@ -939,15 +946,21 @@ impl<'a> Parser<'a> {
             }
             let body = Self::stmt_seq_with_span(body_span, body);
 
-            self.expect_keyword(Keyword::Done)?;
-            (body, self.current_span)
+            if !self.is_keyword(Keyword::Done) {
+                self.pop_depth();
+                return Err(self.error("expected 'done'"));
+            }
+            let done_span = self.current_span;
+            self.advance();
+            (body, Some(done_span))
         };
 
         self.pop_depth();
         Ok(CompoundCommand::While(WhileCommand {
             condition,
             body,
-            span: start_span.merge(end_span),
+            done_span,
+            span: start_span.merge(self.current_span),
         }))
     }
 
@@ -965,7 +978,7 @@ impl<'a> Parser<'a> {
         let condition_span = Span::from_positions(condition_start, self.current_span.start);
         let condition = Self::stmt_seq_with_span(condition_span, condition);
 
-        let (body, end_span) = if allow_brace_body && self.at(TokenKind::LeftBrace) {
+        let (body, done_span) = if allow_brace_body && self.at(TokenKind::LeftBrace) {
             let body = self.parse_brace_group(BraceBodyContext::Ordinary)?;
             let span = Self::compound_span(&body);
             (
@@ -976,7 +989,7 @@ impl<'a> Parser<'a> {
                         SmallVec::<[Redirect; 1]>::new(),
                     ))],
                 ),
-                self.current_span,
+                None,
             )
         } else if let Some((body, left_brace_span, right_brace_span)) = allow_brace_body
             .then(|| self.try_parse_compact_zsh_brace_body(BraceBodyContext::Ordinary))
@@ -993,7 +1006,7 @@ impl<'a> Parser<'a> {
                         SmallVec::<[Redirect; 1]>::new(),
                     ))],
                 ),
-                right_brace_span,
+                None,
             )
         } else {
             self.expect_keyword(Keyword::Do)?;
@@ -1009,15 +1022,21 @@ impl<'a> Parser<'a> {
             }
             let body = Self::stmt_seq_with_span(body_span, body);
 
-            self.expect_keyword(Keyword::Done)?;
-            (body, self.current_span)
+            if !self.is_keyword(Keyword::Done) {
+                self.pop_depth();
+                return Err(self.error("expected 'done'"));
+            }
+            let done_span = self.current_span;
+            self.advance();
+            (body, Some(done_span))
         };
 
         self.pop_depth();
         Ok(CompoundCommand::Until(UntilCommand {
             condition,
             body,
-            span: start_span.merge(end_span),
+            done_span,
+            span: start_span.merge(self.current_span),
         }))
     }
 }

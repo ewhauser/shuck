@@ -190,7 +190,7 @@ fn stmt_compound_close_span(
             }
             | ForSyntax::ParenBrace {
                 right_brace_span, ..
-            } => normalized_brace_close_span(source, source_map, right_brace_span),
+            } => normalized_brace_close_span(source, source_map, command.span, right_brace_span),
             ForSyntax::InDirect { .. } | ForSyntax::ParenDirect { .. } => None,
         },
         CompoundCommand::Repeat(command) => match command.syntax {
@@ -199,7 +199,7 @@ fn stmt_compound_close_span(
             }
             RepeatSyntax::Brace {
                 right_brace_span, ..
-            } => normalized_brace_close_span(source, source_map, right_brace_span),
+            } => normalized_brace_close_span(source, source_map, command.span, right_brace_span),
             RepeatSyntax::Direct => None,
         },
         CompoundCommand::Foreach(command) => match command.syntax {
@@ -208,16 +208,30 @@ fn stmt_compound_close_span(
             }
             ForeachSyntax::ParenBrace {
                 right_brace_span, ..
-            } => normalized_brace_close_span(source, source_map, right_brace_span),
+            } => normalized_brace_close_span(source, source_map, command.span, right_brace_span),
         },
         CompoundCommand::ArithmeticFor(command) => {
-            done_close_span(source, source_map, command.span, None)
+            done_close_span(source, source_map, command.span, command.done_span)
         }
-        CompoundCommand::While(command) => done_close_span(source, source_map, command.span, None),
-        CompoundCommand::Until(command) => done_close_span(source, source_map, command.span, None),
-        CompoundCommand::Select(command) => done_close_span(source, source_map, command.span, None),
-        CompoundCommand::Case(command) => last_shell_keyword_start(source, command.span, "esac")
-            .map(|start| source_map.span_for_offsets(start, start + "esac".len())),
+        CompoundCommand::While(command) => {
+            done_close_span(source, source_map, command.span, command.done_span)
+        }
+        CompoundCommand::Until(command) => {
+            done_close_span(source, source_map, command.span, command.done_span)
+        }
+        CompoundCommand::Select(command) => {
+            done_close_span(source, source_map, command.span, Some(command.done_span))
+        }
+        CompoundCommand::Case(command) => source_map
+            .close_delimiter_span(command.span, CloseDelimiterKind::Esac)
+            .or_else(|| {
+                Some(normalized_close_keyword_span(
+                    source,
+                    source_map,
+                    command.esac_span,
+                    "esac",
+                ))
+            }),
         _ => None,
     }
 }
@@ -225,9 +239,12 @@ fn stmt_compound_close_span(
 fn normalized_brace_close_span(
     source: &str,
     source_map: &crate::comments::SourceMap<'_>,
+    command_span: Span,
     span: Span,
 ) -> Option<Span> {
-    Some(normalized_close_keyword_span(source, source_map, span, "}"))
+    source_map
+        .close_delimiter_span(command_span, CloseDelimiterKind::RightBrace)
+        .or_else(|| Some(normalized_close_keyword_span(source, source_map, span, "}")))
 }
 
 pub(crate) fn if_close_span(
@@ -241,13 +258,15 @@ pub(crate) fn if_close_span(
             right_brace_span, ..
         } => (right_brace_span, "}"),
     };
-    let syntax_close = normalized_close_keyword_span(source, source_map, syntax_close, keyword);
-    if span_starts_with_keyword(source, syntax_close, keyword) {
-        return syntax_close;
+    let kind = match command.syntax {
+        IfSyntax::ThenFi { .. } => CloseDelimiterKind::Fi,
+        IfSyntax::Brace { .. } => CloseDelimiterKind::RightBrace,
+    };
+    if let Some(indexed_close) = source_map.close_delimiter_span(command.span, kind) {
+        return indexed_close;
     }
-    matching_if_close_start(source, command.span)
-        .map(|start| source_map.span_for_offsets(start, start + keyword.len()))
-        .unwrap_or(syntax_close)
+    let syntax_close = normalized_close_keyword_span(source, source_map, syntax_close, keyword);
+    syntax_close
 }
 
 pub(crate) fn done_close_span(
@@ -256,6 +275,10 @@ pub(crate) fn done_close_span(
     span: Span,
     fallback: Option<Span>,
 ) -> Option<Span> {
+    if let Some(indexed_close) = source_map.close_delimiter_span(span, CloseDelimiterKind::Done) {
+        return Some(indexed_close);
+    }
+
     if let Some(fallback) = fallback {
         let normalized = normalized_close_keyword_span(source, source_map, fallback, "done");
         if span_starts_with_keyword(source, normalized, "done") {
@@ -263,18 +286,21 @@ pub(crate) fn done_close_span(
         }
     }
 
-    let span_end = span.end.offset.min(source.len());
-    if let Some(start) = span_end.checked_sub("done".len())
-        && source.get(start..span_end) == Some("done")
-    {
-        return Some(source_map.span_for_offsets(start, span_end));
-    }
+    close_keyword_at_span_end(source, source_map, span, "done").or_else(|| {
+        fallback.map(|span| normalized_close_keyword_span(source, source_map, span, "done"))
+    })
+}
 
-    matching_done_close_start(source, span)
-        .map(|start| source_map.span_for_offsets(start, start + "done".len()))
-        .or_else(|| {
-            fallback.map(|span| normalized_close_keyword_span(source, source_map, span, "done"))
-        })
+fn close_keyword_at_span_end(
+    source: &str,
+    source_map: &crate::comments::SourceMap<'_>,
+    span: Span,
+    keyword: &str,
+) -> Option<Span> {
+    let span_end = span.end.offset.min(source.len());
+    let start = span_end.checked_sub(keyword.len())?;
+    (source.get(start..span_end) == Some(keyword))
+        .then(|| source_map.span_for_offsets(start, span_end))
 }
 
 fn span_starts_with_keyword(source: &str, span: Span, keyword: &str) -> bool {

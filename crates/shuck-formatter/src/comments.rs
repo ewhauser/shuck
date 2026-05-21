@@ -1,7 +1,7 @@
 use std::sync::{Arc, OnceLock};
 
 use shuck_ast::{Comment, Position, Span, TextSize};
-use shuck_indexer::{IndexedComment, Indexer, LineIndex};
+use shuck_indexer::{CloseDelimiterIndex, CloseDelimiterKind, IndexedComment, Indexer, LineIndex};
 
 use crate::source::SourceView;
 
@@ -14,6 +14,7 @@ pub struct SourceMap<'a> {
 #[derive(Debug)]
 struct SourceMapData {
     line_index: LineIndex,
+    close_delimiters: CloseDelimiterIndex,
     first_non_whitespace: Vec<OnceLock<Option<usize>>>,
     hash_offsets: Vec<usize>,
     track_alignment: bool,
@@ -37,6 +38,7 @@ impl<'a> SourceMap<'a> {
         Self::with_line_index_and_comment_offsets(
             source,
             indexer.line_index().clone(),
+            indexer.close_delimiter_index().clone(),
             indexer
                 .comment_index()
                 .comments()
@@ -50,13 +52,20 @@ impl<'a> SourceMap<'a> {
     fn with_line_index_and_comment_offsets(
         source: &'a str,
         line_index: LineIndex,
+        close_delimiters: CloseDelimiterIndex,
         comment_offsets: impl IntoIterator<Item = usize>,
         track_alignment: bool,
     ) -> Self {
         let mut hash_offsets = comment_offsets.into_iter().collect::<Vec<_>>();
         hash_offsets.sort_unstable();
         hash_offsets.dedup();
-        Self::from_parts(source, line_index, hash_offsets, track_alignment)
+        Self::from_parts(
+            source,
+            line_index,
+            close_delimiters,
+            hash_offsets,
+            track_alignment,
+        )
     }
 
     #[cfg(test)]
@@ -72,6 +81,7 @@ impl<'a> SourceMap<'a> {
         Self::from_parts(
             source,
             LineIndex::new(source),
+            CloseDelimiterIndex::empty(),
             hash_offsets,
             track_alignment,
         )
@@ -80,6 +90,7 @@ impl<'a> SourceMap<'a> {
     fn from_parts(
         source: &'a str,
         line_index: LineIndex,
+        close_delimiters: CloseDelimiterIndex,
         hash_offsets: Vec<usize>,
         track_alignment: bool,
     ) -> Self {
@@ -91,6 +102,7 @@ impl<'a> SourceMap<'a> {
             source,
             data: Arc::new(SourceMapData {
                 line_index,
+                close_delimiters,
                 first_non_whitespace,
                 hash_offsets,
                 track_alignment,
@@ -150,6 +162,21 @@ impl<'a> SourceMap<'a> {
         let start = usize::from(comment.range.start());
         let end = usize::from(comment.range.end());
         self.source_comment_for_offsets(start, end)
+    }
+
+    #[must_use]
+    pub(crate) fn close_delimiter_span(
+        &self,
+        command_span: Span,
+        kind: CloseDelimiterKind,
+    ) -> Option<Span> {
+        let range = self
+            .data
+            .close_delimiters
+            .close_for_command(command_span.to_range(), kind)?;
+        let start = usize::from(range.start());
+        let end = usize::from(range.end());
+        Some(self.span_for_offsets(start, end))
     }
 
     #[must_use]
