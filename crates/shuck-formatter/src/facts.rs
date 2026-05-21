@@ -1,4 +1,12 @@
-use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
+mod branch;
+mod breaks;
+mod case;
+mod comments;
+mod compound;
+mod layout;
+mod sequence;
+
+use rustc_hash::FxHashMap as HashMap;
 
 use shuck_ast::{
     AlwaysCommand, AnonymousFunctionCommand, ArithmeticCommand, ArithmeticExpr, ArithmeticExprNode,
@@ -30,14 +38,23 @@ use crate::command::{
     stmt_has_trailing_comment, stmt_render_start_line, stmt_span, stmt_start_after_operator,
     stmt_verbatim_span_with_source_map, trim_unescaped_trailing_whitespace,
 };
-use crate::comments::{
-    BranchPrefixComment, CommentAttachmentModel, SequenceCommentAttachment, SourceComment,
-    SourceMap,
-};
+use crate::comments::{BranchPrefixComment, CommentAttachmentModel, SourceComment, SourceMap};
 use crate::options::{LineEnding, ResolvedShellFormatOptions};
 use crate::source::{SourceView, command_substitution_source_starts_with_body_line};
-use crate::streaming::comments_alignment::CommentAlignmentFacts;
 use crate::visit::{self, AstVisitor};
+
+use self::branch::BranchFacts;
+use self::breaks::BreakFacts;
+use self::case::CaseFacts;
+use self::comments::CommentFacts;
+use self::compound::CompoundFacts;
+use self::layout::LayoutFacts;
+use self::sequence::{SequenceFactsStore, SequenceSite, SequenceSiteKey};
+
+pub(crate) use self::case::{CaseCommandFacts, CaseItemFacts};
+pub(crate) use self::comments::{BranchPrefixFacts, InlineCommentPlan};
+pub(crate) use self::layout::{StmtFacts, WordFacts};
+pub(crate) use self::sequence::SequenceFacts;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct FactSpan {
@@ -64,52 +81,6 @@ impl From<Span> for FactSpan {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct SequenceSiteKey {
-    span: FactSpan,
-    upper_bound: Option<usize>,
-}
-
-impl SequenceSiteKey {
-    fn new(sequence: &StmtSeq, upper_bound: Option<usize>) -> Self {
-        Self {
-            span: FactSpan::from(sequence.span),
-            upper_bound,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct SequenceSite<'a> {
-    sequence: &'a StmtSeq,
-    upper_bound: Option<usize>,
-    group_open_char: Option<char>,
-    open_suffix_span: Option<Span>,
-    open_end_offset: Option<usize>,
-}
-
-impl<'a> SequenceSite<'a> {
-    fn new(
-        sequence: &'a StmtSeq,
-        upper_bound: Option<usize>,
-        group_open_char: Option<char>,
-        open_suffix_span: Option<Span>,
-        open_end_offset: Option<usize>,
-    ) -> Self {
-        Self {
-            sequence,
-            upper_bound,
-            group_open_char,
-            open_suffix_span,
-            open_end_offset,
-        }
-    }
-
-    fn key(self) -> SequenceSiteKey {
-        SequenceSiteKey::new(self.sequence, self.upper_bound)
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 struct StmtSite<'a> {
     stmt: &'a Stmt,
@@ -122,493 +93,6 @@ impl<'a> StmtSite<'a> {
             stmt,
             key: FactSpan::from(stmt_span(stmt)),
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct OffsetRegionKey {
-    start: usize,
-    end: usize,
-}
-
-impl OffsetRegionKey {
-    fn new(start: usize, end: usize) -> Self {
-        Self { start, end }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct BranchPrefixFacts {
-    comments: Vec<BranchPrefixComment>,
-    first_comment_offset: Option<usize>,
-    has_blank_line_before_keyword: bool,
-    has_blank_line_after_comments: bool,
-}
-
-impl BranchPrefixFacts {
-    fn new(source: &str, start: usize, end: usize, comments: Vec<BranchPrefixComment>) -> Self {
-        let first_comment_offset = comments.first().map(|comment| comment.offset);
-        let has_blank_line_before_keyword =
-            gap_has_empty_physical_line(source, start, first_comment_offset.unwrap_or(end));
-        let has_blank_line_after_comments = comments.last().is_some_and(|last| {
-            line_end_for_offset(source, last.offset)
-                .filter(|line_end| *line_end < end)
-                .is_some_and(|line_end| gap_has_empty_physical_line(source, line_end, end))
-        });
-
-        Self {
-            comments,
-            first_comment_offset,
-            has_blank_line_before_keyword,
-            has_blank_line_after_comments,
-        }
-    }
-
-    pub(crate) fn comments(&self) -> &[BranchPrefixComment] {
-        &self.comments
-    }
-
-    pub(crate) fn first_comment_offset(&self) -> Option<usize> {
-        self.first_comment_offset
-    }
-
-    pub(crate) fn has_blank_line_before_keyword(&self) -> bool {
-        self.has_blank_line_before_keyword
-    }
-
-    pub(crate) fn has_blank_line_after_comments(&self) -> bool {
-        self.has_blank_line_after_comments
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct CaseCommandFacts {
-    esac_span: Option<Span>,
-    body_fallback_upper_bound: usize,
-    has_blank_line_after_in: bool,
-    has_blank_line_before_esac: bool,
-    suffix_comments_before_esac: Vec<BranchPrefixComment>,
-}
-
-impl CaseCommandFacts {
-    pub(crate) fn esac_span(&self) -> Option<Span> {
-        self.esac_span
-    }
-
-    pub(crate) fn body_fallback_upper_bound(&self) -> usize {
-        self.body_fallback_upper_bound
-    }
-
-    pub(crate) fn has_blank_line_after_in(&self) -> bool {
-        self.has_blank_line_after_in
-    }
-
-    pub(crate) fn has_blank_line_before_esac(&self) -> bool {
-        self.has_blank_line_before_esac
-    }
-
-    pub(crate) fn suffix_comments_before_esac(&self) -> &[BranchPrefixComment] {
-        &self.suffix_comments_before_esac
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct CaseItemFacts<'source> {
-    suffix_comment_start_line: Option<usize>,
-    has_blank_line_before: bool,
-    has_blank_line_after_pattern: bool,
-    has_blank_line_before_terminator: bool,
-    prefix_comments: Vec<SourceComment<'source>>,
-    pattern_suffix_comment: Option<SourceComment<'source>>,
-    terminator_suffix_comment: Option<SourceComment<'source>>,
-}
-
-impl<'source> CaseItemFacts<'source> {
-    pub(crate) fn suffix_comment_start_line(&self) -> Option<usize> {
-        self.suffix_comment_start_line
-    }
-
-    pub(crate) fn has_blank_line_before(&self) -> bool {
-        self.has_blank_line_before
-    }
-
-    pub(crate) fn has_blank_line_after_pattern(&self) -> bool {
-        self.has_blank_line_after_pattern
-    }
-
-    pub(crate) fn has_blank_line_before_terminator(&self) -> bool {
-        self.has_blank_line_before_terminator
-    }
-
-    pub(crate) fn prefix_comments(&self) -> &[SourceComment<'source>] {
-        &self.prefix_comments
-    }
-
-    pub(crate) fn pattern_suffix_comment(&self) -> Option<SourceComment<'source>> {
-        self.pattern_suffix_comment
-    }
-
-    pub(crate) fn terminator_suffix_comment(&self) -> Option<SourceComment<'source>> {
-        self.terminator_suffix_comment
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct CommentPlan<'source> {
-    alignment: HashMap<FactSpan, CommentAlignmentFacts>,
-    suffix_comments: HashMap<FactSpan, SourceComment<'source>>,
-    close_suffix_comments: HashMap<FactSpan, SourceComment<'source>>,
-    branch_prefix_facts: HashMap<OffsetRegionKey, BranchPrefixFacts>,
-    case_facts: HashMap<FactSpan, CaseCommandFacts>,
-    case_item_facts: HashMap<FactSpan, CaseItemFacts<'source>>,
-}
-
-impl<'source> CommentPlan<'source> {
-    fn new(
-        source: &'source str,
-        source_map: &SourceMap<'source>,
-        comment_attachments: &CommentAttachmentModel<'source>,
-    ) -> Self {
-        let alignment = comment_attachments
-            .comments()
-            .iter()
-            .map(|comment| {
-                (
-                    FactSpan::from(comment.span()),
-                    CommentAlignmentFacts::new(source, source_map, comment),
-                )
-            })
-            .collect();
-
-        Self {
-            alignment,
-            suffix_comments: HashMap::default(),
-            close_suffix_comments: HashMap::default(),
-            branch_prefix_facts: HashMap::default(),
-            case_facts: HashMap::default(),
-            case_item_facts: HashMap::default(),
-        }
-    }
-
-    fn trailing_comment(
-        &self,
-        source_map: &SourceMap<'source>,
-        comment: SourceComment<'source>,
-    ) -> InlineCommentPlan<'source> {
-        InlineCommentPlan::new(
-            comment,
-            self.alignment_for(source_map, comment),
-            InlineCommentPlacement::Trailing,
-        )
-    }
-
-    fn suffix_comment_for_span(
-        &self,
-        source_map: &SourceMap<'source>,
-        span: Span,
-    ) -> Option<InlineCommentPlan<'source>> {
-        self.suffix_comments
-            .get(&FactSpan::from(span))
-            .copied()
-            .map(|comment| self.trailing_comment(source_map, comment))
-    }
-
-    fn close_suffix_comment_after_span(
-        &self,
-        source_map: &SourceMap<'source>,
-        span: Span,
-    ) -> Option<InlineCommentPlan<'source>> {
-        let comment = self
-            .close_suffix_comments
-            .get(&FactSpan::from(span))
-            .copied()
-            .or_else(|| source_map.suffix_comment_after_span(span))?;
-        Some(InlineCommentPlan::new(
-            comment,
-            self.alignment_for(source_map, comment),
-            InlineCommentPlacement::CloseSuffix,
-        ))
-    }
-
-    fn branch_prefix_facts(&self, start: usize, end: usize) -> Option<&BranchPrefixFacts> {
-        self.branch_prefix_facts
-            .get(&OffsetRegionKey::new(start, end))
-    }
-
-    fn case_command(&self, command: &CaseCommand) -> Option<&CaseCommandFacts> {
-        self.case_facts.get(&FactSpan::from(command.span))
-    }
-
-    fn case_item(&self, item: &CaseItem) -> Option<&CaseItemFacts<'source>> {
-        self.case_item_facts.get(&case_item_key(item))
-    }
-
-    fn insert_suffix_comment(&mut self, span: Span, comment: SourceComment<'source>) {
-        self.suffix_comments.insert(FactSpan::from(span), comment);
-    }
-
-    fn insert_close_suffix_comment(&mut self, span: Span, comment: SourceComment<'source>) {
-        self.close_suffix_comments
-            .insert(FactSpan::from(span), comment);
-    }
-
-    fn insert_branch_prefix_facts(&mut self, start: usize, end: usize, facts: BranchPrefixFacts) {
-        self.branch_prefix_facts
-            .insert(OffsetRegionKey::new(start, end), facts);
-    }
-
-    fn insert_case_command(&mut self, command: &CaseCommand, facts: CaseCommandFacts) {
-        self.case_facts.insert(FactSpan::from(command.span), facts);
-    }
-
-    fn insert_case_item(&mut self, item: &CaseItem, facts: CaseItemFacts<'source>) {
-        self.case_item_facts.insert(case_item_key(item), facts);
-    }
-
-    fn alignment_for(
-        &self,
-        source_map: &SourceMap<'source>,
-        comment: SourceComment<'source>,
-    ) -> CommentAlignmentFacts {
-        self.alignment
-            .get(&FactSpan::from(comment.span()))
-            .copied()
-            .unwrap_or_else(|| {
-                CommentAlignmentFacts::new(source_map.source(), source_map, &comment)
-            })
-    }
-
-    #[cfg(feature = "benchmarking")]
-    fn len(&self) -> usize {
-        self.alignment.len()
-            + self.suffix_comments.len()
-            + self.close_suffix_comments.len()
-            + self.branch_prefix_facts.len()
-            + self.case_facts.len()
-            + self.case_item_facts.len()
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct InlineCommentPlan<'source> {
-    comment: SourceComment<'source>,
-    alignment: CommentAlignmentFacts,
-    placement: InlineCommentPlacement,
-}
-
-impl<'source> InlineCommentPlan<'source> {
-    fn new(
-        comment: SourceComment<'source>,
-        alignment: CommentAlignmentFacts,
-        placement: InlineCommentPlacement,
-    ) -> Self {
-        Self {
-            comment,
-            alignment,
-            placement,
-        }
-    }
-
-    pub(crate) fn comment(self) -> SourceComment<'source> {
-        self.comment
-    }
-
-    pub(crate) fn padding(
-        self,
-        source_map: &SourceMap<'_>,
-        current_code_column: usize,
-        current_indent_column: usize,
-    ) -> usize {
-        match self.placement {
-            InlineCommentPlacement::Trailing => self.alignment.trailing_padding(
-                source_map.source(),
-                source_map,
-                &self.comment,
-                current_code_column,
-                current_indent_column,
-            ),
-            InlineCommentPlacement::CloseSuffix => self.alignment.close_suffix_padding(
-                source_map.source(),
-                source_map,
-                &self.comment,
-                current_code_column,
-                current_indent_column,
-            ),
-        }
-    }
-
-    pub(crate) fn has_alignment(
-        self,
-        source_map: &SourceMap<'_>,
-        current_indent_column: usize,
-    ) -> bool {
-        self.alignment.has_trailing_alignment(
-            source_map.source(),
-            source_map,
-            &self.comment,
-            current_indent_column,
-        )
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum InlineCommentPlacement {
-    Trailing,
-    CloseSuffix,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct StmtFacts {
-    attachment_span: Span,
-    render_span: Span,
-    rendered_end_line: usize,
-    has_trailing_comment: bool,
-    preserve_verbatim: bool,
-    contains_heredoc: bool,
-}
-
-impl StmtFacts {
-    pub(crate) fn attachment_span(&self) -> Span {
-        self.attachment_span
-    }
-
-    pub(crate) fn render_span(&self) -> Span {
-        self.render_span
-    }
-
-    pub(crate) fn rendered_end_line(&self) -> usize {
-        self.rendered_end_line
-    }
-
-    pub(crate) fn has_trailing_comment(&self) -> bool {
-        self.has_trailing_comment
-    }
-
-    pub(crate) fn preserve_verbatim(&self) -> bool {
-        self.preserve_verbatim
-    }
-
-    pub(crate) fn contains_heredoc(&self) -> bool {
-        self.contains_heredoc
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct SequenceFacts<'source> {
-    comments: SequenceCommentAttachment<'source>,
-    first_rendered_lines: Vec<usize>,
-    group_open_suffix_span: Option<Span>,
-    group_attachment_span: Option<Span>,
-    open_end_offset: Option<usize>,
-    has_blank_line_after_open: bool,
-    has_blank_line_before_close: bool,
-    body_content_end: usize,
-    close_gap_start: usize,
-    contains_comments: bool,
-    contains_heredoc: bool,
-    contains_multiline_literal_source: bool,
-    contains_multistatement_pipeline_brace_group: bool,
-}
-
-impl<'source> SequenceFacts<'source> {
-    fn new(child_count: usize) -> Self {
-        Self {
-            comments: SequenceCommentAttachment::new(child_count),
-            first_rendered_lines: vec![0; child_count],
-            group_open_suffix_span: None,
-            group_attachment_span: None,
-            open_end_offset: None,
-            has_blank_line_after_open: false,
-            has_blank_line_before_close: false,
-            body_content_end: 0,
-            close_gap_start: 0,
-            contains_comments: false,
-            contains_heredoc: false,
-            contains_multiline_literal_source: false,
-            contains_multistatement_pipeline_brace_group: false,
-        }
-    }
-
-    pub(crate) fn leading_for(&self, index: usize) -> &[SourceComment<'source>] {
-        self.comments.leading_for(index)
-    }
-
-    pub(crate) fn trailing_for(&self, index: usize) -> &[SourceComment<'source>] {
-        self.comments.trailing_for(index)
-    }
-
-    pub(crate) fn dangling(&self) -> &[SourceComment<'source>] {
-        self.comments.dangling()
-    }
-
-    pub(crate) fn is_ambiguous(&self) -> bool {
-        self.comments.is_ambiguous()
-    }
-
-    pub(crate) fn has_comments(&self) -> bool {
-        self.comments.has_comments()
-    }
-
-    pub(crate) fn contains_comments(&self) -> bool {
-        self.contains_comments
-    }
-
-    pub(crate) fn contains_heredoc(&self) -> bool {
-        self.contains_heredoc
-    }
-
-    pub(crate) fn contains_multiline_literal_source(&self) -> bool {
-        self.contains_multiline_literal_source
-    }
-
-    pub(crate) fn contains_multistatement_pipeline_brace_group(&self) -> bool {
-        self.contains_multistatement_pipeline_brace_group
-    }
-
-    pub(crate) fn first_rendered_line_for(&self, index: usize) -> usize {
-        self.first_rendered_lines
-            .get(index)
-            .copied()
-            .unwrap_or_default()
-    }
-
-    pub(crate) fn group_open_suffix_span(&self) -> Option<Span> {
-        self.group_open_suffix_span
-    }
-
-    pub(crate) fn group_attachment_span(&self) -> Option<Span> {
-        self.group_attachment_span
-    }
-
-    pub(crate) fn open_end_offset(&self) -> Option<usize> {
-        self.open_end_offset
-    }
-
-    pub(crate) fn has_blank_line_after_open(&self) -> bool {
-        self.has_blank_line_after_open
-    }
-
-    pub(crate) fn has_blank_line_before_close(&self) -> bool {
-        self.has_blank_line_before_close
-    }
-
-    pub(crate) fn body_content_end(&self) -> usize {
-        self.body_content_end
-    }
-
-    pub(crate) fn close_gap_start(&self) -> usize {
-        self.close_gap_start
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct WordFacts {
-    has_multiline_literal_source: bool,
-}
-
-impl WordFacts {
-    pub(crate) fn has_multiline_literal_source(&self) -> bool {
-        self.has_multiline_literal_source
     }
 }
 
@@ -1606,17 +1090,13 @@ fn word_part_has_multiline_literal_source_with_sequence_layout(
 #[derive(Debug, Clone)]
 pub(crate) struct FormatterFacts<'source> {
     source_map: SourceMap<'source>,
-    stmt_facts: HashMap<FactSpan, StmtFacts>,
-    sequence_facts: HashMap<SequenceSiteKey, SequenceFacts<'source>>,
-    sequence_facts_by_span: HashMap<FactSpan, SequenceSiteKey>,
-    word_facts: HashMap<FactSpan, WordFacts>,
-    pipeline_breaks: HashSet<FactSpan>,
-    list_item_breaks: HashSet<FactSpan>,
-    background_breaks: HashSet<FactSpan>,
-    inline_group_sequences: HashSet<FactSpan>,
-    inline_case_item_bodies: HashSet<FactSpan>,
-    compound_close_spans: HashMap<FactSpan, Span>,
-    comment_plan: CommentPlan<'source>,
+    layout_facts: LayoutFacts,
+    sequences: SequenceFactsStore<'source>,
+    breaks: BreakFacts,
+    branches: BranchFacts,
+    comments: CommentFacts<'source>,
+    cases: CaseFacts<'source>,
+    compound: CompoundFacts,
     indexer: Indexer,
 }
 
@@ -1639,7 +1119,11 @@ impl<'source> FormatterFacts<'source> {
     }
 
     pub(crate) fn stmt(&self, stmt: &Stmt) -> &StmtFacts {
-        let Some(facts) = self.stmt_facts.get(&FactSpan::from(stmt_span(stmt))) else {
+        let Some(facts) = self
+            .layout_facts
+            .statements
+            .get(&FactSpan::from(stmt_span(stmt)))
+        else {
             unreachable!("missing statement facts");
         };
         facts
@@ -1651,26 +1135,30 @@ impl<'source> FormatterFacts<'source> {
         upper_bound: Option<usize>,
     ) -> &SequenceFacts<'source> {
         let key = SequenceSiteKey::new(sequence, upper_bound);
-        self.sequence_facts
+        self.sequences
+            .by_site
             .get(&key)
             .unwrap_or_else(|| self.sequence_by_span(key.span))
     }
 
     fn sequence_by_span(&self, span: FactSpan) -> &SequenceFacts<'source> {
-        let Some(key) = self.sequence_facts_by_span.get(&span) else {
+        let Some(key) = self.sequences.by_span.get(&span) else {
             unreachable!("missing sequence facts");
         };
-        let Some(facts) = self.sequence_facts.get(key) else {
+        let Some(facts) = self.sequences.by_site.get(key) else {
             unreachable!("missing sequence facts");
         };
         facts
     }
 
     pub(crate) fn word_has_multiline_literal_source(&self, word: &Word) -> bool {
-        self.word_facts.get(&FactSpan::from(word.span)).map_or_else(
-            || classify_word_has_multiline_literal_source(word, self.source_map.source()),
-            WordFacts::has_multiline_literal_source,
-        )
+        self.layout_facts
+            .words
+            .get(&FactSpan::from(word.span))
+            .map_or_else(
+                || classify_word_has_multiline_literal_source(word, self.source_map.source()),
+                WordFacts::has_multiline_literal_source,
+            )
     }
 
     pub(crate) fn assignment_value_has_multiline_literal_source(
@@ -1720,12 +1208,14 @@ impl<'source> FormatterFacts<'source> {
     }
 
     pub(crate) fn pipeline_has_explicit_line_break(&self, pipeline: &BinaryCommand) -> bool {
-        self.pipeline_breaks
+        self.breaks
+            .pipeline
             .contains(&FactSpan::from(pipeline.span))
     }
 
     pub(crate) fn list_item_has_explicit_line_break(&self, operator_span: Span) -> bool {
-        self.list_item_breaks
+        self.breaks
+            .list_item
             .contains(&FactSpan::from(operator_span))
     }
 
@@ -1736,7 +1226,7 @@ impl<'source> FormatterFacts<'source> {
                 matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
                     .then_some(FactSpan::from(stmt_span(stmt)))
             })
-            .is_some_and(|key| self.background_breaks.contains(&key))
+            .is_some_and(|key| self.breaks.background.contains(&key))
     }
 
     pub(crate) fn stmt_contains_heredoc(&self, stmt: &Stmt) -> bool {
@@ -1744,18 +1234,17 @@ impl<'source> FormatterFacts<'source> {
     }
 
     pub(crate) fn group_was_inline_in_source(&self, commands: &StmtSeq) -> bool {
-        self.inline_group_sequences
+        self.branches
+            .inline_group_sequences
             .contains(&FactSpan::from(commands.span))
     }
 
     pub(crate) fn compound_close_span(&self, command: &CompoundCommand) -> Option<Span> {
-        compound_close_key(command).and_then(|key| self.compound_close_spans.get(&key).copied())
+        self.compound.close_span(command)
     }
 
     pub(crate) fn compound_close_span_for_span(&self, span: Span) -> Option<Span> {
-        self.compound_close_spans
-            .get(&FactSpan::from(span))
-            .copied()
+        self.compound.close_span_for_span(span)
     }
 
     pub(crate) fn stmt_compound_close_span(&self, stmt: &Stmt) -> Option<Span> {
@@ -1766,14 +1255,14 @@ impl<'source> FormatterFacts<'source> {
     }
 
     pub(crate) fn if_close_span(&self, command: &IfCommand) -> Span {
-        self.compound_close_spans
-            .get(&FactSpan::from(command.span))
-            .copied()
+        self.compound
+            .close_span_for_span(command.span)
             .unwrap_or_else(|| if_close_span(command, self.source_map.source(), &self.source_map))
     }
 
     pub(crate) fn case_item_was_inline_in_source(&self, item: &CaseItem) -> bool {
-        self.inline_case_item_bodies
+        self.branches
+            .inline_case_item_bodies
             .contains(&FactSpan::from(item.body.span))
     }
 
@@ -1781,7 +1270,7 @@ impl<'source> FormatterFacts<'source> {
         &self,
         span: Span,
     ) -> Option<InlineCommentPlan<'source>> {
-        self.comment_plan
+        self.comments
             .close_suffix_comment_after_span(&self.source_map, span)
     }
 
@@ -1789,7 +1278,7 @@ impl<'source> FormatterFacts<'source> {
         &self,
         span: Span,
     ) -> Option<InlineCommentPlan<'source>> {
-        self.comment_plan
+        self.comments
             .suffix_comment_for_span(&self.source_map, span)
     }
 
@@ -1797,12 +1286,11 @@ impl<'source> FormatterFacts<'source> {
         &self,
         comment: SourceComment<'source>,
     ) -> InlineCommentPlan<'source> {
-        self.comment_plan
-            .trailing_comment(&self.source_map, comment)
+        self.comments.trailing_comment(&self.source_map, comment)
     }
 
     pub(crate) fn branch_prefix_facts(&self, start: usize, end: usize) -> BranchPrefixFacts {
-        self.comment_plan
+        self.comments
             .branch_prefix_facts(start, end)
             .cloned()
             .unwrap_or_else(|| {
@@ -1839,13 +1327,13 @@ impl<'source> FormatterFacts<'source> {
     }
 
     pub(crate) fn case_command(&self, command: &CaseCommand) -> &CaseCommandFacts {
-        self.comment_plan
+        self.cases
             .case_command(command)
             .unwrap_or_else(|| unreachable!("missing case command facts"))
     }
 
     pub(crate) fn case_item(&self, item: &CaseItem) -> &CaseItemFacts<'source> {
-        self.comment_plan
+        self.cases
             .case_item(item)
             .unwrap_or_else(|| unreachable!("missing case item facts"))
     }
@@ -1948,17 +1436,13 @@ impl<'source> FormatterFacts<'source> {
 
     #[cfg(feature = "benchmarking")]
     pub(crate) fn len(&self) -> usize {
-        self.stmt_facts.len()
-            + self.sequence_facts.len()
-            + self.sequence_facts_by_span.len()
-            + self.word_facts.len()
-            + self.pipeline_breaks.len()
-            + self.list_item_breaks.len()
-            + self.background_breaks.len()
-            + self.inline_group_sequences.len()
-            + self.inline_case_item_bodies.len()
-            + self.compound_close_spans.len()
-            + self.comment_plan.len()
+        self.layout_facts.len()
+            + self.sequences.len()
+            + self.breaks.len()
+            + self.branches.len()
+            + self.comments.len()
+            + self.cases.len()
+            + self.compound.len()
             + self.indexer.region_index().heredoc_ranges().len()
     }
 }
@@ -2234,24 +1718,20 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     ) -> Self {
         let source_map = SourceMap::from_indexer(source, &indexer, options.keep_padding());
         let comment_attachments = CommentAttachmentModel::from_indexer(&source_map, &indexer);
-        let comment_plan = CommentPlan::new(source, &source_map, &comment_attachments);
+        let comments = CommentFacts::new(source, &source_map, &comment_attachments);
 
         Self {
             source,
             options,
             facts: FormatterFacts {
                 source_map,
-                stmt_facts: HashMap::default(),
-                sequence_facts: HashMap::default(),
-                sequence_facts_by_span: HashMap::default(),
-                word_facts: HashMap::default(),
-                pipeline_breaks: HashSet::default(),
-                list_item_breaks: HashSet::default(),
-                background_breaks: HashSet::default(),
-                inline_group_sequences: HashSet::default(),
-                inline_case_item_bodies: HashSet::default(),
-                compound_close_spans: HashMap::default(),
-                comment_plan,
+                layout_facts: LayoutFacts::default(),
+                sequences: SequenceFactsStore::default(),
+                breaks: BreakFacts::default(),
+                branches: BranchFacts::default(),
+                comments,
+                cases: CaseFacts::default(),
+                compound: CompoundFacts::default(),
                 indexer,
             },
             layout: LayoutAnnotations::default(),
@@ -2265,23 +1745,20 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn cache_compound_close_span(&mut self, command: &CompoundCommand) -> Option<Span> {
-        let key = compound_close_key(command)?;
-        if let Some(span) = self.facts.compound_close_spans.get(&key).copied() {
+        let key = CompoundFacts::key(command)?;
+        if let Some(span) = self.facts.compound.close_span_for_key(key) {
             return Some(span);
         }
 
         let span = command_compound_close_span(command, self.source, self.source_map());
         if let Some(span) = span {
-            self.facts.compound_close_spans.insert(key, span);
+            self.facts.compound.insert_close_span(key, span);
         }
         span
     }
 
     fn cached_close(&self, span: Span) -> Option<Span> {
-        self.facts
-            .compound_close_spans
-            .get(&FactSpan::from(span))
-            .copied()
+        self.facts.compound.close_span_for_span(span)
     }
 
     fn visit_sequence(
@@ -2311,6 +1788,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     fn record_inline_group_sequence(&mut self, body: &StmtSeq, open: char, close: char) {
         if group_was_inline_in_source(body.as_slice(), self.source_map(), open, close) {
             self.facts
+                .branches
                 .inline_group_sequences
                 .insert(FactSpan::from(body.span));
         }
@@ -2332,7 +1810,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             open_end_offset,
         );
         let key = site.key();
-        if self.facts.sequence_facts.contains_key(&key) {
+        if self.facts.sequences.by_site.contains_key(&key) {
             return self.layout.sequence(sequence);
         }
 
@@ -2486,15 +1964,12 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 .unwrap_or_else(|| stmt_span(current).end.offset);
             let next_start = self.facts.stmt(next).attachment_span().start.offset;
             if self.facts.contains_newline_between(break_start, next_start) {
-                self.facts.background_breaks.insert(break_key);
+                self.facts.breaks.background.insert(break_key);
             }
         }
 
-        self.facts
-            .sequence_facts_by_span
-            .entry(key.span)
-            .or_insert(key);
-        self.facts.sequence_facts.insert(key, facts);
+        self.facts.sequences.by_span.entry(key.span).or_insert(key);
+        self.facts.sequences.by_site.insert(key, facts);
         layout
     }
 
@@ -2502,11 +1977,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         let site = StmtSite::new(stmt);
         let stmt = site.stmt;
         if let Some(layout) = self.layout.statements.get(&site.key).copied()
-            && self.facts.stmt_facts.contains_key(&site.key)
+            && self.facts.layout_facts.statements.contains_key(&site.key)
         {
             return layout;
         }
-        let already_recorded = self.facts.stmt_facts.contains_key(&site.key);
+        let already_recorded = self.facts.layout_facts.statements.contains_key(&site.key);
 
         let mut redirect_layout = LayoutSummary::default();
         for redirect in &stmt.redirects {
@@ -2521,6 +1996,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 matching_group_close(open),
             ) {
                 self.facts
+                    .branches
                     .inline_group_sequences
                     .insert(FactSpan::from(commands.span));
             }
@@ -2564,7 +2040,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             self.source_map(),
             stmt_contains_heredoc,
         );
-        self.facts.stmt_facts.insert(
+        self.facts.layout_facts.statements.insert(
             site.key,
             StmtFacts {
                 attachment_span,
@@ -2657,7 +2133,8 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             && pipeline_has_explicit_line_break(command, self.source, self.source_map())
         {
             self.facts
-                .pipeline_breaks
+                .breaks
+                .pipeline
                 .insert(FactSpan::from(command.span));
         }
 
@@ -2685,7 +2162,8 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                         && !stmt_can_follow_multiline_conditional_inline(item.stmt))
                 {
                     self.facts
-                        .list_item_breaks
+                        .breaks
+                        .list_item
                         .insert(FactSpan::from(item.operator_span));
                 }
                 previous = item.stmt;
@@ -2787,7 +2265,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             )
         {
             self.facts
-                .comment_plan
+                .comments
                 .insert_suffix_comment(then_span, comment);
         }
         let then_upper_bound =
@@ -2903,6 +2381,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             }
             if case_item_was_inline_in_source(item) {
                 self.facts
+                    .branches
                     .inline_case_item_bodies
                     .insert(FactSpan::from(item.body.span));
             }
@@ -2910,11 +2389,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 case_item_body_upper_bound(item, case_command_facts.body_fallback_upper_bound());
             summary.merge(self.visit_sequence(&item.body, upper_bound, None));
             let item_facts = self.build_case_item_facts(item, previous_item, upper_bound);
-            self.facts.comment_plan.insert_case_item(item, item_facts);
+            self.facts.cases.insert_case_item(item, item_facts);
             previous_item = Some(item);
         }
         self.facts
-            .comment_plan
+            .cases
             .insert_case_command(command, case_command_facts);
         summary
     }
@@ -3076,7 +2555,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     fn visit_word(&mut self, word: &Word) -> LayoutSummary {
         let word_key = FactSpan::from(word.span);
         if let Some(layout) = self.layout.words.get(&word_key).copied()
-            && self.facts.word_facts.contains_key(&word_key)
+            && self.facts.layout_facts.words.contains_key(&word_key)
         {
             return layout;
         }
@@ -3092,7 +2571,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         layout.contains_heredoc = false;
         layout.contains_multistatement_pipeline_brace_group = false;
         self.layout.words.insert(word_key, layout);
-        self.facts.word_facts.insert(
+        self.facts.layout_facts.words.insert(
             word_key,
             WordFacts {
                 has_multiline_literal_source: layout.contains_multiline_literal_source,
@@ -3516,14 +2995,14 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         };
         if let Some(comment) = self.source_map().suffix_comment_after_span(span) {
             self.facts
-                .comment_plan
+                .comments
                 .insert_close_suffix_comment(span, comment);
         }
     }
 
     fn record_suffix_attachment(&mut self, span: Span) {
         if let Some(comment) = suffix_comment_from_span(self.source, self.source_map(), span) {
-            self.facts.comment_plan.insert_suffix_comment(span, comment);
+            self.facts.comments.insert_suffix_comment(span, comment);
         }
     }
 
@@ -3551,7 +3030,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         .into_iter()
         .filter(|comment| !self.facts.offset_is_in_heredoc_body(comment.offset))
         .collect();
-        self.facts.comment_plan.insert_branch_prefix_facts(
+        self.facts.comments.insert_branch_prefix_facts(
             start,
             end,
             BranchPrefixFacts::new(self.source, start, end, comments),
@@ -4172,59 +3651,6 @@ fn case_item_source_prefix_comments<'source>(
     }
     comments.reverse();
     comments
-}
-
-fn case_item_key(item: &CaseItem) -> FactSpan {
-    let start = item
-        .patterns
-        .first()
-        .map(|pattern| pattern.span.start.offset)
-        .unwrap_or(item.body.span.start.offset);
-    let end = item
-        .terminator_span
-        .map(|span| span.end.offset)
-        .or_else(|| item.body.last().map(|stmt| stmt_span(stmt).end.offset))
-        .or_else(|| item.patterns.last().map(|pattern| pattern.span.end.offset))
-        .unwrap_or(item.body.span.end.offset);
-    FactSpan::from_offsets(start, end)
-}
-
-fn compound_close_key(command: &CompoundCommand) -> Option<FactSpan> {
-    let span = match command {
-        CompoundCommand::If(command) => command.span,
-        CompoundCommand::For(command) => match command.syntax {
-            shuck_ast::ForSyntax::InDoDone { .. }
-            | shuck_ast::ForSyntax::ParenDoDone { .. }
-            | shuck_ast::ForSyntax::InBrace { .. }
-            | shuck_ast::ForSyntax::ParenBrace { .. } => command.span,
-            shuck_ast::ForSyntax::InDirect { .. } | shuck_ast::ForSyntax::ParenDirect { .. } => {
-                return None;
-            }
-        },
-        CompoundCommand::Repeat(command) => match command.syntax {
-            shuck_ast::RepeatSyntax::DoDone { .. } | shuck_ast::RepeatSyntax::Brace { .. } => {
-                command.span
-            }
-            shuck_ast::RepeatSyntax::Direct => return None,
-        },
-        CompoundCommand::Foreach(command) => match command.syntax {
-            shuck_ast::ForeachSyntax::InDoDone { .. }
-            | shuck_ast::ForeachSyntax::ParenBrace { .. } => command.span,
-        },
-        CompoundCommand::ArithmeticFor(command) => command.span,
-        CompoundCommand::While(command) => command.span,
-        CompoundCommand::Until(command) => command.span,
-        CompoundCommand::Case(command) => command.span,
-        CompoundCommand::Select(command) => command.span,
-        CompoundCommand::Subshell(_)
-        | CompoundCommand::BraceGroup(_)
-        | CompoundCommand::Arithmetic(_)
-        | CompoundCommand::Time(_)
-        | CompoundCommand::Conditional(_)
-        | CompoundCommand::Coproc(_)
-        | CompoundCommand::Always(_) => return None,
-    };
-    Some(FactSpan::from(span))
 }
 
 fn suffix_comment_from_span<'source>(
