@@ -732,19 +732,6 @@ pub(super) fn indent_inline_pipeline_continuations(
     changed.then_some(rendered)
 }
 
-pub(super) fn line_ends_with_pipeline_operator(line: &str) -> bool {
-    let trimmed = line.trim_end_matches([' ', '\t', '\r']);
-    trimmed.ends_with("|&") || (trimmed.ends_with('|') && !trimmed.ends_with("||"))
-}
-
-pub(super) fn line_ends_with_raw_continuation_operator(line: &str) -> bool {
-    let code = trailing_comment_start(line)
-        .map(|comment_start| &line[..comment_start])
-        .unwrap_or(line);
-    let trimmed = code.trim_end_matches([' ', '\t', '\r']);
-    line_ends_with_pipeline_operator(trimmed) || trimmed.ends_with("&&") || trimmed.ends_with("||")
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum CommandSubstitutionLayout {
     Inline,

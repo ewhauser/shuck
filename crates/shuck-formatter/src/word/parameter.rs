@@ -162,7 +162,7 @@ pub(super) fn normalize_inline_command_substitutions_in_parameter_operand(
 }
 
 pub(super) fn next_raw_command_substitution(raw: &str, index: usize) -> Option<(usize, usize)> {
-    RawShellScanner::new(raw).next_command_substitution(index)
+    RawShellText::new(raw).next_command_substitution(index)
 }
 
 pub(super) fn finish_raw_rewrite(

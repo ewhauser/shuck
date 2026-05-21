@@ -28,7 +28,7 @@ use crate::command::{
     command_format_span, command_group_commands, done_close_span as command_done_close_span,
     format_arithmetic_command_source, format_arithmetic_for_clause_source, group_attachment_span,
     if_close_span as command_if_close_span, if_next_branch_region_with_body_end,
-    line_gap_break_count, line_has_unclosed_command_substitution_open, matching_group_close,
+    line_gap_break_count, matching_group_close,
     multiline_compound_assignment_command_substitution_body_prefix,
     multiline_compound_assignment_layout, multiline_compound_assignment_lines,
     render_assignment_head_to_buf, render_assignment_with_facts_to_buf, render_background_operator,
@@ -40,10 +40,17 @@ use crate::command::{
 use crate::comments::{SourceComment, SourceMap};
 use crate::facts::{FormatterFacts, classify_sequence_contains_heredoc};
 use crate::options::{IndentStyle, ResolvedShellFormatOptions};
+use crate::raw_syntax::{
+    CommandSubstitutionPipelineContinuation, RawLineQuoteState, RawShellText, RenderedHeredocTail,
+    command_substitution_context_start, command_substitution_pipeline_stage_continuation,
+    line_without_continuation_backslash, normalize_rendered_heredoc_start_spacing,
+    redirect_operator_end, rendered_heredoc_tail_start,
+    rendered_line_ends_with_structural_pipe_continuation,
+    rendered_line_opens_command_substitution_pipeline, rendered_shell_text_has_heredoc_tail,
+    skip_double_quoted, skip_single_quoted,
+};
 use crate::scan::{
-    BranchPrefixComment, heredoc_start, last_shell_keyword_start,
-    line_without_continuation_backslash, redirect_operator_end, shell_keyword_at,
-    skip_double_quoted, skip_single_quoted, source_between_offsets,
+    BranchPrefixComment, last_shell_keyword_start, shell_keyword_at, source_between_offsets,
 };
 use crate::word::{
     normalize_raw_empty_parameter_replacement_delimiters,
@@ -456,66 +463,6 @@ fn word_part_contains_command_heredoc(part: &WordPart) -> bool {
     }
 }
 
-#[derive(Debug, Clone)]
-struct RenderedHeredocTail {
-    delimiter: String,
-    strip_tabs: bool,
-    command_indent: String,
-}
-
-impl RenderedHeredocTail {
-    fn body_line<'a>(&self, line: &'a str) -> &'a str {
-        if self.strip_tabs {
-            line
-        } else if let Some(stripped) = line.strip_prefix(&self.command_indent)
-            && stripped == self.delimiter
-        {
-            stripped
-        } else {
-            line
-        }
-    }
-
-    fn closes(&self, line: &str) -> bool {
-        let line = self.body_line(line);
-        if self.strip_tabs {
-            line.trim_start_matches('\t') == self.delimiter
-        } else {
-            line == self.delimiter
-        }
-    }
-}
-
-fn rendered_shell_text_has_heredoc_tail(text: &str) -> bool {
-    text.lines()
-        .any(|line| rendered_heredoc_tail_start(line).is_some())
-}
-
-fn rendered_heredoc_tail_start(line: &str) -> Option<RenderedHeredocTail> {
-    let start = heredoc_start(line)?;
-    Some(RenderedHeredocTail {
-        delimiter: start.delimiter.to_string(),
-        strip_tabs: start.strip_tabs,
-        command_indent: line_leading_indent(line).to_string(),
-    })
-}
-
-fn normalize_rendered_heredoc_start_spacing(line: &str) -> Option<String> {
-    let operator_end = heredoc_start(line)?.operator_end;
-    let target_start = line[operator_end..]
-        .char_indices()
-        .find_map(|(index, ch)| (!matches!(ch, ' ' | '\t' | '\r')).then_some(operator_end + index))
-        .unwrap_or(line.len());
-    if target_start == operator_end || target_start == line.len() {
-        return None;
-    }
-
-    let mut normalized = String::with_capacity(line.len());
-    normalized.push_str(&line[..operator_end]);
-    normalized.push_str(&line[target_start..]);
-    Some(normalized)
-}
-
 fn raw_redirect_source_slice<'a>(redirect: &Redirect, source: &'a str) -> Option<&'a str> {
     let span = redirect.span;
     (span.start.offset < span.end.offset && span.end.offset <= source.len())
@@ -876,42 +823,11 @@ fn assignment_has_quoted_backslash_continuation_literal(
     };
     let raw = assignment.span.slice(source);
     raw.contains("\\\n")
-        && raw_backslash_continuation_is_quoted(raw)
+        && RawShellText::new(raw).quoted_backslash_continuation()
         && !raw.contains("$(")
         && !raw.contains('`')
         && !raw.contains("<(")
         && !raw.contains(">(")
-}
-
-fn raw_backslash_continuation_is_quoted(raw: &str) -> bool {
-    let mut chars = raw.chars().peekable();
-    let mut in_single_quotes = false;
-    let mut in_double_quotes = false;
-    while let Some(ch) = chars.next() {
-        if ch == '\'' && !in_double_quotes {
-            in_single_quotes = !in_single_quotes;
-            continue;
-        }
-        if ch == '"' && !in_single_quotes {
-            in_double_quotes = !in_double_quotes;
-            continue;
-        }
-        if ch == '\\' {
-            let mut probe = chars.clone();
-            let escaped_newline = match probe.next() {
-                Some('\n') => true,
-                Some('\r') => probe.next().is_some_and(|next| next == '\n'),
-                _ => false,
-            };
-            if escaped_newline {
-                return in_single_quotes || in_double_quotes;
-            }
-            if !in_single_quotes {
-                chars.next();
-            }
-        }
-    }
-    false
 }
 
 fn assignment_source_has_command_substitution(assignment: &Assignment, source: &str) -> bool {
@@ -2708,13 +2624,6 @@ fn inline_assignment_command_substitution_context(content: &str, scan_start: usi
     prefix.ends_with('"') && prefix.contains('=')
 }
 
-#[derive(Clone, Copy)]
-enum CommandSubstitutionPipelineContinuation {
-    None,
-    Comment,
-    StructuralPipe { line_started_in_quote: bool },
-}
-
 fn next_command_substitution_pipeline_indent_column(
     continuation: CommandSubstitutionPipelineContinuation,
     starts_with_block_command_substitution: bool,
@@ -2741,86 +2650,6 @@ fn next_command_substitution_pipeline_indent_column(
             }
         }
     }
-}
-
-#[derive(Default)]
-struct RenderedLineQuoteState {
-    single_quoted: bool,
-    double_quoted: bool,
-    escaped: bool,
-}
-
-impl RenderedLineQuoteState {
-    fn in_quote(&self) -> bool {
-        self.single_quoted || self.double_quoted
-    }
-}
-
-fn command_substitution_pipeline_stage_continuation(
-    line: &str,
-    was_pipeline_stage: bool,
-    quote_state: &mut RenderedLineQuoteState,
-) -> CommandSubstitutionPipelineContinuation {
-    let content = line.trim_end_matches(['\r', '\n']);
-    let scan_start = command_substitution_context_start(content).unwrap_or(0);
-    if scan_start > 0 {
-        *quote_state = RenderedLineQuoteState::default();
-    }
-    let content = &content[scan_start..];
-
-    if was_pipeline_stage
-        && !quote_state.in_quote()
-        && content.trim_start_matches([' ', '\t']).starts_with('#')
-    {
-        return CommandSubstitutionPipelineContinuation::Comment;
-    }
-    let line_started_in_quote = quote_state.in_quote();
-    if rendered_line_ends_with_command_substitution_continuation_in_quote_state(
-        content,
-        quote_state,
-    ) {
-        CommandSubstitutionPipelineContinuation::StructuralPipe {
-            line_started_in_quote,
-        }
-    } else {
-        CommandSubstitutionPipelineContinuation::None
-    }
-}
-
-fn rendered_line_ends_with_command_substitution_continuation_in_quote_state(
-    line: &str,
-    quote_state: &mut RenderedLineQuoteState,
-) -> bool {
-    let trimmed = line.trim_end_matches([' ', '\t', '\r']);
-    let operator_offset =
-        final_command_substitution_continuation_operator_bounds(trimmed).map(|(offset, _)| offset);
-    let mut operator_is_unquoted = false;
-
-    for (offset, ch) in trimmed.char_indices() {
-        if operator_offset == Some(offset) {
-            operator_is_unquoted = !quote_state.in_quote() && !quote_state.escaped;
-            break;
-        }
-
-        if quote_state.escaped {
-            quote_state.escaped = false;
-            continue;
-        }
-
-        match ch {
-            '\\' if !quote_state.single_quoted => quote_state.escaped = true,
-            '\'' if !quote_state.double_quoted => {
-                quote_state.single_quoted = !quote_state.single_quoted;
-            }
-            '"' if !quote_state.single_quoted => {
-                quote_state.double_quoted = !quote_state.double_quoted;
-            }
-            _ => {}
-        }
-    }
-
-    quote_state.escaped = false;
-    operator_is_unquoted
 }
 
 fn strip_assignment_context_indent<'a>(
@@ -2894,86 +2723,6 @@ fn normalize_literal_assignment_command_substitution_pipelines(
     }
 
     if changed { output } else { text.to_string() }
-}
-
-fn rendered_line_opens_command_substitution_pipeline(line: &str) -> bool {
-    if !rendered_line_ends_with_structural_pipe_continuation(line) {
-        return false;
-    }
-
-    command_substitution_context_start(line).is_some()
-        && line
-            .bytes()
-            .take_while(|byte| matches!(*byte, b' ' | b'\t'))
-            .any(|byte| byte == b' ')
-}
-
-fn rendered_line_ends_with_structural_pipe_continuation(line: &str) -> bool {
-    let trimmed = line.trim_end_matches([' ', '\t', '\r']);
-    let Some((pipe_offset, scan_end)) = final_pipe_operator_bounds(trimmed) else {
-        return false;
-    };
-    let scan_start = command_substitution_context_start(&trimmed[..pipe_offset]).unwrap_or(0);
-
-    final_pipe_operator_is_unquoted(&trimmed[scan_start..scan_end])
-}
-
-fn final_pipe_operator_bounds(line: &str) -> Option<(usize, usize)> {
-    if line.ends_with("|&") {
-        Some((line.len().saturating_sub(2), line.len()))
-    } else if line.ends_with('|') && !line.ends_with("||") {
-        Some((line.len().saturating_sub(1), line.len()))
-    } else {
-        None
-    }
-}
-
-fn final_command_substitution_continuation_operator_bounds(line: &str) -> Option<(usize, usize)> {
-    if line.ends_with("||") || line.ends_with("&&") || line.ends_with("|&") {
-        Some((line.len().saturating_sub(2), line.len()))
-    } else if line.ends_with('|') {
-        Some((line.len().saturating_sub(1), line.len()))
-    } else {
-        None
-    }
-}
-
-fn command_substitution_context_start(line: &str) -> Option<usize> {
-    line.rfind("$(")
-        .or_else(|| line.rfind("<("))
-        .or_else(|| line.rfind(">("))
-        .map(|offset| offset.saturating_add(2))
-}
-
-fn final_pipe_operator_is_unquoted(text: &str) -> bool {
-    let Some((pipe_offset, _)) =
-        final_pipe_operator_bounds(text.trim_end_matches([' ', '\t', '\r']))
-    else {
-        return false;
-    };
-    let mut single_quoted = false;
-    let mut double_quoted = false;
-    let mut escaped = false;
-
-    for (offset, ch) in text.char_indices() {
-        if offset == pipe_offset {
-            return !single_quoted && !double_quoted && !escaped;
-        }
-
-        if escaped {
-            escaped = false;
-            continue;
-        }
-
-        match ch {
-            '\\' if !single_quoted => escaped = true,
-            '\'' if !double_quoted => single_quoted = !single_quoted,
-            '"' if !single_quoted => double_quoted = !double_quoted,
-            _ => {}
-        }
-    }
-
-    false
 }
 
 fn conditional_binary_has_explicit_rhs_break(

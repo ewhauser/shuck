@@ -544,86 +544,6 @@ pub(super) fn push_raw_shell_line_content_with_normalized_spacing(
     }
 }
 
-pub(crate) fn normalize_raw_pipeline_continuations(text: &str) -> Option<String> {
-    let trailing = normalize_raw_trailing_pipe_continuations(text);
-    let leading = normalize_raw_leading_pipe_continuations(trailing.as_deref().unwrap_or(text));
-    leading.or(trailing)
-}
-
-pub(super) fn normalize_raw_trailing_pipe_continuations(text: &str) -> Option<String> {
-    let mut lines = text
-        .split('\n')
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
-    let mut changed = false;
-
-    for line in &mut lines {
-        let Some(prefix) = line_without_trailing_pipe_continuation(line) else {
-            continue;
-        };
-        *line = prefix.to_string();
-        changed = true;
-    }
-
-    changed.then(|| lines.join("\n"))
-}
-
-pub(super) fn normalize_raw_leading_pipe_continuations(text: &str) -> Option<String> {
-    let mut lines = text
-        .split('\n')
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
-    let mut changed = false;
-
-    for index in 0..lines.len().saturating_sub(1) {
-        let Some(prefix) = line_without_continuation_backslash(&lines[index]).map(str::to_string)
-        else {
-            continue;
-        };
-        let Some((indent, operator, rest)) =
-            leading_pipe_continuation(&lines[index + 1]).map(|(indent, operator, rest)| {
-                (
-                    indent.to_string(),
-                    operator,
-                    rest.trim_start_matches([' ', '\t', '\r']).to_string(),
-                )
-            })
-        else {
-            continue;
-        };
-
-        lines[index] = format!("{prefix} {operator}");
-        lines[index + 1] = format!("{indent}{rest}");
-        changed = true;
-    }
-
-    changed.then(|| lines.join("\n"))
-}
-
-pub(super) fn line_without_trailing_pipe_continuation(line: &str) -> Option<&str> {
-    let prefix = line_without_continuation_backslash(line)?;
-    line_ends_with_raw_continuation_operator(prefix).then_some(prefix)
-}
-
-pub(super) fn leading_pipe_continuation(line: &str) -> Option<(&str, &'static str, &str)> {
-    let content_start = line
-        .char_indices()
-        .find_map(|(index, ch)| (!matches!(ch, ' ' | '\t')).then_some(index))
-        .unwrap_or(line.len());
-    let indent = &line[..content_start];
-    let rest = &line[content_start..];
-    if let Some(remainder) = rest.strip_prefix("|&") {
-        Some((indent, "|&", remainder))
-    } else if let Some(remainder) = rest.strip_prefix("||") {
-        Some((indent, "||", remainder))
-    } else if let Some(remainder) = rest.strip_prefix("&&") {
-        Some((indent, "&&", remainder))
-    } else {
-        rest.strip_prefix('|')
-            .map(|remainder| (indent, "|", remainder))
-    }
-}
-
 pub(super) fn expand_inline_raw_command_substitutions_in_line(
     target: &mut String,
     line: &str,
@@ -1265,13 +1185,6 @@ pub(super) fn matching_raw_arithmetic_expansion_close(
     }
 
     None
-}
-
-pub(crate) fn matching_raw_command_substitution_close(
-    raw: &str,
-    body_start: usize,
-) -> Option<usize> {
-    RawShellScanner::new(raw).matching_command_substitution_close(body_start)
 }
 
 pub(super) fn push_raw_shell_line_with_normalized_redirect_spacing(

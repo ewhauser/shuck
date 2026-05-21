@@ -1,81 +1,7 @@
 use shuck_ast::Span;
-pub(crate) use shuck_ast::raw_shell::{QuoteState, RawShellScanner, shell_comment_can_start};
 
 use crate::comments::SourceMap;
-
-pub(crate) fn leading_shell_indent(line: &str) -> &str {
-    let indent_end = line
-        .char_indices()
-        .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
-        .map_or(line.len(), |(index, _)| index);
-    &line[..indent_end]
-}
-
-pub(crate) struct HeredocStart<'line> {
-    pub(crate) delimiter: &'line str,
-    pub(crate) strip_tabs: bool,
-    pub(crate) operator_end: usize,
-}
-
-pub(crate) fn heredoc_start(line: &str) -> Option<HeredocStart<'_>> {
-    let marker = line.find("<<")?;
-    let after_marker = &line[marker + 2..];
-    if after_marker.starts_with('<') {
-        return None;
-    }
-    let (strip_tabs, after_marker) = if let Some(rest) = after_marker.strip_prefix('-') {
-        (true, rest)
-    } else {
-        (false, after_marker)
-    };
-    let delimiter = after_marker
-        .split_whitespace()
-        .next()?
-        .trim_matches(['\'', '"']);
-    (!delimiter.is_empty()).then_some(HeredocStart {
-        delimiter,
-        strip_tabs,
-        operator_end: marker + if strip_tabs { 3 } else { 2 },
-    })
-}
-
-pub(crate) fn common_indent_prefix<'a>(left: &'a str, right: &str) -> &'a str {
-    let len = left
-        .as_bytes()
-        .iter()
-        .zip(right.as_bytes())
-        .take_while(|(left, right)| left == right)
-        .count();
-    &left[..len]
-}
-
-pub(crate) fn refine_common_indent(common: &mut Option<String>, indent: &str) -> bool {
-    *common = Some(match common.take() {
-        Some(previous) => common_indent_prefix(&previous, indent).to_string(),
-        None => indent.to_string(),
-    });
-    common.as_deref() == Some("")
-}
-
-pub(crate) fn common_nonempty_shell_indent<'a>(lines: impl IntoIterator<Item = &'a str>) -> String {
-    let mut common: Option<String> = None;
-    for line in lines {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let indent = leading_shell_indent(line);
-        if indent.is_empty() || refine_common_indent(&mut common, indent) {
-            return String::new();
-        }
-    }
-    common.unwrap_or_default()
-}
-
-pub(crate) fn line_without_continuation_backslash(line: &str) -> Option<&str> {
-    let trimmed = line.trim_end_matches([' ', '\t', '\r']);
-    let prefix = trimmed.strip_suffix('\\')?;
-    Some(prefix.trim_end_matches([' ', '\t', '\r']))
-}
+use crate::raw_syntax::RawShellScanner;
 
 pub(crate) fn line_has_shell_comment_before(source: &str, offset: usize) -> bool {
     let upper = offset.min(source.len());
@@ -205,26 +131,6 @@ pub(crate) fn source_between_offsets(source: &str, start: usize, end: usize) -> 
     source.get(lower..upper)
 }
 
-pub(crate) fn redirect_operator_end(bytes: &[u8], start: usize) -> Option<usize> {
-    match bytes.get(start).copied()? {
-        b'>' => Some(match bytes.get(start + 1).copied() {
-            Some(b'>' | b'|' | b'&') => start + 2,
-            _ => start + 1,
-        }),
-        b'<' => Some(match bytes.get(start + 1).copied() {
-            Some(b'<' | b'>' | b'&') => {
-                if bytes.get(start + 2) == Some(&b'<') {
-                    start + 3
-                } else {
-                    start + 2
-                }
-            }
-            _ => start + 1,
-        }),
-        _ => None,
-    }
-}
-
 pub(crate) fn shell_keyword_at(source: &str, offset: usize, upper: usize, keyword: &str) -> bool {
     let end = offset.saturating_add(keyword.len());
     end <= upper
@@ -272,24 +178,6 @@ pub(crate) fn shell_keyword_boundaries_match(text: &str, start: usize, end: usiz
 
 fn is_shell_keyword_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_'
-}
-
-pub(crate) fn skip_single_quoted(source: &str, offset: usize, upper: usize) -> usize {
-    RawShellScanner::bounded(source, upper).skip_single_quoted_body(offset)
-}
-
-pub(crate) fn skip_double_quoted(source: &str, offset: usize, upper: usize) -> usize {
-    RawShellScanner::bounded(source, upper).skip_double_quoted_body(offset)
-}
-
-pub(crate) fn skip_escaped_or_quoted(
-    source: &str,
-    offset: usize,
-    upper: usize,
-    ch: char,
-) -> Option<usize> {
-    debug_assert_eq!(source[offset..].chars().next(), Some(ch));
-    RawShellScanner::bounded(source, upper).skip_escaped_or_quoted_at(offset)
 }
 
 pub(crate) fn normalized_close_keyword_span(
@@ -363,44 +251,4 @@ fn matching_close_keyword_start(
         offset += ch.len_utf8();
     }
     None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn raw_scanner_finds_shell_comments_outside_quotes() {
-        let source = "echo '# no' \"# no\" value#no # yes";
-        let scanner = RawShellScanner::new(source);
-
-        assert_eq!(scanner.find_comment(0, source.len()), Some(28));
-    }
-
-    #[test]
-    fn raw_scanner_matches_nested_command_substitutions() {
-        let raw = "$(echo \"$(date +%s)\" '(')";
-        let scanner = RawShellScanner::new(raw);
-
-        assert_eq!(
-            scanner.matching_command_substitution_close(2),
-            Some(raw.len() - 1)
-        );
-    }
-
-    #[test]
-    fn raw_scanner_finds_unclosed_process_substitution() {
-        let raw = "cat <(printf '%s\\n' \"$(value)\"";
-        let scanner = RawShellScanner::new(raw);
-
-        assert!(scanner.has_unclosed_substitution_before(raw.len()));
-    }
-
-    #[test]
-    fn raw_scanner_skips_escaped_command_substitutions() {
-        let raw = r#"echo \$(skip) "$(keep)" '$(skip)'"#;
-        let scanner = RawShellScanner::new(raw);
-
-        assert_eq!(scanner.next_command_substitution(0), Some((15, 21)));
-    }
 }

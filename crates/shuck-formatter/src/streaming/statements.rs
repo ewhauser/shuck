@@ -829,7 +829,7 @@ where
 
         let mut inline_command_substitution_open = layout.open_inline
             && layout.lines.first().is_some_and(|line| {
-                line_has_unclosed_command_substitution_open(line)
+                RawShellText::new(line).has_unclosed_command_substitution_open()
                     && !multiline_compound_assignment_command_substitution_body_prefix(line)
                         .is_empty()
             });
