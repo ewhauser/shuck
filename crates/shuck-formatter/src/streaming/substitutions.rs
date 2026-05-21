@@ -1,9 +1,22 @@
+use std::borrow::Cow;
+
 use super::*;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum HeredocTailTextMode {
     Rendered,
     Assignment,
+}
+
+enum RenderedFragment<'text> {
+    Plain(Cow<'text, str>),
+    RenderedShellText(Cow<'text, str>),
+    PreserveCurrentIndent(Cow<'text, str>),
+    AssignmentCommandSubstitution(Cow<'text, str>),
+    HeredocTail {
+        text: Cow<'text, str>,
+        assignment_context: bool,
+    },
 }
 
 pub(super) fn assignment_contains_command_heredoc(assignment: &Assignment) -> bool {
@@ -918,43 +931,201 @@ where
         }
     }
 
-    pub(super) fn write_word(&mut self, word: &Word) {
-        let mut scratch = self.take_scratch_buffer();
-        self.render_word_to_buffer(word, &mut scratch);
-        if rendered_shell_text_has_heredoc_tail(&scratch)
+    fn write_rendered_fragment(&mut self, fragment: RenderedFragment<'_>) {
+        match fragment {
+            RenderedFragment::Plain(text) => self.write_text(text.as_ref()),
+            RenderedFragment::RenderedShellText(text) => {
+                self.write_rendered_shell_text(text.as_ref());
+            }
+            RenderedFragment::PreserveCurrentIndent(text) => {
+                self.write_text_preserving_current_line_indent(text.as_ref());
+            }
+            RenderedFragment::AssignmentCommandSubstitution(text) => {
+                self.write_command_substitution_assignment_text(text.as_ref());
+            }
+            RenderedFragment::HeredocTail {
+                text,
+                assignment_context,
+            } => {
+                self.write_shell_text_with_heredoc_tails(text.as_ref(), assignment_context);
+            }
+        }
+    }
+
+    fn classify_rendered_word_fragment<'text>(
+        &self,
+        word: &Word,
+        rendered: &'text str,
+    ) -> RenderedFragment<'text> {
+        let has_newline = rendered.contains('\n');
+        let mut has_command_substitution = None;
+        let mut has_rendered_shell_substitution = None;
+        let mut word_has_command_substitution = || {
+            *has_command_substitution
+                .get_or_insert_with(|| word_contains_command_substitution(word))
+        };
+        let mut rendered_has_shell_substitution = || {
+            *has_rendered_shell_substitution
+                .get_or_insert_with(|| rendered_text_has_shell_substitution(rendered))
+        };
+
+        if rendered_shell_text_has_heredoc_tail(rendered)
             && (word_contains_command_heredoc(word)
                 || word_source_has_shell_substitution(word, self.source())
-                || rendered_text_has_shell_substitution(&scratch))
+                || rendered_has_shell_substitution())
         {
-            self.write_shell_text_with_heredoc_tails(&scratch, true);
-        } else if scratch.contains('\n')
+            return RenderedFragment::HeredocTail {
+                text: Cow::Borrowed(rendered),
+                assignment_context: true,
+            };
+        }
+
+        if has_newline
             && (word_is_quoted_formattable_command_substitution_only_with_facts(word, self.facts())
                 || word_contains_process_substitution(word))
         {
-            self.write_text_preserving_current_line_indent(&scratch);
-        } else if self.facts().word_has_multiline_literal_source(word) {
-            if scratch.contains('\n')
-                && (word_contains_command_substitution(word)
-                    || rendered_text_has_shell_substitution(&scratch))
+            return RenderedFragment::PreserveCurrentIndent(Cow::Borrowed(rendered));
+        }
+
+        if self.facts().word_has_multiline_literal_source(word) {
+            if has_newline
+                && (word_has_command_substitution() || rendered_has_shell_substitution())
                 && let Some(normalized) =
-                    normalize_rendered_leading_list_operator_continuations(&scratch)
+                    normalize_rendered_leading_list_operator_continuations(rendered)
             {
-                self.write_command_substitution_assignment_text(&normalized);
-            } else {
-                self.write_rendered_shell_text(&scratch);
+                return RenderedFragment::AssignmentCommandSubstitution(Cow::Owned(normalized));
             }
-        } else if scratch.contains('\n')
-            && (word_contains_command_substitution(word)
-                || rendered_text_has_shell_substitution(&scratch))
-        {
-            if rendered_text_has_leading_list_operator_line(&scratch) {
-                self.write_command_substitution_assignment_text(&scratch);
+            return RenderedFragment::RenderedShellText(Cow::Borrowed(rendered));
+        }
+
+        if has_newline && (word_has_command_substitution() || rendered_has_shell_substitution()) {
+            if rendered_text_has_leading_list_operator_line(rendered) {
+                RenderedFragment::AssignmentCommandSubstitution(Cow::Borrowed(rendered))
             } else {
-                self.write_text_preserving_current_line_indent(&scratch);
+                RenderedFragment::PreserveCurrentIndent(Cow::Borrowed(rendered))
             }
         } else {
-            self.write_text(&scratch);
+            RenderedFragment::Plain(Cow::Borrowed(rendered))
         }
+    }
+
+    fn classify_assignment_source_fragment(
+        &self,
+        assignment: &Assignment,
+    ) -> Option<RenderedFragment<'source>> {
+        if assignment_has_quoted_backslash_continuation_literal(assignment, self.source()) {
+            return Some(RenderedFragment::RenderedShellText(Cow::Borrowed(
+                assignment.span.slice(self.source()),
+            )));
+        }
+
+        normalize_scalar_assignment_unquoted_continuations(assignment, self.source(), self.facts())
+            .map(|normalized| RenderedFragment::Plain(Cow::Owned(normalized)))
+    }
+
+    fn classify_rendered_assignment_fragment<'text>(
+        &self,
+        assignment: &Assignment,
+        rendered: &'text str,
+    ) -> RenderedFragment<'text> {
+        let has_newline = rendered.contains('\n');
+        let mut has_command_substitution = None;
+        let mut has_rendered_shell_substitution = None;
+        let mut assignment_has_command_substitution = || {
+            *has_command_substitution.get_or_insert_with(|| {
+                assignment_source_has_command_substitution(assignment, self.source())
+            })
+        };
+        let mut rendered_has_shell_substitution = || {
+            *has_rendered_shell_substitution
+                .get_or_insert_with(|| rendered_text_has_shell_substitution(rendered))
+        };
+
+        if rendered_shell_text_has_heredoc_tail(rendered)
+            && (assignment_contains_command_heredoc(assignment)
+                || assignment_has_command_substitution()
+                || rendered_has_shell_substitution())
+        {
+            return RenderedFragment::HeredocTail {
+                text: Cow::Borrowed(rendered),
+                assignment_context: true,
+            };
+        }
+
+        if has_newline
+            && assignment_value_is_quoted_formattable_command_substitution_only(
+                assignment,
+                self.facts(),
+            )
+        {
+            return RenderedFragment::PreserveCurrentIndent(Cow::Borrowed(rendered));
+        }
+
+        if has_newline && assignment_has_command_substitution() {
+            if compound_assignment_is_single_case_command_substitution(assignment) {
+                return RenderedFragment::PreserveCurrentIndent(Cow::Borrowed(rendered));
+            }
+
+            if self
+                .facts()
+                .assignment_has_multiline_literal_source(assignment, self.source())
+            {
+                if assignment_value_is_quoted_command_substitution_only(assignment) {
+                    return RenderedFragment::AssignmentCommandSubstitution(Cow::Borrowed(
+                        rendered,
+                    ));
+                }
+
+                if assignment_source_has_leading_pipe_continuation(assignment, self.source()) {
+                    return RenderedFragment::PreserveCurrentIndent(Cow::Borrowed(rendered));
+                }
+
+                let continuation_indent = self
+                    .options
+                    .indent_prefix(self.indent_level().saturating_add(1));
+                let normalized = normalize_literal_assignment_command_substitution_pipelines(
+                    rendered,
+                    &continuation_indent,
+                );
+                return RenderedFragment::RenderedShellText(Cow::Owned(normalized));
+            }
+
+            return RenderedFragment::PreserveCurrentIndent(Cow::Borrowed(rendered));
+        }
+
+        if self
+            .facts()
+            .assignment_has_multiline_literal_source(assignment, self.source())
+        {
+            RenderedFragment::RenderedShellText(Cow::Borrowed(rendered))
+        } else {
+            RenderedFragment::Plain(Cow::Borrowed(rendered))
+        }
+    }
+
+    fn classify_rendered_name_fragment<'text>(
+        &self,
+        rendered_name: &'text str,
+    ) -> RenderedFragment<'text> {
+        if rendered_shell_text_has_heredoc_tail(rendered_name)
+            && rendered_text_has_shell_substitution(rendered_name)
+        {
+            RenderedFragment::HeredocTail {
+                text: Cow::Borrowed(rendered_name),
+                assignment_context: rendered_text_starts_like_assignment_with_substitution(
+                    rendered_name,
+                ),
+            }
+        } else {
+            RenderedFragment::Plain(Cow::Borrowed(rendered_name))
+        }
+    }
+
+    pub(super) fn write_word(&mut self, word: &Word) {
+        let mut scratch = self.take_scratch_buffer();
+        self.render_word_to_buffer(word, &mut scratch);
+        let fragment = self.classify_rendered_word_fragment(word, &scratch);
+        self.write_rendered_fragment(fragment);
         self.restore_scratch_buffer(scratch);
     }
 
@@ -982,69 +1153,15 @@ where
     }
 
     pub(super) fn write_assignment(&mut self, assignment: &Assignment) {
-        if assignment_has_quoted_backslash_continuation_literal(assignment, self.source()) {
-            self.write_rendered_shell_text(assignment.span.slice(self.source()));
-            return;
-        }
-        if let Some(normalized) = normalize_scalar_assignment_unquoted_continuations(
-            assignment,
-            self.source(),
-            self.facts(),
-        ) {
-            self.write_text(&normalized);
+        if let Some(fragment) = self.classify_assignment_source_fragment(assignment) {
+            self.write_rendered_fragment(fragment);
             return;
         }
 
         let mut scratch = self.take_scratch_buffer();
         render_assignment_to_buf(assignment, self.render_context(), &mut scratch);
-        if rendered_shell_text_has_heredoc_tail(&scratch)
-            && (assignment_contains_command_heredoc(assignment)
-                || assignment_source_has_command_substitution(assignment, self.source())
-                || rendered_text_has_shell_substitution(&scratch))
-        {
-            self.write_shell_text_with_heredoc_tails(&scratch, true);
-        } else if scratch.contains('\n')
-            && assignment_value_is_quoted_formattable_command_substitution_only(
-                assignment,
-                self.facts(),
-            )
-        {
-            self.write_text_preserving_current_line_indent(&scratch);
-        } else if scratch.contains('\n')
-            && assignment_source_has_command_substitution(assignment, self.source())
-        {
-            if compound_assignment_is_single_case_command_substitution(assignment) {
-                self.write_text_preserving_current_line_indent(&scratch);
-            } else if self
-                .facts()
-                .assignment_has_multiline_literal_source(assignment, self.source())
-            {
-                if assignment_value_is_quoted_command_substitution_only(assignment) {
-                    self.write_command_substitution_assignment_text(&scratch);
-                } else if assignment_source_has_leading_pipe_continuation(assignment, self.source())
-                {
-                    self.write_text_preserving_current_line_indent(&scratch);
-                } else {
-                    let continuation_indent = self
-                        .options
-                        .indent_prefix(self.indent_level().saturating_add(1));
-                    let normalized = normalize_literal_assignment_command_substitution_pipelines(
-                        &scratch,
-                        &continuation_indent,
-                    );
-                    self.write_rendered_shell_text(&normalized);
-                }
-            } else {
-                self.write_text_preserving_current_line_indent(&scratch);
-            }
-        } else if self
-            .facts()
-            .assignment_has_multiline_literal_source(assignment, self.source())
-        {
-            self.write_rendered_shell_text(&scratch);
-        } else {
-            self.write_text(&scratch);
-        }
+        let fragment = self.classify_rendered_assignment_fragment(assignment, &scratch);
+        self.write_rendered_fragment(fragment);
         self.restore_scratch_buffer(scratch);
     }
 
@@ -1055,16 +1172,8 @@ where
     }
 
     pub(super) fn write_rendered_name_text(&mut self, rendered_name: &str) {
-        if rendered_shell_text_has_heredoc_tail(rendered_name)
-            && rendered_text_has_shell_substitution(rendered_name)
-        {
-            self.write_shell_text_with_heredoc_tails(
-                rendered_name,
-                rendered_text_starts_like_assignment_with_substitution(rendered_name),
-            );
-        } else {
-            self.write_text(rendered_name);
-        }
+        let fragment = self.classify_rendered_name_fragment(rendered_name);
+        self.write_rendered_fragment(fragment);
     }
 
     pub(super) fn format_standalone_multiline_compound_assignment(
