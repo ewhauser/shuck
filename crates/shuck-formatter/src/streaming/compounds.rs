@@ -399,7 +399,7 @@ where
         if comments.is_empty() {
             return;
         }
-        let disabled_branch_block = branch_prefix_comments_use_disabled_body_indent(&comments);
+        let disabled_branch_block = branch_prefix_comments_use_disabled_body_indent(comments);
         self.newline();
         for (index, comment) in comments.iter().enumerate() {
             if disabled_branch_block {
