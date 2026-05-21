@@ -8,10 +8,10 @@ use crate::facts::{
 };
 use crate::options::{IndentStyle, ResolvedShellFormatOptions};
 use crate::scan::{
-    common_nonempty_shell_indent, heredoc_start, leading_shell_indent as line_leading_shell_indent,
+    QuoteState, RawShellScanner, common_nonempty_shell_indent, heredoc_start,
+    leading_shell_indent as line_leading_shell_indent,
     line_indent_before_offset as line_indent_before_source_offset,
     line_without_continuation_backslash, redirect_operator_end, refine_common_indent,
-    shell_comment_can_start,
 };
 use crate::streaming::format_stmt_sequence_streaming_to_buf;
 use shuck_ast::{
@@ -673,7 +673,7 @@ fn push_raw_command_substitution_with_normalized_spacing(
         normalize_continuations_before_substitution_close_lines(raw);
     let raw = normalized_close_continuations.as_deref().unwrap_or(raw);
     let outer_indent = line_indent_before_source_offset(source, start_offset).unwrap_or("");
-    let mut quote = RawShellQuoteState::default();
+    let mut quote = QuoteState::default();
     let raw_lines = raw.split('\n').collect::<Vec<_>>();
     let Some((first, lines)) = raw_lines.split_first() else {
         return;
@@ -840,48 +840,6 @@ fn collect_raw_command_substitution_spans(
                 collect_raw_command_substitution_spans(parts.as_slice(), spans);
             }
             _ => {}
-        }
-    }
-}
-
-#[derive(Debug, Default)]
-struct RawShellQuoteState {
-    quote: Option<char>,
-}
-
-impl RawShellQuoteState {
-    fn in_multiline_literal(&self) -> bool {
-        self.quote.is_some()
-    }
-
-    fn scan_line(&mut self, line: &str) {
-        let mut escaped = false;
-        for (index, ch) in line.char_indices() {
-            match self.quote {
-                Some('\'') => {
-                    if ch == '\'' {
-                        self.quote = None;
-                    }
-                }
-                Some('"') => {
-                    if ch == '"' && !escaped {
-                        self.quote = None;
-                    }
-                }
-                _ => {
-                    if ch == '#' && shell_comment_can_start(line, index) {
-                        break;
-                    }
-                    if ch == '\'' || (ch == '"' && !escaped) {
-                        self.quote = Some(ch);
-                    }
-                }
-            }
-
-            escaped = ch == '\\' && !escaped;
-            if ch != '\\' {
-                escaped = false;
-            }
         }
     }
 }
@@ -2069,7 +2027,7 @@ fn indent_inline_pipeline_continuations(
     let mut previous_ends_pipeline = false;
     let mut pipeline_comment_continuation = false;
     let mut continuation_indent: Option<String> = None;
-    let mut quote = RawShellQuoteState::default();
+    let mut quote = QuoteState::default();
 
     for (index, line) in body.split('\n').enumerate() {
         if index > 0 {
@@ -2504,7 +2462,7 @@ fn push_raw_block_command_substitution_without_outer_indent(
     let mut previous_pipeline_indent: Option<String> = None;
     let mut continuation_indent: Option<String> = None;
     let mut compound_indents = RawCompoundIndentState::default();
-    let mut quote = RawShellQuoteState::default();
+    let mut quote = QuoteState::default();
     for (line_index, line) in lines.iter().enumerate() {
         let line = *line;
         target.push('\n');
@@ -2910,25 +2868,7 @@ fn normalize_padding_before_trailing_comment(line: &str) -> Option<String> {
 }
 
 fn trailing_comment_start(line: &str) -> Option<usize> {
-    let mut in_single_quotes = false;
-    let mut in_double_quotes = false;
-    let mut escaped = false;
-
-    for (index, ch) in line.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        match ch {
-            '\\' if !in_single_quotes => escaped = true,
-            '\'' if !in_double_quotes => in_single_quotes = !in_single_quotes,
-            '"' if !in_single_quotes => in_double_quotes = !in_double_quotes,
-            '#' if !in_single_quotes && !in_double_quotes => return Some(index),
-            _ => {}
-        }
-    }
-
-    None
+    RawShellScanner::new(line).find_comment(0, line.len())
 }
 
 fn raw_line_closes_substitution_wrapper(content: &str) -> bool {
@@ -3070,37 +3010,26 @@ fn expand_inline_raw_command_substitutions_in_line(
         return false;
     }
 
-    let bytes = line.as_bytes();
     let mut changed = false;
     let mut last = 0usize;
     let mut index = 0usize;
-    let mut in_single_quotes = false;
-    let mut in_double_quotes = false;
-    let mut escaped = false;
+    let mut quote = QuoteState::default();
+    let scanner = RawShellScanner::new(line);
+    let bytes = line.as_bytes();
 
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if escaped {
-            escaped = false;
-            index += 1;
+    while index < line.len() {
+        let Some(ch) = line[index..].chars().next() else {
+            break;
+        };
+        let next_index = index + ch.len_utf8();
+        if quote.consume_raw_char(ch, false) {
+            index = next_index;
             continue;
         }
-        if byte == b'\'' && !in_double_quotes {
-            in_single_quotes = !in_single_quotes;
-            index += 1;
-            continue;
-        }
-        if byte == b'"' && !in_single_quotes {
-            in_double_quotes = !in_double_quotes;
-            index += 1;
-            continue;
-        }
-        if !in_single_quotes && !in_double_quotes && byte == b'#' {
+        if ch == '#' && scanner.find_comment(index, next_index).is_some() {
             break;
         }
-        if !in_single_quotes
-            && !in_double_quotes
-            && byte == b'$'
+        if ch == '$'
             && bytes.get(index + 1) == Some(&b'(')
             && bytes.get(index + 2) != Some(&b'(')
             && let Some(close_offset) = matching_raw_command_substitution_close(line, index + 2)
@@ -3116,8 +3045,7 @@ fn expand_inline_raw_command_substitutions_in_line(
             continue;
         }
 
-        escaped = byte == b'\\';
-        index += 1;
+        index = next_index;
     }
 
     if changed {
@@ -3321,61 +3249,12 @@ fn raw_command_substitution_needs_structural_spacing(raw: &str) -> bool {
     false
 }
 
-#[derive(Default)]
-struct RawQuoteState {
-    quote: Option<char>,
-    escaped: bool,
-}
-
-impl RawQuoteState {
-    fn consume(&mut self, ch: char, include_backticks: bool) -> bool {
-        if self.escaped {
-            self.escaped = false;
-            return true;
-        }
-
-        match self.quote {
-            Some('\'') => {
-                if ch == '\'' {
-                    self.quote = None;
-                }
-                true
-            }
-            Some('"') => {
-                if ch == '"' {
-                    self.quote = None;
-                } else if ch == '\\' {
-                    self.escaped = true;
-                }
-                true
-            }
-            Some('`') if include_backticks => {
-                if ch == '`' {
-                    self.quote = None;
-                } else if ch == '\\' {
-                    self.escaped = true;
-                }
-                true
-            }
-            _ if ch == '\\' => {
-                self.escaped = true;
-                true
-            }
-            _ if ch == '\'' || ch == '"' || (include_backticks && ch == '`') => {
-                self.quote = Some(ch);
-                true
-            }
-            _ => false,
-        }
-    }
-}
-
 fn raw_shell_body_needs_structural_spacing(body: &str) -> bool {
     let body = body.trim_matches([' ', '\t']);
     if raw_body_contains_pipeline_multistatement_brace_group(body) {
         return true;
     }
-    let mut quote = RawQuoteState::default();
+    let mut quote = QuoteState::default();
     let mut horizontal_run = 0usize;
     let mut index = 0usize;
 
@@ -3386,7 +3265,7 @@ fn raw_shell_body_needs_structural_spacing(body: &str) -> bool {
         };
         let next_index = index + ch.len_utf8();
 
-        if quote.consume(ch, true) {
+        if quote.consume_raw_char(ch, true) {
             horizontal_run = 0;
             index = next_index;
             continue;
@@ -3641,19 +3520,7 @@ fn raw_has_final_replacement_delimiter(after_operator: &str) -> bool {
         return false;
     };
     after_operator[last_index..].starts_with('/')
-        && !raw_char_is_escaped(after_operator, last_index)
-}
-
-fn raw_char_is_escaped(raw: &str, index: usize) -> bool {
-    let mut backslashes = 0usize;
-    for ch in raw[..index].chars().rev() {
-        if ch == '\\' {
-            backslashes += 1;
-        } else {
-            break;
-        }
-    }
-    backslashes % 2 == 1
+        && !RawShellScanner::new(after_operator).is_escaped(last_index)
 }
 
 fn replacement_ends_with_ambiguous_quote(replacement: &str) -> bool {
@@ -3737,7 +3604,7 @@ fn normalize_raw_arithmetic_expansion_padding(raw: &str) -> Option<String> {
 }
 
 fn matching_raw_arithmetic_expansion_close(raw: &str, body_start: usize) -> Option<usize> {
-    let mut quote = RawQuoteState::default();
+    let mut quote = QuoteState::default();
     let mut paren_depth = 0usize;
     let mut index = body_start;
 
@@ -3745,7 +3612,7 @@ fn matching_raw_arithmetic_expansion_close(raw: &str, body_start: usize) -> Opti
         let rest = &raw[index..];
         let ch = rest.chars().next()?;
         let next_index = index + ch.len_utf8();
-        if quote.consume(ch, true) {
+        if quote.consume_raw_char(ch, true) {
             index = next_index;
             continue;
         }
@@ -3775,62 +3642,31 @@ pub(crate) fn matching_raw_command_substitution_close(
     raw: &str,
     body_start: usize,
 ) -> Option<usize> {
-    let mut quote = RawQuoteState::default();
-    let mut paren_depth = 0usize;
-    let mut index = body_start;
-
-    while index < raw.len() {
-        let ch = raw[index..].chars().next()?;
-        let next_index = index + ch.len_utf8();
-        if quote.consume(ch, false) {
-            index = next_index;
-            continue;
-        }
-
-        match ch {
-            '(' => paren_depth += 1,
-            ')' => {
-                if paren_depth == 0 {
-                    return Some(index);
-                }
-                paren_depth -= 1;
-            }
-            _ => {}
-        }
-
-        index = next_index;
-    }
-
-    None
+    RawShellScanner::new(raw).matching_command_substitution_close(body_start)
 }
 
 fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, line: &str) {
     let mut last = 0;
     let mut index = 0;
-    let mut in_single_quotes = false;
-    let mut in_double_quotes = false;
-    let mut escaped = false;
+    let mut quote = QuoteState::default();
+    let scanner = RawShellScanner::new(line);
     let bytes = line.as_bytes();
 
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if byte == b'\'' && !in_double_quotes && !escaped {
-            in_single_quotes = !in_single_quotes;
-            index += 1;
+    while index < line.len() {
+        let Some(ch) = line[index..].chars().next() else {
+            break;
+        };
+        let next_index = index + ch.len_utf8();
+        if quote.consume_shell_word_char(ch) {
+            index = next_index;
             continue;
         }
-        if byte == b'"' && !in_single_quotes && !escaped {
-            in_double_quotes = !in_double_quotes;
-            index += 1;
-            continue;
-        }
-        if !in_single_quotes && !in_double_quotes && byte == b'#' {
+        if !quote.in_quotes() && ch == '#' && scanner.find_comment(index, next_index).is_some() {
             break;
         }
 
-        if !in_single_quotes
-            && !escaped
-            && byte == b'$'
+        if !quote.in_single_quotes()
+            && ch == '$'
             && bytes.get(index + 1) == Some(&b'(')
             && bytes.get(index + 2) != Some(&b'(')
             && let Some(close_offset) = matching_raw_command_substitution_close(line, index + 2)
@@ -3844,11 +3680,10 @@ fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, lin
             target.push(')');
             last = close_offset + 1;
             index = close_offset + 1;
-            escaped = false;
             continue;
         }
 
-        if !in_single_quotes && !in_double_quotes && matches!(byte, b' ' | b'\t' | b'\r') {
+        if !quote.in_quotes() && matches!(bytes[index], b' ' | b'\t' | b'\r') {
             let whitespace_start = index;
             let mut semicolon_start = index + 1;
             while semicolon_start < bytes.len()
@@ -3863,12 +3698,11 @@ fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, lin
                 target.push_str(&line[last..whitespace_start]);
                 last = semicolon_start;
                 index = semicolon_start;
-                escaped = false;
                 continue;
             }
         }
 
-        if !in_single_quotes && !in_double_quotes && byte.is_ascii_digit() {
+        if !quote.in_quotes() && bytes[index].is_ascii_digit() {
             let fd_start = index;
             let mut operator_start = index + 1;
             while operator_start < bytes.len() && bytes[operator_start].is_ascii_digit() {
@@ -3885,16 +3719,14 @@ fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, lin
                     target.push_str(&line[last..operator_end]);
                     last = target_start;
                     index = target_start;
-                    escaped = false;
                     continue;
                 }
             }
             index = fd_start;
         }
 
-        if !in_single_quotes
-            && !in_double_quotes
-            && matches!(byte, b'<' | b'>')
+        if !quote.in_quotes()
+            && matches!(bytes[index], b'<' | b'>')
             && let Some(operator_end) = redirect_operator_end(bytes, index)
         {
             let mut target_start = operator_end;
@@ -3909,12 +3741,11 @@ fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, lin
                 target.push_str(&line[last..operator_end]);
                 last = target_start;
                 index = target_start;
-                escaped = false;
                 continue;
             }
         }
 
-        if !in_single_quotes && !in_double_quotes && bytes.get(index..index + 3) == Some(b"<<<") {
+        if !quote.in_quotes() && bytes.get(index..index + 3) == Some(b"<<<") {
             let operator_end = index + 3;
             let mut target_start = operator_end;
             while target_start < bytes.len() && matches!(bytes[target_start], b' ' | b'\t' | b'\r')
@@ -3925,16 +3756,11 @@ fn push_raw_shell_line_with_normalized_redirect_spacing(target: &mut String, lin
                 target.push_str(&line[last..operator_end]);
                 last = target_start;
                 index = target_start;
-                escaped = false;
                 continue;
             }
         }
 
-        escaped = !in_single_quotes && byte == b'\\' && !escaped;
-        if byte != b'\\' {
-            escaped = false;
-        }
-        index += 1;
+        index = next_index;
     }
 
     target.push_str(&line[last..]);
@@ -4348,7 +4174,7 @@ fn normalize_literal_continuation_indent_for_block(rendered: &str) -> Option<Str
         return None;
     }
 
-    let mut quote = RawShellQuoteState::default();
+    let mut quote = QuoteState::default();
     let mut continuation_indent: Option<String> = None;
     let mut normalized = String::with_capacity(rendered.len());
     let mut changed = false;
@@ -5385,48 +5211,8 @@ fn normalize_inline_command_substitutions_in_parameter_operand(
     finish_raw_rewrite(rendered, raw, cursor, changed)
 }
 
-fn next_raw_command_substitution(raw: &str, mut index: usize) -> Option<(usize, usize)> {
-    let bytes = raw.as_bytes();
-    let mut in_single_quotes = false;
-    let mut escaped = false;
-
-    while index + 1 < bytes.len() {
-        let ch = raw[index..].chars().next()?;
-        let next_index = index + ch.len_utf8();
-        if in_single_quotes {
-            if ch == '\'' {
-                in_single_quotes = false;
-            }
-            index = next_index;
-            continue;
-        }
-        if escaped {
-            escaped = false;
-            index = next_index;
-            continue;
-        }
-        if ch == '\\' {
-            escaped = true;
-            index = next_index;
-            continue;
-        }
-        if ch == '\'' {
-            in_single_quotes = true;
-            index = next_index;
-            continue;
-        }
-
-        if bytes[index] == b'$'
-            && bytes[index + 1] == b'('
-            && bytes.get(index + 2).is_none_or(|byte| *byte != b'(')
-            && let Some(close_offset) = matching_raw_command_substitution_close(raw, index + 2)
-        {
-            return Some((index, close_offset));
-        }
-        index = next_index;
-    }
-
-    None
+fn next_raw_command_substitution(raw: &str, index: usize) -> Option<(usize, usize)> {
+    RawShellScanner::new(raw).next_command_substitution(index)
 }
 
 fn finish_raw_rewrite(
