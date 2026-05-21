@@ -7,12 +7,45 @@ pub(crate) enum CompoundBodyOpen {
     Direct,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CompoundBodyBounds {
+    facts_end: usize,
+    render_end: usize,
+}
+
+impl CompoundBodyBounds {
+    fn shared(end: usize) -> Self {
+        Self {
+            facts_end: end,
+            render_end: end,
+        }
+    }
+
+    fn split(facts_end: usize, render_end: usize) -> Self {
+        Self {
+            facts_end,
+            render_end,
+        }
+    }
+
+    pub(crate) fn facts_limit(self) -> Option<usize> {
+        Some(self.facts_end)
+    }
+
+    pub(crate) fn render_limit(self) -> Option<usize> {
+        Some(self.render_end)
+    }
+
+    pub(crate) fn render_end(self) -> usize {
+        self.render_end
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CompoundBodySite<'a> {
     body: &'a StmtSeq,
     enclosing_span: Span,
-    facts_upper_bound: usize,
-    renderer_upper_bound: usize,
+    bounds: CompoundBodyBounds,
     open: CompoundBodyOpen,
     close_span: Option<Span>,
 }
@@ -34,7 +67,7 @@ impl<'a> CompoundBodySite<'a> {
             }
             | ForSyntax::ParenBrace {
                 right_brace_span, ..
-            } => Self::brace(&command.body, command.span, right_brace_span),
+            } => Self::brace(&command.body, command.span, right_brace_span, source_map),
         }
     }
 
@@ -48,7 +81,7 @@ impl<'a> CompoundBodySite<'a> {
             }
             ForeachSyntax::ParenBrace {
                 right_brace_span, ..
-            } => Self::brace(&command.body, command.span, right_brace_span),
+            } => Self::brace(&command.body, command.span, right_brace_span, source_map),
         }
     }
 
@@ -63,7 +96,7 @@ impl<'a> CompoundBodySite<'a> {
             RepeatSyntax::Direct => Self::direct(&command.body, command.span),
             RepeatSyntax::Brace {
                 right_brace_span, ..
-            } => Self::brace(&command.body, command.span, right_brace_span),
+            } => Self::brace(&command.body, command.span, right_brace_span, source_map),
         }
     }
 
@@ -100,6 +133,24 @@ impl<'a> CompoundBodySite<'a> {
         Self::do_done(&command.body, command.span, command.done_span, source_map)
     }
 
+    pub(crate) fn single_body_command(
+        command: &'a CompoundCommand,
+        source_map: &crate::comments::SourceMap<'_>,
+    ) -> Option<Self> {
+        match command {
+            CompoundCommand::For(command) => Some(Self::for_command(command, source_map)),
+            CompoundCommand::Repeat(command) => Some(Self::repeat_command(command, source_map)),
+            CompoundCommand::Foreach(command) => Some(Self::foreach_command(command, source_map)),
+            CompoundCommand::ArithmeticFor(command) => {
+                Some(Self::arithmetic_for_command(command, source_map))
+            }
+            CompoundCommand::While(command) => Some(Self::while_command(command, source_map)),
+            CompoundCommand::Until(command) => Some(Self::until_command(command, source_map)),
+            CompoundCommand::Select(command) => Some(Self::select_command(command, source_map)),
+            _ => None,
+        }
+    }
+
     pub(crate) fn if_then_branch(
         command: &IfCommand,
         body: &'a StmtSeq,
@@ -132,8 +183,7 @@ impl<'a> CompoundBodySite<'a> {
         Some(Self {
             body: commands,
             enclosing_span: stmt_span(body),
-            facts_upper_bound: function_end_offset,
-            renderer_upper_bound: function_end_offset,
+            bounds: CompoundBodyBounds::shared(function_end_offset),
             open: CompoundBodyOpen::Group(open),
             close_span: None,
         })
@@ -147,12 +197,8 @@ impl<'a> CompoundBodySite<'a> {
         self.enclosing_span
     }
 
-    pub(crate) fn facts_upper_bound(self) -> usize {
-        self.facts_upper_bound
-    }
-
-    pub(crate) fn renderer_upper_bound(self) -> usize {
-        self.renderer_upper_bound
+    pub(crate) fn bounds(self) -> CompoundBodyBounds {
+        self.bounds
     }
 
     pub(crate) fn open(self) -> CompoundBodyOpen {
@@ -223,8 +269,7 @@ impl<'a> CompoundBodySite<'a> {
         Self {
             body,
             enclosing_span,
-            facts_upper_bound: upper_bound,
-            renderer_upper_bound: upper_bound,
+            bounds: CompoundBodyBounds::shared(upper_bound),
             open: CompoundBodyOpen::Keyword("do"),
             close_span,
         }
@@ -234,23 +279,37 @@ impl<'a> CompoundBodySite<'a> {
         Self {
             body,
             enclosing_span,
-            facts_upper_bound: enclosing_span.end.offset,
-            renderer_upper_bound: enclosing_span.end.offset,
+            bounds: CompoundBodyBounds::shared(enclosing_span.end.offset),
             open: CompoundBodyOpen::Direct,
             close_span: None,
         }
     }
 
-    fn brace(body: &'a StmtSeq, enclosing_span: Span, right_brace_span: Span) -> Self {
-        // Preserve the legacy split: facts are keyed at the closing brace, while
-        // renderer call sites ask for the enclosing command's full span.
+    fn brace(
+        body: &'a StmtSeq,
+        enclosing_span: Span,
+        right_brace_span: Span,
+        source_map: &crate::comments::SourceMap<'_>,
+    ) -> Self {
+        let close_span = source_map
+            .close_delimiter_span(enclosing_span, CloseDelimiterKind::RightBrace)
+            .unwrap_or_else(|| {
+                normalized_close_keyword_span(
+                    source_map.source(),
+                    source_map,
+                    right_brace_span,
+                    "}",
+                )
+            });
         Self {
             body,
             enclosing_span,
-            facts_upper_bound: right_brace_span.start.offset,
-            renderer_upper_bound: enclosing_span.end.offset,
+            bounds: CompoundBodyBounds::split(
+                right_brace_span.start.offset,
+                enclosing_span.end.offset,
+            ),
             open: CompoundBodyOpen::Group('{'),
-            close_span: None,
+            close_span: Some(close_span),
         }
     }
 
@@ -263,8 +322,7 @@ impl<'a> CompoundBodySite<'a> {
         Self {
             body,
             enclosing_span,
-            facts_upper_bound: upper_bound,
-            renderer_upper_bound: upper_bound,
+            bounds: CompoundBodyBounds::shared(upper_bound),
             open,
             close_span: None,
         }

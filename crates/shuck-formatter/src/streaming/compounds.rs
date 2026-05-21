@@ -468,7 +468,7 @@ where
     pub(super) fn write_compound_body_open_suffix(&mut self, site: CompoundBodySite<'_>) {
         let Some(span) = self
             .facts()
-            .sequence(site.body(), Some(site.renderer_upper_bound()))
+            .sequence(site.body(), site.bounds().render_limit())
             .group_open_suffix_span()
         else {
             return;
@@ -507,7 +507,7 @@ where
         write_open_suffix: bool,
     ) -> Result<()> {
         let body = site.body();
-        let upper_bound = site.renderer_upper_bound();
+        let upper_bound = site.bounds().render_end();
         let preserve_open_blank = self
             .facts()
             .sequence(body, Some(upper_bound))
@@ -533,7 +533,7 @@ where
             if_branch_upper_bound(command, 0, source, self.source_map(), self.facts());
         let then_site =
             CompoundBodySite::if_then_branch(command, &command.then_branch, then_upper_bound);
-        self.format_brace_group(then_site.body(), Some(then_site.renderer_upper_bound()))?;
+        self.format_brace_group(then_site.body(), then_site.bounds().render_limit())?;
         for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
             self.write_text(" elif ");
             self.format_inline_stmts(condition)?;
@@ -541,12 +541,12 @@ where
             let upper_bound =
                 if_branch_upper_bound(command, index + 1, source, self.source_map(), self.facts());
             let site = CompoundBodySite::if_then_branch(command, body, upper_bound);
-            self.format_brace_group(site.body(), Some(site.renderer_upper_bound()))?;
+            self.format_brace_group(site.body(), site.bounds().render_limit())?;
         }
         if let Some(body) = &command.else_branch {
             self.write_text(" else ");
             let site = CompoundBodySite::if_else_branch(command, body, command.span.end.offset);
-            self.format_brace_group(site.body(), Some(site.renderer_upper_bound()))?;
+            self.format_brace_group(site.body(), site.bounds().render_limit())?;
         }
         Ok(())
     }
@@ -574,21 +574,7 @@ where
         }
 
         let site = CompoundBodySite::for_command(command, self.source_map());
-        match site.open() {
-            CompoundBodyOpen::Keyword("do") => {
-                self.format_do_done_body(site, "done")?;
-            }
-            CompoundBodyOpen::Direct => {
-                self.write_space();
-                self.format_inline_stmts(site.body())?;
-            }
-            CompoundBodyOpen::Group('{') => {
-                self.write_text("; ");
-                self.format_brace_group(site.body(), Some(site.renderer_upper_bound()))?;
-            }
-            _ => unreachable!("for body uses do, direct, or brace syntax"),
-        }
-        Ok(())
+        self.format_loop_body_site(site, "; ", "for body uses do, direct, or brace syntax")
     }
 
     pub(super) fn write_for_in_words(&mut self, words: Option<&[Word]>, in_span: Option<Span>) {
@@ -622,6 +608,15 @@ where
         self.write_text("repeat ");
         self.write_word(&command.count);
         let site = CompoundBodySite::repeat_command(command, self.source_map());
+        self.format_loop_body_site(site, " ", "repeat body uses do, direct, or brace syntax")
+    }
+
+    pub(super) fn format_loop_body_site(
+        &mut self,
+        site: CompoundBodySite<'_>,
+        brace_prefix: &'static str,
+        invalid_body_kind: &'static str,
+    ) -> Result<()> {
         match site.open() {
             CompoundBodyOpen::Keyword("do") => {
                 self.format_do_done_body(site, "done")?;
@@ -631,10 +626,10 @@ where
                 self.format_inline_stmts(site.body())?;
             }
             CompoundBodyOpen::Group('{') => {
-                self.write_space();
-                self.format_brace_group(site.body(), Some(site.renderer_upper_bound()))?;
+                self.write_text(brace_prefix);
+                self.format_brace_group(site.body(), site.bounds().render_limit())?;
             }
-            _ => unreachable!("repeat body uses do, direct, or brace syntax"),
+            _ => unreachable!("{}", invalid_body_kind),
         }
         Ok(())
     }
@@ -647,7 +642,7 @@ where
             ForeachSyntax::ParenBrace { .. } => {
                 self.write_parenthesized_word_list(Some(&command.words));
                 self.write_space();
-                self.format_brace_group(site.body(), Some(site.renderer_upper_bound()))?;
+                self.format_brace_group(site.body(), site.bounds().render_limit())?;
             }
             ForeachSyntax::InDoDone { .. } => {
                 self.write_for_in_words(Some(&command.words), None);
@@ -1368,7 +1363,7 @@ where
                 if let Some((_, comment)) = header_comment {
                     return self.format_function_brace_group_with_header_comment(
                         site.body(),
-                        site.renderer_upper_bound(),
+                        site.bounds().render_end(),
                         &comment,
                     );
                 }
@@ -1382,7 +1377,7 @@ where
                     self.write_text("; }");
                     Ok(())
                 } else {
-                    self.format_brace_group(site.body(), Some(site.renderer_upper_bound()))
+                    self.format_brace_group(site.body(), site.bounds().render_limit())
                 }
             }
             Some(site) if site.group_open_char() == Some('(') => {
@@ -1395,7 +1390,7 @@ where
                     self.write_text(")");
                     Ok(())
                 } else {
-                    self.format_subshell(site.body(), Some(site.renderer_upper_bound()))
+                    self.format_subshell(site.body(), site.bounds().render_limit())
                 }
             }
             Some(_) => unreachable!("function body group uses brace or subshell syntax"),

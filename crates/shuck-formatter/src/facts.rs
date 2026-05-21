@@ -2147,7 +2147,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         }
         let summary = self.visit_sequence_with_suffix(
             site.body(),
-            Some(site.facts_upper_bound()),
+            site.bounds().facts_limit(),
             site.group_open_char(),
             site.open_suffix_span(self.source_map()),
             site.open_end_offset(self.source),
