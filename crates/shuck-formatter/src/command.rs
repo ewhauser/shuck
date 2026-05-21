@@ -1093,29 +1093,50 @@ pub(crate) fn stmt_group_attachment_or_verbatim_span(
     stmt: &Stmt,
     source_map: &crate::comments::SourceMap<'_>,
 ) -> Option<Span> {
+    stmt_group_attachment_or_verbatim_span_with_heredoc(
+        stmt,
+        source_map,
+        classify_stmt_contains_heredoc,
+    )
+}
+
+pub(crate) fn stmt_group_attachment_or_verbatim_span_with_heredoc<F>(
+    stmt: &Stmt,
+    source_map: &crate::comments::SourceMap<'_>,
+    stmt_contains_heredoc: F,
+) -> Option<Span>
+where
+    F: Fn(&Stmt) -> bool + Copy,
+{
     let (commands, open) = command_group_commands(&stmt.command)?;
     Some(
-        group_attachment_span(
+        group_attachment_span_with_heredoc(
             commands.as_slice(),
             source_map,
             open,
             matching_group_close(open),
+            stmt_contains_heredoc,
         )
         .unwrap_or_else(|| stmt_verbatim_span_with_source_map(stmt, source_map)),
     )
 }
 
-fn stmt_group_base_span(
+fn stmt_group_base_span_with_heredoc<F>(
     stmt: &Stmt,
     commands: &StmtSeq,
     source_map: &crate::comments::SourceMap<'_>,
     open: char,
-) -> Span {
-    group_attachment_span(
+    stmt_contains_heredoc: F,
+) -> Span
+where
+    F: Fn(&Stmt) -> bool + Copy,
+{
+    group_attachment_span_with_heredoc(
         commands.as_slice(),
         source_map,
         open,
         matching_group_close(open),
+        stmt_contains_heredoc,
     )
     .unwrap_or_else(|| stmt_span(stmt))
 }
@@ -1285,6 +1306,25 @@ pub(crate) fn group_attachment_span(
     open: char,
     close: char,
 ) -> Option<Span> {
+    group_attachment_span_with_heredoc(
+        commands,
+        source_map,
+        open,
+        close,
+        classify_stmt_contains_heredoc,
+    )
+}
+
+pub(crate) fn group_attachment_span_with_heredoc<F>(
+    commands: &[Stmt],
+    source_map: &crate::comments::SourceMap<'_>,
+    open: char,
+    close: char,
+    stmt_contains_heredoc: F,
+) -> Option<Span>
+where
+    F: Fn(&Stmt) -> bool + Copy,
+{
     let source = source_map.source();
     let first = commands.first()?;
     let open_offset = find_group_open_offset_before_stmt(
@@ -1294,7 +1334,13 @@ pub(crate) fn group_attachment_span(
     )?;
     let sequence_end = commands
         .iter()
-        .map(|command| stmt_group_attachment_end_offset(command, source_map))
+        .map(|command| {
+            stmt_group_attachment_end_offset_with_heredoc(
+                command,
+                source_map,
+                stmt_contains_heredoc,
+            )
+        })
         .max()
         .unwrap_or(0);
     let end = find_group_close_offset(source, sequence_end, close)
@@ -1458,17 +1504,23 @@ fn stmt_group_attachment_start_offset(
         .offset
 }
 
-fn stmt_group_attachment_end_offset(
+fn stmt_group_attachment_end_offset_with_heredoc<F>(
     stmt: &Stmt,
     source_map: &crate::comments::SourceMap<'_>,
-) -> usize {
-    if let Some(span) = stmt_group_attachment_or_verbatim_span(stmt, source_map) {
+    stmt_contains_heredoc: F,
+) -> usize
+where
+    F: Fn(&Stmt) -> bool + Copy,
+{
+    if let Some(span) =
+        stmt_group_attachment_or_verbatim_span_with_heredoc(stmt, source_map, stmt_contains_heredoc)
+    {
         return span.end.offset;
     }
 
     match &stmt.command {
         Command::Function(_) | Command::AnonymousFunction(_) => stmt_span(stmt).end.offset,
-        _ if classify_stmt_contains_heredoc(stmt) => {
+        _ if stmt_contains_heredoc(stmt) => {
             stmt_verbatim_span_with_source_map(stmt, source_map)
                 .end
                 .offset
@@ -1758,24 +1810,39 @@ pub(crate) fn line_gap_break_count(current_line: usize, next_line: usize) -> usi
     next_line.saturating_sub(current_line).clamp(1, 2)
 }
 
-pub(crate) fn rendered_stmt_end_line(
+pub(crate) fn rendered_stmt_end_line_with_heredoc<F>(
     stmt: &Stmt,
     source: &str,
     source_map: &crate::comments::SourceMap<'_>,
-) -> usize {
+    stmt_contains_heredoc: F,
+) -> usize
+where
+    F: Fn(&Stmt) -> bool + Copy,
+{
     match &stmt.command {
         Command::Function(_) | Command::AnonymousFunction(_) => {
             span_render_end_line(stmt_span(stmt), source, source_map)
         }
-        _ if classify_stmt_contains_heredoc(stmt) => span_render_end_line(
+        _ if stmt_contains_heredoc(stmt) => span_render_end_line(
             stmt_verbatim_span_with_source_map(stmt, source_map),
             source,
             source_map,
         ),
-        Command::Binary(command) => rendered_stmt_end_line(&command.right, source, source_map),
+        Command::Binary(command) => rendered_stmt_end_line_with_heredoc(
+            &command.right,
+            source,
+            source_map,
+            stmt_contains_heredoc,
+        ),
         _ => {
             if let Some((commands, open)) = command_group_commands(&stmt.command) {
-                let mut span = stmt_group_base_span(stmt, commands, source_map, open);
+                let mut span = stmt_group_base_span_with_heredoc(
+                    stmt,
+                    commands,
+                    source_map,
+                    open,
+                    stmt_contains_heredoc,
+                );
                 for redirect in &stmt.redirects {
                     span = merge_non_empty_span(span, redirect.span);
                 }
@@ -1824,15 +1891,16 @@ pub(crate) fn stmt_has_trailing_comment(
         && source_map.contains_comment_between(formatted.end.offset, raw.end.offset)
 }
 
-pub(crate) fn should_render_verbatim(
+pub(crate) fn should_render_verbatim_with_heredoc(
     stmt: &Stmt,
     source_map: &crate::comments::SourceMap<'_>,
     options: &crate::options::ResolvedShellFormatOptions,
+    contains_heredoc: bool,
 ) -> bool {
     (!options.simplify()
         && matches!(&stmt.command, Command::Simple(command) if simple_command_uses_synthetic_words(command, source_map.source())))
         || (options.keep_padding() && stmt_has_alignment_sensitive_padding(stmt, source_map))
-        || (classify_stmt_contains_heredoc(stmt)
+        || (contains_heredoc
             && !matches!(stmt.command, Command::Binary(_))
             && stmt_has_trailing_comment(stmt, source_map))
 }
@@ -1922,7 +1990,31 @@ pub(crate) fn stmt_attachment_span(
     source_map: &crate::comments::SourceMap<'_>,
     options: &crate::options::ResolvedShellFormatOptions,
 ) -> Span {
-    let span = if should_render_verbatim(stmt, source_map, options) {
+    stmt_attachment_span_with_heredoc(
+        stmt,
+        source,
+        source_map,
+        options,
+        classify_stmt_contains_heredoc,
+    )
+}
+
+pub(crate) fn stmt_attachment_span_with_heredoc<F>(
+    stmt: &Stmt,
+    source: &str,
+    source_map: &crate::comments::SourceMap<'_>,
+    options: &crate::options::ResolvedShellFormatOptions,
+    stmt_contains_heredoc: F,
+) -> Span
+where
+    F: Fn(&Stmt) -> bool + Copy,
+{
+    let span = if should_render_verbatim_with_heredoc(
+        stmt,
+        source_map,
+        options,
+        stmt_contains_heredoc(stmt),
+    ) {
         stmt_verbatim_span_with_source_map(stmt, source_map)
     } else if let Command::Function(command) = &stmt.command {
         function_attachment_span(command)
@@ -1930,7 +2022,13 @@ pub(crate) fn stmt_attachment_span(
         anonymous_function_attachment_span(command)
     } else if let Some((commands, open)) = command_group_commands(&stmt.command) {
         stmt.redirects.iter().fold(
-            stmt_group_base_span(stmt, commands, source_map, open),
+            stmt_group_base_span_with_heredoc(
+                stmt,
+                commands,
+                source_map,
+                open,
+                stmt_contains_heredoc,
+            ),
             |span, redirect| span.merge(redirect.span),
         )
     } else {
@@ -2029,6 +2127,9 @@ pub(crate) fn if_close_span(
         } => (right_brace_span, "}"),
     };
     let syntax_close = normalized_close_keyword_span(source, source_map, syntax_close, keyword);
+    if span_starts_with_keyword(source, syntax_close, keyword) {
+        return syntax_close;
+    }
     matching_if_close_start(source, command.span)
         .map(|start| source_map.span_for_offsets(start, start + keyword.len()))
         .unwrap_or(syntax_close)
@@ -2040,11 +2141,31 @@ pub(crate) fn done_close_span(
     span: Span,
     fallback: Option<Span>,
 ) -> Option<Span> {
+    if let Some(fallback) = fallback {
+        let normalized = normalized_close_keyword_span(source, source_map, fallback, "done");
+        if span_starts_with_keyword(source, normalized, "done") {
+            return Some(normalized);
+        }
+    }
+
+    let span_end = span.end.offset.min(source.len());
+    if let Some(start) = span_end.checked_sub("done".len())
+        && source.get(start..span_end) == Some("done")
+    {
+        return Some(source_map.span_for_offsets(start, span_end));
+    }
+
     matching_done_close_start(source, span)
         .map(|start| source_map.span_for_offsets(start, start + "done".len()))
         .or_else(|| {
             fallback.map(|span| normalized_close_keyword_span(source, source_map, span, "done"))
         })
+}
+
+fn span_starts_with_keyword(source: &str, span: Span, keyword: &str) -> bool {
+    let start = span.start.offset.min(source.len());
+    let end = start.saturating_add(keyword.len()).min(source.len());
+    source.get(start..end) == Some(keyword)
 }
 
 fn command_attachment_span(
