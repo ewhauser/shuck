@@ -3028,7 +3028,7 @@ fn sequence_comment_lower_bound(sequence: &StmtSeq, source_map: &SourceMap<'_>) 
 fn case_close_span(command: &CaseCommand, source_map: &SourceMap<'_>) -> Option<Span> {
     source_map
         .close_delimiter_span(command.span, CloseDelimiterKind::Esac)
-        .or_else(|| Some(command.esac_span))
+        .or(Some(command.esac_span))
 }
 
 fn group_close_offset(

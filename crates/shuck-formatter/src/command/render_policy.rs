@@ -265,8 +265,7 @@ pub(crate) fn if_close_span(
     if let Some(indexed_close) = source_map.close_delimiter_span(command.span, kind) {
         return indexed_close;
     }
-    let syntax_close = normalized_close_keyword_span(source, source_map, syntax_close, keyword);
-    syntax_close
+    normalized_close_keyword_span(source, source_map, syntax_close, keyword)
 }
 
 pub(crate) fn done_close_span(
