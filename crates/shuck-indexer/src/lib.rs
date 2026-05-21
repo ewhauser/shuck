@@ -18,10 +18,13 @@
 //! available. The lower-level indexes are also exported for integrations that
 //! only need line mapping or that already have an AST-shaped source of comments
 //! or regions.
+mod close_delimiter_index;
 mod comment_index;
 mod line_index;
 mod region_index;
 
+/// Structural close-delimiter lookup types derived from parser output.
+pub use close_delimiter_index::{CloseDelimiterIndex, CloseDelimiterKind, IndexedCloseDelimiter};
 /// Comment lookup types derived from parser output.
 pub use comment_index::{CommentIndex, IndexedComment};
 /// Line-based offset lookup utilities.
@@ -37,7 +40,8 @@ use shuck_parser::parser::ParseResult;
 ///
 /// The default options build the indexes used by linting and semantic analysis.
 /// Source-layout indexes retain formatter-oriented lookup tables such as raw
-/// continuation backslash offsets and heredoc closing-marker ranges.
+/// continuation backslash offsets, heredoc closing-marker ranges, and compound
+/// close delimiters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct IndexerOptions {
     source_layout_indexes: bool,
@@ -52,10 +56,11 @@ impl IndexerOptions {
     /// Enable or disable formatter-oriented source-layout indexes.
     ///
     /// When enabled, [`LineIndex::raw_continuation_line_starts`],
-    /// [`LineIndex::raw_continuation_backslashes`], and
-    /// [`RegionIndex::heredoc_closing_marker_range`] retain their lookup data.
-    /// The default keeps those retained indexes disabled while still computing
-    /// semantic continuation lines for [`Indexer::continuation_line_starts`].
+    /// [`LineIndex::raw_continuation_backslashes`],
+    /// [`RegionIndex::heredoc_closing_marker_range`], and
+    /// [`CloseDelimiterIndex`] retain their lookup data. The default keeps
+    /// those retained indexes disabled while still computing semantic
+    /// continuation lines for [`Indexer::continuation_line_starts`].
     pub fn with_source_layout_indexes(mut self, enabled: bool) -> Self {
         self.source_layout_indexes = enabled;
         self
@@ -82,6 +87,7 @@ pub struct Indexer {
     line_index: LineIndex,
     comment_index: CommentIndex,
     region_index: RegionIndex,
+    close_delimiter_index: CloseDelimiterIndex,
     continuation_lines: Vec<TextSize>,
 }
 
@@ -129,6 +135,11 @@ impl Indexer {
             file,
             options.source_layout_indexes(),
         );
+        let close_delimiter_index = if options.source_layout_indexes() {
+            CloseDelimiterIndex::new(source, file)
+        } else {
+            CloseDelimiterIndex::empty()
+        };
         let continuation_lines =
             collect_continuation_lines(&raw_continuations, &comment_index, &region_index);
 
@@ -136,6 +147,7 @@ impl Indexer {
             line_index,
             comment_index,
             region_index,
+            close_delimiter_index,
             continuation_lines,
         }
     }
@@ -162,6 +174,14 @@ impl Indexer {
     /// interpreting bytes the same way in every syntactic context.
     pub fn region_index(&self) -> &RegionIndex {
         &self.region_index
+    }
+
+    /// Return the formatter-oriented close-delimiter index.
+    ///
+    /// This index is populated only when
+    /// [`IndexerOptions::with_source_layout_indexes`] is enabled.
+    pub fn close_delimiter_index(&self) -> &CloseDelimiterIndex {
+        &self.close_delimiter_index
     }
 
     /// Return byte offsets for the start of each semantic continuation line.

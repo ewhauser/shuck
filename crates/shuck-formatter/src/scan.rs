@@ -71,11 +71,3 @@ pub(crate) fn normalized_close_keyword_span(
         span
     }
 }
-
-pub(crate) fn matching_if_close_start(source: &str, span: Span) -> Option<usize> {
-    SourceView::new(source).matching_if_close_start(span)
-}
-
-pub(crate) fn matching_done_close_start(source: &str, span: Span) -> Option<usize> {
-    SourceView::new(source).matching_done_close_start(span)
-}

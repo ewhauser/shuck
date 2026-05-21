@@ -444,20 +444,24 @@ impl<'a> Parser<'a> {
                     Self::rebase_arithmetic_expr(expr, base);
                 }
                 command.right_paren_span = command.right_paren_span.rebased(base);
+                command.done_span = command.done_span.map(|span| span.rebased(base));
                 Self::rebase_stmt_seq(&mut command.body, base);
             }
             CompoundCommand::While(command) => {
                 command.span = command.span.rebased(base);
+                command.done_span = command.done_span.map(|span| span.rebased(base));
                 Self::rebase_stmt_seq(&mut command.condition, base);
                 Self::rebase_stmt_seq(&mut command.body, base);
             }
             CompoundCommand::Until(command) => {
                 command.span = command.span.rebased(base);
+                command.done_span = command.done_span.map(|span| span.rebased(base));
                 Self::rebase_stmt_seq(&mut command.condition, base);
                 Self::rebase_stmt_seq(&mut command.body, base);
             }
             CompoundCommand::Case(command) => {
                 command.span = command.span.rebased(base);
+                command.esac_span = command.esac_span.rebased(base);
                 Self::rebase_word(&mut command.word, base);
                 for case in &mut command.cases {
                     Self::rebase_patterns(&mut case.patterns, base);
@@ -467,6 +471,7 @@ impl<'a> Parser<'a> {
             CompoundCommand::Select(command) => {
                 command.span = command.span.rebased(base);
                 command.variable_span = command.variable_span.rebased(base);
+                command.done_span = command.done_span.rebased(base);
                 Self::rebase_words(&mut command.words, base);
                 Self::rebase_stmt_seq(&mut command.body, base);
             }

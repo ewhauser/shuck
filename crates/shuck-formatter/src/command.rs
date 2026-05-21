@@ -7,8 +7,7 @@ use crate::raw_syntax::{
     refine_common_indent, shell_comment_can_start, skip_escaped_or_quoted,
 };
 use crate::scan::{
-    branch_keyword_offset, last_shell_keyword_start, last_uncommented_shell_keyword_before,
-    matching_done_close_start, matching_if_close_start, normalized_close_keyword_span,
+    branch_keyword_offset, last_uncommented_shell_keyword_before, normalized_close_keyword_span,
 };
 use crate::word::{render_arithmetic_expr_to_buf, render_word_syntax_to_buf};
 use shuck_ast::{
@@ -19,6 +18,7 @@ use shuck_ast::{
     SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript,
     UntilCommand, VarRef, WhileCommand, Word, WordPart,
 };
+use shuck_indexer::CloseDelimiterKind;
 
 mod arithmetic;
 mod assignments;

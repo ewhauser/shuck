@@ -55,12 +55,18 @@ impl<'a> Parser<'a> {
         }
 
         // Expect 'esac'
-        self.expect_keyword(Keyword::Esac)?;
+        if !self.is_keyword(Keyword::Esac) {
+            self.pop_depth();
+            return Err(self.error("expected 'esac'"));
+        }
+        let esac_span = self.current_span;
+        self.advance();
 
         self.pop_depth();
         Ok(CompoundCommand::Case(CaseCommand {
             word,
             cases,
+            esac_span,
             span: start_span.merge(self.current_span),
         }))
     }

@@ -159,6 +159,14 @@ impl<'a> Parser<'a> {
         &mut self,
         context: BraceBodyContext,
     ) -> Result<CompoundCommand> {
+        let (compound, _) = self.parse_brace_group_with_close_span(context)?;
+        Ok(compound)
+    }
+
+    pub(super) fn parse_brace_group_with_close_span(
+        &mut self,
+        context: BraceBodyContext,
+    ) -> Result<(CompoundCommand, Span)> {
         self.push_depth()?;
         let (body, left_brace_span, right_brace_span) =
             self.parse_brace_enclosed_stmt_seq("syntax error: empty brace group", context)?;
@@ -168,7 +176,9 @@ impl<'a> Parser<'a> {
             self.record_zsh_always_span(span);
         }
 
-        let compound = if self.dialect.features().zsh_always && self.is_keyword(Keyword::Always) {
+        let (compound, close_span) = if self.dialect.features().zsh_always
+            && self.is_keyword(Keyword::Always)
+        {
             self.record_zsh_always_span(self.current_span);
             self.advance();
             self.skip_newlines()?;
@@ -180,18 +190,20 @@ impl<'a> Parser<'a> {
                 "syntax error: empty always clause",
                 BraceBodyContext::Ordinary,
             )?;
-            CompoundCommand::Always(AlwaysCommand {
-                body,
-                always_body,
-                span: left_brace_span.merge(always_right_brace_span),
-            })
+            (
+                CompoundCommand::Always(AlwaysCommand {
+                    body,
+                    always_body,
+                    span: left_brace_span.merge(always_right_brace_span),
+                }),
+                always_right_brace_span,
+            )
         } else {
-            let _ = right_brace_span;
-            CompoundCommand::BraceGroup(body)
+            (CompoundCommand::BraceGroup(body), right_brace_span)
         };
 
         self.pop_depth();
-        Ok(compound)
+        Ok((compound, close_span))
     }
 
     pub(super) fn parse_brace_enclosed_stmt_seq(

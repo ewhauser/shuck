@@ -923,6 +923,7 @@ pub struct SelectCommand {
     pub variable_span: Span,
     pub words: Vec<Word>,
     pub body: StmtSeq,
+    pub done_span: Span,
     /// Source span of this command
     pub span: Span,
 }
@@ -954,6 +955,7 @@ pub struct ArithmeticForCommand {
     /// Typed arithmetic view of `step_span`.
     pub step_ast: Option<ArithmeticExprNode>,
     pub right_paren_span: Span,
+    pub done_span: Option<Span>,
     /// Loop body
     pub body: StmtSeq,
     /// Source span of this command
@@ -1089,6 +1091,7 @@ pub enum ArithmeticAssignOp {
 pub struct WhileCommand {
     pub condition: StmtSeq,
     pub body: StmtSeq,
+    pub done_span: Option<Span>,
     /// Source span of this command
     pub span: Span,
 }
@@ -1098,6 +1101,7 @@ pub struct WhileCommand {
 pub struct UntilCommand {
     pub condition: StmtSeq,
     pub body: StmtSeq,
+    pub done_span: Option<Span>,
     /// Source span of this command
     pub span: Span,
 }
@@ -1107,6 +1111,7 @@ pub struct UntilCommand {
 pub struct CaseCommand {
     pub word: Word,
     pub cases: Vec<CaseItem>,
+    pub esac_span: Span,
     /// Source span of this command
     pub span: Span,
 }
@@ -5451,6 +5456,7 @@ mod tests {
             step_span: Some(Span::new()),
             step_ast: None,
             right_paren_span: Span::new(),
+            done_span: Some(Span::new()),
             body: stmt_seq(vec![]),
             span: Span::new(),
         };
