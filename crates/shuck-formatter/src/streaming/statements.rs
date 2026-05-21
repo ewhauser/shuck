@@ -198,7 +198,9 @@ where
             self.format_redirect_list(&stmt.redirects);
         }
 
-        self.queue_heredocs(&stmt.redirects);
+        if self.facts().stmt_contains_heredoc(stmt) {
+            self.queue_heredocs(&stmt.redirects);
+        }
 
         match stmt.terminator {
             Some(StmtTerminator::Background(operator)) => {
@@ -722,7 +724,9 @@ where
             || !raw.contains(';')
             || raw.contains('#')
             || raw.contains("\n\n")
-            || assignment_has_multiline_literal_source(assignment, self.source())
+            || self
+                .facts()
+                .assignment_has_multiline_literal_source(assignment, self.source())
         {
             return false;
         }
