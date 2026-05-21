@@ -516,39 +516,62 @@ impl<'a> CommentAttachmentModel<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SequenceCommentAttachment<'a> {
-    leading: Vec<Vec<SourceComment<'a>>>,
-    trailing: Vec<Vec<SourceComment<'a>>>,
+    leading: Option<Vec<Vec<SourceComment<'a>>>>,
+    trailing: Option<Vec<Vec<SourceComment<'a>>>>,
     dangling: Vec<SourceComment<'a>>,
+    child_count: usize,
     ambiguous: bool,
 }
 
 impl<'a> SequenceCommentAttachment<'a> {
     pub(crate) fn new(child_count: usize) -> Self {
         Self {
-            leading: vec![Vec::new(); child_count],
-            trailing: vec![Vec::new(); child_count],
+            leading: None,
+            trailing: None,
             dangling: Vec::new(),
+            child_count,
             ambiguous: false,
         }
     }
 
     pub(crate) fn with_dangling(dangling: Vec<SourceComment<'a>>, ambiguous: bool) -> Self {
         Self {
-            leading: Vec::new(),
-            trailing: Vec::new(),
+            leading: None,
+            trailing: None,
             dangling,
+            child_count: 0,
             ambiguous,
         }
     }
 
+    fn leading_mut(&mut self, index: usize) -> &mut Vec<SourceComment<'a>> {
+        self.leading
+            .get_or_insert_with(|| vec![Vec::new(); self.child_count])
+            .get_mut(index)
+            .expect("comment attachment index should match child count")
+    }
+
+    fn trailing_mut(&mut self, index: usize) -> &mut Vec<SourceComment<'a>> {
+        self.trailing
+            .get_or_insert_with(|| vec![Vec::new(); self.child_count])
+            .get_mut(index)
+            .expect("comment attachment index should match child count")
+    }
+
     #[must_use]
     pub fn leading_for(&self, index: usize) -> &[SourceComment<'a>] {
-        self.leading.get(index).map_or(&[], Vec::as_slice)
+        self.leading
+            .as_ref()
+            .and_then(|leading| leading.get(index))
+            .map_or(&[], Vec::as_slice)
     }
 
     #[must_use]
     pub fn trailing_for(&self, index: usize) -> &[SourceComment<'a>] {
-        self.trailing.get(index).map_or(&[], Vec::as_slice)
+        self.trailing
+            .as_ref()
+            .and_then(|trailing| trailing.get(index))
+            .map_or(&[], Vec::as_slice)
     }
 
     #[must_use]
@@ -565,8 +588,14 @@ impl<'a> SequenceCommentAttachment<'a> {
     pub fn has_comments(&self) -> bool {
         self.ambiguous
             || !self.dangling.is_empty()
-            || self.leading.iter().any(|comments| !comments.is_empty())
-            || self.trailing.iter().any(|comments| !comments.is_empty())
+            || self
+                .leading
+                .as_ref()
+                .is_some_and(|leading| leading.iter().any(|comments| !comments.is_empty()))
+            || self
+                .trailing
+                .as_ref()
+                .is_some_and(|trailing| trailing.iter().any(|comments| !comments.is_empty()))
     }
 }
 
@@ -628,7 +657,7 @@ fn compute_sequence_attachment<'a>(
                 && child_spans[prev_idx].end.line == comment.line
                 && child_spans[prev_idx].start.offset <= start
             {
-                attachment.trailing[prev_idx].push(comment);
+                attachment.trailing_mut(prev_idx).push(comment);
                 index += 1;
                 continue;
             }
@@ -638,7 +667,7 @@ fn compute_sequence_attachment<'a>(
                     if next_idx.is_none_or(|next_idx| prev_idx + 1 == next_idx)
                         && child_spans[prev_idx].end.line == comment.line =>
                 {
-                    attachment.trailing[prev_idx].push(comment);
+                    attachment.trailing_mut(prev_idx).push(comment);
                 }
                 _ => attachment.ambiguous = true,
             }
@@ -651,7 +680,7 @@ fn compute_sequence_attachment<'a>(
                 candidate.span.end.offset <= first_child_start
             });
             for item in &items[index..run_end] {
-                attachment.leading[0].push(*item);
+                attachment.leading_mut(0).push(*item);
             }
             index = run_end;
         } else if let Some(next_idx) = next {
@@ -663,7 +692,7 @@ fn compute_sequence_attachment<'a>(
                 candidate.span.start.offset >= gap_start && candidate.span.end.offset <= gap_end
             });
             for item in &items[index..run_end] {
-                attachment.leading[next_idx].push(*item);
+                attachment.leading_mut(next_idx).push(*item);
             }
             index = run_end;
         } else if start >= last_child_end {
