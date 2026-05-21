@@ -891,18 +891,18 @@ pub(super) fn raw_shell_body_needs_structural_spacing(body: &str) -> bool {
 }
 
 pub(super) fn normalize_raw_command_substitution_padding(raw: &str) -> Option<String> {
-    let mut rendered = String::with_capacity(raw.len());
+    let mut rendered = None;
     let mut cursor = 0usize;
     let mut index = 0usize;
-    let mut changed = false;
 
     while let Some((open_offset, close_offset)) = next_raw_command_substitution(raw, index) {
         let body = &raw[open_offset + 2..close_offset];
         if !body.contains('\n') {
             let trimmed = trim_raw_command_substitution_horizontal_padding(body);
-            let normalized_body = normalize_raw_command_substitution_padding(trimmed)
-                .unwrap_or_else(|| trimmed.to_string());
+            let normalized_body = normalize_raw_command_substitution_padding(trimmed);
+            let normalized_body = normalized_body.as_deref().unwrap_or(trimmed);
             if trimmed.len() != body.len() || normalized_body != trimmed {
+                let rendered = rendered.get_or_insert_with(|| String::with_capacity(raw.len()));
                 rendered.push_str(&raw[cursor..open_offset]);
                 rendered.push_str("$(");
                 if normalized_body.starts_with('(') {
@@ -911,13 +911,15 @@ pub(super) fn normalize_raw_command_substitution_padding(raw: &str) -> Option<St
                 rendered.push_str(&normalized_body);
                 rendered.push(')');
                 cursor = close_offset + 1;
-                changed = true;
             }
         }
         index = close_offset + 1;
     }
 
-    finish_raw_rewrite(rendered, raw, cursor, changed)
+    rendered.map(|mut rendered| {
+        rendered.push_str(&raw[cursor..]);
+        rendered
+    })
 }
 
 pub(super) fn trim_raw_command_substitution_horizontal_padding(body: &str) -> &str {
