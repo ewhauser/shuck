@@ -302,6 +302,21 @@ fn close_keyword_at_span_end(
         .then(|| source_map.span_for_offsets(start, span_end))
 }
 
+fn normalized_close_keyword_span(
+    source: &str,
+    source_map: &crate::comments::SourceMap<'_>,
+    span: Span,
+    keyword: &str,
+) -> Span {
+    let start = span.start.offset.min(source.len());
+    let end = start.saturating_add(keyword.len()).min(source.len());
+    if source.get(start..end) == Some(keyword) {
+        source_map.span_for_offsets(start, end)
+    } else {
+        span
+    }
+}
+
 fn span_starts_with_keyword(source: &str, span: Span, keyword: &str) -> bool {
     let start = span.start.offset.min(source.len());
     let end = start.saturating_add(keyword.len()).min(source.len());

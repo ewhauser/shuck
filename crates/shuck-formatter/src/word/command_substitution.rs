@@ -161,7 +161,9 @@ impl<'source, 'options> RawShellBlockFormatter<'source, 'options> {
         let normalized_close_continuations =
             normalize_continuations_before_substitution_close_lines(raw);
         let raw = normalized_close_continuations.as_deref().unwrap_or(raw);
-        let outer_indent = line_indent_before_source_offset(source, start_offset).unwrap_or("");
+        let outer_indent = SourceView::new(source)
+            .line_indent_before_offset(start_offset)
+            .unwrap_or("");
         let raw_lines = raw.split('\n').collect::<Vec<_>>();
         let Some((first, lines)) = raw_lines.split_first() else {
             return;

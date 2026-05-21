@@ -62,7 +62,8 @@ pub(super) fn stmt_rendered_end_line_after_format(
 }
 
 pub(super) fn gap_has_blank_line(source: &str, start: usize, end: usize) -> bool {
-    source_between_offsets(source, start, end)
+    SourceView::new(source)
+        .slice_between(start, end)
         .is_some_and(|gap| gap.bytes().filter(|byte| *byte == b'\n').count() >= 2)
 }
 

@@ -10,7 +10,6 @@ use crate::raw_syntax::{
     line_without_continuation_backslash, matching_raw_command_substitution_close,
     normalize_raw_pipeline_continuations, redirect_operator_end, refine_common_indent,
 };
-use crate::scan::line_indent_before_offset as line_indent_before_source_offset;
 use crate::source::{
     SourceView, command_substitution_source_closes_on_own_line,
     command_substitution_source_prefers_continued_inline_body,

@@ -14,7 +14,8 @@ pub(crate) fn branch_open_keyword_start(
     keyword: &str,
 ) -> Option<usize> {
     let first = sequence.first()?;
-    last_uncommented_shell_keyword_before(source, stmt_span(first).start.offset, keyword)
+    SourceView::new(source)
+        .last_uncommented_shell_keyword_before(stmt_span(first).start.offset, keyword)
 }
 
 pub(crate) fn if_next_branch_region_with_body_end(
@@ -34,19 +35,15 @@ pub(crate) fn if_next_branch_region_with_body_end(
     };
 
     if let Some((condition, _)) = command.elif_branches.get(branch_index) {
-        let keyword = branch_keyword_offset(
-            source,
-            current_branch_end,
-            condition.span.start.offset,
-            "elif",
-        )
-        .unwrap_or(condition.span.start.offset);
+        let keyword = SourceView::new(source)
+            .branch_keyword_offset(current_branch_end, condition.span.start.offset, "elif")
+            .unwrap_or(condition.span.start.offset);
         Some((current_branch_end, keyword))
     } else if branch_index == command.elif_branches.len() {
         command.else_branch.as_ref().map(|body| {
-            let keyword =
-                branch_keyword_offset(source, current_branch_end, body.span.start.offset, "else")
-                    .unwrap_or(body.span.start.offset);
+            let keyword = SourceView::new(source)
+                .branch_keyword_offset(current_branch_end, body.span.start.offset, "else")
+                .unwrap_or(body.span.start.offset);
             (current_branch_end, keyword)
         })
     } else {

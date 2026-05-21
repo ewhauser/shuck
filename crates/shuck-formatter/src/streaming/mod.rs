@@ -42,7 +42,7 @@ use crate::command::{
     stmt_start_after_operator, stmt_verbatim_span_with_source_map,
     trim_unescaped_trailing_whitespace,
 };
-use crate::comments::{SourceComment, SourceMap};
+use crate::comments::{BranchPrefixComment, SourceComment, SourceMap};
 use crate::context::RenderContext;
 use crate::facts::{FormatterFacts, classify_sequence_contains_heredoc};
 use crate::options::{IndentStyle, ResolvedShellFormatOptions};
@@ -55,9 +55,7 @@ use crate::raw_syntax::{
     rendered_line_opens_command_substitution_pipeline, rendered_shell_text_has_heredoc_tail,
     skip_double_quoted, skip_single_quoted,
 };
-use crate::scan::{
-    BranchPrefixComment, last_shell_keyword_start, shell_keyword_at, source_between_offsets,
-};
+use crate::source::SourceView;
 use crate::word::{
     normalize_raw_empty_parameter_replacement_delimiters,
     normalize_raw_unquoted_word_continuations, render_arithmetic_expr_to_buf,
@@ -144,6 +142,47 @@ struct ShellRenderer<'source, 'facts, S> {
     writer: ShellWriter<S>,
     pipeline_continuation_indent: usize,
     filter_next_group_body_leading_before_open: bool,
+}
+
+#[derive(Clone, Copy)]
+struct SequenceRenderSnapshot<'source, 'facts> {
+    facts: &'facts crate::facts::SequenceFacts<'source>,
+    has_comments: bool,
+    ambiguous: bool,
+}
+
+impl<'source, 'facts> SequenceRenderSnapshot<'source, 'facts> {
+    fn new(facts: &'facts crate::facts::SequenceFacts<'source>) -> Self {
+        Self {
+            facts,
+            has_comments: facts.has_comments(),
+            ambiguous: facts.is_ambiguous(),
+        }
+    }
+
+    fn leading_for(self, index: usize) -> &'facts [SourceComment<'source>] {
+        self.facts.leading_for(index)
+    }
+
+    fn trailing_for(self, index: usize) -> &'facts [SourceComment<'source>] {
+        self.facts.trailing_for(index)
+    }
+
+    fn dangling(self) -> &'facts [SourceComment<'source>] {
+        self.facts.dangling()
+    }
+
+    fn has_comments(self) -> bool {
+        self.has_comments
+    }
+
+    fn is_ambiguous(self) -> bool {
+        self.ambiguous
+    }
+
+    fn first_rendered_line_for(self, index: usize) -> usize {
+        self.facts.first_rendered_line_for(index)
+    }
 }
 
 impl<'source, 'facts> ShellRenderer<'source, 'facts, BufferSink> {
@@ -343,6 +382,6 @@ fn last_shell_keyword_span(
     span: Span,
     keyword: &str,
 ) -> Option<Span> {
-    let start = last_shell_keyword_start(source, span, keyword)?;
+    let start = SourceView::new(source).last_shell_keyword_start(span, keyword)?;
     Some(source_map.span_for_offsets(start, start + keyword.len()))
 }

@@ -57,7 +57,7 @@ fn comment_looks_like_disabled_if_branch(text: &str) -> bool {
         .trim_start_matches([' ', '\t']);
     ["elif", "else"]
         .iter()
-        .any(|keyword| shell_keyword_at(body, 0, body.len(), keyword))
+        .any(|keyword| SourceView::new(body).shell_keyword_at(0, body.len(), keyword))
 }
 
 pub(super) fn branch_prefix_comments_use_disabled_body_indent(
