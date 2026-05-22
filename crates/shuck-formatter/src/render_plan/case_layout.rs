@@ -1,10 +1,14 @@
-use super::*;
+use shuck_ast::{CaseCommand, CaseItem, Command, CompoundCommand, IfCommand, Span, Stmt};
 
-pub(super) fn case_command_was_inline_in_source(command: &CaseCommand, source: &str) -> bool {
+use crate::command::{case_terminator, stmt_format_span, stmt_span};
+use crate::comments::{SourceComment, SourceMap};
+use crate::facts::FormatterFacts;
+
+pub(crate) fn case_command_was_inline_in_source(command: &CaseCommand, source: &str) -> bool {
     command.span.slice(source).lines().nth(1).is_none()
 }
 
-pub(super) fn case_item_body_terminator_was_inline_in_source(item: &CaseItem) -> bool {
+pub(crate) fn case_item_body_terminator_was_inline_in_source(item: &CaseItem) -> bool {
     let [stmt] = item.body.as_slice() else {
         return false;
     };
@@ -12,7 +16,7 @@ pub(super) fn case_item_body_terminator_was_inline_in_source(item: &CaseItem) ->
         .is_some_and(|span| span.start.line == stmt_format_span(stmt).end.line)
 }
 
-pub(super) fn case_item_pattern_body_terminator_was_inline_in_source(
+pub(crate) fn case_item_pattern_body_terminator_was_inline_in_source(
     item: &CaseItem,
     source: &str,
 ) -> bool {
@@ -56,7 +60,7 @@ fn case_item_source_line_has_terminator_after_body(
         .is_some_and(|tail| tail.contains(case_terminator(item.terminator)))
 }
 
-pub(super) fn case_item_body_can_share_terminator(item: &CaseItem) -> bool {
+pub(crate) fn case_item_body_can_share_terminator(item: &CaseItem) -> bool {
     let [stmt] = item.body.as_slice() else {
         return false;
     };
@@ -67,7 +71,7 @@ pub(super) fn case_item_body_can_share_terminator(item: &CaseItem) -> bool {
         && stmt.terminator.is_none()
 }
 
-pub(super) fn case_item_single_body_stmt_can_inline(
+pub(crate) fn case_item_single_body_stmt_can_inline(
     item: &CaseItem,
     source: &str,
     source_map: &SourceMap<'_>,
@@ -125,7 +129,7 @@ fn case_item_case_close_shares_terminator(
         .is_some_and(|gap| !gap.contains('\n') && !gap.contains('\r'))
 }
 
-pub(super) fn case_item_body_was_inline_without_terminator(item: &CaseItem) -> bool {
+pub(crate) fn case_item_body_was_inline_without_terminator(item: &CaseItem) -> bool {
     if item.terminator_span.is_some() || !case_item_body_can_share_terminator(item) {
         return false;
     }
@@ -138,7 +142,7 @@ pub(super) fn case_item_body_was_inline_without_terminator(item: &CaseItem) -> b
     pattern.span.end.line == stmt_span(stmt).start.line
 }
 
-pub(super) fn case_close_shares_line_with_last_item(
+pub(crate) fn case_close_shares_line_with_last_item(
     command: &CaseCommand,
     esac_span: Option<Span>,
     source: &str,
@@ -159,7 +163,7 @@ pub(super) fn case_close_shares_line_with_last_item(
         .is_some_and(|gap| !gap.contains('\n') && !gap.contains('\r'))
 }
 
-pub(super) fn case_item_started_inline_without_terminator(item: &CaseItem) -> bool {
+pub(crate) fn case_item_started_inline_without_terminator(item: &CaseItem) -> bool {
     if item.terminator_span.is_some() {
         return false;
     }
@@ -172,7 +176,7 @@ pub(super) fn case_item_started_inline_without_terminator(item: &CaseItem) -> bo
     pattern.span.end.line == stmt_span(stmt).start.line
 }
 
-pub(super) fn case_item_pattern_starts_on_case_header(
+pub(crate) fn case_item_pattern_starts_on_case_header(
     command: &CaseCommand,
     item: &CaseItem,
 ) -> bool {
@@ -181,7 +185,7 @@ pub(super) fn case_item_pattern_starts_on_case_header(
         .is_some_and(|pattern| pattern.span.start.line == command.span.start.line)
 }
 
-pub(super) fn case_item_pattern_close_paren_on_own_line(
+pub(crate) fn case_item_pattern_close_paren_on_own_line(
     item: &CaseItem,
     source: &str,
     source_map: &SourceMap<'_>,
@@ -213,7 +217,7 @@ pub(super) fn case_item_pattern_close_paren_on_own_line(
         .is_empty()
 }
 
-pub(super) fn case_item_close_paren_shares_line_with_body(
+pub(crate) fn case_item_close_paren_shares_line_with_body(
     item: &CaseItem,
     source: &str,
     source_map: &SourceMap<'_>,
@@ -235,7 +239,7 @@ pub(super) fn case_item_close_paren_shares_line_with_body(
     !source_map.contains_newline_between(close_offset + 1, stmt_start)
 }
 
-pub(super) fn trim_trailing_pattern_line_continuation(rendered: &mut String) {
+pub(crate) fn trim_trailing_pattern_line_continuation(rendered: &mut String) {
     let trimmed = rendered.trim_end_matches([' ', '\t', '\r']);
     if let Some(stripped) = trimmed.strip_suffix("\\\n") {
         rendered.truncate(stripped.len());
@@ -247,7 +251,7 @@ pub(super) fn trim_trailing_pattern_line_continuation(rendered: &mut String) {
     rendered.truncate(stripped.len());
 }
 
-pub(super) fn case_prefix_comment_uses_body_indent(
+pub(crate) fn case_prefix_comment_uses_body_indent(
     source: &str,
     source_map: &SourceMap<'_>,
     comment: &SourceComment<'_>,
@@ -300,7 +304,7 @@ fn case_prefix_comment_follows_terminator(
         .is_some_and(|line| line.trim_end_matches([' ', '\t', '\r']).ends_with(";;"))
 }
 
-pub(super) fn comment_looks_like_disabled_case_pattern(comment: &SourceComment<'_>) -> bool {
+pub(crate) fn comment_looks_like_disabled_case_pattern(comment: &SourceComment<'_>) -> bool {
     let text = comment.text().trim_start_matches([' ', '\t']);
     let Some(rest) = text.strip_prefix('#') else {
         return false;

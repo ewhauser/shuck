@@ -1,6 +1,14 @@
-use super::*;
+use shuck_ast::{Command, CompoundCommand, IfCommand, Span, Stmt, StmtSeq};
 
-pub(super) fn if_condition_starts_after_keyword(
+use crate::command::{
+    branch_open_keyword_start, command_format_span, stmt_render_start_line, stmt_span,
+};
+use crate::comments::SourceMap;
+use crate::facts::FormatterFacts;
+use crate::options::ResolvedShellFormatOptions;
+use crate::raw_syntax::{skip_double_quoted, skip_single_quoted};
+
+pub(crate) fn if_condition_starts_after_keyword(
     command: &IfCommand,
     then_span: Span,
     source: &str,
@@ -16,7 +24,7 @@ pub(super) fn if_condition_starts_after_keyword(
     })
 }
 
-pub(super) fn if_condition_has_explicit_statement_break(
+pub(crate) fn if_condition_has_explicit_statement_break(
     command: &IfCommand,
     then_span: Span,
     source: &str,
@@ -84,7 +92,7 @@ fn condition_sequence_has_explicit_statement_break(
     })
 }
 
-pub(super) fn condition_stmt_command_end(stmt: &Stmt) -> usize {
+fn condition_stmt_command_end(stmt: &Stmt) -> usize {
     let mut end = command_format_span(&stmt.command).end.offset;
     if end == 0 {
         end = stmt_span(stmt).end.offset;
@@ -95,7 +103,7 @@ pub(super) fn condition_stmt_command_end(stmt: &Stmt) -> usize {
     end
 }
 
-pub(super) fn elif_condition_has_explicit_statement_break(
+pub(crate) fn elif_condition_has_explicit_statement_break(
     condition: &StmtSeq,
     body: &StmtSeq,
     source: &str,
@@ -135,13 +143,13 @@ fn has_unescaped_line_break(text: &str) -> bool {
     false
 }
 
-pub(super) fn loop_condition_starts_after_keyword(condition: &StmtSeq, span: Span) -> bool {
+pub(crate) fn loop_condition_starts_after_keyword(condition: &StmtSeq, span: Span) -> bool {
     condition
         .first()
         .is_some_and(|stmt| stmt_span(stmt).start.line > span.start.line)
 }
 
-pub(super) fn condition_keyword_on_previous_non_empty_line(
+pub(crate) fn condition_keyword_on_previous_non_empty_line(
     condition: &StmtSeq,
     source: &str,
     source_map: &SourceMap<'_>,
@@ -170,7 +178,7 @@ pub(super) fn condition_keyword_on_previous_non_empty_line(
     false
 }
 
-pub(super) fn raw_grouped_if_condition(
+pub(crate) fn raw_grouped_if_condition(
     command: &IfCommand,
     then_span: Span,
     source: &str,
@@ -213,7 +221,7 @@ fn strip_outer_indent_after_first_line(raw: &str, outer_indent: &str) -> String 
     normalized
 }
 
-pub(super) fn stmt_sequence_renders_with_subshell_open(commands: &StmtSeq) -> bool {
+pub(crate) fn stmt_sequence_renders_with_subshell_open(commands: &StmtSeq) -> bool {
     commands
         .first()
         .is_some_and(stmt_renders_with_subshell_open)

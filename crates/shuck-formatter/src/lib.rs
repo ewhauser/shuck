@@ -18,6 +18,7 @@ mod facts;
 mod options;
 #[allow(missing_docs)]
 mod raw_syntax;
+mod render_plan;
 #[allow(missing_docs)]
 mod simplify;
 #[allow(missing_docs)]

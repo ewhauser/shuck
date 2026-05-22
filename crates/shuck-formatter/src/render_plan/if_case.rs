@@ -1,24 +1,38 @@
+use shuck_ast::{CaseCommand, IfCommand, IfSyntax, Span};
+#[cfg(test)]
+use shuck_ast::{Command, CompoundCommand, File};
+
 use super::case_layout::{
     case_close_shares_line_with_last_item, case_command_was_inline_in_source,
     case_item_body_was_inline_without_terminator,
     case_item_pattern_body_terminator_was_inline_in_source,
     case_item_pattern_starts_on_case_header,
 };
+use super::conditions::{
+    if_condition_has_explicit_statement_break, if_condition_starts_after_keyword,
+    raw_grouped_if_condition,
+};
+use crate::comments::BranchPrefixComment;
+use crate::context::RenderContext;
+#[cfg(test)]
+use crate::facts::FormatterFacts;
+#[cfg(test)]
+use crate::options::ShellFormatOptions;
+
 use super::shape::{
     can_inline_body_with_upper_bound, can_inline_else_branch_close, can_inline_if_chain,
     then_branch_starts_with_inline_if,
 };
-use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct IfLayoutPlan {
-    pub(super) then_span: Span,
-    pub(super) fi_span: Span,
-    pub(super) style: IfLayoutStyle,
+pub(crate) struct IfLayoutPlan {
+    pub(crate) then_span: Span,
+    pub(crate) fi_span: Span,
+    pub(crate) style: IfLayoutStyle,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum IfLayoutStyle {
+pub(crate) enum IfLayoutStyle {
     RawGroupedCondition { raw_condition: String },
     SplitCondition,
     Inline(InlineIfLayout),
@@ -26,7 +40,7 @@ pub(super) enum IfLayoutStyle {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum InlineIfLayout {
+pub(crate) enum InlineIfLayout {
     Then,
     ThenElse,
     ThenMultilineElse,
@@ -35,13 +49,13 @@ pub(super) enum InlineIfLayout {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ExpandedIfLayout {
+pub(crate) enum ExpandedIfLayout {
     Compact,
     Multiline { inline_else_close: bool },
 }
 
 impl IfLayoutPlan {
-    pub(super) fn then_fi(command: &IfCommand, context: RenderContext<'_, '_>) -> Self {
+    pub(crate) fn then_fi(command: &IfCommand, context: RenderContext<'_, '_>) -> Self {
         let IfSyntax::ThenFi { then_span, .. } = command.syntax else {
             unreachable!("brace if cannot be planned as then/fi");
         };
@@ -146,14 +160,14 @@ fn then_fi_if_style(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct CaseLayoutPlan {
-    pub(super) style: CaseLayoutStyle,
-    pub(super) body_fallback_upper_bound: usize,
-    pub(super) esac_span: Option<Span>,
+pub(crate) struct CaseLayoutPlan {
+    pub(crate) style: CaseLayoutStyle,
+    pub(crate) body_fallback_upper_bound: usize,
+    pub(crate) esac_span: Option<Span>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum CaseLayoutStyle {
+pub(crate) enum CaseLayoutStyle {
     Inline,
     Compact,
     Multiline {
@@ -164,14 +178,14 @@ pub(super) enum CaseLayoutStyle {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum CaseCloseLayout {
+pub(crate) enum CaseCloseLayout {
     SameLine,
     NextLine { blank_before: bool },
     SuffixComments(Vec<BranchPrefixComment>),
 }
 
 impl CaseLayoutPlan {
-    pub(super) fn for_command(command: &CaseCommand, context: RenderContext<'_, '_>) -> Self {
+    pub(crate) fn for_command(command: &CaseCommand, context: RenderContext<'_, '_>) -> Self {
         let case_facts = context.facts.case_command(command);
         let body_fallback_upper_bound = case_facts.body_fallback_upper_bound();
         let esac_span = case_facts.esac_span();
@@ -198,7 +212,7 @@ impl CaseLayoutPlan {
     }
 }
 
-pub(super) fn case_can_format_inline(
+pub(crate) fn case_can_format_inline(
     command: &CaseCommand,
     context: RenderContext<'_, '_>,
 ) -> bool {
@@ -245,104 +259,37 @@ fn case_close_layout(command: &CaseCommand, context: RenderContext<'_, '_>) -> C
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::options::ShellFormatOptions;
+pub(super) fn parse_with_facts<'source>(
+    source: &'source str,
+    options: &ShellFormatOptions,
+) -> (
+    File,
+    crate::options::ResolvedShellFormatOptions,
+    FormatterFacts<'source>,
+) {
     use shuck_parser::parser::Parser;
 
-    fn parse_with_facts<'source>(
-        source: &'source str,
-        options: &ShellFormatOptions,
-    ) -> (File, ResolvedShellFormatOptions, FormatterFacts<'source>) {
-        let resolved = options.resolve(source, None);
-        let file = Parser::with_dialect(source, resolved.dialect())
-            .parse()
-            .unwrap()
-            .file;
-        let facts = FormatterFacts::build(source, &file, &resolved);
-        (file, resolved, facts)
-    }
+    let resolved = options.resolve(source, None);
+    let file = Parser::with_dialect(source, resolved.dialect())
+        .parse()
+        .unwrap()
+        .file;
+    let facts = FormatterFacts::build(source, &file, &resolved);
+    (file, resolved, facts)
+}
 
-    fn first_if_command(file: &File) -> &IfCommand {
-        let Command::Compound(CompoundCommand::If(command)) = &file.body[0].command else {
-            panic!("expected first statement to be if command");
-        };
-        command
-    }
+#[cfg(test)]
+pub(super) fn first_if_command(file: &File) -> &IfCommand {
+    let Command::Compound(CompoundCommand::If(command)) = &file.body[0].command else {
+        panic!("expected first statement to be if command");
+    };
+    command
+}
 
-    fn first_case_command(file: &File) -> &CaseCommand {
-        let Command::Compound(CompoundCommand::Case(command)) = &file.body[0].command else {
-            panic!("expected first statement to be case command");
-        };
-        command
-    }
-
-    #[test]
-    fn plans_inline_then_if() {
-        let source = "if true; then echo yes; fi\n";
-        let (file, resolved, facts) = parse_with_facts(source, &ShellFormatOptions::default());
-        let context = RenderContext::new(source, &resolved, &facts);
-        let plan = IfLayoutPlan::then_fi(first_if_command(&file), context);
-
-        assert!(matches!(
-            plan.style,
-            IfLayoutStyle::Inline(InlineIfLayout::Then)
-        ));
-    }
-
-    #[test]
-    fn plans_split_condition_if() {
-        let source = "if\n  true\nthen\n  echo yes\nfi\n";
-        let (file, resolved, facts) = parse_with_facts(source, &ShellFormatOptions::default());
-        let context = RenderContext::new(source, &resolved, &facts);
-        let plan = IfLayoutPlan::then_fi(first_if_command(&file), context);
-
-        assert_eq!(plan.style, IfLayoutStyle::SplitCondition);
-    }
-
-    #[test]
-    fn plans_inline_source_case_as_inline() {
-        let source = "case $x in a) echo a ;; esac\n";
-        let (file, resolved, facts) = parse_with_facts(source, &ShellFormatOptions::default());
-        let context = RenderContext::new(source, &resolved, &facts);
-        let plan = CaseLayoutPlan::for_command(first_case_command(&file), context);
-
-        assert_eq!(plan.style, CaseLayoutStyle::Inline);
-    }
-
-    #[test]
-    fn plans_header_line_case_items_for_multiline_case() {
-        let source = "case $x in a) echo a ;;\nb) echo b ;;\nesac\n";
-        let (file, resolved, facts) = parse_with_facts(source, &ShellFormatOptions::default());
-        let context = RenderContext::new(source, &resolved, &facts);
-        let plan = CaseLayoutPlan::for_command(first_case_command(&file), context);
-
-        let CaseLayoutStyle::Multiline {
-            header_item_count,
-            blank_line_after_in,
-            close,
-        } = plan.style
-        else {
-            panic!("expected multiline case plan");
-        };
-        assert_eq!(header_item_count, 1);
-        assert!(!blank_line_after_in);
-        assert_eq!(
-            close,
-            CaseCloseLayout::NextLine {
-                blank_before: false
-            }
-        );
-    }
-
-    #[test]
-    fn plans_compact_case_when_never_split() {
-        let source = "case $x in\na) echo a ;;\nesac\n";
-        let options = ShellFormatOptions::default().with_never_split(true);
-        let (file, resolved, facts) = parse_with_facts(source, &options);
-        let context = RenderContext::new(source, &resolved, &facts);
-        let plan = CaseLayoutPlan::for_command(first_case_command(&file), context);
-
-        assert_eq!(plan.style, CaseLayoutStyle::Compact);
-    }
+#[cfg(test)]
+pub(super) fn first_case_command(file: &File) -> &CaseCommand {
+    let Command::Compound(CompoundCommand::Case(command)) = &file.body[0].command else {
+        panic!("expected first statement to be case command");
+    };
+    command
 }

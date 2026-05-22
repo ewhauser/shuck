@@ -1,4 +1,14 @@
-use super::*;
+use shuck_ast::{
+    ArithmeticForCommand, CompoundCommand, ForCommand, ForSyntax, ForeachCommand, ForeachSyntax,
+    IfCommand, IfSyntax, RepeatCommand, RepeatSyntax, SelectCommand, Span, Stmt, StmtSeq,
+    UntilCommand, WhileCommand,
+};
+use shuck_indexer::CloseDelimiterKind;
+
+use crate::command::{
+    branch_open_keyword_start, command_group_commands, done_close_span,
+    normalized_close_keyword_span, stmt_span,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CompoundBodyOpen {
@@ -267,7 +277,7 @@ impl<'a> CompoundBodySite<'a> {
 
     pub(crate) fn open_keyword_start(self, source: &str) -> Option<usize> {
         let keyword = self.open_keyword()?;
-        super::structure::branch_open_keyword_start(self.body, source, keyword)
+        branch_open_keyword_start(self.body, source, keyword)
     }
 
     pub(crate) fn open_suffix_span(
@@ -276,8 +286,7 @@ impl<'a> CompoundBodySite<'a> {
     ) -> Option<Span> {
         let keyword = self.open_keyword()?;
         let source = source_map.source();
-        let keyword_offset =
-            super::structure::branch_open_keyword_start(self.body, source, keyword)?;
+        let keyword_offset = branch_open_keyword_start(self.body, source, keyword)?;
         let (_, line_end) = source_map.line_bounds_for_offset(keyword_offset)?;
         let suffix_start = keyword_offset + keyword.len();
         let suffix = source.get(suffix_start..line_end)?;
@@ -305,12 +314,7 @@ impl<'a> CompoundBodySite<'a> {
         cached_close_span: Option<Span>,
     ) -> Self {
         let close_span = cached_close_span.or_else(|| {
-            super::render_policy::done_close_span(
-                source_map.source(),
-                source_map,
-                enclosing_span,
-                done_span,
-            )
+            done_close_span(source_map.source(), source_map, enclosing_span, done_span)
         });
         let upper_bound = close_span.map(|span| span.start.offset).unwrap_or_else(|| {
             done_span.map_or(enclosing_span.end.offset, |span| span.start.offset)
@@ -343,7 +347,7 @@ impl<'a> CompoundBodySite<'a> {
         let close_span = source_map
             .close_delimiter_span(enclosing_span, CloseDelimiterKind::RightBrace)
             .unwrap_or_else(|| {
-                super::render_policy::normalized_close_keyword_span(
+                normalized_close_keyword_span(
                     source_map.source(),
                     source_map,
                     right_brace_span,
