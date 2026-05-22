@@ -102,6 +102,8 @@ pub struct SafeValueIndex<'a> {
     facts: &'a LinterFacts<'a>,
     source: &'a str,
     command_cover_memo: RefCell<FxHashMap<(crate::facts::CommandId, Name, FactSpan), bool>>,
+    terminal_inline_commands: Vec<(usize, crate::facts::CommandId)>,
+    terminal_exit_function_commands: FxHashSet<crate::facts::CommandId>,
     memo: FxHashMap<(FactSpan, FactSpan, SafeValueQuery, Option<ScopeId>), bool>,
     visiting: FxHashSet<(FactSpan, FactSpan, SafeValueQuery, Option<ScopeId>)>,
     binding_value_stack: Vec<BindingId>,
@@ -117,6 +119,28 @@ impl<'a> SafeValueIndex<'a> {
         facts: &'a LinterFacts<'a>,
         source: &'a str,
     ) -> Self {
+        let mut terminal_inline_commands = facts
+            .commands()
+            .iter()
+            .filter(|command| !command.is_nested_word_command())
+            .filter(|command| {
+                matches!(
+                    stmt_terminal_flow_kind(command.stmt()),
+                    TerminalFlowKind::Exit | TerminalFlowKind::Stop
+                )
+            })
+            .map(|command| (command.span().end.offset, command.id()))
+            .collect::<Vec<_>>();
+        terminal_inline_commands
+            .sort_unstable_by_key(|(end_offset, command_id)| (*end_offset, command_id.index()));
+        let terminal_exit_function_commands = facts
+            .command_facts()
+            .function_headers()
+            .iter()
+            .filter(|header| function_has_terminal_exit(header.function()))
+            .map(|header| header.command_id())
+            .collect::<FxHashSet<_>>();
+
         Self {
             semantic,
             analysis,
@@ -124,6 +148,8 @@ impl<'a> SafeValueIndex<'a> {
             facts,
             source,
             command_cover_memo: RefCell::new(FxHashMap::default()),
+            terminal_inline_commands,
+            terminal_exit_function_commands,
             memo: FxHashMap::default(),
             visiting: FxHashSet::default(),
             binding_value_stack: Vec::new(),
@@ -1128,7 +1154,8 @@ impl<'a> SafeValueIndex<'a> {
             .function_headers()
             .iter()
             .any(|header| {
-                function_has_terminal_exit(header.function())
+                self.terminal_exit_function_commands
+                    .contains(&header.command_id())
                     && header
                         .call_arity()
                         .zero_arg_call_spans()
@@ -1152,15 +1179,16 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn span_is_after_unconditional_inline_terminator(&self, at: Span) -> bool {
-        self.facts.commands().iter().any(|command| {
-            command.span().end.offset <= at.start.offset
-                && !command.is_nested_word_command()
-                && self.command_runs_in_unconditional_flow(command.id(), at)
-                && matches!(
-                    stmt_terminal_flow_kind(command.stmt()),
-                    TerminalFlowKind::Exit | TerminalFlowKind::Stop
-                )
-        })
+        for (end_offset, command_id) in &self.terminal_inline_commands {
+            if *end_offset > at.start.offset {
+                break;
+            }
+            if self.command_runs_in_unconditional_flow(*command_id, at) {
+                return true;
+            }
+        }
+
+        false
     }
 
     fn definition_command_is_visible_at_call(
