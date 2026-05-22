@@ -1,4 +1,5 @@
 use super::*;
+use crate::render_plan::CompoundBodySite;
 
 pub(crate) fn line_gap_break_count(current_line: usize, next_line: usize) -> usize {
     next_line.saturating_sub(current_line).clamp(1, 2)
@@ -279,7 +280,7 @@ fn close_keyword_at_span_end(
         .then(|| source_map.span_for_offsets(start, span_end))
 }
 
-pub(super) fn normalized_close_keyword_span(
+pub(crate) fn normalized_close_keyword_span(
     source: &str,
     source_map: &crate::comments::SourceMap<'_>,
     span: Span,

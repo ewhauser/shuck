@@ -13,25 +13,20 @@ use shuck_ast::{
 };
 
 mod branches;
-mod case_layout;
 pub(crate) mod comments_alignment;
 mod compounds;
-mod conditions;
 mod gaps;
-mod layout_plan;
 mod redirects;
-mod shape;
 mod statements;
 mod substitutions;
 mod writer;
 
 use crate::Result;
 use crate::command::{
-    CompoundBodyOpen, CompoundBodySite, array_elem_parts, binary_operator,
-    branch_open_keyword_start, builtin_like_parts, case_item_body_upper_bound, case_terminator,
-    collect_binary_list_first as collect_binary_list_first_with, collect_pipeline_parts,
-    command_format_span, command_group_commands, format_arithmetic_command_source,
-    format_arithmetic_for_clause_source, group_attachment_span,
+    array_elem_parts, binary_operator, builtin_like_parts, case_item_body_upper_bound,
+    case_terminator, collect_binary_list_first as collect_binary_list_first_with,
+    collect_pipeline_parts, command_format_span, command_group_commands,
+    format_arithmetic_command_source, format_arithmetic_for_clause_source, group_attachment_span,
     if_next_branch_region_with_body_end, line_gap_break_count, matching_group_close,
     multiline_compound_assignment_command_substitution_body_prefix,
     multiline_compound_assignment_layout, multiline_compound_assignment_lines,
@@ -52,7 +47,25 @@ use crate::raw_syntax::{
     redirect_operator_end, rendered_heredoc_tail_start,
     rendered_line_ends_with_structural_pipe_continuation,
     rendered_line_opens_command_substitution_pipeline, rendered_shell_text_has_heredoc_tail,
-    skip_double_quoted, skip_single_quoted,
+};
+use crate::render_plan::{
+    CaseCloseLayout, CaseLayoutPlan, CaseLayoutStyle, CompoundBodyLayout, CompoundBodyPlan,
+    CompoundBodySite, DoDoneBodyLayout, ExpandedIfLayout, FunctionBodyGroupLayout,
+    FunctionBodyLayout, FunctionBodyPlan, FunctionSubshellLayout, IfLayoutPlan, IfLayoutStyle,
+    InlineIfLayout, can_format_multiline_subshell_inline, can_inline_group,
+    can_inline_source_line_subshell, case_can_format_inline, group_has_inline_source_shape,
+};
+use crate::render_plan::{
+    case_item_body_can_share_terminator, case_item_body_terminator_was_inline_in_source,
+    case_item_body_was_inline_without_terminator, case_item_close_paren_shares_line_with_body,
+    case_item_pattern_body_terminator_was_inline_in_source,
+    case_item_pattern_close_paren_on_own_line, case_item_single_body_stmt_can_inline,
+    case_item_started_inline_without_terminator, case_prefix_comment_uses_body_indent,
+    comment_looks_like_disabled_case_pattern, trim_trailing_pattern_line_continuation,
+};
+use crate::render_plan::{
+    condition_keyword_on_previous_non_empty_line, elif_condition_has_explicit_statement_break,
+    loop_condition_starts_after_keyword, stmt_sequence_renders_with_subshell_open,
 };
 use crate::source::SourceView;
 use crate::word::{
@@ -67,28 +80,10 @@ use branches::{
     branch_prefix_comments_use_disabled_body_indent, if_branch_upper_bound,
     unmodeled_branch_background_operator,
 };
-use case_layout::{
-    case_item_body_can_share_terminator, case_item_body_terminator_was_inline_in_source,
-    case_item_body_was_inline_without_terminator, case_item_close_paren_shares_line_with_body,
-    case_item_pattern_body_terminator_was_inline_in_source,
-    case_item_pattern_close_paren_on_own_line, case_item_single_body_stmt_can_inline,
-    case_item_started_inline_without_terminator, case_prefix_comment_uses_body_indent,
-    comment_looks_like_disabled_case_pattern, trim_trailing_pattern_line_continuation,
-};
 use comments_alignment::inline_comment_code_width;
-use conditions::{
-    condition_keyword_on_previous_non_empty_line, elif_condition_has_explicit_statement_break,
-    if_condition_has_explicit_statement_break, if_condition_starts_after_keyword,
-    loop_condition_starts_after_keyword, raw_grouped_if_condition,
-    stmt_sequence_renders_with_subshell_open,
-};
 use gaps::{
-    gap_has_blank_line, group_close_offset, stmt_rendered_end_line_after_format,
+    gap_has_blank_line, stmt_rendered_end_line_after_format,
     stmt_semicolon_terminator_starts_on_continuation_line, trim_trailing_gap_before_offset,
-};
-use layout_plan::{
-    CaseCloseLayout, CaseLayoutPlan, CaseLayoutStyle, ExpandedIfLayout, IfLayoutPlan,
-    IfLayoutStyle, InlineIfLayout, case_can_format_inline,
 };
 use redirects::{
     append_both_redirect_pair_matches_source, redirect_is_attached_process_substitution,

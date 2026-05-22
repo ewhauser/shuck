@@ -26,7 +26,7 @@ use shuck_indexer::{
 };
 
 use crate::command::{
-    CompoundBodySite, array_elem_parts, builtin_like_parts, case_item_body_upper_bound,
+    array_elem_parts, builtin_like_parts, case_item_body_upper_bound,
     case_item_was_inline_in_source, case_terminator,
     collect_binary_list_first as collect_binary_list_first_with, collect_pipeline_parts,
     command_format_span, command_group_commands,
@@ -40,6 +40,7 @@ use crate::command::{
 };
 use crate::comments::{BranchPrefixComment, CommentAttachmentModel, SourceComment, SourceMap};
 use crate::options::{LineEnding, ResolvedShellFormatOptions};
+use crate::render_plan::CompoundBodySite;
 use crate::source::{SourceView, command_substitution_source_starts_with_body_line};
 use crate::visit::{self, AstVisitor};
 

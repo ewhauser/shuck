@@ -9,18 +9,15 @@ use crate::raw_syntax::{
 use crate::source::SourceView;
 use crate::word::{render_arithmetic_expr_to_buf, render_word_syntax_to_buf};
 use shuck_ast::{
-    AnonymousFunctionCommand, ArithmeticExprNode, ArithmeticForCommand, ArrayElem, Assignment,
-    AssignmentValue, BackgroundOperator, BinaryCommand, BinaryOp, BuiltinCommand, CaseItem,
-    CaseTerminator, Command, CompoundCommand, DeclClause, DeclOperand, ForCommand, ForSyntax,
-    ForeachCommand, ForeachSyntax, FunctionDef, IfCommand, IfSyntax, RepeatCommand, RepeatSyntax,
-    SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript,
-    UntilCommand, VarRef, WhileCommand, Word, WordPart,
+    AnonymousFunctionCommand, ArithmeticExprNode, ArrayElem, Assignment, AssignmentValue,
+    BackgroundOperator, BinaryCommand, BinaryOp, BuiltinCommand, CaseItem, CaseTerminator, Command,
+    CompoundCommand, DeclClause, DeclOperand, FunctionDef, IfCommand, IfSyntax, SimpleCommand,
+    SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript, VarRef, Word, WordPart,
 };
 use shuck_indexer::CloseDelimiterKind;
 
 mod arithmetic;
 mod assignments;
-mod body_site;
 mod compound_assignments;
 mod groups;
 mod render_policy;
@@ -43,7 +40,6 @@ pub(crate) use self::assignments::{
     array_elem_parts, array_elem_value_word_mut, render_assignment_head_to_buf,
     render_assignment_to_buf,
 };
-pub(crate) use self::body_site::{CompoundBodyOpen, CompoundBodySite};
 pub(crate) use self::compound_assignments::{
     MultilineCompoundAssignmentLayout,
     multiline_compound_assignment_command_substitution_body_prefix,
@@ -55,10 +51,11 @@ pub(crate) use self::groups::{
     stmt_group_attachment_or_verbatim_span_with_heredoc, stmt_start_after_operator,
 };
 pub(crate) use self::render_policy::{
-    case_item_body_upper_bound, case_item_was_inline_in_source, compound_close_span, if_close_span,
-    line_gap_break_count, rendered_stmt_end_line_with_heredoc, should_render_verbatim_with_heredoc,
-    stmt_attachment_span, stmt_attachment_span_with_heredoc_and_compound_close,
-    stmt_has_trailing_comment, stmt_render_start_line,
+    case_item_body_upper_bound, case_item_was_inline_in_source, compound_close_span,
+    done_close_span, if_close_span, line_gap_break_count, normalized_close_keyword_span,
+    rendered_stmt_end_line_with_heredoc, should_render_verbatim_with_heredoc, stmt_attachment_span,
+    stmt_attachment_span_with_heredoc_and_compound_close, stmt_has_trailing_comment,
+    stmt_render_start_line,
 };
 pub(crate) use self::spans::{
     anonymous_function_attachment_span, anonymous_function_header_span, builtin_like_parts,

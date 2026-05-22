@@ -2262,6 +2262,14 @@ format_cases_with_options! {
         ShellFormatOptions::default().with_function_next_line(true),
         "foo(){\necho hi\n}\n"
         => "foo()\n{\n\techo hi\n}\n";
+    function_next_line_expands_inline_brace_body:
+        ShellFormatOptions::default().with_function_next_line(true),
+        "foo() { echo hi; }\n"
+        => "foo()\n{\n\techo hi\n}\n";
+    function_next_line_expands_inline_subshell_body:
+        ShellFormatOptions::default().with_function_next_line(true),
+        "foo() (echo hi)\n"
+        => "foo()\n(\n\techo hi\n)\n";
     minify_drops_comments_but_preserves_shebang:
         ShellFormatOptions::default().with_minify(true),
         "#!/bin/bash\necho hi # note\n",

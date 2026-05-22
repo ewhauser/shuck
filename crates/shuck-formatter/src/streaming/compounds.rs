@@ -578,7 +578,8 @@ where
             self.source_map(),
             self.facts().compound_close_span_for_span(command.span),
         );
-        self.format_loop_body_site(site, "; ", "for body uses do, direct, or brace syntax")
+        let plan = CompoundBodyPlan::loop_body(site, "; ", self.render_context());
+        self.format_compound_body_plan(plan)
     }
 
     pub(super) fn write_for_in_words(&mut self, words: Option<&[Word]>, in_span: Option<Span>) {
@@ -616,29 +617,63 @@ where
             self.source_map(),
             self.facts().compound_close_span_for_span(command.span),
         );
-        self.format_loop_body_site(site, " ", "repeat body uses do, direct, or brace syntax")
+        let plan = CompoundBodyPlan::loop_body(site, " ", self.render_context());
+        self.format_compound_body_plan(plan)
     }
 
-    pub(super) fn format_loop_body_site(
-        &mut self,
-        site: CompoundBodySite<'_>,
-        brace_prefix: &'static str,
-        invalid_body_kind: &'static str,
-    ) -> Result<()> {
-        match site.open() {
-            CompoundBodyOpen::Keyword("do") => {
-                self.format_do_done_body(site, "done")?;
+    pub(super) fn format_compound_body_plan(&mut self, plan: CompoundBodyPlan<'_>) -> Result<()> {
+        match plan.layout() {
+            CompoundBodyLayout::DoDone(DoDoneBodyLayout::Inline) => {
+                self.write_text("; do ");
+                self.format_inline_stmts(plan.body())?;
+                self.write_text("; done");
+                self.write_close_suffix_after_span(plan.close_span());
             }
-            CompoundBodyOpen::Direct => {
+            CompoundBodyLayout::DoDone(DoDoneBodyLayout::LegacyInline { close_separator }) => {
+                self.write_text("; do ");
+                self.format_stmt(&plan.body()[0])?;
+                self.write_text(close_separator);
+                self.write_text("done");
+                self.write_close_suffix_after_span(plan.close_span());
+            }
+            CompoundBodyLayout::DoDone(DoDoneBodyLayout::Multiline { open }) => {
+                self.format_multiline_compound_body_plan(plan, "done", open)?;
+            }
+            CompoundBodyLayout::DirectInline => {
                 self.write_space();
-                self.format_inline_stmts(site.body())?;
+                self.format_inline_stmts(plan.body())?;
             }
-            CompoundBodyOpen::Group('{') => {
-                self.write_text(brace_prefix);
-                self.format_brace_group(site.body(), site.bounds().render_limit())?;
+            CompoundBodyLayout::BraceGroup { prefix } => {
+                self.write_text(prefix);
+                self.format_brace_group(plan.body(), plan.upper_bound())?;
             }
-            _ => unreachable!("{}", invalid_body_kind),
         }
+        Ok(())
+    }
+
+    fn format_multiline_compound_body_plan(
+        &mut self,
+        plan: CompoundBodyPlan<'_>,
+        close: &'static str,
+        open: &'static str,
+    ) -> Result<()> {
+        let body = plan.body();
+        let body_upper_bound = plan.body_upper_bound();
+
+        self.write_text(open);
+        if let Some(span) = plan.open_suffix_span() {
+            self.write_suffix_comment_after_span(span, false);
+        }
+        self.format_body_with_upper_bound_and_open_blank(
+            body,
+            Some(body_upper_bound),
+            plan.preserve_open_blank(),
+        )?;
+        self.write_unmodeled_branch_background_terminator(body, body_upper_bound);
+        if plan.preserve_close_blank() {
+            self.newline();
+        }
+        self.finish_block_with_close_suffix(close, plan.close_span());
         Ok(())
     }
 
@@ -653,12 +688,13 @@ where
         match command.syntax {
             ForeachSyntax::ParenBrace { .. } => {
                 self.write_parenthesized_word_list(Some(&command.words));
-                self.write_space();
-                self.format_brace_group(site.body(), site.bounds().render_limit())?;
+                let plan = CompoundBodyPlan::brace_group(site, " ", self.render_context());
+                self.format_compound_body_plan(plan)?;
             }
             ForeachSyntax::InDoDone { .. } => {
                 self.write_for_in_words(Some(&command.words), None);
-                self.format_do_done_body(site, "done")?;
+                let plan = CompoundBodyPlan::do_done(site, self.render_context());
+                self.format_compound_body_plan(plan)?;
             }
         }
         Ok(())
@@ -673,7 +709,8 @@ where
             self.source_map(),
             self.facts().compound_close_span_for_span(command.span),
         );
-        self.format_do_done_body(site, "done")?;
+        let plan = CompoundBodyPlan::do_done(site, self.render_context());
+        self.format_compound_body_plan(plan)?;
         Ok(())
     }
 
@@ -711,13 +748,15 @@ where
                 formatter.format_stmt_sequence(condition, condition_upper_bound)
             })?;
             self.newline();
-            return self.format_split_do_done_body(site, "done");
+            let plan = CompoundBodyPlan::split_do_done(site, self.render_context());
+            return self.format_compound_body_plan(plan);
         }
 
         self.write_text(keyword);
         self.write_space();
         self.format_inline_stmts(condition)?;
-        self.format_do_done_body(site, "done")
+        let plan = CompoundBodyPlan::do_done(site, self.render_context());
+        self.format_compound_body_plan(plan)
     }
 
     pub(super) fn format_case(&mut self, command: &CaseCommand) -> Result<()> {
@@ -1138,8 +1177,8 @@ where
     ) -> Result<()> {
         let sequence_facts = self.facts().sequence(commands, upper_bound);
         let should_inline = sequence_facts.group_open_suffix_span().is_none()
-            && self.group_has_inline_source_shape(commands, '{')
-            && self.can_inline_group(commands, '{');
+            && group_has_inline_source_shape(self.render_context(), commands, '{')
+            && can_inline_group(self.render_context(), commands, '{');
         if should_inline {
             self.write_text("{ ");
             self.format_inline_stmts(commands)?;
@@ -1156,9 +1195,9 @@ where
     ) -> Result<()> {
         let sequence_facts = self.facts().sequence(commands, upper_bound);
         let should_inline = sequence_facts.group_open_suffix_span().is_none()
-            && ((self.group_has_inline_source_shape(commands, '(')
-                && self.can_inline_group(commands, '('))
-                || self.can_inline_source_line_subshell(commands, upper_bound));
+            && ((group_has_inline_source_shape(self.render_context(), commands, '(')
+                && can_inline_group(self.render_context(), commands, '('))
+                || can_inline_source_line_subshell(self.render_context(), commands, upper_bound));
         if should_inline {
             self.write_text("(");
             if stmt_sequence_renders_with_subshell_open(commands) {
@@ -1168,7 +1207,7 @@ where
             self.write_text(")");
             return Ok(());
         }
-        if self.can_format_multiline_subshell_inline(commands, upper_bound) {
+        if can_format_multiline_subshell_inline(self.render_context(), commands, upper_bound) {
             self.write_text("(");
             if stmt_sequence_renders_with_subshell_open(commands) {
                 self.write_space();
@@ -1245,7 +1284,8 @@ where
             self.source_map(),
             self.facts().compound_close_span_for_span(command.span),
         );
-        self.format_do_done_body(site, "done")
+        let plan = CompoundBodyPlan::do_done(site, self.render_context());
+        self.format_compound_body_plan(plan)
     }
 
     pub(super) fn format_time(&mut self, command: &TimeCommand) -> Result<()> {
@@ -1387,43 +1427,96 @@ where
         upper_bound: usize,
         header_comment: Option<(Span, String)>,
     ) -> Result<()> {
-        match CompoundBodySite::function_group_body(body, upper_bound) {
-            Some(site) if site.group_open_char() == Some('{') => {
-                if let Some((_, comment)) = header_comment {
-                    return self.format_function_brace_group_with_header_comment(
-                        site.body(),
-                        site.bounds().render_end(),
-                        &comment,
-                    );
-                }
+        let plan = FunctionBodyPlan::for_body(
+            body,
+            upper_bound,
+            header_comment.is_some(),
+            self.render_context(),
+        );
+        self.format_function_body_plan(plan, header_comment.as_ref().map(|(_, comment)| &**comment))
+    }
 
-                let should_inline = !self.options().function_next_line()
-                    && self.group_has_inline_source_shape(site.body(), '{')
-                    && self.can_inline_group(site.body(), '{');
-                if should_inline {
-                    self.write_text("{ ");
-                    self.format_inline_stmts(site.body())?;
-                    self.write_text("; }");
-                    Ok(())
-                } else {
-                    self.format_brace_group(site.body(), site.bounds().render_limit())
-                }
+    fn format_function_body_plan(
+        &mut self,
+        plan: FunctionBodyPlan<'_>,
+        header_comment: Option<&str>,
+    ) -> Result<()> {
+        match plan.layout() {
+            FunctionBodyLayout::FallbackStmt => self.format_stmt(plan.body()),
+            FunctionBodyLayout::BraceGroup { site, layout } => {
+                self.format_function_brace_body_plan(site, layout, header_comment)
             }
-            Some(site) if site.group_open_char() == Some('(') => {
-                let should_inline = !self.options().function_next_line()
-                    && self.group_has_inline_source_shape(site.body(), '(')
-                    && self.can_inline_group(site.body(), '(');
-                if should_inline {
-                    self.write_text("(");
-                    self.format_inline_stmts(site.body())?;
-                    self.write_text(")");
-                    Ok(())
-                } else {
-                    self.format_subshell(site.body(), site.bounds().render_limit())
-                }
+            FunctionBodyLayout::Subshell { site, layout } => {
+                self.format_function_subshell_body_plan(site, layout)
             }
-            Some(_) => unreachable!("function body group uses brace or subshell syntax"),
-            None => self.format_stmt(body),
+        }
+    }
+
+    fn format_function_brace_body_plan(
+        &mut self,
+        site: CompoundBodySite<'_>,
+        layout: FunctionBodyGroupLayout,
+        header_comment: Option<&str>,
+    ) -> Result<()> {
+        match layout {
+            FunctionBodyGroupLayout::Inline => {
+                self.write_text("{ ");
+                self.format_inline_stmts(site.body())?;
+                self.write_text("; }");
+                Ok(())
+            }
+            FunctionBodyGroupLayout::Multiline => self.format_group_with_upper_bound(
+                "{",
+                "}",
+                '{',
+                site.body(),
+                false,
+                site.bounds().render_limit(),
+            ),
+            FunctionBodyGroupLayout::HeaderComment => {
+                let comment = header_comment
+                    .expect("header-comment function body plan requires a header comment");
+                self.format_function_brace_group_with_header_comment(
+                    site.body(),
+                    site.bounds().render_end(),
+                    comment,
+                )
+            }
+        }
+    }
+
+    fn format_function_subshell_body_plan(
+        &mut self,
+        site: CompoundBodySite<'_>,
+        layout: FunctionSubshellLayout,
+    ) -> Result<()> {
+        match layout {
+            FunctionSubshellLayout::Inline { .. } => {
+                self.write_text("(");
+                if stmt_sequence_renders_with_subshell_open(site.body()) {
+                    self.write_space();
+                }
+                self.format_inline_stmts(site.body())?;
+                self.write_text(")");
+                Ok(())
+            }
+            FunctionSubshellLayout::MultilineInline => {
+                self.write_text("(");
+                if stmt_sequence_renders_with_subshell_open(site.body()) {
+                    self.write_space();
+                }
+                self.format_stmt_sequence(site.body(), site.bounds().render_limit())?;
+                self.write_text(")");
+                Ok(())
+            }
+            FunctionSubshellLayout::Multiline => self.format_group_with_upper_bound(
+                "(",
+                ")",
+                '(',
+                site.body(),
+                false,
+                site.bounds().render_limit(),
+            ),
         }
     }
 
