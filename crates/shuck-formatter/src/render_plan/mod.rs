@@ -273,6 +273,24 @@ mod layout_plan_tests {
     }
 
     #[test]
+    fn layout_plan_plans_function_next_line_brace_body_as_multiline() {
+        let source = "f() { echo hi; }\n";
+        let options = ShellFormatOptions::default().with_function_next_line(true);
+        let (file, resolved, facts) = context_for(source, &options);
+        let context = RenderContext::new(source, &resolved, &facts);
+        let (body, upper_bound) = function_body(first_function(&file));
+        let plan = FunctionBodyPlan::for_body(body, upper_bound, false, context);
+
+        assert!(matches!(
+            plan.layout(),
+            FunctionBodyLayout::BraceGroup {
+                layout: FunctionBodyGroupLayout::Multiline,
+                ..
+            }
+        ));
+    }
+
+    #[test]
     fn layout_plan_plans_multiline_function_brace_body() {
         let source = "f() {\n  echo hi\n  echo bye\n}\n";
         let (file, resolved, facts) = context_for(source, &ShellFormatOptions::default());
@@ -318,6 +336,24 @@ mod layout_plan_tests {
             plan.layout(),
             FunctionBodyLayout::Subshell {
                 layout: FunctionSubshellLayout::Inline { .. },
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn layout_plan_plans_function_next_line_subshell_body_as_multiline() {
+        let source = "f() (echo hi)\n";
+        let options = ShellFormatOptions::default().with_function_next_line(true);
+        let (file, resolved, facts) = context_for(source, &options);
+        let context = RenderContext::new(source, &resolved, &facts);
+        let (body, upper_bound) = function_body(first_function(&file));
+        let plan = FunctionBodyPlan::for_body(body, upper_bound, false, context);
+
+        assert!(matches!(
+            plan.layout(),
+            FunctionBodyLayout::Subshell {
+                layout: FunctionSubshellLayout::Multiline,
                 ..
             }
         ));

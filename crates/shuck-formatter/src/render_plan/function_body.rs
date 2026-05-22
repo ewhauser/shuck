@@ -89,11 +89,12 @@ fn brace_group_layout(
 
     let body = site.body();
     let upper_bound = site.bounds().render_limit();
-    if context
-        .facts
-        .sequence(body, upper_bound)
-        .group_open_suffix_span()
-        .is_none()
+    if !context.options.function_next_line()
+        && context
+            .facts
+            .sequence(body, upper_bound)
+            .group_open_suffix_span()
+            .is_none()
         && group_has_inline_source_shape(context, body, '{')
         && can_inline_group(context, body, '{')
     {
@@ -114,7 +115,10 @@ fn subshell_layout(
         group_has_inline_source_shape(context, body, '(') && can_inline_group(context, body, '(');
     let source_line_inline = can_inline_source_line_subshell(context, body, upper_bound);
 
-    if sequence.group_open_suffix_span().is_none() && (group_inline || source_line_inline) {
+    if !context.options.function_next_line()
+        && sequence.group_open_suffix_span().is_none()
+        && (group_inline || source_line_inline)
+    {
         return FunctionSubshellLayout::Inline {
             source_line: source_line_inline && !group_inline,
         };
