@@ -1,27 +1,23 @@
 use shuck_ast::{Command, CompoundCommand, IfCommand, Span, Stmt, StmtSeq};
 
-use crate::command::{
-    branch_open_keyword_start, command_format_span, stmt_render_start_line, stmt_span,
-};
+use crate::command::{branch_open_keyword_start, command_format_span, stmt_span};
 use crate::comments::SourceMap;
 use crate::facts::FormatterFacts;
-use crate::options::ResolvedShellFormatOptions;
 use crate::raw_syntax::{skip_double_quoted, skip_single_quoted};
 
 pub(crate) fn if_condition_starts_after_keyword(
     command: &IfCommand,
     then_span: Span,
     source: &str,
-    source_map: &SourceMap<'_>,
-    options: &ResolvedShellFormatOptions,
     facts: &FormatterFacts,
 ) -> bool {
     if raw_if_condition_starts_with_negation_continuation(command, then_span, source, facts) {
         return false;
     }
-    command.condition.first().is_some_and(|stmt| {
-        stmt_render_start_line(stmt, source, source_map, options) > command.span.start.line
-    })
+    command
+        .condition
+        .first()
+        .is_some_and(|stmt| facts.stmt(stmt).rendered_start_line() > command.span.start.line)
 }
 
 pub(crate) fn if_condition_has_explicit_statement_break(
@@ -183,10 +179,9 @@ pub(crate) fn raw_grouped_if_condition(
     then_span: Span,
     source: &str,
     source_map: &SourceMap<'_>,
-    options: &ResolvedShellFormatOptions,
     facts: &FormatterFacts,
 ) -> Option<String> {
-    if !if_condition_starts_after_keyword(command, then_span, source, source_map, options, facts) {
+    if !if_condition_starts_after_keyword(command, then_span, source, facts) {
         return None;
     }
     let start = command.span.start.offset.checked_add("if".len())?;

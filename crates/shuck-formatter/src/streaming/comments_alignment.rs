@@ -87,6 +87,7 @@ where
             stmt,
             self.source(),
             self.source_map(),
+            self.facts(),
             self.facts().stmt(stmt).rendered_end_line(),
         )
     }
@@ -100,12 +101,9 @@ where
         attachments
             .map(|attachment| attachment.first_rendered_line_for(index + 1))
             .unwrap_or_else(|| {
-                stmt_render_start_line(
-                    &statements[index + 1],
-                    self.source(),
-                    self.source_map(),
-                    self.options(),
-                )
+                self.facts()
+                    .stmt(&statements[index + 1])
+                    .rendered_start_line()
             })
     }
 

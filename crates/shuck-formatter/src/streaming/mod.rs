@@ -26,19 +26,18 @@ use crate::command::{
     array_elem_parts, binary_operator, builtin_like_parts, case_item_body_upper_bound,
     case_terminator, collect_binary_list_first as collect_binary_list_first_with,
     collect_pipeline_parts, command_format_span, command_group_commands,
-    format_arithmetic_command_source, format_arithmetic_for_clause_source, group_attachment_span,
+    format_arithmetic_command_source, format_arithmetic_for_clause_source,
     if_next_branch_region_with_body_end, line_gap_break_count, matching_group_close,
     multiline_compound_assignment_command_substitution_body_prefix,
     multiline_compound_assignment_layout, multiline_compound_assignment_lines,
     render_assignment_head_to_buf, render_assignment_to_buf, render_background_operator,
     render_subscript_to_buf, render_var_ref_to_buf, simple_command_uses_synthetic_words,
-    slice_span, stmt_attachment_span, stmt_format_span, stmt_render_start_line, stmt_span,
-    stmt_start_after_operator, stmt_verbatim_span_with_source_map,
-    trim_unescaped_trailing_whitespace,
+    slice_span, stmt_format_span, stmt_span, stmt_start_after_operator,
+    stmt_verbatim_span_with_source_map, trim_unescaped_trailing_whitespace,
 };
 use crate::comments::{BranchPrefixComment, SourceComment, SourceMap};
 use crate::context::RenderContext;
-use crate::facts::{FormatterFacts, classify_sequence_contains_heredoc};
+use crate::facts::FormatterFacts;
 use crate::options::{IndentStyle, ResolvedShellFormatOptions};
 use crate::raw_syntax::{
     CommandSubstitutionPipelineContinuation, RawLineQuoteState, RawShellText, RenderedHeredocTail,

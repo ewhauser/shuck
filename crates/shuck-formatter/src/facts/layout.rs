@@ -21,6 +21,7 @@ impl LayoutFacts {
 pub(crate) struct StmtFacts {
     pub(super) attachment_span: Span,
     pub(super) render_span: Span,
+    pub(super) rendered_start_line: usize,
     pub(super) rendered_end_line: usize,
     pub(super) has_trailing_comment: bool,
     pub(super) preserve_verbatim: bool,
@@ -34,6 +35,10 @@ impl StmtFacts {
 
     pub(crate) fn render_span(&self) -> Span {
         self.render_span
+    }
+
+    pub(crate) fn rendered_start_line(&self) -> usize {
+        self.rendered_start_line
     }
 
     pub(crate) fn rendered_end_line(&self) -> usize {

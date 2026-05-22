@@ -85,27 +85,21 @@ fn then_fi_if_style(
             then_span,
             context.source,
             context.source_map(),
-            context.options,
             context.facts,
         )
     {
         return IfLayoutStyle::RawGroupedCondition { raw_condition };
     }
 
-    if if_condition_starts_after_keyword(
-        command,
-        then_span,
-        context.source,
-        context.source_map(),
-        context.options,
-        context.facts,
-    ) || if_condition_has_explicit_statement_break(
-        command,
-        then_span,
-        context.source,
-        context.source_map(),
-        context.facts,
-    ) {
+    if if_condition_starts_after_keyword(command, then_span, context.source, context.facts)
+        || if_condition_has_explicit_statement_break(
+            command,
+            then_span,
+            context.source,
+            context.source_map(),
+            context.facts,
+        )
+    {
         return IfLayoutStyle::SplitCondition;
     }
 

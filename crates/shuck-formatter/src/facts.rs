@@ -35,8 +35,9 @@ use crate::command::{
     if_next_branch_region_with_body_end, matching_group_close, rendered_stmt_end_line_with_heredoc,
     should_render_verbatim_with_heredoc, stmt_attachment_span_with_heredoc_and_compound_close,
     stmt_format_span, stmt_group_attachment_or_verbatim_span_with_heredoc,
-    stmt_has_trailing_comment, stmt_render_start_line, stmt_span, stmt_start_after_operator,
-    stmt_verbatim_span_with_source_map, trim_unescaped_trailing_whitespace,
+    stmt_has_trailing_comment, stmt_render_start_line_with_heredoc, stmt_span,
+    stmt_start_after_operator, stmt_verbatim_span_with_source_map,
+    trim_unescaped_trailing_whitespace,
 };
 use crate::comments::{BranchPrefixComment, CommentAttachmentModel, SourceComment, SourceMap};
 use crate::options::{LineEnding, ResolvedShellFormatOptions};
@@ -223,15 +224,6 @@ struct LayoutAnnotations {
 }
 
 impl LayoutAnnotations {
-    fn build_for_sequence(source: &str, sequence: &StmtSeq) -> Self {
-        let mut annotations = Self::default();
-        {
-            let mut pass = LayoutAnnotationPass::new(source, &mut annotations);
-            pass.visit_stmt_seq(sequence);
-        }
-        annotations
-    }
-
     fn build_for_stmt(source: &str, stmt: &Stmt) -> Self {
         let mut annotations = Self::default();
         {
@@ -1454,24 +1446,9 @@ pub(crate) fn classify_word_has_multiline_literal_source(word: &Word, source: &s
         .has_multiline_literal_source()
 }
 
-pub(crate) fn classify_sequence_contains_multiline_literal_source(
-    sequence: &StmtSeq,
-    source: &str,
-) -> bool {
-    LayoutAnnotations::build_for_sequence(source, sequence)
-        .sequence(sequence)
-        .contains_multiline_literal_source
-}
-
 pub(crate) fn classify_stmt_contains_heredoc(stmt: &Stmt) -> bool {
     LayoutAnnotations::build_for_stmt("", stmt)
         .stmt(stmt)
-        .contains_heredoc
-}
-
-pub(crate) fn classify_sequence_contains_heredoc(sequence: &StmtSeq) -> bool {
-    LayoutAnnotations::build_for_sequence("", sequence)
-        .sequence(sequence)
         .contains_heredoc
 }
 
@@ -1939,12 +1916,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                     .leading_for(index)
                     .first()
                     .map(SourceComment::line)
-                    .unwrap_or(stmt_render_start_line(
-                        stmt,
-                        self.source,
-                        self.source_map(),
-                        self.options,
-                    ));
+                    .unwrap_or_else(|| self.facts.stmt(stmt).rendered_start_line());
             }
         }
 
@@ -2041,11 +2013,19 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             self.source_map(),
             stmt_contains_heredoc,
         );
+        let rendered_start_line = stmt_render_start_line_with_heredoc(
+            stmt,
+            self.source,
+            self.source_map(),
+            self.options,
+            stmt_contains_heredoc,
+        );
         self.facts.layout_facts.statements.insert(
             site.key,
             StmtFacts {
                 attachment_span,
                 render_span,
+                rendered_start_line,
                 rendered_end_line,
                 has_trailing_comment: stmt_has_trailing_comment(stmt, self.source_map()),
                 preserve_verbatim,
@@ -3087,7 +3067,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         let first_body_stmt_line = item
             .body
             .first()
-            .map(|stmt| stmt_render_start_line(stmt, self.source, self.source_map(), self.options))
+            .map(|stmt| self.facts.stmt(stmt).rendered_start_line())
             .unwrap_or(first_body_line);
         let first_pattern_start = item
             .patterns
@@ -3749,7 +3729,7 @@ mod tests {
     use shuck_parser::parser::Parser;
 
     use super::*;
-    use crate::command::group_attachment_span;
+    use crate::command::group_attachment_span_with_heredoc;
     use crate::{ShellDialect, ShellFormatOptions};
 
     fn parse(source: &str) -> shuck_ast::File {
@@ -3785,9 +3765,15 @@ mod tests {
         open: char,
         close: char,
     ) -> &'source str {
-        group_attachment_span(commands.as_slice(), facts.source_map(), open, close)
-            .expect("expected group attachment span")
-            .slice(source)
+        group_attachment_span_with_heredoc(
+            commands.as_slice(),
+            facts.source_map(),
+            open,
+            close,
+            |stmt| facts.stmt(stmt).contains_heredoc(),
+        )
+        .expect("expected group attachment span")
+        .slice(source)
     }
 
     #[test]
@@ -4096,9 +4082,14 @@ mod tests {
         };
 
         let sequence = facts.sequence(subshell, Some(stmt_span(condition_stmt).end.offset));
-        let attachment_span =
-            group_attachment_span(subshell.as_slice(), facts.source_map(), '(', ')')
-                .expect("expected subshell attachment span");
+        let attachment_span = group_attachment_span_with_heredoc(
+            subshell.as_slice(),
+            facts.source_map(),
+            '(',
+            ')',
+            |stmt| facts.stmt(stmt).contains_heredoc(),
+        )
+        .expect("expected subshell attachment span");
         assert!(!sequence.has_comments());
         assert!(facts.group_was_inline_in_source(subshell));
         assert_eq!(
@@ -4152,9 +4143,14 @@ mod tests {
             Command::Compound(CompoundCommand::Subshell(commands)) => commands,
             _ => panic!("expected subshell"),
         };
-        let attachment_span =
-            group_attachment_span(subshell.as_slice(), facts.source_map(), '(', ')')
-                .expect("expected subshell attachment span");
+        let attachment_span = group_attachment_span_with_heredoc(
+            subshell.as_slice(),
+            facts.source_map(),
+            '(',
+            ')',
+            |stmt| facts.stmt(stmt).contains_heredoc(),
+        )
+        .expect("expected subshell attachment span");
 
         assert_eq!(
             attachment_span.slice(source),
