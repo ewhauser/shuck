@@ -115,7 +115,10 @@ impl<'a> Parser<'a> {
             if state.update_quoted_state(ch) {
                 continue;
             }
-            if state.is_plain_top_level() && matches!(ch, ';' | '\n' | '&' | '|') {
+            if state.is_plain_top_level()
+                && matches!(ch, ';' | '\n' | '&' | '|')
+                && !raw_separator_is_part_of_redirection(self.input, offset, ch)
+            {
                 return Some(offset);
             }
             state.update_raw_syntax(ch);
@@ -364,6 +367,8 @@ struct RawRecoveryScanState {
     in_double: bool,
     in_backtick: bool,
     escaped: bool,
+    escaped_at_command_start: bool,
+    escaped_at_token_start: bool,
     in_comment: bool,
     at_command_start: bool,
     at_token_start: bool,
@@ -380,6 +385,8 @@ impl Default for RawRecoveryScanState {
             in_double: false,
             in_backtick: false,
             escaped: false,
+            escaped_at_command_start: false,
+            escaped_at_token_start: false,
             in_comment: false,
             at_command_start: true,
             at_token_start: true,
@@ -403,14 +410,21 @@ impl RawRecoveryScanState {
     fn update_quoted_state(&mut self, ch: char) -> bool {
         if self.escaped {
             self.escaped = false;
-            self.at_command_start = false;
-            self.at_token_start = false;
+            if ch == '\n' {
+                self.at_command_start = self.escaped_at_command_start;
+                self.at_token_start = self.escaped_at_token_start;
+            } else {
+                self.at_command_start = false;
+                self.at_token_start = false;
+            }
             return true;
         }
 
         match ch {
             '\\' if !self.in_single => {
                 self.escaped = true;
+                self.escaped_at_command_start = self.at_command_start;
+                self.escaped_at_token_start = self.at_token_start;
                 self.at_command_start = false;
                 self.at_token_start = false;
                 true
@@ -445,13 +459,20 @@ impl RawRecoveryScanState {
         if self.pending_dollar {
             self.pending_dollar = false;
             match ch {
-                '(' => self.subst_paren_depth += 1,
-                '{' => self.parameter_brace_depth += 1,
+                '(' => {
+                    self.subst_paren_depth += 1;
+                    self.at_command_start = false;
+                    self.at_token_start = false;
+                    return;
+                }
+                '{' => {
+                    self.parameter_brace_depth += 1;
+                    self.at_command_start = false;
+                    self.at_token_start = false;
+                    return;
+                }
                 _ => {}
             }
-            self.at_command_start = false;
-            self.at_token_start = false;
-            return;
         }
 
         if ch == '$' {
@@ -500,6 +521,23 @@ impl RawRecoveryScanState {
 
 fn raw_keyword_starts_at(input: &str, offset: usize, keyword: &str) -> bool {
     raw_token_ends_at(input, offset, keyword)
+}
+
+fn raw_separator_is_part_of_redirection(input: &str, offset: usize, ch: char) -> bool {
+    match ch {
+        '&' => {
+            input[offset + '&'.len_utf8()..].starts_with('>')
+                || input[..offset]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|previous| matches!(previous, '<' | '>'))
+        }
+        '|' => input[..offset]
+            .chars()
+            .next_back()
+            .is_some_and(|previous| previous == '>'),
+        _ => false,
+    }
 }
 
 fn raw_token_ends_at(input: &str, offset: usize, token: &str) -> bool {

@@ -2635,6 +2635,14 @@ fn test_malformed_conditional_recovery_fallback_stops_at_list_separator() {
 }
 
 #[test]
+fn test_malformed_conditional_recovery_fallback_ignores_redirection_operator_glyphs() {
+    let input = "[[ x =~ { &>out echo after\n";
+    let parsed = Parser::new(input).parse();
+
+    assert!(parsed.is_err());
+}
+
+#[test]
 fn test_malformed_conditional_recovery_ignores_close_in_command_substitution() {
     let input = "[[ x =~ { $(echo ]]) ]]\necho after\n";
     let parsed = Parser::new(input).parse();
@@ -2659,6 +2667,22 @@ fn test_malformed_conditional_recovery_ignores_close_before_quoted_suffix() {
 }
 
 #[test]
+fn test_malformed_conditional_recovery_reprocesses_space_after_dollar() {
+    let input = "[[ x =~ { $ ]]\necho after\n";
+    let parsed = Parser::new(input).parse();
+
+    assert!(parsed.is_err());
+}
+
+#[test]
+fn test_malformed_conditional_recovery_preserves_token_start_after_continuation() {
+    let input = "[[ x =~ { \\\n]]\necho after\n";
+    let parsed = Parser::new(input).parse();
+
+    assert!(parsed.is_err());
+}
+
+#[test]
 fn test_malformed_conditional_recovery_ignores_separator_in_comment() {
     let input = "[[ x =~ { # ; ]]\necho after\n";
     let parsed = Parser::new(input).parse();
@@ -2677,6 +2701,14 @@ fn test_malformed_case_recovery_skips_nested_case_end() {
 #[test]
 fn test_malformed_case_recovery_ignores_assignment_named_like_terminator() {
     let input = "case x in bad <<TAG\nesac=1\nesac\necho after\n";
+    let parsed = Parser::new(input).parse();
+
+    assert!(parsed.is_err());
+}
+
+#[test]
+fn test_malformed_case_recovery_reprocesses_newline_after_dollar() {
+    let input = "case x in bad <<TAG\n$\nesac\necho after\n";
     let parsed = Parser::new(input).parse();
 
     assert!(parsed.is_err());
