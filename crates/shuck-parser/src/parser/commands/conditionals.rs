@@ -7,7 +7,13 @@ impl<'a> Parser<'a> {
         self.advance(); // consume '[['
         self.skip_conditional_newlines();
 
-        let expression = self.parse_conditional_or(false)?;
+        let expression = match self.parse_conditional_or(false) {
+            Ok(expression) => expression,
+            Err(err) => {
+                self.recover_to_conditional_end(left_bracket_span.start);
+                return Err(err);
+            }
+        };
         self.skip_conditional_newlines();
 
         let right_bracket_span = match self.current_token_kind {
@@ -21,7 +27,11 @@ impl<'a> Parser<'a> {
                     "unexpected end of input in [[ ]]".to_string(),
                 ));
             }
-            _ => return Err(self.error("expected ']]' to close conditional expression")),
+            _ => {
+                let error = self.error("expected ']]' to close conditional expression");
+                self.recover_to_conditional_end(left_bracket_span.start);
+                return Err(error);
+            }
         };
 
         Ok(CompoundCommand::Conditional(ConditionalCommand {
@@ -30,6 +40,25 @@ impl<'a> Parser<'a> {
             left_bracket_span,
             right_bracket_span,
         }))
+    }
+
+    pub(super) fn recover_to_conditional_end(&mut self, start: Position) {
+        if let Some(relative) = self.input[start.offset..].find("]]") {
+            self.skip_raw_to_offset(start.offset + relative + "]]".len());
+            return;
+        }
+
+        let Some(separator_offset) = self.input[self.current_span.start.offset..]
+            .find(['\n', ';'])
+            .map(|offset| self.current_span.start.offset + offset)
+        else {
+            self.skip_raw_to_offset(self.input.len());
+            return;
+        };
+
+        if separator_offset > self.current_span.start.offset {
+            self.skip_raw_to_offset(separator_offset);
+        }
     }
 
     pub(super) fn skip_conditional_newlines(&mut self) {

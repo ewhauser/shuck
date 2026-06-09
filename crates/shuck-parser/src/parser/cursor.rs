@@ -86,6 +86,22 @@ impl<'a> Parser<'a> {
         self.current_keyword = None;
     }
 
+    pub(super) fn skip_raw_to_offset(&mut self, offset: usize) {
+        let offset = offset.min(self.input.len());
+        self.lexer = Lexer::with_max_subst_depth_and_profile(
+            self.input,
+            self.max_depth,
+            &self.shell_profile,
+            self.zsh_timeline.clone(),
+        );
+        self.lexer.consume_source_bytes(offset);
+        self.synthetic_tokens.clear();
+        self.alias_replays.clear();
+        self.peeked_token = None;
+        self.expand_next_word = false;
+        self.advance_raw();
+    }
+
     pub(super) fn next_pending_token(&mut self) -> Option<LexedToken<'a>> {
         if let Some(token) = self.synthetic_tokens.pop_front() {
             return Some(token.materialize());

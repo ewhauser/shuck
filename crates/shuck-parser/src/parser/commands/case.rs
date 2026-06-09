@@ -26,6 +26,7 @@ impl<'a> Parser<'a> {
             let patterns = match self.parse_case_patterns() {
                 Ok(patterns) => patterns,
                 Err(err) => {
+                    self.recover_to_case_end();
                     self.pop_depth();
                     return Err(err);
                 }
@@ -106,6 +107,10 @@ impl<'a> Parser<'a> {
         };
 
         for span in pattern_spans {
+            if !span.slice(self.input).contains('(') {
+                continue;
+            }
+
             let mut features = self.zsh_glob_parse_features_at(span.start.offset);
             if self.dialect != ShellDialect::Zsh {
                 features.bare_groups = true;
@@ -133,6 +138,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_posix_case_patterns(&mut self) -> Result<Vec<Pattern>> {
+        let start = self.current_span.start;
         if self.at(TokenKind::LeftParen) {
             self.advance();
         }
@@ -151,11 +157,49 @@ impl<'a> Parser<'a> {
         }
 
         if !self.at(TokenKind::RightParen) {
-            return Err(self.error("expected ')' after case pattern"));
+            let error = self.error("expected ')' after case pattern");
+            self.recover_to_case_arm_delimiter(start);
+            return Err(error);
         }
         self.advance();
 
         Ok(patterns)
+    }
+
+    pub(super) fn recover_to_case_arm_delimiter(&mut self, start: Position) {
+        if let Some(delimiter_span) = self.scan_zsh_case_arm_delimiter(start)
+            && delimiter_span.end.offset > self.current_span.start.offset
+        {
+            self.skip_raw_to_offset(delimiter_span.end.offset);
+            return;
+        }
+
+        let Some(separator_offset) = self.input[self.current_span.start.offset..]
+            .find(['\n', ';'])
+            .map(|offset| self.current_span.start.offset + offset)
+        else {
+            self.skip_raw_to_offset(self.input.len());
+            return;
+        };
+
+        if separator_offset > self.current_span.start.offset {
+            self.skip_raw_to_offset(separator_offset);
+        }
+    }
+
+    pub(super) fn recover_to_case_end(&mut self) {
+        let search_start = self.current_span.start.offset;
+        for (relative, _) in self.input[search_start..].match_indices("esac") {
+            let start = search_start + relative;
+            let end = start + "esac".len();
+            let before = self.input[..start].chars().next_back();
+            let after = self.input[end..].chars().next();
+            if before.is_some_and(is_shell_name_char) || after.is_some_and(is_shell_name_char) {
+                continue;
+            }
+            self.skip_raw_to_offset(end);
+            return;
+        }
     }
 
     pub(super) fn parse_zsh_case_patterns(&mut self) -> Result<Vec<Pattern>> {
@@ -524,4 +568,8 @@ impl<'a> Parser<'a> {
 
         None
     }
+}
+
+fn is_shell_name_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
 }

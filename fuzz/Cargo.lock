@@ -967,6 +967,7 @@ name = "shuck-formatter"
 version = "0.0.41"
 dependencies = [
  "memchr",
+ "rustc-hash",
  "shuck-ast",
  "shuck-indexer",
  "shuck-parser",
