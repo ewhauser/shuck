@@ -2625,3 +2625,27 @@ fn test_malformed_conditional_recovery_ignores_quoted_fallback_separator() {
 
     assert!(parsed.is_err());
 }
+
+#[test]
+fn test_malformed_conditional_recovery_ignores_close_in_command_substitution() {
+    let input = "[[ x =~ { $(echo ]]) ]]\necho after\n";
+    let parsed = Parser::new(input).parse();
+
+    assert!(parsed.is_err());
+}
+
+#[test]
+fn test_malformed_conditional_recovery_ignores_separator_in_comment() {
+    let input = "[[ x =~ { # ; ]]\necho after\n";
+    let parsed = Parser::new(input).parse();
+
+    assert!(parsed.is_err());
+}
+
+#[test]
+fn test_malformed_case_recovery_skips_nested_case_end() {
+    let input = "case x in bad <<TAG\ncase y in z) :;; esac\nesac\necho after\n";
+    let parsed = Parser::new(input).parse();
+
+    assert!(parsed.is_err());
+}

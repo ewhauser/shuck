@@ -115,10 +115,10 @@ impl<'a> Parser<'a> {
             if state.update_quoted_state(ch) {
                 continue;
             }
-            if state.is_plain() && matches!(ch, ';' | '\n') {
+            if state.is_plain_top_level() && matches!(ch, ';' | '\n') {
                 return Some(offset);
             }
-            state.update_command_position(ch);
+            state.update_raw_syntax(ch);
         }
         None
     }
@@ -132,16 +132,17 @@ impl<'a> Parser<'a> {
                 if ch == '\n' {
                     state.in_comment = false;
                     state.at_command_start = true;
+                    state.at_token_start = true;
                 }
                 continue;
             }
             if state.update_quoted_state(ch) {
                 continue;
             }
-            if state.is_plain() && self.input[offset..].starts_with("]]") {
+            if state.is_plain_top_level() && self.input[offset..].starts_with("]]") {
                 return Some(offset + "]]".len());
             }
-            state.update_command_position(ch);
+            state.update_raw_syntax(ch);
         }
         None
     }
@@ -155,27 +156,31 @@ impl<'a> Parser<'a> {
                 if ch == '\n' {
                     state.in_comment = false;
                     state.at_command_start = true;
+                    state.at_token_start = true;
                 }
                 continue;
             }
             if state.update_quoted_state(ch) {
                 continue;
             }
-            if state.is_plain()
-                && state.at_command_start
-                && self.input[offset..].starts_with("esac")
-                && self.input[..offset]
-                    .chars()
-                    .next_back()
-                    .is_none_or(|ch| !is_shell_name_char(ch))
-                && self.input[offset + "esac".len()..]
-                    .chars()
-                    .next()
-                    .is_none_or(|ch| !is_shell_name_char(ch))
-            {
-                return Some(offset + "esac".len());
+            if state.is_plain_top_level() && state.at_command_start {
+                if raw_keyword_starts_at(self.input, offset, "case") {
+                    state.case_depth += 1;
+                    state.at_command_start = false;
+                    state.at_token_start = false;
+                    continue;
+                }
+                if raw_keyword_starts_at(self.input, offset, "esac") {
+                    if state.case_depth == 0 {
+                        return Some(offset + "esac".len());
+                    }
+                    state.case_depth -= 1;
+                    state.at_command_start = false;
+                    state.at_token_start = false;
+                    continue;
+                }
             }
-            state.update_command_position(ch);
+            state.update_raw_syntax(ch);
         }
         None
     }
@@ -358,6 +363,11 @@ struct RawRecoveryScanState {
     escaped: bool,
     in_comment: bool,
     at_command_start: bool,
+    at_token_start: bool,
+    pending_dollar: bool,
+    subst_paren_depth: usize,
+    parameter_brace_depth: usize,
+    case_depth: usize,
 }
 
 impl Default for RawRecoveryScanState {
@@ -369,6 +379,11 @@ impl Default for RawRecoveryScanState {
             escaped: false,
             in_comment: false,
             at_command_start: true,
+            at_token_start: true,
+            pending_dollar: false,
+            subst_paren_depth: 0,
+            parameter_brace_depth: 0,
+            case_depth: 0,
         }
     }
 }
@@ -378,10 +393,15 @@ impl RawRecoveryScanState {
         !self.in_single && !self.in_double && !self.in_backtick && !self.escaped
     }
 
+    fn is_plain_top_level(&self) -> bool {
+        self.is_plain() && self.subst_paren_depth == 0 && self.parameter_brace_depth == 0
+    }
+
     fn update_quoted_state(&mut self, ch: char) -> bool {
         if self.escaped {
             self.escaped = false;
             self.at_command_start = false;
+            self.at_token_start = false;
             return true;
         }
 
@@ -389,39 +409,102 @@ impl RawRecoveryScanState {
             '\\' if !self.in_single => {
                 self.escaped = true;
                 self.at_command_start = false;
+                self.at_token_start = false;
                 true
             }
             '\'' if !self.in_double && !self.in_backtick => {
                 self.in_single = !self.in_single;
                 self.at_command_start = false;
+                self.at_token_start = false;
                 true
             }
             '"' if !self.in_single && !self.in_backtick => {
                 self.in_double = !self.in_double;
                 self.at_command_start = false;
+                self.at_token_start = false;
                 true
             }
             '`' if !self.in_single && !self.in_double => {
                 self.in_backtick = !self.in_backtick;
                 self.at_command_start = false;
+                self.at_token_start = false;
                 true
             }
             _ => false,
         }
     }
 
-    fn update_command_position(&mut self, ch: char) {
+    fn update_raw_syntax(&mut self, ch: char) {
         if !self.is_plain() {
             return;
         }
 
+        if self.pending_dollar {
+            self.pending_dollar = false;
+            match ch {
+                '(' => self.subst_paren_depth += 1,
+                '{' => self.parameter_brace_depth += 1,
+                _ => {}
+            }
+            self.at_command_start = false;
+            self.at_token_start = false;
+            return;
+        }
+
+        if ch == '$' {
+            self.pending_dollar = true;
+            self.at_command_start = false;
+            self.at_token_start = false;
+            return;
+        }
+
+        if self.subst_paren_depth > 0 {
+            match ch {
+                '(' => self.subst_paren_depth += 1,
+                ')' => self.subst_paren_depth = self.subst_paren_depth.saturating_sub(1),
+                _ => {}
+            }
+            self.at_command_start = false;
+            self.at_token_start = false;
+            return;
+        }
+
+        if self.parameter_brace_depth > 0 {
+            match ch {
+                '{' => self.parameter_brace_depth += 1,
+                '}' => self.parameter_brace_depth = self.parameter_brace_depth.saturating_sub(1),
+                _ => {}
+            }
+            self.at_command_start = false;
+            self.at_token_start = false;
+            return;
+        }
+
         match ch {
-            ' ' | '\t' | '\r' => {}
-            '#' if self.at_command_start => self.in_comment = true,
-            '\n' | ';' | '&' | '|' => self.at_command_start = true,
-            _ => self.at_command_start = false,
+            ' ' | '\t' | '\r' => self.at_token_start = true,
+            '#' if self.at_token_start => self.in_comment = true,
+            '\n' | ';' | '&' | '|' => {
+                self.at_command_start = true;
+                self.at_token_start = true;
+            }
+            _ => {
+                self.at_command_start = false;
+                self.at_token_start = false;
+            }
         }
     }
+}
+
+fn raw_keyword_starts_at(input: &str, offset: usize, keyword: &str) -> bool {
+    input[offset..].starts_with(keyword)
+        && input[..offset]
+            .chars()
+            .next_back()
+            .is_none_or(|ch| !is_shell_name_char(ch))
+        && input[offset + keyword.len()..]
+            .chars()
+            .next()
+            .is_none_or(|ch| !is_shell_name_char(ch))
 }
 
 fn is_shell_name_char(ch: char) -> bool {
