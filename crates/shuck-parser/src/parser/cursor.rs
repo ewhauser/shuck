@@ -139,7 +139,10 @@ impl<'a> Parser<'a> {
             if state.update_quoted_state(ch) {
                 continue;
             }
-            if state.is_plain_top_level() && self.input[offset..].starts_with("]]") {
+            if state.is_plain_top_level()
+                && state.at_token_start
+                && raw_token_ends_at(self.input, offset, "]]")
+            {
                 return Some(offset + "]]".len());
             }
             state.update_raw_syntax(ch);
@@ -496,17 +499,20 @@ impl RawRecoveryScanState {
 }
 
 fn raw_keyword_starts_at(input: &str, offset: usize, keyword: &str) -> bool {
-    input[offset..].starts_with(keyword)
-        && input[..offset]
-            .chars()
-            .next_back()
-            .is_none_or(|ch| !is_shell_name_char(ch))
-        && input[offset + keyword.len()..]
-            .chars()
-            .next()
-            .is_none_or(|ch| !is_shell_name_char(ch))
+    raw_token_ends_at(input, offset, keyword)
 }
 
-fn is_shell_name_char(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || ch == '_'
+fn raw_token_ends_at(input: &str, offset: usize, token: &str) -> bool {
+    input[offset..].starts_with(token)
+        && input[offset + token.len()..]
+            .chars()
+            .next()
+            .is_none_or(is_shell_token_boundary)
+}
+
+fn is_shell_token_boundary(ch: char) -> bool {
+    matches!(
+        ch,
+        ' ' | '\t' | '\r' | '\n' | ';' | '&' | '|' | '(' | ')' | '<' | '>' | '"' | '\'' | '`'
+    )
 }

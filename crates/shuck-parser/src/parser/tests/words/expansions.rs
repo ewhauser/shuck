@@ -2635,6 +2635,14 @@ fn test_malformed_conditional_recovery_ignores_close_in_command_substitution() {
 }
 
 #[test]
+fn test_malformed_conditional_recovery_ignores_close_inside_word() {
+    let input = "[[ x =~ { foo]]bar ]]\necho after\n";
+    let parsed = Parser::new(input).parse();
+
+    assert!(parsed.is_err());
+}
+
+#[test]
 fn test_malformed_conditional_recovery_ignores_separator_in_comment() {
     let input = "[[ x =~ { # ; ]]\necho after\n";
     let parsed = Parser::new(input).parse();
@@ -2645,6 +2653,14 @@ fn test_malformed_conditional_recovery_ignores_separator_in_comment() {
 #[test]
 fn test_malformed_case_recovery_skips_nested_case_end() {
     let input = "case x in bad <<TAG\ncase y in z) :;; esac\nesac\necho after\n";
+    let parsed = Parser::new(input).parse();
+
+    assert!(parsed.is_err());
+}
+
+#[test]
+fn test_malformed_case_recovery_ignores_assignment_named_like_terminator() {
+    let input = "case x in bad <<TAG\nesac=1\nesac\necho after\n";
     let parsed = Parser::new(input).parse();
 
     assert!(parsed.is_err());
