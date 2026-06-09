@@ -2627,6 +2627,14 @@ fn test_malformed_conditional_recovery_ignores_quoted_fallback_separator() {
 }
 
 #[test]
+fn test_malformed_conditional_recovery_fallback_stops_at_list_separator() {
+    let input = "[[ x =~ { && echo after\n";
+    let parsed = Parser::new(input).parse();
+
+    assert!(parsed.is_err());
+}
+
+#[test]
 fn test_malformed_conditional_recovery_ignores_close_in_command_substitution() {
     let input = "[[ x =~ { $(echo ]]) ]]\necho after\n";
     let parsed = Parser::new(input).parse();
@@ -2637,6 +2645,14 @@ fn test_malformed_conditional_recovery_ignores_close_in_command_substitution() {
 #[test]
 fn test_malformed_conditional_recovery_ignores_close_inside_word() {
     let input = "[[ x =~ { foo]]bar ]]\necho after\n";
+    let parsed = Parser::new(input).parse();
+
+    assert!(parsed.is_err());
+}
+
+#[test]
+fn test_malformed_conditional_recovery_ignores_close_before_quoted_suffix() {
+    let input = "[[ x =~ { ]]\"suffix\" ]]\necho after\n";
     let parsed = Parser::new(input).parse();
 
     assert!(parsed.is_err());

@@ -115,7 +115,7 @@ impl<'a> Parser<'a> {
             if state.update_quoted_state(ch) {
                 continue;
             }
-            if state.is_plain_top_level() && matches!(ch, ';' | '\n') {
+            if state.is_plain_top_level() && matches!(ch, ';' | '\n' | '&' | '|') {
                 return Some(offset);
             }
             state.update_raw_syntax(ch);
@@ -513,6 +513,6 @@ fn raw_token_ends_at(input: &str, offset: usize, token: &str) -> bool {
 fn is_shell_token_boundary(ch: char) -> bool {
     matches!(
         ch,
-        ' ' | '\t' | '\r' | '\n' | ';' | '&' | '|' | '(' | ')' | '<' | '>' | '"' | '\'' | '`'
+        ' ' | '\t' | '\r' | '\n' | ';' | '&' | '|' | '(' | ')' | '<' | '>'
     )
 }
