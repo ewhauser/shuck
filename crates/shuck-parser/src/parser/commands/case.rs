@@ -174,31 +174,18 @@ impl<'a> Parser<'a> {
             return;
         }
 
-        let Some(separator_offset) = self.input[self.current_span.start.offset..]
-            .find(['\n', ';'])
-            .map(|offset| self.current_span.start.offset + offset)
-        else {
-            self.skip_raw_to_offset(self.input.len());
-            return;
-        };
-
-        if separator_offset > self.current_span.start.offset {
+        if let Some(separator_offset) =
+            self.raw_recovery_separator_offset(self.current_span.start.offset)
+        {
             self.skip_raw_to_offset(separator_offset);
+        } else {
+            self.skip_raw_to_offset(self.input.len());
         }
     }
 
     pub(super) fn recover_to_case_end(&mut self) {
-        let search_start = self.current_span.start.offset;
-        for (relative, _) in self.input[search_start..].match_indices("esac") {
-            let start = search_start + relative;
-            let end = start + "esac".len();
-            let before = self.input[..start].chars().next_back();
-            let after = self.input[end..].chars().next();
-            if before.is_some_and(is_shell_name_char) || after.is_some_and(is_shell_name_char) {
-                continue;
-            }
-            self.skip_raw_to_offset(end);
-            return;
+        if let Some(end_offset) = self.raw_case_end_offset(self.current_span.start.offset) {
+            self.skip_raw_to_offset(end_offset);
         }
     }
 
@@ -568,8 +555,4 @@ impl<'a> Parser<'a> {
 
         None
     }
-}
-
-fn is_shell_name_char(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || ch == '_'
 }

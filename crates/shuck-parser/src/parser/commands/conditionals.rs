@@ -43,21 +43,18 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn recover_to_conditional_end(&mut self, start: Position) {
-        if let Some(relative) = self.input[start.offset..].find("]]") {
-            self.skip_raw_to_offset(start.offset + relative + "]]".len());
+        let search_start = self.current_span.start.offset.max(start.offset);
+        if let Some(end_offset) = self.raw_conditional_close_offset(search_start) {
+            self.skip_raw_to_offset(end_offset);
             return;
         }
 
-        let Some(separator_offset) = self.input[self.current_span.start.offset..]
-            .find(['\n', ';'])
-            .map(|offset| self.current_span.start.offset + offset)
-        else {
-            self.skip_raw_to_offset(self.input.len());
-            return;
-        };
-
-        if separator_offset > self.current_span.start.offset {
+        if let Some(separator_offset) =
+            self.raw_recovery_separator_offset(self.current_span.start.offset)
+        {
             self.skip_raw_to_offset(separator_offset);
+        } else {
+            self.skip_raw_to_offset(self.input.len());
         }
     }
 

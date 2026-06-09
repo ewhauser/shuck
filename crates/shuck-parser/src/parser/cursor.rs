@@ -102,6 +102,84 @@ impl<'a> Parser<'a> {
         self.advance_raw();
     }
 
+    pub(super) fn raw_recovery_separator_offset(&self, start: usize) -> Option<usize> {
+        let mut state = RawRecoveryScanState::default();
+        for (relative, ch) in self.input[start.min(self.input.len())..].char_indices() {
+            let offset = start + relative;
+            if state.in_comment {
+                if ch == '\n' {
+                    return Some(offset);
+                }
+                continue;
+            }
+            if state.update_quoted_state(ch) {
+                continue;
+            }
+            if state.is_plain() && matches!(ch, ';' | '\n') {
+                return Some(offset);
+            }
+            state.update_command_position(ch);
+        }
+        None
+    }
+
+    pub(super) fn raw_conditional_close_offset(&self, start: usize) -> Option<usize> {
+        let mut state = RawRecoveryScanState::default();
+        let start = start.min(self.input.len());
+        for (relative, ch) in self.input[start..].char_indices() {
+            let offset = start + relative;
+            if state.in_comment {
+                if ch == '\n' {
+                    state.in_comment = false;
+                    state.at_command_start = true;
+                }
+                continue;
+            }
+            if state.update_quoted_state(ch) {
+                continue;
+            }
+            if state.is_plain() && self.input[offset..].starts_with("]]") {
+                return Some(offset + "]]".len());
+            }
+            state.update_command_position(ch);
+        }
+        None
+    }
+
+    pub(super) fn raw_case_end_offset(&self, start: usize) -> Option<usize> {
+        let mut state = RawRecoveryScanState::default();
+        let start = start.min(self.input.len());
+        for (relative, ch) in self.input[start..].char_indices() {
+            let offset = start + relative;
+            if state.in_comment {
+                if ch == '\n' {
+                    state.in_comment = false;
+                    state.at_command_start = true;
+                }
+                continue;
+            }
+            if state.update_quoted_state(ch) {
+                continue;
+            }
+            if state.is_plain()
+                && state.at_command_start
+                && self.input[offset..].starts_with("esac")
+                && self.input[..offset]
+                    .chars()
+                    .next_back()
+                    .is_none_or(|ch| !is_shell_name_char(ch))
+                && self.input[offset + "esac".len()..]
+                    .chars()
+                    .next()
+                    .is_none_or(|ch| !is_shell_name_char(ch))
+            {
+                return Some(offset + "esac".len());
+            }
+            state.update_command_position(ch);
+        }
+        None
+    }
+
     pub(super) fn next_pending_token(&mut self) -> Option<LexedToken<'a>> {
         if let Some(token) = self.synthetic_tokens.pop_front() {
             return Some(token.materialize());
@@ -271,4 +349,81 @@ impl<'a> Parser<'a> {
             }
         }
     }
+}
+
+struct RawRecoveryScanState {
+    in_single: bool,
+    in_double: bool,
+    in_backtick: bool,
+    escaped: bool,
+    in_comment: bool,
+    at_command_start: bool,
+}
+
+impl Default for RawRecoveryScanState {
+    fn default() -> Self {
+        Self {
+            in_single: false,
+            in_double: false,
+            in_backtick: false,
+            escaped: false,
+            in_comment: false,
+            at_command_start: true,
+        }
+    }
+}
+
+impl RawRecoveryScanState {
+    fn is_plain(&self) -> bool {
+        !self.in_single && !self.in_double && !self.in_backtick && !self.escaped
+    }
+
+    fn update_quoted_state(&mut self, ch: char) -> bool {
+        if self.escaped {
+            self.escaped = false;
+            self.at_command_start = false;
+            return true;
+        }
+
+        match ch {
+            '\\' if !self.in_single => {
+                self.escaped = true;
+                self.at_command_start = false;
+                true
+            }
+            '\'' if !self.in_double && !self.in_backtick => {
+                self.in_single = !self.in_single;
+                self.at_command_start = false;
+                true
+            }
+            '"' if !self.in_single && !self.in_backtick => {
+                self.in_double = !self.in_double;
+                self.at_command_start = false;
+                true
+            }
+            '`' if !self.in_single && !self.in_double => {
+                self.in_backtick = !self.in_backtick;
+                self.at_command_start = false;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn update_command_position(&mut self, ch: char) {
+        if !self.is_plain() {
+            return;
+        }
+
+        match ch {
+            ' ' | '\t' | '\r' => {}
+            '#' if self.at_command_start => self.in_comment = true,
+            '\n' | ';' | '&' | '|' => self.at_command_start = true,
+            _ => self.at_command_start = false,
+        }
+    }
+}
+
+fn is_shell_name_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
 }

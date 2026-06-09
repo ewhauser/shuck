@@ -2601,3 +2601,27 @@ fn test_parse_glob_malformed_case_and_conditional_recovery_fuzz_regression_finis
     let conditional_script = format!("if [[ \"hello.world\" == {} ]]; then echo y; fi\n", input);
     let _ = Parser::new(&conditional_script).parse();
 }
+
+#[test]
+fn test_malformed_conditional_recovery_ignores_quoted_close_before_current_token() {
+    let input = "[[ ( \"foo ]] bar\" == x ]]\necho after\n";
+    let parsed = Parser::new(input).parse();
+
+    assert!(parsed.is_err());
+}
+
+#[test]
+fn test_malformed_case_recovery_ignores_quoted_esac_body_text() {
+    let input = "case x in bad <<TAG\necho \"esac\"\nesac\necho after\n";
+    let parsed = Parser::new(input).parse();
+
+    assert!(parsed.is_err());
+}
+
+#[test]
+fn test_malformed_conditional_recovery_ignores_quoted_fallback_separator() {
+    let input = "[[ x =~ { \"a;b\"\necho after\n";
+    let parsed = Parser::new(input).parse();
+
+    assert!(parsed.is_err());
+}
