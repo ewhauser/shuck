@@ -67,6 +67,7 @@ impl<'a> Parser<'a> {
         let mut redirects = SmallVec::<[Redirect; 1]>::new();
 
         loop {
+            self.tick()?;
             self.check_error_token()?;
             let next_kind_after_right_brace = if self.at(TokenKind::RightBrace) {
                 self.peek_next_kind()
