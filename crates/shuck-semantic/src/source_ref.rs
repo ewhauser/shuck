@@ -1,6 +1,34 @@
 use compact_str::CompactString;
 use shuck_ast::{Name, Span};
 
+/// Which shuck-native source hint, if any, annotated a `source` reference.
+///
+/// Distinguishes the shuck-native directives from the ShellCheck-compatible
+/// `# shellcheck source=` directive (which keeps ShellCheck's louder
+/// not-specified-as-input semantics) and from non-directive references.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SourceHint {
+    /// No shuck-native hint: a plain reference or `# shellcheck source=`.
+    #[default]
+    None,
+    /// `# shuck: assume-source=<path>` — trust the path and import its symbols.
+    Assume,
+    /// `# shuck: follow-source=<path>` — trust and import, and lint/follow the target.
+    Follow,
+}
+
+impl SourceHint {
+    /// Whether this hint is a shuck-native assertion (`assume`/`follow`).
+    pub fn is_native(self) -> bool {
+        matches!(self, SourceHint::Assume | SourceHint::Follow)
+    }
+
+    /// Whether the hint requests following (linting) the target.
+    pub fn follows(self) -> bool {
+        matches!(self, SourceHint::Follow)
+    }
+}
+
 /// Broad diagnostic family for a discovered `source`-style reference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceRefDiagnosticClass {
@@ -23,11 +51,8 @@ pub struct SourceRef {
     pub resolution: SourceRefResolution,
     /// Whether the path came from an explicitly provided source directive.
     pub explicitly_provided: bool,
-    /// Whether a directive requested following the target (linting it and its
-    /// own sources), as opposed to only importing its symbols. Set by a
-    /// `follow-source` directive; `false` for `assume-source`, `# shellcheck
-    /// source=`, and non-directive references.
-    pub follow: bool,
+    /// Which shuck-native source hint (if any) annotated this reference.
+    pub hint: SourceHint,
     /// Diagnostic family higher layers should use for unresolved cases.
     pub diagnostic_class: SourceRefDiagnosticClass,
 }

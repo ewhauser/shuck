@@ -36,7 +36,7 @@ use crate::source_closure::{
     SourcePathTemplate, assignment_source_path_template, source_path_template,
 };
 use crate::source_ref::{
-    SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution,
+    SourceHint, SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution,
     default_diagnostic_class,
 };
 use crate::{
@@ -2050,20 +2050,29 @@ fn parse_source_directive_override(text: &str, own_line: bool) -> Option<SourceD
     if let Some(rest) = strip_shuck_directive_prefix(text) {
         for part in rest.split_whitespace() {
             if let Some(value) = part.strip_prefix("assume-source=") {
-                return Some(source_directive_override(value, false, own_line));
+                return Some(source_directive_override(
+                    value,
+                    SourceHint::Assume,
+                    own_line,
+                ));
             }
             if let Some(value) = part.strip_prefix("follow-source=") {
-                return Some(source_directive_override(value, true, own_line));
+                return Some(source_directive_override(
+                    value,
+                    SourceHint::Follow,
+                    own_line,
+                ));
             }
         }
         return None;
     }
 
-    // ShellCheck-compatible `# shellcheck source=<path>` keeps assume semantics.
+    // ShellCheck-compatible `# shellcheck source=<path>` keeps ShellCheck's
+    // not-specified-as-input semantics (SourceHint::None).
     if text.contains("shellcheck") {
         for part in text.split_whitespace() {
             if let Some(value) = part.strip_prefix("source=") {
-                return Some(source_directive_override(value, false, own_line));
+                return Some(source_directive_override(value, SourceHint::None, own_line));
             }
         }
     }
@@ -2081,7 +2090,11 @@ fn strip_shuck_directive_prefix(text: &str) -> Option<&str> {
         .then(|| trimmed[6..].trim_start())
 }
 
-fn source_directive_override(value: &str, follow: bool, own_line: bool) -> SourceDirectiveOverride {
+fn source_directive_override(
+    value: &str,
+    hint: SourceHint,
+    own_line: bool,
+) -> SourceDirectiveOverride {
     let kind = if value == "/dev/null" {
         SourceRefKind::DirectiveDevNull
     } else {
@@ -2089,7 +2102,7 @@ fn source_directive_override(value: &str, follow: bool, own_line: bool) -> Sourc
     };
     SourceDirectiveOverride {
         kind,
-        follow,
+        hint,
         own_line,
     }
 }

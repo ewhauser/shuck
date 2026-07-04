@@ -101,7 +101,9 @@ pub use shuck_parser::{OptionValue, ShellDialect, ShellProfile, ZshEmulationMode
 /// Zsh plugin framework layout helpers.
 pub use source_closure::{layout_for_plugin_framework, zsh_plugin_frameworks};
 /// Source-reference records and resolution state.
-pub use source_ref::{SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution};
+pub use source_ref::{
+    SourceHint, SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution,
+};
 /// Value-flow query object built over semantic bindings, call sites, CFG, and dataflow.
 pub use value_flow::SemanticValueFlow;
 /// Zsh plugin framework traits and name aliases.
@@ -361,9 +363,9 @@ impl SpanKey {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SourceDirectiveOverride {
     pub(crate) kind: SourceRefKind,
-    /// Whether the directive requested following the target (`follow-source`)
-    /// rather than only importing its symbols (`assume-source` / `source=`).
-    pub(crate) follow: bool,
+    /// Which shuck-native hint produced this directive (`None` for the
+    /// ShellCheck-compatible `source=` spelling).
+    pub(crate) hint: SourceHint,
     pub(crate) own_line: bool,
 }
 

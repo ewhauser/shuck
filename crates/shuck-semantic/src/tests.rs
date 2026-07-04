@@ -418,14 +418,14 @@ fn source_hint_directives_override_dynamic_classification() {
     let refs = assume.source_refs();
     assert_eq!(refs.len(), 1);
     assert_eq!(refs[0].kind, SourceRefKind::Directive("lib/util.sh".into()));
-    assert!(!refs[0].follow);
+    assert_eq!(refs[0].hint, SourceHint::Assume);
 
     // follow-source: import symbols and follow the target.
     let follow = model("# shuck: follow-source=lib/util.sh\nsource \"$DIR/util.sh\"\n");
     let refs = follow.source_refs();
     assert_eq!(refs.len(), 1);
     assert_eq!(refs[0].kind, SourceRefKind::Directive("lib/util.sh".into()));
-    assert!(refs[0].follow);
+    assert_eq!(refs[0].hint, SourceHint::Follow);
 
     // Same-line placement is honored as well.
     let inline = model("source \"$x\"  # shuck: assume-source=lib/util.sh\n");
@@ -448,7 +448,11 @@ fn shellcheck_source_directive_still_uses_assume_semantics() {
     let refs = model.source_refs();
     assert_eq!(refs.len(), 1);
     assert_eq!(refs[0].kind, SourceRefKind::Directive("lib/util.sh".into()));
-    assert!(!refs[0].follow, "shellcheck source= keeps assume semantics");
+    assert_eq!(
+        refs[0].hint,
+        SourceHint::None,
+        "shellcheck source= is not a native hint"
+    );
 }
 
 #[test]
@@ -461,7 +465,7 @@ fn unrelated_shuck_directives_do_not_become_source_hints() {
         refs[0].kind,
         SourceRefKind::Dynamic | SourceRefKind::SingleVariableStaticTail { .. }
     ));
-    assert!(!refs[0].follow);
+    assert_eq!(refs[0].hint, SourceHint::None);
 }
 
 #[test]

@@ -228,6 +228,10 @@ pub(crate) fn collect_source_ref_metadata(
         {
             explicit = true;
         }
+        // See the closure path: a resolved native hint is an explicit assertion.
+        if resolved && source_ref.hint.is_native() {
+            explicit = true;
+        }
 
         source_ref_resolutions.push(classify_source_ref_resolution(&source_ref.kind, resolved));
         source_ref_explicitness.push(explicit);
@@ -290,6 +294,14 @@ fn collect_source_closure_contracts_with_cache(
         if has_current_source_anchor
             && (resolved || model.shell_profile().dialect == ParseShellDialect::Zsh)
         {
+            explicit = true;
+        }
+        // A shuck-native `assume-source`/`follow-source` directive that resolves
+        // is an explicit user assertion of the target, so treat it as explicitly
+        // provided (silencing the untracked-source diagnostic) even when the
+        // target is not part of the analyzed set. `# shellcheck source=` keeps
+        // ShellCheck's not-specified-as-input semantics and is not silenced here.
+        if resolved && source_ref.hint.is_native() {
             explicit = true;
         }
         let trust_provided_bindings =
