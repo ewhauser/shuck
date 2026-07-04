@@ -200,7 +200,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                     && let Some(argument) = args.first().copied()
                 {
                     let source_span = self.command_stack.last().copied().unwrap_or(command_span);
-                    let kind = self.classify_source_ref(command_span.line(), argument);
+                    let (kind, follow) = self.classify_source_ref(command_span.line(), argument);
                     self.source_refs.push(SourceRef {
                         diagnostic_class: classify_source_ref_diagnostic_class(
                             argument,
@@ -212,6 +212,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                         path_span: argument.span,
                         resolution: SourceRefResolution::Unchecked,
                         explicitly_provided: false,
+                        follow,
                     });
                 }
             }

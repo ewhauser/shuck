@@ -2044,19 +2044,54 @@ fn parse_source_directives(
 }
 
 fn parse_source_directive_override(text: &str, own_line: bool) -> Option<SourceDirectiveOverride> {
-    text.contains("shellcheck").then_some(())?;
-    for part in text.split_whitespace() {
-        if let Some(value) = part.strip_prefix("source=") {
-            let kind = if value == "/dev/null" {
-                SourceRefKind::DirectiveDevNull
-            } else {
-                SourceRefKind::Directive(value.into())
-            };
-            return Some(SourceDirectiveOverride { kind, own_line });
+    // shuck-native spellings distinguish trust-only from follow:
+    //   `# shuck: assume-source=<path>`  -> import symbols only
+    //   `# shuck: follow-source=<path>`  -> import symbols and follow the target
+    if let Some(rest) = strip_shuck_directive_prefix(text) {
+        for part in rest.split_whitespace() {
+            if let Some(value) = part.strip_prefix("assume-source=") {
+                return Some(source_directive_override(value, false, own_line));
+            }
+            if let Some(value) = part.strip_prefix("follow-source=") {
+                return Some(source_directive_override(value, true, own_line));
+            }
+        }
+        return None;
+    }
+
+    // ShellCheck-compatible `# shellcheck source=<path>` keeps assume semantics.
+    if text.contains("shellcheck") {
+        for part in text.split_whitespace() {
+            if let Some(value) = part.strip_prefix("source=") {
+                return Some(source_directive_override(value, false, own_line));
+            }
         }
     }
 
     None
+}
+
+/// Strips a leading case-insensitive `shuck:` directive prefix, returning the
+/// remaining directive body when present.
+fn strip_shuck_directive_prefix(text: &str) -> Option<&str> {
+    let trimmed = text.trim_start();
+    let prefix = trimmed.get(..6)?;
+    prefix
+        .eq_ignore_ascii_case("shuck:")
+        .then(|| trimmed[6..].trim_start())
+}
+
+fn source_directive_override(value: &str, follow: bool, own_line: bool) -> SourceDirectiveOverride {
+    let kind = if value == "/dev/null" {
+        SourceRefKind::DirectiveDevNull
+    } else {
+        SourceRefKind::Directive(value.into())
+    };
+    SourceDirectiveOverride {
+        kind,
+        follow,
+        own_line,
+    }
 }
 
 fn arithmetic_name_span(span: Span, name: &Name) -> Span {

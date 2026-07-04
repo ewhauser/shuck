@@ -361,6 +361,9 @@ impl SpanKey {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SourceDirectiveOverride {
     pub(crate) kind: SourceRefKind,
+    /// Whether the directive requested following the target (`follow-source`)
+    /// rather than only importing its symbols (`assume-source` / `source=`).
+    pub(crate) follow: bool,
     pub(crate) own_line: bool,
 }
 

@@ -23,6 +23,11 @@ pub struct SourceRef {
     pub resolution: SourceRefResolution,
     /// Whether the path came from an explicitly provided source directive.
     pub explicitly_provided: bool,
+    /// Whether a directive requested following the target (linting it and its
+    /// own sources), as opposed to only importing its symbols. Set by a
+    /// `follow-source` directive; `false` for `assume-source`, `# shellcheck
+    /// source=`, and non-directive references.
+    pub follow: bool,
     /// Diagnostic family higher layers should use for unresolved cases.
     pub diagnostic_class: SourceRefDiagnosticClass,
 }

@@ -412,6 +412,59 @@ fn editor_call_hierarchy_preserves_zsh_multi_name_function_bodies() {
 }
 
 #[test]
+fn source_hint_directives_override_dynamic_classification() {
+    // assume-source: import symbols only.
+    let assume = model("# shuck: assume-source=lib/util.sh\nsource \"$DIR/util.sh\"\n");
+    let refs = assume.source_refs();
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0].kind, SourceRefKind::Directive("lib/util.sh".into()));
+    assert!(!refs[0].follow);
+
+    // follow-source: import symbols and follow the target.
+    let follow = model("# shuck: follow-source=lib/util.sh\nsource \"$DIR/util.sh\"\n");
+    let refs = follow.source_refs();
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0].kind, SourceRefKind::Directive("lib/util.sh".into()));
+    assert!(refs[0].follow);
+
+    // Same-line placement is honored as well.
+    let inline = model("source \"$x\"  # shuck: assume-source=lib/util.sh\n");
+    assert_eq!(
+        inline.source_refs()[0].kind,
+        SourceRefKind::Directive("lib/util.sh".into())
+    );
+
+    // /dev/null is the explicit no-op include.
+    let dev_null = model("# shuck: assume-source=/dev/null\nsource \"$x\"\n");
+    assert_eq!(
+        dev_null.source_refs()[0].kind,
+        SourceRefKind::DirectiveDevNull
+    );
+}
+
+#[test]
+fn shellcheck_source_directive_still_uses_assume_semantics() {
+    let model = model("# shellcheck source=lib/util.sh\nsource \"$DIR/util.sh\"\n");
+    let refs = model.source_refs();
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0].kind, SourceRefKind::Directive("lib/util.sh".into()));
+    assert!(!refs[0].follow, "shellcheck source= keeps assume semantics");
+}
+
+#[test]
+fn unrelated_shuck_directives_do_not_become_source_hints() {
+    // A suppression directive next to a dynamic source must not resolve it.
+    let model = model("# shuck: disable=C002\nsource \"$DIR/util.sh\"\n");
+    let refs = model.source_refs();
+    assert_eq!(refs.len(), 1);
+    assert!(matches!(
+        refs[0].kind,
+        SourceRefKind::Dynamic | SourceRefKind::SingleVariableStaticTail { .. }
+    ));
+    assert!(!refs[0].follow);
+}
+
+#[test]
 fn editor_completion_is_context_aware() {
     let source = "\
 build() {
