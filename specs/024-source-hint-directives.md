@@ -2,7 +2,15 @@
 
 ## Status
 
-Proposed
+Accepted — partially implemented.
+
+Implemented: directive parsing for `assume-source` / `follow-source` (and the
+`SourceHint` model), and silencing C002/C003 with symbol import for a resolved
+native hint under the default `shuck check` path (relative-to-file resolution).
+
+Remaining: acting on the follow flag to lint followed targets and recurse their
+sources; the `[lint] source-paths` / `follow-sources` config; and the
+unresolved-hint diagnostic.
 
 ## Summary
 

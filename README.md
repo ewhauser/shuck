@@ -257,6 +257,28 @@ For embedded GitHub Actions scripts, put suppression comments inside the `run:` 
 
 YAML comments outside the `run:` scalar are not visible to the shell parser and do not suppress shell diagnostics.
 
+## Sourced files
+
+When a `source`/`.` path is computed (for example `source "$DIR/lib.sh"`), shuck
+cannot resolve it statically and reports it as an untracked source. Point shuck
+at the real file with a hint comment on (or just above) the `source` line:
+
+```sh
+# Import the file's definitions so references resolve, and stop the
+# untracked-source warning. The file itself is not linted.
+# shuck: assume-source=lib/util.sh
+source "$DIR/util.sh"
+
+# Nothing to include here; just silence the warning.
+# shuck: assume-source=/dev/null
+source "$maybe_present"
+```
+
+The path is resolved relative to the annotating file's directory. A
+`# shuck: follow-source=<path>` directive is also recognized (it currently
+behaves like `assume-source`; linting the followed target is planned). The
+ShellCheck-compatible `# shellcheck source=<path>` directive is recognized too.
+
 ## Configuration
 
 Project settings live in `.shuck.toml` or `shuck.toml`. Shuck walks up from each
