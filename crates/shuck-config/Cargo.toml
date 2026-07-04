@@ -11,6 +11,7 @@ description = "Configuration loading and project-root discovery for shuck"
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
+etcetera = { workspace = true }
 serde = { workspace = true }
 shuck-formatter = { workspace = true }
 shuck-run = { workspace = true }

@@ -3,8 +3,9 @@
 //! Configuration loading and override handling for Shuck commands.
 //!
 //! This crate owns the TOML shapes used by `.shuck.toml`, command-line
-//! `--config` overrides, project-root discovery, and the small metadata model
-//! used to render configuration reference docs.
+//! `--config` overrides, project-root discovery, an optional user-level global
+//! config file, and the small metadata model used to render configuration
+//! reference docs.
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -21,6 +22,13 @@ use shuck_formatter::{IndentStyle, ShellDialect};
 use shuck_run::RunConfig;
 
 const CONFIG_FILENAMES: [&str; 2] = [".shuck.toml", "shuck.toml"];
+/// Environment variable that overrides the directory searched for the global
+/// (user-level) shuck config file. When set, only this directory is consulted
+/// for global configuration.
+///
+/// Unused in test builds, which drive the override through a thread-local seam.
+#[cfg_attr(test, allow(dead_code))]
+const GLOBAL_CONFIG_DIR_ENV: &str = "SHUCK_CONFIG_HOME";
 /// Error shown when users try to set formatter dialect in a config file.
 pub const CONFIG_DIALECT_UNSUPPORTED_ERROR: &str = "`[format].dialect` is not supported; formatter dialect is auto-discovered from the file name or shebang. Use `--dialect` for a per-run override";
 const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] = &["check", "format", "lint", "run"];
@@ -1593,11 +1601,12 @@ pub fn load_project_config(
         ShuckConfig::default()
     } else if let Some(config_path) = &config_arguments.config_file {
         load_config_file(config_path)?
-    } else {
-        let Some(config_path) = config_path_for_root(project_root)? else {
-            return Ok(config_arguments.overrides.clone());
-        };
+    } else if let Some(config_path) = config_path_for_root(project_root)? {
         load_config_file(&config_path)?
+    } else if let Some(global_path) = global_config_path()? {
+        load_config_file(&global_path)?
+    } else {
+        return Ok(config_arguments.overrides.clone());
     };
 
     config.apply_overrides(config_arguments.overrides.clone());
@@ -2369,6 +2378,76 @@ fn config_path_for_root(root: &Path) -> io::Result<Option<PathBuf>> {
 /// Return the config file path located directly under `root`, if any.
 pub fn discovered_config_path_for_root(root: &Path) -> io::Result<Option<PathBuf>> {
     config_path_for_root(root)
+}
+
+/// Directories searched, in precedence order, for a user-level global config.
+///
+/// The `SHUCK_CONFIG_HOME` environment variable, when set, takes precedence and
+/// is the only directory consulted (useful for pinning behavior and for tests).
+/// Otherwise the XDG-style config directory is used on every platform:
+/// `$XDG_CONFIG_HOME/shuck` when that variable is set, and `~/.config/shuck`
+/// otherwise. This keeps the location consistent for a CLI config file rather
+/// than following per-OS GUI-app conventions.
+fn global_config_search_dirs() -> Vec<PathBuf> {
+    if let Some(dir) = global_config_dir_override() {
+        return vec![dir];
+    }
+
+    default_global_config_dirs()
+}
+
+/// Explicit override for the global config directory.
+///
+/// In production this reads the `SHUCK_CONFIG_HOME` environment variable. Under
+/// this crate's own unit tests it reads a thread-local instead, so a test can
+/// set it without mutating shared process state (which would race the rest of
+/// the suite).
+#[cfg(not(test))]
+fn global_config_dir_override() -> Option<PathBuf> {
+    std::env::var_os(GLOBAL_CONFIG_DIR_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+#[cfg(test)]
+fn global_config_dir_override() -> Option<PathBuf> {
+    tests::test_global_config_dir()
+}
+
+/// Default (non-overridden) global config directories.
+///
+/// Under unit tests this is empty so the suite never reads a real user-level
+/// config from the host machine; a test that wants a global config sets the
+/// thread-local override instead.
+#[cfg(test)]
+fn default_global_config_dirs() -> Vec<PathBuf> {
+    Vec::new()
+}
+
+#[cfg(not(test))]
+fn default_global_config_dirs() -> Vec<PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| etcetera::home_dir().ok().map(|home| home.join(".config")));
+
+    base.map(|base| vec![base.join("shuck")])
+        .unwrap_or_default()
+}
+
+/// Locate the user-level global config file, if one exists.
+///
+/// Global configuration is used only as a fallback when no project-level
+/// `.shuck.toml`/`shuck.toml` is discovered and no explicit `--config` file or
+/// `--isolated` was requested. The first existing file across the search
+/// directories (see [`global_config_search_dirs`]) wins.
+pub fn global_config_path() -> io::Result<Option<PathBuf>> {
+    for dir in global_config_search_dirs() {
+        if let Some(path) = config_path_for_root(&dir)? {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
 }
 
 fn normalize_path(path: &Path) -> PathBuf {
@@ -3514,5 +3593,149 @@ mod tests {
             resolve_project_root_for_input(&nested, false).unwrap(),
             nested
         );
+    }
+
+    thread_local! {
+        /// Per-thread override for the global config directory. Because each
+        /// test runs (together with the `load_project_config` call it drives) on
+        /// a single thread, setting this never races other tests in the suite.
+        static TEST_GLOBAL_CONFIG_DIR: std::cell::RefCell<Option<PathBuf>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    /// Read the thread-local global config directory override, if set.
+    pub(super) fn test_global_config_dir() -> Option<PathBuf> {
+        TEST_GLOBAL_CONFIG_DIR.with(|dir| dir.borrow().clone())
+    }
+
+    /// Sets the thread-local global config directory and clears it on drop.
+    struct GlobalConfigHomeGuard;
+
+    impl GlobalConfigHomeGuard {
+        fn set(dir: &Path) -> Self {
+            TEST_GLOBAL_CONFIG_DIR.with(|slot| *slot.borrow_mut() = Some(dir.to_path_buf()));
+            Self
+        }
+    }
+
+    impl Drop for GlobalConfigHomeGuard {
+        fn drop(&mut self) {
+            TEST_GLOBAL_CONFIG_DIR.with(|slot| *slot.borrow_mut() = None);
+        }
+    }
+
+    #[test]
+    fn global_config_is_used_when_no_project_config_exists() {
+        let global_dir = tempdir().unwrap();
+        fs::write(
+            global_dir.path().join("shuck.toml"),
+            "[format]\nfunction-next-line = true\n",
+        )
+        .unwrap();
+        let _guard = GlobalConfigHomeGuard::set(global_dir.path());
+
+        // A project directory with no local config file falls back to the global one.
+        let project = tempdir().unwrap();
+        let loaded = load_project_config(project.path(), &ConfigArguments::default()).unwrap();
+
+        assert_eq!(loaded.format.function_next_line, Some(true));
+    }
+
+    #[test]
+    fn project_config_takes_precedence_over_global_config() {
+        let global_dir = tempdir().unwrap();
+        fs::write(
+            global_dir.path().join("shuck.toml"),
+            "[format]\nfunction-next-line = true\n",
+        )
+        .unwrap();
+        let _guard = GlobalConfigHomeGuard::set(global_dir.path());
+
+        let project = tempdir().unwrap();
+        fs::write(
+            project.path().join(".shuck.toml"),
+            "[format]\nfunction-next-line = false\n",
+        )
+        .unwrap();
+
+        let loaded = load_project_config(project.path(), &ConfigArguments::default()).unwrap();
+
+        assert_eq!(loaded.format.function_next_line, Some(false));
+    }
+
+    #[test]
+    fn isolated_ignores_global_config() {
+        let global_dir = tempdir().unwrap();
+        fs::write(
+            global_dir.path().join("shuck.toml"),
+            "[format]\nfunction-next-line = true\n",
+        )
+        .unwrap();
+        let _guard = GlobalConfigHomeGuard::set(global_dir.path());
+
+        let project = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(vec![], true).unwrap();
+        let loaded = load_project_config(project.path(), &config).unwrap();
+
+        assert_eq!(loaded.format.function_next_line, None);
+    }
+
+    #[test]
+    fn explicit_config_file_takes_precedence_over_global_config() {
+        let global_dir = tempdir().unwrap();
+        fs::write(
+            global_dir.path().join("shuck.toml"),
+            "[format]\nfunction-next-line = true\n",
+        )
+        .unwrap();
+        let _guard = GlobalConfigHomeGuard::set(global_dir.path());
+
+        let project = tempdir().unwrap();
+        let explicit = project.path().join("explicit.toml");
+        fs::write(&explicit, "[format]\nfunction-next-line = false\n").unwrap();
+
+        let config =
+            ConfigArguments::from_cli(vec![SingleConfigArgument::FilePath(explicit)], false)
+                .unwrap();
+        let loaded = load_project_config(project.path(), &config).unwrap();
+
+        assert_eq!(loaded.format.function_next_line, Some(false));
+    }
+
+    #[test]
+    fn cli_overrides_layer_on_top_of_global_config() {
+        let global_dir = tempdir().unwrap();
+        fs::write(
+            global_dir.path().join("shuck.toml"),
+            "[format]\nfunction-next-line = true\n",
+        )
+        .unwrap();
+        let _guard = GlobalConfigHomeGuard::set(global_dir.path());
+
+        let project = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![SingleConfigArgument::SettingsOverride(Box::new(
+                parse_config_override("format.indent-width = 2").unwrap(),
+            ))],
+            false,
+        )
+        .unwrap();
+        let loaded = load_project_config(project.path(), &config).unwrap();
+
+        assert_eq!(loaded.format.function_next_line, Some(true));
+        assert_eq!(loaded.format.indent_width, Some(2));
+    }
+
+    #[test]
+    fn global_config_absent_returns_only_overrides() {
+        let global_dir = tempdir().unwrap();
+        // Directory exists but contains no config file.
+        let _guard = GlobalConfigHomeGuard::set(global_dir.path());
+
+        let project = tempdir().unwrap();
+        assert!(global_config_path().unwrap().is_none());
+
+        let loaded = load_project_config(project.path(), &ConfigArguments::default()).unwrap();
+        assert_eq!(loaded.format.function_next_line, None);
     }
 }
