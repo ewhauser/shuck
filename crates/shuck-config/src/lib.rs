@@ -2440,7 +2440,7 @@ fn default_global_config_dirs() -> Vec<PathBuf> {
 /// Global configuration is used only as a fallback when no project-level
 /// `.shuck.toml`/`shuck.toml` is discovered and no explicit `--config` file or
 /// `--isolated` was requested. The first existing file across the search
-/// directories (see [`global_config_search_dirs`]) wins.
+/// directories (see `global_config_search_dirs`) wins.
 pub fn global_config_path() -> io::Result<Option<PathBuf>> {
     for dir in global_config_search_dirs() {
         if let Some(path) = config_path_for_root(&dir)? {
