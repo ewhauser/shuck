@@ -1,3 +1,6 @@
+mod call_hierarchy_incoming;
+mod call_hierarchy_outgoing;
+mod call_hierarchy_prepare;
 mod code_action;
 mod code_action_resolve;
 mod completion;
@@ -21,6 +24,9 @@ use super::{
     traits::{BackgroundDocumentRequestHandler, RequestHandler, SyncRequestHandler},
 };
 
+pub(super) use call_hierarchy_incoming::CallHierarchyIncomingCalls;
+pub(super) use call_hierarchy_outgoing::CallHierarchyOutgoingCalls;
+pub(super) use call_hierarchy_prepare::CallHierarchyPrepare;
 pub(super) use code_action::CodeActions;
 pub(super) use code_action_resolve::CodeActionResolve;
 pub(super) use completion::Completion;

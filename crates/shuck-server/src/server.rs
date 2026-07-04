@@ -152,6 +152,7 @@ impl Server {
                 ..types::CompletionOptions::default()
             }),
             definition_provider: Some(OneOf::Left(true)),
+            call_hierarchy_provider: Some(types::CallHierarchyServerCapability::Simple(true)),
             references_provider: Some(OneOf::Left(true)),
             document_highlight_provider: Some(OneOf::Left(true)),
             document_formatting_provider: Some(OneOf::Left(true)),

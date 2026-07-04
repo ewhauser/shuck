@@ -113,6 +113,46 @@ pub struct EditorOccurrence {
     pub kind: EditorOccurrenceKind,
 }
 
+/// Identifies a call-hierarchy node: a named function or the script's top level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EditorCallHierarchyTarget {
+    /// A named function definition.
+    Function(BindingId),
+    /// The script's top-level (module) scope.
+    TopLevel,
+}
+
+/// A call-hierarchy node suitable for editor presentation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditorCallHierarchyItem {
+    /// Function name; empty for the top-level node (the presenter supplies a label).
+    pub name: Name,
+    /// What the node refers to.
+    pub target: EditorCallHierarchyTarget,
+    /// Span covering the whole definition; `None` for the top-level node.
+    pub full_span: Option<Span>,
+    /// Span to select when navigating; `None` for the top-level node.
+    pub selection_span: Option<Span>,
+}
+
+/// One incoming-call group: a caller and the call-token spans where it calls the subject.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditorIncomingCall {
+    /// The calling node.
+    pub from: EditorCallHierarchyItem,
+    /// Spans of the callee tokens inside `from` that call the subject.
+    pub call_spans: Vec<Span>,
+}
+
+/// One outgoing-call group: a callee and the call-token spans where the subject calls it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditorOutgoingCall {
+    /// The called node.
+    pub to: EditorCallHierarchyItem,
+    /// Spans of the callee tokens inside the subject that call `to`.
+    pub call_spans: Vec<Span>,
+}
+
 /// Completion category for editor presentation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditorCompletionKind {
@@ -398,6 +438,148 @@ impl<'model> EditorQuery<'model> {
                 .unwrap_or_default(),
             EditorSymbolTarget::RuntimeName(_) => Vec::new(),
         }
+    }
+
+    /// Resolves the call-hierarchy node under `offset`, if it is a function.
+    ///
+    /// The cursor may sit on a function definition name or on a call to a
+    /// function that resolves to a definition; both yield the same node.
+    pub fn prepare_call_hierarchy(&self, offset: usize) -> Option<EditorCallHierarchyItem> {
+        let binding_id = self.function_binding_at_offset(offset)?;
+        Some(function_call_hierarchy_item(self.model, binding_id))
+    }
+
+    /// Returns the top-level (module) call-hierarchy node for this document.
+    pub fn top_level_call_hierarchy_item(&self) -> EditorCallHierarchyItem {
+        EditorCallHierarchyItem {
+            name: Name::from(""),
+            target: EditorCallHierarchyTarget::TopLevel,
+            full_span: None,
+            selection_span: None,
+        }
+    }
+
+    /// Returns callers of `item`, grouped by calling node.
+    ///
+    /// A caller is either the enclosing named function of each call site or the
+    /// script's top level. The top-level node itself has no callers.
+    pub fn incoming_calls(&self, item: &EditorCallHierarchyItem) -> Vec<EditorIncomingCall> {
+        let EditorCallHierarchyTarget::Function(binding_id) = item.target else {
+            return Vec::new();
+        };
+        let name = self.model.binding(binding_id).name.clone();
+        let function_by_body_scope = self.function_by_body_scope();
+        let analysis = self.model.analysis();
+
+        let mut order: Vec<EditorCallHierarchyTarget> = Vec::new();
+        let mut spans_by_caller: FxHashMap<EditorCallHierarchyTarget, Vec<Span>> =
+            FxHashMap::default();
+        for (site, resolved) in analysis.resolved_function_call_sites(&name) {
+            if resolved != binding_id {
+                continue;
+            }
+            let caller = enclosing_function_target(self.model, &function_by_body_scope, site.scope);
+            spans_by_caller
+                .entry(caller)
+                .or_insert_with(|| {
+                    order.push(caller);
+                    Vec::new()
+                })
+                .push(site.name_span);
+        }
+
+        order
+            .into_iter()
+            .map(|caller| {
+                let mut spans = spans_by_caller.remove(&caller).unwrap_or_default();
+                sort_dedup_spans(&mut spans);
+                EditorIncomingCall {
+                    from: self.item_for_target(caller),
+                    call_spans: spans,
+                }
+            })
+            .collect()
+    }
+
+    /// Returns the functions that `item` calls, grouped by callee.
+    ///
+    /// Only calls whose innermost enclosing function is `item` are attributed to
+    /// it, so calls made by nested function definitions belong to those nested
+    /// functions rather than their enclosing one. Callees that do not resolve to
+    /// a function definition (builtins, external commands) are omitted.
+    pub fn outgoing_calls(&self, item: &EditorCallHierarchyItem) -> Vec<EditorOutgoingCall> {
+        let function_by_body_scope = self.function_by_body_scope();
+        let analysis = self.model.analysis();
+
+        let mut order: Vec<BindingId> = Vec::new();
+        let mut spans_by_callee: FxHashMap<BindingId, Vec<Span>> = FxHashMap::default();
+        for site in self.model.all_call_sites() {
+            let enclosing =
+                enclosing_function_target(self.model, &function_by_body_scope, site.scope);
+            if enclosing != item.target {
+                continue;
+            }
+            let Some(callee) =
+                analysis.visible_function_binding_at_call(&site.callee, site.name_span)
+            else {
+                continue;
+            };
+            spans_by_callee
+                .entry(callee)
+                .or_insert_with(|| {
+                    order.push(callee);
+                    Vec::new()
+                })
+                .push(site.name_span);
+        }
+
+        order
+            .into_iter()
+            .map(|callee| {
+                let mut spans = spans_by_callee.remove(&callee).unwrap_or_default();
+                sort_dedup_spans(&mut spans);
+                EditorOutgoingCall {
+                    to: function_call_hierarchy_item(self.model, callee),
+                    call_spans: spans,
+                }
+            })
+            .collect()
+    }
+
+    fn item_for_target(&self, target: EditorCallHierarchyTarget) -> EditorCallHierarchyItem {
+        match target {
+            EditorCallHierarchyTarget::Function(binding_id) => {
+                function_call_hierarchy_item(self.model, binding_id)
+            }
+            EditorCallHierarchyTarget::TopLevel => self.top_level_call_hierarchy_item(),
+        }
+    }
+
+    fn function_binding_at_offset(&self, offset: usize) -> Option<BindingId> {
+        match self.target_at_offset(offset)? {
+            EditorSymbolTarget::FunctionCall(call) => call.binding,
+            EditorSymbolTarget::Binding(binding_id) => matches!(
+                self.model.binding(binding_id).kind,
+                BindingKind::FunctionDefinition
+            )
+            .then_some(binding_id),
+            EditorSymbolTarget::Reference(reference_id) => {
+                let binding = self.model.resolved_binding(reference_id)?;
+                matches!(binding.kind, BindingKind::FunctionDefinition).then_some(binding.id)
+            }
+            EditorSymbolTarget::RuntimeName(_) => None,
+        }
+    }
+
+    fn function_by_body_scope(&self) -> FxHashMap<ScopeId, BindingId> {
+        let analysis = self.model.analysis();
+        let mut map = FxHashMap::default();
+        for binding in self.model.function_definition_bindings() {
+            if let Some(scope) = analysis.function_scope_for_binding(binding.id) {
+                map.entry(scope).or_insert(binding.id);
+            }
+        }
+        map
     }
 
     /// Returns syntax-aware completion candidates at `offset`.
@@ -1315,6 +1497,33 @@ fn function_child_binding_is_document_symbol(binding: &Binding) -> bool {
         binding.kind,
         BindingKind::Declaration(_) | BindingKind::LoopVariable | BindingKind::Nameref
     )
+}
+
+fn function_call_hierarchy_item(
+    model: &SemanticModel,
+    binding_id: BindingId,
+) -> EditorCallHierarchyItem {
+    let binding = model.binding(binding_id);
+    EditorCallHierarchyItem {
+        name: binding.name.clone(),
+        target: EditorCallHierarchyTarget::Function(binding_id),
+        full_span: Some(binding_definition_span(binding)),
+        selection_span: Some(binding.span),
+    }
+}
+
+/// Maps a call site's scope to the target that owns it: the innermost enclosing
+/// named function, or the top level when no function encloses the site.
+fn enclosing_function_target(
+    model: &SemanticModel,
+    function_by_body_scope: &FxHashMap<ScopeId, BindingId>,
+    scope: ScopeId,
+) -> EditorCallHierarchyTarget {
+    model
+        .ancestor_scopes(scope)
+        .find_map(|ancestor| function_by_body_scope.get(&ancestor).copied())
+        .map(EditorCallHierarchyTarget::Function)
+        .unwrap_or(EditorCallHierarchyTarget::TopLevel)
 }
 
 fn document_symbol_for_function(binding: &Binding) -> Option<EditorDocumentSymbol> {

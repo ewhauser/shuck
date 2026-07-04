@@ -333,6 +333,58 @@ build
 }
 
 #[test]
+fn editor_call_hierarchy_attributes_calls_by_enclosing_function() {
+    let source = "\
+inner() { :; }
+outer() {
+  inner
+  nested() { inner; }
+}
+outer
+";
+    let model = model(source);
+    let query = model.editor_query();
+
+    // Prepare on the `outer` definition name.
+    let outer_def = span_for_nth(source, "outer", 0);
+    let outer = query
+        .prepare_call_hierarchy(outer_def.start.offset)
+        .expect("outer should resolve to a function node");
+    assert_eq!(outer.name.as_str(), "outer");
+
+    // `outer` calls `inner` directly once; the `inner` inside `nested` belongs
+    // to `nested`, not to `outer`.
+    let outgoing = query
+        .outgoing_calls(&outer)
+        .into_iter()
+        .map(|call| (call.to.name.to_string(), call.call_spans.len()))
+        .collect::<Vec<_>>();
+    assert_eq!(outgoing, [("inner".to_owned(), 1)]);
+
+    // `inner` is called from both `outer` and the nested `nested` function.
+    let inner_def = span_for_nth(source, "inner", 0);
+    let inner = query
+        .prepare_call_hierarchy(inner_def.start.offset)
+        .expect("inner should resolve to a function node");
+    let mut callers = query
+        .incoming_calls(&inner)
+        .into_iter()
+        .map(|call| call.from.name.to_string())
+        .collect::<Vec<_>>();
+    callers.sort();
+    assert_eq!(callers, ["nested", "outer"]);
+
+    // `outer` itself is called once, from the script top level.
+    let incoming_outer = query.incoming_calls(&outer);
+    assert_eq!(incoming_outer.len(), 1);
+    assert!(matches!(
+        incoming_outer[0].from.target,
+        EditorCallHierarchyTarget::TopLevel
+    ));
+    assert_eq!(incoming_outer[0].call_spans.len(), 1);
+}
+
+#[test]
 fn editor_completion_is_context_aware() {
     let source = "\
 build() {

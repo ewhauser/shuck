@@ -69,10 +69,11 @@ pub use dataflow::{
 pub use declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 /// Editor-facing semantic query types.
 pub use editor::{
-    EditorCompletion, EditorCompletionKind, EditorCompletionOptions, EditorCompletions,
-    EditorDocumentSymbol, EditorFunctionCallTarget, EditorHover, EditorOccurrence,
-    EditorOccurrenceKind, EditorQuery, EditorRuntimeNameTarget, EditorSymbol, EditorSymbolKind,
-    EditorSymbolTarget, RenameSet, RenameUnavailable,
+    EditorCallHierarchyItem, EditorCallHierarchyTarget, EditorCompletion, EditorCompletionKind,
+    EditorCompletionOptions, EditorCompletions, EditorDocumentSymbol, EditorFunctionCallTarget,
+    EditorHover, EditorIncomingCall, EditorOccurrence, EditorOccurrenceKind, EditorOutgoingCall,
+    EditorQuery, EditorRuntimeNameTarget, EditorSymbol, EditorSymbolKind, EditorSymbolTarget,
+    RenameSet, RenameUnavailable,
 };
 /// Direct function-call reachability query types.
 pub use function_call_reachability::{
@@ -2187,6 +2188,11 @@ impl SemanticModel {
             .get(name)
             .map(SmallVec::as_slice)
             .unwrap_or(&[])
+    }
+
+    /// Iterates every recorded call site across all callee names.
+    pub fn all_call_sites(&self) -> impl Iterator<Item = &CallSite> + '_ {
+        self.call_sites.values().flat_map(|sites| sites.iter())
     }
 
     /// Returns the current call-graph summary for the model.
