@@ -53,6 +53,8 @@ const CONFIG_OVERRIDE_LINT_KEYS: &[&str] = &[
     "unfixable",
     "extend-fixable",
     "rule-options",
+    "source-paths",
+    "follow-sources",
     "contracts",
     "zsh",
 ];
@@ -175,6 +177,13 @@ pub struct LintConfig {
     pub extend_fixable: Option<Vec<String>>,
     /// Rule-specific option values.
     pub rule_options: Option<LintRuleOptionsConfig>,
+    /// Additional directories searched when resolving `assume-source` /
+    /// `follow-source` hints, after the annotating file's own directory.
+    pub source_paths: Option<Vec<String>>,
+    /// Whether `follow-source` hints lint the resolved target (and follow its
+    /// own sources). When false, `follow-source` behaves like `assume-source`.
+    /// Defaults to true.
+    pub follow_sources: Option<bool>,
     /// Ambient contract configuration for framework and plugin assumptions.
     pub contracts: Option<LintContractsConfig>,
     /// Zsh-specific analysis configuration.
@@ -1746,6 +1755,12 @@ impl LintConfig {
             self.rule_options
                 .get_or_insert_default()
                 .apply_overrides(rule_options);
+        }
+        if overrides.source_paths.is_some() {
+            self.source_paths = overrides.source_paths;
+        }
+        if overrides.follow_sources.is_some() {
+            self.follow_sources = overrides.follow_sources;
         }
         if let Some(contracts) = overrides.contracts {
             self.contracts

@@ -2,15 +2,21 @@
 
 ## Status
 
-Accepted — partially implemented.
+Implemented.
 
-Implemented: directive parsing for `assume-source` / `follow-source` (and the
-`SourceHint` model), and silencing C002/C003 with symbol import for a resolved
-native hint under the default `shuck check` path (relative-to-file resolution).
+- Directive parsing for `assume-source` / `follow-source` (the `SourceHint`
+  model), distinct from `# shellcheck source=`.
+- A resolved native hint silences C002/C003 and imports the target's symbols
+  under the default `shuck check` path.
+- `follow-source` lints the resolved target and transitively follows its own
+  `follow-source` hints; `assume-source` does not.
+- `[lint] source-paths` adds project-root-relative search roots; `[lint]
+  follow-sources = false` downgrades `follow-source` to `assume-source`.
 
-Remaining: acting on the follow flag to lint followed targets and recurse their
-sources; the `[lint] source-paths` / `follow-sources` config; and the
-unresolved-hint diagnostic.
+Design note on the unresolved-hint case: rather than a dedicated diagnostic, an
+unresolved native hint still surfaces the existing untracked-source diagnostic
+(C003/SC1091) at the site, which already communicates "the asserted target was
+not found." This reuses C003 as the spec's open question anticipated.
 
 ## Summary
 

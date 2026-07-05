@@ -2503,3 +2503,135 @@ fn check_color_never_overrides_force_color_env() {
         .code(1)
         .stdout(predicate::str::contains("\u{1b}[").not());
 }
+
+#[test]
+fn assume_source_hint_silences_untracked_source_without_linting_target() {
+    let tempdir = tempdir().unwrap();
+    // The helper has an obvious unused-assignment (C001) that must NOT surface,
+    // because assume-source imports symbols without linting the target.
+    fs::write(
+        tempdir.path().join("helper.sh"),
+        "greet() { echo hi; }\nunused_here=1\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("main.sh"),
+        "#!/bin/bash\nDIR=$(dirname \"$0\")\n# shuck: assume-source=helper.sh\nsource \"$DIR/helper.sh\"\ngreet\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(tempdir.path(), &["check", "--no-cache", "main.sh"]);
+    let stdout = stdout_string(&output);
+    assert!(
+        !stdout.contains("C003"),
+        "assume-source should silence untracked-source: {stdout}"
+    );
+    assert!(
+        !stdout.contains("helper.sh"),
+        "assume-source must not lint the target: {stdout}"
+    );
+}
+
+#[test]
+fn follow_source_hint_lints_the_target() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("helper.sh"),
+        "greet() { echo hi; }\nunused_here=1\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("main.sh"),
+        "#!/bin/bash\nDIR=$(dirname \"$0\")\n# shuck: follow-source=helper.sh\nsource \"$DIR/helper.sh\"\ngreet\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(
+        tempdir.path(),
+        &[
+            "check",
+            "--no-cache",
+            "--output-format",
+            "concise",
+            "main.sh",
+        ],
+    );
+    let stdout = stdout_string(&output);
+    assert!(
+        stdout.contains("helper.sh") && stdout.contains("C001"),
+        "follow-source should lint the target and report its C001: {stdout}"
+    );
+}
+
+#[test]
+fn follow_sources_config_false_downgrades_follow_to_assume() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("helper.sh"),
+        "greet() { echo hi; }\nunused_here=1\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("main.sh"),
+        "#!/bin/bash\nDIR=$(dirname \"$0\")\n# shuck: follow-source=helper.sh\nsource \"$DIR/helper.sh\"\ngreet\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[lint]\nfollow-sources = false\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(tempdir.path(), &["check", "--no-cache", "main.sh"]);
+    let stdout = stdout_string(&output);
+    assert!(
+        !stdout.contains("helper.sh"),
+        "follow-sources=false must not lint the target: {stdout}"
+    );
+    assert!(
+        !stdout.contains("C003"),
+        "the hint should still silence untracked-source: {stdout}"
+    );
+}
+
+#[test]
+fn source_paths_config_resolves_follow_source_against_roots() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join("lib")).unwrap();
+    fs::create_dir_all(tempdir.path().join("scripts")).unwrap();
+    fs::write(
+        tempdir.path().join("lib/util.sh"),
+        "greet() { echo hi; }\nshared_unused=1\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("scripts/main.sh"),
+        "#!/bin/bash\n# shuck: follow-source=util.sh\nsource \"$SOMEDIR/util.sh\"\ngreet\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[lint]\nsource-paths = [\"lib\"]\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(
+        tempdir.path(),
+        &[
+            "check",
+            "--no-cache",
+            "--output-format",
+            "concise",
+            "scripts/main.sh",
+        ],
+    );
+    let stdout = stdout_string(&output);
+    assert!(
+        !stdout.contains("C003"),
+        "source-paths should resolve the hint: {stdout}"
+    );
+    assert!(
+        stdout.contains("util.sh") && stdout.contains("C001"),
+        "the followed target under lib/ should be linted: {stdout}"
+    );
+}

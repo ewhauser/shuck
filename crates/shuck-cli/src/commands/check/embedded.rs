@@ -39,6 +39,7 @@ pub(super) fn analyze_embedded_file(
                 cache_data: CheckCacheData::from_displayed(&diagnostics, true, &[]),
                 diagnostics,
                 dependency_paths: Vec::new(),
+                followed_paths: Vec::new(),
                 fixes_applied: 0,
                 parse_failed: true,
             });
@@ -68,6 +69,7 @@ pub(super) fn analyze_embedded_file(
             &snippet_source,
             &parse_result,
             &linter_settings,
+            None,
             None,
             shellcheck_map,
             &pending.file.absolute_path,
@@ -108,6 +110,7 @@ pub(super) fn analyze_embedded_file(
         cache_data: CheckCacheData::from_displayed(&displayed, parse_failed, &[]),
         diagnostics: displayed,
         dependency_paths: Vec::new(),
+        followed_paths: Vec::new(),
         fixes_applied: 0,
         parse_failed,
     })

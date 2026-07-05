@@ -1,17 +1,22 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use rayon::prelude::*;
+use shuck_cache::FileCacheKey;
 use shuck_config::ConfigArguments;
 use shuck_linter::{Applicability, LinterSettings, RuleSelector, ShellCheckCodeMap};
 
 use super::CheckReport;
-use super::analyze::{analyze_file, read_shared_source};
+use super::analyze::{FileCheckResult, analyze_file, read_shared_source};
 use super::cache::{CheckCacheData, CheckCacheSettings, push_cached_diagnostics};
 use super::settings::{ResolvedCheckSettings, resolve_project_check_settings};
+use super::source_resolver::NativeSourceResolver;
 use crate::args::{CheckCommand, FileSelectionArgs, RuleSelectionArgs};
-use crate::commands::project_runner::{ProjectRunRequest, prepare_project_runs_with_cache_key};
-use crate::discover::{DiscoveryOptions, FileKind};
+use crate::commands::project_runner::{
+    PendingProjectFile, ProjectRunRequest, prepare_project_runs_with_cache_key,
+};
+use crate::discover::{DiscoveredFile, DiscoveryOptions, FileKind};
 
 pub(super) fn run_check_with_cwd(
     args: &CheckCommand,
@@ -64,6 +69,20 @@ pub(super) fn run_check_with_cwd(
         }
     }
 
+    // Absolute paths of files already linted directly, so a follow-source target
+    // that is also a discovered input is not linted twice.
+    let mut linted_directly: HashSet<PathBuf> = HashSet::new();
+    for run in &runs {
+        linted_directly.extend(
+            run.files
+                .iter()
+                .filter(|file| file.kind == FileKind::Shell)
+                .map(|file| file.absolute_path.clone()),
+        );
+    }
+    // Follow-source targets linted so far, to avoid re-linting across files/runs.
+    let mut followed_visited: HashSet<PathBuf> = HashSet::new();
+
     for mut run in runs {
         let project_settings = run.settings.clone();
         let analyzed_paths = LinterSettings::analyzed_path_set(
@@ -76,6 +95,20 @@ pub(super) fn run_check_with_cwd(
             .linter_settings
             .clone()
             .with_analyzed_path_set(analyzed_paths);
+        // Relative `[lint] source-paths` resolve against the project root (where
+        // the config lives), falling back to the process cwd.
+        let source_root_base = run
+            .files
+            .first()
+            .map(|file| file.project_root.canonical_root.clone())
+            .unwrap_or_else(|| cwd.to_path_buf());
+        let source_resolver =
+            NativeSourceResolver::new(source_root_base, project_settings.source_paths.clone());
+        // Extra search roots for the closure; when none are configured the
+        // closure's own base-directory resolution already covers relative hints.
+        let closure_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)> =
+            source_resolver.has_roots().then_some(&source_resolver);
+        let follow_resolver = project_settings.follow_sources.then_some(&source_resolver);
         let pending = run.take_pending_files_with_validator(
             |_, cached| Ok(cached.dependencies_match()),
             |file, cached| {
@@ -105,6 +138,8 @@ pub(super) fn run_check_with_cwd(
                     &linter_settings,
                     &project_settings.per_file_shell,
                     Some(project_settings.zsh_plugins.as_ref()),
+                    closure_resolver,
+                    follow_resolver,
                     &shellcheck_map,
                     include_source,
                     fix_applicability,
@@ -113,12 +148,16 @@ pub(super) fn run_check_with_cwd(
             })
             .collect::<Vec<_>>();
 
+        let mut follow_worklist: Vec<(PathBuf, DiscoveredFile)> = Vec::new();
         for result in results {
             let result = result?;
             report.fixes_applied += result.fixes_applied;
             report.parse_failed |= result.parse_failed;
             report.diagnostics.extend(result.diagnostics);
             report.dependency_paths.extend(result.dependency_paths);
+            for followed in &result.followed_paths {
+                follow_worklist.push((followed.clone(), result.file.clone()));
+            }
             if let Some(cache) = run.cache.as_mut() {
                 cache.insert(
                     result.file.relative_path.clone(),
@@ -127,6 +166,38 @@ pub(super) fn run_check_with_cwd(
                 );
             }
             report.cache_misses += 1;
+        }
+
+        // Lint follow-source targets that are not themselves discovered inputs,
+        // transitively following their own follow-source hints.
+        while let Some((path, referrer)) = follow_worklist.pop() {
+            let Ok(canonical) = crate::discover::normalize_path(&path).canonicalize() else {
+                continue;
+            };
+            if linted_directly.contains(&canonical) || !followed_visited.insert(canonical.clone()) {
+                continue;
+            }
+            let Some(followed_result) = analyze_followed_file(
+                &canonical,
+                &referrer,
+                &linter_settings,
+                &project_settings,
+                closure_resolver,
+                follow_resolver,
+                &shellcheck_map,
+                include_source,
+            )?
+            else {
+                continue;
+            };
+            report.parse_failed |= followed_result.parse_failed;
+            report.diagnostics.extend(followed_result.diagnostics);
+            report
+                .dependency_paths
+                .extend(followed_result.dependency_paths);
+            for followed in &followed_result.followed_paths {
+                follow_worklist.push((followed.clone(), followed_result.file.clone()));
+            }
         }
 
         run.persist_cache()?;
@@ -144,6 +215,53 @@ pub(super) fn run_check_with_cwd(
 
     Ok(report)
 }
+
+/// Lints a `follow-source` target as an additional input, reusing the referring
+/// run's settings. Never applies fixes to followed files. Returns `None` when
+/// the target's metadata cannot be read.
+#[allow(clippy::too_many_arguments)]
+fn analyze_followed_file(
+    canonical: &Path,
+    referrer: &DiscoveredFile,
+    linter_settings: &LinterSettings,
+    project_settings: &ResolvedCheckSettings,
+    closure_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)>,
+    follow_resolver: Option<&NativeSourceResolver>,
+    shellcheck_map: &ShellCheckCodeMap,
+    include_source: bool,
+) -> Result<Option<FileCheckResult>> {
+    let Ok(file_key) = FileCacheKey::from_path(canonical) else {
+        return Ok(None);
+    };
+    let relative_path = canonical
+        .strip_prefix(&referrer.project_root.canonical_root)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|_| canonical.to_path_buf());
+    let file = DiscoveredFile {
+        display_path: relative_path.clone(),
+        absolute_path: canonical.to_path_buf(),
+        relative_path,
+        project_root: referrer.project_root.clone(),
+        kind: FileKind::Shell,
+    };
+    let pending = PendingProjectFile { file, file_key };
+    let result = analyze_file(
+        pending,
+        linter_settings,
+        &project_settings.per_file_shell,
+        Some(project_settings.zsh_plugins.as_ref()),
+        closure_resolver,
+        follow_resolver,
+        shellcheck_map,
+        include_source,
+        // Never rewrite followed files: they are pulled in transitively, not
+        // requested by the user on the command line.
+        None,
+        &project_settings.fixable_rules,
+    )?;
+    Ok(Some(result))
+}
+
 pub(crate) fn benchmark_check_paths(
     cwd: &Path,
     paths: &[PathBuf],

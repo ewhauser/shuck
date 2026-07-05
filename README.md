@@ -269,15 +269,31 @@ at the real file with a hint comment on (or just above) the `source` line:
 # shuck: assume-source=lib/util.sh
 source "$DIR/util.sh"
 
+# Same, and also lint the target (and follow its own sources).
+# shuck: follow-source=lib/util.sh
+source "$DIR/util.sh"
+
 # Nothing to include here; just silence the warning.
 # shuck: assume-source=/dev/null
 source "$maybe_present"
 ```
 
-The path is resolved relative to the annotating file's directory. A
-`# shuck: follow-source=<path>` directive is also recognized (it currently
-behaves like `assume-source`; linting the followed target is planned). The
-ShellCheck-compatible `# shellcheck source=<path>` directive is recognized too.
+The path is resolved relative to the annotating file's directory, then against
+any configured `source-paths`. The ShellCheck-compatible
+`# shellcheck source=<path>` directive is recognized too.
+
+Configure resolution and following in `.shuck.toml`:
+
+```toml
+[lint]
+# Extra directories (relative to the project root) searched when resolving
+# assume-source / follow-source hints.
+source-paths = ["lib", "scripts"]
+
+# When false, follow-source behaves like assume-source (import symbols, but do
+# not lint the target). Default: true.
+follow-sources = true
+```
 
 ## Configuration
 

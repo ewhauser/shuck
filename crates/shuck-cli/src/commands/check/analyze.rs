@@ -13,6 +13,7 @@ use super::cache::CheckCacheData;
 use super::display::{display_lint_diagnostics, display_parse_error};
 use super::embedded::analyze_embedded_file;
 use super::settings::CompiledPerFileShellList;
+use super::source_resolver::{NativeSourceResolver, resolve_source_ref_paths};
 use crate::commands::check_output::DisplayedDiagnostic;
 use crate::commands::project_runner::PendingProjectFile;
 use crate::discover::FileKind;
@@ -24,6 +25,10 @@ pub(super) struct FileCheckResult {
     pub(super) cache_data: CheckCacheData,
     pub(super) diagnostics: Vec<DisplayedDiagnostic>,
     pub(super) dependency_paths: Vec<std::path::PathBuf>,
+    /// Resolved on-disk targets of `follow-source` hints in this file, to be
+    /// linted as additional inputs by the runner. Empty when following is
+    /// disabled or the file has no resolvable follow hints.
+    pub(super) followed_paths: Vec<std::path::PathBuf>,
     pub(super) fixes_applied: usize,
     pub(super) parse_failed: bool,
 }
@@ -34,6 +39,8 @@ pub(super) fn analyze_file(
     base_linter_settings: &LinterSettings,
     per_file_shell: &CompiledPerFileShellList,
     plugin_resolver: Option<&(dyn shuck_semantic::PluginResolver + Send + Sync)>,
+    source_path_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)>,
+    source_resolver: Option<&NativeSourceResolver>,
     shellcheck_map: &ShellCheckCodeMap,
     include_source: bool,
     fix_applicability: Option<Applicability>,
@@ -45,6 +52,8 @@ pub(super) fn analyze_file(
             base_linter_settings,
             per_file_shell,
             plugin_resolver,
+            source_path_resolver,
+            source_resolver,
             shellcheck_map,
             include_source,
             fix_applicability,
@@ -65,6 +74,8 @@ fn analyze_shell_file(
     base_linter_settings: &LinterSettings,
     per_file_shell: &CompiledPerFileShellList,
     plugin_resolver: Option<&(dyn shuck_semantic::PluginResolver + Send + Sync)>,
+    source_path_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)>,
+    source_resolver: Option<&NativeSourceResolver>,
     shellcheck_map: &ShellCheckCodeMap,
     include_source: bool,
     fix_applicability: Option<Applicability>,
@@ -83,6 +94,7 @@ fn analyze_shell_file(
         &parse_result,
         &linter_settings,
         plugin_resolver,
+        source_path_resolver,
         shellcheck_map,
         &pending.file.absolute_path,
     );
@@ -105,6 +117,7 @@ fn analyze_shell_file(
                 &parse_result,
                 &linter_settings,
                 plugin_resolver,
+                source_path_resolver,
                 shellcheck_map,
                 &pending.file.absolute_path,
             );
@@ -133,6 +146,11 @@ fn analyze_shell_file(
         display_lint_diagnostics(&pending, &source, &diagnostics, include_source)
     };
     let dependency_paths = analysis.semantic.imported_dependency_paths().to_vec();
+    let followed_paths = source_resolver
+        .map(|resolver| {
+            collect_followed_paths(&analysis.semantic, &pending.file.absolute_path, resolver)
+        })
+        .unwrap_or_default();
     let cache_data = CheckCacheData::from_displayed(&diagnostics, parse_failed, &dependency_paths);
 
     Ok(FileCheckResult {
@@ -141,23 +159,48 @@ fn analyze_shell_file(
         cache_data,
         diagnostics,
         dependency_paths,
+        followed_paths,
         fixes_applied,
         parse_failed,
     })
 }
+
+/// Resolves the on-disk targets of `follow-source` hints in `semantic` so the
+/// runner can lint them as additional inputs.
+fn collect_followed_paths(
+    semantic: &shuck_semantic::SemanticModel,
+    source_path: &Path,
+    resolver: &NativeSourceResolver,
+) -> Vec<std::path::PathBuf> {
+    let mut followed = semantic
+        .source_refs()
+        .iter()
+        .filter(|source_ref| source_ref.hint.follows())
+        .flat_map(|source_ref| resolve_source_ref_paths(source_path, source_ref, resolver))
+        .collect::<Vec<_>>();
+    followed.sort();
+    followed.dedup();
+    followed
+}
+#[allow(clippy::too_many_arguments)]
 pub(super) fn collect_lint_diagnostics(
     source: &Arc<str>,
     parse_result: &ParseResult,
     linter_settings: &LinterSettings,
     plugin_resolver: Option<&(dyn shuck_semantic::PluginResolver + Send + Sync)>,
+    source_path_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)>,
     shellcheck_map: &ShellCheckCodeMap,
     source_path: &Path,
 ) -> shuck_linter::AnalysisResult {
-    shuck_linter::AnalysisRequest::from_parse_result(parse_result, source, linter_settings)
-        .with_source_path(source_path)
-        .with_shellcheck_map(shellcheck_map)
-        .with_optional_plugin_resolver(plugin_resolver)
-        .analyze()
+    let mut request =
+        shuck_linter::AnalysisRequest::from_parse_result(parse_result, source, linter_settings)
+            .with_source_path(source_path)
+            .with_shellcheck_map(shellcheck_map)
+            .with_optional_plugin_resolver(plugin_resolver);
+    if let Some(resolver) = source_path_resolver {
+        request = request.with_source_path_resolver(resolver);
+    }
+    request.analyze()
 }
 pub(super) fn read_shared_source(path: &Path) -> Result<Arc<str>> {
     Ok(Arc::<str>::from(fs::read_to_string(path)?))
@@ -305,6 +348,8 @@ mod tests {
                 .with_analyzed_paths([broken_path.clone()]),
             &empty_per_file_shell(tempdir.path()),
             None,
+            None,
+            None,
             &ShellCheckCodeMap::default(),
             false,
             None,
@@ -362,6 +407,7 @@ mod tests {
             &source,
             &parse_result,
             &LinterSettings::default(),
+            None,
             None,
             &ShellCheckCodeMap::default(),
             &path,

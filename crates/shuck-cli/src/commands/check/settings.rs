@@ -36,6 +36,8 @@ pub(super) struct EffectiveCheckSettings {
     rule_options: EffectiveRuleOptions,
     ambient_contracts: EffectiveAmbientContractSettings,
     zsh_plugins: EffectiveZshPluginSettings,
+    source_paths: Vec<String>,
+    follow_sources: bool,
     embedded_enabled: bool,
 }
 
@@ -109,6 +111,7 @@ struct EffectiveZshPluginEntrypoint {
 }
 
 impl EffectiveCheckSettings {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         enabled_rules: RuleSet,
         per_file_ignores: &[PerFileIgnore],
@@ -116,6 +119,8 @@ impl EffectiveCheckSettings {
         rule_options: &shuck_linter::LinterRuleOptions,
         ambient_contracts: &ResolvedAmbientContracts,
         zsh_plugins: &ResolvedZshPluginSettings,
+        source_paths: Vec<String>,
+        follow_sources: bool,
         embedded_enabled: bool,
     ) -> Self {
         let mut enabled_rules = enabled_rules
@@ -156,6 +161,8 @@ impl EffectiveCheckSettings {
             rule_options: EffectiveRuleOptions::new(rule_options),
             ambient_contracts: EffectiveAmbientContractSettings::new(ambient_contracts),
             zsh_plugins: zsh_plugins.effective(),
+            source_paths,
+            follow_sources,
             embedded_enabled,
         }
     }
@@ -170,6 +177,8 @@ impl CacheKey for EffectiveCheckSettings {
         self.rule_options.cache_key(state);
         self.ambient_contracts.cache_key(state);
         self.zsh_plugins.cache_key(state);
+        self.source_paths.cache_key(state);
+        self.follow_sources.cache_key(state);
         self.embedded_enabled.cache_key(state);
     }
 }
@@ -319,6 +328,11 @@ pub(super) struct ResolvedCheckSettings {
     pub(super) per_file_shell: Arc<CompiledPerFileShellList>,
     pub(super) zsh_plugins: Arc<ResolvedZshPluginSettings>,
     pub(super) fixable_rules: RuleSet,
+    /// Extra directories searched when resolving `assume-source`/`follow-source`
+    /// hints, after the annotating file's own directory.
+    pub(super) source_paths: Vec<String>,
+    /// Whether `follow-source` hints lint the resolved target.
+    pub(super) follow_sources: bool,
     pub(super) effective: EffectiveCheckSettings,
     pub(super) embedded_enabled: bool,
 }
@@ -967,6 +981,8 @@ pub(super) fn resolve_project_check_settings(
         zsh_entrypoints,
     )?;
     let embedded_enabled = config.check.embedded.unwrap_or(true);
+    let source_paths = config.lint.source_paths.clone().unwrap_or_default();
+    let follow_sources = config.lint.follow_sources.unwrap_or(true);
     let effective = EffectiveCheckSettings::new(
         enabled_rules,
         &per_file_ignores,
@@ -974,6 +990,8 @@ pub(super) fn resolve_project_check_settings(
         &rule_options,
         ambient_contracts.as_ref(),
         &resolved_zsh_plugins,
+        source_paths.clone(),
+        follow_sources,
         embedded_enabled,
     );
 
@@ -988,6 +1006,8 @@ pub(super) fn resolve_project_check_settings(
         per_file_shell: Arc::new(compiled_per_file_shell),
         zsh_plugins: Arc::new(resolved_zsh_plugins),
         fixable_rules,
+        source_paths,
+        follow_sources,
         effective,
         embedded_enabled,
     })
