@@ -40,15 +40,15 @@ complete or it should not ship; therefore the design commits to a workspace-wide
 index from the start, which — usefully — also makes outgoing fall out of the same
 structure.
 
-### Honesty boundary
+### What "complete" covers
 
-"Complete" means complete over the **statically-resolvable call graph**. Shell
-has runtime-only dispatch (`eval`, indirect expansion, `$1`-driven case
-dispatch, sourcing a path shuck cannot determine even with hints). Those edges
-are unknowable statically and are out of scope; call hierarchy captures every
-edge the resolver can determine, and the 024 hints exist precisely to maximize
-what is determinable. The server should never present partial results *within*
-the resolvable graph, but it does not claim to model runtime dispatch.
+"Complete" here means complete over the **statically-resolvable call graph**.
+Shell also dispatches at runtime — `eval`, indirect expansion, `$1`-driven
+`case` dispatch, or sourcing a path that stays unresolvable even with a hint —
+and those edges cannot be known without running the script. They are out of
+scope. Call hierarchy returns every edge the resolver can determine (the 024
+hints exist to widen that set) and never returns *partial* results within the
+resolvable graph; it simply does not model runtime-only dispatch.
 
 ## Design
 
@@ -67,17 +67,17 @@ definition of `F` shadows it. "Statically shown to source" covers every
 | Computed path, no hint, unresolvable | no (runtime-only) |
 | `assume-source=/dev/null` | no (explicitly nothing) |
 
-**Recommendation:** the call graph uses *all* determinable edges, including
-`assume-source`. Rationale: incoming completeness — the property this spec
-exists to guarantee — requires counting every real caller; excluding
-`assume-source` callers would make "who calls `F`" wrong for any project that
-used `assume-source` on a caller. Under this model the 023-era distinction
-"`follow` participates in the hierarchy, `assume` does not" is superseded for the
-*workspace graph*: both hints, and plain resolvable literals, contribute edges.
-The `assume` vs `follow` difference remains meaningful where it began — in
+**Decision:** the call graph uses *all* determinable edges — resolvable literal
+sources and both hint kinds, `assume-source` and `follow-source`. Incoming
+completeness, the property this spec exists to guarantee, requires counting every
+real caller, so a caller annotated with `assume-source` must contribute an edge
+just as `follow-source` does. Within the workspace graph the two hints are
+therefore equivalent; this supersedes the 023-era rule that only `follow`
+participates. The `assume` vs `follow` difference persists where it began — in
 per-document analysis cost and in whether `shuck check` lints the target (spec
-024) — just not in what the global call graph contains. (See Alternatives for the
-stricter follow-only option.)
+024) — not in graph membership. Hinted edges are the whole point: computed source
+lines are exactly where the resolvable graph would otherwise have holes, and the
+hints fill them.
 
 ### The workspace call-graph index
 
@@ -160,14 +160,15 @@ user requirement is explicit: both directions complete, or neither.
 
 ### Follow-only edges (exclude `assume-source` from the graph)
 
-Considered. Preserves the 023-era "follow participates, assume does not"
-distinction crisply: cross-file hierarchy would require `follow-source`
-everywhere, and `assume-source` would mean "symbols only, never in the graph." It
-loses incoming completeness for projects that annotated callers with
-`assume-source`, which conflicts with the completeness requirement. Chosen model
-instead counts all determinable edges; the assume/follow distinction survives in
-per-document cost and CLI linting. Revisit if users want an explicit "resolve
-symbols but keep out of the call graph" mode.
+Rejected. It would preserve the 023-era "follow participates, assume does not"
+distinction crisply — cross-file hierarchy would require `follow-source`
+everywhere and `assume-source` would mean "symbols only, never in the graph" —
+but it loses incoming completeness for any project that annotated a caller with
+`assume-source`, which directly contradicts the completeness requirement. Both
+hint kinds contribute edges; the assume/follow distinction survives in
+per-document cost and CLI linting. If a future need arises for "resolve symbols
+but stay out of the call graph," that is a new, separately named mode, not a
+reinterpretation of `assume-source`.
 
 ### Merged multi-file semantic model
 
