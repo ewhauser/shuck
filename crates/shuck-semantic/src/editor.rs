@@ -1694,7 +1694,7 @@ fn declaration_operand_ranges_by_definition_span(
     ranges
 }
 
-fn binding_definition_span(binding: &Binding) -> Span {
+pub(crate) fn binding_definition_span(binding: &Binding) -> Span {
     match binding.origin {
         crate::BindingOrigin::Assignment {
             definition_span, ..
