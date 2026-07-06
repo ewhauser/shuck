@@ -149,10 +149,7 @@ impl ShellDialect {
                 continue;
             }
             if trimmed.starts_with('#') {
-                let comment = trimmed.strip_prefix('#').unwrap_or_default();
-                if at_directive_prefix
-                    && (comment.starts_with("compdef") || comment.starts_with("autoload"))
-                {
+                if at_directive_prefix && Self::is_zsh_autoload_tag_line(trimmed) {
                     saw_zsh_marker = true;
                 }
                 at_directive_prefix = false;
@@ -175,6 +172,21 @@ impl ShellDialect {
             (false, true) => Some(Self::Zsh),
             _ => None,
         }
+    }
+
+    /// Returns `true` when `line` is a zsh autoload/completion tag comment
+    /// (`#compdef …` or `#autoload …`).
+    ///
+    /// compinit requires this tag on the *first* line of a completion/autoload
+    /// function file, so such files lead with the tag instead of a shebang and
+    /// are typically extensionless. Shared by dialect inference and by file
+    /// discovery (`shuck-discover`) so these files are recognized as zsh shell
+    /// scripts. The tag must directly follow `#` (no space), matching compinit.
+    #[must_use]
+    pub fn is_zsh_autoload_tag_line(line: &str) -> bool {
+        line.trim_start().strip_prefix('#').is_some_and(|comment| {
+            comment.starts_with("compdef") || comment.starts_with("autoload")
+        })
     }
 }
 

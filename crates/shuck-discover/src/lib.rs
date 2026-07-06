@@ -601,7 +601,22 @@ pub fn is_shell_script(path: &Path) -> Result<bool> {
     }
 
     let bytes = read_shebang_prefix(path)?;
-    Ok(infer_shebang_dialect(&bytes).is_some())
+    if infer_shebang_dialect(&bytes).is_some() {
+        return Ok(true);
+    }
+
+    // Zsh completion/autoload functions lead with a `#compdef`/`#autoload` tag on
+    // the first line (compinit requires the tag there, so no shebang can precede
+    // it). Recognize them so these extensionless zsh files are discovered; the
+    // linter already infers the zsh dialect from the same marker.
+    Ok(first_line_is_zsh_autoload_tag(&bytes))
+}
+
+fn first_line_is_zsh_autoload_tag(src: &[u8]) -> bool {
+    src.split(|byte| *byte == b'\n')
+        .next()
+        .and_then(|line| std::str::from_utf8(line).ok())
+        .is_some_and(ShellDialect::is_zsh_autoload_tag_line)
 }
 
 fn discovered_file_kind(path: &Path) -> Result<Option<FileKind>> {
@@ -727,6 +742,37 @@ mod tests {
             fs::write(&script, "plugins=(git)\n").unwrap();
             assert!(is_shell_script(&script).unwrap(), "{name}");
         }
+    }
+
+    #[test]
+    fn detects_extensionless_compdef_completion_file() {
+        let tempdir = tempdir().unwrap();
+        let script = tempdir.path().join("_zdot");
+        fs::write(&script, "#compdef zdot\n_arguments '*:: :->args'\n").unwrap();
+
+        assert!(is_shell_script(&script).unwrap());
+    }
+
+    #[test]
+    fn detects_extensionless_autoload_tag_file() {
+        let tempdir = tempdir().unwrap();
+        let script = tempdir.path().join("myfunc");
+        fs::write(&script, "#autoload\nprint hi\n").unwrap();
+
+        assert!(is_shell_script(&script).unwrap());
+    }
+
+    #[test]
+    fn ignores_spaced_compdef_comment_without_shebang() {
+        let tempdir = tempdir().unwrap();
+        let file = tempdir.path().join("notes");
+        fs::write(
+            &file,
+            "# compdef is discussed in these notes\nplain prose\n",
+        )
+        .unwrap();
+
+        assert!(!is_shell_script(&file).unwrap());
     }
 
     #[test]
