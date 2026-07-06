@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use shuck_semantic::{SourcePathResolver, SourceRef, SourceRefKind};
+use shuck_semantic::{SourcePathResolver, SourceRef};
 
 /// Resolves relative source-hint paths against configured roots.
 #[derive(Debug, Clone)]
@@ -32,6 +32,8 @@ impl NativeSourceResolver {
 
 impl SourcePathResolver for NativeSourceResolver {
     fn resolve_candidate_paths(&self, source_path: &Path, candidate: &str) -> Vec<PathBuf> {
+        // Only the configured roots here; the closure adds the base-directory
+        // candidate itself.
         let mut resolved = Vec::new();
         for root in &self.source_paths {
             let root_path = if root == "SCRIPTDIR" {
@@ -60,33 +62,10 @@ pub(super) fn resolve_source_ref_paths(
     source_ref: &SourceRef,
     resolver: &NativeSourceResolver,
 ) -> Vec<PathBuf> {
-    let candidate = match &source_ref.kind {
-        SourceRefKind::Literal(candidate) | SourceRefKind::Directive(candidate) => {
-            candidate.as_str()
-        }
-        SourceRefKind::DirectiveDevNull
-        | SourceRefKind::Dynamic
-        | SourceRefKind::SingleVariableStaticTail { .. } => return Vec::new(),
-    };
-
-    let candidate_path = PathBuf::from(candidate);
-    if candidate_path.is_absolute() {
-        return candidate_path
-            .is_file()
-            .then_some(candidate_path)
-            .into_iter()
-            .collect();
-    }
-
-    let mut resolved = Vec::new();
-    if let Some(base_dir) = source_path.parent() {
-        let direct = base_dir.join(&candidate_path);
-        if direct.is_file() {
-            resolved.push(direct);
-        }
-    }
-    resolved.extend(resolver.resolve_candidate_paths(source_path, candidate));
-    resolved.sort();
-    resolved.dedup();
-    resolved
+    shuck_semantic::resolve_source_ref_targets(
+        source_path,
+        source_ref,
+        &resolver.source_paths,
+        &resolver.cwd,
+    )
 }

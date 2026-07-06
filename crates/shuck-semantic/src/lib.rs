@@ -27,6 +27,7 @@ mod runtime;
 mod scope;
 mod source_closure;
 mod source_ref;
+mod source_resolve;
 mod uninitialized;
 mod unused;
 mod value_flow;
@@ -104,6 +105,8 @@ pub use source_closure::{layout_for_plugin_framework, zsh_plugin_frameworks};
 pub use source_ref::{
     SourceHint, SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution,
 };
+/// Shared on-disk resolution for source references and hints.
+pub use source_resolve::{resolve_candidate_targets, resolve_source_ref_targets};
 /// Value-flow query object built over semantic bindings, call sites, CFG, and dataflow.
 pub use value_flow::SemanticValueFlow;
 /// Zsh plugin framework traits and name aliases.
