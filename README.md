@@ -315,6 +315,32 @@ source-paths = ["lib", "scripts"]
 lint-sources = true
 ```
 
+### Resolving a file that isn't next to the script
+
+When the target lives somewhere the annotating file can't reach relatively — a
+shared `lib/` while the script sits in `scripts/` — give the hint just the
+**file name** and add its directory to `source-paths`:
+
+```sh
+# scripts/deploy.sh
+# shuck: follow-source=util.sh
+source "$SHARED_DIR/util.sh"
+greet   # defined in lib/util.sh
+```
+
+```toml
+# .shuck.toml (at the project root)
+[lint]
+source-paths = ["lib"]
+```
+
+Resolution tries the hint against the annotating file's own directory first
+(`scripts/util.sh`), then each `source-paths` root (`lib/util.sh` — found). The
+hint may be a bare name (`util.sh`), a subpath (`net/http.sh`, joined onto each
+root), or an absolute path (used as-is). `source-paths` roots are relative to
+the project root; the token `SCRIPTDIR` means the annotating file's directory.
+This works the same in `shuck check` and in the editor (LSP call hierarchy).
+
 ## Configuration
 
 Project settings live in `.shuck.toml` or `shuck.toml`. Shuck walks up from each
