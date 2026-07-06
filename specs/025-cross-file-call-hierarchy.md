@@ -6,215 +6,238 @@ Proposed
 
 ## Summary
 
-Extend the single-file LSP call hierarchy (spec 023's navigation family, plus
-the `prepareCallHierarchy` / `incomingCalls` / `outgoingCalls` engine) so that
-functions reached through a `follow-source` hint (spec 024) participate in the
-hierarchy. When a script sources a helper by a computed path and annotates it
-with `# shuck: follow-source=lib/util.sh`, "outgoing calls" from a function
-should descend into `util.sh`, and a function *defined in* `util.sh` should offer
-its call sites back in the caller as "incoming calls". This is the payoff that
-specs 023 (engine) and 024 (resolution) were built to enable, and the concrete
-ask in issue #1144.
+Make LSP call hierarchy complete across files. Building on the single-file
+engine (spec 023's `prepareCallHierarchy` / `incomingCalls` / `outgoingCalls`)
+and the computed-source resolution from spec 024 (`assume-source` /
+`follow-source`), this spec introduces a **workspace call-graph index**: for
+every shell file the server knows about, the functions it defines, the call sites
+it contains, and the source edges that connect files. Both directions of the
+hierarchy — "what does this function call" and "who calls this function" — are
+answered as symmetric traversals of that one index, across the whole workspace,
+not just the file under the cursor. This is the payoff specs 023 and 024 were
+built to enable and the concrete ask in issue #1144.
 
 ## Motivation
 
-Today the two foundations exist but do not meet:
+The two foundations exist but do not meet, and the naive way to join them is
+wrong:
 
-- **Spec 024** resolves computed `source` paths via `assume-source` /
-  `follow-source`, and `follow-source` already lints the target during
-  `shuck check`. But that following is CLI-only; the LSP server never sees it.
-- **Spec 023 / call hierarchy** answers incoming/outgoing calls, but only within
-  one file: the server builds each document's semantic model with
-  `resolve_source_closure: false` (`crates/shuck-server/src/analysis.rs`,
-  `.../editor.rs`), and every `CallHierarchyItem` is addressed with the current
-  document's URI (`crates/shuck-server/src/editor_features.rs`,
-  `to_lsp_call_hierarchy_item`).
+- **Spec 024** makes computed `source` paths statically determinable via hints,
+  but that resolution is confined to the CLI and to a file's own outward closure.
+- **Spec 023 / call hierarchy** answers incoming/outgoing, but per file: the
+  server builds each document with `resolve_source_closure: false`
+  (`crates/shuck-server/src/analysis.rs`, `.../editor.rs`) and stamps every
+  `CallHierarchyItem` with the active document's URI
+  (`crates/shuck-server/src/editor_features.rs`).
 
-The result: a cursor on `main` that calls `helper` (defined in a followed file)
-gets no outgoing edge to `helper`, and a cursor on `helper` gets no incoming edge
-from `main`. For real shell projects — plugin loaders, relative includes — this
-is exactly where navigation matters most. `follow-source` is the user-supplied
-bridge across the computed-path gap; this spec teaches call hierarchy to walk it.
+A tempting shortcut is to answer cross-file calls by walking only the *querying
+document's* follow closure. That gives correct **outgoing** edges (a file's own
+sources are reachable outward) but **incorrect incoming** edges: "who calls `F`"
+where `F` is defined in `util.sh` depends on every workspace file that sources
+`util.sh` — information absent from `util.sh` or its closure. A call hierarchy
+that silently under-reports callers is a refactoring hazard. Incoming must be
+complete or it should not ship; therefore the design commits to a workspace-wide
+index from the start, which — usefully — also makes outgoing fall out of the same
+structure.
+
+### Honesty boundary
+
+"Complete" means complete over the **statically-resolvable call graph**. Shell
+has runtime-only dispatch (`eval`, indirect expansion, `$1`-driven case
+dispatch, sourcing a path shuck cannot determine even with hints). Those edges
+are unknowable statically and are out of scope; call hierarchy captures every
+edge the resolver can determine, and the 024 hints exist precisely to maximize
+what is determinable. The server should never present partial results *within*
+the resolvable graph, but it does not claim to model runtime dispatch.
 
 ## Design
 
-### Directive scope: follow, not assume
+### Which source edges resolve
 
-Only `follow-source` targets join the call hierarchy. `assume-source` remains
-"import symbols to resolve references" and deliberately does **not** contribute
-call sites or definitions to the hierarchy. This matches the split chosen in 024
-and the issue wording ("fully parse for lsp hierarchy" vs. "just use to
-disambiguate missing symbols"):
+A call site in file `B` resolves to a function `F` defined in file `A` when `B`
+can statically be shown to source `A` (directly or transitively) and no nearer
+definition of `F` shadows it. "Statically shown to source" covers every
+*determinable* source edge, not only `follow-source`:
 
-| Directive | References resolve | Symbols in completion/hover | In call hierarchy |
-| --- | --- | --- | --- |
-| `assume-source` | yes | yes | no |
-| `follow-source` | yes | yes | **yes** |
+| Source form in `B` | Contributes a resolvable edge `B → A`? |
+| --- | --- |
+| Literal path that resolves on disk (`source ./lib/a.sh`) | yes |
+| Computed path with `# shuck: assume-source=a.sh` (resolves) | yes |
+| Computed path with `# shuck: follow-source=a.sh` (resolves) | yes |
+| Computed path, no hint, unresolvable | no (runtime-only) |
+| `assume-source=/dev/null` | no (explicitly nothing) |
 
-### The asymmetry: outgoing is natural, incoming is not
+**Recommendation:** the call graph uses *all* determinable edges, including
+`assume-source`. Rationale: incoming completeness — the property this spec
+exists to guarantee — requires counting every real caller; excluding
+`assume-source` callers would make "who calls `F`" wrong for any project that
+used `assume-source` on a caller. Under this model the 023-era distinction
+"`follow` participates in the hierarchy, `assume` does not" is superseded for the
+*workspace graph*: both hints, and plain resolvable literals, contribute edges.
+The `assume` vs `follow` difference remains meaningful where it began — in
+per-document analysis cost and in whether `shuck check` lints the target (spec
+024) — just not in what the global call graph contains. (See Alternatives for the
+stricter follow-only option.)
 
-Following a file's sources is a *directed* operation, and call hierarchy's two
-directions are not symmetric under it:
+### The workspace call-graph index
 
-- **Outgoing** ("what does `F` call") is naturally answerable. From `F`'s file we
-  follow its `follow-source` edges, parse the targets, and resolve `F`'s call
-  tokens against the union of function definitions in the file plus its followed
-  closure. Everything needed is reachable by walking *outward* from `F`.
-- **Incoming** ("who calls `F`") is not. If `F` is defined in `util.sh`, a caller
-  lives in some file `B` that does `follow-source=util.sh` — but nothing in
-  `util.sh` or its own closure points back to `B`. Discovering `B` requires a
-  *reverse* index: which workspace files follow/source/call into this one. The
-  closure does not provide that.
+The core new structure. Over the shell files in the server's workspace folders:
 
-This asymmetry drives the phasing below. v1 delivers complete outgoing edges and
-the incoming edges that are reachable within the *querying document's* closure;
-workspace-wide incoming is deferred to a reverse-index phase.
-
-### Semantic layer: retain the followed closure
-
-The closure today (`crates/shuck-semantic/src/source_closure/`) parses each
-sourced file to extract *contracts* (imported bindings/functions) and then
-discards the per-file model — so call sites and function-body scopes from
-followed files survive nowhere. Two ways to fix that:
-
-- **(A) Merged multi-file model.** Build one `SemanticModel` spanning the whole
-  follow closure, with call sites and scopes from every file in a shared arena.
-  Cleanest query surface, but a large, invasive change to model construction and
-  every span→file mapping.
-- **(B) Retained per-file models + a cross-file overlay** *(recommended)*. Keep
-  today's per-file models, but for `follow-source` edges retain the target's
-  model (or a compact "call-facts" projection: function-definition bindings with
-  spans, and resolved call sites with callee + name-span + enclosing function)
-  keyed by resolved path. A `CrossFileCallGraph` overlay links a call token to a
-  function definition in another retained file. Call hierarchy queries walk the
-  overlay; single-file queries are unchanged.
-
-Recommend (B): it is additive, leaves the existing single-file path untouched,
-and mirrors how the closure already parses each file once. The projection keeps
-retention cheap (no need to hold whole models if only call facts are needed).
-
-New semantic surface (sketch):
-
-```rust
-// A function-definition target in a specific file of the closure.
-pub struct CrossFileFunction { pub path: PathBuf, pub binding: BindingId, pub name: Name, ... }
-
-impl EditorQuery<'_> {
-    // Outgoing edges that resolve into followed files, keyed by target file.
-    fn cross_file_outgoing(&self, item: &EditorCallHierarchyItem, closure: &FollowClosure) -> Vec<EditorOutgoingCall>;
-    // Incoming edges discoverable within the querying document's own closure.
-    fn cross_file_incoming(&self, item: &EditorCallHierarchyItem, closure: &FollowClosure) -> Vec<EditorIncomingCall>;
-}
+```
+WorkspaceCallIndex
+  files: Map<Path, FileCallFacts>            // one entry per indexed file
+  ...
+FileCallFacts
+  definitions: [{ name, binding, def_span, selection_span }]   // functions defined here
+  call_sites:  [{ callee_name, name_span, enclosing_function }] // calls made here
+  source_edges:[{ resolved_path, kind }]      // determinable sources this file has
 ```
 
-The existing `EditorCallHierarchyItem` gains a file identity (its resolved path)
-so items can address functions outside the active document; `EditorIncomingCall`
-/ `EditorOutgoingCall` already carry the call spans.
+Cross-file resolution layered on top:
 
-### Server layer: enable the closure and address by file
+- `resolve(call_site in B) -> Option<(A, definition)>`: search `B`'s own
+  definitions first, then walk `B`'s transitive `source_edges` (visited-set
+  bounded), returning the nearest definition of `callee_name`.
+- `outgoing(F in A)`: for each call site enclosed by `F`, `resolve` it; group by
+  target definition. (Targets may be in `A` or any followed file.)
+- `incoming(F in A)`: scan the index for call sites whose `resolve` lands on
+  `F` — i.e. files that transitively source `A` and call `F.name` without a
+  nearer shadow. Both directions are the same edge set traversed opposite ways.
 
-1. **Turn the closure on for call hierarchy.** The LSP analysis path currently
-   forces `resolve_source_closure: false`. Enable it for the call-hierarchy
-   requests (either always, or lazily when the document contains `follow-source`
-   hints, to avoid paying for closure resolution on documents that have none).
-   This is the one place 024's resolution feeds the server.
-2. **Read followed targets.** Followed files may not be open buffers. The server
-   resolves each `follow-source` path (reusing 024's `NativeSourceResolver` logic,
-   promoted to a shared crate so both `shuck check` and the server use one
-   resolver) and reads the file — preferring the open in-memory buffer when the
-   editor has it, falling back to disk. Transitive follows use a visited set, as
-   in the CLI.
-3. **Address items by their file.** `to_lsp_call_hierarchy_item` must stamp each
-   item with the *target file's* `Url`, not the active document's. Items for
-   followed files carry their resolved path's URI; the round-trip `data` payload
-   (currently a position in the current doc) becomes `{ uri, line, character }`.
-4. **Advertise nothing new.** `callHierarchyProvider` is already advertised by
-   spec 023's work; this spec only widens what the existing requests return.
+The index is what makes incoming complete: it holds every file's call sites and
+source edges, so the reverse lookup is a scan over known data rather than an
+impossible walk outward from the callee.
 
-### Phasing
+### Construction, laziness, and invalidation
 
-- **Phase 1 — outgoing cross-file.** Retain follow-closure call facts; answer
-  outgoing calls that descend into followed files; address items by file. This
-  alone makes "step into the helper's function" work and is the bulk of the
-  value.
-- **Phase 2 — closure-local incoming.** Answer incoming calls whose callers live
-  in files already in the querying document's follow closure. (Complete for the
-  common "main follows helpers" shape.)
-- **Phase 3 — workspace incoming (optional / later).** A workspace-wide reverse
-  index (which files follow/call which) to answer "who calls `F`" across files
-  that the current document does not itself follow. Larger; may reuse the
-  workspace-symbol indexing machinery. Explicitly out of scope for the first PR.
+- **Population.** Reuse the workspace-symbol discovery that already enumerates
+  shell files (spec 023's `workspace/symbol` path) to seed the file set. Each
+  file's `FileCallFacts` is a cheap projection of its parsed model — function
+  definition bindings, call sites, and resolved source edges (the last via 024's
+  resolver, promoted to a shared crate so `shuck check` and the server share one
+  implementation). No full semantic model is retained; only the projection.
+- **Laziness.** Build on first call-hierarchy request, not at startup, to stay
+  within spec 018's latency budget. Index build is parallel over files.
+- **Incremental invalidation.** On `didChange`/`didSave`/watched-file events,
+  reproject only the changed file and drop cached resolutions that touched it.
+  Open buffers shadow on-disk content, so unsaved edits are honored. A file's
+  entry lists its `source_edges`, giving the reverse dependency needed to know
+  which callers' results to invalidate.
 
-### Caching and invalidation
+### Server layer
 
-The document analysis cache must track the resolved follow-target paths as
-dependencies, so editing a followed file invalidates the caller's call-hierarchy
-results. This mirrors `imported_dependency_paths` already produced by the closure
-and the `dependency_paths` the CLI check path records.
+1. **Feed determinable edges from 024.** Each file's `source_edges` come from the
+   shared resolver; this is where 024's hint resolution reaches the server.
+2. **Read files by preference.** A file in the index may be an open buffer or
+   on disk; prefer the buffer, fall back to disk. The server thus reads workspace
+   shell files it did not open — see Security.
+3. **Address items by file.** `to_lsp_call_hierarchy_item` stamps each item with
+   its *own* file's `Url`; the round-trip `data` payload becomes
+   `{ uri, line, character }` so incoming/outgoing can re-resolve an item in any
+   file, not just the active document.
+4. **No new capability.** `callHierarchyProvider` is already advertised; this
+   spec only widens what the three existing requests return.
+
+### Build sequencing (all ships in one feature; this is internal order)
+
+1. Shared source resolver crate (extract 024's `NativeSourceResolver`).
+2. `FileCallFacts` projection in `shuck-semantic` + per-file unit coverage.
+3. `WorkspaceCallIndex` with cross-file `resolve`, `outgoing`, `incoming`.
+4. Server wiring: lazy build, buffer/disk reads, per-file item URIs,
+   invalidation on document/watched-file events.
+5. Black-box multi-file LSP tests for both directions, including an incoming
+   caller that the queried file does not itself source.
 
 ## Alternatives Considered
 
-### Merged multi-file model (approach A above)
+### Closure-scoped overlay (outgoing-complete, incoming-partial)
 
-Rejected for v1. A single arena spanning the closure gives the simplest query
-surface, but it is a deep change to model construction, span ownership, and every
-consumer that assumes one model = one file. The overlay (B) delivers the same
-navigation with an additive change; a merged model can come later if multiple
-features need it.
+Rejected — this was the earlier draft of this spec. Retaining only the querying
+document's follow closure answers outgoing correctly but incoming only for
+callers inside that closure, silently missing callers elsewhere in the
+workspace. Partial incoming in a navigation tool is a correctness bug, and the
+user requirement is explicit: both directions complete, or neither.
 
-### Feed `assume-source` into the hierarchy too
+### Follow-only edges (exclude `assume-source` from the graph)
 
-Rejected. It would blur the 024 distinction users just gained: `assume-source`
-means "I only want symbols resolved, don't pull this file in." Overriding that to
-also add call edges removes the cheap "just silence the noise" option.
+Considered. Preserves the 023-era "follow participates, assume does not"
+distinction crisply: cross-file hierarchy would require `follow-source`
+everywhere, and `assume-source` would mean "symbols only, never in the graph." It
+loses incoming completeness for projects that annotated callers with
+`assume-source`, which conflicts with the completeness requirement. Chosen model
+instead counts all determinable edges; the assume/follow distinction survives in
+per-document cost and CLI linting. Revisit if users want an explicit "resolve
+symbols but keep out of the call graph" mode.
 
-### Workspace-index-first (incoming before outgoing)
+### Merged multi-file semantic model
 
-Rejected as the starting point. Incoming across the workspace needs a reverse
-call index that does not exist yet, while outgoing is reachable today via the
-follow closure. Shipping outgoing first delivers most of the value at a fraction
-of the cost and defers the index to when incoming demands it.
+Rejected for this feature. A single arena spanning the workspace would give the
+richest query surface but is a deep change to model construction and every
+span→file assumption. The index holds a compact projection instead and leaves
+per-file models untouched; a merged model can come later if several features
+need it.
 
-### Always resolve the closure in the LSP path
+### Eager full-workspace index at startup
 
-Considered. Simpler than gating on the presence of `follow-source` hints, but it
-makes every hover/definition/symbol request pay closure-resolution cost even for
-documents with no hints. Prefer lazy enablement keyed on hint presence, measured
-against the latency budget from spec 018.
+Rejected. Indexing every shell file on server start burns latency for sessions
+that never use call hierarchy. Lazy first-use build plus incremental maintenance
+keeps the common path cheap.
 
 ## Security Considerations
 
-Enabling the closure in the server means the LSP server **reads files named by
-the document under edit** (the `follow-source` targets), transitively. This is the
-same trust posture as 024's CLI following and ShellCheck's `-x`, now in an
-always-on editor process:
+Completing incoming calls requires the server to **index shell files across the
+workspace**, and resolving edges means **reading files named by other files'
+source statements** (including computed paths a hint makes determinable). This
+widens the trust surface beyond spec 024's CLI following into an always-on editor
+process:
 
-- Resolution stays confined to the annotating file's directory plus configured
-  `source-paths`; targets outside those roots are not followed.
-- The server only reads and parses; it never executes sourced content.
-- Transitive following uses a visited set to bound fan-out and prevent cycles.
-- Reads prefer open buffers, so unsaved editor state is honored over stale disk
-  content and the server does not race the user's edits.
+- Indexing is confined to the server's workspace folders and to targets that
+  resolve within a file's directory plus configured `source-paths`; paths outside
+  those roots are not read.
+- The server only reads and parses; it never executes shell content.
+- Transitive resolution is visited-set bounded to prevent cycles and runaway
+  fan-out.
+- Open buffers are preferred over disk, so the server honors unsaved editor state
+  and does not act on stale content.
+- The index respects the same file-discovery exclusions as the rest of the
+  server (gitignore, excluded dirs), so vendored or ignored trees are not walked.
+
+## Performance Considerations
+
+- The index is the new cost center. Build is lazy (first call-hierarchy request),
+  parallel across files, and produces a compact projection rather than retained
+  models.
+- Incremental reprojection on edit touches one file; resolution caches are keyed
+  so only dependent callers are invalidated.
+- Measure against spec 018's latency budget: first-request index build on a
+  representative repo, and steady-state incoming/outgoing latency with a warm
+  index. Fall back to single-file results if index build exceeds a budget rather
+  than blocking the request.
 
 ## Verification
 
-- **Semantic** (`shuck-semantic`): given a caller model with a `follow-source`
-  edge to a helper defining `greet`, `cross_file_outgoing` for a function that
-  calls `greet` returns an edge whose target item carries the helper's path; and
-  a helper-local query surfaces the caller's call span via `cross_file_incoming`
-  when the caller is in the closure.
-- **Server** (`shuck-server`): a black-box LSP session over two files — `main.sh`
-  with `# shuck: follow-source=helper.sh` and `helper.sh` defining `greet` —
-  where `prepareCallHierarchy` on `main`'s call to `greet` plus `outgoingCalls`
-  returns an item with `helper.sh`'s URI, and `incomingCalls` on `greet` returns
-  `main`'s call site. Verify the followed file is read from disk when not open and
-  from the buffer when open.
-- **Invalidation**: editing `helper.sh` (buffer change) updates the caller's
-  outgoing/incoming results without a server restart.
-- **Scope guard**: an `assume-source` edge does *not* produce cross-file call
-  edges.
-- **Regression**: single-file call hierarchy (spec 023) and all 024 behaviors are
-  unchanged; `make test` and the black-box LSP suite stay green.
+- **Projection** (`shuck-semantic`): `FileCallFacts` for a file lists its
+  function definitions, call sites with enclosing function, and resolved source
+  edges (literal, `assume-source`, `follow-source`); `/dev/null` and unresolvable
+  dynamic sources contribute no edge.
+- **Index** (`shuck-semantic`): over a three-file graph `a.sh` (defines `greet`)
+  ← `b.sh` (`follow-source=a.sh`, calls `greet`) ← `c.sh` (`assume-source=a.sh`,
+  calls `greet`), `incoming(greet in a.sh)` returns both `b.sh` and `c.sh` call
+  sites; `outgoing` from `b.sh`'s caller lands on `a.sh`'s `greet`. A nearer
+  local `greet` in `b.sh` shadows the cross-file one.
+- **Server** (`shuck-server`, black-box LSP): `prepareCallHierarchy` on a call to
+  a followed function returns an item with the *target* file's URI;
+  `outgoingCalls` descends into followed files; `incomingCalls` on a function
+  returns callers **in files the queried file does not itself source**, proving
+  the reverse index rather than a closure walk. Verify buffer-preferred reads and
+  that editing a caller (buffer change) updates the callee's incoming results
+  without restart.
+- **Completeness guard**: a caller reachable only through an unresolvable dynamic
+  source is *absent* (documented limitation), while the same caller with an
+  `assume-source`/`follow-source` hint *appears* — demonstrating hints maximize
+  the resolvable graph.
+- **Regression**: single-file call hierarchy (023) and all 024 behaviors
+  unchanged; `make test` and the black-box LSP suite green.
 
-Clean-room: all directive names, types, and documentation are authored in-repo;
-no ShellCheck source or wiki text is referenced.
+Clean-room: all names, types, and documentation are authored in-repo; no
+ShellCheck source or wiki text is referenced.
