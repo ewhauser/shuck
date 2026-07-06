@@ -9,13 +9,14 @@ in `shuck-semantic`), the shared source-edge resolver, and session-scoped
 `incomingCalls` / `outgoingCalls` handlers that build the index per request over
 open buffers plus discovered workspace files and answer both directions across
 files. Edges come from all determinable sources (literal-resolvable,
-`assume-source`, `follow-source`). Covered by semantic unit tests and a black-box
-multi-file LSP test.
+`assume-source`, `follow-source`), resolved against the annotating file's own
+directory and the configured `[lint] source-paths` roots (memoized per project
+root, matching `shuck check`). Covered by semantic unit tests and black-box
+multi-file LSP tests (including one that resolves only via `source-paths`).
 
-Deferred (noted follow-ups, not blocking): configured `[lint] source-paths`
-roots in the LSP resolver (base-directory resolution only for now), and a
-persistent incrementally-invalidated index (the index is rebuilt per request,
-matching how `workspace/symbol` already works).
+Deferred (noted follow-up, not blocking): a persistent incrementally-invalidated
+index (the index is rebuilt per request, matching how `workspace/symbol` already
+works).
 
 ## Summary
 

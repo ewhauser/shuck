@@ -8,11 +8,12 @@
 //! single-file identity step; the item it returns (name + file URI) is enough
 //! for the index queries to locate the node.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use lsp_types as types;
 use shuck_ast::{Name, Span};
+use shuck_config::{ConfigArguments, load_project_config, resolve_project_root_for_file};
 use shuck_indexer::LineIndex;
 use shuck_linter::ShellDialect;
 use shuck_semantic::{
@@ -22,6 +23,39 @@ use shuck_semantic::{
 use crate::PositionEncoding;
 use crate::editor::analyze_editor_document;
 use crate::symbols::WorkspaceOpenDocument;
+
+/// Resolves and memoizes `[lint] source-paths` per project root, so cross-file
+/// hint resolution honors configured search roots the same way `shuck check`
+/// does. Relative roots are resolved against the project root.
+#[derive(Default)]
+struct SourcePathsCache {
+    by_project_root: HashMap<PathBuf, Vec<String>>,
+}
+
+impl SourcePathsCache {
+    /// Returns the configured source-path roots for `path` and the project root
+    /// that relative roots are resolved against.
+    fn resolve(&mut self, path: &Path, workspace_roots: &[PathBuf]) -> (Vec<String>, PathBuf) {
+        let fallback = workspace_roots
+            .iter()
+            .filter(|root| path.starts_with(root))
+            .max_by_key(|root| root.components().count())
+            .cloned()
+            .or_else(|| path.parent().map(Path::to_path_buf))
+            .unwrap_or_else(|| PathBuf::from("."));
+        let project_root = resolve_project_root_for_file(path, &fallback, true).unwrap_or(fallback);
+        let roots = self
+            .by_project_root
+            .entry(project_root.clone())
+            .or_insert_with(|| {
+                load_project_config(&project_root, &ConfigArguments::default())
+                    .map(|config| config.lint.source_paths.unwrap_or_default())
+                    .unwrap_or_default()
+            })
+            .clone();
+        (roots, project_root)
+    }
+}
 
 pub(crate) type IncomingResponse = Option<Vec<types::CallHierarchyIncomingCall>>;
 pub(crate) type OutgoingResponse = Option<Vec<types::CallHierarchyOutgoingCall>>;
@@ -107,20 +141,30 @@ impl BuiltIndex {
         let mut index = WorkspaceCallIndex::new();
         let mut texts: BTreeMap<PathBuf, FileText> = BTreeMap::new();
 
+        let mut source_paths = SourcePathsCache::default();
         let mut open_paths = Vec::new();
         for open in &context.open_documents {
             let Some(path) = open.uri.to_file_path().ok().map(|path| canonical(&path)) else {
                 continue;
             };
             open_paths.push(path.clone());
-            insert_file(&mut index, &mut texts, &path, open.document.contents());
+            let (roots, base) = source_paths.resolve(&path, &context.workspace_roots);
+            insert_file(
+                &mut index,
+                &mut texts,
+                &path,
+                open.document.contents(),
+                &roots,
+                &base,
+            );
         }
 
         for file in discover_closed_shell_files(&context.workspace_roots, &open_paths) {
             let Ok(source) = std::fs::read_to_string(&file) else {
                 continue;
             };
-            insert_file(&mut index, &mut texts, &file, &source);
+            let (roots, base) = source_paths.resolve(&file, &context.workspace_roots);
+            insert_file(&mut index, &mut texts, &file, &source, &roots, &base);
         }
 
         Self {
@@ -194,16 +238,20 @@ fn insert_file(
     texts: &mut BTreeMap<PathBuf, FileText>,
     path: &Path,
     source: &str,
+    source_path_roots: &[String],
+    source_path_base: &Path,
 ) {
     let key = canonical(path);
     let shell = ShellDialect::infer(source, Some(path));
     let model = analyze_editor_document(source, Some(path), shell);
-    // Base-directory resolution covers relative hints and literal includes;
-    // configured `source-paths` roots are a follow-up.
+    // Resolve each determinable source edge against the file's own directory
+    // first, then the configured `[lint] source-paths` roots.
     let edges = model
         .source_refs()
         .iter()
-        .flat_map(|source_ref| resolve_source_ref_targets(path, source_ref, &[], Path::new("")))
+        .flat_map(|source_ref| {
+            resolve_source_ref_targets(path, source_ref, source_path_roots, source_path_base)
+        })
         .map(|target| canonical(&target))
         .collect::<Vec<_>>();
     index.insert(key.clone(), FileCallFacts::project(&model, edges));

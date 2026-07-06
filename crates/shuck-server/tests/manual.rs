@@ -415,3 +415,95 @@ fn cross_file_call_hierarchy_spans_source_edges() {
         .expect("server thread should join")
         .expect("server should exit cleanly");
 }
+
+#[test]
+fn cross_file_call_hierarchy_honors_configured_source_paths() {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+
+    let workspace = tempfile::tempdir().expect("tempdir should be created");
+    // The helper lives under lib/, reachable from scripts/main.sh ONLY via the
+    // configured [lint] source-paths root — not relative to the annotating file.
+    std::fs::write(
+        workspace.path().join("shuck.toml"),
+        "[lint]\nsource-paths = [\"lib\"]\n",
+    )
+    .unwrap();
+    std::fs::create_dir(workspace.path().join("lib")).unwrap();
+    std::fs::create_dir(workspace.path().join("scripts")).unwrap();
+    std::fs::write(
+        workspace.path().join("lib/util.sh"),
+        "greet() {\n  echo hi\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        workspace.path().join("scripts/main.sh"),
+        "run() {\n  # shuck: follow-source=util.sh\n  source \"$X/util.sh\"\n  greet\n}\nrun\n",
+    )
+    .unwrap();
+    let util_uri = Url::from_file_path(workspace.path().join("lib/util.sh")).unwrap();
+
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": replay_capabilities(),
+            "rootUri": Url::from_file_path(workspace.path()).unwrap(),
+        }),
+    );
+    let _ = recv_response(&client_connection, 1);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("initialized should send");
+    open_document(&client_connection, &util_uri, "greet() {\n  echo hi\n}\n");
+
+    send_request(
+        &client_connection,
+        2,
+        "textDocument/prepareCallHierarchy",
+        serde_json::json!({
+            "textDocument": { "uri": util_uri },
+            "position": { "line": 0, "character": 0 },
+        }),
+    );
+    let greet_item = recv_response(&client_connection, 2).as_array().unwrap()[0].clone();
+    assert_eq!(greet_item["name"], serde_json::json!("greet"));
+
+    send_request(
+        &client_connection,
+        3,
+        "callHierarchy/incomingCalls",
+        serde_json::json!({ "item": greet_item }),
+    );
+    let incoming = recv_response(&client_connection, 3);
+    let incoming = incoming.as_array().unwrap();
+    // Without source-paths, main.sh's follow-source=util.sh would not resolve and
+    // greet would have no caller; with it, `run` shows up.
+    assert_eq!(incoming.len(), 1);
+    assert_eq!(incoming[0]["from"]["name"], serde_json::json!("run"));
+    assert!(
+        incoming[0]["from"]["uri"]
+            .as_str()
+            .unwrap()
+            .ends_with("scripts/main.sh")
+    );
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("exit notification should send");
+    server_thread
+        .join()
+        .expect("server thread should join")
+        .expect("server should exit cleanly");
+}
