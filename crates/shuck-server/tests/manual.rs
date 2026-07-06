@@ -270,3 +270,148 @@ fn replays_a_small_lsp_session() {
         .expect("server thread should join")
         .expect("server should exit cleanly");
 }
+
+fn open_document(connection: &Connection, uri: &Url, text: &str) {
+    connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "textDocument/didOpen".to_owned(),
+            serde_json::json!({
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "shellscript",
+                    "version": 1,
+                    "text": text,
+                }
+            }),
+        )))
+        .expect("didOpen should send");
+}
+
+#[test]
+fn cross_file_call_hierarchy_spans_source_edges() {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+
+    let workspace = tempfile::tempdir().expect("tempdir should be created");
+    // a.sh defines greet; b.sh follows a and calls greet inside `run`; c.sh
+    // assumes a and calls greet at top level.
+    std::fs::write(workspace.path().join("a.sh"), "greet() {\n  echo hi\n}\n").unwrap();
+    std::fs::write(
+        workspace.path().join("b.sh"),
+        "run() {\n  # shuck: follow-source=a.sh\n  source \"$DIR/a.sh\"\n  greet\n}\nrun\n",
+    )
+    .unwrap();
+    std::fs::write(
+        workspace.path().join("c.sh"),
+        "# shuck: assume-source=a.sh\nsource \"$DIR/a.sh\"\ngreet\n",
+    )
+    .unwrap();
+    let a_uri = Url::from_file_path(workspace.path().join("a.sh")).unwrap();
+    let b_uri = Url::from_file_path(workspace.path().join("b.sh")).unwrap();
+
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": replay_capabilities(),
+            "rootUri": Url::from_file_path(workspace.path()).unwrap(),
+        }),
+    );
+    let initialize = recv_response(&client_connection, 1);
+    assert_eq!(
+        initialize["capabilities"]["callHierarchyProvider"],
+        serde_json::json!(true)
+    );
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("initialized should send");
+
+    open_document(&client_connection, &a_uri, "greet() {\n  echo hi\n}\n");
+
+    // prepare on greet's definition in a.sh
+    send_request(
+        &client_connection,
+        2,
+        "textDocument/prepareCallHierarchy",
+        serde_json::json!({
+            "textDocument": { "uri": a_uri },
+            "position": { "line": 0, "character": 0 },
+        }),
+    );
+    let prepared = recv_response(&client_connection, 2);
+    let greet_item = prepared.as_array().unwrap()[0].clone();
+    assert_eq!(greet_item["name"], serde_json::json!("greet"));
+
+    // incoming: callers across files — b.sh's `run` (follow) and c.sh top level (assume)
+    send_request(
+        &client_connection,
+        3,
+        "callHierarchy/incomingCalls",
+        serde_json::json!({ "item": greet_item }),
+    );
+    let incoming = recv_response(&client_connection, 3);
+    let mut callers: Vec<String> = incoming
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|call| {
+            let from = &call["from"];
+            format!(
+                "{}:{}",
+                from["uri"].as_str().unwrap().rsplit('/').next().unwrap(),
+                from["name"].as_str().unwrap()
+            )
+        })
+        .collect();
+    callers.sort();
+    assert_eq!(callers, vec!["b.sh:run".to_owned(), "c.sh:c.sh".to_owned()]);
+
+    // outgoing from run in b.sh descends into a.sh's greet
+    open_document(
+        &client_connection,
+        &b_uri,
+        "run() {\n  # shuck: follow-source=a.sh\n  source \"$DIR/a.sh\"\n  greet\n}\nrun\n",
+    );
+    send_request(
+        &client_connection,
+        4,
+        "textDocument/prepareCallHierarchy",
+        serde_json::json!({
+            "textDocument": { "uri": b_uri },
+            "position": { "line": 0, "character": 0 },
+        }),
+    );
+    let run_item = recv_response(&client_connection, 4).as_array().unwrap()[0].clone();
+    assert_eq!(run_item["name"], serde_json::json!("run"));
+    send_request(
+        &client_connection,
+        5,
+        "callHierarchy/outgoingCalls",
+        serde_json::json!({ "item": run_item }),
+    );
+    let outgoing = recv_response(&client_connection, 5);
+    let outgoing = outgoing.as_array().unwrap();
+    assert_eq!(outgoing.len(), 1);
+    assert_eq!(outgoing[0]["to"]["name"], serde_json::json!("greet"));
+    assert!(outgoing[0]["to"]["uri"].as_str().unwrap().ends_with("a.sh"));
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("exit notification should send");
+    server_thread
+        .join()
+        .expect("server thread should join")
+        .expect("server should exit cleanly");
+}

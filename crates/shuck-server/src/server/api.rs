@@ -39,10 +39,10 @@ pub(super) fn request(req: server::Request) -> Task {
         request::CallHierarchyPrepare::METHOD => {
             background_request_task::<request::CallHierarchyPrepare>(req, BackgroundSchedule::Worker)
         }
-        request::CallHierarchyIncomingCalls::METHOD => background_request_task::<
+        request::CallHierarchyIncomingCalls::METHOD => background_session_request_task::<
             request::CallHierarchyIncomingCalls,
         >(req, BackgroundSchedule::Worker),
-        request::CallHierarchyOutgoingCalls::METHOD => background_request_task::<
+        request::CallHierarchyOutgoingCalls::METHOD => background_session_request_task::<
             request::CallHierarchyOutgoingCalls,
         >(req, BackgroundSchedule::Worker),
         request::CodeActions::METHOD => {

@@ -34,8 +34,8 @@ pub(crate) struct WorkspaceSymbolContext {
 
 #[derive(Clone)]
 pub(crate) struct WorkspaceOpenDocument {
-    uri: types::Url,
-    document: Arc<TextDocument>,
+    pub(crate) uri: types::Url,
+    pub(crate) document: Arc<TextDocument>,
 }
 
 pub(crate) struct WorkspaceSymbolIndex {

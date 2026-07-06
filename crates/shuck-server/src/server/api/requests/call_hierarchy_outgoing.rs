@@ -1,7 +1,8 @@
 use lsp_types::{self as types, request as req};
 
-use crate::editor_features;
-use crate::session::{Client, DocumentSnapshot};
+use crate::call_hierarchy::{self, CallHierarchyContext};
+use crate::server::Result;
+use crate::session::{Client, Session};
 
 pub(crate) struct CallHierarchyOutgoingCalls;
 
@@ -9,25 +10,21 @@ impl super::RequestHandler for CallHierarchyOutgoingCalls {
     type RequestType = req::CallHierarchyOutgoingCalls;
 }
 
-impl super::BackgroundDocumentRequestHandler for CallHierarchyOutgoingCalls {
-    fn document_url(
-        params: &types::CallHierarchyOutgoingCallsParams,
-    ) -> std::borrow::Cow<'_, types::Url> {
-        std::borrow::Cow::Borrowed(&params.item.uri)
-    }
+impl super::super::traits::BackgroundRequestHandler for CallHierarchyOutgoingCalls {
+    type Snapshot = CallHierarchyContext;
 
-    fn run_without_snapshot(
-        _client: &Client,
-        _params: types::CallHierarchyOutgoingCallsParams,
-    ) -> crate::server::Result<editor_features::CallHierarchyOutgoingResponse> {
-        Ok(None)
+    fn snapshot(
+        session: &Session,
+        _params: &types::CallHierarchyOutgoingCallsParams,
+    ) -> Result<Self::Snapshot> {
+        Ok(session.call_hierarchy_context())
     }
 
     fn run_with_snapshot(
-        snapshot: DocumentSnapshot,
-        client: &Client,
+        snapshot: Self::Snapshot,
+        _client: &Client,
         params: types::CallHierarchyOutgoingCallsParams,
-    ) -> crate::server::Result<editor_features::CallHierarchyOutgoingResponse> {
-        editor_features::call_hierarchy_outgoing_calls(snapshot, client, params)
+    ) -> Result<call_hierarchy::OutgoingResponse> {
+        call_hierarchy::outgoing_calls(snapshot, params)
     }
 }

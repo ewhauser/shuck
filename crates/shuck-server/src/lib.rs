@@ -17,6 +17,7 @@ pub use session::{Client, ClientOptions, DocumentQuery, DocumentSnapshot, Global
 pub use workspace::{Workspace, Workspaces};
 
 mod analysis;
+mod call_hierarchy;
 mod edit;
 mod editor;
 mod editor_features;

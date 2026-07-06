@@ -174,7 +174,7 @@ Shuck ships with a first-party Language Server Protocol (LSP) server in the main
 shuck server
 ```
 
-The server analyzes the editor's in-memory buffer, publishes diagnostics as you edit, and reuses the same parser, lint rules, formatter settings, configuration, and fix machinery as the CLI. It currently supports incremental document sync, real-time diagnostics, quick fixes, `source.fixAll.shuck`, disable-this-line actions, whole-document and range formatting, hover help for rule codes in `# shuck:` and `# shellcheck` directives, completion, go-to-definition, references, document highlights, call hierarchy (incoming and outgoing calls for functions), document symbols, and workspace symbols.
+The server analyzes the editor's in-memory buffer, publishes diagnostics as you edit, and reuses the same parser, lint rules, formatter settings, configuration, and fix machinery as the CLI. It currently supports incremental document sync, real-time diagnostics, quick fixes, `source.fixAll.shuck`, disable-this-line actions, whole-document and range formatting, hover help for rule codes in `# shuck:` and `# shellcheck` directives, completion, go-to-definition, references, document highlights, call hierarchy (incoming and outgoing calls for functions, across files connected by `source` and `assume-source`/`follow-source` hints), document symbols, and workspace symbols.
 
 Any editor that can launch a stdio LSP server can use Shuck by pointing shell buffers at `shuck server`. See the [editor integration guide](https://ewhauser.github.io/shuck/docs/editors/) for setup examples.
 

@@ -236,6 +236,17 @@ impl Session {
             encoding: self.position_encoding,
         }
     }
+
+    /// Build the workspace context used to answer cross-file call-hierarchy
+    /// requests: the workspace roots, a snapshot of open documents, and the
+    /// negotiated position encoding.
+    pub(crate) fn call_hierarchy_context(&self) -> crate::call_hierarchy::CallHierarchyContext {
+        crate::call_hierarchy::CallHierarchyContext {
+            workspace_roots: self.index.workspace_roots().to_vec(),
+            open_documents: self.index.open_documents_snapshot(),
+            encoding: self.position_encoding,
+        }
+    }
 }
 
 impl DocumentSnapshot {
