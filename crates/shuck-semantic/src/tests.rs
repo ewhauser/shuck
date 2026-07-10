@@ -947,6 +947,64 @@ fn zsh_anonymous_functions_create_function_scoped_locals() {
 }
 
 #[test]
+fn zsh_return_and_exit_status_operands_read_variables() {
+    let source = "f() { local ret=1; return ret; }\ncode=2\nexit code\n";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    assert_eq!(arithmetic_read_count(&model, "ret"), 1);
+    assert_eq!(arithmetic_read_count(&model, "code"), 1);
+}
+
+#[test]
+fn zsh_return_numeric_operand_records_no_reference() {
+    let source = "f() { return 1; }\nexit 0\n";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    assert!(
+        model
+            .references()
+            .iter()
+            .all(|reference| reference.kind != ReferenceKind::ArithmeticRead)
+    );
+}
+
+#[test]
+fn bash_return_status_operand_is_not_a_variable_reference() {
+    let source = "f() { local ret=1; return ret; }\n";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Bash));
+
+    assert_eq!(arithmetic_read_count(&model, "ret"), 0);
+}
+
+#[test]
+fn zsh_nested_expansion_subscript_references_are_source_anchored() {
+    let source = "local -a arr names\nlocal i=1\nprint ${${arr[i]}%% *} $names $i\n";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "i" && reference.span.start.line > 0)
+        .expect("nested arithmetic subscript should reference `i`");
+    assert_eq!(reference.span.slice(source), "i");
+}
+
+#[test]
+fn zsh_nested_expansion_assoc_subscript_key_is_not_a_reference() {
+    let source =
+        "typeset -A begin\nlocal -a line names\nprint ${${line[${begin[NAMES]},2]}%% *} $names\n";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    assert!(
+        model
+            .references()
+            .iter()
+            .all(|reference| reference.name != "NAMES"),
+        "assoc subscript keys are literal words, not variable references"
+    );
+}
+
+#[test]
 fn zsh_multi_name_functions_bind_each_static_alias() {
     let source = "function music itunes() { local track=1; }\n";
     let model = model_with_dialect(source, ShellDialect::Zsh);
