@@ -126,19 +126,31 @@ impl Server {
             return;
         }
 
+        let mut watchers = vec![
+            FileSystemWatcher {
+                glob_pattern: types::GlobPattern::String("**/.shuck.toml".into()),
+                kind: None,
+            },
+            FileSystemWatcher {
+                glob_pattern: types::GlobPattern::String("**/shuck.toml".into()),
+                kind: None,
+            },
+        ];
+        // The user-level global config lives outside the workspace, so the
+        // relative globs above never cover it; watch its candidate paths
+        // explicitly so projects using the global fallback observe edits.
+        watchers.extend(
+            shuck_config::global_config_candidate_paths()
+                .iter()
+                .filter_map(|path| path.to_str())
+                .map(|path| FileSystemWatcher {
+                    glob_pattern: types::GlobPattern::String(path.into()),
+                    kind: None,
+                }),
+        );
+
         let register_options =
-            match serde_json::to_value(DidChangeWatchedFilesRegistrationOptions {
-                watchers: vec![
-                    FileSystemWatcher {
-                        glob_pattern: types::GlobPattern::String("**/.shuck.toml".into()),
-                        kind: None,
-                    },
-                    FileSystemWatcher {
-                        glob_pattern: types::GlobPattern::String("**/shuck.toml".into()),
-                        kind: None,
-                    },
-                ],
-            }) {
+            match serde_json::to_value(DidChangeWatchedFilesRegistrationOptions { watchers }) {
                 Ok(value) => value,
                 Err(error) => {
                     tracing::error!("Failed to serialize config watcher registration: {error}");
