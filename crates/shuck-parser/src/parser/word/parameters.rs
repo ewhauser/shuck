@@ -365,7 +365,10 @@ impl<'a> Parser<'a> {
             return self.parse_nested_parameter_target(trimmed, base);
         }
 
-        if let Some(reference) = self.maybe_parse_loose_var_ref_target(trimmed) {
+        if let Some(reference) = self.maybe_parse_loose_var_ref_target(
+            trimmed,
+            base.advanced_by(&text[..text.len() - text.trim_start().len()]),
+        ) {
             return ZshExpansionTarget::Reference(reference);
         }
 
@@ -380,9 +383,14 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(in crate::parser) fn maybe_parse_loose_var_ref_target(&self, text: &str) -> Option<VarRef> {
+    pub(in crate::parser) fn maybe_parse_loose_var_ref_target(
+        &self,
+        text: &str,
+        base: Position,
+    ) -> Option<VarRef> {
         let trimmed = text.trim();
-        Self::looks_like_plain_parameter_access(trimmed).then(|| self.parse_loose_var_ref(trimmed))
+        Self::looks_like_plain_parameter_access(trimmed)
+            .then(|| self.parse_loose_var_ref(text, base))
     }
 
     pub(in crate::parser) fn is_plain_special_parameter_name(name: &str) -> bool {
@@ -435,7 +443,7 @@ impl<'a> Parser<'a> {
         let has_operation = self.find_zsh_operation_start(raw_body_text).is_some();
         let syntax = if Self::looks_like_plain_parameter_access(raw_body_text) && !has_operation {
             ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access {
-                reference: self.parse_loose_var_ref(raw_body_text),
+                reference: self.parse_loose_var_ref(raw_body_text, raw_body_start),
             })
         } else if raw_body_text.starts_with('(')
             || raw_body_text.starts_with(':')
@@ -454,7 +462,7 @@ impl<'a> Parser<'a> {
             )
         } else {
             ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access {
-                reference: self.parse_loose_var_ref(raw_body_text),
+                reference: self.parse_loose_var_ref(raw_body_text, raw_body_start),
             })
         };
 
@@ -465,31 +473,38 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    pub(in crate::parser) fn parse_loose_var_ref(&self, text: &str) -> VarRef {
+    pub(in crate::parser) fn parse_loose_var_ref(&self, text: &str, base: Position) -> VarRef {
         let trimmed = text.trim();
+        let base = base.advanced_by(&text[..text.len() - text.trim_start().len()]);
+        let span = Span::from_positions(base, base.advanced_by(trimmed));
         if let Some(open) = trimmed.find('[')
             && trimmed.ends_with(']')
         {
             let name = &trimmed[..open];
             let subscript_text = &trimmed[open + 1..trimmed.len() - 1];
+            let subscript_start = base.advanced_by(&trimmed[..open + 1]);
             let subscript = self.subscript_from_source_text(
-                SourceText::from(subscript_text.to_string()),
+                self.source_text_from_str(
+                    subscript_text,
+                    subscript_start,
+                    subscript_start.advanced_by(subscript_text),
+                ),
                 None,
                 SubscriptInterpretation::Contextual,
             );
             return VarRef {
                 name: Name::from(name),
-                name_span: Span::new(),
+                name_span: Span::from_positions(base, base.advanced_by(name)),
                 subscript: Some(Box::new(subscript)),
-                span: Span::new(),
+                span,
             };
         }
 
         VarRef {
             name: Name::from(trimmed),
-            name_span: Span::new(),
+            name_span: span,
             subscript: None,
-            span: Span::new(),
+            span,
         }
     }
 

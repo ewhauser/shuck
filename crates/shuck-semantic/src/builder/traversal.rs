@@ -317,6 +317,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                     &command.extra_args,
                     flow,
                 );
+                self.record_zsh_arithmetic_status_operand(command.code.as_ref());
                 self.record_command(command.span, nested_regions, RecordedCommandKind::Return)
             }
             BuiltinCommand::Exit(command) => {
@@ -326,6 +327,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                     &command.extra_args,
                     flow,
                 );
+                self.record_zsh_arithmetic_status_operand(command.code.as_ref());
                 self.record_command(command.span, nested_regions, RecordedCommandKind::Exit)
             }
         }

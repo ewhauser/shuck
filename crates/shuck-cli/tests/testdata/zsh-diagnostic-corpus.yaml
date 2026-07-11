@@ -1076,6 +1076,61 @@ repos:
           line: 56
           column: 28
         classification: real
+      - path: "functions/_boom"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 12
+          column: 7
+        end:
+          line: 12
+          column: 48
+        classification: false_positive
+      - path: "functions/_brew"
+        code: "C001"
+        severity: "warning"
+        message: "variable `formulae` is assigned but never used"
+        start:
+          line: 10
+          column: 3
+        end:
+          line: 10
+          column: 11
+        classification: false_positive
+      - path: "functions/_brew"
+        code: "C001"
+        severity: "warning"
+        message: "variable `formula` is assigned but never used"
+        start:
+          line: 43
+          column: 10
+        end:
+          line: 43
+          column: 17
+        classification: real
+      - path: "functions/_brew"
+        code: "C001"
+        severity: "warning"
+        message: "variable `installed_formulae` is assigned but never used"
+        start:
+          line: 43
+          column: 18
+        end:
+          line: 43
+          column: 36
+        classification: false_positive
+      - path: "functions/_git-rm"
+        code: "C001"
+        severity: "warning"
+        message: "variable `ret` is assigned but never used"
+        start:
+          line: 6
+          column: 51
+        end:
+          line: 6
+          column: 54
+        classification: real
   - name: "ohmyzsh"
     github_url: "https://github.com/ohmyzsh/ohmyzsh.git"
     commit: "e64912e0c1eaa32181c3b5e5e4bf8042ecd0e8a7"
@@ -1915,17 +1970,6 @@ repos:
         end:
           line: 2
           column: 16
-        classification: real
-      - path: "plugins/cabal/cabal.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ret` is assigned but never used"
-        start:
-          line: 87
-          column: 67
-        end:
-          line: 87
-          column: 70
         classification: real
       - path: "plugins/cask/cask.plugin.zsh"
         code: "C002"
@@ -7449,6 +7493,2723 @@ repos:
           line: 245
           column: 10
         classification: real
+      - path: "plugins/autopep8/_autopep8"
+        code: "C001"
+        severity: "warning"
+        message: "variable `state` is assigned but never used"
+        start:
+          line: 8
+          column: 15
+        end:
+          line: 8
+          column: 20
+        classification: false_positive
+      - path: "plugins/bazel/_bazel"
+        code: "C001"
+        severity: "warning"
+        message: "variable `state` is assigned but never used"
+        start:
+          line: 39
+          column: 32
+        end:
+          line: 39
+          column: 37
+        classification: false_positive
+      - path: "plugins/bazel/_bazel"
+        code: "C001"
+        severity: "warning"
+        message: "variable `oldp` is assigned but never used"
+        start:
+          line: 53
+          column: 3
+        end:
+          line: 53
+          column: 7
+        classification: false_positive
+      - path: "plugins/bazel/_bazel"
+        code: "C001"
+        severity: "warning"
+        message: "variable `pkg` is assigned but never used"
+        start:
+          line: 152
+          column: 9
+        end:
+          line: 152
+          column: 12
+        classification: false_positive
+      - path: "plugins/bazel/_bazel"
+        code: "C001"
+        severity: "warning"
+        message: "variable `rule_re` is assigned but never used"
+        start:
+          line: 163
+          column: 7
+        end:
+          line: 163
+          column: 14
+        classification: false_positive
+      - path: "plugins/bazel/_bazel"
+        code: "C071"
+        severity: "warning"
+        message: "double parentheses are used to group commands instead of arithmetic"
+        start:
+          line: 167
+          column: 8
+        end:
+          line: 167
+          column: 8
+        classification: false_positive
+      - path: "plugins/bazel/_bazel"
+        code: "C001"
+        severity: "warning"
+        message: "variable `packages` is assigned but never used"
+        start:
+          line: 215
+          column: 5
+        end:
+          line: 215
+          column: 13
+        classification: false_positive
+      - path: "plugins/bazel/_bazel"
+        code: "C001"
+        severity: "warning"
+        message: "variable `targets` is assigned but never used"
+        start:
+          line: 221
+          column: 5
+        end:
+          line: 221
+          column: 12
+        classification: false_positive
+      - path: "plugins/celery/_celery"
+        code: "C001"
+        severity: "warning"
+        message: "variable `ifargs` is assigned but never used"
+        start:
+          line: 13
+          column: 1
+        end:
+          line: 13
+          column: 7
+        classification: false_positive
+      - path: "plugins/celery/_celery"
+        code: "C001"
+        severity: "warning"
+        message: "variable `dopts` is assigned but never used"
+        start:
+          line: 14
+          column: 1
+        end:
+          line: 14
+          column: 6
+        classification: false_positive
+      - path: "plugins/celery/_celery"
+        code: "C001"
+        severity: "warning"
+        message: "variable `controlargs` is assigned but never used"
+        start:
+          line: 15
+          column: 1
+        end:
+          line: 15
+          column: 12
+        classification: false_positive
+      - path: "plugins/coffee/_coffee"
+        code: "C001"
+        severity: "warning"
+        message: "variable `state` is assigned but never used"
+        start:
+          line: 42
+          column: 32
+        end:
+          line: 42
+          column: 37
+        classification: false_positive
+      - path: "plugins/coffee/_coffee"
+        code: "C133"
+        severity: "warning"
+        message: "a variable name switches from array-like use to a plain scalar assignment"
+        start:
+          line: 46
+          column: 1
+        end:
+          line: 46
+          column: 8
+        classification: false_positive
+      - path: "plugins/dnf/_dnf5"
+        code: "C006"
+        severity: "error"
+        message: "variable `service` is referenced before assignment"
+        start:
+          line: 7
+          column: 23
+        end:
+          line: 7
+          column: 31
+        classification: false_positive
+      - path: "plugins/dnf/_dnf5"
+        code: "C001"
+        severity: "warning"
+        message: "variable `update_policy` is assigned but never used"
+        start:
+          line: 49
+          column: 9
+        end:
+          line: 49
+          column: 22
+        classification: real
+      - path: "plugins/dnf/_dnf5"
+        code: "C001"
+        severity: "warning"
+        message: "variable `pat` is assigned but never used"
+        start:
+          line: 49
+          column: 37
+        end:
+          line: 49
+          column: 40
+        classification: real
+      - path: "plugins/docker-compose/_docker-compose"
+        code: "C001"
+        severity: "warning"
+        message: "variable `oldp` is assigned but never used"
+        start:
+          line: 73
+          column: 5
+        end:
+          line: 73
+          column: 9
+        classification: false_positive
+      - path: "plugins/docker-compose/_docker-compose"
+        code: "C130"
+        severity: "warning"
+        message: "quotes or backslashes stored in this value will stay literal on reuse"
+        start:
+          line: 100
+          column: 26
+        end:
+          line: 100
+          column: 166
+        classification: false_positive
+      - path: "plugins/docker-compose/_docker-compose"
+        code: "C130"
+        severity: "warning"
+        message: "quotes or backslashes stored in this value will stay literal on reuse"
+        start:
+          line: 101
+          column: 23
+        end:
+          line: 101
+          column: 141
+        classification: false_positive
+      - path: "plugins/docker-compose/_docker-compose"
+        code: "C130"
+        severity: "warning"
+        message: "quotes or backslashes stored in this value will stay literal on reuse"
+        start:
+          line: 102
+          column: 20
+        end:
+          line: 102
+          column: 84
+        classification: false_positive
+      - path: "plugins/docker-compose/_docker-compose"
+        code: "C130"
+        severity: "warning"
+        message: "quotes or backslashes stored in this value will stay literal on reuse"
+        start:
+          line: 106
+          column: 19
+        end:
+          line: 106
+          column: 58
+        classification: false_positive
+      - path: "plugins/docker-compose/_docker-compose"
+        code: "C131"
+        severity: "warning"
+        message: "unquoted expansion will not honor quotes or escapes stored in this variable"
+        start:
+          line: 136
+          column: 17
+        end:
+          line: 136
+          column: 37
+        classification: false_positive
+      - path: "plugins/docker-compose/_docker-compose"
+        code: "C131"
+        severity: "warning"
+        message: "unquoted expansion will not honor quotes or escapes stored in this variable"
+        start:
+          line: 137
+          column: 17
+        end:
+          line: 137
+          column: 34
+        classification: false_positive
+      - path: "plugins/docker-compose/_docker-compose"
+        code: "C131"
+        severity: "warning"
+        message: "unquoted expansion will not honor quotes or escapes stored in this variable"
+        start:
+          line: 138
+          column: 17
+        end:
+          line: 138
+          column: 31
+        classification: false_positive
+      - path: "plugins/docker-compose/_docker-compose"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 162
+          column: 17
+        end:
+          line: 162
+          column: 103
+        classification: false_positive
+      - path: "plugins/docker-compose/_docker-compose"
+        code: "C131"
+        severity: "warning"
+        message: "unquoted expansion will not honor quotes or escapes stored in this variable"
+        start:
+          line: 239
+          column: 17
+        end:
+          line: 239
+          column: 30
+        classification: false_positive
+      - path: "plugins/docker-compose/_docker-compose"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 248
+          column: 17
+        end:
+          line: 248
+          column: 102
+        classification: false_positive
+      - path: "plugins/docker-compose/_docker-compose"
+        code: "C131"
+        severity: "warning"
+        message: "unquoted expansion will not honor quotes or escapes stored in this variable"
+        start:
+          line: 289
+          column: 17
+        end:
+          line: 289
+          column: 30
+        classification: false_positive
+      - path: "plugins/docker-compose/_docker-compose"
+        code: "C131"
+        severity: "warning"
+        message: "unquoted expansion will not honor quotes or escapes stored in this variable"
+        start:
+          line: 290
+          column: 17
+        end:
+          line: 290
+          column: 37
+        classification: false_positive
+      - path: "plugins/docker-compose/_docker-compose"
+        code: "C131"
+        severity: "warning"
+        message: "unquoted expansion will not honor quotes or escapes stored in this variable"
+        start:
+          line: 291
+          column: 17
+        end:
+          line: 291
+          column: 34
+        classification: false_positive
+      - path: "plugins/docker-compose/_docker-compose"
+        code: "C131"
+        severity: "warning"
+        message: "unquoted expansion will not honor quotes or escapes stored in this variable"
+        start:
+          line: 292
+          column: 17
+        end:
+          line: 292
+          column: 31
+        classification: false_positive
+      - path: "plugins/docker-compose/_docker-compose"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 297
+          column: 17
+        end:
+          line: 297
+          column: 161
+        classification: false_positive
+      - path: "plugins/docker-compose/_docker-compose"
+        code: "C006"
+        severity: "error"
+        message: "variable `service` is referenced before assignment"
+        start:
+          line: 318
+          column: 11
+        end:
+          line: 318
+          column: 19
+        classification: false_positive
+      - path: "plugins/docker/completions/_docker"
+        code: "C133"
+        severity: "warning"
+        message: "a variable name switches from array-like use to a plain scalar assignment"
+        start:
+          line: 97
+          column: 47
+        end:
+          line: 97
+          column: 52
+        classification: real
+      - path: "plugins/docker/completions/_docker"
+        code: "C055"
+        severity: "warning"
+        message: "pattern expressions should not expand variables"
+        start:
+          line: 97
+          column: 61
+        end:
+          line: 97
+          column: 76
+        classification: false_positive
+      - path: "plugins/docker/completions/_docker"
+        code: "C001"
+        severity: "warning"
+        message: "variable `matched` is assigned but never used"
+        start:
+          line: 176
+          column: 32
+        end:
+          line: 176
+          column: 39
+        classification: real
+      - path: "plugins/docker/completions/_docker"
+        code: "C055"
+        severity: "warning"
+        message: "pattern expressions should not expand variables"
+        start:
+          line: 183
+          column: 22
+        end:
+          line: 183
+          column: 28
+        classification: false_positive
+      - path: "plugins/docker/completions/_docker"
+        code: "C081"
+        severity: "warning"
+        message: "quote the right-hand side so string comparisons do not turn into glob matches"
+        start:
+          line: 183
+          column: 33
+        end:
+          line: 183
+          column: 42
+        classification: real
+      - path: "plugins/docker/completions/_docker"
+        code: "C006"
+        severity: "error"
+        message: "variable `+cachename` is referenced before assignment"
+        start:
+          line: 211
+          column: 13
+        end:
+          line: 211
+          column: 29
+        classification: false_positive
+      - path: "plugins/docker/completions/_docker"
+        code: "C001"
+        severity: "warning"
+        message: "variable `result` is assigned but never used"
+        start:
+          line: 214
+          column: 9
+        end:
+          line: 214
+          column: 15
+        classification: false_positive
+      - path: "plugins/docker/completions/_docker"
+        code: "C001"
+        severity: "warning"
+        message: "variable `oldp` is assigned but never used"
+        start:
+          line: 2624
+          column: 3
+        end:
+          line: 2624
+          column: 7
+        classification: false_positive
+      - path: "plugins/docker/completions/_docker"
+        code: "C071"
+        severity: "warning"
+        message: "double parentheses are used to group commands instead of arithmetic"
+        start:
+          line: 2637
+          column: 10
+        end:
+          line: 2637
+          column: 10
+        classification: false_positive
+      - path: "plugins/docker/completions/_docker"
+        code: "C006"
+        severity: "error"
+        message: "variable `service` is referenced before assignment"
+        start:
+          line: 3067
+          column: 11
+        end:
+          line: 3067
+          column: 19
+        classification: false_positive
+      - path: "plugins/fabric/_fab"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 25
+          column: 242
+        end:
+          line: 25
+          column: 242
+        classification: false_positive
+      - path: "plugins/frontend-search/_frontend"
+        code: "C006"
+        severity: "error"
+        message: "variable `mapfile` is referenced before assignment"
+        start:
+          line: 17
+          column: 22
+        end:
+          line: 17
+          column: 53
+        classification: false_positive
+      - path: "plugins/gem/completions/_gem"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 22
+          column: 3
+        end:
+          line: 22
+          column: 43
+        classification: false_positive
+      - path: "plugins/gem/completions/_gem"
+        code: "C001"
+        severity: "warning"
+        message: "variable `gems` is assigned but never used"
+        start:
+          line: 46
+          column: 10
+        end:
+          line: 46
+          column: 14
+        classification: real
+      - path: "plugins/gem/completions/_gem"
+        code: "C001"
+        severity: "warning"
+        message: "variable `installed_gems` is assigned but never used"
+        start:
+          line: 46
+          column: 15
+        end:
+          line: 46
+          column: 29
+        classification: false_positive
+      - path: "plugins/git-flow/_git-flow"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 68
+          column: 9
+        end:
+          line: 68
+          column: 77
+        classification: false_positive
+      - path: "plugins/git-flow/_git-flow"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 92
+          column: 15
+        end:
+          line: 92
+          column: 58
+        classification: false_positive
+      - path: "plugins/git-flow/_git-flow"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 132
+          column: 9
+        end:
+          line: 132
+          column: 75
+        classification: false_positive
+      - path: "plugins/git-flow/_git-flow"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 155
+          column: 15
+        end:
+          line: 155
+          column: 58
+        classification: false_positive
+      - path: "plugins/git-flow/_git-flow"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 185
+          column: 9
+        end:
+          line: 185
+          column: 77
+        classification: false_positive
+      - path: "plugins/gitfast/_git"
+        code: "C001"
+        severity: "warning"
+        message: "variable `COMP_WORDBREAKS` is assigned but never used"
+        start:
+          line: 37
+          column: 1
+        end:
+          line: 37
+          column: 16
+        classification: false_positive
+      - path: "plugins/gitfast/_git"
+        code: "C002"
+        severity: "warning"
+        message: "source path is built at runtime"
+        start:
+          line: 38
+          column: 33
+        end:
+          line: 38
+          column: 42
+        classification: real
+      - path: "plugins/gitfast/_git"
+        code: "C006"
+        severity: "error"
+        message: "variable `__git_all_commands` is referenced before assignment"
+        start:
+          line: 185
+          column: 9
+        end:
+          line: 185
+          column: 31
+        classification: false_positive
+      - path: "plugins/gitfast/_git"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 205
+          column: 3
+        end:
+          line: 205
+          column: 72
+        classification: false_positive
+      - path: "plugins/gitfast/_git"
+        code: "C100"
+        severity: "warning"
+        message: "array references should choose an explicit element or selector"
+        start:
+          line: 215
+          column: 7
+        end:
+          line: 215
+          column: 13
+        classification: false_positive
+      - path: "plugins/gitfast/_git"
+        code: "C001"
+        severity: "warning"
+        message: "variable `prev` is assigned but never used"
+        start:
+          line: 257
+          column: 2
+        end:
+          line: 257
+          column: 6
+        classification: false_positive
+      - path: "plugins/gitfast/_git"
+        code: "C001"
+        severity: "warning"
+        message: "variable `cword` is assigned but never used"
+        start:
+          line: 258
+          column: 6
+        end:
+          line: 258
+          column: 11
+        classification: false_positive
+      - path: "plugins/gitfast/_git"
+        code: "C006"
+        severity: "error"
+        message: "variable `service` is referenced before assignment"
+        start:
+          line: 260
+          column: 22
+        end:
+          line: 260
+          column: 32
+        classification: false_positive
+      - path: "plugins/github/_hub"
+        code: "C001"
+        severity: "warning"
+        message: "variable `service` is assigned but never used"
+        start:
+          line: 169
+          column: 3
+        end:
+          line: 169
+          column: 10
+        classification: false_positive
+      - path: "plugins/golang/_golang"
+        code: "C006"
+        severity: "error"
+        message: "variable `functions_source` is referenced before assignment"
+        start:
+          line: 14
+          column: 20
+        end:
+          line: 14
+          column: 45
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 61
+          column: 18
+        end:
+          line: 61
+          column: 89
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C092"
+        severity: "warning"
+        message: "use the command's exit status directly instead of executing the output from `$(...)`"
+        start:
+          line: 170
+          column: 13
+        end:
+          line: 170
+          column: 60
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 307
+          column: 35
+        end:
+          line: 307
+          column: 138
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 308
+          column: 43
+        end:
+          line: 308
+          column: 171
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 310
+          column: 43
+        end:
+          line: 310
+          column: 197
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 313
+          column: 32
+        end:
+          line: 313
+          column: 92
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 315
+          column: 30
+        end:
+          line: 315
+          column: 122
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 330
+          column: 32
+        end:
+          line: 330
+          column: 84
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 331
+          column: 40
+        end:
+          line: 331
+          column: 101
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 332
+          column: 40
+        end:
+          line: 332
+          column: 125
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 333
+          column: 29
+        end:
+          line: 333
+          column: 88
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 334
+          column: 27
+        end:
+          line: 334
+          column: 175
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 335
+          column: 29
+        end:
+          line: 335
+          column: 82
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 336
+          column: 36
+        end:
+          line: 336
+          column: 107
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 338
+          column: 25
+        end:
+          line: 338
+          column: 76
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 339
+          column: 29
+        end:
+          line: 339
+          column: 76
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 341
+          column: 32
+        end:
+          line: 341
+          column: 154
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 343
+          column: 39
+        end:
+          line: 343
+          column: 106
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 353
+          column: 28
+        end:
+          line: 353
+          column: 85
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 360
+          column: 32
+        end:
+          line: 360
+          column: 122
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 441
+          column: 27
+        end:
+          line: 441
+          column: 130
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 442
+          column: 35
+        end:
+          line: 442
+          column: 163
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 444
+          column: 35
+        end:
+          line: 444
+          column: 189
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 447
+          column: 24
+        end:
+          line: 447
+          column: 84
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 449
+          column: 22
+        end:
+          line: 449
+          column: 114
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 465
+          column: 24
+        end:
+          line: 465
+          column: 76
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 466
+          column: 32
+        end:
+          line: 466
+          column: 93
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 467
+          column: 32
+        end:
+          line: 467
+          column: 117
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 468
+          column: 21
+        end:
+          line: 468
+          column: 80
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 469
+          column: 19
+        end:
+          line: 469
+          column: 167
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 470
+          column: 21
+        end:
+          line: 470
+          column: 74
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 471
+          column: 28
+        end:
+          line: 471
+          column: 99
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 473
+          column: 17
+        end:
+          line: 473
+          column: 68
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 474
+          column: 21
+        end:
+          line: 474
+          column: 68
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 476
+          column: 24
+        end:
+          line: 476
+          column: 146
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 478
+          column: 31
+        end:
+          line: 478
+          column: 98
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 488
+          column: 20
+        end:
+          line: 488
+          column: 77
+        classification: false_positive
+      - path: "plugins/gradle/_gradle"
+        code: "C061"
+        severity: "warning"
+        message: "this token is being treated as a command name, but it looks more like stray text"
+        start:
+          line: 498
+          column: 24
+        end:
+          line: 498
+          column: 114
+        classification: false_positive
+      - path: "plugins/httpie/_httpie"
+        code: "C001"
+        severity: "warning"
+        message: "variable `PREFIX` is assigned but never used"
+        start:
+          line: 59
+          column: 13
+        end:
+          line: 59
+          column: 19
+        classification: false_positive
+      - path: "plugins/httpie/_httpie"
+        code: "C001"
+        severity: "warning"
+        message: "variable `SUFFIX` is assigned but never used"
+        start:
+          line: 60
+          column: 13
+        end:
+          line: 60
+          column: 19
+        classification: false_positive
+      - path: "plugins/httpie/_httpie"
+        code: "C124"
+        severity: "warning"
+        message: "code is unreachable"
+        start:
+          line: 119
+          column: 5
+        end:
+          line: 119
+          column: 15
+        classification: false_positive
+      - path: "plugins/httpie/_httpie"
+        code: "C124"
+        severity: "warning"
+        message: "code is unreachable"
+        start:
+          line: 126
+          column: 3
+        end:
+          line: 126
+          column: 14
+        classification: false_positive
+      - path: "plugins/httpie/_httpie"
+        code: "C063"
+        severity: "warning"
+        message: "function `_httpie_printflags` cannot be reached by a direct call before the script terminates"
+        start:
+          line: 130
+          column: 1
+        end:
+          line: 149
+          column: 2
+        classification: false_positive
+      - path: "plugins/httpie/_httpie"
+        code: "C124"
+        severity: "warning"
+        message: "code is unreachable"
+        start:
+          line: 130
+          column: 1
+        end:
+          line: 149
+          column: 2
+        classification: false_positive
+      - path: "plugins/httpie/_httpie"
+        code: "C124"
+        severity: "warning"
+        message: "code is unreachable"
+        start:
+          line: 151
+          column: 1
+        end:
+          line: 151
+          column: 16
+        classification: false_positive
+      - path: "plugins/httpie/_httpie"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 162
+          column: 31
+        end:
+          line: 162
+          column: 97
+        classification: false_positive
+      - path: "plugins/httpie/_httpie"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 173
+          column: 3
+        end:
+          line: 173
+          column: 114
+        classification: false_positive
+      - path: "plugins/ipfs/_ipfs"
+        code: "C001"
+        severity: "warning"
+        message: "variable `expl` is assigned but never used"
+        start:
+          line: 435
+          column: 7
+        end:
+          line: 435
+          column: 11
+        classification: real
+      - path: "plugins/ipfs/_ipfs"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 730
+          column: 33
+        end:
+          line: 730
+          column: 72
+        classification: false_positive
+      - path: "plugins/kamal/_kamal"
+        code: "C017"
+        severity: "warning"
+        message: "this comparison only checks fixed literals"
+        start:
+          line: 274
+          column: 52
+        end:
+          line: 274
+          column: 54
+        classification: real
+      - path: "plugins/kamal/_kamal"
+        code: "C017"
+        severity: "warning"
+        message: "this comparison only checks fixed literals"
+        start:
+          line: 277
+          column: 73
+        end:
+          line: 277
+          column: 74
+        classification: real
+      - path: "plugins/kamal/_kamal"
+        code: "C086"
+        severity: "warning"
+        message: "use `-lt`/`-gt` instead of `<`/`>` for numeric comparisons"
+        start:
+          line: 277
+          column: 73
+        end:
+          line: 277
+          column: 74
+        classification: real
+      - path: "plugins/kitchen/_kitchen"
+        code: "C006"
+        severity: "error"
+        message: "variable `service` is referenced before assignment"
+        start:
+          line: 70
+          column: 45
+        end:
+          line: 70
+          column: 53
+        classification: false_positive
+      - path: "plugins/kitchen/_kitchen"
+        code: "C081"
+        severity: "warning"
+        message: "quote the right-hand side so string comparisons do not turn into glob matches"
+        start:
+          line: 75
+          column: 42
+        end:
+          line: 75
+          column: 46
+        classification: real
+      - path: "plugins/knife/_knife"
+        code: "C001"
+        severity: "warning"
+        message: "variable `knife_general_flags` is assigned but never used"
+        start:
+          line: 12
+          column: 1
+        end:
+          line: 12
+          column: 20
+        classification: false_positive
+      - path: "plugins/knife/_knife"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 81
+          column: 18
+        end:
+          line: 81
+          column: 57
+        classification: false_positive
+      - path: "plugins/knife/_knife"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 97
+          column: 18
+        end:
+          line: 97
+          column: 65
+        classification: false_positive
+      - path: "plugins/knife/_knife"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 100
+          column: 18
+        end:
+          line: 100
+          column: 70
+        classification: false_positive
+      - path: "plugins/knife/_knife"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 115
+          column: 18
+        end:
+          line: 115
+          column: 57
+        classification: false_positive
+      - path: "plugins/knife/_knife"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 125
+          column: 20
+        end:
+          line: 125
+          column: 71
+        classification: false_positive
+      - path: "plugins/knife/_knife"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 135
+          column: 18
+        end:
+          line: 135
+          column: 78
+        classification: false_positive
+      - path: "plugins/knife/_knife"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 140
+          column: 20
+        end:
+          line: 140
+          column: 90
+        classification: false_positive
+      - path: "plugins/knife/_knife"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 143
+          column: 20
+        end:
+          line: 143
+          column: 83
+        classification: false_positive
+      - path: "plugins/knife/_knife"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 146
+          column: 20
+        end:
+          line: 146
+          column: 83
+        classification: false_positive
+      - path: "plugins/knife/_knife"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 149
+          column: 20
+        end:
+          line: 149
+          column: 59
+        classification: false_positive
+      - path: "plugins/knife/_knife"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 157
+          column: 18
+        end:
+          line: 157
+          column: 57
+        classification: false_positive
+      - path: "plugins/knife/_knife"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 167
+          column: 20
+        end:
+          line: 167
+          column: 84
+        classification: false_positive
+      - path: "plugins/knife/_knife"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 169
+          column: 21
+        end:
+          line: 169
+          column: 60
+        classification: false_positive
+      - path: "plugins/knife/_knife"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 176
+          column: 18
+        end:
+          line: 176
+          column: 90
+        classification: false_positive
+      - path: "plugins/knife/_knife"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 179
+          column: 18
+        end:
+          line: 179
+          column: 57
+        classification: false_positive
+      - path: "plugins/meteor/_meteor"
+        code: "C001"
+        severity: "warning"
+        message: "variable `packages` is assigned but never used"
+        start:
+          line: 51
+          column: 10
+        end:
+          line: 51
+          column: 18
+        classification: false_positive
+      - path: "plugins/meteor/_meteor"
+        code: "C001"
+        severity: "warning"
+        message: "variable `installed_packages` is assigned but never used"
+        start:
+          line: 51
+          column: 19
+        end:
+          line: 51
+          column: 37
+        classification: false_positive
+      - path: "plugins/mix/_mix"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 29
+          column: 45
+        end:
+          line: 29
+          column: 45
+        classification: false_positive
+      - path: "plugins/mix/_mix"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 32
+          column: 45
+        end:
+          line: 32
+          column: 45
+        classification: false_positive
+      - path: "plugins/multipass/_multipass"
+        code: "C006"
+        severity: "error"
+        message: "variable `_comp_command1` is referenced before assignment"
+        start:
+          line: 18
+          column: 3
+        end:
+          line: 18
+          column: 18
+        classification: real
+      - path: "plugins/nanoc/_nanoc"
+        code: "C001"
+        severity: "warning"
+        message: "variable `expl` is assigned but never used"
+        start:
+          line: 21
+          column: 7
+        end:
+          line: 21
+          column: 11
+        classification: real
+      - path: "plugins/nanoc/_nanoc"
+        code: "C001"
+        severity: "warning"
+        message: "variable `pkgs` is assigned but never used"
+        start:
+          line: 22
+          column: 10
+        end:
+          line: 22
+          column: 14
+        classification: real
+      - path: "plugins/nanoc/_nanoc"
+        code: "C001"
+        severity: "warning"
+        message: "variable `installed_pkgs` is assigned but never used"
+        start:
+          line: 22
+          column: 15
+        end:
+          line: 22
+          column: 29
+        classification: real
+      - path: "plugins/nanoc/_nanoc"
+        code: "C128"
+        severity: "warning"
+        message: "this case pattern shadows a later pattern"
+        start:
+          line: 43
+          column: 7
+        end:
+          line: 43
+          column: 14
+        classification: real
+      - path: "plugins/nanoc/_nanoc"
+        code: "C129"
+        severity: "warning"
+        message: "this case pattern is unreachable because an earlier pattern already matches it"
+        start:
+          line: 48
+          column: 7
+        end:
+          line: 48
+          column: 14
+        classification: real
+      - path: "plugins/nanoc/_nanoc"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 60
+          column: 11
+        end:
+          line: 60
+          column: 87
+        classification: false_positive
+      - path: "plugins/pep8/_pep8"
+        code: "C001"
+        severity: "warning"
+        message: "variable `state` is assigned but never used"
+        start:
+          line: 8
+          column: 15
+        end:
+          line: 8
+          column: 20
+        classification: false_positive
+      - path: "plugins/pip/_pip"
+        code: "C001"
+        severity: "warning"
+        message: "variable `piplist` is assigned but never used"
+        start:
+          line: 11
+          column: 7
+        end:
+          line: 11
+          column: 14
+        classification: false_positive
+      - path: "plugins/pip/_pip"
+        code: "C006"
+        severity: "error"
+        message: "variable `service` is referenced before assignment"
+        start:
+          line: 16
+          column: 21
+        end:
+          line: 16
+          column: 29
+        classification: false_positive
+      - path: "plugins/pip/_pip"
+        code: "C001"
+        severity: "warning"
+        message: "variable `all_pkgs` is assigned but never used"
+        start:
+          line: 37
+          column: 10
+        end:
+          line: 37
+          column: 18
+        classification: real
+      - path: "plugins/pip/_pip"
+        code: "C001"
+        severity: "warning"
+        message: "variable `installed_pkgs` is assigned but never used"
+        start:
+          line: 37
+          column: 19
+        end:
+          line: 37
+          column: 33
+        classification: false_positive
+      - path: "plugins/powify/_powify"
+        code: "C001"
+        severity: "warning"
+        message: "variable `all_servers` is assigned but never used"
+        start:
+          line: 7
+          column: 10
+        end:
+          line: 7
+          column: 21
+        classification: false_positive
+      - path: "plugins/powify/_powify"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 19
+          column: 3
+        end:
+          line: 19
+          column: 80
+        classification: false_positive
+      - path: "plugins/pylint/_pylint"
+        code: "C001"
+        severity: "warning"
+        message: "variable `state` is assigned but never used"
+        start:
+          line: 8
+          column: 15
+        end:
+          line: 8
+          column: 20
+        classification: false_positive
+      - path: "plugins/rails/_rails"
+        code: "C012"
+        severity: "warning"
+        message: "wildcard arguments should be guarded with `./` or `--`"
+        start:
+          line: 118
+          column: 13
+        end:
+          line: 118
+          column: 14
+        classification: real
+      - path: "plugins/rebar/_rebar"
+        code: "C001"
+        severity: "warning"
+        message: "variable `ret` is assigned but never used"
+        start:
+          line: 66
+          column: 12
+        end:
+          line: 66
+          column: 15
+        classification: real
+      - path: "plugins/redis-cli/_redis-cli"
+        code: "C001"
+        severity: "warning"
+        message: "variable `expl` is assigned but never used"
+        start:
+          line: 132
+          column: 7
+        end:
+          line: 132
+          column: 11
+        classification: real
+      - path: "plugins/repo/_repo"
+        code: "C107"
+        severity: "warning"
+        message: "test the command directly instead of reading its status back from `$?`"
+        start:
+          line: 33
+          column: 13
+        end:
+          line: 33
+          column: 15
+        classification: real
+      - path: "plugins/repo/_repo"
+        code: "C128"
+        severity: "warning"
+        message: "this case pattern shadows a later pattern"
+        start:
+          line: 88
+          column: 10
+        end:
+          line: 88
+          column: 18
+        classification: real
+      - path: "plugins/repo/_repo"
+        code: "C129"
+        severity: "warning"
+        message: "this case pattern is unreachable because an earlier pattern already matches it"
+        start:
+          line: 138
+          column: 10
+        end:
+          line: 138
+          column: 18
+        classification: real
+      - path: "plugins/rust/_rustc"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 56
+          column: 5
+        end:
+          line: 56
+          column: 67
+        classification: false_positive
+      - path: "plugins/rust/_rustc"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 75
+          column: 18
+        end:
+          line: 75
+          column: 147
+        classification: false_positive
+      - path: "plugins/rust/_rustc"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 76
+          column: 12
+        end:
+          line: 76
+          column: 140
+        classification: false_positive
+      - path: "plugins/rust/_rustc"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 77
+          column: 13
+        end:
+          line: 77
+          column: 143
+        classification: false_positive
+      - path: "plugins/rust/_rustc"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 84
+          column: 20
+        end:
+          line: 84
+          column: 103
+        classification: false_positive
+      - path: "plugins/rust/_rustc"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 85
+          column: 17
+        end:
+          line: 85
+          column: 124
+        classification: false_positive
+      - path: "plugins/rust/_rustc"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 88
+          column: 14
+        end:
+          line: 88
+          column: 109
+        classification: false_positive
+      - path: "plugins/rust/_rustc"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 89
+          column: 16
+        end:
+          line: 89
+          column: 122
+        classification: false_positive
+      - path: "plugins/rust/_rustc"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 90
+          column: 13
+        end:
+          line: 90
+          column: 92
+        classification: false_positive
+      - path: "plugins/rust/_rustc"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 140
+          column: 5
+        end:
+          line: 140
+          column: 47
+        classification: false_positive
+      - path: "plugins/rust/_rustc"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 155
+          column: 5
+        end:
+          line: 155
+          column: 86
+        classification: false_positive
+      - path: "plugins/rust/_rustc"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 163
+          column: 5
+        end:
+          line: 163
+          column: 58
+        classification: false_positive
+      - path: "plugins/rust/_rustc"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 167
+          column: 5
+        end:
+          line: 167
+          column: 71
+        classification: false_positive
+      - path: "plugins/salt/_salt"
+        code: "C001"
+        severity: "warning"
+        message: "variable `state` is assigned but never used"
+        start:
+          line: 18
+          column: 7
+        end:
+          line: 18
+          column: 12
+        classification: false_positive
+      - path: "plugins/salt/_salt"
+        code: "C006"
+        severity: "error"
+        message: "variable `service` is referenced before assignment"
+        start:
+          line: 55
+          column: 11
+        end:
+          line: 55
+          column: 19
+        classification: false_positive
+      - path: "plugins/salt/_salt"
+        code: "C001"
+        severity: "warning"
+        message: "variable `oldp` is assigned but never used"
+        start:
+          line: 110
+          column: 5
+        end:
+          line: 110
+          column: 9
+        classification: false_positive
+      - path: "plugins/salt/_salt"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 150
+          column: 5
+        end:
+          line: 150
+          column: 116
+        classification: false_positive
+      - path: "plugins/salt/_salt"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 156
+          column: 5
+        end:
+          line: 156
+          column: 117
+        classification: false_positive
+      - path: "plugins/salt/_salt"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 215
+          column: 39
+        end:
+          line: 215
+          column: 154
+        classification: false_positive
+      - path: "plugins/salt/_salt"
+        code: "C001"
+        severity: "warning"
+        message: "variable `salt_dir` is assigned but never used"
+        start:
+          line: 274
+          column: 9
+        end:
+          line: 274
+          column: 17
+        classification: false_positive
+      - path: "plugins/sbt/_sbt"
+        code: "C001"
+        severity: "warning"
+        message: "variable `expl` is assigned but never used"
+        start:
+          line: 29
+          column: 7
+        end:
+          line: 29
+          column: 11
+        classification: real
+      - path: "plugins/scala/_scala"
+        code: "C001"
+        severity: "warning"
+        message: "variable `state` is assigned but never used"
+        start:
+          line: 42
+          column: 15
+        end:
+          line: 42
+          column: 20
+        classification: false_positive
+      - path: "plugins/scala/_scala"
+        code: "C006"
+        severity: "error"
+        message: "variable `service` is referenced before assignment"
+        start:
+          line: 243
+          column: 15
+        end:
+          line: 243
+          column: 23
+        classification: false_positive
+      - path: "plugins/scd/_scd"
+        code: "C001"
+        severity: "warning"
+        message: "variable `expl` is assigned but never used"
+        start:
+          line: 4
+          column: 43
+        end:
+          line: 4
+          column: 47
+        classification: real
+      - path: "plugins/scd/_scd"
+        code: "C001"
+        severity: "warning"
+        message: "variable `ret` is assigned but never used"
+        start:
+          line: 41
+          column: 29
+        end:
+          line: 41
+          column: 32
+        classification: false_positive
+      - path: "plugins/scd/_scd"
+        code: "C002"
+        severity: "warning"
+        message: "source path is built at runtime"
+        start:
+          line: 50
+          column: 20
+        end:
+          line: 50
+          column: 35
+        classification: false_positive
+      - path: "plugins/scd/_scd"
+        code: "C150"
+        severity: "warning"
+        message: "assignment to `scdaliases` only changes the subshell copy"
+        start:
+          line: 52
+          column: 17
+        end:
+          line: 52
+          column: 27
+        classification: false_positive
+      - path: "plugins/scd/_scd"
+        code: "C155"
+        severity: "warning"
+        message: "`scdaliases` may still resolve to the outer-shell value here"
+        start:
+          line: 59
+          column: 38
+        end:
+          line: 59
+          column: 48
+        classification: false_positive
+      - path: "plugins/sfdx/_sfdx"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 139
+          column: 77
+        end:
+          line: 139
+          column: 77
+        classification: false_positive
+      - path: "plugins/sfdx/_sfdx"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 308
+          column: 61
+        end:
+          line: 308
+          column: 61
+        classification: false_positive
+      - path: "plugins/sfdx/_sfdx"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 568
+          column: 65
+        end:
+          line: 568
+          column: 65
+        classification: false_positive
+      - path: "plugins/sfdx/_sfdx"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 577
+          column: 64
+        end:
+          line: 577
+          column: 64
+        classification: false_positive
+      - path: "plugins/sfdx/_sfdx"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 635
+          column: 68
+        end:
+          line: 635
+          column: 68
+        classification: false_positive
+      - path: "plugins/sfdx/_sfdx"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 636
+          column: 65
+        end:
+          line: 636
+          column: 65
+        classification: false_positive
+      - path: "plugins/sfdx/_sfdx"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 646
+          column: 68
+        end:
+          line: 646
+          column: 68
+        classification: false_positive
+      - path: "plugins/sfdx/_sfdx"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 647
+          column: 62
+        end:
+          line: 647
+          column: 62
+        classification: false_positive
+      - path: "plugins/sfdx/_sfdx"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 658
+          column: 68
+        end:
+          line: 658
+          column: 68
+        classification: false_positive
+      - path: "plugins/sfdx/_sfdx"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 659
+          column: 62
+        end:
+          line: 659
+          column: 62
+        classification: false_positive
+      - path: "plugins/sfdx/_sfdx"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 670
+          column: 68
+        end:
+          line: 670
+          column: 68
+        classification: false_positive
+      - path: "plugins/sfdx/_sfdx"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 671
+          column: 62
+        end:
+          line: 671
+          column: 62
+        classification: false_positive
+      - path: "plugins/sfdx/_sfdx"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 673
+          column: 65
+        end:
+          line: 673
+          column: 65
+        classification: false_positive
+      - path: "plugins/sfdx/_sfdx"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 974
+          column: 51
+        end:
+          line: 974
+          column: 51
+        classification: false_positive
+      - path: "plugins/sfdx/_sfdx"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 975
+          column: 45
+        end:
+          line: 975
+          column: 45
+        classification: false_positive
+      - path: "plugins/sfdx/_sfdx"
+        code: "C137"
+        severity: "warning"
+        message: "a unicode curly single quote appears inside a single-quoted string"
+        start:
+          line: 993
+          column: 95
+        end:
+          line: 993
+          column: 95
+        classification: false_positive
+      - path: "plugins/supervisor/_supervisorctl"
+        code: "C001"
+        severity: "warning"
+        message: "variable `state` is assigned but never used"
+        start:
+          line: 4
+          column: 15
+        end:
+          line: 4
+          column: 20
+        classification: false_positive
+      - path: "plugins/supervisor/_supervisorctl"
+        code: "C006"
+        severity: "error"
+        message: "variable `_supervisorctl_syns` is referenced before assignment"
+        start:
+          line: 48
+          column: 31
+        end:
+          line: 48
+          column: 68
+        classification: real
+      - path: "plugins/supervisor/_supervisorctl"
+        code: "C001"
+        severity: "warning"
+        message: "variable `oldp` is assigned but never used"
+        start:
+          line: 85
+          column: 5
+        end:
+          line: 85
+          column: 9
+        classification: false_positive
+      - path: "plugins/swiftpm/_swift"
+        code: "C001"
+        severity: "warning"
+        message: "variable `state_descr` is assigned but never used"
+        start:
+          line: 2
+          column: 21
+        end:
+          line: 2
+          column: 32
+        classification: false_positive
+      - path: "plugins/swiftpm/_swift"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 60
+          column: 9
+        end:
+          line: 61
+          column: 64
+        classification: false_positive
+      - path: "plugins/swiftpm/_swift"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 117
+          column: 9
+        end:
+          line: 117
+          column: 115
+        classification: false_positive
+      - path: "plugins/swiftpm/_swift"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 136
+          column: 9
+        end:
+          line: 137
+          column: 64
+        classification: false_positive
+      - path: "plugins/swiftpm/_swift"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 210
+          column: 9
+        end:
+          line: 211
+          column: 64
+        classification: false_positive
+      - path: "plugins/swiftpm/_swift"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 341
+          column: 9
+        end:
+          line: 342
+          column: 64
+        classification: false_positive
+      - path: "plugins/swiftpm/_swift"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 574
+          column: 9
+        end:
+          line: 574
+          column: 191
+        classification: false_positive
+      - path: "plugins/swiftpm/_swift"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 575
+          column: 9
+        end:
+          line: 575
+          column: 189
+        classification: false_positive
+      - path: "plugins/taskwarrior/_task"
+        code: "C001"
+        severity: "warning"
+        message: "variable `task_priorities` is assigned but never used"
+        start:
+          line: 79
+          column: 1
+        end:
+          line: 79
+          column: 16
+        classification: false_positive
+      - path: "plugins/taskwarrior/_task"
+        code: "C001"
+        severity: "warning"
+        message: "variable `task_projects` is assigned but never used"
+        start:
+          line: 83
+          column: 1
+        end:
+          line: 83
+          column: 14
+        classification: false_positive
+      - path: "plugins/taskwarrior/_task"
+        code: "C001"
+        severity: "warning"
+        message: "variable `task_dates` is assigned but never used"
+        start:
+          line: 134
+          column: 1
+        end:
+          line: 134
+          column: 11
+        classification: false_positive
+      - path: "plugins/taskwarrior/_task"
+        code: "C001"
+        severity: "warning"
+        message: "variable `task_zshids` is assigned but never used"
+        start:
+          line: 143
+          column: 3
+        end:
+          line: 143
+          column: 14
+        classification: false_positive
+      - path: "plugins/taskwarrior/_task"
+        code: "C001"
+        severity: "warning"
+        message: "variable `task_freqs` is assigned but never used"
+        start:
+          line: 170
+          column: 1
+        end:
+          line: 170
+          column: 11
+        classification: false_positive
+      - path: "plugins/taskwarrior/_task"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 181
+          column: 3
+        end:
+          line: 181
+          column: 41
+        classification: false_positive
+      - path: "plugins/taskwarrior/_task"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 182
+          column: 3
+        end:
+          line: 182
+          column: 40
+        classification: false_positive
+      - path: "plugins/taskwarrior/_task"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 183
+          column: 3
+        end:
+          line: 183
+          column: 30
+        classification: false_positive
+      - path: "plugins/taskwarrior/_task"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 184
+          column: 3
+        end:
+          line: 184
+          column: 44
+        classification: false_positive
+      - path: "plugins/taskwarrior/_task"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 185
+          column: 3
+        end:
+          line: 185
+          column: 39
+        classification: false_positive
+      - path: "plugins/taskwarrior/_task"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 187
+          column: 3
+        end:
+          line: 187
+          column: 54
+        classification: false_positive
+      - path: "plugins/taskwarrior/_task"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 188
+          column: 3
+        end:
+          line: 188
+          column: 45
+        classification: false_positive
+      - path: "plugins/taskwarrior/_task"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 189
+          column: 3
+        end:
+          line: 189
+          column: 52
+        classification: false_positive
+      - path: "plugins/taskwarrior/_task"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 190
+          column: 3
+        end:
+          line: 190
+          column: 45
+        classification: false_positive
+      - path: "plugins/taskwarrior/_task"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 191
+          column: 3
+        end:
+          line: 191
+          column: 59
+        classification: false_positive
+      - path: "plugins/taskwarrior/_task"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 192
+          column: 3
+        end:
+          line: 192
+          column: 66
+        classification: false_positive
+      - path: "plugins/taskwarrior/_task"
+        code: "C081"
+        severity: "warning"
+        message: "quote the right-hand side so string comparisons do not turn into glob matches"
+        start:
+          line: 244
+          column: 24
+        end:
+          line: 244
+          column: 37
+        classification: real
+      - path: "plugins/terminitor/_terminitor"
+        code: "C001"
+        severity: "warning"
+        message: "variable `scripts` is assigned but never used"
+        start:
+          line: 7
+          column: 3
+        end:
+          line: 7
+          column: 10
+        classification: false_positive
+      - path: "plugins/tmux-cssh/_tmux-cssh"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 17
+          column: 33
+        end:
+          line: 17
+          column: 177
+        classification: false_positive
+      - path: "plugins/tmuxinator/_tmuxinator"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 15
+          column: 20
+        end:
+          line: 15
+          column: 44
+        classification: false_positive
+      - path: "plugins/tugboat/_tugboat"
+        code: "C001"
+        severity: "warning"
+        message: "variable `tasks` is assigned but never used"
+        start:
+          line: 49
+          column: 14
+        end:
+          line: 49
+          column: 19
+        classification: real
+      - path: "plugins/ufw/_ufw"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 9
+          column: 19
+        end:
+          line: 9
+          column: 69
+        classification: false_positive
+      - path: "plugins/ufw/_ufw"
+        code: "C001"
+        severity: "warning"
+        message: "variable `ret` is assigned but never used"
+        start:
+          line: 110
+          column: 12
+        end:
+          line: 110
+          column: 15
+        classification: real
+      - path: "plugins/vagrant/_vagrant"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 51
+          column: 5
+        end:
+          line: 51
+          column: 85
+        classification: false_positive
+      - path: "plugins/vagrant/_vagrant"
+        code: "C001"
+        severity: "warning"
+        message: "variable `boxes` is assigned but never used"
+        start:
+          line: 105
+          column: 10
+        end:
+          line: 105
+          column: 15
+        classification: real
+      - path: "plugins/vagrant/_vagrant"
+        code: "C001"
+        severity: "warning"
+        message: "variable `installed_boxes` is assigned but never used"
+        start:
+          line: 105
+          column: 16
+        end:
+          line: 105
+          column: 31
+        classification: real
+      - path: "plugins/xcode/_xcselv"
+        code: "C001"
+        severity: "warning"
+        message: "variable `ret` is assigned but never used"
+        start:
+          line: 13
+          column: 6
+        end:
+          line: 13
+          column: 9
+        classification: real
+      - path: "plugins/yarn/_yarn"
+        code: "C001"
+        severity: "warning"
+        message: "variable `cmds` is assigned but never used"
+        start:
+          line: 156
+          column: 3
+        end:
+          line: 156
+          column: 7
+        classification: real
+      - path: "plugins/z/_z"
+        code: "X043"
+        severity: "warning"
+        message: "zsh parameter modifier syntax is not portable to this shell"
+        start:
+          line: 46
+          column: 21
+        end:
+          line: 46
+          column: 24
+        classification: false_positive
+      - path: "plugins/z/_z"
+        code: "X045"
+        severity: "warning"
+        message: "`+=` assignment is not portable in `sh` scripts"
+        start:
+          line: 52
+          column: 3
+        end:
+          line: 52
+          column: 18
+        classification: false_positive
+      - path: "plugins/z/_z"
+        code: "C001"
+        severity: "warning"
+        message: "variable `compstate` is assigned but never used"
+        start:
+          line: 63
+          column: 1
+        end:
+          line: 63
+          column: 18
+        classification: false_positive
+      - path: "plugins/z/_z"
+        code: "C006"
+        severity: "error"
+        message: "variable `insert` is referenced before assignment"
+        start:
+          line: 63
+          column: 11
+        end:
+          line: 63
+          column: 17
+        classification: false_positive
+      - path: "plugins/zeus/_zeus"
+        code: "C001"
+        severity: "warning"
+        message: "variable `generate_arguments` is assigned but never used"
+        start:
+          line: 29
+          column: 5
+        end:
+          line: 29
+          column: 23
+        classification: false_positive
+      - path: "plugins/zsh-navigation-tools/_n-kill"
+        code: "C001"
+        severity: "warning"
+        message: "variable `context` is assigned but never used"
+        start:
+          line: 3
+          column: 7
+        end:
+          line: 3
+          column: 14
+        classification: false_positive
   - name: "powerlevel10k"
     github_url: "https://github.com/romkatv/powerlevel10k.git"
     commit: "604f19a9eaa18e76db2e60b8d446d5f879065f90"
@@ -14288,6 +17049,17 @@ repos:
           line: 10
           column: 47
         classification: real
+      - path: "modules/git/functions/_git-hub-browse"
+        code: "C001"
+        severity: "warning"
+        message: "variable `files` is assigned but never used"
+        start:
+          line: 42
+          column: 5
+        end:
+          line: 42
+          column: 10
+        classification: false_positive
   - name: "thoughtbot-dotfiles"
     github_url: "https://github.com/thoughtbot/dotfiles.git"
     commit: "317ba3a479e4b104328150070b71e1a89d5bd532"
@@ -15660,6 +18432,28 @@ repos:
           line: 77
           column: 26
         classification: false_positive
+      - path: "core/functions/_zdot"
+        code: "C001"
+        severity: "warning"
+        message: "variable `flags_update_check` is assigned but never used"
+        start:
+          line: 96
+          column: 14
+        end:
+          line: 96
+          column: 32
+        classification: real
+      - path: "core/functions/_zdot"
+        code: "C001"
+        severity: "warning"
+        message: "variable `flags_update_apply` is assigned but never used"
+        start:
+          line: 96
+          column: 33
+        end:
+          line: 96
+          column: 51
+        classification: real
   - name: "zinit"
     github_url: "https://github.com/zdharma-continuum/zinit.git"
     commit: "6c9ac1c4bc9bcaede64cb473759ac2c5b9187f98"
@@ -15850,17 +18644,6 @@ repos:
         end:
           line: 81
           column: 92
-        classification: real
-      - path: "zi-browse-symbol"
-        code: "C001"
-        severity: "warning"
-        message: "variable `page_start_idx` is assigned but never used"
-        start:
-          line: 184
-          column: 13
-        end:
-          line: 184
-          column: 27
         classification: real
       - path: "zi-browse-symbol"
         code: "C001"
@@ -16261,17 +19044,6 @@ repos:
       - path: "zinit-autoload.zsh"
         code: "C001"
         severity: "warning"
-        message: "variable `correct` is assigned but never used"
-        start:
-          line: 2481
-          column: 30
-        end:
-          line: 2481
-          column: 37
-        classification: real
-      - path: "zinit-autoload.zsh"
-        code: "C001"
-        severity: "warning"
         message: "variable `LASTREPORT` is assigned but never used"
         start:
           line: 2493
@@ -16360,17 +19132,6 @@ repos:
       - path: "zinit-autoload.zsh"
         code: "C006"
         severity: "error"
-        message: "variable `hook` is referenced before assignment"
-        start:
-          line: 3034
-          column: 26
-        end:
-          line: 3034
-          column: 30
-        classification: false_positive
-      - path: "zinit-autoload.zsh"
-        code: "C006"
-        severity: "error"
         message: "variable `has` is referenced before assignment"
         start:
           line: 3034
@@ -16400,17 +19161,6 @@ repos:
         end:
           line: 3034
           column: 43
-        classification: false_positive
-      - path: "zinit-autoload.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `annex` is referenced before assignment"
-        start:
-          line: 3075
-          column: 11
-        end:
-          line: 3075
-          column: 16
         classification: false_positive
       - path: "zinit-autoload.zsh"
         code: "C006"
@@ -16797,17 +19547,6 @@ repos:
           line: 313
           column: 62
         classification: real
-      - path: "zinit-install.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `annex` is referenced before assignment"
-        start:
-          line: 330
-          column: 11
-        end:
-          line: 330
-          column: 16
-        classification: false_positive
       - path: "zinit-install.zsh"
         code: "C006"
         severity: "error"
@@ -17599,17 +20338,6 @@ repos:
         end:
           line: 961
           column: 24
-        classification: real
-      - path: "zinit.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ret` is assigned but never used"
-        start:
-          line: 1127
-          column: 9
-        end:
-          line: 1127
-          column: 12
         classification: real
       - path: "zinit.zsh"
         code: "C081"
@@ -18425,6 +21153,50 @@ repos:
           line: 1725
           column: 40
         classification: real
+      - path: "_zinit"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 15
+          column: 5
+        end:
+          line: 15
+          column: 44
+        classification: false_positive
+      - path: "_zinit"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 34
+          column: 5
+        end:
+          line: 34
+          column: 51
+        classification: false_positive
+      - path: "_zinit"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 46
+          column: 5
+        end:
+          line: 46
+          column: 93
+        classification: false_positive
+      - path: "_zinit"
+        code: "C005"
+        severity: "warning"
+        message: "shell expansion inside single quotes stays literal"
+        start:
+          line: 284
+          column: 35
+        end:
+          line: 284
+          column: 111
+        classification: false_positive
   - name: "zsh-autosuggestions"
     github_url: "https://github.com/zsh-users/zsh-autosuggestions.git"
     commit: "85919cd1ffa7d2d5412f6d3fe437ebdbeeec4fc5"

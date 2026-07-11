@@ -242,6 +242,28 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         }
     }
 
+    /// zsh evaluates the status operand of `return` and `exit` as an
+    /// arithmetic expression, so a bare identifier reads that variable
+    /// (`local ret=1; ...; return ret` is the standard completion idiom).
+    pub(super) fn record_zsh_arithmetic_status_operand(&mut self, code: Option<&'a Word>) {
+        if self.shell_profile.dialect != shuck_parser::ShellDialect::Zsh {
+            return;
+        }
+        let Some(word) = code else {
+            return;
+        };
+        let Some(text) = static_word_text(word, self.source) else {
+            return;
+        };
+        if is_name(text.as_ref()) {
+            self.add_reference_if_bound(
+                &Name::from(text.as_ref()),
+                ReferenceKind::ArithmeticRead,
+                word.span,
+            );
+        }
+    }
+
     pub(super) fn record_let_arithmetic_assignment_targets(&mut self, args: &[&'a Word]) {
         for argument in args {
             let Some((name, span)) = let_arithmetic_assignment_target(argument, self.source) else {
