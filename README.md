@@ -256,7 +256,15 @@ YAML comments outside the `run:` scalar are not visible to the shell parser and 
 
 ## Configuration
 
-Project settings live in `.shuck.toml` or `shuck.toml`.
+Project settings live in `.shuck.toml` or `shuck.toml`. Shuck walks up from each
+input to find the nearest of these files and treats that directory as the project
+root.
+
+If no project config is found, Shuck falls back to a user-level global config at
+`~/.config/shuck/shuck.toml` (or `.shuck.toml`), honoring `XDG_CONFIG_HOME` when
+set. Set `SHUCK_CONFIG_HOME` to point at a different directory for the global
+config. A project config always takes precedence over the global one, and
+`--config <file>` or `--isolated` bypass global config entirely.
 
 Use the `[check]` section to control embedded-script extraction:
 

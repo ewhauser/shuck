@@ -3,8 +3,9 @@
 //! Configuration loading and override handling for Shuck commands.
 //!
 //! This crate owns the TOML shapes used by `.shuck.toml`, command-line
-//! `--config` overrides, project-root discovery, and the small metadata model
-//! used to render configuration reference docs.
+//! `--config` overrides, project-root discovery, an optional user-level global
+//! config file, and the small metadata model used to render configuration
+//! reference docs.
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -21,6 +22,10 @@ use shuck_formatter::{IndentStyle, ShellDialect};
 use shuck_run::RunConfig;
 
 const CONFIG_FILENAMES: [&str; 2] = [".shuck.toml", "shuck.toml"];
+/// Environment variable that overrides the directory searched for the global
+/// (user-level) shuck config file. When set, only this directory is consulted
+/// for global configuration.
+const GLOBAL_CONFIG_DIR_ENV: &str = "SHUCK_CONFIG_HOME";
 /// Error shown when users try to set formatter dialect in a config file.
 pub const CONFIG_DIALECT_UNSUPPORTED_ERROR: &str = "`[format].dialect` is not supported; formatter dialect is auto-discovered from the file name or shebang. Use `--dialect` for a per-run override";
 const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] = &["check", "format", "lint", "run"];
@@ -1585,19 +1590,39 @@ pub fn resolve_project_root_for_file(
 }
 
 /// Load project configuration and apply command-line overrides.
+///
+/// When no project-level config is discovered, the user-level global config
+/// (see [`global_config_path`]) is used as a fallback.
 pub fn load_project_config(
     project_root: &Path,
     config_arguments: &ConfigArguments,
+) -> Result<ShuckConfig> {
+    load_project_config_with_global(project_root, config_arguments, global_config_path)
+}
+
+/// Core config resolution with an injected global-config lookup.
+///
+/// The global fallback is injected rather than discovered here so that callers
+/// (and tests) control it directly; [`load_project_config`] supplies the
+/// ambient user-level location. The lookup is lazy: `--isolated`, an explicit
+/// `--config` file, and a discovered project config all bypass the global
+/// location entirely, so a broken user-level config directory must not affect
+/// those modes.
+fn load_project_config_with_global(
+    project_root: &Path,
+    config_arguments: &ConfigArguments,
+    global_config: impl FnOnce() -> io::Result<Option<PathBuf>>,
 ) -> Result<ShuckConfig> {
     let mut config = if config_arguments.isolated {
         ShuckConfig::default()
     } else if let Some(config_path) = &config_arguments.config_file {
         load_config_file(config_path)?
-    } else {
-        let Some(config_path) = config_path_for_root(project_root)? else {
-            return Ok(config_arguments.overrides.clone());
-        };
+    } else if let Some(config_path) = config_path_for_root(project_root)? {
         load_config_file(&config_path)?
+    } else if let Some(global_path) = global_config()? {
+        load_config_file(&global_path)?
+    } else {
+        return Ok(config_arguments.overrides.clone());
     };
 
     config.apply_overrides(config_arguments.overrides.clone());
@@ -2369,6 +2394,65 @@ fn config_path_for_root(root: &Path) -> io::Result<Option<PathBuf>> {
 /// Return the config file path located directly under `root`, if any.
 pub fn discovered_config_path_for_root(root: &Path) -> io::Result<Option<PathBuf>> {
     config_path_for_root(root)
+}
+
+/// Directories searched, in precedence order, for a user-level global config.
+///
+/// The `SHUCK_CONFIG_HOME` environment variable, when set, takes precedence and
+/// is the only directory consulted (useful for pinning behavior). Otherwise the
+/// XDG-style config directory is used on every platform: `$XDG_CONFIG_HOME/shuck`
+/// when that variable is set, and `~/.config/shuck` otherwise. This keeps the
+/// location consistent for a CLI config file rather than following per-OS
+/// GUI-app conventions.
+fn global_config_search_dirs() -> Vec<PathBuf> {
+    if let Some(explicit) = std::env::var_os(GLOBAL_CONFIG_DIR_ENV)
+        && !explicit.is_empty()
+    {
+        return vec![PathBuf::from(explicit)];
+    }
+
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| etcetera::home_dir().ok().map(|home| home.join(".config")));
+
+    base.map(|base| vec![base.join("shuck")])
+        .unwrap_or_default()
+}
+
+/// Return the first existing config file across `dirs`, if any.
+///
+/// Kept separate from the ambient directory discovery so the precedence logic
+/// can be unit-tested against explicit directories.
+fn find_global_config(dirs: &[PathBuf]) -> io::Result<Option<PathBuf>> {
+    for dir in dirs {
+        if let Some(path) = config_path_for_root(dir)? {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
+}
+
+/// Locate the user-level global config file, if one exists.
+///
+/// Global configuration is used only as a fallback when no project-level
+/// `.shuck.toml`/`shuck.toml` is discovered and no explicit `--config` file or
+/// `--isolated` was requested. The first existing file across the search
+/// directories wins.
+pub fn global_config_path() -> io::Result<Option<PathBuf>> {
+    find_global_config(&global_config_search_dirs())
+}
+
+/// Every file path where a user-level global config may live, existing or not.
+///
+/// Intended for file watchers that need to observe global config edits,
+/// creation, and deletion: watching only [`global_config_path`] would miss a
+/// config file created after the watcher starts.
+pub fn global_config_candidate_paths() -> Vec<PathBuf> {
+    global_config_search_dirs()
+        .iter()
+        .flat_map(|dir| CONFIG_FILENAMES.iter().map(|filename| dir.join(filename)))
+        .collect()
 }
 
 fn normalize_path(path: &Path) -> PathBuf {
@@ -3514,5 +3598,187 @@ mod tests {
             resolve_project_root_for_input(&nested, false).unwrap(),
             nested
         );
+    }
+
+    /// Loads config the way the public API does, but with the global fallback
+    /// disabled, so unit tests never depend on a real user-level config file on
+    /// the host machine. This deliberately shadows the crate's public
+    /// `load_project_config` within the test module; the handful of tests that
+    /// exercise the global fallback call `load_project_config_with_global`
+    /// directly with an explicit path.
+    fn load_project_config(
+        project_root: &Path,
+        config_arguments: &ConfigArguments,
+    ) -> Result<ShuckConfig> {
+        load_project_config_with_global(project_root, config_arguments, || Ok(None))
+    }
+
+    /// A global-config lookup that must not run; branches that bypass the
+    /// global fallback should never evaluate it.
+    fn global_lookup_fails() -> io::Result<Option<PathBuf>> {
+        Err(io::Error::other("global config lookup should not run"))
+    }
+
+    /// Writes a `shuck.toml` into `dir` and returns its path.
+    fn write_global_config(dir: &Path, body: &str) -> PathBuf {
+        let path = dir.join("shuck.toml");
+        fs::write(&path, body).unwrap();
+        path
+    }
+
+    #[test]
+    fn global_config_is_used_when_no_project_config_exists() {
+        let global_dir = tempdir().unwrap();
+        let global =
+            write_global_config(global_dir.path(), "[format]\nfunction-next-line = true\n");
+
+        // A project directory with no local config file falls back to the global one.
+        let project = tempdir().unwrap();
+        let loaded =
+            load_project_config_with_global(project.path(), &ConfigArguments::default(), || {
+                Ok(Some(global.clone()))
+            })
+            .unwrap();
+
+        assert_eq!(loaded.format.function_next_line, Some(true));
+    }
+
+    #[test]
+    fn project_config_takes_precedence_over_global_config() {
+        let global_dir = tempdir().unwrap();
+        let global =
+            write_global_config(global_dir.path(), "[format]\nfunction-next-line = true\n");
+
+        let project = tempdir().unwrap();
+        fs::write(
+            project.path().join(".shuck.toml"),
+            "[format]\nfunction-next-line = false\n",
+        )
+        .unwrap();
+
+        let loaded =
+            load_project_config_with_global(project.path(), &ConfigArguments::default(), || {
+                Ok(Some(global.clone()))
+            })
+            .unwrap();
+
+        assert_eq!(loaded.format.function_next_line, Some(false));
+    }
+
+    #[test]
+    fn isolated_ignores_global_config() {
+        let global_dir = tempdir().unwrap();
+        let global =
+            write_global_config(global_dir.path(), "[format]\nfunction-next-line = true\n");
+
+        let project = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(vec![], true).unwrap();
+        let loaded =
+            load_project_config_with_global(project.path(), &config, || Ok(Some(global.clone())))
+                .unwrap();
+
+        assert_eq!(loaded.format.function_next_line, None);
+    }
+
+    #[test]
+    fn explicit_config_file_takes_precedence_over_global_config() {
+        let global_dir = tempdir().unwrap();
+        let global =
+            write_global_config(global_dir.path(), "[format]\nfunction-next-line = true\n");
+
+        let project = tempdir().unwrap();
+        let explicit = project.path().join("explicit.toml");
+        fs::write(&explicit, "[format]\nfunction-next-line = false\n").unwrap();
+
+        let config =
+            ConfigArguments::from_cli(vec![SingleConfigArgument::FilePath(explicit)], false)
+                .unwrap();
+        let loaded =
+            load_project_config_with_global(project.path(), &config, || Ok(Some(global.clone())))
+                .unwrap();
+
+        assert_eq!(loaded.format.function_next_line, Some(false));
+    }
+
+    #[test]
+    fn cli_overrides_layer_on_top_of_global_config() {
+        let global_dir = tempdir().unwrap();
+        let global =
+            write_global_config(global_dir.path(), "[format]\nfunction-next-line = true\n");
+
+        let project = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![SingleConfigArgument::SettingsOverride(Box::new(
+                parse_config_override("format.indent-width = 2").unwrap(),
+            ))],
+            false,
+        )
+        .unwrap();
+        let loaded =
+            load_project_config_with_global(project.path(), &config, || Ok(Some(global.clone())))
+                .unwrap();
+
+        assert_eq!(loaded.format.function_next_line, Some(true));
+        assert_eq!(loaded.format.indent_width, Some(2));
+    }
+
+    #[test]
+    fn global_config_missing_returns_only_overrides() {
+        let project = tempdir().unwrap();
+        let loaded =
+            load_project_config_with_global(project.path(), &ConfigArguments::default(), || {
+                Ok(None)
+            })
+            .unwrap();
+        assert_eq!(loaded.format.function_next_line, None);
+    }
+
+    #[test]
+    fn global_config_lookup_is_skipped_when_a_higher_precedence_source_applies() {
+        let project = tempdir().unwrap();
+        fs::write(project.path().join(".shuck.toml"), "[format]\n").unwrap();
+        load_project_config_with_global(
+            project.path(),
+            &ConfigArguments::default(),
+            global_lookup_fails,
+        )
+        .expect("project config should not consult the global location");
+
+        let isolated = ConfigArguments::from_cli(vec![], true).unwrap();
+        load_project_config_with_global(project.path(), &isolated, global_lookup_fails)
+            .expect("--isolated should not consult the global location");
+
+        let explicit_path = project.path().join("explicit.toml");
+        fs::write(&explicit_path, "[format]\n").unwrap();
+        let explicit =
+            ConfigArguments::from_cli(vec![SingleConfigArgument::FilePath(explicit_path)], false)
+                .unwrap();
+        load_project_config_with_global(project.path(), &explicit, global_lookup_fails)
+            .expect("--config should not consult the global location");
+    }
+
+    #[test]
+    fn find_global_config_returns_first_existing_file() {
+        let missing = tempdir().unwrap();
+        let present = tempdir().unwrap();
+        let later = tempdir().unwrap();
+        write_global_config(present.path(), "[format]\n");
+        fs::write(later.path().join(".shuck.toml"), "[format]\n").unwrap();
+
+        // An empty directory alone yields nothing.
+        assert!(
+            find_global_config(&[missing.path().to_path_buf()])
+                .unwrap()
+                .is_none()
+        );
+
+        // The first directory that contains a config file wins.
+        let found = find_global_config(&[
+            missing.path().to_path_buf(),
+            present.path().to_path_buf(),
+            later.path().to_path_buf(),
+        ])
+        .unwrap();
+        assert_eq!(found, Some(present.path().join("shuck.toml")));
     }
 }
