@@ -7,7 +7,8 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use anyhow::{Result, anyhow};
 use notify::{RecursiveMode, Watcher, recommended_watcher};
 use shuck_config::{
-    ConfigArguments, discovered_config_path_for_root, resolve_project_root_for_input,
+    ConfigArguments, discovered_config_path_for_root, global_config_path,
+    resolve_project_root_for_input,
 };
 
 use super::display::print_report;
@@ -334,7 +335,16 @@ fn watch_config_target(
 
     let project_root = resolve_project_root_for_input(resolved_input, true)?;
     let Some(config_path) = discovered_config_path_for_root(&project_root)? else {
-        return Ok(None);
+        // No project config: the run falls back to the user-level global
+        // config, so watch that location for edits instead.
+        let Some(global_path) = global_config_path()? else {
+            return Ok(None);
+        };
+        let resolved_path = normalize_path(&global_path);
+        return Ok(Some(WatchPath {
+            canonical_path: fs::canonicalize(&resolved_path).map_err(anyhow::Error::from)?,
+            resolved_path,
+        }));
     };
 
     let resolved_path = normalize_path(&config_path);

@@ -1832,6 +1832,7 @@ version = "0.0.41"
 dependencies = [
  "anyhow",
  "clap",
+ "etcetera",
  "serde",
  "shuck-formatter",
  "shuck-run",

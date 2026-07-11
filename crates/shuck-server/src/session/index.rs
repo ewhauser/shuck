@@ -180,7 +180,7 @@ impl Index {
     }
 
     pub(super) fn reload_settings(&mut self, changes: &[FileEvent], _client: &Client) {
-        let changed_roots = changes
+        let changed_paths = changes
             .iter()
             .filter_map(|change| change.uri.to_file_path().ok())
             .filter(|path| {
@@ -189,11 +189,27 @@ impl Index {
                     Some(".shuck.toml" | "shuck.toml")
                 )
             })
-            .filter_map(|path| path.parent().map(Path::to_path_buf))
-            .collect::<FxHashSet<_>>();
-        if changed_roots.is_empty() {
+            .collect::<Vec<_>>();
+        if changed_paths.is_empty() {
             return;
         }
+
+        // A global config change can affect any project without a local
+        // config, and cache keys carry no record of which fallback was used,
+        // so drop the whole cache rather than matching by config root.
+        let global_candidates = shuck_config::global_config_candidate_paths();
+        if changed_paths
+            .iter()
+            .any(|path| global_candidates.contains(path))
+        {
+            self.clear_project_settings_cache();
+            return;
+        }
+
+        let changed_roots = changed_paths
+            .iter()
+            .filter_map(|path| path.parent().map(Path::to_path_buf))
+            .collect::<FxHashSet<_>>();
 
         self.project_settings_cache
             .write()
