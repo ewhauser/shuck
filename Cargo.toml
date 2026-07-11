@@ -72,7 +72,7 @@ saphyr = "0.0.6"
 saphyr-parser = "0.0.6"
 similar = "2"
 toml = "0.8"
-quick-junit = "0.6.0"
+quick-junit = "0.6.1"
 url = "2.5.0"
 
 # Testing
