@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.0.42](https://github.com/ewhauser/shuck/compare/v0.0.41...v0.0.42) (2026-07-11)
+
+
+### Features
+
+* **config:** fall back to global ~/.config/shuck config ([#1143](https://github.com/ewhauser/shuck/issues/1143)) ([a7d659d](https://github.com/ewhauser/shuck/commit/a7d659d5e7e988f0e85f0317bfe9a31fff73aa1c))
+
+
+### Bug Fixes
+
+* **ast:** stop backtick recovery scan at first close ([#1081](https://github.com/ewhauser/shuck/issues/1081)) ([7a82d8c](https://github.com/ewhauser/shuck/commit/7a82d8c9174b67118b03175f677c041fc5e7955c))
+
+
+### Performance
+
+* **formatter:** build layout facts bottom-up ([#1086](https://github.com/ewhauser/shuck/issues/1086)) ([b60c6cc](https://github.com/ewhauser/shuck/commit/b60c6cc540d19e5500c7b0a87932927e339b67cb))
+* **formatter:** cache compound close spans ([#1109](https://github.com/ewhauser/shuck/issues/1109)) ([8ad98f7](https://github.com/ewhauser/shuck/commit/8ad98f7da213e434ed91432be0f8ac7a45541ac6))
+* **formatter:** reduce corpus allocations ([#1097](https://github.com/ewhauser/shuck/issues/1097)) ([d9421e7](https://github.com/ewhauser/shuck/commit/d9421e7d33c0938a940c704894462ec8c6da8c4b))
+* **formatter:** reuse facts in render paths ([#1111](https://github.com/ewhauser/shuck/issues/1111)) ([4c4a5df](https://github.com/ewhauser/shuck/commit/4c4a5dfa0cb29c9bfddc395a308d7571ae31d73f))
+* **linter:** cache S001 terminal-flow checks ([#1113](https://github.com/ewhauser/shuck/issues/1113)) ([1cf6571](https://github.com/ewhauser/shuck/commit/1cf6571e61170a7c0617384de6bfea0fb3f625e6))
+
+
+### Refactor
+
+* **formatter:** add layout plans ([#1101](https://github.com/ewhauser/shuck/issues/1101)) ([076dd71](https://github.com/ewhauser/shuck/commit/076dd71dedb8161fc5593455cc8ff01ed2117073))
+* **formatter:** centralize raw shell syntax helpers ([#1085](https://github.com/ewhauser/shuck/issues/1085)) ([0313c66](https://github.com/ewhauser/shuck/commit/0313c66f64ab608325d7b8dbb17a9e03a5ba26de))
+* **formatter:** centralize raw source inspection ([#1095](https://github.com/ewhauser/shuck/issues/1095)) ([ea843ac](https://github.com/ewhauser/shuck/commit/ea843ac411429d3d079d1bfe4811666d5485c488))
+* **formatter:** consolidate comment planning ([#1102](https://github.com/ewhauser/shuck/issues/1102)) ([ba3308b](https://github.com/ewhauser/shuck/commit/ba3308baf68dc9094cd7a57a1b0f40f65b2890fd))
+* **formatter:** deduplicate layout classification ([#1106](https://github.com/ewhauser/shuck/issues/1106)) ([687589d](https://github.com/ewhauser/shuck/commit/687589dec6b7b75a931977e5d87a0eef775786e0))
+* **formatter:** finish compound body site bounds ([#1105](https://github.com/ewhauser/shuck/issues/1105)) ([ef501dd](https://github.com/ewhauser/shuck/commit/ef501ddb52b8aa3e46b42b0a501bf773334b00f9))
+* **formatter:** reduce source scan cloning ([#1107](https://github.com/ewhauser/shuck/issues/1107)) ([a99e83e](https://github.com/ewhauser/shuck/commit/a99e83e7794278fbd51b792ee7d7be596b335e37))
+* **formatter:** require render context facts ([#1089](https://github.com/ewhauser/shuck/issues/1089)) ([2c1f5e7](https://github.com/ewhauser/shuck/commit/2c1f5e7c987463e7dcddca097f5dee4dc76b7716))
+* **formatter:** separate if layout selection ([#1087](https://github.com/ewhauser/shuck/issues/1087)) ([cf49f79](https://github.com/ewhauser/shuck/commit/cf49f79a450371d95dff5582030f2ab2e1063ddd))
+* **formatter:** share compound body site logic ([#1096](https://github.com/ewhauser/shuck/issues/1096)) ([78d34b2](https://github.com/ewhauser/shuck/commit/78d34b2e332d864eadb8354f0a654e9a47c27eb1))
+* **formatter:** share parse resolution flow ([#1092](https://github.com/ewhauser/shuck/issues/1092)) ([257a0bd](https://github.com/ewhauser/shuck/commit/257a0bdb547fc83bb959cf0739334d6898e3f12d))
+* **formatter:** share raw shell block normalizer ([#1099](https://github.com/ewhauser/shuck/issues/1099)) ([d69d5f2](https://github.com/ewhauser/shuck/commit/d69d5f2ba0cbf419d0c1858cd4c8005b854dfde4))
+* **formatter:** split command helpers by responsibility ([#1094](https://github.com/ewhauser/shuck/issues/1094)) ([5f7e3b5](https://github.com/ewhauser/shuck/commit/5f7e3b5cd2861876d925f78d674c594c2688d303))
+* **formatter:** split formatter facts domains ([#1110](https://github.com/ewhauser/shuck/issues/1110)) ([14ac2da](https://github.com/ewhauser/shuck/commit/14ac2dacc2118fe56cd731bfe4a11789ce913467))
+* **formatter:** split render plan layer ([#1112](https://github.com/ewhauser/shuck/issues/1112)) ([6cc2913](https://github.com/ewhauser/shuck/commit/6cc29137f016c1b9f1825c89f2e8290cac729473))
+* **formatter:** split streaming helper modules ([#1091](https://github.com/ewhauser/shuck/issues/1091)) ([ac9bf6d](https://github.com/ewhauser/shuck/commit/ac9bf6d32dce07a1df0e200594a372f5346c9179))
+* **formatter:** split visitor traversal modules ([#1082](https://github.com/ewhauser/shuck/issues/1082)) ([47aceef](https://github.com/ewhauser/shuck/commit/47aceeff70b0bbb9b26ffba3bdbed09d6b9c6518))
+* **formatter:** split word formatter by domain ([#1084](https://github.com/ewhauser/shuck/issues/1084)) ([a1ac013](https://github.com/ewhauser/shuck/commit/a1ac013ba65de38b0f1c8c275d357ab74dd55670))
+* **formatter:** split word render decisions ([#1108](https://github.com/ewhauser/shuck/issues/1108)) ([4b27e3b](https://github.com/ewhauser/shuck/commit/4b27e3bb88a3f0e587cb6e9ff1f0ea4ee5a3b192))
+* **formatter:** table-drive fragment emission ([#1104](https://github.com/ewhauser/shuck/issues/1104)) ([50fc42b](https://github.com/ewhauser/shuck/commit/50fc42b97c8c999db37b30c37ead85bd63a88468))
+* **formatter:** unify facts and layout pass ([#1100](https://github.com/ewhauser/shuck/issues/1100)) ([3a4263c](https://github.com/ewhauser/shuck/commit/3a4263c98aea9cc73feae9bb20a9c203639fe87a))
+* **formatter:** unify formatter fact layout pass ([#1093](https://github.com/ewhauser/shuck/issues/1093)) ([492b6d2](https://github.com/ewhauser/shuck/commit/492b6d226ac40d8efcd9baa3e3f8aedc3602030d))
+* **formatter:** use explicit render context ([#1090](https://github.com/ewhauser/shuck/issues/1090)) ([73faca3](https://github.com/ewhauser/shuck/commit/73faca36e78730445c17e0ba4ddb2a86acf61994))
+* **formatter:** use structural close delimiters ([#1103](https://github.com/ewhauser/shuck/issues/1103)) ([89c685a](https://github.com/ewhauser/shuck/commit/89c685afc6ec404419895fc74c59682e8a6a8725))
+
 ## [0.0.41](https://github.com/ewhauser/shuck/compare/v0.0.40...v0.0.41) (2026-05-21)
 
 
