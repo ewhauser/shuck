@@ -17,7 +17,7 @@ impl Server {
         let mut scheduler = schedule::Scheduler::new(self.worker_threads);
         while let Ok(next_event) = self.next_event() {
             let Some(next_event) = next_event else {
-                anyhow::bail!("client exited without proper shutdown sequence");
+                return Ok(());
             };
 
             match next_event {

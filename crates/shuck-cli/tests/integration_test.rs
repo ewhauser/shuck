@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::mpsc::{self, Receiver};
@@ -42,6 +42,34 @@ fn run_check_output(root: &Path, args: &[&str]) -> std::process::Output {
 
 fn stdout_string(output: &std::process::Output) -> String {
     String::from_utf8(output.stdout.clone()).unwrap()
+}
+
+#[test]
+fn server_exits_cleanly_when_stdin_reaches_eof() {
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.arg("server").write_stdin("");
+    cmd.assert().success().stdout("").stderr("");
+}
+
+#[test]
+fn server_reports_invalid_initialization_without_waiting_for_stdin_eof() {
+    let mut child = ProcessCommand::new(assert_cmd::cargo::cargo_bin("shuck"))
+        .arg("server")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let body = r#"{"jsonrpc":"2.0","method":"initialize","params":null,"id":1}"#;
+    write!(stdin, "Content-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+    stdin.flush().unwrap();
+
+    let Some(exit) = child.wait_timeout(Duration::from_secs(2)).unwrap() else {
+        stop_child(&mut child);
+        panic!("invalid initialization should exit while stdin remains open");
+    };
+    assert_eq!(exit.code(), Some(2));
 }
 
 fn platform_path(path: &str) -> String {
