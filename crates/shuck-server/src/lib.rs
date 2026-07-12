@@ -53,9 +53,7 @@ pub fn run() -> Result<()> {
         .min(four);
 
     let (connection, io_threads) = server::ConnectionInitializer::stdio();
-    let server_result = Server::new(worker_threads, connection)
-        .map_err(|err| err.context("Failed to start server"))?
-        .run();
+    let server_result = run_server(worker_threads, connection);
 
     let io_result = io_threads.join();
     match (server_result, io_result) {
@@ -73,10 +71,25 @@ pub fn run_connection(connection: lsp_server::Connection) -> Result<()> {
     let worker_threads = std::thread::available_parallelism()
         .unwrap_or(four)
         .min(four);
-    Server::new(
+    run_server(
         worker_threads,
         server::ConnectionInitializer::from_connection(connection),
     )
-    .map_err(|err| err.context("Failed to start server"))?
-    .run()
+}
+
+fn run_server(
+    worker_threads: NonZeroUsize,
+    connection: server::ConnectionInitializer,
+) -> Result<()> {
+    match Server::new(worker_threads, connection) {
+        Ok(server) => server.run(),
+        Err(error) if is_disconnected(&error) => Ok(()),
+        Err(error) => Err(error.context("Failed to start server")),
+    }
+}
+
+fn is_disconnected(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<lsp_server::ProtocolError>()
+        .is_some_and(lsp_server::ProtocolError::channel_is_disconnected)
 }

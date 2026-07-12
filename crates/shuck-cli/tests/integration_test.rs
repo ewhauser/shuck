@@ -44,6 +44,13 @@ fn stdout_string(output: &std::process::Output) -> String {
     String::from_utf8(output.stdout.clone()).unwrap()
 }
 
+#[test]
+fn server_exits_cleanly_when_stdin_reaches_eof() {
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.arg("server").write_stdin("");
+    cmd.assert().success().stdout("").stderr("");
+}
+
 fn platform_path(path: &str) -> String {
     if std::path::MAIN_SEPARATOR == '/' {
         path.to_owned()
