@@ -79,7 +79,6 @@ fn analyze_shell_file(
     let linter_settings = base_linter_settings.clone().with_shell(inferred_shell);
     let mut parse_result = Parser::with_dialect(&source, parse_dialect).parse();
     let mut analysis = collect_lint_diagnostics(
-        &pending,
         &source,
         &parse_result,
         &linter_settings,
@@ -102,7 +101,6 @@ fn analyze_shell_file(
             fs::write(&pending.file.absolute_path, &*source)?;
             parse_result = Parser::with_dialect(&source, parse_dialect).parse();
             analysis = collect_lint_diagnostics(
-                &pending,
                 &source,
                 &parse_result,
                 &linter_settings,
@@ -148,7 +146,6 @@ fn analyze_shell_file(
     })
 }
 pub(super) fn collect_lint_diagnostics(
-    _pending: &PendingProjectFile,
     source: &Arc<str>,
     parse_result: &ParseResult,
     linter_settings: &LinterSettings,
@@ -362,7 +359,6 @@ mod tests {
         let parse_result = Parser::with_dialect(&source, shuck_parser::ShellDialect::Bash).parse();
 
         let diagnostics = collect_lint_diagnostics(
-            &pending,
             &source,
             &parse_result,
             &LinterSettings::default(),

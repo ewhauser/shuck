@@ -321,8 +321,11 @@ pub struct CheckCommand {
     /// Run in watch mode by re-running whenever files change.
     #[arg(short = 'w', long, conflicts_with = "add_ignore")]
     pub watch: bool,
-    /// Files or directories to check.
+    /// Files or directories to check, or `-` to read from stdin.
     pub paths: Vec<PathBuf>,
+    /// The name of the file when passing it through stdin.
+    #[arg(long, help_heading = "Miscellaneous")]
+    pub stdin_filename: Option<PathBuf>,
     /// Rule selection and suppression settings.
     #[command(flatten)]
     pub rule_selection: RuleSelectionArgs,
