@@ -8,7 +8,9 @@ use shuck_semantic::{
     BindingId, BindingOrigin, ScopeId, ScopeKind, SemanticAnalysis, UnreachableCauseKind,
 };
 
-pub struct UnreachableAfterExit;
+pub struct UnreachableAfterExit {
+    script_terminating_function_call: bool,
+}
 
 impl Violation for UnreachableAfterExit {
     const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
@@ -18,7 +20,12 @@ impl Violation for UnreachableAfterExit {
     }
 
     fn message(&self) -> String {
-        "code is unreachable".to_owned()
+        if self.script_terminating_function_call {
+            "an earlier function call exits the script; use `return` if only the function should stop"
+                .to_owned()
+        } else {
+            "code is unreachable".to_owned()
+        }
     }
 
     fn fix_title(&self) -> Option<String> {
@@ -32,31 +39,46 @@ pub fn unreachable_after_exit(checker: &mut Checker) {
     let commands = checker.facts().commands();
     let semantic_analysis = checker.semantic_analysis();
     let unreached_function_spans = unreached_function_definition_spans(checker);
-    let unreachable_spans = outermost_unreachable_spans(
-        semantic_analysis
-            .dead_code()
-            .iter()
-            .filter(|dead_code| dead_code.cause_kind != UnreachableCauseKind::LoopControl)
-            .flat_map(|dead_code| dead_code.unreachable.iter().copied())
-            .filter(|span| {
-                !span_matches_short_circuit_skip(
-                    *span,
-                    short_circuit_lists,
-                    commands,
-                    semantic_analysis,
-                ) && !span_is_inside_unreached_function(*span, &unreached_function_spans)
-            })
-            .collect::<Vec<_>>(),
-    );
-
-    for span in unreachable_spans
-        .into_iter()
-        .map(|span| trim_trailing_terminator(span, source))
+    let mut diagnostics = Vec::new();
+    for dead_code in semantic_analysis
+        .dead_code()
+        .iter()
+        .filter(|dead_code| dead_code.cause_kind != UnreachableCauseKind::LoopControl)
     {
-        checker.report_diagnostic(
-            Diagnostic::new(UnreachableAfterExit, span)
-                .with_fix(Fix::safe_edit(Edit::deletion(span))),
+        let script_terminating_function_call =
+            dead_code.cause_kind == UnreachableCauseKind::ScriptTerminatingFunctionCall;
+        let unreachable_spans = outermost_unreachable_spans(
+            dead_code
+                .unreachable
+                .iter()
+                .copied()
+                .filter(|span| {
+                    !span_matches_short_circuit_skip(
+                        *span,
+                        short_circuit_lists,
+                        commands,
+                        semantic_analysis,
+                    ) && !span_is_inside_unreached_function(*span, &unreached_function_spans)
+                })
+                .collect(),
         );
+        for span in unreachable_spans
+            .into_iter()
+            .map(|span| trim_trailing_terminator(span, source))
+        {
+            diagnostics.push(
+                Diagnostic::new(
+                    UnreachableAfterExit {
+                        script_terminating_function_call,
+                    },
+                    span,
+                )
+                .with_fix(Fix::safe_edit(Edit::deletion(span))),
+            );
+        }
+    }
+    for diagnostic in diagnostics {
+        checker.report_diagnostic(diagnostic);
     }
 }
 
@@ -406,7 +428,7 @@ fn trim_trailing_terminator(span: Span, source: &str) -> Span {
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet_with_fix;
+    use crate::test::{test_snippet, test_snippet_with_fix};
     use crate::{Applicability, LinterSettings, Rule};
 
     #[test]
@@ -421,5 +443,42 @@ mod tests {
         assert_eq!(result.fixes_applied, 1);
         assert!(result.fixed_diagnostics.is_empty());
         assert!(!result.fixed_source.contains("echo unreachable"));
+    }
+
+    #[test]
+    fn explains_when_a_function_call_exits_the_script() {
+        let source = "\
+run_tests() {
+    exit 0
+}
+main() {
+    run_tests first
+    run_tests second
+}
+main
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnreachableAfterExit),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "run_tests second");
+        assert_eq!(
+            diagnostics[0].message,
+            "an earlier function call exits the script; use `return` if only the function should stop"
+        );
+    }
+
+    #[test]
+    fn keeps_generic_message_for_direct_exit() {
+        let source = "exit 0\nprintf '%s\\n' unreachable\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnreachableAfterExit),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].message, "code is unreachable");
     }
 }

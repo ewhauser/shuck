@@ -257,7 +257,9 @@ impl<'a> GraphBuilder<'a> {
                         .script_terminating_calls
                         .contains(&SpanKey::new(command.span))
                     {
-                        Some(UnreachableCause::shell_terminator(command.span))
+                        Some(UnreachableCause::script_terminating_function_call(
+                            command.span,
+                        ))
                     } else {
                         None
                     },
