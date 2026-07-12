@@ -2,7 +2,7 @@
   "name": "shuck-website",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@11.5.3",
+  "packageManager": "pnpm@11.8.0",
   "scripts": {
     "generate:config": "tsx scripts/generate-config-docs.ts",
     "generate:rules": "tsx scripts/generate-rules.ts",
