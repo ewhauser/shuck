@@ -15,6 +15,7 @@ mod display;
 mod embedded;
 mod run;
 mod settings;
+mod stdin;
 mod watch;
 #[cfg(test)]
 mod zsh_plugin_dependency_fixtures;
@@ -68,6 +69,9 @@ pub(crate) fn check(
     cache_dir: Option<&Path>,
 ) -> Result<ExitStatus> {
     let cwd = std::env::current_dir()?;
+    if stdin::is_stdin(&args)? {
+        return stdin::check_stdin(&args, config_arguments, &cwd);
+    }
     let cache_root = resolve_cache_root(&cwd, cache_dir)?;
     if args.watch {
         return watch_check(&args, config_arguments, &cwd, &cache_root);

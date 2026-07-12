@@ -65,7 +65,6 @@ pub(super) fn analyze_embedded_file(
                 pipefail: embedded.implicit_flags.pipefail,
             });
         let diagnostics = collect_lint_diagnostics(
-            &pending,
             &snippet_source,
             &parse_result,
             &linter_settings,

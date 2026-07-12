@@ -158,6 +158,7 @@ pub(crate) fn benchmark_check_paths(
             output_format,
             watch: false,
             paths: paths.to_vec(),
+            stdin_filename: None,
             rule_selection: RuleSelectionArgs {
                 select: Some(vec![RuleSelector::All]),
                 ..RuleSelectionArgs::default()

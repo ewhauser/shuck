@@ -296,6 +296,137 @@ fn check_good_file_succeeds() {
 }
 
 #[test]
+fn check_dash_reads_from_stdin() {
+    let tempdir = tempdir().unwrap();
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise", "-"])
+        .write_stdin("#!/bin/bash\necho $foo\n");
+    cmd.assert()
+        .code(1)
+        .stdout("-:2:6: error[C006] variable `foo` is referenced before assignment\n")
+        .stderr("");
+    assert!(!cache_dir(tempdir.path()).exists());
+}
+
+#[test]
+fn check_stdin_filename_is_optional_and_controls_per_file_settings() {
+    let tempdir = tempdir().unwrap();
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args([
+            "check",
+            "--stdin-filename",
+            "ignored.sh",
+            "--per-file-ignores",
+            "ignored.sh:C006",
+            "--output-format",
+            "concise",
+        ])
+        .write_stdin("#!/bin/bash\necho $foo\n");
+    cmd.assert().success().stdout("").stderr("");
+}
+
+#[test]
+fn check_stdin_loads_project_configuration() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join(".shuck.toml"),
+        "[lint]\nignore = ['C006']\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "-"])
+        .write_stdin("#!/bin/bash\necho $foo\n");
+    cmd.assert().success().stdout("").stderr("");
+}
+
+#[test]
+fn check_fix_stdin_writes_fixed_source_to_stdout() {
+    let tempdir = tempdir().unwrap();
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--fix", "--select", "S074", "-"])
+        .write_stdin("#!/bin/bash\nprintf '%s\\n' x &;\n");
+    cmd.assert()
+        .success()
+        .stdout("#!/bin/bash\nprintf '%s\\n' x &\n")
+        .stderr("Applied 1 fix.\n");
+}
+
+#[test]
+fn check_fix_stdin_routes_remaining_diagnostics_to_stderr() {
+    let tempdir = tempdir().unwrap();
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args([
+            "check",
+            "--fix",
+            "--select",
+            "C006",
+            "--output-format",
+            "concise",
+            "-",
+        ])
+        .write_stdin("#!/bin/bash\necho $foo\n");
+    cmd.assert()
+        .code(1)
+        .stdout("#!/bin/bash\necho $foo\n")
+        .stderr("-:2:6: error[C006] variable `foo` is referenced before assignment\n");
+}
+
+#[test]
+fn check_fix_stdin_keeps_json_diagnostics_parseable() {
+    let tempdir = tempdir().unwrap();
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args([
+            "check",
+            "--fix",
+            "--select",
+            "S074",
+            "--output-format",
+            "json",
+            "-",
+        ])
+        .write_stdin("#!/bin/bash\nprintf '%s\\n' x &;\n");
+    let output = cmd.output().unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "#!/bin/bash\nprintf '%s\\n' x &\n"
+    );
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(stderr, "[]\n");
+    serde_json::from_str::<serde_json::Value>(&stderr).unwrap();
+}
+
+#[test]
+fn check_stdin_rejects_mixed_paths_and_non_streaming_modes() {
+    let tempdir = tempdir().unwrap();
+    for args in [
+        vec!["check", "-", "script.sh"],
+        vec!["check", "--stdin-filename", "input.sh", "script.sh"],
+        vec!["check", "--watch", "-"],
+        vec!["check", "--add-ignore", "-"],
+    ] {
+        let mut cmd = Command::cargo_bin("shuck").unwrap();
+        configure_env_cache(&mut cmd, tempdir.path());
+        cmd.current_dir(tempdir.path()).args(args).write_stdin("");
+        cmd.assert().code(2);
+    }
+}
+
+#[test]
 fn check_fix_rewrites_safe_s074_and_bypasses_cache() {
     let tempdir = tempdir().unwrap();
     let script = tempdir.path().join("warn.sh");

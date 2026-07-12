@@ -12,6 +12,7 @@ use crate::commands::check_output::{
     DisplayedDiagnosticKind, DisplayedEdit, DisplayedFix, print_report_to,
 };
 use crate::commands::project_runner::PendingProjectFile;
+use crate::discover::DiscoveredFile;
 
 pub(super) fn print_report(
     report: &CheckReport,
@@ -39,14 +40,23 @@ pub(super) fn display_lint_diagnostics(
     diagnostics: &[shuck_linter::Diagnostic],
     include_source: bool,
 ) -> Vec<DisplayedDiagnostic> {
+    display_lint_diagnostics_for_file(&pending.file, source, diagnostics, include_source)
+}
+
+pub(super) fn display_lint_diagnostics_for_file(
+    file: &DiscoveredFile,
+    source: &Arc<str>,
+    diagnostics: &[shuck_linter::Diagnostic],
+    include_source: bool,
+) -> Vec<DisplayedDiagnostic> {
     let diagnostic_source = (!diagnostics.is_empty() && include_source).then(|| source.clone());
 
     diagnostics
         .iter()
         .map(|diagnostic| DisplayedDiagnostic {
-            path: pending.file.display_path.clone(),
-            relative_path: pending.file.relative_path.clone(),
-            absolute_path: pending.file.absolute_path.clone(),
+            path: file.display_path.clone(),
+            relative_path: file.relative_path.clone(),
+            absolute_path: file.absolute_path.clone(),
             span: DisplaySpan::new(
                 DisplayPosition::new(diagnostic.span.start.line, diagnostic.span.start.column),
                 DisplayPosition::new(diagnostic.span.end.line, diagnostic.span.end.column),

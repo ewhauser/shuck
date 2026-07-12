@@ -73,6 +73,7 @@ pub(super) fn check_args_with_format(
         output_format,
         watch: false,
         paths: Vec::new(),
+        stdin_filename: None,
         rule_selection: RuleSelectionArgs::default(),
         zsh_plugin_resolution: ZshPluginArgs::default(),
         file_selection: FileSelectionArgs::default(),

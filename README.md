@@ -72,6 +72,9 @@ shuck check action.yml
 # Read from stdin
 echo 'echo $foo' | shuck check -
 
+# Read from stdin using a logical filename for dialect and project settings
+echo 'echo $foo' | shuck check --stdin-filename script.bash
+
 # Apply safe fixes automatically
 shuck check --fix .
 
