@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.0.43](https://github.com/ewhauser/shuck/compare/v0.0.42...v0.0.43) (2026-07-12)
+
+
+### Features
+
+* **cli:** support stdin in native check ([#1160](https://github.com/ewhauser/shuck/issues/1160)) ([d9c4a06](https://github.com/ewhauser/shuck/commit/d9c4a06a8434c555d20ccbcb4d1eed76c818eb73))
+
+
+### Bug Fixes
+
+* **linter:** explain terminating function calls ([#1156](https://github.com/ewhauser/shuck/issues/1156)) ([ce0091f](https://github.com/ewhauser/shuck/commit/ce0091facc79966f40ea18037953d318de2aa274))
+* **parser:** bound simple command parsing with fuel ([#1159](https://github.com/ewhauser/shuck/issues/1159)) ([373977d](https://github.com/ewhauser/shuck/commit/373977d2949fc6270aa1b15f220193b77a22b1aa))
+* **run:** accept shell registry schema v3 ([#1157](https://github.com/ewhauser/shuck/issues/1157)) ([2a91b4a](https://github.com/ewhauser/shuck/commit/2a91b4ae0115e69bb8bc3654d36d8981599af6da))
+* **server:** exit cleanly when LSP client disconnects ([#1158](https://github.com/ewhauser/shuck/issues/1158)) ([11c7c52](https://github.com/ewhauser/shuck/commit/11c7c52f556f31a31f4d7091b00de96e7689845e))
+
 ## [0.0.42](https://github.com/ewhauser/shuck/compare/v0.0.41...v0.0.42) (2026-07-11)
 
 
