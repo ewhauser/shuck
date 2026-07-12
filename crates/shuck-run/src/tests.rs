@@ -70,6 +70,14 @@ fn write_executable_fixture(path: &Path, contents: impl AsRef<[u8]>) {
 }
 
 fn write_registry_site(root: &Path, entries: &[RegistryEntry]) -> PathBuf {
+    write_registry_site_with_schema(root, entries, 2)
+}
+
+fn write_registry_site_with_schema(
+    root: &Path,
+    entries: &[RegistryEntry],
+    schema_version: u64,
+) -> PathBuf {
     let mut grouped = BTreeMap::<String, BTreeMap<String, BTreeMap<String, RegistryEntry>>>::new();
     for entry in entries {
         grouped
@@ -107,20 +115,22 @@ fn write_registry_site(root: &Path, entries: &[RegistryEntry]) -> PathBuf {
 
             let mut platforms = Map::new();
             for (platform, entry) in versions.get(&version).unwrap() {
-                platforms.insert(
-                    platform.clone(),
-                    json!({
-                        "url": entry.url,
-                        "sha256": entry.sha256,
-                    }),
-                );
+                let mut artifact = json!({
+                    "url": entry.url,
+                    "sha256": entry.sha256,
+                });
+                if schema_version == 3 {
+                    artifact["asset_id"] = json!(123456);
+                    artifact["asset_digest"] = json!(format!("sha256:{}", entry.sha256));
+                }
+                platforms.insert(platform.clone(), artifact);
             }
 
             write_registry_document(
                 root,
                 &format!("shells/{shell}/{version}.json"),
                 &json!({
-                    "version": 2,
+                    "version": schema_version,
                     "kind": "shuck.shells.release",
                     "shell": shell,
                     "release": version,
@@ -133,7 +143,7 @@ fn write_registry_site(root: &Path, entries: &[RegistryEntry]) -> PathBuf {
             root,
             &format!("shells/{shell}/index.json"),
             &json!({
-                "version": 2,
+                "version": schema_version,
                 "kind": "shuck.shells.versions",
                 "shell": shell,
                 "versions": shell_versions,
@@ -145,7 +155,7 @@ fn write_registry_site(root: &Path, entries: &[RegistryEntry]) -> PathBuf {
         root,
         "index.json",
         &json!({
-            "version": 2,
+            "version": schema_version,
             "kind": "shuck.shells.index",
             "shells": root_shells,
         }),
@@ -208,6 +218,22 @@ fn registry_for_archive(
     write_registry_site(
         root,
         &[registry_entry(shell, version, &platform, archive, sha256)],
+    )
+}
+
+fn registry_for_archive_with_schema(
+    root: &Path,
+    shell: Shell,
+    version: &str,
+    archive: &Path,
+    sha256: &str,
+    schema_version: u64,
+) -> PathBuf {
+    let platform = current_platform().unwrap();
+    write_registry_site_with_schema(
+        root,
+        &[registry_entry(shell, version, &platform, archive, sha256)],
+        schema_version,
     )
 }
 
@@ -669,6 +695,59 @@ fn registry_site_root_url_resolves_root_index_document() {
     let loaded = load_registry(&environment, false, false).unwrap();
 
     assert!(loaded.shells.contains_key("bash"));
+}
+
+#[test]
+fn registry_schema_versions_two_and_three_are_supported() {
+    for schema_version in [2, 3] {
+        let tempdir = tempfile::tempdir().unwrap();
+        let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
+        let registry_path = registry_for_archive_with_schema(
+            tempdir.path(),
+            Shell::Bash,
+            "5.2.21",
+            &archive,
+            &sha256,
+            schema_version,
+        );
+        let environment = test_environment(
+            tempdir.path(),
+            Url::from_file_path(registry_path).unwrap().to_string(),
+        );
+
+        let installed = install_with_environment(
+            &environment,
+            Shell::Bash,
+            &VersionConstraint::parse("5.2.21").unwrap(),
+            false,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(installed.version.as_str(), "5.2.21");
+    }
+}
+
+#[test]
+fn registry_rejects_unknown_future_schema_version() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
+    let registry_path = registry_for_archive_with_schema(
+        tempdir.path(),
+        Shell::Bash,
+        "5.2.21",
+        &archive,
+        &sha256,
+        4,
+    );
+    let environment = test_environment(
+        tempdir.path(),
+        Url::from_file_path(registry_path).unwrap().to_string(),
+    );
+
+    let err = load_registry(&environment, false, false).unwrap_err();
+
+    assert!(format!("{err:#}").contains("root registry document version 4 is unsupported"));
 }
 
 #[test]

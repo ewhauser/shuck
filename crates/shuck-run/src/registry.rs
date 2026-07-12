@@ -12,7 +12,8 @@ use crate::download::fetch_url_to_path;
 use crate::{AvailableShell, Environment, Shell, Version, VersionConstraint};
 
 const REGISTRY_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
-const REGISTRY_SCHEMA_VERSION: u64 = 2;
+const MIN_REGISTRY_SCHEMA_VERSION: u64 = 2;
+const MAX_REGISTRY_SCHEMA_VERSION: u64 = 3;
 const ROOT_KIND: &str = "shuck.shells.index";
 const SHELL_KIND: &str = "shuck.shells.versions";
 const RELEASE_KIND: &str = "shuck.shells.release";
@@ -307,7 +308,7 @@ where
 fn parse_root_document(source: &str) -> Result<RootDocument> {
     let document: RootDocument =
         serde_json::from_str(source).context("decode root registry document")?;
-    if document.version != REGISTRY_SCHEMA_VERSION {
+    if !registry_schema_version_is_supported(document.version) {
         bail!(
             "root registry document version {} is unsupported",
             document.version
@@ -325,7 +326,7 @@ fn parse_root_document(source: &str) -> Result<RootDocument> {
 fn parse_shell_document(source: &str, expected_shell: &str) -> Result<ShellDocument> {
     let document: ShellDocument =
         serde_json::from_str(source).context("decode shell registry document")?;
-    if document.version != REGISTRY_SCHEMA_VERSION {
+    if !registry_schema_version_is_supported(document.version) {
         bail!(
             "shell registry document for `{expected_shell}` has unsupported version {}",
             document.version
@@ -353,7 +354,7 @@ fn parse_release_document(
 ) -> Result<ReleaseDocument> {
     let document: ReleaseDocument =
         serde_json::from_str(source).context("decode release manifest")?;
-    if document.version != REGISTRY_SCHEMA_VERSION {
+    if !registry_schema_version_is_supported(document.version) {
         bail!(
             "release manifest for `{expected_shell}` `{expected_version}` has unsupported version {}",
             document.version
@@ -378,6 +379,10 @@ fn parse_release_document(
         );
     }
     Ok(document)
+}
+
+fn registry_schema_version_is_supported(version: u64) -> bool {
+    (MIN_REGISTRY_SCHEMA_VERSION..=MAX_REGISTRY_SCHEMA_VERSION).contains(&version)
 }
 
 fn index_is_stale(path: &Path) -> Result<bool> {
