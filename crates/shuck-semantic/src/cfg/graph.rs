@@ -200,6 +200,8 @@ impl ControlFlowGraph {
 pub enum UnreachableCauseKind {
     /// A shell terminator such as `exit`, `return`, or fatal control transfer.
     ShellTerminator,
+    /// A function call whose reachable paths all terminate the script.
+    ScriptTerminatingFunctionCall,
     /// Loop control such as `break` or `continue`.
     LoopControl,
 }
@@ -215,6 +217,13 @@ impl UnreachableCause {
         Self {
             span,
             kind: UnreachableCauseKind::ShellTerminator,
+        }
+    }
+
+    pub(super) fn script_terminating_function_call(span: Span) -> Self {
+        Self {
+            span,
+            kind: UnreachableCauseKind::ScriptTerminatingFunctionCall,
         }
     }
 
