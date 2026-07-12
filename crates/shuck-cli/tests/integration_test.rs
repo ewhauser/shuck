@@ -355,6 +355,34 @@ fn check_fix_stdin_routes_remaining_diagnostics_to_stderr() {
 }
 
 #[test]
+fn check_fix_stdin_keeps_json_diagnostics_parseable() {
+    let tempdir = tempdir().unwrap();
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args([
+            "check",
+            "--fix",
+            "--select",
+            "S074",
+            "--output-format",
+            "json",
+            "-",
+        ])
+        .write_stdin("#!/bin/bash\nprintf '%s\\n' x &;\n");
+    let output = cmd.output().unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "#!/bin/bash\nprintf '%s\\n' x &\n"
+    );
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(stderr, "[]\n");
+    serde_json::from_str::<serde_json::Value>(&stderr).unwrap();
+}
+
+#[test]
 fn check_stdin_rejects_mixed_paths_and_non_streaming_modes() {
     let tempdir = tempdir().unwrap();
     for args in [

@@ -159,7 +159,7 @@ pub(super) fn check_stdin(
             args.output_format,
             colored::control::SHOULD_COLORIZE.should_colorize(),
         )?;
-        if fixes_applied > 0 {
+        if fixes_applied > 0 && is_human_readable(args.output_format) {
             writeln!(
                 stderr,
                 "Applied {fixes_applied} fix{}.",
@@ -187,6 +187,13 @@ fn requested_fix_applicability(args: &CheckCommand) -> Option<Applicability> {
     } else {
         None
     }
+}
+
+fn is_human_readable(output_format: CheckOutputFormatArg) -> bool {
+    matches!(
+        output_format,
+        CheckOutputFormatArg::Concise | CheckOutputFormatArg::Full | CheckOutputFormatArg::Grouped
+    )
 }
 
 fn stdin_file(
