@@ -25,9 +25,9 @@ pub(super) struct FileCheckResult {
     pub(super) cache_data: CheckCacheData,
     pub(super) diagnostics: Vec<DisplayedDiagnostic>,
     pub(super) dependency_paths: Vec<std::path::PathBuf>,
-    /// Resolved on-disk targets of `follow-source` hints in this file, to be
-    /// linted as additional inputs by the runner. Empty when following is
-    /// disabled or the file has no resolvable follow hints.
+    /// Resolved on-disk targets of `lint=true` source directives in this
+    /// file, to be linted as additional inputs by the runner. Empty when
+    /// `lint-sources` is disabled or no directive target resolves.
     pub(super) followed_paths: Vec<std::path::PathBuf>,
     pub(super) fixes_applied: usize,
     pub(super) parse_failed: bool,
@@ -170,8 +170,8 @@ fn analyze_shell_file(
     })
 }
 
-/// Resolves the on-disk targets of `follow-source` hints in `semantic` so the
-/// runner can lint them as additional inputs.
+/// Resolves the on-disk targets of `lint=true` source directives in
+/// `semantic` so the runner can lint them as additional inputs.
 fn collect_followed_paths(
     semantic: &shuck_semantic::SemanticModel,
     source_path: &Path,
@@ -180,7 +180,7 @@ fn collect_followed_paths(
     let mut followed = semantic
         .source_refs()
         .iter()
-        .filter(|source_ref| source_ref.hint.follows())
+        .filter(|source_ref| source_ref.lints_target())
         .flat_map(|source_ref| resolve_source_ref_paths(source_path, source_ref, resolver))
         .collect::<Vec<_>>();
     followed.sort();

@@ -103,7 +103,8 @@ pub use shuck_parser::{OptionValue, ShellDialect, ShellProfile, ZshEmulationMode
 pub use source_closure::{layout_for_plugin_framework, zsh_plugin_frameworks};
 /// Source-reference records and resolution state.
 pub use source_ref::{
-    SourceHint, SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution,
+    SourceDirectiveInfo, SourceDirectiveOrigin, SourceRef, SourceRefDiagnosticClass, SourceRefKind,
+    SourceRefResolution,
 };
 /// Shared on-disk resolution for source references and hints.
 pub use source_resolve::{
@@ -368,9 +369,8 @@ impl SpanKey {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SourceDirectiveOverride {
     pub(crate) kind: SourceRefKind,
-    /// Which shuck-native hint produced this directive (`None` for the
-    /// ShellCheck-compatible `source=` spelling).
-    pub(crate) hint: SourceHint,
+    /// Origin and lint policy of the directive.
+    pub(crate) directive: SourceDirectiveInfo,
     pub(crate) own_line: bool,
 }
 

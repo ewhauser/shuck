@@ -69,7 +69,7 @@ pub(super) fn run_check_with_cwd(
         }
     }
 
-    // Paths already linted (directly discovered inputs, plus follow-source
+    // Paths already linted (directly discovered inputs, plus lint=true directive
     // targets as they are processed), so no file is linted twice.
     let mut linted: HashSet<PathBuf> = HashSet::new();
     for run in &runs {
@@ -107,7 +107,7 @@ pub(super) fn run_check_with_cwd(
         // closure's own base-directory resolution already covers relative hints.
         let closure_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)> =
             source_resolver.has_roots().then_some(&source_resolver);
-        let follow_resolver = project_settings.follow_sources.then_some(&source_resolver);
+        let follow_resolver = project_settings.lint_sources.then_some(&source_resolver);
         let mut follow_worklist: Vec<(PathBuf, DiscoveredFile)> = Vec::new();
         let pending = run.take_pending_files_with_validator(
             |_, cached| Ok(cached.dependencies_match()),
@@ -172,8 +172,8 @@ pub(super) fn run_check_with_cwd(
             report.cache_misses += 1;
         }
 
-        // Lint follow-source targets that are not themselves discovered inputs,
-        // transitively following their own follow-source hints.
+        // Lint `lint=true` directive targets that are not themselves discovered inputs,
+        // transitively following their own lint=true directives.
         while let Some((path, referrer)) = follow_worklist.pop() {
             let Ok(canonical) = crate::discover::normalize_path(&path).canonicalize() else {
                 continue;
@@ -232,7 +232,7 @@ pub(super) fn run_check_with_cwd(
     Ok(report)
 }
 
-/// Lints a `follow-source` target as an additional input, reusing the referring
+/// Lints a `lint=true` directive target as an additional input, reusing the referring
 /// run's settings. Never applies fixes to followed files. Returns `None` when
 /// the target's metadata cannot be read.
 #[allow(clippy::too_many_arguments)]

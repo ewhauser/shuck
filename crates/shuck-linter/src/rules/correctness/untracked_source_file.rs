@@ -156,7 +156,7 @@ source \"${scriptfolder}${known_pins_dbfile}\"
     }
 
     #[test]
-    fn native_assume_source_silences_untracked_source_when_target_resolves() {
+    fn source_directive_silences_untracked_source_when_target_resolves() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.sh");
         let helper = temp.path().join("known_pins.db");
@@ -164,7 +164,7 @@ source \"${scriptfolder}${known_pins_dbfile}\"
 #!/bin/bash
 scriptfolder=\"$(dirname \"$0\")/\"
 known_pins_dbfile=\"known_pins.db\"
-# shuck: assume-source=./known_pins.db
+# shuck: source=./known_pins.db
 source \"${scriptfolder}${known_pins_dbfile}\"
 ";
         fs::write(&helper, "echo ok\n").unwrap();
@@ -177,12 +177,12 @@ source \"${scriptfolder}${known_pins_dbfile}\"
 
         assert!(
             diagnostics.is_empty(),
-            "assume-source should silence untracked-source when the target resolves: {diagnostics:?}"
+            "a source= directive should silence untracked-source when the target resolves: {diagnostics:?}"
         );
     }
 
     #[test]
-    fn native_follow_source_silences_untracked_source_when_target_resolves() {
+    fn lint_true_directive_silences_untracked_source_when_target_resolves() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.sh");
         let helper = temp.path().join("known_pins.db");
@@ -190,7 +190,7 @@ source \"${scriptfolder}${known_pins_dbfile}\"
 #!/bin/bash
 scriptfolder=\"$(dirname \"$0\")/\"
 known_pins_dbfile=\"known_pins.db\"
-# shuck: follow-source=./known_pins.db
+# shuck: source=./known_pins.db lint=true
 source \"${scriptfolder}${known_pins_dbfile}\"
 ";
         fs::write(&helper, "echo ok\n").unwrap();
@@ -203,12 +203,12 @@ source \"${scriptfolder}${known_pins_dbfile}\"
 
         assert!(
             diagnostics.is_empty(),
-            "follow-source should silence untracked-source when the target resolves: {diagnostics:?}"
+            "a lint=true directive should silence untracked-source when the target resolves: {diagnostics:?}"
         );
     }
 
     #[test]
-    fn native_assume_source_still_reports_when_target_is_missing() {
+    fn source_directive_still_reports_when_target_is_missing() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.sh");
         // No helper on disk: the asserted path does not resolve.
@@ -216,7 +216,7 @@ source \"${scriptfolder}${known_pins_dbfile}\"
 #!/bin/bash
 scriptfolder=\"$(dirname \"$0\")/\"
 known_pins_dbfile=\"known_pins.db\"
-# shuck: assume-source=./known_pins.db
+# shuck: source=./known_pins.db
 source \"${scriptfolder}${known_pins_dbfile}\"
 ";
 
@@ -229,7 +229,7 @@ source \"${scriptfolder}${known_pins_dbfile}\"
         assert_eq!(
             diagnostics.len(),
             1,
-            "an unresolved assume-source hint still reports the untracked source"
+            "an unresolved source= directive still reports the untracked source"
         );
     }
 

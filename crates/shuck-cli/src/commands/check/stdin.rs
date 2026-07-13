@@ -11,9 +11,9 @@ use shuck_parser::{Error as ParseError, parser::Parser};
 
 use super::CheckReport;
 use super::analyze::collect_lint_diagnostics;
-use super::source_resolver::NativeSourceResolver;
 use super::display::{display_lint_diagnostics_for_file, display_parse_error};
 use super::settings::resolve_project_check_settings;
+use super::source_resolver::NativeSourceResolver;
 use crate::ExitStatus;
 use crate::args::{CheckCommand, CheckOutputFormatArg};
 use crate::commands::check_output::print_report_to;

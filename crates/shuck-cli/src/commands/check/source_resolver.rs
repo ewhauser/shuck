@@ -1,11 +1,11 @@
-//! Native resolver for `assume-source` / `follow-source` hint paths.
+//! Native resolver for `# shuck: source=` directive target paths.
 //!
 //! The source closure already resolves a directive path relative to the
 //! annotating file's own directory. This resolver adds the configured
 //! `[lint] source-paths` roots as additional search directories, mirroring the
 //! ShellCheck-compat `--source-path` behavior, and exposes a helper for
 //! resolving a `SourceRef` to concrete on-disk targets (used to decide which
-//! `follow-source` files to lint).
+//! `lint=true` targets to lint).
 
 use std::path::{Path, PathBuf};
 

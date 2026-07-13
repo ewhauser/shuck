@@ -36,8 +36,8 @@ use crate::source_closure::{
     SourcePathTemplate, assignment_source_path_template, source_path_template,
 };
 use crate::source_ref::{
-    SourceHint, SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution,
-    default_diagnostic_class,
+    SourceDirectiveInfo, SourceDirectiveOrigin, SourceRef, SourceRefDiagnosticClass, SourceRefKind,
+    SourceRefResolution, default_diagnostic_class,
 };
 use crate::{
     BindingId, FileEntryContractCollector, FunctionScopeKind, IndirectTargetHint, ReferenceId,
@@ -2044,36 +2044,64 @@ fn parse_source_directives(
 }
 
 fn parse_source_directive_override(text: &str, own_line: bool) -> Option<SourceDirectiveOverride> {
-    // shuck-native spellings distinguish trust-only from follow:
-    //   `# shuck: assume-source=<path>`  -> import symbols only
-    //   `# shuck: follow-source=<path>`  -> import symbols and follow the target
+    // The shuck-native spelling asserts a target and, optionally, a lint
+    // policy:
+    //   `# shuck: source=<path>`            -> import the target's symbols only
+    //   `# shuck: source=<path> lint=true`  -> also lint the target
+    // All tokens are scanned before deciding, so the result is independent of
+    // token order (`lint=true source=x` == `source=x lint=true`). The first
+    // `source=` sets the target and the first `lint=` sets the policy; later
+    // duplicates are ignored.
     if let Some(rest) = strip_shuck_directive_prefix(text) {
+        let mut target: Option<&str> = None;
+        let mut lint: Option<bool> = None;
         for part in rest.split_whitespace() {
-            if let Some(value) = part.strip_prefix("assume-source=") {
-                return Some(source_directive_override(
-                    value,
-                    SourceHint::Assume,
-                    own_line,
-                ));
+            if part.eq_ignore_ascii_case("shellcheck") {
+                // `# shuck: shellcheck source=<path>`: an explicitly
+                // ShellCheck-style directive under the shuck prefix; defer to
+                // the compat recognition below rather than reading its
+                // `source=` as the native spelling.
+                break;
             }
-            if let Some(value) = part.strip_prefix("follow-source=") {
-                return Some(source_directive_override(
-                    value,
-                    SourceHint::Follow,
-                    own_line,
-                ));
+            if let Some(value) = part.strip_prefix("source=") {
+                target.get_or_insert(value);
+                continue;
+            }
+            if let Some(value) = part.strip_prefix("lint=") {
+                match value {
+                    "true" => lint.get_or_insert(true),
+                    "false" => lint.get_or_insert(false),
+                    _ => continue,
+                };
             }
         }
-        // Fall through: a `shuck:` comment without a shuck source token may
+        if let Some(value) = target {
+            return Some(source_directive_override(
+                value,
+                SourceDirectiveInfo {
+                    origin: SourceDirectiveOrigin::Shuck,
+                    lint: lint.unwrap_or(false),
+                },
+                own_line,
+            ));
+        }
+        // Fall through: a `shuck:` comment without a native source token may
         // still carry a ShellCheck-style `shellcheck source=` hint.
     }
 
     // ShellCheck-compatible `# shellcheck source=<path>` keeps ShellCheck's
-    // not-specified-as-input semantics (SourceHint::None).
+    // not-specified-as-input semantics and never lints the target natively.
     if text.contains("shellcheck") {
         for part in text.split_whitespace() {
             if let Some(value) = part.strip_prefix("source=") {
-                return Some(source_directive_override(value, SourceHint::None, own_line));
+                return Some(source_directive_override(
+                    value,
+                    SourceDirectiveInfo {
+                        origin: SourceDirectiveOrigin::ShellCheck,
+                        lint: false,
+                    },
+                    own_line,
+                ));
             }
         }
     }
@@ -2093,7 +2121,7 @@ fn strip_shuck_directive_prefix(text: &str) -> Option<&str> {
 
 fn source_directive_override(
     value: &str,
-    hint: SourceHint,
+    directive: SourceDirectiveInfo,
     own_line: bool,
 ) -> SourceDirectiveOverride {
     let kind = if value == "/dev/null" {
@@ -2103,7 +2131,7 @@ fn source_directive_override(
     };
     SourceDirectiveOverride {
         kind,
-        hint,
+        directive,
         own_line,
     }
 }
