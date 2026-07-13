@@ -2635,3 +2635,53 @@ fn source_paths_config_resolves_directive_targets_against_roots() {
         "the followed target under lib/ should be linted: {stdout}"
     );
 }
+
+#[test]
+fn directive_target_next_to_script_shadows_configured_root_match() {
+    // The same target name exists both next to the annotating script and
+    // under a configured source root; the local match must win, and only
+    // that one file is linted.
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join("lib")).unwrap();
+    fs::create_dir_all(tempdir.path().join("scripts")).unwrap();
+    fs::write(
+        tempdir.path().join("scripts/util.sh"),
+        "greet() { echo hi; }\nlocal_unused=1\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("lib/util.sh"),
+        "greet() { echo hi; }\nroot_unused=1\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("scripts/main.sh"),
+        "#!/bin/bash\n# shuck: source=util.sh lint=true\nsource \"$SOMEDIR/util.sh\"\ngreet\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[lint]\nsource-paths = [\"lib\"]\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(
+        tempdir.path(),
+        &[
+            "check",
+            "--no-cache",
+            "--output-format",
+            "concise",
+            "scripts/main.sh",
+        ],
+    );
+    let stdout = stdout_string(&output);
+    assert!(
+        stdout.contains(&format!("scripts{}util.sh", std::path::MAIN_SEPARATOR)),
+        "the local target next to the script should be linted: {stdout}"
+    );
+    assert!(
+        !stdout.contains(&format!("lib{}util.sh", std::path::MAIN_SEPARATOR)),
+        "the configured-root shadow must not also be linted: {stdout}"
+    );
+}

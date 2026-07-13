@@ -1582,11 +1582,14 @@ fn resolve_helper_paths(
         };
     }
 
+    // A candidate names one intended file: take the first (highest-precedence)
+    // root match rather than importing every root that happens to contain it.
     let paths = context
         .source_path_resolver
         .into_iter()
         .flat_map(|resolver| resolver.resolve_candidate_paths(source_path, candidate))
-        .filter(|path| path.is_file())
+        .find(|path| path.is_file())
+        .into_iter()
         .collect();
     HelperPathResolution {
         paths,

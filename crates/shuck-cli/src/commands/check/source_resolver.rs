@@ -43,13 +43,14 @@ impl SourcePathResolver for NativeSourceResolver {
     }
 }
 
-/// Resolves a source reference to concrete on-disk target paths, using the
-/// annotating file's directory first and then the resolver's configured roots.
+/// Resolves a source reference to its on-disk target, using the annotating
+/// file's directory first and then the resolver's configured roots; the
+/// nearest match wins.
 pub(super) fn resolve_source_ref_paths(
     source_path: &Path,
     source_ref: &SourceRef,
     resolver: &NativeSourceResolver,
-) -> Vec<PathBuf> {
+) -> Option<PathBuf> {
     shuck_semantic::resolve_source_ref_targets(
         source_path,
         source_ref,
