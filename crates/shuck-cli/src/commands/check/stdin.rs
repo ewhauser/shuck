@@ -11,6 +11,7 @@ use shuck_parser::{Error as ParseError, parser::Parser};
 
 use super::CheckReport;
 use super::analyze::collect_lint_diagnostics;
+use super::source_resolver::NativeSourceResolver;
 use super::display::{display_lint_diagnostics_for_file, display_parse_error};
 use super::settings::resolve_project_check_settings;
 use crate::ExitStatus;
@@ -79,6 +80,15 @@ pub(super) fn check_stdin(
             .clone()]))
         .with_shell(shell);
     let shellcheck_map = ShellCheckCodeMap::default();
+    // Relative `[lint] source-paths` resolve against the project root, matching
+    // the file-based check path. Stdin only imports symbols from hinted
+    // targets; it never lints them.
+    let source_resolver = NativeSourceResolver::new(
+        file.project_root.canonical_root.clone(),
+        settings.source_paths.clone(),
+    );
+    let closure_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)> =
+        source_resolver.has_roots().then_some(&source_resolver);
     let applicability = requested_fix_applicability(args);
     let include_source = matches!(args.output_format, CheckOutputFormatArg::Full);
 
@@ -89,6 +99,7 @@ pub(super) fn check_stdin(
         &parse_result,
         &linter_settings,
         Some(settings.zsh_plugins.as_ref()),
+        closure_resolver,
         &shellcheck_map,
         &file.absolute_path,
     );
@@ -110,6 +121,7 @@ pub(super) fn check_stdin(
             &parse_result,
             &linter_settings,
             Some(settings.zsh_plugins.as_ref()),
+            closure_resolver,
             &shellcheck_map,
             &file.absolute_path,
         );
