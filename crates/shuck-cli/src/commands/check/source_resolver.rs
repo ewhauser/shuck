@@ -34,24 +34,12 @@ impl SourcePathResolver for NativeSourceResolver {
     fn resolve_candidate_paths(&self, source_path: &Path, candidate: &str) -> Vec<PathBuf> {
         // Only the configured roots here; the closure adds the base-directory
         // candidate itself.
-        let mut resolved = Vec::new();
-        for root in &self.source_paths {
-            let root_path = if root == "SCRIPTDIR" {
-                source_path.parent().unwrap_or(Path::new("")).to_path_buf()
-            } else {
-                let root_path = PathBuf::from(root);
-                if root_path.is_absolute() {
-                    root_path
-                } else {
-                    self.cwd.join(root_path)
-                }
-            };
-            let candidate_path = root_path.join(candidate);
-            if candidate_path.is_file() {
-                resolved.push(candidate_path);
-            }
-        }
-        resolved
+        shuck_semantic::resolve_candidate_against_roots(
+            source_path,
+            candidate,
+            &self.source_paths,
+            &self.cwd,
+        )
     }
 }
 

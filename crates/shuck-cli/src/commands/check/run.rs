@@ -69,28 +69,27 @@ pub(super) fn run_check_with_cwd(
         }
     }
 
-    // Absolute paths of files already linted directly, so a follow-source target
-    // that is also a discovered input is not linted twice.
-    let mut linted_directly: HashSet<PathBuf> = HashSet::new();
+    // Paths already linted (directly discovered inputs, plus follow-source
+    // targets as they are processed), so no file is linted twice.
+    let mut linted: HashSet<PathBuf> = HashSet::new();
     for run in &runs {
-        linted_directly.extend(
+        linted.extend(
             run.files
                 .iter()
                 .filter(|file| file.kind == FileKind::Shell)
                 .map(|file| file.absolute_path.clone()),
         );
     }
-    // Follow-source targets linted so far, to avoid re-linting across files/runs.
-    let mut followed_visited: HashSet<PathBuf> = HashSet::new();
 
     for mut run in runs {
         let project_settings = run.settings.clone();
-        let analyzed_paths = LinterSettings::analyzed_path_set(
-            run.files
-                .iter()
-                .filter(|file| file.kind == FileKind::Shell)
-                .map(|file| file.absolute_path.clone()),
-        );
+        let direct_input_paths = run
+            .files
+            .iter()
+            .filter(|file| file.kind == FileKind::Shell)
+            .map(|file| file.absolute_path.clone())
+            .collect::<Vec<_>>();
+        let analyzed_paths = LinterSettings::analyzed_path_set(direct_input_paths.iter().cloned());
         let linter_settings = project_settings
             .linter_settings
             .clone()
@@ -109,12 +108,18 @@ pub(super) fn run_check_with_cwd(
         let closure_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)> =
             source_resolver.has_roots().then_some(&source_resolver);
         let follow_resolver = project_settings.follow_sources.then_some(&source_resolver);
+        let mut follow_worklist: Vec<(PathBuf, DiscoveredFile)> = Vec::new();
         let pending = run.take_pending_files_with_validator(
             |_, cached| Ok(cached.dependencies_match()),
             |file, cached| {
                 report.cache_hits += 1;
                 report.parse_failed |= cached.parse_failed;
                 report.dependency_paths.extend(cached.dependency_paths());
+                // Followed targets are linted per run (their diagnostics are
+                // not part of this entry), so a hit must still enqueue them.
+                for followed in &cached.followed_paths {
+                    follow_worklist.push((followed.clone(), file.clone()));
+                }
                 let source = (include_source && !cached.diagnostics.is_empty())
                     .then(|| read_shared_source(&file.absolute_path))
                     .transpose()?;
@@ -148,7 +153,6 @@ pub(super) fn run_check_with_cwd(
             })
             .collect::<Vec<_>>();
 
-        let mut follow_worklist: Vec<(PathBuf, DiscoveredFile)> = Vec::new();
         for result in results {
             let result = result?;
             report.fixes_applied += result.fixes_applied;
@@ -174,13 +178,25 @@ pub(super) fn run_check_with_cwd(
             let Ok(canonical) = crate::discover::normalize_path(&path).canonicalize() else {
                 continue;
             };
-            if linted_directly.contains(&canonical) || !followed_visited.insert(canonical.clone()) {
+            if !linted.insert(canonical.clone()) {
                 continue;
             }
+            // The followed file joins the analyzed set: rules that ask whether
+            // a path is part of the analysis must see it the same way they
+            // would a direct input.
+            let followed_settings = project_settings
+                .linter_settings
+                .clone()
+                .with_analyzed_path_set(LinterSettings::analyzed_path_set(
+                    direct_input_paths
+                        .iter()
+                        .cloned()
+                        .chain([canonical.clone()]),
+                ));
             let Some(followed_result) = analyze_followed_file(
                 &canonical,
                 &referrer,
-                &linter_settings,
+                &followed_settings,
                 &project_settings,
                 closure_resolver,
                 follow_resolver,

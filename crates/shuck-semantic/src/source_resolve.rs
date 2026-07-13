@@ -59,6 +59,30 @@ pub fn resolve_candidate_targets(
             resolved.push(direct);
         }
     }
+    resolved.extend(resolve_candidate_against_roots(
+        source_path,
+        candidate,
+        roots,
+        root_base,
+    ));
+    resolved.sort();
+    resolved.dedup();
+    resolved
+}
+
+/// Resolves `candidate` against the configured roots only — no base-directory
+/// candidate and no absolute short-circuit. This is the root-search rule
+/// shared by [`resolve_candidate_targets`] and closure-facing
+/// `SourcePathResolver` implementations (which supply the base-directory
+/// candidate themselves).
+pub fn resolve_candidate_against_roots(
+    source_path: &Path,
+    candidate: &str,
+    roots: &[String],
+    root_base: &Path,
+) -> Vec<PathBuf> {
+    let candidate_path = Path::new(candidate);
+    let mut resolved = Vec::new();
     for root in roots {
         let root_path = if root == "SCRIPTDIR" {
             source_path.parent().unwrap_or(Path::new("")).to_path_buf()
@@ -70,12 +94,10 @@ pub fn resolve_candidate_targets(
                 root_base.join(root_path)
             }
         };
-        let joined = root_path.join(&candidate_path);
+        let joined = root_path.join(candidate_path);
         if joined.is_file() {
             resolved.push(joined);
         }
     }
-    resolved.sort();
-    resolved.dedup();
     resolved
 }

@@ -151,7 +151,12 @@ fn analyze_shell_file(
             collect_followed_paths(&analysis.semantic, &pending.file.absolute_path, resolver)
         })
         .unwrap_or_default();
-    let cache_data = CheckCacheData::from_displayed(&diagnostics, parse_failed, &dependency_paths);
+    let cache_data = CheckCacheData::from_displayed(
+        &diagnostics,
+        parse_failed,
+        &dependency_paths,
+        &followed_paths,
+    );
 
     Ok(FileCheckResult {
         file: pending.file,

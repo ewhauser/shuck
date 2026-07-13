@@ -443,6 +443,17 @@ fn source_hint_directives_override_dynamic_classification() {
 }
 
 #[test]
+fn shuck_prefixed_comment_still_honors_shellcheck_source() {
+    // A `shuck:` comment with no native source token can still carry a
+    // ShellCheck-style hint; the prefix must not swallow it.
+    let model = model("# shuck: shellcheck source=lib/util.sh\nsource \"$DIR/util.sh\"\n");
+    let refs = model.source_refs();
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0].kind, SourceRefKind::Directive("lib/util.sh".into()));
+    assert_eq!(refs[0].hint, SourceHint::None);
+}
+
+#[test]
 fn shellcheck_source_directive_still_uses_assume_semantics() {
     let model = model("# shellcheck source=lib/util.sh\nsource \"$DIR/util.sh\"\n");
     let refs = model.source_refs();

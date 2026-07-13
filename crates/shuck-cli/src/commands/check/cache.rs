@@ -56,6 +56,12 @@ pub(super) struct CheckCacheData {
     pub(super) parse_failed: bool,
     #[serde(default)]
     pub(super) dependency_fingerprints: Vec<ResolvedDependencyFingerprint>,
+    /// Resolved `follow-source` targets this file pulled into the run. Kept so
+    /// a cache hit still enqueues the targets for linting (their diagnostics
+    /// are not part of this entry), and fingerprinted so editing a target
+    /// invalidates this file (its imported symbols may have changed).
+    #[serde(default)]
+    pub(super) followed_paths: Vec<PathBuf>,
 }
 
 impl CheckCacheData {
@@ -63,6 +69,7 @@ impl CheckCacheData {
         diagnostics: &[DisplayedDiagnostic],
         parse_failed: bool,
         dependency_paths: &[PathBuf],
+        followed_paths: &[PathBuf],
     ) -> Self {
         Self {
             diagnostics: diagnostics
@@ -72,8 +79,12 @@ impl CheckCacheData {
             parse_failed,
             dependency_fingerprints: dependency_paths
                 .iter()
+                .chain(followed_paths)
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
                 .map(|path| ResolvedDependencyFingerprint::from_path(path))
                 .collect(),
+            followed_paths: followed_paths.to_vec(),
         }
     }
 
@@ -349,8 +360,12 @@ mod tests {
         let missing_dependency = tempdir.path().join("plugins/git.plugin.zsh");
         fs::create_dir_all(missing_dependency.parent().unwrap()).unwrap();
 
-        let cache_data =
-            CheckCacheData::from_displayed(&[], false, std::slice::from_ref(&missing_dependency));
+        let cache_data = CheckCacheData::from_displayed(
+            &[],
+            false,
+            std::slice::from_ref(&missing_dependency),
+            &[],
+        );
 
         assert_eq!(
             cache_data.dependency_paths(),
@@ -371,7 +386,7 @@ mod tests {
         fs::write(&dependency, "plugin_loaded=1\n").unwrap();
 
         let cache_data =
-            CheckCacheData::from_displayed(&[], false, std::slice::from_ref(&dependency));
+            CheckCacheData::from_displayed(&[], false, std::slice::from_ref(&dependency), &[]);
         assert!(cache_data.dependencies_match());
 
         fs::remove_file(&dependency).unwrap();
@@ -397,7 +412,7 @@ mod tests {
         symlink(&first_target, &symlink_path).unwrap();
 
         let cache_data =
-            CheckCacheData::from_displayed(&[], false, std::slice::from_ref(&symlink_path));
+            CheckCacheData::from_displayed(&[], false, std::slice::from_ref(&symlink_path), &[]);
         assert_eq!(cache_data.dependency_paths(), vec![symlink_path.clone()]);
         assert!(cache_data.dependencies_match());
 

@@ -2064,7 +2064,8 @@ fn parse_source_directive_override(text: &str, own_line: bool) -> Option<SourceD
                 ));
             }
         }
-        return None;
+        // Fall through: a `shuck:` comment without a shuck source token may
+        // still carry a ShellCheck-style `shellcheck source=` hint.
     }
 
     // ShellCheck-compatible `# shellcheck source=<path>` keeps ShellCheck's

@@ -36,7 +36,7 @@ pub(super) fn analyze_embedded_file(
             return Ok(FileCheckResult {
                 file: pending.file,
                 file_key: pending.file_key,
-                cache_data: CheckCacheData::from_displayed(&diagnostics, true, &[]),
+                cache_data: CheckCacheData::from_displayed(&diagnostics, true, &[], &[]),
                 diagnostics,
                 dependency_paths: Vec::new(),
                 followed_paths: Vec::new(),
@@ -107,7 +107,7 @@ pub(super) fn analyze_embedded_file(
     Ok(FileCheckResult {
         file: pending.file,
         file_key: pending.file_key,
-        cache_data: CheckCacheData::from_displayed(&displayed, parse_failed, &[]),
+        cache_data: CheckCacheData::from_displayed(&displayed, parse_failed, &[], &[]),
         diagnostics: displayed,
         dependency_paths: Vec::new(),
         followed_paths: Vec::new(),

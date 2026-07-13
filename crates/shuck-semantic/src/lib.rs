@@ -106,7 +106,9 @@ pub use source_ref::{
     SourceHint, SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution,
 };
 /// Shared on-disk resolution for source references and hints.
-pub use source_resolve::{resolve_candidate_targets, resolve_source_ref_targets};
+pub use source_resolve::{
+    resolve_candidate_against_roots, resolve_candidate_targets, resolve_source_ref_targets,
+};
 /// Value-flow query object built over semantic bindings, call sites, CFG, and dataflow.
 pub use value_flow::SemanticValueFlow;
 /// Zsh plugin framework traits and name aliases.
