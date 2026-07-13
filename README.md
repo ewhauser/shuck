@@ -266,33 +266,36 @@ at the real file with a hint comment on (or just above) the `source` line:
 ```sh
 # Import the file's definitions so references resolve, and stop the
 # untracked-source warning. The file itself is not linted.
-# shuck: assume-source=lib/util.sh
+# shuck: source=lib/util.sh
 source "$DIR/util.sh"
 
-# Same, and also lint the target (and follow its own sources).
-# shuck: follow-source=lib/util.sh
+# Same, and also lint the target as an additional input.
+# shuck: source=lib/util.sh lint=true
 source "$DIR/util.sh"
 
 # Nothing to include here; just silence the warning.
-# shuck: assume-source=/dev/null
+# shuck: source=/dev/null
 source "$maybe_present"
 ```
 
 The path is resolved relative to the annotating file's directory, then against
-any configured `source-paths`. The ShellCheck-compatible
-`# shellcheck source=<path>` directive is recognized too.
+any configured `source-paths`; the nearest match wins. A `lint=true` target is
+linted like a directly checked file: its own `source` statements are imported
+for symbol resolution, and nested `lint=true` directives inside it are honored
+transitively. The ShellCheck-compatible `# shellcheck source=<path>` directive
+is recognized too.
 
-Configure resolution and following in `.shuck.toml`:
+Configure resolution and target linting in `.shuck.toml`:
 
 ```toml
 [lint]
 # Extra directories (relative to the project root) searched when resolving
-# assume-source / follow-source hints.
+# `# shuck: source=` directive targets.
 source-paths = ["lib", "scripts"]
 
-# When false, follow-source behaves like assume-source (import symbols, but do
-# not lint the target). Default: true.
-follow-sources = true
+# When false, lint=true directives only import symbols; the targets are not
+# linted. Default: true.
+lint-sources = true
 ```
 
 ## Configuration
