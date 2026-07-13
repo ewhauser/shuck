@@ -22,10 +22,11 @@ pub(crate) type RenameResponse = Option<types::WorkspaceEdit>;
 pub(crate) type CallHierarchyPrepareResponse = Option<Vec<types::CallHierarchyItem>>;
 
 /// Round-trip payload stored in `CallHierarchyItem.data` so the incoming/outgoing
-/// requests can re-resolve the node on a freshly analyzed document.
+/// requests can distinguish a script top-level node from a function that happens
+/// to share the file's label.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
-enum CallHierarchyData {
+pub(crate) enum CallHierarchyData {
     Function { line: u32, character: u32 },
     TopLevel,
 }
@@ -242,35 +243,51 @@ fn to_lsp_call_hierarchy_item(
                     )
                 })
                 .unwrap_or(full_range);
-            types::CallHierarchyItem {
-                name: item.name.to_string(),
-                kind: types::SymbolKind::FUNCTION,
-                tags: None,
-                detail: None,
-                uri,
-                range: full_range,
-                selection_range,
-                data: serde_json::to_value(CallHierarchyData::Function {
-                    line: selection_range.start.line,
-                    character: selection_range.start.character,
-                })
-                .ok(),
-            }
+            call_hierarchy_function_item(item.name.to_string(), uri, full_range, selection_range)
         }
-        EditorCallHierarchyTarget::TopLevel => {
-            let start = types::Position::new(0, 0);
-            let range = types::Range { start, end: start };
-            types::CallHierarchyItem {
-                name: top_level_label(&uri),
-                kind: types::SymbolKind::MODULE,
-                tags: None,
-                detail: Some("script top level".to_owned()),
-                uri,
-                range,
-                selection_range: range,
-                data: serde_json::to_value(CallHierarchyData::TopLevel).ok(),
-            }
-        }
+        EditorCallHierarchyTarget::TopLevel => call_hierarchy_top_level_item(uri),
+    }
+}
+
+/// The one place a FUNCTION call-hierarchy node is shaped, shared by `prepare`
+/// and the cross-file incoming/outgoing item builder so the three requests
+/// return identical items for the same node.
+pub(crate) fn call_hierarchy_function_item(
+    name: String,
+    uri: types::Url,
+    range: types::Range,
+    selection_range: types::Range,
+) -> types::CallHierarchyItem {
+    types::CallHierarchyItem {
+        name,
+        kind: types::SymbolKind::FUNCTION,
+        tags: None,
+        detail: None,
+        uri,
+        range,
+        selection_range,
+        data: serde_json::to_value(CallHierarchyData::Function {
+            line: selection_range.start.line,
+            character: selection_range.start.character,
+        })
+        .ok(),
+    }
+}
+
+/// The one place a script-top-level MODULE node is shaped; see
+/// [`call_hierarchy_function_item`].
+pub(crate) fn call_hierarchy_top_level_item(uri: types::Url) -> types::CallHierarchyItem {
+    let start = types::Position::new(0, 0);
+    let range = types::Range { start, end: start };
+    types::CallHierarchyItem {
+        name: top_level_label(&uri),
+        kind: types::SymbolKind::MODULE,
+        tags: None,
+        detail: Some("script top level".to_owned()),
+        uri,
+        range,
+        selection_range: range,
+        data: serde_json::to_value(CallHierarchyData::TopLevel).ok(),
     }
 }
 

@@ -294,17 +294,17 @@ fn cross_file_call_hierarchy_spans_source_edges() {
     let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
 
     let workspace = tempfile::tempdir().expect("tempdir should be created");
-    // a.sh defines greet; b.sh follows a and calls greet inside `run`; c.sh
-    // assumes a and calls greet at top level.
+    // a.sh defines greet; b.sh sources a (lint=true) and calls greet inside
+    // `run`; c.sh sources a (import only) and calls greet at top level.
     std::fs::write(workspace.path().join("a.sh"), "greet() {\n  echo hi\n}\n").unwrap();
     std::fs::write(
         workspace.path().join("b.sh"),
-        "run() {\n  # shuck: follow-source=a.sh\n  source \"$DIR/a.sh\"\n  greet\n}\nrun\n",
+        "run() {\n  # shuck: source=a.sh lint=true\n  source \"$DIR/a.sh\"\n  greet\n}\nrun\n",
     )
     .unwrap();
     std::fs::write(
         workspace.path().join("c.sh"),
-        "# shuck: assume-source=a.sh\nsource \"$DIR/a.sh\"\ngreet\n",
+        "# shuck: source=a.sh\nsource \"$DIR/a.sh\"\ngreet\n",
     )
     .unwrap();
     let a_uri = Url::from_file_path(workspace.path().join("a.sh")).unwrap();
@@ -348,7 +348,8 @@ fn cross_file_call_hierarchy_spans_source_edges() {
     let greet_item = prepared.as_array().unwrap()[0].clone();
     assert_eq!(greet_item["name"], serde_json::json!("greet"));
 
-    // incoming: callers across files — b.sh's `run` (follow) and c.sh top level (assume)
+    // incoming: callers across files — b.sh's `run` (lint=true edge) and
+    // c.sh top level (import-only edge)
     send_request(
         &client_connection,
         3,
@@ -376,7 +377,7 @@ fn cross_file_call_hierarchy_spans_source_edges() {
     open_document(
         &client_connection,
         &b_uri,
-        "run() {\n  # shuck: follow-source=a.sh\n  source \"$DIR/a.sh\"\n  greet\n}\nrun\n",
+        "run() {\n  # shuck: source=a.sh lint=true\n  source \"$DIR/a.sh\"\n  greet\n}\nrun\n",
     );
     send_request(
         &client_connection,
@@ -438,7 +439,7 @@ fn cross_file_call_hierarchy_honors_configured_source_paths() {
     .unwrap();
     std::fs::write(
         workspace.path().join("scripts/main.sh"),
-        "run() {\n  # shuck: follow-source=util.sh\n  source \"$X/util.sh\"\n  greet\n}\nrun\n",
+        "run() {\n  # shuck: source=util.sh lint=true\n  source \"$X/util.sh\"\n  greet\n}\nrun\n",
     )
     .unwrap();
     let util_uri = Url::from_file_path(workspace.path().join("lib/util.sh")).unwrap();
@@ -482,7 +483,7 @@ fn cross_file_call_hierarchy_honors_configured_source_paths() {
     );
     let incoming = recv_response(&client_connection, 3);
     let incoming = incoming.as_array().unwrap();
-    // Without source-paths, main.sh's follow-source=util.sh would not resolve and
+    // Without source-paths, main.sh's source=util.sh directive would not resolve and
     // greet would have no caller; with it, `run` shows up.
     assert_eq!(incoming.len(), 1);
     assert_eq!(incoming[0]["from"]["name"], serde_json::json!("run"));

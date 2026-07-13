@@ -68,9 +68,12 @@ pub struct ServerOptions {
     pub completion: CompletionFeatureOptions,
     /// Rename configuration.
     pub rename: RenameFeatureOptions,
+    /// Cross-file call hierarchy configuration.
+    pub call_hierarchy: CallHierarchyFeatureOptions,
     workspace_symbols_overrides: WorkspaceSymbolFeatureOptionsOverrides,
     completion_overrides: CompletionFeatureOptionsOverrides,
     rename_overrides: RenameFeatureOptionsOverrides,
+    call_hierarchy_overrides: CallHierarchyFeatureOptionsOverrides,
 }
 
 impl ServerOptions {
@@ -109,6 +112,19 @@ impl ServerOptions {
             base
         }
     }
+
+    pub(crate) fn call_hierarchy_layered_over(
+        &self,
+        base: CallHierarchyFeatureOptions,
+    ) -> CallHierarchyFeatureOptions {
+        if self.call_hierarchy_overrides.has_overrides() {
+            self.call_hierarchy_overrides.apply_to(base)
+        } else if self.call_hierarchy != CallHierarchyFeatureOptions::default() {
+            self.call_hierarchy
+        } else {
+            base
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for ServerOptions {
@@ -125,6 +141,8 @@ impl<'de> Deserialize<'de> for ServerOptions {
             completion: CompletionFeatureOptionsOverrides,
             #[serde(default)]
             rename: RenameFeatureOptionsOverrides,
+            #[serde(default)]
+            call_hierarchy: CallHierarchyFeatureOptionsOverrides,
         }
 
         let raw = RawServerOptions::deserialize(deserializer)?;
@@ -134,9 +152,13 @@ impl<'de> Deserialize<'de> for ServerOptions {
                 .apply_to(WorkspaceSymbolFeatureOptions::default()),
             completion: raw.completion.apply_to(CompletionFeatureOptions::default()),
             rename: raw.rename.apply_to(RenameFeatureOptions::default()),
+            call_hierarchy: raw
+                .call_hierarchy
+                .apply_to(CallHierarchyFeatureOptions::default()),
             workspace_symbols_overrides: raw.workspace_symbols,
             completion_overrides: raw.completion,
             rename_overrides: raw.rename,
+            call_hierarchy_overrides: raw.call_hierarchy,
         })
     }
 }
@@ -259,6 +281,46 @@ impl Default for WorkspaceSymbolFeatureOptions {
 
 fn default_workspace_symbols_enabled() -> bool {
     true
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct CallHierarchyFeatureOptionsOverrides {
+    #[serde(default)]
+    max_files: Option<usize>,
+}
+
+impl CallHierarchyFeatureOptionsOverrides {
+    fn has_overrides(self) -> bool {
+        self.max_files.is_some()
+    }
+
+    fn apply_to(self, base: CallHierarchyFeatureOptions) -> CallHierarchyFeatureOptions {
+        CallHierarchyFeatureOptions {
+            max_files: self.max_files.unwrap_or(base.max_files),
+        }
+    }
+}
+
+/// Configuration for cross-file call hierarchy.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CallHierarchyFeatureOptions {
+    /// Maximum number of workspace files to index for the call graph.
+    #[serde(default = "default_call_hierarchy_max_files")]
+    pub max_files: usize,
+}
+
+impl Default for CallHierarchyFeatureOptions {
+    fn default() -> Self {
+        Self {
+            max_files: default_call_hierarchy_max_files(),
+        }
+    }
+}
+
+fn default_call_hierarchy_max_files() -> usize {
+    10_000
 }
 
 fn default_workspace_symbols_max_files() -> usize {

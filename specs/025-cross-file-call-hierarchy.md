@@ -6,17 +6,26 @@ Implemented (v1).
 
 Delivered: the workspace call-graph index (`FileCallFacts` / `WorkspaceCallIndex`
 in `shuck-semantic`), the shared source-edge resolver, and session-scoped
-`incomingCalls` / `outgoingCalls` handlers that build the index per request over
-open buffers plus discovered workspace files and answer both directions across
-files. Edges come from all determinable sources (literal-resolvable,
-`assume-source`, `follow-source`), resolved against the annotating file's own
-directory and the configured `[lint] source-paths` roots (memoized per project
-root, matching `shuck check`). Covered by semantic unit tests and black-box
-multi-file LSP tests (including one that resolves only via `source-paths`).
+`incomingCalls` / `outgoingCalls` handlers that build the index over open
+buffers plus discovered workspace files (plus files reachable only through
+resolved source edges, e.g. gitignored vendored targets) and answer both
+directions across files. The built index is cached on the session behind an
+epoch counter and invalidated by any document, workspace, or configuration
+change, so expanding a call tree reuses one build. Call sites the semantic
+model binds in-file stay binding-accurate (definition order and shadowing are
+honored); only sites it leaves unresolved are matched by name across source
+edges. Top-level MODULE nodes round-trip through `CallHierarchyItem.data`, so
+their outgoing calls expand. Edges come from all determinable sources
+(literal-resolvable, `assume-source`, `follow-source`), resolved against the
+annotating file's own directory and the configured `[lint] source-paths` roots
+(memoized per project root, matching `shuck check`). The indexed-file count is
+bounded by `server.callHierarchy.maxFiles` (default 10k). Covered by semantic
+unit tests and black-box multi-file LSP tests (including one that resolves only
+via `source-paths`).
 
-Deferred (noted follow-up, not blocking): a persistent incrementally-invalidated
-index (the index is rebuilt per request, matching how `workspace/symbol` already
-works).
+Known limitation (noted follow-up, not blocking): nodes are keyed by function
+name within a file, so two same-named definitions in one file collapse onto the
+first.
 
 ## Summary
 

@@ -1,15 +1,28 @@
 //! Cross-file call hierarchy (spec 025).
 //!
 //! `incomingCalls` / `outgoingCalls` answer across the whole workspace by
-//! building a [`WorkspaceCallIndex`] per request: every workspace shell file
-//! (open buffer preferred over disk) is parsed and projected into call facts,
-//! its determinable source edges resolved, and the two directions answered as
+//! building a [`WorkspaceCallIndex`]: every workspace shell file (open buffer
+//! preferred over disk) is parsed and projected into call facts, its
+//! determinable source edges resolved, and the two directions answered as
 //! traversals of the resulting call graph. `prepareCallHierarchy` stays a
-//! single-file identity step; the item it returns (name + file URI) is enough
-//! for the index queries to locate the node.
+//! single-file identity step; the item it returns (name + file URI + a
+//! [`CallHierarchyData`] payload distinguishing top-level nodes) is enough for
+//! the index queries to locate the node.
+//!
+//! The built index is cached on the session and invalidated whenever a
+//! document, workspace folder, or configuration changes, so expanding a call
+//! tree re-uses one build instead of re-analyzing the workspace per request.
+//!
+//! Call sites the semantic model binds in-file stay binding-accurate
+//! (definition order and shadowing are honored); only calls it leaves
+//! unresolved are matched by name across source edges. Known limitation:
+//! nodes are keyed by function *name* within a file, so two same-named
+//! definitions in one file collapse onto the first.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use lsp_types as types;
 use shuck_ast::{Name, Span};
@@ -22,6 +35,7 @@ use shuck_semantic::{
 
 use crate::PositionEncoding;
 use crate::editor::analyze_editor_document;
+use crate::editor_features::CallHierarchyData;
 use crate::symbols::WorkspaceOpenDocument;
 
 /// Resolves and memoizes `[lint] source-paths` per project root, so cross-file
@@ -65,6 +79,66 @@ pub(crate) struct CallHierarchyContext {
     pub(crate) workspace_roots: Vec<PathBuf>,
     pub(crate) open_documents: Vec<WorkspaceOpenDocument>,
     pub(crate) encoding: PositionEncoding,
+    /// Upper bound on indexed files (`server.callHierarchy.maxFiles`): a
+    /// runaway workspace degrades to a partial graph, not an unbounded scan.
+    pub(crate) max_files: usize,
+    pub(crate) cache: Arc<CallIndexCache>,
+    pub(crate) epoch: u64,
+}
+
+/// Session-lifetime cache of the built workspace call index.
+///
+/// Every document, workspace, or configuration change bumps the epoch and
+/// drops the cached build. Requests capture the epoch when they snapshot the
+/// session; a build finished after a concurrent change carries a stale epoch
+/// and is never served to later requests.
+#[derive(Default)]
+pub(crate) struct CallIndexCache {
+    epoch: AtomicU64,
+    built: Mutex<Option<(u64, Arc<BuiltIndex>)>>,
+}
+
+impl CallIndexCache {
+    /// Drops any cached index and marks in-flight builds stale.
+    pub(crate) fn invalidate(&self) {
+        self.epoch.fetch_add(1, Ordering::SeqCst);
+        if let Ok(mut slot) = self.built.lock() {
+            *slot = None;
+        }
+    }
+
+    pub(crate) fn current_epoch(&self) -> u64 {
+        self.epoch.load(Ordering::SeqCst)
+    }
+
+    fn get(&self, epoch: u64) -> Option<Arc<BuiltIndex>> {
+        let slot = self.built.lock().ok()?;
+        slot.as_ref()
+            .filter(|(built_epoch, _)| *built_epoch == epoch)
+            .map(|(_, built)| built.clone())
+    }
+
+    fn store(&self, epoch: u64, built: Arc<BuiltIndex>) {
+        // A build raced by an invalidation is tagged with a stale epoch; skip
+        // storing it so it cannot displace a fresher build. (If it slips past
+        // this check, `get`'s epoch comparison still refuses to serve it.)
+        if epoch != self.current_epoch() {
+            return;
+        }
+        if let Ok(mut slot) = self.built.lock() {
+            *slot = Some((epoch, built));
+        }
+    }
+}
+
+/// Returns the cached index for this context's epoch, building it on a miss.
+fn cached_index(context: &CallHierarchyContext) -> Arc<BuiltIndex> {
+    if let Some(built) = context.cache.get(context.epoch) {
+        return built;
+    }
+    let built = Arc::new(BuiltIndex::build(context));
+    context.cache.store(context.epoch, built.clone());
+    built
 }
 
 /// Source text and line index for one indexed file, retained for span→range
@@ -85,10 +159,14 @@ pub(crate) fn incoming_calls(
     context: CallHierarchyContext,
     params: types::CallHierarchyIncomingCallsParams,
 ) -> crate::server::Result<IncomingResponse> {
-    let Some((path, name)) = item_identity(&params.item) else {
+    let Some((path, node)) = item_identity(&params.item) else {
         return Ok(None);
     };
-    let built = BuiltIndex::build(&context);
+    let CallNodeKind::Function(name) = node else {
+        // Nothing "calls" a script's top level in this model.
+        return Ok(Some(Vec::new()));
+    };
+    let built = cached_index(&context);
     let calls = built
         .index
         .incoming(&path, &name)
@@ -108,14 +186,14 @@ pub(crate) fn outgoing_calls(
     context: CallHierarchyContext,
     params: types::CallHierarchyOutgoingCallsParams,
 ) -> crate::server::Result<OutgoingResponse> {
-    let Some((path, name)) = item_identity(&params.item) else {
+    let Some((path, node)) = item_identity(&params.item) else {
         return Ok(None);
     };
-    let built = BuiltIndex::build(&context);
+    let built = cached_index(&context);
     // Outgoing call-token spans live in the queried file.
     let calls = built
         .index
-        .outgoing(&path, &CallNodeKind::Function(name))
+        .outgoing(&path, &node)
         .into_iter()
         .filter_map(|call| {
             let to = built.item_for(&call)?;
@@ -128,12 +206,27 @@ pub(crate) fn outgoing_calls(
     Ok(Some(calls))
 }
 
-/// The queried node's identity: its file path and function name. The single-file
-/// `prepare` step already stamped the item with the function name and its file
-/// URI, so no `data` round-trip is required.
-fn item_identity(item: &types::CallHierarchyItem) -> Option<(PathBuf, Name)> {
+/// The queried node's identity: its file path plus which node in that file.
+///
+/// The `data` payload stamped by `prepare` (and by [`BuiltIndex::item_for`])
+/// distinguishes a script top-level MODULE node from a function; without it a
+/// top-level item would be misread as a function named after the file's label.
+/// Items from clients that drop `data` fall back to the LSP `kind`.
+fn item_identity(item: &types::CallHierarchyItem) -> Option<(PathBuf, CallNodeKind)> {
     let path = canonical(&item.uri.to_file_path().ok()?);
-    Some((path, Name::from(item.name.as_str())))
+    let data = item
+        .data
+        .clone()
+        .and_then(|value| serde_json::from_value::<CallHierarchyData>(value).ok());
+    let node = match data {
+        Some(CallHierarchyData::TopLevel) => CallNodeKind::TopLevel,
+        Some(CallHierarchyData::Function { .. }) => {
+            CallNodeKind::Function(Name::from(item.name.as_str()))
+        }
+        None if item.kind == types::SymbolKind::MODULE => CallNodeKind::TopLevel,
+        None => CallNodeKind::Function(Name::from(item.name.as_str())),
+    };
+    Some((path, node))
 }
 
 impl BuiltIndex {
@@ -159,12 +252,41 @@ impl BuiltIndex {
             );
         }
 
-        for file in discover_closed_shell_files(&context.workspace_roots, &open_paths) {
+        for file in
+            discover_closed_shell_files(&context.workspace_roots, &open_paths, context.max_files)
+        {
             let Ok(source) = std::fs::read_to_string(&file) else {
                 continue;
             };
             let (roots, base) = source_paths.resolve(&file, &context.workspace_roots);
             insert_file(&mut index, &mut texts, &file, &source, &roots, &base);
+        }
+
+        // Resolved source edges may point outside discovery (gitignored
+        // vendored files, targets outside the workspace roots). Index those
+        // files too — otherwise their definitions are invisible to the graph —
+        // following edges of newly added files to a fixpoint.
+        loop {
+            let missing: Vec<PathBuf> = index
+                .files()
+                .flat_map(|(_, facts)| facts.source_edges.iter().cloned())
+                .filter(|target| !index.contains(target))
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            if missing.is_empty() || index.len() >= context.max_files {
+                break;
+            }
+            for target in missing {
+                let Ok(source) = std::fs::read_to_string(&target) else {
+                    // Unreadable target: record an empty entry so the loop
+                    // terminates instead of retrying it forever.
+                    index.insert(target.clone(), FileCallFacts::default());
+                    continue;
+                };
+                let (roots, base) = source_paths.resolve(&target, &context.workspace_roots);
+                insert_file(&mut index, &mut texts, &target, &source, &roots, &base);
+            }
         }
 
         Self {
@@ -180,37 +302,20 @@ impl BuiltIndex {
         let uri = types::Url::from_file_path(&call.path).ok()?;
         match &call.node {
             CallNodeKind::Function(name) => {
-                let text = self.texts.get(&call.path)?;
                 let range = self.range_of(&call.path, call.def_span?)?;
                 let selection_range = call
                     .selection_span
                     .and_then(|span| self.range_of(&call.path, span))
                     .unwrap_or(range);
-                let _ = text;
-                Some(types::CallHierarchyItem {
-                    name: name.to_string(),
-                    kind: types::SymbolKind::FUNCTION,
-                    tags: None,
-                    detail: None,
+                Some(crate::editor_features::call_hierarchy_function_item(
+                    name.to_string(),
                     uri,
                     range,
                     selection_range,
-                    data: None,
-                })
+                ))
             }
             CallNodeKind::TopLevel => {
-                let start = types::Position::new(0, 0);
-                let range = types::Range { start, end: start };
-                Some(types::CallHierarchyItem {
-                    name: top_level_label(&call.path),
-                    kind: types::SymbolKind::MODULE,
-                    tags: None,
-                    detail: Some("script top level".to_owned()),
-                    uri,
-                    range,
-                    selection_range: range,
-                    data: None,
-                })
+                Some(crate::editor_features::call_hierarchy_top_level_item(uri))
             }
         }
     }
@@ -264,7 +369,11 @@ fn insert_file(
     );
 }
 
-fn discover_closed_shell_files(roots: &[PathBuf], open_paths: &[PathBuf]) -> Vec<PathBuf> {
+fn discover_closed_shell_files(
+    roots: &[PathBuf],
+    open_paths: &[PathBuf],
+    max_files: usize,
+) -> Vec<PathBuf> {
     use shuck_discover::{DiscoveryOptions, FileKind, discover_files};
 
     let mut files: BTreeMap<PathBuf, ()> = BTreeMap::new();
@@ -299,15 +408,15 @@ fn discover_closed_shell_files(roots: &[PathBuf], open_paths: &[PathBuf]) -> Vec
             files.entry(path).or_default();
         }
     }
-    files.into_keys().collect()
+    if files.len() > max_files {
+        tracing::warn!(
+            "call hierarchy: workspace has {} shell files; indexing only {max_files}",
+            files.len()
+        );
+    }
+    files.into_keys().take(max_files).collect()
 }
 
 fn canonical(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
-}
-
-fn top_level_label(path: &Path) -> String {
-    path.file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "script".to_owned())
 }

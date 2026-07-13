@@ -38,6 +38,7 @@ pub struct Session {
     resolved_client_capabilities: Arc<ResolvedClientCapabilities>,
     workspace_symbols: Arc<crate::symbols::WorkspaceSymbolIndex>,
     analysis_cache: Arc<DocumentAnalysisCache>,
+    call_index_cache: Arc<crate::call_hierarchy::CallIndexCache>,
     request_queue: RequestQueue,
     shutdown_requested: bool,
 }
@@ -71,6 +72,7 @@ impl Session {
             )),
             workspace_symbols: Arc::new(crate::symbols::WorkspaceSymbolIndex::default()),
             analysis_cache: Arc::new(DocumentAnalysisCache::new()),
+            call_index_cache: Arc::new(crate::call_hierarchy::CallIndexCache::default()),
             request_queue: RequestQueue::new(),
             shutdown_requested: false,
         })
@@ -124,6 +126,7 @@ impl Session {
                 .update_text_document(key, content_changes, new_version, self.encoding());
         if result.is_ok() {
             self.analysis_cache.invalidate_uri(&key.clone().into_url());
+            self.call_index_cache.invalidate();
         }
         result
     }
@@ -131,12 +134,14 @@ impl Session {
     /// Open or replace an in-memory text document.
     pub fn open_text_document(&mut self, url: Url, document: TextDocument) {
         self.analysis_cache.invalidate_uri(&url);
+        self.call_index_cache.invalidate();
         self.index.open_text_document(url, document);
     }
 
     pub(crate) fn close_document(&mut self, key: &DocumentKey) -> crate::Result<()> {
         self.index.close_document(key)?;
         self.analysis_cache.invalidate_uri(&key.clone().into_url());
+        self.call_index_cache.invalidate();
         self.workspace_symbols
             .invalidate_uri(&key.clone().into_url());
         Ok(())
@@ -145,6 +150,7 @@ impl Session {
     pub(crate) fn reload_settings(&mut self, changes: &[FileEvent], client: &Client) {
         self.index.reload_settings(changes, client);
         self.analysis_cache.clear();
+        self.call_index_cache.invalidate();
         self.workspace_symbols.invalidate_file_events(changes);
     }
 
@@ -152,6 +158,7 @@ impl Session {
         self.index
             .open_workspace_folder(url, &self.global_settings, client)?;
         self.analysis_cache.clear();
+        self.call_index_cache.invalidate();
         self.workspace_symbols.invalidate_all();
         Ok(())
     }
@@ -159,6 +166,7 @@ impl Session {
     pub(crate) fn close_workspace_folder(&mut self, url: &Url) -> crate::Result<()> {
         self.index.close_workspace_folder(url)?;
         self.analysis_cache.clear();
+        self.call_index_cache.invalidate();
         self.workspace_symbols.invalidate_all();
         Ok(())
     }
@@ -181,6 +189,7 @@ impl Session {
 
     pub(crate) fn update_client_options(&mut self, options: ClientOptions) {
         self.analysis_cache.clear();
+        self.call_index_cache.invalidate();
         self.workspace_symbols.invalidate_all();
         self.global_settings.update_options(options);
         self.index.clear_project_settings_cache();
@@ -192,6 +201,7 @@ impl Session {
         workspace_options: Option<WorkspaceOptionsMap>,
     ) {
         self.analysis_cache.clear();
+        self.call_index_cache.invalidate();
         self.workspace_symbols.invalidate_all();
         self.global_settings.update_options(options);
         if let Some(workspace_options) = workspace_options {
@@ -245,6 +255,14 @@ impl Session {
             workspace_roots: self.index.workspace_roots().to_vec(),
             open_documents: self.index.open_documents_snapshot(),
             encoding: self.position_encoding,
+            max_files: self
+                .global_settings
+                .options()
+                .server
+                .call_hierarchy
+                .max_files,
+            epoch: self.call_index_cache.current_epoch(),
+            cache: self.call_index_cache.clone(),
         }
     }
 }

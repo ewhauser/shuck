@@ -50,6 +50,11 @@ pub struct CallFactSite {
     pub name_span: Span,
     /// Innermost enclosing function, or the file top level.
     pub enclosing: CallNodeKind,
+    /// Whether the semantic model resolved this call to a function binding
+    /// visible in this file (honoring definition order and shadowing). Sites
+    /// that do not resolve locally are candidates for cross-file resolution
+    /// through source edges; sites that do must not be re-resolved by name.
+    pub locally_resolved: bool,
 }
 
 /// Call-relevant facts projected from one file, plus its resolved source edges.
@@ -93,10 +98,14 @@ impl FileCallFacts {
                 .find_map(|scope| function_name_by_scope.get(&scope).cloned())
                 .map(CallNodeKind::Function)
                 .unwrap_or(CallNodeKind::TopLevel);
+            let locally_resolved = analysis
+                .visible_function_binding_at_call(&site.callee, site.name_span)
+                .is_some();
             call_sites.push(CallFactSite {
                 callee: site.callee.clone(),
                 name_span: site.name_span,
                 enclosing,
+                locally_resolved,
             });
         }
 
@@ -164,6 +173,23 @@ impl WorkspaceCallIndex {
         self.files.get(path)
     }
 
+    /// Iterates all indexed files and their facts (unordered).
+    pub fn files(&self) -> impl Iterator<Item = (&Path, &FileCallFacts)> {
+        self.files
+            .iter()
+            .map(|(path, facts)| (path.as_path(), facts))
+    }
+
+    /// Number of indexed files.
+    pub fn len(&self) -> usize {
+        self.files.len()
+    }
+
+    /// Returns whether the index holds no files.
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+
     /// Resolves `callee`, as seen from `from_path`, to the file that defines it:
     /// the file's own definitions first, then its transitive source edges
     /// (nearest definition wins). Returns `None` for names with no reachable
@@ -175,6 +201,14 @@ impl WorkspaceCallIndex {
             return Some(from_path.to_path_buf());
         }
 
+        self.resolve_through_edges(from_path, callee)
+    }
+
+    /// Resolves `callee` through `from_path`'s transitive source edges only,
+    /// skipping the file's own definitions. Used for call sites the semantic
+    /// model did not bind locally: a same-named local definition that is not
+    /// visible at the site (defined later, or shadowed) must not capture it.
+    fn resolve_through_edges(&self, from_path: &Path, callee: &Name) -> Option<PathBuf> {
         let mut visited: FxHashSet<PathBuf> = FxHashSet::default();
         visited.insert(from_path.to_path_buf());
         let mut queue: VecDeque<PathBuf> = self
@@ -212,11 +246,23 @@ impl WorkspaceCallIndex {
 
         let mut order: Vec<(PathBuf, Name)> = Vec::new();
         let mut spans: FxHashMap<(PathBuf, Name), Vec<Span>> = FxHashMap::default();
+        // Resolution is per-callee, not per-site: memoize it so repeated calls
+        // to the same helper do not re-run the source-edge search.
+        let mut resolved: FxHashMap<Name, Option<PathBuf>> = FxHashMap::default();
         for site in &facts.call_sites {
             if &site.enclosing != from_kind {
                 continue;
             }
-            let Some(target_path) = self.resolve(from_path, &site.callee) else {
+            let target = if site.locally_resolved {
+                // The semantic model already bound this call in-file.
+                Some(from_path.to_path_buf())
+            } else {
+                resolved
+                    .entry(site.callee.clone())
+                    .or_insert_with(|| self.resolve_through_edges(from_path, &site.callee))
+                    .clone()
+            };
+            let Some(target_path) = target else {
                 continue;
             };
             let key = (target_path, site.callee.clone());
@@ -261,11 +307,25 @@ impl WorkspaceCallIndex {
         caller_paths.sort();
         for caller_path in caller_paths {
             let facts = &self.files[caller_path];
+            // Edge resolution is independent of the site, so compute it at
+            // most once per caller file rather than per call site.
+            let mut edges_resolve: Option<bool> = None;
             for site in &facts.call_sites {
                 if &site.callee != name {
                     continue;
                 }
-                if self.resolve(caller_path, name).as_deref() != Some(target_path) {
+                let resolves = if site.locally_resolved {
+                    // A locally bound call belongs to this edge only when the
+                    // queried function lives in the caller's own file.
+                    caller_path.as_path() == target_path
+                } else {
+                    caller_path.as_path() != target_path
+                        && *edges_resolve.get_or_insert_with(|| {
+                            self.resolve_through_edges(caller_path, name).as_deref()
+                                == Some(target_path)
+                        })
+                };
+                if !resolves {
                     continue;
                 }
                 let key = (caller_path.clone(), site.enclosing.clone());
