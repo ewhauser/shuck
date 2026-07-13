@@ -16,12 +16,16 @@ model binds in-file stay binding-accurate (definition order and shadowing are
 honored); only sites it leaves unresolved are matched by name across source
 edges. Top-level MODULE nodes round-trip through `CallHierarchyItem.data`, so
 their outgoing calls expand. Edges come from all determinable sources
-(literal-resolvable, `assume-source`, `follow-source`), resolved against the
-annotating file's own directory and the configured `[lint] source-paths` roots
-(memoized per project root, matching `shuck check`). The indexed-file count is
-bounded by `server.callHierarchy.maxFiles` (default 10k). Covered by semantic
-unit tests and black-box multi-file LSP tests (including one that resolves only
-via `source-paths`).
+(literal-resolvable paths and `source=` directives with and without
+`lint=true`), resolved against the annotating file's own directory and the
+configured `[lint] source-paths` roots (memoized per project root, matching
+`shuck check`). The indexed-file count is hard-bounded by
+`server.callHierarchy.maxFiles` (default 10k): one budget is shared by all
+three population phases — open buffers, closed-file discovery, and source-edge
+expansion — and every insertion checks it, so a runaway workspace degrades to a
+partial graph (with a warning) rather than an unbounded scan. Covered by
+semantic unit tests, an index-size bound test, and black-box multi-file LSP
+tests (including one that resolves only via `source-paths`).
 
 Known limitation (noted follow-up, not blocking): nodes are keyed by function
 name within a file, so two same-named definitions in one file collapse onto the
@@ -31,8 +35,8 @@ first.
 
 Make LSP call hierarchy complete across files. Building on the single-file
 engine (spec 023's `prepareCallHierarchy` / `incomingCalls` / `outgoingCalls`)
-and the computed-source resolution from spec 024 (`assume-source` /
-`follow-source`), this spec introduces a **workspace call-graph index**: for
+and the computed-source resolution from spec 024 (the
+`# shuck: source=` directive), this spec introduces a **workspace call-graph index**: for
 every shell file the server knows about, the functions it defines, the call sites
 it contains, and the source edges that connect files. Both directions of the
 hierarchy — "what does this function call" and "who calls this function" — are
@@ -80,21 +84,21 @@ resolvable graph; it simply does not model runtime-only dispatch.
 A call site in file `B` resolves to a function `F` defined in file `A` when `B`
 can statically be shown to source `A` (directly or transitively) and no nearer
 definition of `F` shadows it. "Statically shown to source" covers every
-*determinable* source edge, not only `follow-source`:
+*determinable* source edge, not only linted (`lint=true`) edges:
 
 | Source form in `B` | Contributes a resolvable edge `B → A`? |
 | --- | --- |
 | Literal path that resolves on disk (`source ./lib/a.sh`) | yes |
-| Computed path with `# shuck: assume-source=a.sh` (resolves) | yes |
-| Computed path with `# shuck: follow-source=a.sh` (resolves) | yes |
+| Computed path with `# shuck: source=a.sh` (resolves) | yes |
+| Computed path with `# shuck: source=a.sh lint=true` (resolves) | yes |
 | Computed path, no hint, unresolvable | no (runtime-only) |
-| `assume-source=/dev/null` | no (explicitly nothing) |
+| `source=/dev/null` | no (explicitly nothing) |
 
 **Decision:** the call graph uses *all* determinable edges — resolvable literal
-sources and both hint kinds, `assume-source` and `follow-source`. Incoming
+sources and directive-asserted edges with or without `lint=true`. Incoming
 completeness, the property this spec exists to guarantee, requires counting every
-real caller, so a caller annotated with `assume-source` must contribute an edge
-just as `follow-source` does. Within the workspace graph the two hints are
+real caller, so a caller whose directive omits `lint=true` must contribute an edge
+just as a linted one does. Within the workspace graph the lint policy is
 therefore equivalent; this supersedes the 023-era rule that only `follow`
 participates. The `assume` vs `follow` difference persists where it began — in
 per-document analysis cost and in whether `shuck check` lints the target (spec
@@ -181,17 +185,17 @@ callers inside that closure, silently missing callers elsewhere in the
 workspace. Partial incoming in a navigation tool is a correctness bug, and the
 user requirement is explicit: both directions complete, or neither.
 
-### Follow-only edges (exclude `assume-source` from the graph)
+### Lint-only edges (exclude import-only directives from the graph)
 
-Rejected. It would preserve the 023-era "follow participates, assume does not"
-distinction crisply — cross-file hierarchy would require `follow-source`
-everywhere and `assume-source` would mean "symbols only, never in the graph" —
-but it loses incoming completeness for any project that annotated a caller with
-`assume-source`, which directly contradicts the completeness requirement. Both
-hint kinds contribute edges; the assume/follow distinction survives in
-per-document cost and CLI linting. If a future need arises for "resolve symbols
-but stay out of the call graph," that is a new, separately named mode, not a
-reinterpretation of `assume-source`.
+Rejected. It would preserve the 023-era "linted targets participate, imported
+ones do not" distinction crisply — cross-file hierarchy would require
+`lint=true` everywhere and a plain `source=` would mean "symbols only, never in
+the graph" — but it loses incoming completeness for any project whose caller
+directives omit `lint=true`, which directly contradicts the completeness
+requirement. All directive-asserted edges contribute; the lint policy survives
+where it began — in per-document cost and CLI linting. If a future need arises
+for "resolve symbols but stay out of the call graph," that is a new, separately
+named mode, not a reinterpretation of the plain `source=` directive.
 
 ### Merged multi-file semantic model
 
@@ -242,10 +246,10 @@ process:
 
 - **Projection** (`shuck-semantic`): `FileCallFacts` for a file lists its
   function definitions, call sites with enclosing function, and resolved source
-  edges (literal, `assume-source`, `follow-source`); `/dev/null` and unresolvable
+  edges (literal, `source=` directives with and without `lint=true`); `/dev/null` and unresolvable
   dynamic sources contribute no edge.
 - **Index** (`shuck-semantic`): over a three-file graph `a.sh` (defines `greet`)
-  ← `b.sh` (`follow-source=a.sh`, calls `greet`) ← `c.sh` (`assume-source=a.sh`,
+  ← `b.sh` (`source=a.sh lint=true`, calls `greet`) ← `c.sh` (`source=a.sh`,
   calls `greet`), `incoming(greet in a.sh)` returns both `b.sh` and `c.sh` call
   sites; `outgoing` from `b.sh`'s caller lands on `a.sh`'s `greet`. A nearer
   local `greet` in `b.sh` shadows the cross-file one.
@@ -258,7 +262,7 @@ process:
   without restart.
 - **Completeness guard**: a caller reachable only through an unresolvable dynamic
   source is *absent* (documented limitation), while the same caller with an
-  `assume-source`/`follow-source` hint *appears* — demonstrating hints maximize
+  `# shuck: source=` directive *appears* — demonstrating hints maximize
   the resolvable graph.
 - **Regression**: single-file call hierarchy (023) and all 024 behaviors
   unchanged; `make test` and the black-box LSP suite green.

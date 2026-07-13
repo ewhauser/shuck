@@ -234,27 +234,45 @@ impl BuiltIndex {
         let mut index = WorkspaceCallIndex::new();
         let mut texts: BTreeMap<PathBuf, FileText> = BTreeMap::new();
 
+        // `max_files` is a hard bound on the total index size. One budget is
+        // shared by all three population phases — open buffers, closed-file
+        // discovery, and source-edge expansion — and every insertion checks it.
+        let max_files = context.max_files;
         let mut source_paths = SourcePathsCache::default();
-        let mut open_paths = Vec::new();
-        for open in &context.open_documents {
-            let Some(path) = open.uri.to_file_path().ok().map(|path| canonical(&path)) else {
-                continue;
-            };
-            open_paths.push(path.clone());
-            let (roots, base) = source_paths.resolve(&path, &context.workspace_roots);
+        // Resolve every open path up front (even ones over budget) so
+        // discovery below never re-reads an open buffer's stale on-disk
+        // contents.
+        let open_docs: Vec<(PathBuf, &WorkspaceOpenDocument)> = context
+            .open_documents
+            .iter()
+            .filter_map(|open| {
+                let path = canonical(&open.uri.to_file_path().ok()?);
+                Some((path, open))
+            })
+            .collect();
+        let open_paths: Vec<PathBuf> = open_docs.iter().map(|(path, _)| path.clone()).collect();
+        for (path, open) in &open_docs {
+            if index.len() >= max_files {
+                tracing::warn!(
+                    "call hierarchy: open documents exceed the {max_files}-file limit; \
+                     indexing only the first {max_files}"
+                );
+                break;
+            }
+            let (roots, base) = source_paths.resolve(path, &context.workspace_roots);
             insert_file(
                 &mut index,
                 &mut texts,
-                &path,
+                path,
                 open.document.contents(),
                 &roots,
                 &base,
             );
         }
 
-        for file in
-            discover_closed_shell_files(&context.workspace_roots, &open_paths, context.max_files)
-        {
+        // Discovery is capped to the budget the open buffers left over.
+        let remaining = max_files.saturating_sub(index.len());
+        for file in discover_closed_shell_files(&context.workspace_roots, &open_paths, remaining) {
             let Ok(source) = std::fs::read_to_string(&file) else {
                 continue;
             };
@@ -265,8 +283,9 @@ impl BuiltIndex {
         // Resolved source edges may point outside discovery (gitignored
         // vendored files, targets outside the workspace roots). Index those
         // files too — otherwise their definitions are invisible to the graph —
-        // following edges of newly added files to a fixpoint.
-        loop {
+        // following edges of newly added files to a fixpoint, re-checking the
+        // budget before every insertion.
+        'expand: loop {
             let missing: Vec<PathBuf> = index
                 .files()
                 .flat_map(|(_, facts)| facts.source_edges.iter().cloned())
@@ -274,10 +293,17 @@ impl BuiltIndex {
                 .collect::<std::collections::BTreeSet<_>>()
                 .into_iter()
                 .collect();
-            if missing.is_empty() || index.len() >= context.max_files {
+            if missing.is_empty() {
                 break;
             }
             for target in missing {
+                if index.len() >= max_files {
+                    tracing::warn!(
+                        "call hierarchy: source-edge targets exceed the {max_files}-file \
+                         limit; the call graph may be missing edges"
+                    );
+                    break 'expand;
+                }
                 let Ok(source) = std::fs::read_to_string(&target) else {
                     // Unreadable target: record an empty entry so the loop
                     // terminates instead of retrying it forever.
@@ -419,4 +445,99 @@ fn discover_closed_shell_files(
 
 fn canonical(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use crate::edit::TextDocument;
+
+    use super::*;
+
+    /// Builds a workspace exercising all three index-population phases: open
+    /// buffers, closed-file discovery, and source-edge expansion to a target
+    /// outside the discovered set.
+    fn context_for(workspace: &Path, max_files: usize) -> CallHierarchyContext {
+        let open_path = workspace.join("open_a.sh");
+        let open_doc = WorkspaceOpenDocument {
+            uri: types::Url::from_file_path(&open_path).unwrap(),
+            document: Arc::new(
+                TextDocument::new(
+                    "# shuck: source=vendored/edge.sh\nsource \"$DIR/edge.sh\"\nedge_fn\n"
+                        .to_owned(),
+                    1,
+                )
+                .with_language_id("shellscript"),
+            ),
+        };
+        let open_b = WorkspaceOpenDocument {
+            uri: types::Url::from_file_path(workspace.join("open_b.sh")).unwrap(),
+            document: Arc::new(
+                TextDocument::new("b() { :; }\n".to_owned(), 1).with_language_id("shellscript"),
+            ),
+        };
+        CallHierarchyContext {
+            workspace_roots: vec![workspace.to_path_buf()],
+            open_documents: vec![open_doc, open_b],
+            encoding: PositionEncoding::UTF16,
+            max_files,
+            cache: Arc::new(CallIndexCache::default()),
+            epoch: 0,
+        }
+    }
+
+    fn populate_workspace(workspace: &Path) {
+        // Open buffers (also present on disk with different content).
+        std::fs::write(workspace.join("open_a.sh"), "stale() { :; }\n").unwrap();
+        std::fs::write(workspace.join("open_b.sh"), "stale() { :; }\n").unwrap();
+        // Closed files picked up by discovery.
+        for index in 0..4 {
+            std::fs::write(
+                workspace.join(format!("closed_{index}.sh")),
+                "closed() { :; }\n",
+            )
+            .unwrap();
+        }
+        // Edge target hidden from discovery by gitignore, reachable only
+        // through open_a.sh's source directive.
+        std::fs::create_dir_all(workspace.join("vendored")).unwrap();
+        std::fs::write(workspace.join(".gitignore"), "vendored/\n").unwrap();
+        std::fs::write(workspace.join("vendored/edge.sh"), "edge_fn() { :; }\n").unwrap();
+    }
+
+    #[test]
+    fn max_files_is_a_hard_bound_across_all_population_phases() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let workspace = std::fs::canonicalize(tempdir.path()).unwrap();
+        populate_workspace(&workspace);
+
+        // 2 open + 4 discovered + 1 edge target = 7 candidates; the limit
+        // must cap the total, not any single phase.
+        for max_files in [1, 3, 5] {
+            let built = BuiltIndex::build(&context_for(&workspace, max_files));
+            assert!(
+                built.index.len() <= max_files,
+                "index size {} exceeds max_files {max_files}",
+                built.index.len()
+            );
+        }
+    }
+
+    #[test]
+    fn generous_max_files_indexes_open_discovered_and_edge_targets() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let workspace = std::fs::canonicalize(tempdir.path()).unwrap();
+        populate_workspace(&workspace);
+
+        let built = BuiltIndex::build(&context_for(&workspace, 100));
+        assert_eq!(
+            built.index.len(),
+            7,
+            "2 open buffers + 4 discovered + 1 edge target"
+        );
+        // The edge target joined the graph through the source directive, so
+        // the open buffer's call resolves into it.
+        assert!(built.index.contains(&workspace.join("vendored/edge.sh")));
+    }
 }
