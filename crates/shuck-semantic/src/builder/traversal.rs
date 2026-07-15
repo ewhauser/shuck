@@ -71,17 +71,39 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             self.observer
                 .recorded_statement_sequence_command(commands.span, stmt.span, command);
             recorded.push(command);
-            flow = self.flow_after_statement(stmt, flow);
+            flow = self.flow_after_recorded_statement(stmt, command, flow);
         }
     }
 
-    fn flow_after_statement(&self, stmt: &'a Stmt, flow: FlowState) -> FlowState {
-        self.flow_after_command(&stmt.command, flow)
+    fn flow_after_recorded_statement(
+        &self,
+        stmt: &'a Stmt,
+        recorded: CommandId,
+        flow: FlowState,
+    ) -> FlowState {
+        let info = self
+            .recorded_program
+            .command(recorded)
+            .command_info
+            .map(|info| self.recorded_program.command_info(info));
+        self.flow_after_command(&stmt.command, info, flow)
     }
 
-    fn flow_after_command(&self, command: &'a Command, flow: FlowState) -> FlowState {
+    fn flow_after_statement(&self, stmt: &'a Stmt, flow: FlowState) -> FlowState {
+        self.flow_after_command(&stmt.command, None, flow)
+    }
+
+    fn flow_after_command(
+        &self,
+        command: &'a Command,
+        info: Option<&RecordedCommandInfo>,
+        flow: FlowState,
+    ) -> FlowState {
         match command {
             Command::Simple(_) => {
+                if let Some(info) = info {
+                    return flow_after_zsh_effects(flow, &info.zsh_effects);
+                }
                 let info = recorded_command_info(
                     command,
                     self.source,
