@@ -56,10 +56,10 @@ pub(super) struct CheckCacheData {
     pub(super) parse_failed: bool,
     #[serde(default)]
     pub(super) dependency_fingerprints: Vec<ResolvedDependencyFingerprint>,
-    /// Resolved `lint=true` directive targets this file pulled into the run. Kept so
-    /// a cache hit still enqueues the targets for linting (their diagnostics
-    /// are not part of this entry), and fingerprinted so editing a target
-    /// invalidates this file (its imported symbols may have changed).
+    /// Resolved `lint=true` directive targets this file pulled into the run.
+    /// Kept so a cache hit still enqueues the targets for linting; source
+    /// resolution candidates, including missing higher-precedence paths, are
+    /// stored separately in `dependency_fingerprints`.
     #[serde(default)]
     pub(super) followed_paths: Vec<PathBuf>,
 }

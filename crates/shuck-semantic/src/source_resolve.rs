@@ -25,15 +25,33 @@ pub fn resolve_source_ref_targets(
     roots: &[String],
     root_base: &Path,
 ) -> Option<PathBuf> {
+    source_ref_candidate_paths(source_path, source_ref, roots, root_base)
+        .into_iter()
+        .find(|path| path.is_file())
+}
+
+/// Returns every path that can participate in first-match resolution for one
+/// source reference, in precedence order, whether or not it exists yet.
+///
+/// Callers that cache or watch resolution results use this list to track
+/// missing higher-priority candidates as well as the current winner. If a
+/// nearer file appears later, its transition from missing to present can then
+/// invalidate the old resolution.
+pub fn source_ref_candidate_paths(
+    source_path: &Path,
+    source_ref: &SourceRef,
+    roots: &[String],
+    root_base: &Path,
+) -> Vec<PathBuf> {
     let candidate = match &source_ref.kind {
         SourceRefKind::Literal(candidate) | SourceRefKind::Directive(candidate) => {
             candidate.as_str()
         }
         SourceRefKind::DirectiveDevNull
         | SourceRefKind::Dynamic
-        | SourceRefKind::SingleVariableStaticTail { .. } => return None,
+        | SourceRefKind::SingleVariableStaticTail { .. } => return Vec::new(),
     };
-    resolve_candidate_targets(source_path, candidate, roots, root_base)
+    candidate_paths(source_path, candidate, roots, root_base)
 }
 
 /// Resolves a raw candidate path to the first existing on-disk file in
@@ -47,20 +65,34 @@ pub fn resolve_candidate_targets(
     roots: &[String],
     root_base: &Path,
 ) -> Option<PathBuf> {
+    candidate_paths(source_path, candidate, roots, root_base)
+        .into_iter()
+        .find(|path| path.is_file())
+}
+
+fn candidate_paths(
+    source_path: &Path,
+    candidate: &str,
+    roots: &[String],
+    root_base: &Path,
+) -> Vec<PathBuf> {
     let candidate_path = PathBuf::from(candidate);
     if candidate_path.is_absolute() {
-        return candidate_path.is_file().then_some(candidate_path);
+        return vec![candidate_path];
     }
 
+    let mut candidates = Vec::new();
     if let Some(base_dir) = source_path.parent() {
-        let direct = base_dir.join(&candidate_path);
-        if direct.is_file() {
-            return Some(direct);
-        }
+        candidates.push(base_dir.join(&candidate_path));
     }
-    resolve_candidate_against_roots(source_path, candidate, roots, root_base)
-        .into_iter()
-        .next()
+    candidates.extend(candidate_paths_against_roots(
+        source_path,
+        candidate,
+        roots,
+        root_base,
+    ));
+    candidates.dedup();
+    candidates
 }
 
 /// Resolves `candidate` against the configured roots only — no base-directory
@@ -75,8 +107,20 @@ pub fn resolve_candidate_against_roots(
     roots: &[String],
     root_base: &Path,
 ) -> Vec<PathBuf> {
+    candidate_paths_against_roots(source_path, candidate, roots, root_base)
+        .into_iter()
+        .filter(|path| path.is_file())
+        .collect()
+}
+
+fn candidate_paths_against_roots(
+    source_path: &Path,
+    candidate: &str,
+    roots: &[String],
+    root_base: &Path,
+) -> Vec<PathBuf> {
     let candidate_path = Path::new(candidate);
-    let mut resolved = Vec::new();
+    let mut candidates = Vec::new();
     for root in roots {
         let root_path = if root == "SCRIPTDIR" {
             source_path.parent().unwrap_or(Path::new("")).to_path_buf()
@@ -89,11 +133,9 @@ pub fn resolve_candidate_against_roots(
             }
         };
         let joined = root_path.join(candidate_path);
-        if joined.is_file() {
-            resolved.push(joined);
-        }
+        candidates.push(joined);
     }
-    resolved
+    candidates
 }
 
 #[cfg(test)]
@@ -157,5 +199,33 @@ mod tests {
             base,
         );
         assert_eq!(resolved, None);
+    }
+
+    #[test]
+    fn source_ref_candidates_include_missing_paths_before_the_winner() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let base = tempdir.path();
+        fs::create_dir_all(base.join("scripts")).unwrap();
+        fs::create_dir_all(base.join("lib")).unwrap();
+        fs::write(base.join("lib/util.sh"), "").unwrap();
+        let source_ref = SourceRef {
+            kind: SourceRefKind::Directive("util.sh".into()),
+            span: Default::default(),
+            path_span: Default::default(),
+            resolution: crate::SourceRefResolution::Unchecked,
+            explicitly_provided: false,
+            directive: None,
+            diagnostic_class: crate::SourceRefDiagnosticClass::UntrackedFile,
+        };
+
+        assert_eq!(
+            source_ref_candidate_paths(
+                &base.join("scripts/main.sh"),
+                &source_ref,
+                &["lib".to_owned()],
+                base,
+            ),
+            vec![base.join("scripts/util.sh"), base.join("lib/util.sh")]
+        );
     }
 }

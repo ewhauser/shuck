@@ -58,3 +58,18 @@ pub(super) fn resolve_source_ref_paths(
         &resolver.cwd,
     )
 }
+
+/// Returns the source reference's possible paths in precedence order,
+/// including missing candidates that could shadow the current target later.
+pub(super) fn source_ref_candidate_paths(
+    source_path: &Path,
+    source_ref: &SourceRef,
+    resolver: &NativeSourceResolver,
+) -> Vec<PathBuf> {
+    shuck_semantic::source_ref_candidate_paths(
+        source_path,
+        source_ref,
+        &resolver.source_paths,
+        &resolver.cwd,
+    )
+}
