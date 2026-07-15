@@ -78,14 +78,26 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
     #[doc(hidden)]
     pub fn reference_can_fan_out_when_unquoted(&self, reference_id: ReferenceId) -> bool {
         let reference = self.model().reference(reference_id);
-        if matches!(
-            self.model()
-                .shell_behavior_at(reference.span.start.offset)
-                .array_reference_policy(),
-            ArrayReferencePolicy::RequiresExplicitSelector
-        ) || !self
+        let policy = self
             .model()
-            .name_has_array_value_candidates(&reference.name)
+            .shell_behavior_at(reference.span.start.offset)
+            .array_reference_policy();
+        self.reference_can_fan_out_when_unquoted_with_policy(reference_id, policy)
+    }
+
+    /// Returns whether a direct semantic reference may fan out under a policy already resolved
+    /// by the caller for the containing command.
+    #[doc(hidden)]
+    pub fn reference_can_fan_out_when_unquoted_with_policy(
+        &self,
+        reference_id: ReferenceId,
+        policy: ArrayReferencePolicy,
+    ) -> bool {
+        let reference = self.model().reference(reference_id);
+        if matches!(policy, ArrayReferencePolicy::RequiresExplicitSelector)
+            || !self
+                .model()
+                .name_has_array_value_candidates(&reference.name)
         {
             return false;
         }
@@ -130,12 +142,25 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         at: Span,
         scope: ScopeId,
     ) -> bool {
-        if matches!(
-            self.model()
-                .shell_behavior_at(at.start.offset)
-                .array_reference_policy(),
-            ArrayReferencePolicy::RequiresExplicitSelector
-        ) || !self.model().name_has_array_value_candidates(name)
+        let policy = self
+            .model()
+            .shell_behavior_at(at.start.offset)
+            .array_reference_policy();
+        self.name_can_fan_out_when_unquoted_without_reference_with_policy(name, at, scope, policy)
+    }
+
+    /// Returns whether a synthetic named use may fan out under a policy already resolved by the
+    /// caller for the containing command.
+    #[doc(hidden)]
+    pub fn name_can_fan_out_when_unquoted_without_reference_with_policy(
+        &self,
+        name: &Name,
+        at: Span,
+        scope: ScopeId,
+        policy: ArrayReferencePolicy,
+    ) -> bool {
+        if matches!(policy, ArrayReferencePolicy::RequiresExplicitSelector)
+            || !self.model().name_has_array_value_candidates(name)
         {
             return false;
         }
