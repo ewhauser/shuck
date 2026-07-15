@@ -385,6 +385,33 @@ outer
 }
 
 #[test]
+fn editor_call_hierarchy_preserves_zsh_multi_name_function_bodies() {
+    let source = "function music itunes() { helper; }\nhelper() { :; }\nitunes\n";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let query = model.editor_query();
+
+    let itunes_def = span_for_nth(source, "itunes", 0);
+    let itunes = query
+        .prepare_call_hierarchy(itunes_def.start.offset)
+        .expect("itunes should resolve to a function node");
+    let outgoing = query.outgoing_calls(&itunes);
+    assert_eq!(outgoing.len(), 1);
+    assert_eq!(outgoing[0].to.name.as_str(), "helper");
+
+    let helper_def = span_for_nth(source, "helper", 1);
+    let helper = query
+        .prepare_call_hierarchy(helper_def.start.offset)
+        .expect("helper should resolve to a function node");
+    let mut callers = query
+        .incoming_calls(&helper)
+        .into_iter()
+        .map(|call| call.from.name.to_string())
+        .collect::<Vec<_>>();
+    callers.sort();
+    assert_eq!(callers, ["itunes", "music"]);
+}
+
+#[test]
 fn editor_completion_is_context_aware() {
     let source = "\
 build() {

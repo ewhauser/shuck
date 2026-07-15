@@ -468,7 +468,7 @@ impl<'model> EditorQuery<'model> {
             return Vec::new();
         };
         let name = self.model.binding(binding_id).name.clone();
-        let function_by_body_scope = self.function_by_body_scope();
+        let functions_by_body_scope = self.functions_by_body_scope();
         let analysis = self.model.analysis();
 
         let mut order: Vec<EditorCallHierarchyTarget> = Vec::new();
@@ -478,14 +478,29 @@ impl<'model> EditorQuery<'model> {
             if resolved != binding_id {
                 continue;
             }
-            let caller = enclosing_function_target(self.model, &function_by_body_scope, site.scope);
-            spans_by_caller
-                .entry(caller)
-                .or_insert_with(|| {
-                    order.push(caller);
-                    Vec::new()
-                })
-                .push(site.name_span);
+            let callers =
+                enclosing_function_bindings(self.model, &functions_by_body_scope, site.scope);
+            if let Some(callers) = callers {
+                for &caller in callers {
+                    let caller = EditorCallHierarchyTarget::Function(caller);
+                    spans_by_caller
+                        .entry(caller)
+                        .or_insert_with(|| {
+                            order.push(caller);
+                            Vec::new()
+                        })
+                        .push(site.name_span);
+                }
+            } else {
+                let caller = EditorCallHierarchyTarget::TopLevel;
+                spans_by_caller
+                    .entry(caller)
+                    .or_insert_with(|| {
+                        order.push(caller);
+                        Vec::new()
+                    })
+                    .push(site.name_span);
+            }
         }
 
         order
@@ -508,15 +523,21 @@ impl<'model> EditorQuery<'model> {
     /// functions rather than their enclosing one. Callees that do not resolve to
     /// a function definition (builtins, external commands) are omitted.
     pub fn outgoing_calls(&self, item: &EditorCallHierarchyItem) -> Vec<EditorOutgoingCall> {
-        let function_by_body_scope = self.function_by_body_scope();
+        let functions_by_body_scope = self.functions_by_body_scope();
         let analysis = self.model.analysis();
 
         let mut order: Vec<BindingId> = Vec::new();
         let mut spans_by_callee: FxHashMap<BindingId, Vec<Span>> = FxHashMap::default();
         for site in self.model.all_call_sites() {
             let enclosing =
-                enclosing_function_target(self.model, &function_by_body_scope, site.scope);
-            if enclosing != item.target {
+                enclosing_function_bindings(self.model, &functions_by_body_scope, site.scope);
+            let belongs_to_item = match item.target {
+                EditorCallHierarchyTarget::Function(binding_id) => {
+                    enclosing.is_some_and(|bindings| bindings.contains(&binding_id))
+                }
+                EditorCallHierarchyTarget::TopLevel => enclosing.is_none(),
+            };
+            if !belongs_to_item {
                 continue;
             }
             let Some(callee) =
@@ -571,12 +592,12 @@ impl<'model> EditorQuery<'model> {
         }
     }
 
-    fn function_by_body_scope(&self) -> FxHashMap<ScopeId, BindingId> {
+    fn functions_by_body_scope(&self) -> FxHashMap<ScopeId, Vec<BindingId>> {
         let analysis = self.model.analysis();
         let mut map = FxHashMap::default();
         for binding in self.model.function_definition_bindings() {
             if let Some(scope) = analysis.function_scope_for_binding(binding.id) {
-                map.entry(scope).or_insert(binding.id);
+                map.entry(scope).or_insert_with(Vec::new).push(binding.id);
             }
         }
         map
@@ -1512,18 +1533,18 @@ fn function_call_hierarchy_item(
     }
 }
 
-/// Maps a call site's scope to the target that owns it: the innermost enclosing
-/// named function, or the top level when no function encloses the site.
-fn enclosing_function_target(
+/// Returns every name bound to the innermost named function body enclosing a call site.
+///
+/// Zsh permits one definition to bind multiple names to the same body, so a body scope can own
+/// more than one call-hierarchy node.
+fn enclosing_function_bindings<'a>(
     model: &SemanticModel,
-    function_by_body_scope: &FxHashMap<ScopeId, BindingId>,
+    functions_by_body_scope: &'a FxHashMap<ScopeId, Vec<BindingId>>,
     scope: ScopeId,
-) -> EditorCallHierarchyTarget {
+) -> Option<&'a [BindingId]> {
     model
         .ancestor_scopes(scope)
-        .find_map(|ancestor| function_by_body_scope.get(&ancestor).copied())
-        .map(EditorCallHierarchyTarget::Function)
-        .unwrap_or(EditorCallHierarchyTarget::TopLevel)
+        .find_map(|ancestor| functions_by_body_scope.get(&ancestor).map(Vec::as_slice))
 }
 
 fn document_symbol_for_function(binding: &Binding) -> Option<EditorDocumentSymbol> {

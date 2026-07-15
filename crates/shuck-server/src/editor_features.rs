@@ -400,11 +400,20 @@ fn spans_to_ranges(
 }
 
 fn top_level_label(uri: &types::Url) -> String {
-    uri.path_segments()
-        .and_then(|mut segments| segments.next_back())
-        .filter(|segment| !segment.is_empty())
-        .unwrap_or("script")
-        .to_owned()
+    uri.to_file_path()
+        .ok()
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .filter(|name| !name.is_empty())
+        .or_else(|| {
+            uri.path_segments()
+                .and_then(|mut segments| segments.next_back())
+                .filter(|segment| !segment.is_empty())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "script".to_owned())
 }
 
 pub(crate) fn document_highlight(
@@ -1044,5 +1053,11 @@ mod tests {
         )
         .expect("prepare should succeed");
         assert!(response.is_none());
+    }
+
+    #[test]
+    fn call_hierarchy_top_level_label_decodes_file_name() {
+        let uri = Url::parse("file:///tmp/my%20script.sh").expect("file URI should parse");
+        assert_eq!(top_level_label(&uri), "my script.sh");
     }
 }
