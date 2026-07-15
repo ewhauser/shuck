@@ -1,0 +1,32 @@
+[package]
+name = "shuck-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage = "https://github.com/ewhauser/shuck"
+description = "WebAssembly bindings for the Shuck shell linter and formatter"
+keywords = ["shell", "bash", "linter", "webassembly", "wasm"]
+categories = ["development-tools", "web-programming"]
+readme = "README.md"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+js-sys = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+shuck-ast = { workspace = true }
+shuck-formatter = { workspace = true }
+shuck-indexer = { workspace = true }
+shuck-linter = { workspace = true }
+shuck-parser = { workspace = true }
+wasm-bindgen = { workspace = true }
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-Oz", "--enable-bulk-memory"]

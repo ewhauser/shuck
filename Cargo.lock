@@ -1977,6 +1977,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "shuck-wasm"
+version = "0.0.43"
+dependencies = [
+ "js-sys",
+ "serde",
+ "serde_json",
+ "shuck-ast",
+ "shuck-formatter",
+ "shuck-indexer",
+ "shuck-linter",
+ "shuck-parser",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "similar"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
