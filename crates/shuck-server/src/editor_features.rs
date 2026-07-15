@@ -5,8 +5,8 @@ use lsp_server::ErrorCode;
 use lsp_types as types;
 use serde::{Deserialize, Serialize};
 use shuck_semantic::{
-    EditorCompletionKind, EditorCompletionOptions, EditorOccurrenceKind, EditorSymbolKind,
-    RenameSet,
+    EditorCallHierarchyItem, EditorCallHierarchyTarget, EditorCompletionKind,
+    EditorCompletionOptions, EditorOccurrenceKind, EditorSymbolKind, RenameSet,
 };
 
 use crate::edit::RangeExt;
@@ -19,6 +19,18 @@ pub(crate) type ReferencesResponse = Option<Vec<types::Location>>;
 pub(crate) type DocumentHighlightResponse = Option<Vec<types::DocumentHighlight>>;
 pub(crate) type PrepareRenameResponse = Option<types::PrepareRenameResponse>;
 pub(crate) type RenameResponse = Option<types::WorkspaceEdit>;
+pub(crate) type CallHierarchyPrepareResponse = Option<Vec<types::CallHierarchyItem>>;
+pub(crate) type CallHierarchyIncomingResponse = Option<Vec<types::CallHierarchyIncomingCall>>;
+pub(crate) type CallHierarchyOutgoingResponse = Option<Vec<types::CallHierarchyOutgoingCall>>;
+
+/// Round-trip payload stored in `CallHierarchyItem.data` so the incoming/outgoing
+/// requests can re-resolve the node on a freshly analyzed document.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+enum CallHierarchyData {
+    Function { line: u32, character: u32 },
+    TopLevel,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
@@ -173,6 +185,235 @@ pub(crate) fn references(
         })
         .collect::<Vec<_>>();
     Ok((!locations.is_empty()).then_some(locations))
+}
+
+pub(crate) fn prepare_call_hierarchy(
+    snapshot: DocumentSnapshot,
+    _client: &Client,
+    params: types::CallHierarchyPrepareParams,
+) -> crate::server::Result<CallHierarchyPrepareResponse> {
+    let Some(analysis) = snapshot.analysis() else {
+        return Ok(None);
+    };
+    let source = analysis.source();
+    let position = params.text_document_position_params.position;
+    let offset = offset_for_position(&snapshot, source, analysis.line_index(), position);
+    let Some(item) = analysis
+        .semantic()
+        .editor_query()
+        .prepare_call_hierarchy(offset)
+    else {
+        return Ok(None);
+    };
+    Ok(Some(vec![to_lsp_call_hierarchy_item(
+        &snapshot,
+        source,
+        analysis.line_index(),
+        item,
+    )]))
+}
+
+pub(crate) fn call_hierarchy_incoming_calls(
+    snapshot: DocumentSnapshot,
+    _client: &Client,
+    params: types::CallHierarchyIncomingCallsParams,
+) -> crate::server::Result<CallHierarchyIncomingResponse> {
+    let Some(analysis) = snapshot.analysis() else {
+        return Ok(None);
+    };
+    let source = analysis.source();
+    let query = analysis.semantic().editor_query();
+    let Some(item) = resolve_call_hierarchy_item(
+        &snapshot,
+        source,
+        analysis.line_index(),
+        &query,
+        &params.item,
+    ) else {
+        return Ok(None);
+    };
+    let calls = query
+        .incoming_calls(&item)
+        .into_iter()
+        .map(|incoming| types::CallHierarchyIncomingCall {
+            from: to_lsp_call_hierarchy_item(
+                &snapshot,
+                source,
+                analysis.line_index(),
+                incoming.from,
+            ),
+            from_ranges: spans_to_ranges(
+                &snapshot,
+                source,
+                analysis.line_index(),
+                &incoming.call_spans,
+            ),
+        })
+        .collect();
+    Ok(Some(calls))
+}
+
+pub(crate) fn call_hierarchy_outgoing_calls(
+    snapshot: DocumentSnapshot,
+    _client: &Client,
+    params: types::CallHierarchyOutgoingCallsParams,
+) -> crate::server::Result<CallHierarchyOutgoingResponse> {
+    let Some(analysis) = snapshot.analysis() else {
+        return Ok(None);
+    };
+    let source = analysis.source();
+    let query = analysis.semantic().editor_query();
+    let Some(item) = resolve_call_hierarchy_item(
+        &snapshot,
+        source,
+        analysis.line_index(),
+        &query,
+        &params.item,
+    ) else {
+        return Ok(None);
+    };
+    let calls = query
+        .outgoing_calls(&item)
+        .into_iter()
+        .map(|outgoing| types::CallHierarchyOutgoingCall {
+            to: to_lsp_call_hierarchy_item(&snapshot, source, analysis.line_index(), outgoing.to),
+            from_ranges: spans_to_ranges(
+                &snapshot,
+                source,
+                analysis.line_index(),
+                &outgoing.call_spans,
+            ),
+        })
+        .collect();
+    Ok(Some(calls))
+}
+
+/// Re-resolves the semantic node identified by an incoming LSP `CallHierarchyItem`.
+///
+/// Prefers the `data` payload we attached during `prepare`; falls back to the
+/// item's selection-range position when a client does not round-trip it.
+fn resolve_call_hierarchy_item(
+    snapshot: &DocumentSnapshot,
+    source: &str,
+    line_index: &shuck_indexer::LineIndex,
+    query: &shuck_semantic::EditorQuery<'_>,
+    item: &types::CallHierarchyItem,
+) -> Option<EditorCallHierarchyItem> {
+    let data = item
+        .data
+        .clone()
+        .and_then(|value| serde_json::from_value::<CallHierarchyData>(value).ok());
+    match data {
+        Some(CallHierarchyData::TopLevel) => Some(query.top_level_call_hierarchy_item()),
+        Some(CallHierarchyData::Function { line, character }) => {
+            let offset = offset_for_position(
+                snapshot,
+                source,
+                line_index,
+                types::Position { line, character },
+            );
+            query.prepare_call_hierarchy(offset)
+        }
+        None => {
+            let offset =
+                offset_for_position(snapshot, source, line_index, item.selection_range.start);
+            query.prepare_call_hierarchy(offset)
+        }
+    }
+}
+
+fn to_lsp_call_hierarchy_item(
+    snapshot: &DocumentSnapshot,
+    source: &str,
+    line_index: &shuck_indexer::LineIndex,
+    item: EditorCallHierarchyItem,
+) -> types::CallHierarchyItem {
+    let uri = snapshot.query().file_url().clone();
+    match item.target {
+        EditorCallHierarchyTarget::Function(_) => {
+            let full_range = item
+                .full_span
+                .map(|span| {
+                    crate::edit::to_lsp_range(
+                        span.to_range(),
+                        source,
+                        line_index,
+                        snapshot.encoding(),
+                    )
+                })
+                .unwrap_or_default();
+            let selection_range = item
+                .selection_span
+                .map(|span| {
+                    crate::edit::to_lsp_range(
+                        span.to_range(),
+                        source,
+                        line_index,
+                        snapshot.encoding(),
+                    )
+                })
+                .unwrap_or(full_range);
+            types::CallHierarchyItem {
+                name: item.name.to_string(),
+                kind: types::SymbolKind::FUNCTION,
+                tags: None,
+                detail: None,
+                uri,
+                range: full_range,
+                selection_range,
+                data: serde_json::to_value(CallHierarchyData::Function {
+                    line: selection_range.start.line,
+                    character: selection_range.start.character,
+                })
+                .ok(),
+            }
+        }
+        EditorCallHierarchyTarget::TopLevel => {
+            let start = types::Position::new(0, 0);
+            let range = types::Range { start, end: start };
+            types::CallHierarchyItem {
+                name: top_level_label(&uri),
+                kind: types::SymbolKind::MODULE,
+                tags: None,
+                detail: Some("script top level".to_owned()),
+                uri,
+                range,
+                selection_range: range,
+                data: serde_json::to_value(CallHierarchyData::TopLevel).ok(),
+            }
+        }
+    }
+}
+
+fn spans_to_ranges(
+    snapshot: &DocumentSnapshot,
+    source: &str,
+    line_index: &shuck_indexer::LineIndex,
+    spans: &[shuck_ast::Span],
+) -> Vec<types::Range> {
+    spans
+        .iter()
+        .map(|span| {
+            crate::edit::to_lsp_range(span.to_range(), source, line_index, snapshot.encoding())
+        })
+        .collect()
+}
+
+fn top_level_label(uri: &types::Url) -> String {
+    uri.to_file_path()
+        .ok()
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .filter(|name| !name.is_empty())
+        .or_else(|| {
+            uri.path_segments()
+                .and_then(|mut segments| segments.next_back())
+                .filter(|segment| !segment.is_empty())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "script".to_owned())
 }
 
 pub(crate) fn document_highlight(
@@ -701,5 +942,123 @@ mod tests {
         .expect_err("assignment-like function names should be rejected");
 
         assert_eq!(error.code as i32, ErrorCode::InvalidParams as i32);
+    }
+
+    fn prepare_item(
+        snapshot: &DocumentSnapshot,
+        client: &Client,
+        uri: &Url,
+        position: Position,
+    ) -> types::CallHierarchyItem {
+        let mut items = prepare_call_hierarchy(
+            snapshot.clone(),
+            client,
+            types::CallHierarchyPrepareParams {
+                text_document_position_params: text_position(uri.clone(), position),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            },
+        )
+        .expect("prepare should succeed")
+        .expect("prepare should return an item");
+        assert_eq!(items.len(), 1);
+        items.remove(0)
+    }
+
+    #[test]
+    fn call_hierarchy_prepare_incoming_and_outgoing() {
+        let source = "helper() {\n  echo hi\n}\n\nmain() {\n  helper\n  helper\n}\n\nmain\n";
+        let (snapshot, client, uri) = make_snapshot(source);
+
+        // Prepare on the `main` definition name.
+        let main_item = prepare_item(
+            &snapshot,
+            &client,
+            &uri,
+            position_for_nth(source, "main", 0),
+        );
+        assert_eq!(main_item.name, "main");
+        assert_eq!(main_item.kind, types::SymbolKind::FUNCTION);
+
+        // main() calls helper twice.
+        let outgoing = call_hierarchy_outgoing_calls(
+            snapshot.clone(),
+            &client,
+            types::CallHierarchyOutgoingCallsParams {
+                item: main_item.clone(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            },
+        )
+        .expect("outgoing should succeed")
+        .expect("outgoing should return calls");
+        assert_eq!(outgoing.len(), 1);
+        assert_eq!(outgoing[0].to.name, "helper");
+        assert_eq!(outgoing[0].from_ranges.len(), 2);
+
+        // main() is called once, from the script top level.
+        let incoming_main = call_hierarchy_incoming_calls(
+            snapshot.clone(),
+            &client,
+            types::CallHierarchyIncomingCallsParams {
+                item: main_item,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            },
+        )
+        .expect("incoming should succeed")
+        .expect("incoming should return calls");
+        assert_eq!(incoming_main.len(), 1);
+        assert_eq!(incoming_main[0].from.kind, types::SymbolKind::MODULE);
+        assert_eq!(incoming_main[0].from_ranges.len(), 1);
+
+        // Prepare on `helper`; its callers are the enclosing function `main`.
+        let helper_item = prepare_item(
+            &snapshot,
+            &client,
+            &uri,
+            position_for_nth(source, "helper", 0),
+        );
+        assert_eq!(helper_item.name, "helper");
+        let incoming_helper = call_hierarchy_incoming_calls(
+            snapshot,
+            &client,
+            types::CallHierarchyIncomingCallsParams {
+                item: helper_item,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            },
+        )
+        .expect("incoming should succeed")
+        .expect("incoming should return calls");
+        assert_eq!(incoming_helper.len(), 1);
+        assert_eq!(incoming_helper[0].from.name, "main");
+        assert_eq!(incoming_helper[0].from.kind, types::SymbolKind::FUNCTION);
+        assert_eq!(incoming_helper[0].from_ranges.len(), 2);
+    }
+
+    #[test]
+    fn call_hierarchy_prepare_returns_none_off_a_function() {
+        let source = "name=1\necho \"$name\"\n";
+        let (snapshot, client, uri) = make_snapshot(source);
+        let response = prepare_call_hierarchy(
+            snapshot,
+            &client,
+            types::CallHierarchyPrepareParams {
+                text_document_position_params: text_position(
+                    uri,
+                    position_for_nth(source, "name", 0),
+                ),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            },
+        )
+        .expect("prepare should succeed");
+        assert!(response.is_none());
+    }
+
+    #[test]
+    fn call_hierarchy_top_level_label_decodes_file_name() {
+        let path = std::env::temp_dir().join("my script.sh");
+        let uri = Url::from_file_path(path).expect("temporary file path should convert to a URI");
+        assert_eq!(top_level_label(&uri), "my script.sh");
     }
 }
