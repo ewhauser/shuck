@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.0.44](https://github.com/ewhauser/shuck/compare/v0.0.43...v0.0.44) (2026-07-15)
+
+
+### Features
+
+* **semantic,cli:** add # shuck: source= directive with opt-in target linting ([#1163](https://github.com/ewhauser/shuck/issues/1163)) ([776889f](https://github.com/ewhauser/shuck/commit/776889f5b1cfd341392c8788008385e2743311f6))
+* **server:** add LSP call hierarchy for functions ([#1162](https://github.com/ewhauser/shuck/issues/1162)) ([921359b](https://github.com/ewhauser/shuck/commit/921359b37a181c14b2a4e2a882c726234d5c3dc7))
+* **server:** cross-file call hierarchy over a workspace call-graph index ([#1147](https://github.com/ewhauser/shuck/issues/1147)) ([6c3cd84](https://github.com/ewhauser/shuck/commit/6c3cd8429920f438277a941fff6748c791c8da08))
+* **wasm:** distribute Shuck through npm ([#1170](https://github.com/ewhauser/shuck/issues/1170)) ([748ce53](https://github.com/ewhauser/shuck/commit/748ce5326248e7e96d43b6e0af47e79304a8dfd4))
+
+
+### Bug Fixes
+
+* **ci:** make cargo audit installation reproducible ([#1166](https://github.com/ewhauser/shuck/issues/1166)) ([042fa10](https://github.com/ewhauser/shuck/commit/042fa104d50ee090f558ba781c83df58f12643d5))
+* **formatter:** preserve heredocs in array substitutions ([#1167](https://github.com/ewhauser/shuck/issues/1167)) ([c24f73b](https://github.com/ewhauser/shuck/commit/c24f73bb0eb70a8e2dff125fc141e87361b0143b))
+
+
+### Performance
+
+* **linter:** fuse zsh array fanout analysis ([#1169](https://github.com/ewhauser/shuck/issues/1169)) ([d7a2d12](https://github.com/ewhauser/shuck/commit/d7a2d129a40fd84a5069c5aa04258081b4ca0edd))
+* **semantic:** reuse recorded command info in flow analysis ([#1171](https://github.com/ewhauser/shuck/issues/1171)) ([f67de43](https://github.com/ewhauser/shuck/commit/f67de43fbd29d1c1e9f32ae1465359a5ef09c3f1))
+
+
+### Documentation
+
+* document GitHub Action ([#1168](https://github.com/ewhauser/shuck/issues/1168)) ([f79bf97](https://github.com/ewhauser/shuck/commit/f79bf97507839761997d094220fc2820003b1e8e))
+
 ## [0.0.43](https://github.com/ewhauser/shuck/compare/v0.0.42...v0.0.43) (2026-07-12)
 
 
