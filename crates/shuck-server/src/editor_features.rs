@@ -1057,7 +1057,8 @@ mod tests {
 
     #[test]
     fn call_hierarchy_top_level_label_decodes_file_name() {
-        let uri = Url::parse("file:///tmp/my%20script.sh").expect("file URI should parse");
+        let path = std::env::temp_dir().join("my script.sh");
+        let uri = Url::from_file_path(path).expect("temporary file path should convert to a URI");
         assert_eq!(top_level_label(&uri), "my script.sh");
     }
 }
