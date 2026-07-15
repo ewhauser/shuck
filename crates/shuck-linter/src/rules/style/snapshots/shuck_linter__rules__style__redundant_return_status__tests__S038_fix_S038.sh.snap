@@ -1,0 +1,33 @@
+---
+source: crates/shuck-linter/src/rules/style/redundant_return_status.rs
+---
+Diagnostics:
+S038 function already propagates the last command status
+ --> <source>:4:1
+  |
+4 |   return $?
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,6 +1,5 @@
+ #!/bin/sh
+ f() {
+   echo hello >/dev/null
+-  return $?
+ }
+ f
+
+Fixed source:
+#!/bin/sh
+f() {
+  echo hello >/dev/null
+}
+f
+
+Remaining diagnostics:
+<none>

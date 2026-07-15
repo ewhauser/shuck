@@ -1,0 +1,54 @@
+---
+source: crates/shuck-linter/src/rules/style/function_in_alias.rs
+---
+Diagnostics:
+S057 avoid positional parameters in alias definitions
+ --> <source>:3:7
+  |
+3 | alias first='echo $1'
+  |
+
+S057 avoid positional parameters in alias definitions
+ --> <source>:4:7
+  |
+4 | alias rest='printf "%s\n" "$@"'
+  |
+
+S057 avoid positional parameters in alias definitions
+ --> <source>:5:7
+  |
+5 | alias conditional='${1+"$@"}'
+  |
+
+
+Applied fixes: 3
+
+Diff:
+--- before
++++ after
+@@ -1,8 +1,8 @@
+ #!/bin/sh
+ # shellcheck disable=2034
+-alias first='echo $1'
+-alias rest='printf "%s\n" "$@"'
+-alias conditional='${1+"$@"}'
++first() { echo $1; }
++rest() { printf "%s\n" "$@"; }
++conditional() { ${1+"$@"}; }
+ alias foo=$BAR
+ alias bar='$(printf hi)'
+ alias baz='noglob gtl'
+
+Fixed source:
+#!/bin/sh
+# shellcheck disable=2034
+first() { echo $1; }
+rest() { printf "%s\n" "$@"; }
+conditional() { ${1+"$@"}; }
+alias foo=$BAR
+alias bar='$(printf hi)'
+alias baz='noglob gtl'
+alias func='helper() { echo hi; }'
+
+Remaining diagnostics:
+<none>

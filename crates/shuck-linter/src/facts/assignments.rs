@@ -1063,17 +1063,33 @@ pub(crate) fn build_assign_special_zero_spans<'a>(
         .collect()
 }
 
+#[derive(Debug, Clone)]
+pub struct SpaceyAssignmentFact {
+    diagnostic_span: Span,
+    replacement: Box<str>,
+}
+
+impl SpaceyAssignmentFact {
+    pub fn diagnostic_span(&self) -> Span {
+        self.diagnostic_span
+    }
+
+    pub fn replacement(&self) -> &str {
+        &self.replacement
+    }
+}
+
 #[cfg_attr(shuck_profiling, inline(never))]
-pub(crate) fn build_spacey_assignment_spans<'a>(
+pub(crate) fn build_spacey_assignment_facts<'a>(
     commands: &[CommandFact<'a>],
     source: &str,
-) -> Vec<Span> {
+) -> Vec<SpaceyAssignmentFact> {
     commands
         .iter()
         .filter_map(|fact| match fact.command() {
-            Command::Simple(command) => spacey_assignment_span(command, source),
+            Command::Simple(command) => spacey_assignment_fact(command, source),
             Command::Compound(CompoundCommand::Time(command)) => {
-                spacey_time_assignment_span(command, source)
+                spacey_time_assignment_fact(command, source)
             }
             Command::Builtin(_)
             | Command::Decl(_)
@@ -1155,7 +1171,7 @@ fn assign_special_zero_span(word: &Word, source: &str) -> Option<Span> {
     None
 }
 
-fn spacey_assignment_span(command: &SimpleCommand, source: &str) -> Option<Span> {
+fn spacey_assignment_fact(command: &SimpleCommand, source: &str) -> Option<SpaceyAssignmentFact> {
     let target = command.name.span.slice(source);
     if !is_shell_variable_name(target) {
         return None;
@@ -1164,21 +1180,28 @@ fn spacey_assignment_span(command: &SimpleCommand, source: &str) -> Option<Span>
     let first_arg = command.args.first()?;
     let first_arg_text = first_arg.span.slice(source);
     if first_arg_text == "=" {
-        let end = command
-            .args
-            .get(1)
-            .map(|word| word.span.end)
-            .unwrap_or(first_arg.span.end);
-        return Some(Span::from_positions(command.name.span.start, end));
+        let value = command.args.get(1);
+        let end = value.map_or(first_arg.span.end, |word| word.span.end);
+        let value = value.map_or("", |word| word.span.slice(source));
+        return Some(SpaceyAssignmentFact {
+            diagnostic_span: Span::from_positions(command.name.span.start, end),
+            replacement: format!("{target}={value}").into_boxed_str(),
+        });
     }
 
     first_arg_text
         .strip_prefix('=')
         .filter(|value| !value.is_empty() && !value.starts_with('='))
-        .map(|_| Span::from_positions(command.name.span.start, first_arg.span.end))
+        .map(|_| SpaceyAssignmentFact {
+            diagnostic_span: Span::from_positions(command.name.span.start, first_arg.span.end),
+            replacement: format!("{target}{first_arg_text}").into_boxed_str(),
+        })
 }
 
-fn spacey_time_assignment_span(command: &TimeCommand, source: &str) -> Option<Span> {
+fn spacey_time_assignment_fact(
+    command: &TimeCommand,
+    source: &str,
+) -> Option<SpaceyAssignmentFact> {
     if command.posix_format {
         return None;
     }
@@ -1187,8 +1210,8 @@ fn spacey_time_assignment_span(command: &TimeCommand, source: &str) -> Option<Sp
     let Command::Simple(inner) = &timed.command else {
         return None;
     };
-    if let Some(span) = spacey_assignment_span(inner, source) {
-        return Some(span);
+    if let Some(fact) = spacey_assignment_fact(inner, source) {
+        return Some(fact);
     }
 
     let prefix = source.get(command.span.start.offset..inner.name.span.start.offset)?;
@@ -1198,18 +1221,22 @@ fn spacey_time_assignment_span(command: &TimeCommand, source: &str) -> Option<Sp
 
     let operator_text = inner.name.span.slice(source);
     if operator_text == "=" {
-        let end = inner
-            .args
-            .first()
-            .map(|word| word.span.end)
-            .unwrap_or(inner.name.span.end);
-        return Some(Span::from_positions(command.span.start, end));
+        let value = inner.args.first();
+        let end = value.map_or(inner.name.span.end, |word| word.span.end);
+        let value = value.map_or("", |word| word.span.slice(source));
+        return Some(SpaceyAssignmentFact {
+            diagnostic_span: Span::from_positions(command.span.start, end),
+            replacement: format!("time={value}").into_boxed_str(),
+        });
     }
 
     operator_text
         .strip_prefix('=')
         .filter(|value| !value.is_empty() && !value.starts_with('='))
-        .map(|_| Span::from_positions(command.span.start, inner.name.span.end))
+        .map(|_| SpaceyAssignmentFact {
+            diagnostic_span: Span::from_positions(command.span.start, inner.name.span.end),
+            replacement: format!("time{operator_text}").into_boxed_str(),
+        })
 }
 
 pub(crate) fn zsh_declaration_brace_assignment_target(

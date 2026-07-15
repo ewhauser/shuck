@@ -21,8 +21,8 @@ pub(crate) struct CommandFactStore<'a> {
     pub(in crate::facts) function_doc_content: OnceLock<Vec<FunctionDocContentFact>>,
     pub(in crate::facts) function_definition_command_ids_by_scope: FxHashMap<ScopeId, CommandId>,
     pub(in crate::facts) case_cli_reachable_function_scopes: FxHashSet<ScopeId>,
-    pub(in crate::facts) function_in_alias_spans: Vec<Span>,
-    pub(in crate::facts) alias_definition_expansion_spans: Vec<Span>,
+    pub(in crate::facts) function_in_alias_facts: Vec<FunctionInAliasFact>,
+    pub(in crate::facts) alias_definition_expansion_facts: Vec<AliasDefinitionExpansionFact>,
     pub(in crate::facts) function_body_without_braces_spans: Vec<Span>,
     pub(in crate::facts) function_parameter_fallback_spans: Vec<Span>,
     pub(in crate::facts) redundant_return_status_spans: Vec<Span>,
@@ -51,7 +51,7 @@ pub(crate) struct CommandFactStore<'a> {
     pub(in crate::facts) jammed_test_bracket_facts: OnceLock<Vec<(Span, usize)>>,
     pub(in crate::facts) assignment_like_command_name_spans: Vec<Span>,
     pub(in crate::facts) assign_special_zero_spans: OnceLock<Vec<Span>>,
-    pub(in crate::facts) spacey_assignment_spans: OnceLock<Vec<Span>>,
+    pub(in crate::facts) spacey_assignment_facts: OnceLock<Vec<SpaceyAssignmentFact>>,
     pub(in crate::facts) bare_command_name_assignment_spans: Vec<Span>,
 }
 
@@ -614,12 +614,12 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
         })
     }
 
-    pub(crate) fn function_in_alias_spans(self) -> &'facts [Span] {
-        &self.facts.command.function_in_alias_spans
+    pub(crate) fn function_in_alias_facts(self) -> &'facts [FunctionInAliasFact] {
+        &self.facts.command.function_in_alias_facts
     }
 
-    pub(crate) fn alias_definition_expansion_spans(self) -> &'facts [Span] {
-        &self.facts.command.alias_definition_expansion_spans
+    pub(crate) fn alias_definition_expansion_facts(self) -> &'facts [AliasDefinitionExpansionFact] {
+        &self.facts.command.alias_definition_expansion_facts
     }
 
     pub(crate) fn function_body_without_braces_spans(self) -> &'facts [Span] {
@@ -684,12 +684,12 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
             })
     }
 
-    pub(crate) fn duplicate_redirect_spans(self) -> Vec<Span> {
+    pub(crate) fn duplicate_redirect_facts(self) -> Vec<DuplicateRedirectFact> {
         let source = self.facts.source_facts.source;
         self.facts
             .commands()
             .iter()
-            .flat_map(|command| duplicate_redirect_spans(command.redirect_facts(), source))
+            .flat_map(|command| duplicate_redirect_facts(command.redirect_facts(), source))
             .collect()
     }
 
@@ -795,9 +795,9 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
             })
     }
 
-    pub(crate) fn spacey_assignment_spans(self) -> &'facts [Span] {
-        self.facts.command.spacey_assignment_spans.get_or_init(|| {
-            build_spacey_assignment_spans(
+    pub(crate) fn spacey_assignment_facts(self) -> &'facts [SpaceyAssignmentFact] {
+        self.facts.command.spacey_assignment_facts.get_or_init(|| {
+            build_spacey_assignment_facts(
                 &self.facts.command.commands,
                 self.facts.source_facts.source,
             )

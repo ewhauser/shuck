@@ -126,7 +126,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let mut surface_fragments = SurfaceFragmentSink::new(self.source);
         let mut functions = Vec::with_capacity(capacity.functions);
         let mut function_body_without_braces_spans = Vec::new();
-        let redundant_return_status_spans = Vec::new();
+        let mut redundant_return_status_spans = Vec::new();
         let mut getopts_cases = Vec::new();
         let mut condition_status_capture_spans = Vec::new();
         let mut precise_function_guard_suppressions = Vec::new();
@@ -373,6 +373,27 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             }
 
             if !nested_word_command {
+                match visit.command {
+                    Command::Function(function) => {
+                        collect_redundant_return_status_spans_in_function_body(
+                            &function.body,
+                            self.source,
+                            &mut redundant_return_status_spans,
+                        );
+                    }
+                    Command::AnonymousFunction(function) => {
+                        collect_redundant_return_status_spans_in_function_body(
+                            &function.body,
+                            self.source,
+                            &mut redundant_return_status_spans,
+                        );
+                    }
+                    Command::Simple(_)
+                    | Command::Builtin(_)
+                    | Command::Decl(_)
+                    | Command::Binary(_)
+                    | Command::Compound(_) => {}
+                }
                 collect_condition_status_capture_from_direct_body_sequences(
                     visit.command,
                     self.source,
@@ -472,6 +493,9 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         arithmetic_update_operator_spans
             .sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
         arithmetic_update_operator_spans.dedup();
+        redundant_return_status_spans
+            .sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+        redundant_return_status_spans.dedup_by_key(|span| FactSpan::new(*span));
         sort_and_dedup_spans(&mut arithmetic_summary.arithmetic_expansion_spans);
         sort_and_dedup_spans(&mut arithmetic_summary.arithmetic_index_subscript_spans);
         let arithmetic_update_operator_fix_facts =
@@ -578,7 +602,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         sort_and_dedup_spans(&mut condition_status_capture_spans);
         sort_and_dedup_spans(&mut command_substitution_command_spans);
         sort_and_dedup_case_pattern_expansions(&mut case_pattern_expansions);
-        let function_in_alias_spans = build_function_in_alias_spans(&commands, self.source);
+        let function_in_alias_facts = build_function_in_alias_facts(&commands, self.source);
         let function_parameter_fallback_spans = build_function_parameter_fallback_spans(
             &commands,
             &command_fact_indices_by_id,
@@ -709,7 +733,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             substring_expansions,
             case_modifications,
             replacement_expansions,
-            positional_parameter_trims,
+            mut positional_parameter_trims,
             suppressed_subscript_spans,
             subscript_later_suppression_spans,
             mut arithmetic_only_suppressed_subscript_spans,
@@ -872,7 +896,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         );
         let brace_variable_before_bracket_spans =
             build_brace_variable_before_bracket_spans(&word_nodes, &word_occurrences, source);
-        let alias_definition_expansion_spans = build_alias_definition_expansion_spans(
+        let alias_definition_expansion_facts = build_alias_definition_expansion_facts(
             &commands,
             &fact_store,
             &word_nodes,
@@ -886,6 +910,12 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 .iter()
                 .map(|command| command.span().start.offset)
                 .collect(),
+        );
+        attach_positional_parameter_trim_fixes(
+            &mut positional_parameter_trims,
+            &commands,
+            &command_fact_indices_by_id,
+            source,
         );
         let innermost_command_ids_by_binding_offset = build_innermost_command_ids_by_offset(
             &commands,
@@ -956,8 +986,8 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 function_doc_content: OnceLock::new(),
                 function_definition_command_ids_by_scope,
                 case_cli_reachable_function_scopes,
-                function_in_alias_spans,
-                alias_definition_expansion_spans,
+                function_in_alias_facts,
+                alias_definition_expansion_facts,
                 function_body_without_braces_spans,
                 function_parameter_fallback_spans,
                 redundant_return_status_spans,
@@ -985,7 +1015,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 jammed_test_bracket_facts: OnceLock::new(),
                 assignment_like_command_name_spans,
                 assign_special_zero_spans: OnceLock::new(),
-                spacey_assignment_spans: OnceLock::new(),
+                spacey_assignment_facts: OnceLock::new(),
                 bare_command_name_assignment_spans,
             },
             words: WordFactStore {
@@ -1114,6 +1144,164 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             },
         }
     }
+}
+
+fn attach_positional_parameter_trim_fixes(
+    fragments: &mut [PositionalParameterTrimFragmentFact],
+    commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
+    source: &str,
+) {
+    if fragments.is_empty() {
+        return;
+    }
+
+    let command_ids_by_fragment_offset = build_innermost_command_ids_by_offset(
+        commands,
+        fragments
+            .iter()
+            .map(|fragment| fragment.span().start.offset)
+            .collect(),
+    );
+    let mut fragment_indices_by_command = FxHashMap::<CommandId, Vec<usize>>::default();
+    for (index, fragment) in fragments.iter().enumerate() {
+        let Some(command_id) = precomputed_command_id_for_offset(
+            &command_ids_by_fragment_offset,
+            fragment.span().start.offset,
+        ) else {
+            continue;
+        };
+        fragment_indices_by_command
+            .entry(command_id)
+            .or_default()
+            .push(index);
+    }
+
+    for (command_id, mut indices) in fragment_indices_by_command {
+        let Some(command) = command_fact_indices_by_id
+            .get(command_id.index())
+            .copied()
+            .flatten()
+            .and_then(|index| commands.get(index))
+        else {
+            continue;
+        };
+        if command.is_nested_word_command() {
+            continue;
+        }
+        indices.sort_unstable_by_key(|index| fragments[*index].span().start.offset);
+        let first_span = fragments[indices[0]].span();
+        if command.span().start.line != first_span.start.line {
+            continue;
+        }
+
+        let line_start = source[..command.span().start.offset]
+            .rfind('\n')
+            .map_or(0, |offset| offset + 1);
+        let indent = &source[line_start..command.span().start.offset];
+        if !indent.bytes().all(|byte| matches!(byte, b' ' | b'\t'))
+            || previous_line_ends_with_control_operator(source, line_start)
+        {
+            continue;
+        }
+
+        let mut target = None;
+        let mut replacements = Vec::with_capacity(indices.len());
+        let mut compatible = true;
+        for index in &indices {
+            let span = fragments[*index].span();
+            let text = span.slice(source);
+            let Some((current_target, rest)) = text
+                .strip_prefix("${*")
+                .map(|rest| ('*', rest))
+                .or_else(|| text.strip_prefix("${@").map(|rest| ('@', rest)))
+            else {
+                compatible = false;
+                break;
+            };
+            if target.is_some_and(|target| target != current_target) {
+                compatible = false;
+                break;
+            }
+            target = Some(current_target);
+            replacements.push(PositionalParameterTrimReplacement::new(
+                span,
+                format!("${{_shuck_positional_params{rest}").into_boxed_str(),
+            ));
+        }
+        let Some(target) = target.filter(|_| compatible) else {
+            continue;
+        };
+
+        fragments[indices[0]].set_fix(PositionalParameterTrimFix::new(
+            line_start,
+            format!("{indent}_shuck_positional_params=${target}\n").into_boxed_str(),
+            replacements.into_boxed_slice(),
+        ));
+    }
+}
+
+fn previous_line_ends_with_control_operator(source: &str, line_start: usize) -> bool {
+    let previous = source[..line_start]
+        .strip_suffix('\n')
+        .unwrap_or(&source[..line_start]);
+    let line = previous
+        .rsplit_once('\n')
+        .map_or(previous, |(_, line)| line);
+    let line = line_without_trailing_comment(line).trim_end_matches([' ', '\t']);
+    let line = line
+        .strip_suffix('\\')
+        .map_or(line, |continued| continued.trim_end_matches([' ', '\t']));
+    line.ends_with('|') || line.ends_with("|&") || line.ends_with("&&")
+}
+
+fn line_without_trailing_comment(line: &str) -> &str {
+    let mut escaped = false;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut comment_can_start = true;
+
+    for (offset, ch) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if in_single_quotes {
+            if ch == '\'' {
+                in_single_quotes = false;
+            }
+            continue;
+        }
+        if in_double_quotes {
+            match ch {
+                '\\' => escaped = true,
+                '"' => in_double_quotes = false,
+                _ => {}
+            }
+            continue;
+        }
+
+        match ch {
+            '#' if comment_can_start => return &line[..offset],
+            '\\' => {
+                escaped = true;
+                comment_can_start = false;
+            }
+            '\'' => {
+                in_single_quotes = true;
+                comment_can_start = false;
+            }
+            '"' => {
+                in_double_quotes = true;
+                comment_can_start = false;
+            }
+            ' ' | '\t' => comment_can_start = true,
+            '|' | '&' | ';' | '(' | ')' | '<' | '>' => comment_can_start = true,
+            _ => comment_can_start = false,
+        }
+    }
+
+    line
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]

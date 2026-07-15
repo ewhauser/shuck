@@ -801,10 +801,30 @@ pub(crate) fn redirect_operator_text(kind: RedirectKind) -> &'static str {
     }
 }
 
-pub(super) fn duplicate_redirect_spans(redirects: &[RedirectFact<'_>], source: &str) -> Vec<Span> {
+#[derive(Debug, Clone, Copy)]
+pub struct DuplicateRedirectFact {
+    diagnostic_span: Span,
+    deletion_span: Option<Span>,
+}
+
+impl DuplicateRedirectFact {
+    pub fn diagnostic_span(self) -> Span {
+        self.diagnostic_span
+    }
+
+    pub fn deletion_span(self) -> Option<Span> {
+        self.deletion_span
+    }
+}
+
+pub(super) fn duplicate_redirect_facts(
+    redirects: &[RedirectFact<'_>],
+    source: &str,
+) -> Vec<DuplicateRedirectFact> {
     let mut last_redirect_by_fd = FxHashMap::<i32, usize>::default();
     let mut consumers_by_redirect = vec![SmallVec::<[usize; 2]>::new(); redirects.len()];
     let mut overwritten_by_redirect = vec![SmallVec::<[usize; 2]>::new(); redirects.len()];
+    let mut overwritten_fds_by_redirect = vec![SmallVec::<[i32; 2]>::new(); redirects.len()];
     let mut duplicate_redirects = FxHashSet::<usize>::default();
 
     for (index, redirect) in redirects.iter().enumerate() {
@@ -817,6 +837,7 @@ pub(super) fn duplicate_redirect_spans(redirects: &[RedirectFact<'_>], source: &
         for fd in duplicate_redirect_fds(redirect, source) {
             if let Some(previous) = last_redirect_by_fd.insert(fd, index) {
                 overwritten_by_redirect[previous].push(index);
+                overwritten_fds_by_redirect[previous].push(fd);
             }
         }
     }
@@ -851,7 +872,7 @@ pub(super) fn duplicate_redirect_spans(redirects: &[RedirectFact<'_>], source: &
         }
     }
 
-    let mut spans = Vec::new();
+    let mut facts = Vec::new();
     let mut seen_spans = FxHashSet::<(usize, usize)>::default();
     for (index, redirect) in redirects.iter().enumerate() {
         if !duplicate_redirects.contains(&index) {
@@ -861,11 +882,42 @@ pub(super) fn duplicate_redirect_spans(redirects: &[RedirectFact<'_>], source: &
             continue;
         };
         if seen_spans.insert((span.start.offset, span.end.offset)) {
-            spans.push(span);
+            let written_fds = duplicate_redirect_fds(redirect, source);
+            let fully_overwritten = !written_fds.is_empty()
+                && written_fds
+                    .iter()
+                    .all(|fd| overwritten_fds_by_redirect[index].contains(fd));
+            let has_live_consumer = consumers_by_redirect[index]
+                .iter()
+                .any(|consumer| !duplicate_redirects.contains(consumer));
+            let deletion_span = (fully_overwritten
+                && !has_live_consumer
+                && !matches!(
+                    redirect.redirect().kind,
+                    RedirectKind::HereDoc | RedirectKind::HereDocStrip
+                ))
+            .then(|| redirect_deletion_span(redirect.redirect().span, source));
+            facts.push(DuplicateRedirectFact {
+                diagnostic_span: span,
+                deletion_span,
+            });
         }
     }
 
-    spans
+    facts
+}
+
+fn redirect_deletion_span(span: Span, source: &str) -> Span {
+    let whitespace_start = source[..span.start.offset]
+        .rfind(|ch| !matches!(ch, ' ' | '\t'))
+        .map_or(0, |offset| offset + 1);
+    let removed_whitespace = span.start.offset - whitespace_start;
+    let start = shuck_ast::Position {
+        line: span.start.line,
+        column: span.start.column - removed_whitespace,
+        offset: whitespace_start,
+    };
+    Span::from_positions(start, span.end)
 }
 
 fn duplicate_redirect_fds(redirect: &RedirectFact<'_>, source: &str) -> SmallVec<[i32; 2]> {

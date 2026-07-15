@@ -1,8 +1,10 @@
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct CommandSubstitutionInAlias;
 
 impl Violation for CommandSubstitutionInAlias {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
+
     fn rule() -> Rule {
         Rule::CommandSubstitutionInAlias
     }
@@ -10,19 +12,33 @@ impl Violation for CommandSubstitutionInAlias {
     fn message(&self) -> String {
         "avoid expansions in alias definitions".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("single-quote the alias definition".to_owned())
+    }
 }
 
 pub fn command_substitution_in_alias(checker: &mut Checker) {
-    checker.report_fact_slice_dedup(
-        |facts| facts.command_facts().alias_definition_expansion_spans(),
-        || CommandSubstitutionInAlias,
-    );
+    checker.report_fact_diagnostics_dedup(|facts, report| {
+        for fact in facts.command_facts().alias_definition_expansion_facts() {
+            let diagnostic = Diagnostic::new(CommandSubstitutionInAlias, fact.span());
+            let diagnostic = match fact.replacement() {
+                Some((span, replacement)) => {
+                    diagnostic.with_fix(Fix::unsafe_edit(Edit::replacement(replacement, span)))
+                }
+                None => diagnostic,
+            };
+            report(diagnostic);
+        }
+    });
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use std::path::Path;
+
+    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
 
     #[test]
     fn reports_active_expansions_inside_alias_definitions() {
@@ -128,5 +144,46 @@ alias \"${method}\"=\"lwp-request -m '${method}'\"
                 .collect::<Vec<_>>(),
             vec!["$a", "${method}"]
         );
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_single_quote_literal_alias_values() {
+        let source = "#!/bin/bash\nalias home=$HOME\nalias icloud=\"cd '$HOME'\"\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::CommandSubstitutionInAlias),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/bash\nalias home='$HOME'\nalias icloud='cd '\\''$HOME'\\'''\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_dynamic_alias_names_without_fixes() {
+        let source = "#!/bin/bash\nalias \"$name=$value\"\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CommandSubstitutionInAlias),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].fix.is_none());
+    }
+
+    #[test]
+    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("style").join("S056.sh").as_path(),
+            &LinterSettings::for_rule(Rule::CommandSubstitutionInAlias),
+            Applicability::Unsafe,
+        )?;
+
+        assert_diagnostics_diff!("S056_fix_S056.sh", result);
+        Ok(())
     }
 }
