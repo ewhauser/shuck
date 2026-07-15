@@ -9,6 +9,7 @@ mod analysis;
 mod array_use;
 mod binding;
 mod builder;
+mod call_facts;
 mod call_graph;
 mod cfg;
 mod command_topology;
@@ -40,6 +41,11 @@ pub use binding::{
     BuiltinBindingTargetKind, LoopValueOrigin,
 };
 /// Call-graph structures derived from the analyzed script.
+/// Workspace call-graph index types for cross-file call hierarchy.
+pub use call_facts::{
+    CallFactDefinition, CallFactSite, CallFactSourceEdge, CallNodeKind, CrossFileCall,
+    FileCallFacts, WorkspaceCallIndex,
+};
 pub use call_graph::{
     CallGraph, CallSite, OverwrittenFunction, UnreachedFunction, UnreachedFunctionReason,
 };

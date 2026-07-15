@@ -333,7 +333,7 @@ build
 }
 
 #[test]
-fn editor_call_hierarchy_attributes_calls_by_enclosing_function() {
+fn call_index_attributes_calls_by_enclosing_function() {
     let source = "\
 inner() { :; }
 outer() {
@@ -343,44 +343,38 @@ outer() {
 outer
 ";
     let model = model(source);
-    let query = model.editor_query();
-
-    // Prepare on the `outer` definition name.
-    let outer_def = span_for_nth(source, "outer", 0);
-    let outer = query
-        .prepare_call_hierarchy(outer_def.start.offset)
-        .expect("outer should resolve to a function node");
-    assert_eq!(outer.name.as_str(), "outer");
+    let path = std::path::PathBuf::from("/ws/script.sh");
+    let mut index = WorkspaceCallIndex::new();
+    index.insert(path.clone(), FileCallFacts::project(&model, Vec::new()));
 
     // `outer` calls `inner` directly once; the `inner` inside `nested` belongs
     // to `nested`, not to `outer`.
-    let outgoing = query
-        .outgoing_calls(&outer)
+    let outgoing = index
+        .outgoing(&path, &CallNodeKind::Function(Name::from("outer")))
         .into_iter()
-        .map(|call| (call.to.name.to_string(), call.call_spans.len()))
+        .map(|call| (call.node.clone(), call.call_spans.len()))
         .collect::<Vec<_>>();
-    assert_eq!(outgoing, [("inner".to_owned(), 1)]);
+    assert_eq!(outgoing, [(CallNodeKind::Function(Name::from("inner")), 1)]);
 
     // `inner` is called from both `outer` and the nested `nested` function.
-    let inner_def = span_for_nth(source, "inner", 0);
-    let inner = query
-        .prepare_call_hierarchy(inner_def.start.offset)
-        .expect("inner should resolve to a function node");
-    let mut callers = query
-        .incoming_calls(&inner)
+    let mut callers = index
+        .incoming(&path, &Name::from("inner"))
         .into_iter()
-        .map(|call| call.from.name.to_string())
+        .map(|call| call.node)
         .collect::<Vec<_>>();
-    callers.sort();
-    assert_eq!(callers, ["nested", "outer"]);
+    callers.sort_by_key(|node| format!("{node:?}"));
+    assert_eq!(
+        callers,
+        [
+            CallNodeKind::Function(Name::from("nested")),
+            CallNodeKind::Function(Name::from("outer")),
+        ]
+    );
 
     // `outer` itself is called once, from the script top level.
-    let incoming_outer = query.incoming_calls(&outer);
+    let incoming_outer = index.incoming(&path, &Name::from("outer"));
     assert_eq!(incoming_outer.len(), 1);
-    assert!(matches!(
-        incoming_outer[0].from.target,
-        EditorCallHierarchyTarget::TopLevel
-    ));
+    assert_eq!(incoming_outer[0].node, CallNodeKind::TopLevel);
     assert_eq!(incoming_outer[0].call_spans.len(), 1);
 }
 
@@ -518,6 +512,65 @@ fn unrelated_shuck_directives_do_not_become_source_directives() {
         SourceRefKind::Dynamic | SourceRefKind::SingleVariableStaticTail { .. }
     ));
     assert_eq!(refs[0].directive, None);
+}
+
+#[test]
+fn call_index_honors_binding_visibility_over_name_matching() {
+    // `main` calls `grep` before any function of that name is visible; the
+    // later local definition must not capture the call, and a sourced file
+    // defining `helper` must only receive calls the model left unresolved.
+    //
+    // The top-level `grep` runs before the function of that name is defined,
+    // so it invokes the external command (function-body calls, by contrast,
+    // resolve at runtime and may bind to later definitions).
+    let caller_source = "\
+grep pattern file
+grep() { :; }
+main() {
+  helper
+}
+";
+    let lib_source = "helper() { :; }\n";
+    let caller = model(caller_source);
+    let lib = model(lib_source);
+
+    let caller_path = std::path::PathBuf::from("/ws/main.sh");
+    let lib_path = std::path::PathBuf::from("/ws/lib.sh");
+    let mut index = WorkspaceCallIndex::new();
+    index.insert(
+        caller_path.clone(),
+        FileCallFacts::project(&caller, vec![lib_path.clone()]),
+    );
+    index.insert(lib_path.clone(), FileCallFacts::project(&lib, Vec::new()));
+
+    // The top level's `grep` call precedes the definition, so it resolves to
+    // the external command: no edge from the top level.
+    let top_level_outgoing = index.outgoing(&caller_path, &CallNodeKind::TopLevel);
+    assert!(
+        top_level_outgoing.is_empty(),
+        "expected no top-level edges, got {top_level_outgoing:?}"
+    );
+    // Symmetrically, the local `grep` function has no callers.
+    assert!(index.incoming(&caller_path, &Name::from("grep")).is_empty());
+
+    // `main` resolves `helper` through the source edge.
+    let outgoing = index
+        .outgoing(&caller_path, &CallNodeKind::Function(Name::from("main")))
+        .into_iter()
+        .map(|call| (call.path.clone(), call.node.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        outgoing,
+        [(
+            lib_path.clone(),
+            CallNodeKind::Function(Name::from("helper"))
+        )]
+    );
+    // And `helper`'s caller is `main` in the sourcing file.
+    let incoming = index.incoming(&lib_path, &Name::from("helper"));
+    assert_eq!(incoming.len(), 1);
+    assert_eq!(incoming[0].path, caller_path);
+    assert_eq!(incoming[0].node, CallNodeKind::Function(Name::from("main")));
 }
 
 #[test]

@@ -121,39 +121,18 @@ impl Server {
 
         if !dynamic_registration {
             tracing::warn!(
-                "LSP client does not support dynamic watched-file registration; config reloads are disabled"
+                "LSP client does not support dynamic watched-file registration; closed-file index updates and config reloads are disabled"
             );
             return;
         }
 
-        let mut watchers = vec![
-            FileSystemWatcher {
-                glob_pattern: types::GlobPattern::String("**/.shuck.toml".into()),
-                kind: None,
-            },
-            FileSystemWatcher {
-                glob_pattern: types::GlobPattern::String("**/shuck.toml".into()),
-                kind: None,
-            },
-        ];
-        // The user-level global config lives outside the workspace, so the
-        // relative globs above never cover it; watch its candidate paths
-        // explicitly so projects using the global fallback observe edits.
-        watchers.extend(
-            shuck_config::global_config_candidate_paths()
-                .iter()
-                .filter_map(|path| path.to_str())
-                .map(|path| FileSystemWatcher {
-                    glob_pattern: types::GlobPattern::String(path.into()),
-                    kind: None,
-                }),
-        );
+        let watchers = watched_files();
 
         let register_options =
             match serde_json::to_value(DidChangeWatchedFilesRegistrationOptions { watchers }) {
                 Ok(value) => value,
                 Err(error) => {
-                    tracing::error!("Failed to serialize config watcher registration: {error}");
+                    tracing::error!("Failed to serialize workspace watcher registration: {error}");
                     return;
                 }
             };
@@ -168,7 +147,7 @@ impl Server {
 
         let response_handler = |_: &Client, session: &mut crate::Session, ()| {
             session.set_project_settings_cache_enabled(true);
-            tracing::info!("Registered configuration file watcher");
+            tracing::info!("Registered workspace file watcher");
         };
 
         if let Err(err) = client.send_request::<lsp_types::request::RegisterCapability>(
@@ -176,13 +155,68 @@ impl Server {
             params,
             response_handler,
         ) {
-            tracing::error!("Failed to register configuration file watcher: {err}");
+            tracing::error!("Failed to register workspace file watcher: {err}");
         }
     }
+}
+
+fn watched_files() -> Vec<FileSystemWatcher> {
+    let mut watchers = vec![
+        // Call-hierarchy and workspace-symbol indexes include every discovered
+        // shell file, including extensionless shebang and zsh startup files.
+        // Watch the workspace broadly so closed-file edits, creates, deletes,
+        // and VCS updates invalidate those indexes.
+        FileSystemWatcher {
+            glob_pattern: types::GlobPattern::String("**/*".into()),
+            kind: None,
+        },
+        // Keep explicit config globs because some client glob implementations
+        // do not let a wildcard match leading-dot path components.
+        FileSystemWatcher {
+            glob_pattern: types::GlobPattern::String("**/.shuck.toml".into()),
+            kind: None,
+        },
+        FileSystemWatcher {
+            glob_pattern: types::GlobPattern::String("**/shuck.toml".into()),
+            kind: None,
+        },
+    ];
+    // The user-level global config lives outside the workspace, so the
+    // relative globs above never cover it; watch its candidate paths
+    // explicitly so projects using the global fallback observe edits.
+    watchers.extend(
+        shuck_config::global_config_candidate_paths()
+            .iter()
+            .filter_map(|path| path.to_str())
+            .map(|path| FileSystemWatcher {
+                glob_pattern: types::GlobPattern::String(path.into()),
+                kind: None,
+            }),
+    );
+    watchers
 }
 
 #[derive(Debug)]
 pub enum Event {
     Message(lsp_server::Message),
     SendResponse(lsp_server::Response),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn watched_files_include_all_workspace_paths_and_config_dotfiles() {
+        let patterns = watched_files()
+            .into_iter()
+            .filter_map(|watcher| match watcher.glob_pattern {
+                types::GlobPattern::String(pattern) => Some(pattern),
+                types::GlobPattern::Relative(_) => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(patterns.iter().any(|pattern| pattern == "**/*"));
+        assert!(patterns.iter().any(|pattern| pattern == "**/.shuck.toml"));
+        assert!(patterns.iter().any(|pattern| pattern == "**/shuck.toml"));
+    }
 }
