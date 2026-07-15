@@ -156,6 +156,84 @@ source \"${scriptfolder}${known_pins_dbfile}\"
     }
 
     #[test]
+    fn source_directive_silences_untracked_source_when_target_resolves() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("known_pins.db");
+        let source = "\
+#!/bin/bash
+scriptfolder=\"$(dirname \"$0\")/\"
+known_pins_dbfile=\"known_pins.db\"
+# shuck: source=./known_pins.db
+source \"${scriptfolder}${known_pins_dbfile}\"
+";
+        fs::write(&helper, "echo ok\n").unwrap();
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+        );
+
+        assert!(
+            diagnostics.is_empty(),
+            "a source= directive should silence untracked-source when the target resolves: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn lint_true_directive_silences_untracked_source_when_target_resolves() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("known_pins.db");
+        let source = "\
+#!/bin/bash
+scriptfolder=\"$(dirname \"$0\")/\"
+known_pins_dbfile=\"known_pins.db\"
+# shuck: source=./known_pins.db lint=true
+source \"${scriptfolder}${known_pins_dbfile}\"
+";
+        fs::write(&helper, "echo ok\n").unwrap();
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+        );
+
+        assert!(
+            diagnostics.is_empty(),
+            "a lint=true directive should silence untracked-source when the target resolves: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn source_directive_still_reports_when_target_is_missing() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        // No helper on disk: the asserted path does not resolve.
+        let source = "\
+#!/bin/bash
+scriptfolder=\"$(dirname \"$0\")/\"
+known_pins_dbfile=\"known_pins.db\"
+# shuck: source=./known_pins.db
+source \"${scriptfolder}${known_pins_dbfile}\"
+";
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+        );
+
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "an unresolved source= directive still reports the untracked source"
+        );
+    }
+
+    #[test]
     fn reports_no_space_shellcheck_source_directive_when_helper_is_missing() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.sh");

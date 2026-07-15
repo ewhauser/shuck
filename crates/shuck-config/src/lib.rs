@@ -53,6 +53,8 @@ const CONFIG_OVERRIDE_LINT_KEYS: &[&str] = &[
     "unfixable",
     "extend-fixable",
     "rule-options",
+    "source-paths",
+    "lint-sources",
     "contracts",
     "zsh",
 ];
@@ -175,6 +177,13 @@ pub struct LintConfig {
     pub extend_fixable: Option<Vec<String>>,
     /// Rule-specific option values.
     pub rule_options: Option<LintRuleOptionsConfig>,
+    /// Additional directories searched when resolving `# shuck: source=`
+    /// directive targets, after the annotating file's own directory.
+    pub source_paths: Option<Vec<String>>,
+    /// Whether `lint=true` source directives lint the resolved target. When
+    /// false, `lint=true` is downgraded: the target's symbols are still
+    /// imported but the target is not linted. Defaults to true.
+    pub lint_sources: Option<bool>,
     /// Ambient contract configuration for framework and plugin assumptions.
     pub contracts: Option<LintContractsConfig>,
     /// Zsh-specific analysis configuration.
@@ -1746,6 +1755,12 @@ impl LintConfig {
             self.rule_options
                 .get_or_insert_default()
                 .apply_overrides(rule_options);
+        }
+        if overrides.source_paths.is_some() {
+            self.source_paths = overrides.source_paths;
+        }
+        if overrides.lint_sources.is_some() {
+            self.lint_sources = overrides.lint_sources;
         }
         if let Some(contracts) = overrides.contracts {
             self.contracts

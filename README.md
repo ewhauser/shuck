@@ -274,6 +274,47 @@ For embedded GitHub Actions scripts, put suppression comments inside the `run:` 
 
 YAML comments outside the `run:` scalar are not visible to the shell parser and do not suppress shell diagnostics.
 
+## Sourced files
+
+When a `source`/`.` path is computed (for example `source "$DIR/lib.sh"`), shuck
+cannot resolve it statically and reports it as an untracked source. Point shuck
+at the real file with a hint comment on (or just above) the `source` line:
+
+```sh
+# Import the file's definitions so references resolve, and stop the
+# untracked-source warning. The file itself is not linted.
+# shuck: source=lib/util.sh
+source "$DIR/util.sh"
+
+# Same, and also lint the target as an additional input.
+# shuck: source=lib/util.sh lint=true
+source "$DIR/util.sh"
+
+# Nothing to include here; just silence the warning.
+# shuck: source=/dev/null
+source "$maybe_present"
+```
+
+The path is resolved relative to the annotating file's directory, then against
+any configured `source-paths`; the nearest match wins. A `lint=true` target is
+linted like a directly checked file: its own `source` statements are imported
+for symbol resolution, and nested `lint=true` directives inside it are honored
+transitively. The ShellCheck-compatible `# shellcheck source=<path>` directive
+is recognized too.
+
+Configure resolution and target linting in `.shuck.toml`:
+
+```toml
+[lint]
+# Extra directories (relative to the project root) searched when resolving
+# `# shuck: source=` directive targets.
+source-paths = ["lib", "scripts"]
+
+# When false, lint=true directives only import symbols; the targets are not
+# linted. Default: true.
+lint-sources = true
+```
+
 ## Configuration
 
 Project settings live in `.shuck.toml` or `shuck.toml`. Shuck walks up from each

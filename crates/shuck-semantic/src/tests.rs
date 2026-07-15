@@ -412,6 +412,115 @@ fn editor_call_hierarchy_preserves_zsh_multi_name_function_bodies() {
 }
 
 #[test]
+fn source_directives_override_dynamic_classification() {
+    // source=<path>: assert the target and import symbols only.
+    let plain = model("# shuck: source=lib/util.sh\nsource \"$DIR/util.sh\"\n");
+    let refs = plain.source_refs();
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0].kind, SourceRefKind::Directive("lib/util.sh".into()));
+    assert_eq!(
+        refs[0].directive,
+        Some(SourceDirectiveInfo {
+            origin: SourceDirectiveOrigin::Shuck,
+            lint: false,
+        })
+    );
+
+    // lint=true: also lint the target.
+    let linted = model("# shuck: source=lib/util.sh lint=true\nsource \"$DIR/util.sh\"\n");
+    let refs = linted.source_refs();
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0].kind, SourceRefKind::Directive("lib/util.sh".into()));
+    assert!(refs[0].lints_target());
+
+    // Token order does not matter.
+    let reversed = model("# shuck: lint=true source=lib/util.sh\nsource \"$DIR/util.sh\"\n");
+    let refs = reversed.source_refs();
+    assert_eq!(refs[0].kind, SourceRefKind::Directive("lib/util.sh".into()));
+    assert!(refs[0].lints_target());
+
+    // An explicit lint=false reads the same as omitting the flag.
+    let unlinted = model("# shuck: source=lib/util.sh lint=false\nsource \"$DIR/util.sh\"\n");
+    assert!(!unlinted.source_refs()[0].lints_target());
+
+    // Duplicate keys are deterministic: the first occurrence wins.
+    let duplicated =
+        model("# shuck: source=lib/util.sh source=other.sh lint=true lint=false\nsource \"$x\"\n");
+    let refs = duplicated.source_refs();
+    assert_eq!(refs[0].kind, SourceRefKind::Directive("lib/util.sh".into()));
+    assert!(refs[0].lints_target());
+
+    // Same-line placement is honored as well.
+    let inline = model("source \"$x\"  # shuck: source=lib/util.sh\n");
+    assert_eq!(
+        inline.source_refs()[0].kind,
+        SourceRefKind::Directive("lib/util.sh".into())
+    );
+
+    // /dev/null is the explicit no-op include.
+    let dev_null = model("# shuck: source=/dev/null\nsource \"$x\"\n");
+    assert_eq!(
+        dev_null.source_refs()[0].kind,
+        SourceRefKind::DirectiveDevNull
+    );
+
+    // A lint= flag without a source= target is not a source directive.
+    let no_target = model("# shuck: lint=true\nsource \"$DIR/util.sh\"\n");
+    assert!(matches!(
+        no_target.source_refs()[0].kind,
+        SourceRefKind::Dynamic | SourceRefKind::SingleVariableStaticTail { .. }
+    ));
+}
+
+#[test]
+fn shuck_prefixed_comment_still_honors_shellcheck_source() {
+    // A `shuck:` comment can explicitly carry a ShellCheck-style hint; the
+    // prefix must not swallow it, and the `source=` after `shellcheck` is not
+    // read as the native spelling.
+    let model = model("# shuck: shellcheck source=lib/util.sh\nsource \"$DIR/util.sh\"\n");
+    let refs = model.source_refs();
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0].kind, SourceRefKind::Directive("lib/util.sh".into()));
+    assert_eq!(
+        refs[0].directive,
+        Some(SourceDirectiveInfo {
+            origin: SourceDirectiveOrigin::ShellCheck,
+            lint: false,
+        })
+    );
+}
+
+#[test]
+fn shellcheck_source_directive_keeps_shellcheck_origin() {
+    let model = model("# shellcheck source=lib/util.sh\nsource \"$DIR/util.sh\"\n");
+    let refs = model.source_refs();
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0].kind, SourceRefKind::Directive("lib/util.sh".into()));
+    assert_eq!(
+        refs[0].directive,
+        Some(SourceDirectiveInfo {
+            origin: SourceDirectiveOrigin::ShellCheck,
+            lint: false,
+        }),
+        "shellcheck source= is not the shuck-native spelling"
+    );
+    assert!(!refs[0].has_shuck_directive());
+}
+
+#[test]
+fn unrelated_shuck_directives_do_not_become_source_directives() {
+    // A suppression directive next to a dynamic source must not resolve it.
+    let model = model("# shuck: disable=C002\nsource \"$DIR/util.sh\"\n");
+    let refs = model.source_refs();
+    assert_eq!(refs.len(), 1);
+    assert!(matches!(
+        refs[0].kind,
+        SourceRefKind::Dynamic | SourceRefKind::SingleVariableStaticTail { .. }
+    ));
+    assert_eq!(refs[0].directive, None);
+}
+
+#[test]
 fn editor_completion_is_context_aware() {
     let source = "\
 build() {

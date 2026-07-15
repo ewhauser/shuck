@@ -228,6 +228,11 @@ pub(crate) fn collect_source_ref_metadata(
         {
             explicit = true;
         }
+        // See the closure path: a resolved shuck-native directive is an
+        // explicit assertion.
+        if resolved && source_ref.has_shuck_directive() {
+            explicit = true;
+        }
 
         source_ref_resolutions.push(classify_source_ref_resolution(&source_ref.kind, resolved));
         source_ref_explicitness.push(explicit);
@@ -290,6 +295,14 @@ fn collect_source_closure_contracts_with_cache(
         if has_current_source_anchor
             && (resolved || model.shell_profile().dialect == ParseShellDialect::Zsh)
         {
+            explicit = true;
+        }
+        // A shuck-native `# shuck: source=` directive that resolves is an
+        // explicit user assertion of the target, so treat it as explicitly
+        // provided (silencing the untracked-source diagnostic) even when the
+        // target is not part of the analyzed set. `# shellcheck source=` keeps
+        // ShellCheck's not-specified-as-input semantics and is not silenced here.
+        if resolved && source_ref.has_shuck_directive() {
             explicit = true;
         }
         let trust_provided_bindings =
@@ -1569,11 +1582,14 @@ fn resolve_helper_paths(
         };
     }
 
+    // A candidate names one intended file: take the first (highest-precedence)
+    // root match rather than importing every root that happens to contain it.
     let paths = context
         .source_path_resolver
         .into_iter()
         .flat_map(|resolver| resolver.resolve_candidate_paths(source_path, candidate))
-        .filter(|path| path.is_file())
+        .find(|path| path.is_file())
+        .into_iter()
         .collect();
     HelperPathResolution {
         paths,

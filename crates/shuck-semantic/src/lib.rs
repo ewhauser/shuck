@@ -27,6 +27,7 @@ mod runtime;
 mod scope;
 mod source_closure;
 mod source_ref;
+mod source_resolve;
 mod uninitialized;
 mod unused;
 mod value_flow;
@@ -101,7 +102,15 @@ pub use shuck_parser::{OptionValue, ShellDialect, ShellProfile, ZshEmulationMode
 /// Zsh plugin framework layout helpers.
 pub use source_closure::{layout_for_plugin_framework, zsh_plugin_frameworks};
 /// Source-reference records and resolution state.
-pub use source_ref::{SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution};
+pub use source_ref::{
+    SourceDirectiveInfo, SourceDirectiveOrigin, SourceRef, SourceRefDiagnosticClass, SourceRefKind,
+    SourceRefResolution,
+};
+/// Shared on-disk resolution for source references and hints.
+pub use source_resolve::{
+    resolve_candidate_against_roots, resolve_candidate_targets, resolve_source_ref_targets,
+    source_ref_candidate_paths,
+};
 /// Value-flow query object built over semantic bindings, call sites, CFG, and dataflow.
 pub use value_flow::SemanticValueFlow;
 /// Zsh plugin framework traits and name aliases.
@@ -361,6 +370,8 @@ impl SpanKey {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SourceDirectiveOverride {
     pub(crate) kind: SourceRefKind,
+    /// Origin and lint policy of the directive.
+    pub(crate) directive: SourceDirectiveInfo,
     pub(crate) own_line: bool,
 }
 

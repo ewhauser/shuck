@@ -2503,3 +2503,265 @@ fn check_color_never_overrides_force_color_env() {
         .code(1)
         .stdout(predicate::str::contains("\u{1b}[").not());
 }
+
+#[test]
+fn source_directive_silences_untracked_source_without_linting_target() {
+    let tempdir = tempdir().unwrap();
+    // The helper has an obvious unused-assignment (C001) that must NOT surface,
+    // because a plain source= directive imports symbols without linting the target.
+    fs::write(
+        tempdir.path().join("helper.sh"),
+        "greet() { echo hi; }\nunused_here=1\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("main.sh"),
+        "#!/bin/bash\nDIR=$(dirname \"$0\")\n# shuck: source=helper.sh\nsource \"$DIR/helper.sh\"\ngreet\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(tempdir.path(), &["check", "--no-cache", "main.sh"]);
+    let stdout = stdout_string(&output);
+    assert!(
+        !stdout.contains("C003"),
+        "a source= directive should silence untracked-source: {stdout}"
+    );
+    assert!(
+        !stdout.contains("helper.sh"),
+        "a plain source= directive must not lint the target: {stdout}"
+    );
+}
+
+#[test]
+fn lint_true_directive_lints_the_target() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("helper.sh"),
+        "greet() { echo hi; }\nunused_here=1\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("main.sh"),
+        "#!/bin/bash\nDIR=$(dirname \"$0\")\n# shuck: source=helper.sh lint=true\nsource \"$DIR/helper.sh\"\ngreet\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(
+        tempdir.path(),
+        &[
+            "check",
+            "--no-cache",
+            "--output-format",
+            "concise",
+            "main.sh",
+        ],
+    );
+    let stdout = stdout_string(&output);
+    assert!(
+        stdout.contains("helper.sh") && stdout.contains("C001"),
+        "lint=true should lint the target and report its C001: {stdout}"
+    );
+}
+
+#[test]
+fn lint_sources_config_false_downgrades_lint_true() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("helper.sh"),
+        "greet() { echo hi; }\nunused_here=1\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("main.sh"),
+        "#!/bin/bash\nDIR=$(dirname \"$0\")\n# shuck: source=helper.sh lint=true\nsource \"$DIR/helper.sh\"\ngreet\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[lint]\nlint-sources = false\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(tempdir.path(), &["check", "--no-cache", "main.sh"]);
+    let stdout = stdout_string(&output);
+    assert!(
+        !stdout.contains("helper.sh"),
+        "lint-sources=false must not lint the target: {stdout}"
+    );
+    assert!(
+        !stdout.contains("C003"),
+        "the hint should still silence untracked-source: {stdout}"
+    );
+}
+
+#[test]
+fn source_paths_config_resolves_directive_targets_against_roots() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join("lib")).unwrap();
+    fs::create_dir_all(tempdir.path().join("scripts")).unwrap();
+    fs::write(
+        tempdir.path().join("lib/util.sh"),
+        "greet() { echo hi; }\nshared_unused=1\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("scripts/main.sh"),
+        "#!/bin/bash\n# shuck: source=util.sh lint=true\nsource \"$SOMEDIR/util.sh\"\ngreet\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[lint]\nsource-paths = [\"lib\"]\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(
+        tempdir.path(),
+        &[
+            "check",
+            "--no-cache",
+            "--output-format",
+            "concise",
+            "scripts/main.sh",
+        ],
+    );
+    let stdout = stdout_string(&output);
+    assert!(
+        !stdout.contains("C003"),
+        "source-paths should resolve the hint: {stdout}"
+    );
+    assert!(
+        stdout.contains("util.sh") && stdout.contains("C001"),
+        "the followed target under lib/ should be linted: {stdout}"
+    );
+}
+
+#[test]
+fn directive_target_next_to_script_shadows_configured_root_match() {
+    // The same target name exists both next to the annotating script and
+    // under a configured source root; the local match must win, and only
+    // that one file is linted.
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join("lib")).unwrap();
+    fs::create_dir_all(tempdir.path().join("scripts")).unwrap();
+    fs::write(
+        tempdir.path().join("scripts/util.sh"),
+        "greet() { echo hi; }\nlocal_unused=1\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("lib/util.sh"),
+        "greet() { echo hi; }\nroot_unused=1\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("scripts/main.sh"),
+        "#!/bin/bash\n# shuck: source=util.sh lint=true\nsource \"$SOMEDIR/util.sh\"\ngreet\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[lint]\nsource-paths = [\"lib\"]\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(
+        tempdir.path(),
+        &[
+            "check",
+            "--no-cache",
+            "--output-format",
+            "concise",
+            "scripts/main.sh",
+        ],
+    );
+    let stdout = stdout_string(&output);
+    assert!(
+        stdout.contains(&format!("scripts{}util.sh", std::path::MAIN_SEPARATOR)),
+        "the local target next to the script should be linted: {stdout}"
+    );
+    assert!(
+        !stdout.contains(&format!("lib{}util.sh", std::path::MAIN_SEPARATOR)),
+        "the configured-root shadow must not also be linted: {stdout}"
+    );
+}
+
+#[test]
+fn cached_directive_resolution_invalidates_when_nearer_target_appears() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join("lib")).unwrap();
+    fs::create_dir_all(tempdir.path().join("scripts")).unwrap();
+    fs::write(tempdir.path().join("lib/util.sh"), "root_unused=1\n").unwrap();
+    fs::write(
+        tempdir.path().join("scripts/main.sh"),
+        "#!/bin/bash\n# shuck: source=util.sh lint=true\nsource \"$SOMEDIR/util.sh\"\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[lint]\nsource-paths = [\"lib\"]\n",
+    )
+    .unwrap();
+
+    let first = run_check_output(
+        tempdir.path(),
+        &["check", "--output-format", "concise", "scripts/main.sh"],
+    );
+    let first_stdout = stdout_string(&first);
+    assert!(
+        first_stdout.contains(&format!("lib{}util.sh", std::path::MAIN_SEPARATOR)),
+        "the configured-root target should be selected initially: {first_stdout}"
+    );
+
+    fs::write(tempdir.path().join("scripts/util.sh"), "local_unused=1\n").unwrap();
+
+    let second = run_check_output(
+        tempdir.path(),
+        &["check", "--output-format", "concise", "scripts/main.sh"],
+    );
+    let second_stdout = stdout_string(&second);
+    assert!(
+        second_stdout.contains(&format!("scripts{}util.sh", std::path::MAIN_SEPARATOR)),
+        "creating the nearer target should invalidate the cached resolution: {second_stdout}"
+    );
+    assert!(
+        !second_stdout.contains(&format!("lib{}util.sh", std::path::MAIN_SEPARATOR)),
+        "the stale configured-root target must not survive the cache hit: {second_stdout}"
+    );
+}
+
+#[test]
+fn linted_source_targets_share_the_complete_analyzed_path_set() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("main.sh"),
+        "#!/bin/bash\n# shuck: source=a.sh lint=true\nsource \"$DIR/a.sh\"\n# shuck: source=b.sh lint=true\nsource \"$DIR/b.sh\"\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("a.sh"),
+        "#!/bin/bash\n. ./b.sh\nshared_function\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("b.sh"),
+        "#!/bin/bash\nshared_function() { :; }\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(
+        tempdir.path(),
+        &[
+            "check",
+            "--no-cache",
+            "--output-format",
+            "concise",
+            "main.sh",
+        ],
+    );
+    let stdout = stdout_string(&output);
+    assert!(
+        !stdout.contains("C003"),
+        "a followed file should recognize sibling followed targets as analyzed: {stdout}"
+    );
+}

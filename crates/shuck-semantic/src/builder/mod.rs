@@ -36,8 +36,8 @@ use crate::source_closure::{
     SourcePathTemplate, assignment_source_path_template, source_path_template,
 };
 use crate::source_ref::{
-    SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution,
-    default_diagnostic_class,
+    SourceDirectiveInfo, SourceDirectiveOrigin, SourceRef, SourceRefDiagnosticClass, SourceRefKind,
+    SourceRefResolution, default_diagnostic_class,
 };
 use crate::{
     BindingId, FileEntryContractCollector, FunctionScopeKind, IndirectTargetHint, ReferenceId,
@@ -2044,19 +2044,96 @@ fn parse_source_directives(
 }
 
 fn parse_source_directive_override(text: &str, own_line: bool) -> Option<SourceDirectiveOverride> {
-    text.contains("shellcheck").then_some(())?;
-    for part in text.split_whitespace() {
-        if let Some(value) = part.strip_prefix("source=") {
-            let kind = if value == "/dev/null" {
-                SourceRefKind::DirectiveDevNull
-            } else {
-                SourceRefKind::Directive(value.into())
-            };
-            return Some(SourceDirectiveOverride { kind, own_line });
+    // The shuck-native spelling asserts a target and, optionally, a lint
+    // policy:
+    //   `# shuck: source=<path>`            -> import the target's symbols only
+    //   `# shuck: source=<path> lint=true`  -> also lint the target
+    // All tokens are scanned before deciding, so the result is independent of
+    // token order (`lint=true source=x` == `source=x lint=true`). The first
+    // `source=` sets the target and the first `lint=` sets the policy; later
+    // duplicates are ignored.
+    if let Some(rest) = strip_shuck_directive_prefix(text) {
+        let mut target: Option<&str> = None;
+        let mut lint: Option<bool> = None;
+        for part in rest.split_whitespace() {
+            if part.eq_ignore_ascii_case("shellcheck") {
+                // `# shuck: shellcheck source=<path>`: an explicitly
+                // ShellCheck-style directive under the shuck prefix; defer to
+                // the compat recognition below rather than reading its
+                // `source=` as the native spelling.
+                break;
+            }
+            if let Some(value) = part.strip_prefix("source=") {
+                target.get_or_insert(value);
+                continue;
+            }
+            if let Some(value) = part.strip_prefix("lint=") {
+                match value {
+                    "true" => lint.get_or_insert(true),
+                    "false" => lint.get_or_insert(false),
+                    _ => continue,
+                };
+            }
+        }
+        if let Some(value) = target {
+            return Some(source_directive_override(
+                value,
+                SourceDirectiveInfo {
+                    origin: SourceDirectiveOrigin::Shuck,
+                    lint: lint.unwrap_or(false),
+                },
+                own_line,
+            ));
+        }
+        // Fall through: a `shuck:` comment without a native source token may
+        // still carry a ShellCheck-style `shellcheck source=` hint.
+    }
+
+    // ShellCheck-compatible `# shellcheck source=<path>` keeps ShellCheck's
+    // not-specified-as-input semantics and never lints the target natively.
+    if text.contains("shellcheck") {
+        for part in text.split_whitespace() {
+            if let Some(value) = part.strip_prefix("source=") {
+                return Some(source_directive_override(
+                    value,
+                    SourceDirectiveInfo {
+                        origin: SourceDirectiveOrigin::ShellCheck,
+                        lint: false,
+                    },
+                    own_line,
+                ));
+            }
         }
     }
 
     None
+}
+
+/// Strips a leading case-insensitive `shuck:` directive prefix, returning the
+/// remaining directive body when present.
+fn strip_shuck_directive_prefix(text: &str) -> Option<&str> {
+    let trimmed = text.trim_start();
+    let prefix = trimmed.get(..6)?;
+    prefix
+        .eq_ignore_ascii_case("shuck:")
+        .then(|| trimmed[6..].trim_start())
+}
+
+fn source_directive_override(
+    value: &str,
+    directive: SourceDirectiveInfo,
+    own_line: bool,
+) -> SourceDirectiveOverride {
+    let kind = if value == "/dev/null" {
+        SourceRefKind::DirectiveDevNull
+    } else {
+        SourceRefKind::Directive(value.into())
+    };
+    SourceDirectiveOverride {
+        kind,
+        directive,
+        own_line,
+    }
 }
 
 fn arithmetic_name_span(span: Span, name: &Name) -> Span {
