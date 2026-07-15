@@ -13,8 +13,10 @@ directions across files. The built index is cached on the session behind an
 epoch counter and invalidated by any document, workspace, or configuration
 change, so expanding a call tree reuses one build. Call sites the semantic
 model binds in-file stay binding-accurate (definition order and shadowing are
-honored); only sites it leaves unresolved are matched by name across source
-edges. Top-level MODULE nodes round-trip through `CallHierarchyItem.data`, so
+honored), while source edges retain their positions so later sourced and local
+definitions override earlier ones; only sites without an effective local
+binding are matched by name across source edges. Top-level MODULE nodes
+round-trip through `CallHierarchyItem.data`, so
 their outgoing calls expand. Edges come from all determinable sources
 (literal-resolvable paths and `source=` directives with and without
 `lint=true`), resolved against the annotating file's own directory and the
@@ -117,14 +119,15 @@ WorkspaceCallIndex
 FileCallFacts
   definitions: [{ name, binding, def_span, selection_span }]   // functions defined here
   call_sites:  [{ callee_name, name_span, enclosing_function }] // calls made here
-  source_edges:[{ resolved_path, kind }]      // determinable sources this file has
+  source_edges:[{ resolved_path, span }]      // determinable sources in execution order
 ```
 
 Cross-file resolution layered on top:
 
-- `resolve(call_site in B) -> Option<(A, definition)>`: search `B`'s own
-  definitions first, then walk `B`'s transitive `source_edges` (visited-set
-  bounded), returning the nearest definition of `callee_name`.
+- `resolve(call_site in B) -> Option<(A, definition)>`: combine `B`'s visible
+  local definition with its transitive `source_edges` (visited-set bounded) in
+  shell execution order. Edges after a top-level call do not participate; later
+  sourced or local definitions override earlier ones.
 - `outgoing(F in A)`: for each call site enclosed by `F`, `resolve` it; group by
   target definition. (Targets may be in `A` or any followed file.)
 - `incoming(F in A)`: scan the index for call sites whose `resolve` lands on

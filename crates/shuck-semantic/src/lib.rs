@@ -43,8 +43,8 @@ pub use binding::{
 /// Call-graph structures derived from the analyzed script.
 /// Workspace call-graph index types for cross-file call hierarchy.
 pub use call_facts::{
-    CallFactDefinition, CallFactSite, CallNodeKind, CrossFileCall, FileCallFacts,
-    WorkspaceCallIndex,
+    CallFactDefinition, CallFactSite, CallFactSourceEdge, CallNodeKind, CrossFileCall,
+    FileCallFacts, WorkspaceCallIndex,
 };
 pub use call_graph::{
     CallGraph, CallSite, OverwrittenFunction, UnreachedFunction, UnreachedFunctionReason,

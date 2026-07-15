@@ -11,7 +11,6 @@
 //! outside this module; callers supply already-resolved `source_edges`, so this
 //! layer stays pure graph logic and is unit-testable without a filesystem.
 
-use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -19,6 +18,8 @@ use shuck_ast::{Name, Span};
 
 use crate::editor::binding_definition_span;
 use crate::{ScopeId, SemanticModel};
+
+type SourceResolution = Option<(PathBuf, Span)>;
 
 /// Identity of a call-graph node within a file: a named function, or the file's
 /// top-level (module) body.
@@ -50,11 +51,20 @@ pub struct CallFactSite {
     pub name_span: Span,
     /// Innermost enclosing function, or the file top level.
     pub enclosing: CallNodeKind,
-    /// Whether the semantic model resolved this call to a function binding
-    /// visible in this file (honoring definition order and shadowing). Sites
-    /// that do not resolve locally are candidates for cross-file resolution
-    /// through source edges; sites that do must not be re-resolved by name.
-    pub locally_resolved: bool,
+    /// Definition span when the semantic model resolved this call to a function
+    /// binding visible in this file. Retaining the span lets later source edges
+    /// override that binding while preserving in-file definition order.
+    pub local_definition_span: Option<Span>,
+}
+
+/// One statically resolved `source` edge, retaining its execution position in
+/// the referring file so shadowing can follow shell source order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallFactSourceEdge {
+    /// Resolved target path.
+    pub path: PathBuf,
+    /// Span of the `source` reference in the referring file.
+    pub span: Span,
 }
 
 /// Call-relevant facts projected from one file, plus its resolved source edges.
@@ -65,8 +75,8 @@ pub struct FileCallFacts {
     /// Call sites contained in this file.
     pub call_sites: Vec<CallFactSite>,
     /// Resolved on-disk paths of this file's determinable source edges (literal
-    /// resolvable paths plus `assume-source` / `follow-source` targets).
-    pub source_edges: Vec<PathBuf>,
+    /// resolvable paths plus `source=` directive targets).
+    pub source_edges: Vec<CallFactSourceEdge>,
 }
 
 impl FileCallFacts {
@@ -74,9 +84,27 @@ impl FileCallFacts {
     /// target paths of the file's determinable source edges, supplied by the
     /// caller (path resolution is not a semantic-layer concern).
     pub fn project(model: &SemanticModel, source_edges: Vec<PathBuf>) -> Self {
-        let analysis = model.analysis();
+        Self::project_with_source_edges(
+            model,
+            source_edges
+                .into_iter()
+                .map(|path| CallFactSourceEdge {
+                    path,
+                    span: Span::new(),
+                })
+                .collect(),
+        )
+    }
 
-        let mut function_name_by_scope: FxHashMap<ScopeId, Name> = FxHashMap::default();
+    /// Projects call facts while preserving each source edge's position.
+    pub fn project_with_source_edges(
+        model: &SemanticModel,
+        mut source_edges: Vec<CallFactSourceEdge>,
+    ) -> Self {
+        let analysis = model.analysis();
+        source_edges.sort_by_key(|edge| edge.span.start.offset);
+
+        let mut function_names_by_scope: FxHashMap<ScopeId, Vec<Name>> = FxHashMap::default();
         let mut definitions = Vec::new();
         for binding in model.function_definition_bindings() {
             definitions.push(CallFactDefinition {
@@ -85,28 +113,38 @@ impl FileCallFacts {
                 selection_span: binding.span,
             });
             if let Some(scope) = analysis.function_scope_for_binding(binding.id) {
-                function_name_by_scope
+                function_names_by_scope
                     .entry(scope)
-                    .or_insert_with(|| binding.name.clone());
+                    .or_default()
+                    .push(binding.name.clone());
             }
         }
 
         let mut call_sites = Vec::new();
         for site in model.all_call_sites() {
-            let enclosing = model
+            let enclosing_functions = model
                 .ancestor_scopes(site.scope)
-                .find_map(|scope| function_name_by_scope.get(&scope).cloned())
-                .map(CallNodeKind::Function)
-                .unwrap_or(CallNodeKind::TopLevel);
-            let locally_resolved = analysis
+                .find_map(|scope| function_names_by_scope.get(&scope));
+            let local_definition_span = analysis
                 .visible_function_binding_at_call(&site.callee, site.name_span)
-                .is_some();
-            call_sites.push(CallFactSite {
-                callee: site.callee.clone(),
-                name_span: site.name_span,
-                enclosing,
-                locally_resolved,
-            });
+                .map(|binding_id| binding_definition_span(model.binding(binding_id)));
+            if let Some(enclosing_functions) = enclosing_functions {
+                for enclosing in enclosing_functions {
+                    call_sites.push(CallFactSite {
+                        callee: site.callee.clone(),
+                        name_span: site.name_span,
+                        enclosing: CallNodeKind::Function(enclosing.clone()),
+                        local_definition_span,
+                    });
+                }
+            } else {
+                call_sites.push(CallFactSite {
+                    callee: site.callee.clone(),
+                    name_span: site.name_span,
+                    enclosing: CallNodeKind::TopLevel,
+                    local_definition_span,
+                });
+            }
         }
 
         Self {
@@ -195,44 +233,85 @@ impl WorkspaceCallIndex {
     /// (nearest definition wins). Returns `None` for names with no reachable
     /// definition (builtins, external commands, unresolved dynamic sources).
     pub fn resolve(&self, from_path: &Path, callee: &Name) -> Option<PathBuf> {
-        if let Some(facts) = self.files.get(from_path)
-            && facts.definition(callee).is_some()
-        {
-            return Some(from_path.to_path_buf());
-        }
-
-        self.resolve_through_edges(from_path, callee)
+        let facts = self.files.get(from_path)?;
+        let local = facts
+            .definitions
+            .iter()
+            .rev()
+            .find(|definition| &definition.name == callee)
+            .map(|definition| definition.def_span);
+        let sourced = self.resolve_through_edges_before(from_path, callee, None);
+        choose_resolved_target(from_path, local, sourced)
     }
 
-    /// Resolves `callee` through `from_path`'s transitive source edges only,
-    /// skipping the file's own definitions. Used for call sites the semantic
-    /// model did not bind locally: a same-named local definition that is not
-    /// visible at the site (defined later, or shadowed) must not capture it.
-    fn resolve_through_edges(&self, from_path: &Path, callee: &Name) -> Option<PathBuf> {
-        let mut visited: FxHashSet<PathBuf> = FxHashSet::default();
-        visited.insert(from_path.to_path_buf());
-        let mut queue: VecDeque<PathBuf> = self
-            .files
-            .get(from_path)
-            .map(|facts| facts.source_edges.iter().cloned().collect())
-            .unwrap_or_default();
+    /// Resolves through source edges that execute before `cutoff`. A `None`
+    /// cutoff represents the file's final sourced environment, which is also
+    /// the conservative model for calls inside deferred function bodies.
+    fn resolve_through_edges_before(
+        &self,
+        from_path: &Path,
+        callee: &Name,
+        cutoff: Option<usize>,
+    ) -> SourceResolution {
+        let facts = self.files.get(from_path)?;
+        let mut stack = FxHashSet::default();
+        stack.insert(from_path.to_path_buf());
+        facts
+            .source_edges
+            .iter()
+            .rev()
+            .filter(|edge| {
+                edge.span == Span::new()
+                    || cutoff.is_none_or(|offset| edge.span.start.offset < offset)
+            })
+            .find_map(|edge| {
+                self.resolve_exported(&edge.path, callee, &mut stack)
+                    .map(|path| (path, edge.span))
+            })
+    }
 
-        while let Some(path) = queue.pop_front() {
-            if !visited.insert(path.clone()) {
-                continue;
-            }
-            let Some(facts) = self.files.get(&path) else {
-                continue;
+    /// Resolves the final exported binding from one sourced file. Definitions
+    /// and nested source edges are evaluated in reverse execution order, so the
+    /// first successful event is the binding shell execution leaves visible.
+    fn resolve_exported(
+        &self,
+        path: &Path,
+        callee: &Name,
+        stack: &mut FxHashSet<PathBuf>,
+    ) -> Option<PathBuf> {
+        if !stack.insert(path.to_path_buf()) {
+            return None;
+        }
+        let Some(facts) = self.files.get(path) else {
+            stack.remove(path);
+            return None;
+        };
+
+        enum Event<'a> {
+            Definition,
+            Source(&'a CallFactSourceEdge),
+        }
+
+        let mut events = Vec::new();
+        for definition in facts.definitions.iter().filter(|def| &def.name == callee) {
+            events.push((definition.def_span.start.offset, Event::Definition));
+        }
+        for edge in &facts.source_edges {
+            events.push((edge.span.start.offset, Event::Source(edge)));
+        }
+        events.sort_by_key(|(offset, _)| *offset);
+
+        for (_, event) in events.into_iter().rev() {
+            let resolved = match event {
+                Event::Definition => Some(path.to_path_buf()),
+                Event::Source(edge) => self.resolve_exported(&edge.path, callee, stack),
             };
-            if facts.definition(callee).is_some() {
-                return Some(path);
-            }
-            for edge in &facts.source_edges {
-                if !visited.contains(edge) {
-                    queue.push_back(edge.clone());
-                }
+            if resolved.is_some() {
+                stack.remove(path);
+                return resolved;
             }
         }
+        stack.remove(path);
         None
     }
 
@@ -248,20 +327,22 @@ impl WorkspaceCallIndex {
         let mut spans: FxHashMap<(PathBuf, Name), Vec<Span>> = FxHashMap::default();
         // Resolution is per-callee, not per-site: memoize it so repeated calls
         // to the same helper do not re-run the source-edge search.
-        let mut resolved: FxHashMap<Name, Option<PathBuf>> = FxHashMap::default();
+        let mut resolved: FxHashMap<(Name, Option<usize>), SourceResolution> = FxHashMap::default();
         for site in &facts.call_sites {
             if &site.enclosing != from_kind {
                 continue;
             }
-            let target = if site.locally_resolved {
-                // The semantic model already bound this call in-file.
-                Some(from_path.to_path_buf())
-            } else {
-                resolved
-                    .entry(site.callee.clone())
-                    .or_insert_with(|| self.resolve_through_edges(from_path, &site.callee))
-                    .clone()
+            let cutoff = match site.enclosing {
+                CallNodeKind::TopLevel => Some(site.name_span.start.offset),
+                CallNodeKind::Function(_) => None,
             };
+            let sourced = resolved
+                .entry((site.callee.clone(), cutoff))
+                .or_insert_with(|| {
+                    self.resolve_through_edges_before(from_path, &site.callee, cutoff)
+                })
+                .clone();
+            let target = choose_resolved_target(from_path, site.local_definition_span, sourced);
             let Some(target_path) = target else {
                 continue;
             };
@@ -309,22 +390,24 @@ impl WorkspaceCallIndex {
             let facts = &self.files[caller_path];
             // Edge resolution is independent of the site, so compute it at
             // most once per caller file rather than per call site.
-            let mut edges_resolve: Option<bool> = None;
+            let mut edge_resolutions: FxHashMap<Option<usize>, SourceResolution> =
+                FxHashMap::default();
             for site in &facts.call_sites {
                 if &site.callee != name {
                     continue;
                 }
-                let resolves = if site.locally_resolved {
-                    // A locally bound call belongs to this edge only when the
-                    // queried function lives in the caller's own file.
-                    caller_path.as_path() == target_path
-                } else {
-                    caller_path.as_path() != target_path
-                        && *edges_resolve.get_or_insert_with(|| {
-                            self.resolve_through_edges(caller_path, name).as_deref()
-                                == Some(target_path)
-                        })
+                let cutoff = match site.enclosing {
+                    CallNodeKind::TopLevel => Some(site.name_span.start.offset),
+                    CallNodeKind::Function(_) => None,
                 };
+                let sourced = edge_resolutions
+                    .entry(cutoff)
+                    .or_insert_with(|| self.resolve_through_edges_before(caller_path, name, cutoff))
+                    .clone();
+                let resolves =
+                    choose_resolved_target(caller_path, site.local_definition_span, sourced)
+                        .as_deref()
+                        == Some(target_path);
                 if !resolves {
                     continue;
                 }
@@ -361,6 +444,23 @@ impl WorkspaceCallIndex {
                 }
             })
             .collect()
+    }
+}
+
+fn choose_resolved_target(
+    from_path: &Path,
+    local_definition: Option<Span>,
+    sourced: SourceResolution,
+) -> Option<PathBuf> {
+    match (local_definition, sourced) {
+        (Some(definition), Some((path, source_span)))
+            if source_span != Span::new() && source_span.start.offset > definition.start.offset =>
+        {
+            Some(path)
+        }
+        (Some(_), _) => Some(from_path.to_path_buf()),
+        (None, Some((path, _))) => Some(path),
+        (None, None) => None,
     }
 }
 
@@ -506,6 +606,125 @@ mod tests {
             index
                 .incoming(Path::new("/w/a.sh"), &name("greet"))
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn source_order_controls_cross_file_resolution_at_each_top_level_call() {
+        let caller_source = "greet\nsource a.sh\ngreet\nsource c.sh\ngreet\n";
+        let output = Parser::with_dialect(caller_source, ShellDialect::Bash)
+            .parse()
+            .unwrap();
+        let indexer = Indexer::new(caller_source, &output);
+        let caller = SemanticModel::build(&output.file, caller_source, &indexer);
+        let edges = caller
+            .source_refs()
+            .iter()
+            .zip(["/w/a.sh", "/w/c.sh"])
+            .map(|(source_ref, path)| CallFactSourceEdge {
+                path: PathBuf::from(path),
+                span: source_ref.span,
+            })
+            .collect();
+
+        let caller_path = PathBuf::from("/w/main.sh");
+        let a_path = PathBuf::from("/w/a.sh");
+        let c_path = PathBuf::from("/w/c.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(
+            caller_path.clone(),
+            FileCallFacts::project_with_source_edges(&caller, edges),
+        );
+        index.insert(a_path.clone(), facts("greet() { echo a; }\n", &[]));
+        index.insert(c_path.clone(), facts("greet() { echo c; }\n", &[]));
+
+        // Before the first source there is no edge. Between the sources the
+        // call lands in a.sh; after the second source its definition wins.
+        let outgoing = index.outgoing(&caller_path, &CallNodeKind::TopLevel);
+        assert_eq!(outgoing.len(), 2);
+        assert_eq!(outgoing[0].path, a_path);
+        assert_eq!(outgoing[0].call_spans.len(), 1);
+        assert_eq!(outgoing[1].path, c_path);
+        assert_eq!(outgoing[1].call_spans.len(), 1);
+        assert_eq!(
+            index.resolve(&caller_path, &name("greet")),
+            Some(c_path.clone()),
+            "the later sourced definition is the final visible binding"
+        );
+
+        let incoming_a = index.incoming(&a_path, &name("greet"));
+        assert_eq!(incoming_a.len(), 1);
+        assert_eq!(incoming_a[0].call_spans.len(), 1);
+        let incoming_c = index.incoming(&c_path, &name("greet"));
+        assert_eq!(incoming_c.len(), 1);
+        assert_eq!(incoming_c[0].call_spans.len(), 1);
+    }
+
+    #[test]
+    fn later_source_and_local_definitions_override_each_other_in_order() {
+        let caller_source =
+            "greet() { echo local; }\nsource a.sh\ngreet\ngreet() { echo final; }\ngreet\n";
+        let output = Parser::with_dialect(caller_source, ShellDialect::Bash)
+            .parse()
+            .unwrap();
+        let indexer = Indexer::new(caller_source, &output);
+        let caller = SemanticModel::build(&output.file, caller_source, &indexer);
+        let edge = CallFactSourceEdge {
+            path: PathBuf::from("/w/a.sh"),
+            span: caller.source_refs()[0].span,
+        };
+
+        let caller_path = PathBuf::from("/w/main.sh");
+        let a_path = PathBuf::from("/w/a.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(
+            caller_path.clone(),
+            FileCallFacts::project_with_source_edges(&caller, vec![edge]),
+        );
+        index.insert(a_path.clone(), facts("greet() { echo sourced; }\n", &[]));
+
+        let outgoing = index.outgoing(&caller_path, &CallNodeKind::TopLevel);
+        assert_eq!(outgoing.len(), 2);
+        assert_eq!(
+            outgoing[0].path, a_path,
+            "source overrides the first local definition"
+        );
+        assert_eq!(outgoing[0].call_spans.len(), 1);
+        assert_eq!(
+            outgoing[1].path, caller_path,
+            "the final local definition overrides the earlier source"
+        );
+        assert_eq!(outgoing[1].call_spans.len(), 1);
+    }
+
+    #[test]
+    fn workspace_index_preserves_zsh_multi_name_function_bodies() {
+        let source = "function music itunes() { helper; }\nhelper() { :; }\nitunes\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build(&output.file, source, &indexer);
+        let path = PathBuf::from("/w/script.zsh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(path.clone(), FileCallFacts::project(&model, Vec::new()));
+
+        let outgoing = index.outgoing(&path, &CallNodeKind::Function(name("itunes")));
+        assert_eq!(outgoing.len(), 1);
+        assert_eq!(outgoing[0].node, CallNodeKind::Function(name("helper")));
+
+        let mut callers = index
+            .incoming(&path, &name("helper"))
+            .into_iter()
+            .map(|call| call.node)
+            .collect::<Vec<_>>();
+        callers.sort_by_key(|node| format!("{node:?}"));
+        assert_eq!(
+            callers,
+            [
+                CallNodeKind::Function(name("itunes")),
+                CallNodeKind::Function(name("music")),
+            ]
         );
     }
 }

@@ -302,7 +302,7 @@ impl DocumentSnapshot {
 mod tests {
     use crossbeam::channel;
     use lsp_types::{
-        ClientCapabilities, DidChangeWatchedFilesClientCapabilities,
+        ClientCapabilities, DidChangeWatchedFilesClientCapabilities, FileChangeType, FileEvent,
         TextDocumentContentChangeEvent, Url, WorkspaceClientCapabilities,
     };
 
@@ -396,6 +396,27 @@ mod tests {
 
         assert!(!Arc::ptr_eq(&before, &after));
         assert!(after.source().contains("other=value"));
+    }
+
+    #[test]
+    fn call_index_cache_invalidates_after_closed_file_event() {
+        let (workspace, mut session, _uri) = make_test_session();
+        let before = session.call_hierarchy_context().epoch;
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, _client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+        let closed_uri = Url::from_file_path(workspace.path().join("closed.sh"))
+            .expect("closed file path should convert to a URL");
+
+        session.reload_settings(
+            &[FileEvent {
+                uri: closed_uri,
+                typ: FileChangeType::CHANGED,
+            }],
+            &client,
+        );
+
+        assert!(session.call_hierarchy_context().epoch > before);
     }
 
     #[test]

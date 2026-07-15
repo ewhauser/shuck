@@ -13,9 +13,9 @@
 //! document, workspace folder, or configuration changes, so expanding a call
 //! tree re-uses one build instead of re-analyzing the workspace per request.
 //!
-//! Call sites the semantic model binds in-file stay binding-accurate
-//! (definition order and shadowing are honored); only calls it leaves
-//! unresolved are matched by name across source edges. Known limitation:
+//! Call sites combine binding-accurate in-file definitions with positioned
+//! source edges, so later sourced and local definitions override earlier ones
+//! in shell execution order. Known limitation:
 //! nodes are keyed by function *name* within a file, so two same-named
 //! definitions in one file collapse onto the first.
 
@@ -30,7 +30,8 @@ use shuck_config::{ConfigArguments, load_project_config, resolve_project_root_fo
 use shuck_indexer::LineIndex;
 use shuck_linter::ShellDialect;
 use shuck_semantic::{
-    CallNodeKind, CrossFileCall, FileCallFacts, WorkspaceCallIndex, resolve_source_ref_targets,
+    CallFactSourceEdge, CallNodeKind, CrossFileCall, FileCallFacts, WorkspaceCallIndex,
+    resolve_source_ref_targets,
 };
 
 use crate::PositionEncoding;
@@ -288,7 +289,7 @@ impl BuiltIndex {
         'expand: loop {
             let missing: Vec<PathBuf> = index
                 .files()
-                .flat_map(|(_, facts)| facts.source_edges.iter().cloned())
+                .flat_map(|(_, facts)| facts.source_edges.iter().map(|edge| edge.path.clone()))
                 .filter(|target| !index.contains(target))
                 .collect::<std::collections::BTreeSet<_>>()
                 .into_iter()
@@ -380,12 +381,19 @@ fn insert_file(
     let edges = model
         .source_refs()
         .iter()
-        .flat_map(|source_ref| {
-            resolve_source_ref_targets(path, source_ref, source_path_roots, source_path_base)
+        .filter_map(|source_ref| {
+            resolve_source_ref_targets(path, source_ref, source_path_roots, source_path_base).map(
+                |target| CallFactSourceEdge {
+                    path: canonical(&target),
+                    span: source_ref.span,
+                },
+            )
         })
-        .map(|target| canonical(&target))
         .collect::<Vec<_>>();
-    index.insert(key.clone(), FileCallFacts::project(&model, edges));
+    index.insert(
+        key.clone(),
+        FileCallFacts::project_with_source_edges(&model, edges),
+    );
     texts.insert(
         key,
         FileText {
