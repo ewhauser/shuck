@@ -67,13 +67,33 @@ pub(crate) fn multiline_compound_assignment_layout(
     for line in &mut lines {
         *line = RawShellText::new(line).trim_command_substitution_open_padding();
     }
-    let lines = normalize_multiline_compound_assignment_command_substitutions(lines);
+    let mut lines = normalize_multiline_compound_assignment_command_substitutions(lines);
+    restore_multiline_compound_assignment_heredoc_tails(&mut lines, &raw_lines);
 
     (!lines.is_empty()).then_some(MultilineCompoundAssignmentLayout {
         lines,
         open_inline: !open_line.trim().is_empty(),
         close_inline: !close_line.trim().is_empty(),
     })
+}
+
+fn restore_multiline_compound_assignment_heredoc_tails(
+    lines: &mut [String],
+    source_lines: &[&str],
+) {
+    let mut active_heredoc: Option<crate::raw_syntax::RenderedHeredocTail> = None;
+    for (line, source_line) in lines.iter_mut().zip(source_lines) {
+        if let Some(heredoc) = active_heredoc.as_ref() {
+            if !heredoc.strip_tabs {
+                *line = (*source_line).to_string();
+            }
+            if heredoc.closes_source_line(source_line) {
+                active_heredoc = None;
+            }
+        } else {
+            active_heredoc = rendered_heredoc_tail_start(line);
+        }
+    }
 }
 
 fn normalize_multiline_compound_assignment_command_substitutions(
