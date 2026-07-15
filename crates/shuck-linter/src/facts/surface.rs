@@ -441,14 +441,76 @@ impl ReplacementExpansionFragmentFact {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct PositionalParameterTrimFragmentFact {
     span: Span,
+    fix: Option<PositionalParameterTrimFix>,
 }
 
 impl PositionalParameterTrimFragmentFact {
     pub fn span(&self) -> Span {
         self.span
+    }
+
+    pub fn fix(&self) -> Option<&PositionalParameterTrimFix> {
+        self.fix.as_ref()
+    }
+
+    pub(crate) fn set_fix(&mut self, fix: PositionalParameterTrimFix) {
+        self.fix = Some(fix);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PositionalParameterTrimFix {
+    insertion_offset: usize,
+    insertion: Box<str>,
+    replacements: Box<[PositionalParameterTrimReplacement]>,
+}
+
+impl PositionalParameterTrimFix {
+    pub(crate) fn new(
+        insertion_offset: usize,
+        insertion: Box<str>,
+        replacements: Box<[PositionalParameterTrimReplacement]>,
+    ) -> Self {
+        Self {
+            insertion_offset,
+            insertion,
+            replacements,
+        }
+    }
+
+    pub fn insertion_offset(&self) -> usize {
+        self.insertion_offset
+    }
+
+    pub fn insertion(&self) -> &str {
+        &self.insertion
+    }
+
+    pub fn replacements(&self) -> &[PositionalParameterTrimReplacement] {
+        &self.replacements
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PositionalParameterTrimReplacement {
+    span: Span,
+    replacement: Box<str>,
+}
+
+impl PositionalParameterTrimReplacement {
+    pub(crate) fn new(span: Span, replacement: Box<str>) -> Self {
+        Self { span, replacement }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn replacement(&self) -> &str {
+        &self.replacement
     }
 }
 
@@ -746,7 +808,7 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
         self.facts
             .positional_parameter_trims
-            .push(PositionalParameterTrimFragmentFact { span });
+            .push(PositionalParameterTrimFragmentFact { span, fix: None });
     }
 
     pub(crate) fn collect_word(&mut self, word: &Word, context: SurfaceScanContext<'_>) -> bool {

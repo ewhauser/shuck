@@ -1757,6 +1757,7 @@ fi
 [[ $x > y ]]
 [[ $x =~ y ]]
 [[ -v assoc[$key] ]]
+[[ -v present ]]
 [[ -a file ]]
 [[ -o noclobber ]]
 [ -k \"$file\" ]
@@ -1766,7 +1767,7 @@ test -O \"$file\"
     with_facts(source, None, |_, facts| {
         let portability = facts.compat().conditional_portability();
 
-        assert_eq!(portability.double_bracket_in_sh().len(), 9);
+        assert_eq!(portability.double_bracket_in_sh().len(), 10);
         assert_eq!(
             portability
                 .if_elif_bash_test()
@@ -1827,10 +1828,16 @@ test -O \"$file\"
             portability
                 .v_test_in_sh()
                 .iter()
-                .map(|span| span.slice(source))
+                .map(|fact| fact.diagnostic_span().slice(source))
                 .collect::<Vec<_>>(),
-            vec!["-v"]
+            vec!["-v", "-v"]
         );
+        assert!(portability.v_test_in_sh()[0].replacement().is_none());
+        let (replacement_span, replacement) = portability.v_test_in_sh()[1]
+            .replacement()
+            .expect("expected a portable replacement");
+        assert_eq!(replacement_span.slice(source), "[[ -v present ]]");
+        assert_eq!(replacement, "[ -n \"${present+set}\" ]");
         assert_eq!(
             portability
                 .a_test_in_sh()

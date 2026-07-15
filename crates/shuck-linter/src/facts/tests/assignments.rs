@@ -2,6 +2,28 @@ use super::*;
 use crate::AmbientShellOptions;
 
 #[test]
+fn builds_spacey_assignment_replacements_once_in_the_fact_layer() {
+    let source = "#!/bin/sh\nname = value\ntime =later\n";
+
+    with_facts(source, None, |_, facts| {
+        let replacements = facts
+            .command_facts()
+            .spacey_assignment_facts()
+            .iter()
+            .map(|fact| (fact.diagnostic_span().slice(source), fact.replacement()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            replacements,
+            vec![
+                ("name = value", "name=value"),
+                ("time =later", "time=later")
+            ]
+        );
+    });
+}
+
+#[test]
 fn indexes_scalar_bindings_from_assignments_and_declarations() {
     let source = "#!/bin/bash\nfoo=1\nprintf '%s\\n' \"$foo\"\nexport bar=2\n";
     let output = Parser::new(source).parse().unwrap();

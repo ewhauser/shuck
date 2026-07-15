@@ -131,12 +131,18 @@ impl Violation for RegexMatchInSh {
 }
 
 impl Violation for VTestInSh {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
+
     fn rule() -> Rule {
         Rule::VTestInSh
     }
 
     fn message(&self) -> String {
         "`-v` tests are not available in POSIX sh".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("rewrite the variable-set test portably".to_owned())
     }
 }
 
@@ -258,7 +264,6 @@ cached_portability_rule!(
     LexicalComparisonInDoubleBracket
 );
 cached_portability_rule!(regex_match_in_sh, regex_match_in_sh, RegexMatchInSh);
-cached_portability_rule!(v_test_in_sh, v_test_in_sh, VTestInSh);
 cached_portability_rule!(option_test_in_sh, option_test_in_sh, OptionTestInSh);
 cached_portability_rule!(
     sticky_bit_test_in_sh,
@@ -348,10 +353,31 @@ pub fn a_test_in_sh(checker: &mut Checker) {
     }
 }
 
+pub fn v_test_in_sh(checker: &mut Checker) {
+    if !is_posix_sh_shell(checker.shell()) {
+        return;
+    }
+
+    checker.report_fact_diagnostics_dedup(|facts, report| {
+        for fact in facts.compat().conditional_portability().v_test_in_sh() {
+            let diagnostic = Diagnostic::new(VTestInSh, fact.diagnostic_span());
+            let diagnostic = match fact.replacement() {
+                Some((span, replacement)) => {
+                    diagnostic.with_fix(Fix::unsafe_edit(Edit::replacement(replacement, span)))
+                }
+                None => diagnostic,
+            };
+            report(diagnostic);
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::test::{test_snippet, test_snippet_with_fix};
-    use crate::{Applicability, LinterSettings, Rule, ShellDialect};
+    use std::path::Path;
+
+    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, ShellDialect, assert_diagnostics_diff};
 
     #[test]
     fn reports_at_extglob_in_posix_shells() {
@@ -622,5 +648,43 @@ fi
         assert_eq!(result.fixes_applied, 1);
         assert_eq!(result.fixed_source, "#!/bin/sh\n[[ -e file ]]\n");
         assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_variable_set_tests() {
+        let source = "#!/bin/sh\n[[ -v name ]]\n[[ -v first && -v second ]]\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::VTestInSh),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 3);
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/sh\n[ -n \"${name+set}\" ]\n[[ -n \"${first+set}\" && -n \"${second+set}\" ]]\n"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_non_identifier_variable_set_operands_unfixed() {
+        let source = "#!/bin/sh\n[[ -v 'items[0]' ]]\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::VTestInSh));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].fix.is_none());
+    }
+
+    #[test]
+    fn snapshots_unsafe_v_test_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("portability").join("X060.sh").as_path(),
+            &LinterSettings::for_rule(Rule::VTestInSh),
+            Applicability::Unsafe,
+        )?;
+
+        assert_diagnostics_diff!("X060_fix_X060.sh", result);
+        Ok(())
     }
 }

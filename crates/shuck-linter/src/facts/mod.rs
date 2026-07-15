@@ -140,7 +140,7 @@ pub(crate) use self::{
 
 pub use self::{
     arithmetic::ArithmeticUpdateOperatorFixFact,
-    assignments::EnvPrefixExpansionFixFact,
+    assignments::{EnvPrefixExpansionFixFact, SpaceyAssignmentFact},
     case_patterns::CaseItemFact,
     commands::{CommandFact, RedundantEchoSpaceFact},
     conditionals::{
@@ -157,12 +157,16 @@ pub use self::{
         ScriptLineCountFact, SourceFacts, WordFacts,
     },
     pipelines::{PipelineFact, PipelineOperatorFact, PipelineSegmentFact},
-    redirects::{RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis, RedirectTargetKind},
+    redirects::{
+        DuplicateRedirectFact, RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis,
+        RedirectTargetKind,
+    },
     simple_tests::{SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax},
     statements::StatementFact,
     substitutions::{
         CommandSubstitutionKind, SubstitutionFact, SubstitutionHostKind, SubstitutionOutputIntent,
     },
+    surface::{PositionalParameterTrimFix, PositionalParameterTrimReplacement},
 };
 
 pub(crate) use self::conditionals::ConditionalExpressionVisit;
@@ -170,3 +174,4 @@ pub(crate) use self::core::CommandVisit;
 pub(crate) use self::redirects::{
     ComparableNameKey, ComparableNameUseKind, ComparablePathKey, ComparablePathMatchKey,
 };
+pub(crate) use self::words::{AliasDefinitionExpansionFact, FunctionInAliasFact};

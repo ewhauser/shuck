@@ -1,0 +1,357 @@
+---
+source: crates/shuck-linter/src/rules/correctness/duplicate_redirect.rs
+---
+Diagnostics:
+C051 multiple redirects target the same descriptor
+ --> <source>:4:3
+  |
+4 | : >/tmp/first >/tmp/second
+  |
+
+C051 multiple redirects target the same descriptor
+ --> <source>:4:15
+  |
+4 | : >/tmp/first >/tmp/second
+  |
+
+C051 multiple redirects target the same descriptor
+ --> <source>:7:4
+  |
+7 | : 2>/tmp/first 2>/tmp/second
+  |
+
+C051 multiple redirects target the same descriptor
+ --> <source>:7:17
+  |
+7 | : 2>/tmp/first 2>/tmp/second
+  |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:10:5
+   |
+10 | cat </tmp/first </tmp/second
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:10:17
+   |
+10 | cat </tmp/first </tmp/second
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:13:7
+   |
+13 | cat <<EOF </tmp/input
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:13:11
+   |
+13 | cat <<EOF </tmp/input
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:18:4
+   |
+18 | : &>/tmp/all >/tmp/stdout
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:18:14
+   |
+18 | : &>/tmp/all >/tmp/stdout
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:21:4
+   |
+21 | : &>/tmp/first &>/tmp/second
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:21:17
+   |
+21 | : &>/tmp/first &>/tmp/second
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:24:4
+   |
+24 | : &>>/tmp/all 2>/tmp/stderr
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:24:16
+   |
+24 | : &>>/tmp/all 2>/tmp/stderr
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:25:4
+   |
+25 | : &>> /tmp/all 2>/tmp/stderr
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:25:17
+   |
+25 | : &>> /tmp/all 2>/tmp/stderr
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:28:3
+   |
+28 | : >&/tmp/all 2>/tmp/stderr
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:28:15
+   |
+28 | : >&/tmp/all 2>/tmp/stderr
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:31:4
+   |
+31 | : 2>&/tmp/stderr 2>/tmp/next
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:31:19
+   |
+31 | : 2>&/tmp/stderr 2>/tmp/next
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:34:4
+   |
+34 | : 2>/tmp/stderr 2>&1
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:34:18
+   |
+34 | : 2>/tmp/stderr 2>&1
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:35:4
+   |
+35 | : 2>&1 2>/tmp/stderr
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:35:9
+   |
+35 | : 2>&1 2>/tmp/stderr
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:36:3
+   |
+36 | : </tmp/input 0<&3
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:36:16
+   |
+36 | : </tmp/input 0<&3
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:39:4
+   |
+39 | : 3<>/tmp/state 3>/tmp/out
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:39:18
+   |
+39 | : 3<>/tmp/state 3>/tmp/out
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:40:4
+   |
+40 | : 1<>/tmp/state 1>&2
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:40:18
+   |
+40 | : 1<>/tmp/state 1>&2
+   |
+
+
+Applied fixes: 10
+
+Diff:
+--- before
++++ after
+@@ -1,13 +1,13 @@
+ #!/bin/bash
+ 
+ # Invalid: both redirects write stdout.
+-: >/tmp/first >/tmp/second
++: >/tmp/second
+ 
+ # Invalid: both redirects write the same explicit descriptor.
+-: 2>/tmp/first 2>/tmp/second
++: 2>/tmp/second
+ 
+ # Invalid: input redirects also override each other.
+-cat </tmp/first </tmp/second
++cat </tmp/second
+ 
+ # Invalid: here-doc redirects share descriptor zero with file input.
+ cat <<EOF </tmp/input
+@@ -18,7 +18,7 @@
+ : &>/tmp/all >/tmp/stdout
+ 
+ # Invalid: two combined redirections overlap both stdout and stderr.
+-: &>/tmp/first &>/tmp/second
++: &>/tmp/second
+ 
+ # Invalid: append-both redirection overlaps a later stderr redirect.
+ : &>>/tmp/all 2>/tmp/stderr
+@@ -28,16 +28,16 @@
+ : >&/tmp/all 2>/tmp/stderr
+ 
+ # Invalid: fd-prefixed `>&word` redirects that descriptor.
+-: 2>&/tmp/stderr 2>/tmp/next
++: 2>/tmp/next
+ 
+ # Invalid: descriptor duplication also overrides the redirected descriptor.
+-: 2>/tmp/stderr 2>&1
+-: 2>&1 2>/tmp/stderr
+-: </tmp/input 0<&3
++: 2>&1
++: 2>/tmp/stderr
++: 0<&3
+ 
+ # Invalid: read-write redirects also retarget their descriptor.
+-: 3<>/tmp/state 3>/tmp/out
+-: 1<>/tmp/state 1>&2
++: 3>/tmp/out
++: 1>&2
+ 
+ # Valid: stdout and stderr are different descriptors.
+ : >/tmp/stdout 2>/tmp/stderr
+
+Fixed source:
+#!/bin/bash
+
+# Invalid: both redirects write stdout.
+: >/tmp/second
+
+# Invalid: both redirects write the same explicit descriptor.
+: 2>/tmp/second
+
+# Invalid: input redirects also override each other.
+cat </tmp/second
+
+# Invalid: here-doc redirects share descriptor zero with file input.
+cat <<EOF </tmp/input
+body
+EOF
+
+# Invalid: combined stdout/stderr redirection overlaps stdout.
+: &>/tmp/all >/tmp/stdout
+
+# Invalid: two combined redirections overlap both stdout and stderr.
+: &>/tmp/second
+
+# Invalid: append-both redirection overlaps a later stderr redirect.
+: &>>/tmp/all 2>/tmp/stderr
+: &>> /tmp/all 2>/tmp/stderr
+
+# Invalid: `>&word` redirects both stdout and stderr when the target is not numeric.
+: >&/tmp/all 2>/tmp/stderr
+
+# Invalid: fd-prefixed `>&word` redirects that descriptor.
+: 2>/tmp/next
+
+# Invalid: descriptor duplication also overrides the redirected descriptor.
+: 2>&1
+: 2>/tmp/stderr
+: 0<&3
+
+# Invalid: read-write redirects also retarget their descriptor.
+: 3>/tmp/out
+: 1>&2
+
+# Valid: stdout and stderr are different descriptors.
+: >/tmp/stdout 2>/tmp/stderr
+
+# Valid: read-write redirects are left alone.
+: <>/tmp/state >/tmp/stdout
+
+# Valid: an intervening descriptor copy can still use an earlier target.
+: 1>/tmp/stdout 2>&1 1>/tmp/other-stdout
+
+# Valid: closing a descriptor is left alone.
+: >&- >/tmp/stdout
+
+# Valid: brace-assigned descriptors are dynamic.
+exec {fd}>/tmp/first {fd}>/tmp/second
+
+Remaining diagnostics:
+C051 multiple redirects target the same descriptor
+  --> <source>:13:7
+   |
+13 | cat <<EOF </tmp/input
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:13:11
+   |
+13 | cat <<EOF </tmp/input
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:18:4
+   |
+18 | : &>/tmp/all >/tmp/stdout
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:18:14
+   |
+18 | : &>/tmp/all >/tmp/stdout
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:24:4
+   |
+24 | : &>>/tmp/all 2>/tmp/stderr
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:24:16
+   |
+24 | : &>>/tmp/all 2>/tmp/stderr
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:25:4
+   |
+25 | : &>> /tmp/all 2>/tmp/stderr
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:25:17
+   |
+25 | : &>> /tmp/all 2>/tmp/stderr
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:28:3
+   |
+28 | : >&/tmp/all 2>/tmp/stderr
+   |
+
+C051 multiple redirects target the same descriptor
+  --> <source>:28:15
+   |
+28 | : >&/tmp/all 2>/tmp/stderr
+   |

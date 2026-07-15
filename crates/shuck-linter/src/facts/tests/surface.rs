@@ -3516,7 +3516,7 @@ $cmd[0] arg
 }
 
 #[test]
-fn builds_function_in_alias_spans_from_static_alias_definitions() {
+fn builds_function_in_alias_facts_from_static_alias_definitions() {
     let source = "\
 #!/bin/sh
 alias first='echo $1'
@@ -3532,12 +3532,11 @@ alias runtime=$BAR
 ";
 
     with_facts(source, None, |_, facts| {
+        let alias_facts = facts.command_facts().function_in_alias_facts();
         assert_eq!(
-            facts
-                .command_facts()
-                .function_in_alias_spans()
+            alias_facts
                 .iter()
-                .map(|span| span.slice(source))
+                .map(|fact| fact.span().slice(source))
                 .collect::<Vec<_>>(),
             vec![
                 "first='echo $1'",
@@ -3546,11 +3545,16 @@ alias runtime=$BAR
                 "escaped_then_pos='echo \\$$1'",
             ]
         );
+        let (replacement_span, replacement) = alias_facts[0]
+            .replacement()
+            .expect("expected a function replacement");
+        assert_eq!(replacement_span.slice(source), "alias first='echo $1'");
+        assert_eq!(replacement, "first() { echo $1; }");
     });
 }
 
 #[test]
-fn builds_alias_definition_expansion_spans_without_matching_alias_lookups() {
+fn builds_alias_definition_expansion_facts_without_matching_alias_lookups() {
     let source = "\
 #!/bin/bash
 alias \"${cur%=}\" 2>/dev/null
@@ -3559,15 +3563,20 @@ alias \"$a=$b\"
 ";
 
     with_facts(source, None, |_, facts| {
+        let alias_facts = facts.command_facts().alias_definition_expansion_facts();
         assert_eq!(
-            facts
-                .command_facts()
-                .alias_definition_expansion_spans()
+            alias_facts
                 .iter()
-                .map(|span| span.slice(source))
+                .map(|fact| fact.span().slice(source))
                 .collect::<Vec<_>>(),
             vec!["$HOME", "$a"]
         );
+        let (replacement_span, replacement) = alias_facts[0]
+            .replacement()
+            .expect("expected a single-quoted alias replacement");
+        assert_eq!(replacement_span.slice(source), "home=$HOME");
+        assert_eq!(replacement, "home='$HOME'");
+        assert!(alias_facts[1].replacement().is_none());
     });
 }
 
@@ -4122,10 +4131,9 @@ printf '%s\\n' \"${name%%dBm*}\"
 ";
 
     with_facts(source, None, |_, facts| {
+        let trim_fragments = facts.words().positional_parameter_trim_fragments();
         assert_eq!(
-            facts
-                .words()
-                .positional_parameter_trim_fragments()
+            trim_fragments
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
                 .collect::<Vec<_>>(),
@@ -4139,6 +4147,30 @@ printf '%s\\n' \"${name%%dBm*}\"
                 "${@##dBm*}",
                 "${@#dBm*}",
             ]
+        );
+        let first_fix = trim_fragments[0]
+            .fix()
+            .expect("expected one grouped fix for the first command");
+        assert_eq!(first_fix.insertion(), "_shuck_positional_params=$*\n");
+        assert_eq!(first_fix.replacements().len(), 4);
+        assert_eq!(
+            first_fix.replacements()[0].replacement(),
+            "${_shuck_positional_params%%dBm*}"
+        );
+        assert!(
+            trim_fragments[1..4]
+                .iter()
+                .all(|fragment| fragment.fix().is_none())
+        );
+        let second_fix = trim_fragments[4]
+            .fix()
+            .expect("expected one grouped fix for the second command");
+        assert_eq!(second_fix.insertion(), "_shuck_positional_params=$@\n");
+        assert_eq!(second_fix.replacements().len(), 4);
+        assert!(
+            trim_fragments[5..]
+                .iter()
+                .all(|fragment| fragment.fix().is_none())
         );
     });
 }

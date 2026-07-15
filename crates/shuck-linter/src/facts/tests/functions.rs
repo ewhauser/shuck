@@ -537,6 +537,10 @@ s() while true; do :; done
 t() until false; do :; done
 u() ( echo hi )
 v() (( x++ ))
+ok() {
+  false
+  return $?
+}
 g() {
   if cond; then
     false
@@ -610,7 +614,7 @@ o() {
                 .iter()
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
-            Vec::<&str>::new()
+            vec!["  return $?\n"]
         );
     });
 }
