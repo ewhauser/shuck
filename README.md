@@ -43,6 +43,23 @@ cargo install shuck-cli
 
 Pre-built binaries are available for macOS (aarch64) and Linux (x86_64) from the [releases page](https://github.com/ewhauser/shuck/releases).
 
+### GitHub Actions
+
+Use [`ewhauser/shuck-action`](https://github.com/ewhauser/shuck-action) to install Shuck and report lint findings as native GitHub annotations:
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: ewhauser/shuck-action@v1
+    with:
+      mode: check
+      paths: |
+        scripts
+        .github/workflows
+```
+
+See the action's documentation for setup-only and formatting modes, version pinning, and additional inputs.
+
 ## Usage
 
 Shuck's main workflows are split across subcommands:
