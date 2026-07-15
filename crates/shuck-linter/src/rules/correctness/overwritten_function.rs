@@ -82,6 +82,10 @@ pub fn overwritten_function(checker: &mut Checker) {
         .rule_options()
         .c063
         .report_unreached_nested_definitions;
+    let compat_cutoffs = compat_mode.then(|| build_compat_cutoff_index(checker));
+    if compat_cutoffs.is_some() {
+        reach.enable_activation_index();
+    }
     let mut reports = Vec::new();
 
     for overwritten in overwritten {
@@ -97,7 +101,7 @@ pub fn overwritten_function(checker: &mut Checker) {
         } else if overwritten.first_called {
             continue;
         }
-        if should_suppress_overwrite(checker, &mut reach, &overwritten) {
+        if should_suppress_overwrite(checker, &mut reach, &overwritten, compat_cutoffs.as_ref()) {
             continue;
         }
 
@@ -109,7 +113,7 @@ pub fn overwritten_function(checker: &mut Checker) {
     }
 
     for unreached in unreached {
-        if should_suppress_unreached(checker, &mut reach, &unreached) {
+        if should_suppress_unreached(checker, &mut reach, &unreached, compat_cutoffs.as_ref()) {
             continue;
         }
 
@@ -125,13 +129,11 @@ pub fn overwritten_function(checker: &mut Checker) {
         reports.push((unreached.binding, unreached.name.as_str().into(), reason));
     }
 
-    if checker
-        .rule_options()
-        .c063
-        .report_unreached_nested_definitions
-    {
+    if let Some(compat_cutoffs) = compat_cutoffs.as_ref() {
         reports.extend(report_compat_cutoff_function_definitions(
-            checker, &mut reach,
+            checker,
+            &mut reach,
+            compat_cutoffs,
         ));
         reports.extend(report_transient_shadowed_file_scope_definitions(
             checker, &mut reach,
@@ -151,7 +153,7 @@ struct FunctionCutoff {
 }
 
 #[derive(Clone, Copy)]
-struct CompatUnsetCommandFact {
+struct CompatUnsetCutoffFact {
     scope: ScopeId,
     offset: usize,
 }
@@ -169,8 +171,14 @@ struct CompatTopLevelControlFacts {
     return_offsets: Vec<usize>,
 }
 
+struct CompatCutoffIndex {
+    unset_facts: CompatUnsetFacts,
+    script_terminators: Vec<CompatScriptTerminatorFact>,
+    top_level_control: CompatTopLevelControlFacts,
+}
+
 struct CompatStructuralFacts {
-    unset_commands_by_target: CompatUnsetCommandsByTarget,
+    unset_commands_by_target: CompatUnsetCutoffsByTarget,
     scopes_by_offset: FxHashMap<usize, ScopeId>,
     function_definition_offsets: FxHashSet<usize>,
     return_offsets: FxHashSet<usize>,
@@ -184,16 +192,14 @@ struct CompatLoopCandidate {
 }
 
 type CompatFunctionBindingsByScope = FxHashMap<ScopeId, Vec<BindingId>>;
-type CompatUnsetCommandsByTarget = FxHashMap<String, Vec<CompatUnsetCommandFact>>;
-type CompatUnsetterFunctionsByTarget = FxHashMap<String, Vec<shuck_ast::Name>>;
+type CompatUnsetCutoffsByTarget = FxHashMap<String, Vec<CompatUnsetCutoffFact>>;
 
 struct CompatUnsetFacts {
-    commands_by_target: CompatUnsetCommandsByTarget,
-    functions_by_target: CompatUnsetterFunctionsByTarget,
+    cutoffs_by_target: CompatUnsetCutoffsByTarget,
 }
 
 fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts {
-    let mut unset_commands_by_target = CompatUnsetCommandsByTarget::default();
+    let mut unset_commands_by_target = CompatUnsetCutoffsByTarget::default();
     let mut scopes_by_offset = FxHashMap::<usize, ScopeId>::default();
     let mut function_definition_offsets = FxHashSet::<usize>::default();
     let mut return_offsets = FxHashSet::<usize>::default();
@@ -253,7 +259,7 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
                 unset_commands_by_target
                     .entry(binding.name.to_string())
                     .or_default()
-                    .push(CompatUnsetCommandFact {
+                    .push(CompatUnsetCutoffFact {
                         scope: fact.scope(),
                         offset,
                     });
@@ -261,7 +267,7 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
         }
     }
 
-    let apparent_infinite_loop_offsets = top_level_loop_candidates
+    let mut apparent_infinite_loop_offsets = top_level_loop_candidates
         .into_iter()
         .filter(|candidate| {
             !break_offsets.iter().any(|break_offset| {
@@ -270,7 +276,9 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
             })
         })
         .map(|candidate| candidate.offset)
-        .collect();
+        .collect::<Vec<_>>();
+    apparent_infinite_loop_offsets.sort_unstable();
+    top_level_return_offsets.sort_unstable();
 
     CompatStructuralFacts {
         unset_commands_by_target,
@@ -415,7 +423,8 @@ fn build_compat_script_terminator_facts(
 ) -> Vec<CompatScriptTerminatorFact> {
     let cfg = checker.semantic_analysis().cfg();
     let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
-    cfg.script_terminators()
+    let mut terminators = cfg
+        .script_terminators()
         .iter()
         .filter(|block_id| !unreachable.contains(block_id))
         .flat_map(|block_id| cfg.block(*block_id).commands.iter())
@@ -435,27 +444,38 @@ fn build_compat_script_terminator_facts(
                 starts_return: structural_facts.return_offsets.contains(&offset),
             })
         })
-        .collect()
+        .collect::<Vec<_>>();
+    terminators.sort_unstable_by_key(|terminator| terminator.offset);
+    terminators
 }
 
 impl CompatTopLevelControlFacts {
     fn has_apparent_infinite_loop_between(&self, start_offset: usize, end_offset: usize) -> bool {
-        self.apparent_infinite_loop_offsets
-            .iter()
-            .any(|offset| *offset > start_offset && *offset < end_offset)
+        sorted_offsets_have_value_between(
+            &self.apparent_infinite_loop_offsets,
+            start_offset,
+            end_offset,
+        )
     }
 
     fn has_return_between(&self, start_offset: usize, end_offset: usize) -> bool {
-        self.return_offsets
-            .iter()
-            .any(|offset| *offset > start_offset && *offset < end_offset)
+        sorted_offsets_have_value_between(&self.return_offsets, start_offset, end_offset)
     }
+}
+
+fn sorted_offsets_have_value_between(
+    offsets: &[usize],
+    start_offset: usize,
+    end_offset: usize,
+) -> bool {
+    let next = offsets.partition_point(|offset| *offset <= start_offset);
+    offsets.get(next).is_some_and(|offset| *offset < end_offset)
 }
 
 fn build_compat_unset_facts(
     checker: &Checker<'_>,
     function_bindings_by_scope: &CompatFunctionBindingsByScope,
-    unset_commands_by_target: &CompatUnsetCommandsByTarget,
+    unset_commands_by_target: &CompatUnsetCutoffsByTarget,
 ) -> CompatUnsetFacts {
     let mut function_names_by_scope = FxHashMap::<ScopeId, Vec<shuck_ast::Name>>::default();
     for (scope, binding_ids) in function_bindings_by_scope {
@@ -484,21 +504,36 @@ fn build_compat_unset_facts(
         }
     }
 
-    let functions_by_target = function_targets
-        .into_iter()
-        .map(|(target, names)| (target, names.into_iter().collect()))
-        .collect();
-
-    CompatUnsetFacts {
-        commands_by_target: unset_commands_by_target.clone(),
-        functions_by_target,
+    let mut cutoffs_by_target = unset_commands_by_target.clone();
+    for (target, unsetter_names) in function_targets {
+        let cutoffs = cutoffs_by_target.entry(target).or_default();
+        for unsetter_name in unsetter_names {
+            cutoffs.extend(
+                checker
+                    .semantic()
+                    .call_sites_for(&unsetter_name)
+                    .iter()
+                    .filter(|site| {
+                        !command_offset_is_under_dominance_barrier(
+                            checker,
+                            site.name_span.start.offset,
+                        )
+                    })
+                    .map(|site| CompatUnsetCutoffFact {
+                        scope: site.scope,
+                        offset: site.name_span.start.offset,
+                    }),
+            );
+        }
     }
+    for cutoffs in cutoffs_by_target.values_mut() {
+        cutoffs.sort_unstable_by_key(|cutoff| cutoff.offset);
+    }
+
+    CompatUnsetFacts { cutoffs_by_target }
 }
 
-fn report_compat_cutoff_function_definitions(
-    checker: &Checker<'_>,
-    reach: &mut DirectFunctionCallReachability<'_, '_>,
-) -> Vec<(BindingId, CompactString, FunctionNotReachedReason)> {
+fn build_compat_cutoff_index(checker: &Checker<'_>) -> CompatCutoffIndex {
     let structural_facts = build_compat_structural_facts(checker);
     let function_bindings_by_scope = build_compat_function_bindings_by_scope(checker);
     let unset_facts = build_compat_unset_facts(
@@ -507,20 +542,24 @@ fn report_compat_cutoff_function_definitions(
         &structural_facts.unset_commands_by_target,
     );
     let script_terminators = build_compat_script_terminator_facts(checker, &structural_facts);
-    reach.enable_activation_index();
 
+    CompatCutoffIndex {
+        unset_facts,
+        script_terminators,
+        top_level_control: structural_facts.top_level_control,
+    }
+}
+
+fn report_compat_cutoff_function_definitions(
+    checker: &Checker<'_>,
+    reach: &mut DirectFunctionCallReachability<'_, '_>,
+    cutoffs: &CompatCutoffIndex,
+) -> Vec<(BindingId, CompactString, FunctionNotReachedReason)> {
     checker
         .semantic()
         .function_definition_bindings()
         .filter_map(|binding| {
-            let cutoff = first_compat_cutoff_after_binding(
-                checker,
-                binding.id,
-                reach,
-                &unset_facts,
-                &script_terminators,
-                &structural_facts.top_level_control,
-            )?;
+            let cutoff = first_compat_cutoff_after_binding(checker, binding.id, reach, cutoffs)?;
             (!binding_has_direct_call_before_offset(reach, binding.id, cutoff.offset))
                 .then(|| (binding.id, binding.name.as_str().into(), cutoff.reason))
         })
@@ -596,50 +635,50 @@ fn first_compat_cutoff_after_binding(
     checker: &Checker<'_>,
     binding_id: BindingId,
     reach: &mut DirectFunctionCallReachability<'_, '_>,
-    unset_facts: &CompatUnsetFacts,
-    script_terminators: &[CompatScriptTerminatorFact],
-    top_level_control: &CompatTopLevelControlFacts,
+    cutoffs: &CompatCutoffIndex,
 ) -> Option<FunctionCutoff> {
     let binding = checker.semantic().binding(binding_id);
     let binding_offset = binding.span.start.offset;
 
-    let mut cutoffs = Vec::new();
-    cutoffs.extend(
-        unset_function_cutoff_offsets(
-            checker,
-            binding.name.as_str(),
-            binding_offset,
-            reach,
-            unset_facts,
-        )
-        .into_iter()
-        .map(|offset| FunctionCutoff {
+    let unset_cutoff = first_unset_function_cutoff_offset(
+        binding.name.as_str(),
+        binding_offset,
+        reach,
+        &cutoffs.unset_facts,
+    );
+    let terminator_cutoff = last_compat_script_terminator_offset(
+        checker,
+        binding_id,
+        binding_offset,
+        reach,
+        &cutoffs.script_terminators,
+    );
+    let cutoff = match (unset_cutoff, terminator_cutoff) {
+        (Some(offset), Some(terminator)) if offset <= terminator => FunctionCutoff {
             offset,
             reason: FunctionNotReachedReason::Removed,
-        }),
-    );
-    cutoffs.extend(
-        compat_script_terminator_offsets(
-            checker,
-            binding_id,
-            binding_offset,
-            reach,
-            script_terminators,
-        )
-        .into_iter()
-        .map(|offset| FunctionCutoff {
+        },
+        (_, Some(offset)) => FunctionCutoff {
             offset,
             reason: FunctionNotReachedReason::ScriptTerminates,
-        }),
-    );
-    let cutoff = cutoffs.into_iter().min_by_key(|cutoff| cutoff.offset)?;
+        },
+        (Some(offset), None) => FunctionCutoff {
+            offset,
+            reason: FunctionNotReachedReason::Removed,
+        },
+        (None, None) => return None,
+    };
     if matches!(cutoff.reason, FunctionNotReachedReason::ScriptTerminates)
-        && top_level_control.has_apparent_infinite_loop_between(binding_offset, cutoff.offset)
+        && cutoffs
+            .top_level_control
+            .has_apparent_infinite_loop_between(binding_offset, cutoff.offset)
     {
         return None;
     }
     if matches!(cutoff.reason, FunctionNotReachedReason::ScriptTerminates)
-        && top_level_control.has_return_between(binding_offset, cutoff.offset)
+        && cutoffs
+            .top_level_control
+            .has_return_between(binding_offset, cutoff.offset)
     {
         return None;
     }
@@ -647,57 +686,24 @@ fn first_compat_cutoff_after_binding(
     Some(cutoff)
 }
 
-fn unset_function_cutoff_offsets(
-    checker: &Checker<'_>,
+fn first_unset_function_cutoff_offset(
     name: &str,
     after_offset: usize,
     reach: &mut DirectFunctionCallReachability<'_, '_>,
     unset_facts: &CompatUnsetFacts,
-) -> Vec<usize> {
-    let mut offsets = unset_facts
-        .commands_by_target
-        .get(name)
-        .into_iter()
-        .flat_map(|facts| facts.iter())
-        .filter(|fact| {
-            fact.offset > after_offset
-                && !command_offset_is_under_dominance_barrier(checker, fact.offset)
-                && reach.scope_can_run_before_offset(
-                    fact.scope,
-                    fact.offset,
-                    FunctionCallPersistence::PersistentOnly,
-                )
+) -> Option<usize> {
+    let facts = unset_facts.cutoffs_by_target.get(name)?;
+    let first = facts.partition_point(|fact| fact.offset <= after_offset);
+    facts[first..]
+        .iter()
+        .find(|fact| {
+            reach.scope_can_run_before_offset(
+                fact.scope,
+                fact.offset,
+                FunctionCallPersistence::PersistentOnly,
+            )
         })
         .map(|fact| fact.offset)
-        .collect::<Vec<_>>();
-
-    for unsetter in unset_facts
-        .functions_by_target
-        .get(name)
-        .into_iter()
-        .flat_map(|names| names.iter())
-    {
-        offsets.extend(
-            checker
-                .semantic()
-                .call_sites_for(unsetter)
-                .iter()
-                .filter(|site| site.name_span.start.offset > after_offset)
-                .filter(|site| {
-                    !command_offset_is_under_dominance_barrier(checker, site.name_span.start.offset)
-                })
-                .filter(|site| {
-                    reach.scope_can_run_before_offset(
-                        site.scope,
-                        site.name_span.start.offset,
-                        FunctionCallPersistence::PersistentOnly,
-                    )
-                })
-                .map(|site| site.name_span.start.offset),
-        );
-    }
-
-    offsets
 }
 
 fn command_offset_is_under_dominance_barrier(checker: &Checker<'_>, offset: usize) -> bool {
@@ -738,35 +744,32 @@ fn command_offset_is_unreachable(checker: &Checker<'_>, offset: usize) -> bool {
     })
 }
 
-fn compat_script_terminator_offsets(
+fn last_compat_script_terminator_offset(
     checker: &Checker<'_>,
     binding_id: BindingId,
     after_offset: usize,
     reach: &mut DirectFunctionCallReachability<'_, '_>,
     script_terminators: &[CompatScriptTerminatorFact],
-) -> Vec<usize> {
+) -> Option<usize> {
     let binding = checker.semantic().binding(binding_id);
     let binding_is_file_scope = scope_is_file_scope(checker, binding.scope);
+    let first = script_terminators.partition_point(|terminator| terminator.offset <= after_offset);
 
-    script_terminators
+    script_terminators[first..]
         .iter()
-        .filter_map(|terminator| {
-            (terminator.offset > after_offset
-                && terminator_scope_can_cut_off_binding(
-                    checker,
-                    binding.scope,
-                    binding_is_file_scope,
-                    terminator.scope,
-                    terminator.offset,
-                    reach,
-                )
-                && !terminator.starts_function_definition
+        .rev()
+        .find_map(|terminator| {
+            (terminator_scope_can_cut_off_binding(
+                checker,
+                binding.scope,
+                binding_is_file_scope,
+                terminator.scope,
+                terminator.offset,
+                reach,
+            ) && !terminator.starts_function_definition
                 && !terminator.starts_return)
                 .then_some(terminator.offset)
         })
-        .max()
-        .into_iter()
-        .collect()
 }
 
 fn terminator_scope_can_cut_off_binding(
@@ -878,6 +881,7 @@ fn should_suppress_overwrite(
     checker: &Checker<'_>,
     reach: &mut DirectFunctionCallReachability<'_, '_>,
     overwritten: &SemanticOverwrittenFunction,
+    compat_cutoffs: Option<&CompatCutoffIndex>,
 ) -> bool {
     let compat_mode = checker
         .rule_options()
@@ -890,7 +894,12 @@ fn should_suppress_overwrite(
         return true;
     }
 
-    if enclosing_function_has_reportable_c063_diagnostic(checker, reach, first.scope) {
+    if enclosing_function_has_reportable_c063_diagnostic(
+        checker,
+        reach,
+        first.scope,
+        compat_cutoffs,
+    ) {
         return true;
     }
 
@@ -905,6 +914,7 @@ fn should_suppress_unreached(
     checker: &Checker<'_>,
     reach: &mut DirectFunctionCallReachability<'_, '_>,
     unreached: &SemanticUnreachedFunction,
+    compat_cutoffs: Option<&CompatCutoffIndex>,
 ) -> bool {
     let binding = checker.semantic().binding(unreached.binding);
     let compat_mode = checker
@@ -935,7 +945,12 @@ fn should_suppress_unreached(
         || (matches!(
             unreached.reason,
             UnreachedFunctionReason::EnclosingFunctionUnreached
-        ) && enclosing_function_has_reportable_c063_diagnostic(checker, reach, binding.scope))
+        ) && enclosing_function_has_reportable_c063_diagnostic(
+            checker,
+            reach,
+            binding.scope,
+            compat_cutoffs,
+        ))
         || (compat_mode
             && matches!(
                 unreached.reason,
@@ -1122,6 +1137,7 @@ fn enclosing_function_has_reportable_c063_diagnostic(
     checker: &Checker<'_>,
     reach: &mut DirectFunctionCallReachability<'_, '_>,
     scope: ScopeId,
+    compat_cutoffs: Option<&CompatCutoffIndex>,
 ) -> bool {
     let Some(enclosing_scope) = checker.semantic().enclosing_function_scope(scope) else {
         return false;
@@ -1147,15 +1163,13 @@ fn enclosing_function_has_reportable_c063_diagnostic(
         .any(|candidate| {
             !candidate.first_called
                 && enclosing_bindings.contains(&candidate.first)
-                && !should_suppress_overwrite(checker, reach, candidate)
+                && !should_suppress_overwrite(checker, reach, candidate, compat_cutoffs)
         });
-    let has_compat_cutoff_diagnostic = checker
-        .rule_options()
-        .c063
-        .report_unreached_nested_definitions
-        && enclosing_bindings
+    let has_compat_cutoff_diagnostic = compat_cutoffs.is_some_and(|cutoffs| {
+        enclosing_bindings
             .iter()
-            .any(|binding| compat_cutoff_would_report_binding(checker, reach, *binding));
+            .any(|binding| compat_cutoff_would_report_binding(checker, reach, *binding, cutoffs))
+    });
 
     has_unreached_diagnostic || has_overwrite_diagnostic || has_compat_cutoff_diagnostic
 }
@@ -1164,23 +1178,10 @@ fn compat_cutoff_would_report_binding(
     checker: &Checker<'_>,
     reach: &mut DirectFunctionCallReachability<'_, '_>,
     binding_id: BindingId,
+    cutoffs: &CompatCutoffIndex,
 ) -> bool {
-    let structural_facts = build_compat_structural_facts(checker);
-    let function_bindings_by_scope = build_compat_function_bindings_by_scope(checker);
-    let unset_facts = build_compat_unset_facts(
-        checker,
-        &function_bindings_by_scope,
-        &structural_facts.unset_commands_by_target,
-    );
-    let script_terminators = build_compat_script_terminator_facts(checker, &structural_facts);
-    let Some(cutoff) = first_compat_cutoff_after_binding(
-        checker,
-        binding_id,
-        reach,
-        &unset_facts,
-        &script_terminators,
-        &structural_facts.top_level_control,
-    ) else {
+    let Some(cutoff) = first_compat_cutoff_after_binding(checker, binding_id, reach, cutoffs)
+    else {
         return false;
     };
 
