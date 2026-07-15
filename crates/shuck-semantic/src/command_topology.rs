@@ -31,6 +31,9 @@ pub(crate) struct CommandTopology {
     /// Commands that correspond directly to syntax nodes, excluding synthetic
     /// range markers recorded only to model control-flow structure.
     pub(crate) syntax_backed_ids: Vec<CommandId>,
+    /// Syntax-backed commands ordered by source position, with enclosing
+    /// commands before nested commands that begin at the same offset.
+    pub(crate) source_ordered_syntax_backed_ids: Vec<CommandId>,
     /// Source-order command stream used by callers that want top-level shell
     /// structure without descending into nested word command regions.
     pub(crate) structural_ids: Vec<CommandId>,
@@ -257,6 +260,11 @@ impl SemanticModel {
     /// Returns command ids for every syntax-backed recorded command.
     pub fn commands(&self) -> &[CommandId] {
         &self.command_topology().syntax_backed_ids
+    }
+
+    /// Returns syntax-backed command ids in source order.
+    pub fn commands_in_source_order(&self) -> &[CommandId] {
+        &self.command_topology().source_ordered_syntax_backed_ids
     }
 
     /// Returns command ids for the structural command stream.
@@ -579,13 +587,20 @@ fn build_command_topology(model: &SemanticModel) -> CommandTopology {
         &nested_region_root_command_ids,
     );
 
-    let mut structural_ids = ids
+    let mut source_ordered_ids = ids.clone();
+    source_ordered_ids
+        .sort_unstable_by(|left, right| compare_command_ids_by_syntax_span(model, *left, *right));
+
+    let structural_ids = source_ordered_ids
         .iter()
         .copied()
         .filter(|id| !nested_region_command_ids.contains(id))
         .collect::<Vec<_>>();
-    structural_ids
-        .sort_unstable_by(|left, right| compare_command_ids_by_syntax_span(model, *left, *right));
+
+    let source_ordered_syntax_backed_ids = source_ordered_ids
+        .into_iter()
+        .filter(|id| program.command(*id).syntax_kind.is_some())
+        .collect::<Vec<_>>();
 
     let syntax_backed_ids = ids
         .into_iter()
@@ -622,6 +637,7 @@ fn build_command_topology(model: &SemanticModel) -> CommandTopology {
 
     CommandTopology {
         syntax_backed_ids,
+        source_ordered_syntax_backed_ids,
         structural_ids,
         contexts,
         ids_by_syntax_span,

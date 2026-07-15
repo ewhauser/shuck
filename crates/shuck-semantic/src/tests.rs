@@ -2485,6 +2485,26 @@ fn command_topology_excludes_nested_substitutions_from_structural_commands() {
 }
 
 #[test]
+fn command_topology_exposes_syntax_backed_commands_in_source_order() {
+    let source = "echo \"$(printf '%s\\n' hi)\"\nif probe; then done_cmd; fi\n";
+    let model = model(source);
+
+    let ordered = model.commands_in_source_order();
+    assert_eq!(ordered.len(), model.commands().len());
+    assert!(model.commands().iter().all(|id| ordered.contains(id)));
+
+    for ids in ordered.windows(2) {
+        let left = model.command_syntax_span(ids[0]);
+        let right = model.command_syntax_span(ids[1]);
+        assert!(
+            left.start.offset < right.start.offset
+                || (left.start.offset == right.start.offset && left.end.offset >= right.end.offset),
+            "commands are out of source order: {left:?} before {right:?}"
+        );
+    }
+}
+
+#[test]
 fn command_topology_skips_synthetic_parents_for_syntax_backed_queries() {
     let source = "case \"$x\" in $(echo \"$v\")) ;; esac\n";
     let model = model(source);

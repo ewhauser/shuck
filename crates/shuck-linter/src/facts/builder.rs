@@ -16,6 +16,10 @@ pub(crate) struct LinterFactsBuilder<'a, 'analysis> {
 pub(crate) struct FactBuildCapacity {
     commands: usize,
     functions: usize,
+    word_nodes: usize,
+    word_occurrences: usize,
+    word_occurrences_per_command: usize,
+    compound_assignment_values: usize,
 }
 
 #[derive(Debug, Default)]
@@ -41,12 +45,125 @@ pub(crate) struct HeredocFactSummary {
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-pub(crate) fn estimate_fact_build_capacity(semantic: &SemanticModel) -> FactBuildCapacity {
+pub(crate) fn estimate_fact_build_capacity(
+    semantic: &SemanticModel,
+    command_visits_by_id: &[Option<CommandVisit<'_>>],
+) -> FactBuildCapacity {
     let commands = semantic.command_count();
+    let mut direct_words = 0usize;
+    let mut maximum_direct_words = 0usize;
+    let mut compound_assignment_values = 0usize;
+
+    for id in semantic.commands_in_source_order().iter().copied() {
+        let Some(visit) = command_visits_by_id
+            .get(id.index())
+            .and_then(|visit| *visit)
+        else {
+            continue;
+        };
+        let (command_words, command_compound_assignment_values) =
+            estimate_command_word_capacity(visit.command, visit.redirects);
+        direct_words = direct_words.saturating_add(command_words);
+        maximum_direct_words = maximum_direct_words.max(command_words);
+        compound_assignment_values =
+            compound_assignment_values.saturating_add(command_compound_assignment_values);
+    }
+
+    let references = semantic.references().len();
+    let average_references = references.div_ceil(commands.max(1));
     FactBuildCapacity {
         commands,
         functions: commands.saturating_div(8),
+        word_nodes: direct_words.saturating_add(references),
+        word_occurrences: direct_words.saturating_add(references.saturating_mul(2)),
+        word_occurrences_per_command: maximum_direct_words
+            .saturating_add(average_references.saturating_mul(2)),
+        compound_assignment_values,
     }
+}
+
+fn estimate_command_word_capacity(command: &Command, redirects: &[Redirect]) -> (usize, usize) {
+    let mut words = redirects
+        .iter()
+        .filter(|redirect| redirect.word_target().is_some())
+        .count();
+
+    words = words.saturating_add(match command {
+        Command::Simple(command) => 1usize.saturating_add(command.args.len()),
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Break(command) => {
+                usize::from(command.depth.is_some()).saturating_add(command.extra_args.len())
+            }
+            BuiltinCommand::Continue(command) => {
+                usize::from(command.depth.is_some()).saturating_add(command.extra_args.len())
+            }
+            BuiltinCommand::Return(command) => {
+                usize::from(command.code.is_some()).saturating_add(command.extra_args.len())
+            }
+            BuiltinCommand::Exit(command) => {
+                usize::from(command.code.is_some()).saturating_add(command.extra_args.len())
+            }
+        },
+        Command::Decl(command) => command
+            .operands
+            .iter()
+            .filter(|operand| matches!(operand, DeclOperand::Dynamic(_)))
+            .count(),
+        Command::Compound(command) => match command {
+            CompoundCommand::For(command) => command.words.as_ref().map_or(0, Vec::len),
+            CompoundCommand::Repeat(_) => 1,
+            CompoundCommand::Foreach(command) => command.words.len(),
+            CompoundCommand::Select(command) => command.words.len(),
+            CompoundCommand::Case(command) => 1usize.saturating_add(
+                command
+                    .cases
+                    .iter()
+                    .map(|case| case.patterns.len())
+                    .sum::<usize>(),
+            ),
+            CompoundCommand::If(_)
+            | CompoundCommand::ArithmeticFor(_)
+            | CompoundCommand::While(_)
+            | CompoundCommand::Until(_)
+            | CompoundCommand::Subshell(_)
+            | CompoundCommand::BraceGroup(_)
+            | CompoundCommand::Arithmetic(_)
+            | CompoundCommand::Time(_)
+            | CompoundCommand::Conditional(_)
+            | CompoundCommand::Coproc(_)
+            | CompoundCommand::Always(_) => 0,
+        },
+        Command::Function(function) => function.header.entries.len(),
+        Command::AnonymousFunction(function) => function.args.len(),
+        Command::Binary(_) => 0,
+    });
+
+    let mut compound_assignment_values = 0usize;
+    for assignment in
+        command_assignments(command)
+            .iter()
+            .chain(
+                declaration_operands(command)
+                    .iter()
+                    .filter_map(|operand| match operand {
+                        DeclOperand::Assignment(assignment) => Some(assignment),
+                        DeclOperand::Flag(_) | DeclOperand::Name(_) | DeclOperand::Dynamic(_) => {
+                            None
+                        }
+                    }),
+            )
+    {
+        match &assignment.value {
+            AssignmentValue::Scalar(_) => words = words.saturating_add(1),
+            AssignmentValue::Compound(array) => {
+                words = words.saturating_add(array.elements.len());
+                compound_assignment_values =
+                    compound_assignment_values.saturating_add(array.elements.len());
+            }
+        }
+    }
+
+    (words, compound_assignment_values)
 }
 
 impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
@@ -77,9 +194,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let line_index = self._indexer.line_index();
         let locator = crate::Locator::new(source, line_index);
         let semantic_analysis = self.semantic_analysis;
-        let capacity = estimate_fact_build_capacity(self.semantic);
-        let estimated_word_nodes = capacity.commands.saturating_mul(2);
-        let estimated_word_occurrences = capacity.commands.saturating_mul(3);
+        let capacity = estimate_fact_build_capacity(self.semantic, self.command_visits_by_id);
 
         let mut commands: Vec<CommandFact<'_>> = Vec::with_capacity(self.semantic.command_count());
         let mut substitution_occurrences_by_command_id: Vec<Vec<HostedSubstitutionOccurrence<'_>>> =
@@ -103,20 +218,33 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let mut broken_assoc_key_spans = Vec::new();
         let mut comma_array_assignment_spans = Vec::new();
         let mut ifs_literal_backslash_assignment_value_spans = Vec::new();
-        let mut word_nodes = Vec::with_capacity(estimated_word_nodes);
-        let mut word_spans = ListArena::with_capacity(estimated_word_nodes.saturating_mul(2));
+        let mut word_nodes = Vec::with_capacity(capacity.word_nodes);
+        let mut word_spans = ListArena::with_capacity(capacity.word_nodes.saturating_mul(2));
         let mut word_span_scratch = Vec::new();
         let mut word_node_ids_by_span =
-            FxHashMap::with_capacity_and_hasher(estimated_word_nodes, Default::default());
-        let mut word_occurrences = Vec::with_capacity(estimated_word_occurrences);
+            FxHashMap::with_capacity_and_hasher(capacity.word_nodes, Default::default());
+        let mut word_occurrences = Vec::with_capacity(capacity.word_occurrences);
         let mut pending_arithmetic_word_occurrences = Vec::new();
         let mut pending_parameter_operand_word_occurrences = Vec::new();
-        let mut compound_assignment_value_word_spans = FxHashSet::default();
+        let mut compound_assignment_value_word_spans = FxHashSet::with_capacity_and_hasher(
+            capacity.compound_assignment_values,
+            Default::default(),
+        );
         let mut array_assignment_split_word_ids =
             Vec::with_capacity(capacity.commands.saturating_div(8));
-        let mut seen_word_occurrences = FxHashSet::default();
-        let mut seen_pending_arithmetic_word_occurrences = FxHashSet::default();
-        let mut seen_pending_parameter_operand_word_occurrences = FxHashSet::default();
+        let mut seen_word_occurrences = FxHashSet::with_capacity_and_hasher(
+            capacity.word_occurrences_per_command,
+            Default::default(),
+        );
+        let mut seen_pending_arithmetic_word_occurrences = FxHashSet::with_capacity_and_hasher(
+            capacity.word_occurrences_per_command,
+            Default::default(),
+        );
+        let mut seen_pending_parameter_operand_word_occurrences =
+            FxHashSet::with_capacity_and_hasher(
+                capacity.word_occurrences_per_command,
+                Default::default(),
+            );
         let mut assoc_binding_visibility_memo = FxHashMap::default();
         let mut pattern_exactly_one_extglob_spans = Vec::new();
         let mut case_pattern_expansions = Vec::new();
@@ -134,19 +262,10 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let mut arithmetic_update_operator_spans = Vec::new();
         let mut arithmetic_literal_spans = Vec::new();
 
-        let mut command_contexts = self.semantic.command_contexts().collect::<Vec<_>>();
-        command_contexts.sort_unstable_by(|left, right| {
-            let left_span = left.syntax_span();
-            let right_span = right.syntax_span();
-            left_span
-                .start
-                .offset
-                .cmp(&right_span.start.offset)
-                .then_with(|| right_span.end.offset.cmp(&left_span.end.offset))
-                .then_with(|| left.id().index().cmp(&right.id().index()))
-        });
-        for context in command_contexts {
-            let id = context.id();
+        for id in self.semantic.commands_in_source_order().iter().copied() {
+            let Some(context) = self.semantic.command_context(id) else {
+                continue;
+            };
             let Some(visit) = self
                 .command_visits_by_id
                 .get(id.index())
