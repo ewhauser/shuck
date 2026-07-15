@@ -2892,6 +2892,42 @@ print -r -- $arr
 }
 
 #[test]
+fn zsh_array_fanout_marks_only_unquoted_root_references() {
+    let source = "\
+#!/bin/zsh
+arr=(one two)
+scalar=value
+print -r -- $arr \"$arr\" pre$arr ${scalar:-$arr}
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            assert_eq!(
+                facts
+                    .words()
+                    .expansion_word_facts(ExpansionContext::CommandArgument)
+                    .filter_map(|fact| {
+                        let text = fact.span().slice(source);
+                        matches!(text, "$arr" | "\"$arr\"" | "pre$arr" | "${scalar:-$arr}")
+                            .then_some((text, fact.analysis().array_valued))
+                    })
+                    .collect::<Vec<_>>(),
+                vec![
+                    ("$arr", true),
+                    ("\"$arr\"", false),
+                    ("pre$arr", true),
+                    ("${scalar:-$arr}", false),
+                ]
+            );
+        },
+    );
+}
+
+#[test]
 fn plain_unindexed_array_references_classify_setopt_ksh_arrays_expansions() {
     let source = "\
 #!/bin/zsh

@@ -1307,28 +1307,16 @@ fn safe_value_special_parameter_slice_reference(reference: &VarRef) -> bool {
     matches!(reference.name.as_str(), "@" | "*")
 }
 
-struct ZshArrayFanoutContext<'a, 'flow> {
-    semantic: &'a SemanticModel,
-    semantic_analysis: &'a SemanticAnalysis<'a>,
-    value_flow: &'flow SemanticValueFlow<'flow, 'a>,
+#[derive(Clone, Copy)]
+struct ZshArrayFanoutContext<'borrow, 'analysis, 'model> {
+    semantic_analysis: &'analysis SemanticAnalysis<'model>,
+    value_flow: &'borrow SemanticValueFlow<'analysis, 'model>,
     scope: ScopeId,
-    options: Option<&'a ZshOptionState>,
+    policy: ArrayReferencePolicy,
 }
 
-fn apply_zsh_array_fanout(
-    word: &Word,
-    context: ZshArrayFanoutContext<'_, '_>,
-    analysis: &mut ExpansionAnalysis,
-) {
-    if context.semantic.shell_profile().dialect != shuck_parser::parser::ShellDialect::Zsh
-        || zsh_unindexed_array_fanout_is_disabled(context.options)
-        || !word_has_unquoted_visible_array_reference(
-            word,
-            context.semantic_analysis,
-            context.value_flow,
-            context.scope,
-        )
-    {
+fn apply_zsh_array_fanout(has_unquoted_visible_array_reference: bool, analysis: &mut ExpansionAnalysis) {
+    if !has_unquoted_visible_array_reference {
         return;
     }
 
@@ -1339,78 +1327,9 @@ fn apply_zsh_array_fanout(
     }
 }
 
-fn zsh_unindexed_array_fanout_is_disabled(options: Option<&ZshOptionState>) -> bool {
-    matches!(options.map(|options| options.ksh_arrays), Some(OptionValue::On))
-}
-
-fn word_has_unquoted_visible_array_reference(
-    word: &Word,
-    semantic_analysis: &SemanticAnalysis<'_>,
-    value_flow: &SemanticValueFlow<'_, '_>,
-    scope: ScopeId,
-) -> bool {
-    parts_have_unquoted_visible_array_reference(
-        &word.parts,
-        semantic_analysis,
-        value_flow,
-        scope,
-        false,
-    )
-}
-
-fn parts_have_unquoted_visible_array_reference(
-    parts: &[WordPartNode],
-    semantic_analysis: &SemanticAnalysis<'_>,
-    value_flow: &SemanticValueFlow<'_, '_>,
-    scope: ScopeId,
-    in_double_quotes: bool,
-) -> bool {
-    for part in parts {
-        match &part.kind {
-            WordPart::DoubleQuoted { parts, .. } => {
-                if parts_have_unquoted_visible_array_reference(
-                    parts,
-                    semantic_analysis,
-                    value_flow,
-                    scope,
-                    true,
-                ) {
-                    return true;
-                }
-            }
-            WordPart::Variable(name) if !in_double_quotes => {
-                if visible_name_is_array_like(
-                    name,
-                    part.span,
-                    semantic_analysis,
-                    value_flow,
-                    scope,
-                ) {
-                    return true;
-                }
-            }
-            WordPart::Parameter(parameter) if !in_double_quotes => {
-                if zsh_parameter_targets_visible_array(
-                    parameter,
-                    semantic_analysis,
-                    value_flow,
-                    scope,
-                ) {
-                    return true;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    false
-}
-
 fn zsh_parameter_targets_visible_array(
     parameter: &ParameterExpansion,
-    semantic_analysis: &SemanticAnalysis<'_>,
-    value_flow: &SemanticValueFlow<'_, '_>,
-    scope: ScopeId,
+    context: ZshArrayFanoutContext<'_, '_, '_>,
 ) -> bool {
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
@@ -1421,9 +1340,7 @@ fn zsh_parameter_targets_visible_array(
         }) if reference.subscript.is_none() => visible_name_is_array_like(
             &reference.name,
             reference.name_span,
-            semantic_analysis,
-            value_flow,
-            scope,
+            context,
         ),
         _ => false,
     }
@@ -1432,14 +1349,21 @@ fn zsh_parameter_targets_visible_array(
 fn visible_name_is_array_like(
     name: &Name,
     span: Span,
-    semantic_analysis: &SemanticAnalysis<'_>,
-    value_flow: &SemanticValueFlow<'_, '_>,
-    scope: ScopeId,
+    context: ZshArrayFanoutContext<'_, '_, '_>,
 ) -> bool {
-    if let Some(reference_id) = semantic_analysis.reference_id_for_name_at(name, span) {
-        return value_flow.reference_can_fan_out_when_unquoted(reference_id);
+    if let Some(reference_id) = context.semantic_analysis.reference_id_for_name_at(name, span) {
+        return context
+            .value_flow
+            .reference_can_fan_out_when_unquoted_with_policy(reference_id, context.policy);
     }
-    value_flow.name_can_fan_out_when_unquoted_without_reference(name, span, scope)
+    context
+        .value_flow
+        .name_can_fan_out_when_unquoted_without_reference_with_policy(
+            name,
+            span,
+            context.scope,
+            context.policy,
+        )
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
@@ -1523,13 +1447,14 @@ pub(crate) type PendingArithmeticSeenKey = (FactSpan, ExpansionContext, WordFact
 pub(crate) type PendingParameterOperandSeenKey =
     (FactSpan, ExpansionContext, WordFactHostKind);
 
-pub(crate) fn derive_word_fact_data<'a>(
+fn derive_word_fact_data<'a>(
     word: &'a Word,
     locator: Locator<'a>,
     shell_dialect: shuck_semantic::ShellDialect,
     span_store: &mut ListArena<Span>,
     scratch: &mut Vec<Span>,
-) -> WordNodeDerived<'a> {
+    zsh_array_fanout: Option<ZshArrayFanoutContext<'_, '_, 'a>>,
+) -> (WordNodeDerived<'a>, bool) {
     let source = locator.source();
     let escaped_template_bodies = word_spans::escaped_parameter_template_bodies(word.span, source);
     let may_have_runtime_expansion_spans = word_may_have_runtime_expansion_spans(word);
@@ -1542,9 +1467,12 @@ pub(crate) fn derive_word_fact_data<'a>(
         shell_dialect,
         may_have_runtime_expansion_spans,
         may_have_command_substitution_spans,
+        zsh_array_fanout,
     );
 
-    WordNodeDerived {
+    let has_unquoted_visible_array_reference =
+        traversal_spans.has_unquoted_visible_array_reference;
+    let derived = WordNodeDerived {
         static_text: borrowed_static_word_text(word, source),
         trailing_literal_char: word_trailing_literal_char(word, source),
         starts_with_extglob: word_spans::word_starts_with_extglob(word, source),
@@ -1649,7 +1577,9 @@ pub(crate) fn derive_word_fact_data<'a>(
                 collect_unquoted_literal_between_double_quoted_segments_spans(word, source, spans);
             },
         ),
-    }
+    };
+
+    (derived, has_unquoted_visible_array_reference)
 }
 
 #[derive(Default)]
@@ -1661,6 +1591,7 @@ struct DerivedWordTraversalSpans {
     unquoted_command_substitution_spans: Vec<Span>,
     unquoted_dollar_paren_command_substitution_spans: Vec<Span>,
     double_quoted_expansion_spans: Vec<Span>,
+    has_unquoted_visible_array_reference: bool,
 }
 
 fn collect_derived_word_traversal_spans<'a>(
@@ -1669,6 +1600,7 @@ fn collect_derived_word_traversal_spans<'a>(
     shell_dialect: shuck_semantic::ShellDialect,
     may_have_runtime_expansion_spans: bool,
     may_have_command_substitution_spans: bool,
+    zsh_array_fanout: Option<ZshArrayFanoutContext<'_, '_, 'a>>,
 ) -> DerivedWordTraversalSpans {
     let mut spans = DerivedWordTraversalSpans::default();
     if may_have_runtime_expansion_spans || may_have_command_substitution_spans {
@@ -1676,6 +1608,7 @@ fn collect_derived_word_traversal_spans<'a>(
             spans: &mut spans,
             collect_runtime_expansion_spans: may_have_runtime_expansion_spans,
             collect_command_substitution_spans: may_have_command_substitution_spans,
+            zsh_array_fanout,
         };
         walk_word_subtree(
             word,
@@ -1720,13 +1653,14 @@ fn collect_derived_word_traversal_spans<'a>(
     spans
 }
 
-struct DerivedWordTraversalVisitor<'spans> {
+struct DerivedWordTraversalVisitor<'spans, 'borrow, 'analysis, 'model> {
     spans: &'spans mut DerivedWordTraversalSpans,
     collect_runtime_expansion_spans: bool,
     collect_command_substitution_spans: bool,
+    zsh_array_fanout: Option<ZshArrayFanoutContext<'borrow, 'analysis, 'model>>,
 }
 
-impl<'a> WordSubtreeVisitor<'a> for DerivedWordTraversalVisitor<'_> {
+impl<'a> WordSubtreeVisitor<'a> for DerivedWordTraversalVisitor<'_, '_, '_, '_> {
     fn visit_part(&mut self, part: &'a WordPartNode, state: WordTraversalState<'a>) {
         if !state.processes_root_word() {
             return;
@@ -1768,7 +1702,7 @@ impl<'a> WordSubtreeVisitor<'a> for DerivedWordTraversalVisitor<'_> {
     }
 }
 
-impl DerivedWordTraversalVisitor<'_> {
+impl DerivedWordTraversalVisitor<'_, '_, '_, '_> {
     fn collect_runtime_expansion_part(&mut self, part: &WordPartNode, _state: WordTraversalState<'_>) {
         match &part.kind {
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. } => {
@@ -1812,13 +1746,18 @@ impl DerivedWordTraversalVisitor<'_> {
             WordPart::ZshQualifiedGlob(_) => {}
             WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
             WordPart::Parameter(parameter) => {
+                self.collect_zsh_parameter_array_fanout(parameter, quoted);
                 if word_spans::parameter_is_scalar_like(parameter) {
                     push_scalar(self.spans);
                 }
             }
-            WordPart::Variable(name) if matches!(name.as_str(), "@" | "*") => {}
-            WordPart::Variable(_)
-            | WordPart::ArithmeticExpansion { .. }
+            WordPart::Variable(name) => {
+                self.collect_zsh_variable_array_fanout(name, part.span, quoted);
+                if !matches!(name.as_str(), "@" | "*") {
+                    push_scalar(self.spans);
+                }
+            }
+            WordPart::ArithmeticExpansion { .. }
             | WordPart::Length(_)
             | WordPart::ArrayLength(_)
             | WordPart::Substring { .. }
@@ -1837,6 +1776,34 @@ impl DerivedWordTraversalVisitor<'_> {
             }
             WordPart::ArrayIndices(_) | WordPart::ArraySlice { .. } => {}
         }
+    }
+
+    #[inline]
+    fn collect_zsh_parameter_array_fanout(
+        &mut self,
+        parameter: &ParameterExpansion,
+        quoted: bool,
+    ) {
+        if quoted || self.spans.has_unquoted_visible_array_reference {
+            return;
+        }
+        let Some(context) = self.zsh_array_fanout else {
+            return;
+        };
+        self.spans.has_unquoted_visible_array_reference =
+            zsh_parameter_targets_visible_array(parameter, context);
+    }
+
+    #[inline]
+    fn collect_zsh_variable_array_fanout(&mut self, name: &Name, span: Span, quoted: bool) {
+        if quoted || self.spans.has_unquoted_visible_array_reference {
+            return;
+        }
+        let Some(context) = self.zsh_array_fanout else {
+            return;
+        };
+        self.spans.has_unquoted_visible_array_reference =
+            visible_name_is_array_like(name, span, context);
     }
 
     fn collect_double_quoted_expansion_part(
@@ -3237,25 +3204,28 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
 
         let id = WordNodeId::new(self.word_nodes.len());
         let mut analysis = analyze_word(word, self.source, Some(&self.command_shell_behavior));
-        apply_zsh_array_fanout(
-            word,
-            ZshArrayFanoutContext {
-                semantic: self.semantic,
+        let array_reference_policy = self.command_shell_behavior.array_reference_policy();
+        let zsh_array_fanout = (self.semantic.shell_profile().dialect
+            == shuck_parser::parser::ShellDialect::Zsh
+            && !matches!(
+                array_reference_policy,
+                ArrayReferencePolicy::RequiresExplicitSelector
+            ))
+        .then_some(ZshArrayFanoutContext {
                 semantic_analysis: self.semantic_analysis,
                 value_flow: &self.value_flow,
                 scope: self.command_scope,
-                options: self.command_shell_behavior.zsh_options(),
-            },
-            &mut analysis,
+                policy: array_reference_policy,
+            });
+        let (derived, has_unquoted_visible_array_reference) = derive_word_fact_data(
+            word,
+            self.locator,
+            self.command_shell_behavior.shell_dialect(),
+            self.word_spans,
+            self.word_span_scratch,
+            zsh_array_fanout,
         );
-        let derived =
-            derive_word_fact_data(
-                word,
-                self.locator,
-                self.command_shell_behavior.shell_dialect(),
-                self.word_spans,
-                self.word_span_scratch,
-            );
+        apply_zsh_array_fanout(has_unquoted_visible_array_reference, &mut analysis);
         self.word_nodes.push(WordNode {
             key,
             word,

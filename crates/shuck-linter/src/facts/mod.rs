@@ -90,9 +90,9 @@ use shuck_indexer::{CommentIndex, Indexer, LineIndex, RegionIndex};
 #[cfg(test)]
 use shuck_parser::parser::Parser;
 use shuck_semantic::{
-    ArithmeticLiteralBehavior, Binding, BindingAttributes, BindingId, BindingKind, CaseCliDispatch,
-    CommandKind, CompoundCommandKind, Declaration, DeclarationBuiltin,
-    DeclarationOperand as SemanticDeclarationOperand, FieldSplittingBehavior,
+    ArithmeticLiteralBehavior, ArrayReferencePolicy, Binding, BindingAttributes, BindingId,
+    BindingKind, CaseCliDispatch, CommandKind, CompoundCommandKind, Declaration,
+    DeclarationBuiltin, DeclarationOperand as SemanticDeclarationOperand, FieldSplittingBehavior,
     FileExpansionOrderBehavior, FunctionScopeKind, GlobDotBehavior, GlobFailureBehavior,
     GlobPatternBehavior, NonpersistentAssignmentAnalysisContext,
     NonpersistentAssignmentAnalysisOptions, NonpersistentAssignmentCommandContext,
