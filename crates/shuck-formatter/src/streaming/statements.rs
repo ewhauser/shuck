@@ -735,8 +735,18 @@ where
                     && !multiline_compound_assignment_command_substitution_body_prefix(line)
                         .is_empty()
             });
+        let mut active_heredoc: Option<RenderedHeredocTail> = None;
         for (index, line) in layout.lines[body_start..].iter().enumerate() {
             self.newline();
+            if let Some(heredoc) = active_heredoc.as_ref()
+                && !heredoc.strip_tabs
+            {
+                self.write_verbatim(line);
+                if heredoc.closes_source_line(line) {
+                    active_heredoc = None;
+                }
+                continue;
+            }
             let closes_inline_assignment =
                 layout.close_inline && body_start + index + 1 == layout.lines.len();
             let extra_indent = if inline_command_substitution_open {
@@ -754,6 +764,13 @@ where
                         formatter.write_text(line);
                     });
                 }
+            }
+            if let Some(heredoc) = active_heredoc.as_ref() {
+                if heredoc.closes(line) {
+                    active_heredoc = None;
+                }
+            } else {
+                active_heredoc = rendered_heredoc_tail_start(line);
             }
             if inline_command_substitution_open
                 && line.trim_start_matches([' ', '\t']).starts_with(')')

@@ -409,6 +409,14 @@ impl RenderedHeredocTail {
             line == self.delimiter
         }
     }
+
+    pub(crate) fn closes_source_line(&self, line: &str) -> bool {
+        if self.strip_tabs {
+            line.trim_start_matches('\t') == self.delimiter
+        } else {
+            line == self.delimiter
+        }
+    }
 }
 
 pub(crate) fn rendered_shell_text_has_heredoc_tail(text: &str) -> bool {

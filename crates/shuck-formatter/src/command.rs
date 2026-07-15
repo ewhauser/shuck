@@ -4,7 +4,8 @@ use crate::facts::classify_stmt_contains_heredoc;
 use crate::raw_syntax::{
     RawShellText, common_nonempty_shell_indent, leading_shell_indent,
     matching_raw_command_substitution_close, normalize_raw_pipeline_continuations,
-    refine_common_indent, shell_comment_can_start, skip_escaped_or_quoted,
+    refine_common_indent, rendered_heredoc_tail_start, shell_comment_can_start,
+    skip_escaped_or_quoted,
 };
 use crate::source::SourceView;
 use crate::word::{render_arithmetic_expr_to_buf, render_word_syntax_to_buf};

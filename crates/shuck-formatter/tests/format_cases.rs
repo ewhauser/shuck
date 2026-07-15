@@ -1194,12 +1194,30 @@ default_format_cases! {
 }
 
 default_format_ast_cases! {
+    compound_assignment_command_substitution_heredoc_keeps_body_unindented:
+        "values=(\"$(\n    cat <<EOF\nHello World\nTime is $(date)\nEOF\n)\")\n"
+        => "values=(\"$(\n\tcat <<EOF\nHello World\nTime is $(date)\nEOF\n)\")\n";
+    compound_assignment_heredoc_does_not_close_on_indented_delimiter_text:
+        "values=(\"$(\n    cat <<EOF\n\tEOF\nstill body\nEOF\n)\")\n"
+        => "values=(\"$(\n\tcat <<EOF\n\tEOF\nstill body\nEOF\n)\")\n";
+    compound_assignment_tab_stripped_heredoc_keeps_valid_tab_indentation:
+        "values=(\"$(\n    cat <<-EOF\n\tbody\n\tEOF\n)\")\n"
+        => "values=(\"$(\n\tcat <<-EOF\n\tbody\n\tEOF\n)\")\n";
+    compound_assignment_quoted_heredoc_keeps_body_unindented:
+        "values=(\"$(\n    cat << 'EOF'\nbody\nEOF\n)\")\n"
+        => "values=(\"$(\n\tcat << 'EOF'\nbody\nEOF\n)\")\n";
     preserves_inline_multiline_compound_assignment_delimiters:
         "options=(path frozen without\n  ssl_verify_mode system_bindir user_agent)\n"
         => "options=(path frozen without\n\tssl_verify_mode system_bindir user_agent)\n";
     aligns_compound_assignment_command_substitution_close_suffixes:
         "f() {\n  case \"$prev\" in\n  -a)\n    COMPREPLY=($(compgen -W \"$(\n      salt-key -l un --no-color\n      salt-key -l rej --no-color\n    )\" -- \"${cur}\"))\n    ;;\n  esac\n}\n"
         => "f() {\n\tcase \"$prev\" in\n\t-a)\n\t\tCOMPREPLY=($(compgen -W \"$(\n\t\t\tsalt-key -l un --no-color\n\t\t\tsalt-key -l rej --no-color\n\t\t)\" -- \"${cur}\"))\n\t\t;;\n\tesac\n}\n";
+}
+
+default_idempotent_cases! {
+    compound_assignment_command_substitution_heredoc_is_idempotent:
+        "values=(\"$(\n\tcat <<EOF\nHello World\nTime is $(date)\nEOF\n)\")\n",
+        "compound-heredoc.bash";
 }
 
 bash_format_ast_cases! {
