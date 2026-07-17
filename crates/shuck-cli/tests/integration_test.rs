@@ -781,11 +781,11 @@ fn check_unfixable_prevents_fixing_matching_rules() {
 }
 
 #[test]
-fn check_unterminated_quote_reports_parse_error() {
+fn check_unterminated_quote_reports_opening_quote_location() {
     let tempdir = tempdir().unwrap();
     fs::write(
         tempdir.path().join("broken.sh"),
-        "#!/bin/bash\necho \"unterminated\n",
+        "#!/bin/bash\nvalue=abc\"unterminated\n",
     )
     .unwrap();
 
@@ -795,8 +795,8 @@ fn check_unterminated_quote_reports_parse_error() {
     cmd.assert()
         .code(1)
         .stdout(predicate::str::contains("error[parse-error]:"))
-        .stdout(predicate::str::contains("--> broken.sh:2:6"))
-        .stdout(predicate::str::contains("2 | echo \"unterminated"))
+        .stdout(predicate::str::contains("--> broken.sh:2:10"))
+        .stdout(predicate::str::contains("2 | value=abc\"unterminated"))
         .stdout(predicate::str::contains("^"));
 }
 

@@ -93,14 +93,14 @@ impl<'a> Lexer<'a> {
     ) -> Option<LexedToken<'a>> {
         let segment = match self.read_unquoted_segment(start) {
             Ok(segment) => segment,
-            Err(kind) => return Some(LexedToken::error(kind)),
+            Err(error) => return Some(LexedToken::error(error)),
         };
         if segment.as_str().is_empty() {
             return None;
         }
         let mut lexed_word = LexedWord::from_segment(segment);
-        if let Err(kind) = self.append_segmented_continuation(&mut lexed_word) {
-            return Some(LexedToken::error(kind));
+        if let Err(error) = self.append_segmented_continuation(&mut lexed_word) {
+            return Some(LexedToken::error(error));
         }
         Some(LexedToken::with_word_payload(TokenKind::Word, lexed_word))
     }
@@ -177,8 +177,8 @@ impl<'a> Lexer<'a> {
         &mut self,
         mut lexed_word: LexedWord<'a>,
     ) -> Option<LexedToken<'a>> {
-        if let Err(kind) = self.append_segmented_continuation(&mut lexed_word) {
-            return Some(LexedToken::error(kind));
+        if let Err(error) = self.append_segmented_continuation(&mut lexed_word) {
+            return Some(LexedToken::error(error));
         }
 
         Some(LexedToken::with_word_payload(TokenKind::Word, lexed_word))
@@ -198,7 +198,7 @@ impl<'a> Lexer<'a> {
 
         let segment = match self.read_unquoted_segment(start) {
             Ok(segment) => segment,
-            Err(kind) => return Some(LexedToken::error(kind)),
+            Err(error) => return Some(LexedToken::error(error)),
         };
 
         if segment.as_str().is_empty() {
@@ -211,12 +211,13 @@ impl<'a> Lexer<'a> {
     pub(in crate::parser) fn read_unquoted_segment(
         &mut self,
         start: Position,
-    ) -> Result<LexedWordSegment<'a>, LexerErrorKind> {
+    ) -> Result<LexedWordSegment<'a>, LexerError> {
         let mut word = (!self.reinject_buf.is_empty()).then(|| String::with_capacity(16));
         while let Some(ch) = self.peek_char() {
             if ch == '"' || ch == '\'' {
                 break;
             } else if ch == '$' {
+                let expansion_start = self.current_position();
                 if matches!(self.second_char(), Some('\'') | Some('"'))
                     && (self.current_position().offset > start.offset
                         || word.as_ref().is_some_and(|word| !word.is_empty()))
@@ -234,18 +235,27 @@ impl<'a> Lexer<'a> {
                     Self::push_capture_char(&mut word, '[');
                     self.advance();
                     if !self.read_legacy_arithmetic_into(&mut word, start) {
-                        return Err(LexerErrorKind::CommandSubstitution);
+                        return Err(LexerError::new(
+                            LexerErrorKind::CommandSubstitution,
+                            expansion_start,
+                        ));
                     }
                 } else if self.peek_char() == Some('(') {
                     if self.second_char() == Some('(') {
                         if !self.read_arithmetic_expansion_into(&mut word) {
-                            return Err(LexerErrorKind::CommandSubstitution);
+                            return Err(LexerError::new(
+                                LexerErrorKind::CommandSubstitution,
+                                expansion_start,
+                            ));
                         }
                     } else {
                         Self::push_capture_char(&mut word, '(');
                         self.advance();
                         if !self.read_command_subst_into(&mut word) {
-                            return Err(LexerErrorKind::CommandSubstitution);
+                            return Err(LexerError::new(
+                                LexerErrorKind::CommandSubstitution,
+                                expansion_start,
+                            ));
                         }
                     }
                 } else if self.peek_char() == Some('{') {
@@ -311,7 +321,10 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 if !closed {
-                    return Err(LexerErrorKind::BacktickSubstitution);
+                    return Err(LexerError::new(
+                        LexerErrorKind::BacktickSubstitution,
+                        capture_end,
+                    ));
                 }
             } else if ch == '\\' {
                 let capture_end = self.current_position();
@@ -536,7 +549,7 @@ impl<'a> Lexer<'a> {
     pub(in crate::parser) fn append_segmented_continuation(
         &mut self,
         word: &mut LexedWord<'a>,
-    ) -> Result<(), LexerErrorKind> {
+    ) -> Result<(), LexerError> {
         loop {
             match self.peek_char() {
                 Some('\\') if self.second_char() == Some('\n') => {

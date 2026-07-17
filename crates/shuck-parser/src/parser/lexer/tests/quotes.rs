@@ -20,6 +20,21 @@ fn test_double_quoted_string() {
 }
 
 #[test]
+fn test_unterminated_segmented_quote_error_span_starts_at_quote() {
+    let source = "prefix=ok\"first line\nsecond line";
+    let mut lexer = Lexer::new(source);
+
+    let token = lexer.next_lexed_token().unwrap();
+
+    assert_eq!(token.kind, TokenKind::Error);
+    assert_eq!(token.error_kind(), Some(LexerErrorKind::DoubleQuote));
+    assert_eq!(token.span.start.line, 1);
+    assert_eq!(token.span.start.column, 10);
+    assert_eq!(token.span.start.offset, 9);
+    assert_eq!(token.span.end.offset, source.len());
+}
+
+#[test]
 fn test_brace_expansion_token_ignores_quoted_closers() {
     let mut lexer = Lexer::new("echo {\"}\",a}\n");
 

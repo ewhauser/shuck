@@ -4,11 +4,11 @@ impl<'a> Lexer<'a> {
     pub(in crate::parser) fn read_single_quoted_string(&mut self) -> Option<LexedToken<'a>> {
         let segment = match self.read_single_quoted_segment() {
             Ok(segment) => segment,
-            Err(kind) => return Some(LexedToken::error(kind)),
+            Err(error) => return Some(LexedToken::error(error)),
         };
         let mut word = LexedWord::from_segment(segment);
-        if let Err(kind) = self.append_segmented_continuation(&mut word) {
-            return Some(LexedToken::error(kind));
+        if let Err(error) = self.append_segmented_continuation(&mut word) {
+            return Some(LexedToken::error(error));
         }
 
         Some(LexedToken::with_word_payload(TokenKind::LiteralWord, word))
@@ -16,7 +16,7 @@ impl<'a> Lexer<'a> {
 
     pub(in crate::parser) fn read_single_quoted_segment(
         &mut self,
-    ) -> Result<LexedWordSegment<'a>, LexerErrorKind> {
+    ) -> Result<LexedWordSegment<'a>, LexerError> {
         debug_assert_eq!(self.peek_char(), Some('\''));
 
         let wrapper_start = self.current_position();
@@ -64,7 +64,7 @@ impl<'a> Lexer<'a> {
         }
 
         if !closed {
-            return Err(LexerErrorKind::SingleQuote);
+            return Err(LexerError::new(LexerErrorKind::SingleQuote, wrapper_start));
         }
 
         let wrapper_span = Some(Span::from_positions(wrapper_start, self.current_position()));
@@ -90,11 +90,11 @@ impl<'a> Lexer<'a> {
     pub(in crate::parser) fn read_dollar_single_quoted_string(&mut self) -> Option<LexedToken<'a>> {
         let segment = match self.read_dollar_single_quoted_segment() {
             Ok(segment) => segment,
-            Err(kind) => return Some(LexedToken::error(kind)),
+            Err(error) => return Some(LexedToken::error(error)),
         };
         let mut word = LexedWord::from_segment(segment);
-        if let Err(kind) = self.append_segmented_continuation(&mut word) {
-            return Some(LexedToken::error(kind));
+        if let Err(error) = self.append_segmented_continuation(&mut word) {
+            return Some(LexedToken::error(error));
         }
 
         let kind = if word.single_segment().is_some() {
@@ -108,7 +108,7 @@ impl<'a> Lexer<'a> {
 
     pub(in crate::parser) fn read_dollar_single_quoted_segment(
         &mut self,
-    ) -> Result<LexedWordSegment<'a>, LexerErrorKind> {
+    ) -> Result<LexedWordSegment<'a>, LexerError> {
         debug_assert_eq!(self.peek_char(), Some('$'));
         debug_assert_eq!(self.second_char(), Some('\''));
 
@@ -242,7 +242,7 @@ impl<'a> Lexer<'a> {
             self.advance();
         }
 
-        Err(LexerErrorKind::SingleQuote)
+        Err(LexerError::new(LexerErrorKind::SingleQuote, wrapper_start))
     }
     pub(in crate::parser) fn read_double_quoted_string(&mut self) -> Option<LexedToken<'a>> {
         self.read_double_quoted_word(false)
@@ -258,11 +258,11 @@ impl<'a> Lexer<'a> {
     ) -> Option<LexedToken<'a>> {
         let segment = match self.read_double_quoted_segment_with_dollar(dollar) {
             Ok(segment) => segment,
-            Err(kind) => return Some(LexedToken::error(kind)),
+            Err(error) => return Some(LexedToken::error(error)),
         };
         let mut word = LexedWord::from_segment(segment);
-        if let Err(kind) = self.append_segmented_continuation(&mut word) {
-            return Some(LexedToken::error(kind));
+        if let Err(error) = self.append_segmented_continuation(&mut word) {
+            return Some(LexedToken::error(error));
         }
 
         let kind = if word.single_segment().is_some() {
@@ -276,20 +276,20 @@ impl<'a> Lexer<'a> {
 
     pub(in crate::parser) fn read_double_quoted_segment(
         &mut self,
-    ) -> Result<LexedWordSegment<'a>, LexerErrorKind> {
+    ) -> Result<LexedWordSegment<'a>, LexerError> {
         self.read_double_quoted_segment_with_dollar(false)
     }
 
     pub(in crate::parser) fn read_dollar_double_quoted_segment(
         &mut self,
-    ) -> Result<LexedWordSegment<'a>, LexerErrorKind> {
+    ) -> Result<LexedWordSegment<'a>, LexerError> {
         self.read_double_quoted_segment_with_dollar(true)
     }
 
     pub(in crate::parser) fn read_double_quoted_segment_with_dollar(
         &mut self,
         dollar: bool,
-    ) -> Result<LexedWordSegment<'a>, LexerErrorKind> {
+    ) -> Result<LexedWordSegment<'a>, LexerError> {
         if dollar {
             debug_assert_eq!(self.peek_char(), Some('$'));
             debug_assert_eq!(self.second_char(), Some('"'));
@@ -321,7 +321,10 @@ impl<'a> Lexer<'a> {
                         }
                         None => {
                             self.consume_source_bytes(rest.len());
-                            return Err(LexerErrorKind::DoubleQuote);
+                            return Err(LexerError::new(
+                                LexerErrorKind::DoubleQuote,
+                                wrapper_start,
+                            ));
                         }
                         _ => {}
                     }
@@ -464,7 +467,7 @@ impl<'a> Lexer<'a> {
         }
 
         if !closed {
-            return Err(LexerErrorKind::DoubleQuote);
+            return Err(LexerError::new(LexerErrorKind::DoubleQuote, wrapper_start));
         }
 
         let wrapper_span = Some(Span::from_positions(wrapper_start, self.current_position()));
