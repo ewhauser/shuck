@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.0.45](https://github.com/ewhauser/shuck/compare/v0.0.44...v0.0.45) (2026-07-17)
+
+
+### Features
+
+* **linter:** implement remaining autofixes ([#1175](https://github.com/ewhauser/shuck/issues/1175)) ([7352f7d](https://github.com/ewhauser/shuck/commit/7352f7db61137df1e3af6e92dd04342886cf7622))
+
+
+### Bug Fixes
+
+* **discover:** analyze explicit shell inputs ([#1181](https://github.com/ewhauser/shuck/issues/1181)) ([09917ca](https://github.com/ewhauser/shuck/commit/09917ca93e4f56cfc2d3c6258685a815dbcebe1d))
+* **formatter:** honor command substitution continuation style ([#1179](https://github.com/ewhauser/shuck/issues/1179)) ([0a9db31](https://github.com/ewhauser/shuck/commit/0a9db31a893417ffc39661b467991487b9becfe2))
+* **parser:** preserve unterminated quote locations ([#1180](https://github.com/ewhauser/shuck/issues/1180)) ([8b9d310](https://github.com/ewhauser/shuck/commit/8b9d3103023d62a2d91c75d9d28cbf411e3858bd))
+
+
+### Performance
+
+* **linter:** index C063 cutoff candidates ([#1173](https://github.com/ewhauser/shuck/issues/1173)) ([b94d17a](https://github.com/ewhauser/shuck/commit/b94d17aa0b470f2431a17eaec599bbfff1f1946c))
+* **linter:** pre-size word fact collections ([#1174](https://github.com/ewhauser/shuck/issues/1174)) ([7d346f5](https://github.com/ewhauser/shuck/commit/7d346f5099c6aa00782569898464e6cbe82db93f))
+
 ## [0.0.44](https://github.com/ewhauser/shuck/compare/v0.0.43...v0.0.44) (2026-07-15)
 
 
