@@ -918,6 +918,8 @@ pub(super) fn push_command_substitution_inline_body(
     }
     if options.space_redirects() {
         target.push_str(body);
+    } else if options.binary_next_line() {
+        push_raw_shell_text_with_normalized_redirect_spacing_preserving_continuations(target, body);
     } else {
         push_raw_shell_text_with_normalized_redirect_spacing(target, body);
     }

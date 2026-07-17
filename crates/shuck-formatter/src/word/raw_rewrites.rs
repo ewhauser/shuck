@@ -503,6 +503,13 @@ pub(super) fn push_raw_shell_text_with_normalized_redirect_spacing(
 ) {
     let normalized_pipeline = normalize_raw_pipeline_continuations(text);
     let text = normalized_pipeline.as_deref().unwrap_or(text);
+    push_raw_shell_text_with_normalized_redirect_spacing_preserving_continuations(target, text);
+}
+
+pub(super) fn push_raw_shell_text_with_normalized_redirect_spacing_preserving_continuations(
+    target: &mut String,
+    text: &str,
+) {
     let mut lines = text.split('\n');
     if let Some(first) = lines.next() {
         push_raw_shell_line_with_normalized_redirect_spacing(target, first);
@@ -1531,6 +1538,9 @@ pub(super) fn source_indent_plus_one_unit(
     indent: &str,
     options: &ResolvedShellFormatOptions,
 ) -> String {
+    if indent.is_empty() {
+        return options.indent_prefix(1);
+    }
     if indent.chars().all(|ch| ch == '\t') {
         let mut extended = indent.to_string();
         extended.push('\t');

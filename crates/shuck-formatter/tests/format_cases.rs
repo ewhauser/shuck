@@ -8,8 +8,8 @@ use shuck_linter::{AnalysisRequest, Diagnostic, LinterSettings};
 use shuck_parser::{ShellDialect as ParseShellDialect, parser::Parser};
 
 use shuck_formatter::{
-    FormatError, FormattedSource, ShellDialect, ShellFormatOptions, format_file_ast, format_source,
-    source_is_formatted,
+    FormatError, FormattedSource, IndentStyle, ShellDialect, ShellFormatOptions, format_file_ast,
+    format_source, source_is_formatted,
 };
 
 fn parse_for_ast_format(
@@ -2273,6 +2273,37 @@ unchanged_cases_with_options! {
     binary_next_line_does_not_force_single_line_pipelines_to_wrap:
         ShellFormatOptions::default().with_binary_next_line(true),
         "cat foo | cat bar\n";
+}
+
+#[test]
+fn space_indented_binary_next_line_command_substitution_keeps_continuations() {
+    let options = ShellFormatOptions::default()
+        .with_indent_style(IndentStyle::Space)
+        .with_indent_width(4)
+        .with_binary_next_line(true);
+    let source = r#"#!/bin/bash
+
+ls -al \
+    | grep "$USER" \
+    | grep -i "jul"
+
+foobar=$(ls -al \
+    | grep "$USER" \
+    | grep -i "jul")
+echo "$foobar"
+"#;
+
+    assert_unchanged_with_ast(source, Some(Path::new("sample.sh")), &options);
+    assert!(!format_to_string(source, Some(Path::new("sample.sh")), &options).contains('\t'));
+}
+
+format_cases_with_options! {
+    space_indented_command_substitution_normalizes_with_spaces:
+        ShellFormatOptions::default()
+            .with_indent_style(IndentStyle::Space)
+            .with_indent_width(4),
+        "foobar=$(ls -al \\\n    | grep \"$USER\" \\\n    | grep -i \"jul\")\n",
+        => "foobar=$(ls -al |\n    grep \"$USER\" |\n    grep -i \"jul\")\n";
 }
 
 format_cases_with_options! {
