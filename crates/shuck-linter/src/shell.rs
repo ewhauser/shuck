@@ -79,9 +79,7 @@ impl ShellDialect {
             _ => path
                 .file_name()
                 .and_then(|name| name.to_str())
-                .filter(|name| is_known_zsh_dotfile_name(name))
-                .map(|_| Self::Zsh)
-                .unwrap_or(Self::Unknown),
+                .map_or(Self::Unknown, infer_from_known_shell_filename),
         }
     }
 
@@ -555,20 +553,18 @@ fn is_shell_name_byte(byte: u8) -> bool {
     byte == b'_' || byte.is_ascii_alphanumeric()
 }
 
-fn is_known_zsh_dotfile_name(name: &str) -> bool {
-    matches!(
-        name.to_ascii_lowercase().as_str(),
-        ".zshrc"
-            | "zshrc"
-            | ".zshenv"
-            | "zshenv"
-            | ".zprofile"
-            | "zprofile"
-            | ".zlogin"
-            | "zlogin"
-            | ".zlogout"
-            | "zlogout"
-    )
+fn infer_from_known_shell_filename(name: &str) -> ShellDialect {
+    if name == "PKGBUILD" {
+        return ShellDialect::Bash;
+    }
+
+    match name.to_ascii_lowercase().as_str() {
+        ".bashrc" | "bashrc" => ShellDialect::Bash,
+        ".profile" | "profile" => ShellDialect::Sh,
+        ".zshrc" | "zshrc" | ".zshenv" | "zshenv" | ".zprofile" | "zprofile" | ".zlogin"
+        | "zlogin" | ".zlogout" | "zlogout" => ShellDialect::Zsh,
+        _ => ShellDialect::Unknown,
+    }
 }
 
 fn shell_words(line: &str) -> Vec<&str> {
@@ -606,6 +602,18 @@ mod tests {
             Some(Path::new("/tmp/.zshrc")),
         );
         assert_eq!(inferred, ShellDialect::Zsh);
+    }
+
+    #[test]
+    fn infers_known_shell_filenames_without_extensions() {
+        for (path, expected) in [
+            ("/tmp/PKGBUILD", ShellDialect::Bash),
+            ("/tmp/.bashrc", ShellDialect::Bash),
+            ("/tmp/.profile", ShellDialect::Sh),
+            ("/tmp/.zshrc", ShellDialect::Zsh),
+        ] {
+            assert_eq!(ShellDialect::infer_from_path(Path::new(path)), expected);
+        }
     }
 
     #[test]

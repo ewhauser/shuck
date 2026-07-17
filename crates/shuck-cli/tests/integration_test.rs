@@ -1950,6 +1950,92 @@ fn check_zsh_shebang_parses_with_inferred_zsh_dialect() {
 }
 
 #[test]
+fn check_analyzes_every_explicit_regular_file() {
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+
+    let tempdir = tempdir().unwrap();
+    #[cfg(unix)]
+    let executable = tempdir.path().join("tool");
+    for name in ["script", "PKGBUILD", ".bashrc", "notes.txt", "tool"] {
+        fs::write(tempdir.path().join(name), "{\n").unwrap();
+    }
+    #[cfg(unix)]
+    {
+        let mut permissions = fs::metadata(&executable).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&executable, permissions).unwrap();
+    }
+
+    for name in ["script", "PKGBUILD", ".bashrc", "notes.txt", "tool"] {
+        let mut cmd = Command::cargo_bin("shuck").unwrap();
+        configure_env_cache(&mut cmd, tempdir.path());
+        cmd.current_dir(tempdir.path())
+            .args(["check", "--no-cache", name]);
+        cmd.assert()
+            .code(1)
+            .stdout(predicate::str::contains(format!("--> {name}:1:1")));
+    }
+}
+
+#[test]
+fn check_per_file_shell_reaches_explicit_extensionless_file() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("configured"), "{\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path()).args([
+        "check",
+        "--no-cache",
+        "--per-file-shell",
+        "configured:bash",
+        "configured",
+    ]);
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("--> configured:1:1"));
+}
+
+#[test]
+fn check_directory_discovery_stays_limited_to_shell_candidates() {
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("script"), "#!/bin/sh\n{\n").unwrap();
+    fs::write(tempdir.path().join("PKGBUILD"), "{\n").unwrap();
+    fs::write(tempdir.path().join(".bashrc"), "{\n").unwrap();
+    fs::write(tempdir.path().join(".profile"), "{\n").unwrap();
+    fs::write(tempdir.path().join(".zshrc"), "{\n").unwrap();
+    fs::write(tempdir.path().join("unknown"), "{\n").unwrap();
+    fs::write(tempdir.path().join("notes.txt"), "{\n").unwrap();
+    let executable = tempdir.path().join("tool");
+    fs::write(&executable, "{\n").unwrap();
+    #[cfg(unix)]
+    {
+        let mut permissions = fs::metadata(&executable).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&executable, permissions).unwrap();
+    }
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--no-cache"]);
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("--> script:2:1"))
+        .stdout(predicate::str::contains("--> PKGBUILD:1:1"))
+        .stdout(predicate::str::contains("--> .bashrc:1:1"))
+        .stdout(predicate::str::contains("--> .profile:1:1"))
+        .stdout(predicate::str::contains("--> .zshrc:1:1"))
+        .stdout(predicate::str::contains("--> unknown:").not())
+        .stdout(predicate::str::contains("--> notes.txt:").not())
+        .stdout(predicate::str::contains("--> tool:").not());
+}
+
+#[test]
 fn check_exclude_skips_walked_files_but_not_explicit_files_without_force_exclude() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
