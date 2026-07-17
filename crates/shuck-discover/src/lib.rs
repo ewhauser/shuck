@@ -142,9 +142,8 @@ fn collect_input(
             return Ok(());
         }
         collect_directory(input, cwd, project_root, exclude_matcher, options, files)?;
-    } else if metadata.is_file()
-        && let Some(kind) = discovered_file_kind(input)?
-    {
+    } else if metadata.is_file() {
+        let kind = explicit_file_kind(input)?;
         if options.force_exclude {
             if exclude_matcher.matches(input, cwd) {
                 return Ok(());
@@ -629,6 +628,15 @@ fn discovered_file_kind(path: &Path) -> Result<Option<FileKind>> {
     Ok(None)
 }
 
+fn explicit_file_kind(path: &Path) -> Result<FileKind> {
+    // A directly named regular file is an authoritative request to process that
+    // file. Preserve embedded-host detection, but otherwise let the shell parser
+    // decide whether the contents are valid instead of silently dropping the
+    // input. Directory walks continue to use `discovered_file_kind` so unknown
+    // files are not parsed indiscriminately.
+    Ok(discovered_file_kind(path)?.unwrap_or(FileKind::Shell))
+}
+
 fn read_shebang_prefix(path: &Path) -> Result<Vec<u8>> {
     let file = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
     let mut reader = BufReader::new(file).take(SHEBANG_SNIFF_LIMIT_BYTES);
@@ -701,6 +709,8 @@ impl ExcludeMatcher {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
 
     use tempfile::tempdir;
@@ -745,6 +755,16 @@ mod tests {
     }
 
     #[test]
+    fn detects_known_shell_filenames_without_shebangs() {
+        let tempdir = tempdir().unwrap();
+        for name in ["PKGBUILD", ".bashrc", ".profile"] {
+            let script = tempdir.path().join(name);
+            fs::write(&script, "echo ok\n").unwrap();
+            assert!(is_shell_script(&script).unwrap(), "{name}");
+        }
+    }
+
+    #[test]
     fn detects_extensionless_compdef_completion_file() {
         let tempdir = tempdir().unwrap();
         let script = tempdir.path().join("_zdot");
@@ -782,6 +802,74 @@ mod tests {
         fs::write(&file, vec![b'x'; (SHEBANG_SNIFF_LIMIT_BYTES as usize) * 2]).unwrap();
 
         assert!(!is_shell_script(&file).unwrap());
+    }
+
+    #[test]
+    fn explicit_regular_files_bypass_recursive_candidate_filtering() {
+        let tempdir = tempdir().unwrap();
+        let extensionless = tempdir.path().join("script");
+        let executable = tempdir.path().join("tool");
+        let non_shell = tempdir.path().join("notes.txt");
+        for path in [&extensionless, &executable, &non_shell] {
+            fs::write(path, "plain text without a shell marker\n").unwrap();
+        }
+        #[cfg(unix)]
+        {
+            let mut permissions = fs::metadata(&executable).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&executable, permissions).unwrap();
+        }
+
+        let files = discover_files(
+            &[extensionless, executable, non_shell],
+            tempdir.path(),
+            &DiscoveryOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(files.len(), 3);
+        assert!(files.iter().all(|file| file.kind == FileKind::Shell));
+    }
+
+    #[test]
+    fn directory_walk_keeps_unknown_regular_files_filtered() {
+        let tempdir = tempdir().unwrap();
+        let executable = tempdir.path().join("tool");
+        fs::write(&executable, "plain text without a shell marker\n").unwrap();
+        #[cfg(unix)]
+        {
+            let mut permissions = fs::metadata(&executable).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&executable, permissions).unwrap();
+        }
+        fs::write(tempdir.path().join("notes.txt"), "not shell\n").unwrap();
+        fs::write(tempdir.path().join("script"), "#!/bin/sh\necho ok\n").unwrap();
+        fs::write(tempdir.path().join("PKGBUILD"), "echo package\n").unwrap();
+        fs::write(tempdir.path().join(".bashrc"), "echo bash\n").unwrap();
+        fs::write(tempdir.path().join(".profile"), "echo profile\n").unwrap();
+        fs::write(tempdir.path().join(".zshrc"), "print zsh\n").unwrap();
+
+        let files = discover_files(
+            &[tempdir.path().to_path_buf()],
+            tempdir.path(),
+            &DiscoveryOptions::default(),
+        )
+        .unwrap();
+        let display_paths = files
+            .iter()
+            .map(|file| file.display_path.clone())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            display_paths,
+            vec![
+                PathBuf::from(".bashrc"),
+                PathBuf::from(".profile"),
+                PathBuf::from(".zshrc"),
+                PathBuf::from("PKGBUILD"),
+                PathBuf::from("script"),
+            ]
+        );
     }
 
     #[test]
