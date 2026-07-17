@@ -320,6 +320,18 @@ impl LexerErrorKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LexerError {
+    kind: LexerErrorKind,
+    position: Position,
+}
+
+impl LexerError {
+    fn new(kind: LexerErrorKind, position: Position) -> Self {
+        Self { kind, position }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TokenPayload<'a> {
     None,
@@ -416,17 +428,23 @@ impl<'a> LexedToken<'a> {
         }
     }
 
-    fn error(kind: LexerErrorKind) -> Self {
+    fn error(error: LexerError) -> Self {
         Self {
             kind: TokenKind::Error,
-            span: Span::new(),
+            span: Span::at(error.position),
             flags: TokenFlags::empty(),
-            payload: TokenPayload::Error(kind),
+            payload: TokenPayload::Error(error.kind),
         }
     }
 
     pub(crate) fn with_span(mut self, span: Span) -> Self {
-        self.span = span;
+        // The error constructor records the failing construct's start; the
+        // outer token wrapper supplies the end reached while lexing it.
+        self.span = if self.kind == TokenKind::Error {
+            Span::from_positions(self.span.start, span.end)
+        } else {
+            span
+        };
         self
     }
 

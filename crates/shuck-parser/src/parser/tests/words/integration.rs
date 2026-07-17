@@ -19,6 +19,37 @@ fn test_unterminated_double_quote_rejected() {
 }
 
 #[test]
+fn test_unterminated_double_quote_reports_segment_start() {
+    let source = r#"_FFS_TX="${_FFS_TX:-$(cat "${_donation_tx_file"} || { echo BAD; exit 1;}"#;
+    let input = format!("{}{source}", "\n".repeat(26));
+    let parsed = Parser::new(&input).parse();
+    let diagnostic = parsed.diagnostics.first().unwrap();
+
+    assert_eq!(diagnostic.span.start.line, 27);
+    assert_eq!(diagnostic.span.start.column, 9);
+    assert_eq!(diagnostic.span.start.offset, input.find('"').unwrap());
+
+    let Error::Parse { line, column, .. } = parsed.strict_error();
+    assert_eq!((line, column), (27, 9));
+}
+
+#[test]
+fn test_unterminated_multiline_quotes_report_their_opening_tokens() {
+    let cases = [
+        ("prefix=ok\"first line\nsecond line", 10),
+        ("prefix=ok'first line\nsecond line", 10),
+    ];
+
+    for (input, expected_column) in cases {
+        let parsed = Parser::new(input).parse();
+        let diagnostic = parsed.diagnostics.first().unwrap();
+
+        assert_eq!(diagnostic.span.start.line, 1, "{input:?}");
+        assert_eq!(diagnostic.span.start.column, expected_column, "{input:?}");
+    }
+}
+
+#[test]
 fn test_parse_long_suffix_trim_operator_inside_double_quotes() {
     let input = "echo \"${1%%.*}\" \"${package_url%%#*}\"\n";
     let script = Parser::new(input).parse().unwrap().file;
