@@ -84,6 +84,7 @@ pub fn word_quoted_all_elements_array_slice_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
+#[cfg(test)]
 pub fn word_has_quoted_all_elements_array_slice(word: &Word) -> bool {
     !word_quoted_all_elements_array_slice_spans(word).is_empty()
 }
@@ -96,6 +97,7 @@ pub fn word_has_direct_all_elements_array_expansion_in_source(
     !direct_all_elements_array_expansion_part_spans(word, locator, shell_dialect).is_empty()
 }
 
+#[cfg(test)]
 pub fn word_quoted_unindexed_bash_source_span_in_source(word: &Word, source: &str) -> Option<Span> {
     let mut spans = Vec::new();
     collect_quoted_unindexed_bash_source_spans(&word.parts, false, source, &mut spans);
@@ -143,6 +145,7 @@ pub fn word_positional_at_splat_spans_in_source(word: &Word, source: &str) -> Ve
         .collect()
 }
 
+#[cfg(test)]
 pub fn word_folded_positional_at_splat_span_in_source(word: &Word, source: &str) -> Option<Span> {
     let spans = word_positional_at_splat_spans(word)
         .into_iter()
@@ -694,6 +697,7 @@ pub(crate) enum EscapedTemplateQuote {
     Double,
 }
 
+#[cfg(test)]
 pub(crate) fn collect_quoted_unindexed_bash_source_spans(
     parts: &[WordPartNode],
     quoted: bool,
@@ -1624,6 +1628,7 @@ pub(crate) fn parameter_uses_replacement_all_elements_array_expansion(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn parameter_is_unindexed_bash_source(parameter: &ParameterExpansion) -> bool {
     let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
         return false;
@@ -1767,10 +1772,12 @@ pub(crate) fn parts_are_pure_positional_at_splat(parts: &[WordPartNode]) -> bool
     saw_splat
 }
 
+#[cfg(test)]
 pub(crate) fn word_has_single_positional_at_splat_part(word: &Word) -> bool {
     parts_have_single_positional_at_splat(&word.parts)
 }
 
+#[cfg(test)]
 pub(crate) fn parts_have_single_positional_at_splat(parts: &[WordPartNode]) -> bool {
     let [part] = parts else {
         return false;
@@ -1811,6 +1818,7 @@ pub(crate) fn parts_have_single_folded_all_elements_array_part(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn positional_at_splat_is_standalone_expansion(word: &Word, source: &str) -> bool {
     let text = word.span.slice(source);
     let body = if word.is_fully_double_quoted() {

@@ -86,11 +86,6 @@ impl FunctionScopeKind {
             .any(|candidate| candidate.as_str() == name)
     }
 
-    /// Returns whether this function scope is dynamically named.
-    pub fn is_dynamic(&self) -> bool {
-        matches!(self, Self::Dynamic)
-    }
-
     /// Returns whether this function scope has no user-visible static name.
     pub fn is_anonymous(&self) -> bool {
         matches!(self, Self::Anonymous)

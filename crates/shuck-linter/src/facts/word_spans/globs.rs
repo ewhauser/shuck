@@ -23,6 +23,7 @@ pub fn word_active_glob_pattern_spans(
     spans
 }
 
+#[cfg(test)]
 pub fn word_unquoted_glob_pattern_spans_outside_brace_expansion(
     word: &Word,
     source: &str,

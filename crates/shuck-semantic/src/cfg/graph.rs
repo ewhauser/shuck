@@ -149,11 +149,6 @@ impl ControlFlowGraph {
         self.entry
     }
 
-    /// Returns all exit blocks, including exits caused by explicit termination.
-    pub fn exits(&self) -> &[BlockId] {
-        &self.exits
-    }
-
     /// Returns exits reachable without an explicit script terminator.
     pub fn natural_exits(&self) -> &[BlockId] {
         &self.natural_exits

@@ -68,10 +68,6 @@ impl<'a> SimpleTestFact<'a> {
         self.effective_operator_family
     }
 
-    pub fn operand_classes(&self) -> &[TestOperandClass] {
-        &self.operand_classes
-    }
-
     pub fn operand_class(&self, index: usize) -> Option<TestOperandClass> {
         self.operand_classes.get(index).copied()
     }
@@ -187,26 +183,6 @@ impl<'a> SimpleTestFact<'a> {
                 SimpleTestExpression::Truthy(_) | SimpleTestExpression::StringUnary { .. } => None,
             })
             .collect()
-    }
-
-    pub fn is_abort_like_bracket_test(&self, source: &str) -> bool {
-        if self.syntax != SimpleTestSyntax::Bracket
-            || self.effective_shape != SimpleTestShape::Other
-        {
-            return false;
-        }
-
-        self.effective_operands()
-            .iter()
-            .enumerate()
-            .any(|(index, word)| {
-                self.effective_operand_class(index)
-                    .is_some_and(|class| class.is_fixed_literal())
-                    && matches!(
-                        static_word_text(word, source).as_deref(),
-                        Some("(") | Some(")")
-                    )
-            })
     }
 
     pub fn binary_operand_classes(&self) -> Option<(TestOperandClass, TestOperandClass)> {

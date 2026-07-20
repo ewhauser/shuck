@@ -1,23 +1,15 @@
-use shuck_ast::{Assignment, SimpleCommand, Word, static_word_text};
+use shuck_ast::Assignment;
 
+#[cfg(test)]
+use shuck_ast::{SimpleCommand, static_word_text};
+
+#[cfg(test)]
 fn simple_command_name(command: &SimpleCommand, source: &str) -> Option<String> {
     static_word_text(&command.name, source).map(|text| text.into_owned())
 }
 
 pub fn assignment_target_name(assignment: &Assignment) -> &str {
     assignment.target.name.as_str()
-}
-
-pub fn simple_test_operands<'a>(command: &'a SimpleCommand, source: &str) -> Option<&'a [Word]> {
-    let name = simple_command_name(command, source)?;
-    match name.as_str() {
-        "[" => {
-            let (closing_bracket, operands) = command.args.split_last()?;
-            (static_word_text(closing_bracket, source).as_deref() == Some("]")).then_some(operands)
-        }
-        "test" => Some(&command.args),
-        _ => None,
-    }
 }
 
 #[cfg(test)]

@@ -451,7 +451,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             let enclosing_function_scope = self.semantic.enclosing_function_scope(scope);
             let command_fact = CommandFact {
                 id,
-                key,
                 visit,
                 nested_word_command,
                 scope,

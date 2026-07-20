@@ -1,0 +1,9 @@
+[[production]]
+package = "shuck-cli"
+bin = "shuck"
+reason = "shipped Shuck command-line application"
+
+[[exclude]]
+crate = "shuck_server"
+module = "fuzzing"
+reason = "public boundary consumed by the separately managed fuzz workspace"

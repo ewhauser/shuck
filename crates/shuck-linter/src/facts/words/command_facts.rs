@@ -1034,7 +1034,7 @@ pub(crate) struct BacktickCommandIndex {
 
 impl BacktickCommandIndex {
     fn new(commands: CommandFacts<'_, '_>, backticks: &[BacktickFragmentFact]) -> Self {
-        let mut command_ids = DenseCommandIdSet::with_capacity(commands.len());
+        let mut command_ids = DenseCommandIdSet::with_capacity(commands.count());
         for fragment in backticks {
             for command in commands.contained_in(fragment.span()) {
                 command_ids.insert(command.id());

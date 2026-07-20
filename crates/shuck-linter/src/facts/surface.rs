@@ -331,10 +331,6 @@ impl SelectorRequiredArrayReference {
         }
     }
 
-    pub fn reference_id(&self) -> ReferenceId {
-        self.reference_id
-    }
-
     pub fn diagnostic_span(&self) -> Span {
         self.diagnostic_span
     }
@@ -354,10 +350,6 @@ impl NativeZshScalarArrayReference {
         }
     }
 
-    pub fn reference_id(&self) -> ReferenceId {
-        self.reference_id
-    }
-
     pub fn expansion_span(&self) -> Span {
         self.expansion_span
     }
@@ -375,10 +367,6 @@ impl AmbiguousArrayReference {
             reference_id,
             diagnostic_span,
         }
-    }
-
-    pub fn reference_id(&self) -> ReferenceId {
-        self.reference_id
     }
 
     pub fn diagnostic_span(&self) -> Span {

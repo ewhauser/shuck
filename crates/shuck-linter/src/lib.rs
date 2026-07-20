@@ -178,7 +178,6 @@ enum AnalysisInput<'a> {
 enum SuppressionRequest<'a> {
     None,
     DefaultShellCheckMap,
-    Index(&'a SuppressionIndex),
     Directives(&'a [SuppressionDirective]),
     ShellCheckMap(&'a ShellCheckCodeMap),
 }
@@ -271,23 +270,6 @@ impl<'a> AnalysisRequest<'a> {
         self
     }
 
-    /// Uses an already-built suppression index for the request.
-    pub fn with_suppression_index(mut self, suppression_index: &'a SuppressionIndex) -> Self {
-        self.suppressions = SuppressionRequest::Index(suppression_index);
-        self
-    }
-
-    /// Uses an optional already-built suppression index for the request.
-    pub fn with_optional_suppression_index(
-        mut self,
-        suppression_index: Option<&'a SuppressionIndex>,
-    ) -> Self {
-        self.suppressions = suppression_index
-            .map(SuppressionRequest::Index)
-            .unwrap_or(SuppressionRequest::None);
-        self
-    }
-
     /// Disables directive-derived and externally supplied suppressions for this request.
     pub fn without_suppressions(mut self) -> Self {
         self.suppressions = SuppressionRequest::None;
@@ -336,17 +318,15 @@ impl<'a> AnalysisRequest<'a> {
     }
 }
 
-enum AppliedSuppressionIndex<'a> {
+enum AppliedSuppressionIndex {
     None,
-    Borrowed(&'a SuppressionIndex),
     Owned(SuppressionIndex),
 }
 
-impl AppliedSuppressionIndex<'_> {
+impl AppliedSuppressionIndex {
     fn as_ref(&self) -> Option<&SuppressionIndex> {
         match self {
             Self::None => None,
-            Self::Borrowed(suppression_index) => Some(suppression_index),
             Self::Owned(suppression_index) => Some(suppression_index),
         }
     }
@@ -355,7 +335,7 @@ impl AppliedSuppressionIndex<'_> {
 struct LinterAnalysisResult<'a> {
     semantic: LinterSemanticArtifacts<'a>,
     diagnostics: Vec<Diagnostic>,
-    suppression_index: AppliedSuppressionIndex<'a>,
+    suppression_index: AppliedSuppressionIndex,
 }
 
 /// Semantic model plus linter-private traversal artifacts needed to build facts.
@@ -953,7 +933,7 @@ fn build_linter_semantic_artifacts<'a>(
 fn build_request_suppression_index<'a>(
     request: &AnalysisRequest<'a>,
     semantic: &LinterSemanticArtifacts<'_>,
-) -> AppliedSuppressionIndex<'a> {
+) -> AppliedSuppressionIndex {
     match request.suppressions {
         SuppressionRequest::None => AppliedSuppressionIndex::None,
         SuppressionRequest::DefaultShellCheckMap => {
@@ -971,9 +951,6 @@ fn build_request_suppression_index<'a>(
             )
             .map(AppliedSuppressionIndex::Owned)
             .unwrap_or(AppliedSuppressionIndex::None)
-        }
-        SuppressionRequest::Index(suppression_index) => {
-            AppliedSuppressionIndex::Borrowed(suppression_index)
         }
         SuppressionRequest::Directives(directives) => build_suppression_index_from_semantic(
             directives,

@@ -146,10 +146,6 @@ impl ExpansionAnalysis {
         self.substitution_shape != WordSubstitutionShape::None
     }
 
-    pub fn has_plain_command_substitution(self) -> bool {
-        self.substitution_shape == WordSubstitutionShape::Plain
-    }
-
     pub fn expansion_kind(self) -> WordExpansionKind {
         match (self.has_scalar_expansion(), self.array_valued) {
             (false, false) => WordExpansionKind::None,
@@ -193,20 +189,6 @@ impl WordClassification {
 
     pub fn is_expanded(self) -> bool {
         self.literalness == WordLiteralness::Expanded
-    }
-
-    pub fn has_scalar_expansion(self) -> bool {
-        matches!(
-            self.expansion_kind,
-            WordExpansionKind::Scalar | WordExpansionKind::Mixed
-        )
-    }
-
-    pub fn has_array_expansion(self) -> bool {
-        matches!(
-            self.expansion_kind,
-            WordExpansionKind::Array | WordExpansionKind::Mixed
-        )
     }
 
     pub fn has_command_substitution(self) -> bool {

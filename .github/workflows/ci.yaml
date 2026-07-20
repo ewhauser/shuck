@@ -21,6 +21,9 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 10
   CARGO_TERM_COLOR: always
+  HAWK_INSTALLER_SHA256: 3c234dbf78667a356149e6f41ecf646aa8e75cfea3ef9a1864889a1b6942f130
+  HAWK_RUST_VERSION: 1.97.0
+  HAWK_VERSION: 0.1.8
   RUST_VERSION: 1.94.1
   RUSTUP_MAX_RETRIES: 10
 
@@ -80,6 +83,38 @@ jobs:
         run: cargo fetch
       - name: "Run lint checks"
         run: make check
+
+  hawk:
+    name: "hawk dead code"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: hawk-${{ env.HAWK_RUST_VERSION }}
+      - name: "Install Hawk Rust toolchain"
+        run: rustup toolchain install "$HAWK_RUST_VERSION"
+      - name: "Install Hawk"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          installer="$RUNNER_TEMP/cargo-hawk-installer.sh"
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            "https://github.com/astral-sh/hawk/releases/download/${HAWK_VERSION}/cargo-hawk-installer.sh" \
+            --output "$installer"
+          echo "${HAWK_INSTALLER_SHA256}  ${installer}" | sha256sum --check --strict
+          CARGO_HAWK_GITHUB_TOKEN="$GH_TOKEN" \
+            CARGO_HAWK_NO_MODIFY_PATH=1 \
+            CARGO_HAWK_DISABLE_UPDATE=1 \
+            sh "$installer"
+      - name: "Reject dead public APIs"
+        run: make hawk
 
   cargo-deny:
     name: "cargo deny"

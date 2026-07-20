@@ -51,14 +51,6 @@ pub enum FormattedSource {
     Formatted(String),
 }
 
-#[allow(missing_docs)]
-impl FormattedSource {
-    #[must_use]
-    pub fn is_changed(&self) -> bool {
-        matches!(self, Self::Formatted(_))
-    }
-}
-
 /// Errors that can occur while parsing or formatting shell source.
 #[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq)]

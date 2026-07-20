@@ -66,7 +66,6 @@ pub mod single_quote_backslash;
 pub mod spaced_tabstrip_close;
 pub mod su_without_flag;
 pub mod suspect_closing_quote;
-pub mod syntax;
 pub mod todo_format;
 pub mod trailing_directive;
 pub mod trap_signal_numbers;

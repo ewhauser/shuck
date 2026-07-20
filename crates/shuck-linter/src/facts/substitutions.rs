@@ -32,8 +32,6 @@ pub struct SubstitutionFact {
     kind: CommandSubstitutionKind,
     command_syntax: Option<CommandSubstitutionSyntax>,
     stdout_intent: SubstitutionOutputIntent,
-    terminal_stdout_intent: SubstitutionOutputIntent,
-    has_stdout_redirect: bool,
     stdout_redirect_spans: Box<[Span]>,
     stdout_dev_null_redirect_spans: Box<[Span]>,
     body_contains_ls: bool,
@@ -70,14 +68,6 @@ impl SubstitutionFact {
 
     pub fn stdout_intent(&self) -> SubstitutionOutputIntent {
         self.stdout_intent
-    }
-
-    pub fn terminal_stdout_intent(&self) -> SubstitutionOutputIntent {
-        self.terminal_stdout_intent
-    }
-
-    pub fn has_stdout_redirect(&self) -> bool {
-        self.has_stdout_redirect
     }
 
     pub fn stdout_redirect_spans(&self) -> &[Span] {
@@ -135,10 +125,6 @@ impl SubstitutionFact {
 
     pub fn unquoted_in_host(&self) -> bool {
         self.unquoted_in_host
-    }
-
-    pub fn stdout_is_captured(&self) -> bool {
-        self.stdout_intent == SubstitutionOutputIntent::Captured
     }
 
     pub fn stdout_is_discarded(&self) -> bool {
@@ -280,8 +266,6 @@ pub(crate) fn build_command_substitution_facts<'a>(
             kind: hosted.occurrence.kind,
             command_syntax: hosted.occurrence.command_syntax,
             stdout_intent: body_facts.stdout_intent,
-            terminal_stdout_intent: body_facts.terminal_stdout_intent,
-            has_stdout_redirect: body_facts.has_stdout_redirect,
             stdout_redirect_spans: body_facts.stdout_redirect_spans,
             stdout_dev_null_redirect_spans: body_facts.stdout_dev_null_redirect_spans,
             body_contains_ls: body_facts.body_contains_ls,
@@ -471,8 +455,6 @@ pub(crate) fn collect_arithmetic_lvalue_substitution_occurrences<'a>(
 #[derive(Debug, Clone)]
 pub(crate) struct SubstitutionBodyFacts {
     stdout_intent: SubstitutionOutputIntent,
-    terminal_stdout_intent: SubstitutionOutputIntent,
-    has_stdout_redirect: bool,
     stdout_redirect_spans: Box<[Span]>,
     stdout_dev_null_redirect_spans: Box<[Span]>,
     body_contains_ls: bool,
@@ -539,8 +521,6 @@ pub(crate) fn classify_substitution_body<'a>(
 
     SubstitutionBodyFacts {
         stdout_intent: redirect_summary.stdout_intent,
-        terminal_stdout_intent: redirect_summary.terminal_stdout_intent,
-        has_stdout_redirect: redirect_summary.has_stdout_redirect,
         stdout_redirect_spans: redirect_summary.stdout_redirect_spans.into_boxed_slice(),
         stdout_dev_null_redirect_spans: redirect_summary
             .stdout_dev_null_redirect_spans

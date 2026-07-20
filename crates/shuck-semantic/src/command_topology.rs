@@ -82,16 +82,6 @@ pub struct SemanticCommandContext {
 }
 
 impl SemanticCommandContext {
-    /// Semantic command identifier.
-    pub fn id(&self) -> CommandId {
-        self.id
-    }
-
-    /// Statement span including redirects.
-    pub fn span(&self) -> Span {
-        self.span
-    }
-
     /// Span of the syntactic command node.
     pub fn syntax_span(&self) -> Span {
         self.syntax_span
@@ -280,30 +270,10 @@ impl SemanticModel {
             .and_then(Option::as_ref)
     }
 
-    /// Iterates recorded command contexts in command-id order.
-    pub fn command_contexts(&self) -> impl Iterator<Item = &SemanticCommandContext> {
-        self.command_topology()
-            .contexts
-            .iter()
-            .filter_map(Option::as_ref)
-    }
-
-    /// Iterates only structural command contexts.
-    pub fn structural_command_contexts(&self) -> impl Iterator<Item = &SemanticCommandContext> {
-        self.command_contexts()
-            .filter(|context| context.is_structural())
-    }
-
     /// Returns the surrounding condition-list role for `id`, if one applies.
     pub fn command_condition_role(&self, id: CommandId) -> Option<CommandConditionRole> {
         self.command_context(id)
             .and_then(SemanticCommandContext::condition_role)
-    }
-
-    /// Returns whether `id` came from a command-like expansion inside a word.
-    pub fn command_is_nested_word_command(&self, id: CommandId) -> bool {
-        self.command_context(id)
-            .is_some_and(SemanticCommandContext::is_nested_word_command)
     }
 
     /// Returns the recorded statement span for `id`.

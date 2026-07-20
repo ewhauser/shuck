@@ -196,19 +196,9 @@ impl WorkspaceCallIndex {
         self.files.insert(path, facts);
     }
 
-    /// Removes a file from the index.
-    pub fn remove(&mut self, path: &Path) {
-        self.files.remove(path);
-    }
-
     /// Returns whether `path` is indexed.
     pub fn contains(&self, path: &Path) -> bool {
         self.files.contains_key(path)
-    }
-
-    /// Returns the facts for `path`, if indexed.
-    pub fn facts(&self, path: &Path) -> Option<&FileCallFacts> {
-        self.files.get(path)
     }
 
     /// Iterates all indexed files and their facts (unordered).
@@ -218,14 +208,9 @@ impl WorkspaceCallIndex {
             .map(|(path, facts)| (path.as_path(), facts))
     }
 
-    /// Number of indexed files.
-    pub fn len(&self) -> usize {
+    /// Returns the number of indexed files.
+    pub fn file_count(&self) -> usize {
         self.files.len()
-    }
-
-    /// Returns whether the index holds no files.
-    pub fn is_empty(&self) -> bool {
-        self.files.is_empty()
     }
 
     /// Resolves `callee`, as seen from `from_path`, to the file that defines it:

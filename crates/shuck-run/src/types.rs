@@ -389,28 +389,6 @@ pub struct ResolveOptions<'a> {
     pub refresh_registry: bool,
 }
 
-impl<'a> ResolveOptions<'a> {
-    /// Create resolution options from the common CLI inputs.
-    pub fn new(
-        shell: Option<Shell>,
-        version: Option<VersionConstraint>,
-        system: bool,
-        script: Option<&'a Path>,
-        config: Option<&'a RunConfig>,
-    ) -> Self {
-        Self {
-            shell,
-            version,
-            system,
-            implicit_system_fallback: false,
-            script,
-            config,
-            verbose: false,
-            refresh_registry: false,
-        }
-    }
-}
-
 pub(crate) fn parse_shell_name(raw: &str) -> Result<Shell> {
     Shell::from_name(raw).ok_or_else(|| {
         anyhow!(

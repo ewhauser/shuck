@@ -33,8 +33,12 @@ make run ARGS="check ."
 Before submitting changes, run the full check suite:
 
 ```bash
-make check    # cargo fmt --check + cargo clippy -D warnings + cargo udeps
+make check    # formatting, clippy, dependency, and shell-script checks
+make hawk     # reject public APIs that are unreachable from shipped targets
 ```
+
+The Hawk check requires `cargo-hawk` 0.1.8 and the Rust 1.97.0 toolchain. CI
+installs both pinned versions before running the check.
 
 Or run the individual steps:
 

@@ -1386,22 +1386,6 @@ impl SemanticModel {
             })
     }
 
-    /// Returns whether `binding_id` and `reference_id` were recorded under the same command span.
-    #[doc(hidden)]
-    pub fn binding_and_reference_share_command(
-        &self,
-        binding_id: BindingId,
-        reference_id: ReferenceId,
-    ) -> bool {
-        self.command_bindings.iter().any(|(command, bindings)| {
-            bindings.contains(&binding_id)
-                && self
-                    .command_references
-                    .get(command)
-                    .is_some_and(|references| references.contains(&reference_id))
-        })
-    }
-
     /// Returns the previous visible binding for `name` at `at`, optionally ignoring one exact
     /// binding span.
     #[doc(hidden)]
@@ -1618,46 +1602,12 @@ impl SemanticModel {
             })
     }
 
-    /// Returns whether any binding for `name` exists in the model.
-    pub fn defined_anywhere(&self, name: &Name) -> bool {
-        self.binding_index.contains_key(name)
-    }
-
-    /// Returns whether `name` is defined inside at least one function scope.
-    pub fn defined_in_any_function(&self, name: &Name) -> bool {
-        self.binding_index.get(name).is_some_and(|bindings| {
-            bindings.iter().any(|binding| {
-                matches!(
-                    self.scopes[self.bindings[binding.index()].scope.index()].kind,
-                    ScopeKind::Function(_)
-                )
-            })
-        })
-    }
-
     /// Returns whether runtime behavior can consume `binding_id` even without a direct read in
     /// the current file.
     pub fn is_runtime_consumed_binding(&self, binding_id: BindingId) -> bool {
         self.bindings
             .get(binding_id.index())
             .is_some_and(|binding| self.runtime.is_always_used_binding(&binding.name))
-    }
-
-    /// Returns whether `name` has a required-read reference in `scope` before `offset`.
-    pub fn required_before(&self, name: &Name, scope: ScopeId, offset: usize) -> bool {
-        self.references.iter().any(|reference| {
-            reference.scope == scope
-                && &reference.name == name
-                && matches!(reference.kind, ReferenceKind::RequiredRead)
-                && reference.span.start.offset < offset
-        })
-    }
-
-    /// Returns whether an ancestor scope outside `scope` defines `name`.
-    pub fn maybe_defined_outside(&self, name: &Name, scope: ScopeId) -> bool {
-        self.ancestor_scopes(scope)
-            .skip(1)
-            .any(|scope| self.scopes[scope.index()].bindings.contains_key(name))
     }
 
     /// Returns references that did not resolve to any binding.
@@ -2263,14 +2213,6 @@ impl SemanticModel {
         &self.synthetic_reads
     }
 
-    /// Returns origin paths that contributed the imported binding `id`.
-    pub fn import_origins_for_binding(&self, id: BindingId) -> &[PathBuf] {
-        self.import_origins_by_binding
-            .get(&id)
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
-    }
-
     /// Returns helper and plugin files that influenced imported semantic contracts.
     pub fn imported_dependency_paths(&self) -> &[PathBuf] {
         &self.imported_dependency_paths
@@ -2382,22 +2324,6 @@ fn file_entry_contract_can_consume_exact_binding(binding: &Binding) -> bool {
 }
 
 #[doc(hidden)]
-pub fn build_with_observer<'a>(
-    file: &'a File,
-    source: &'a str,
-    indexer: &Indexer,
-    observer: &mut dyn TraversalObserver<'a>,
-) -> SemanticModel {
-    build_with_observer_with_options(
-        file,
-        source,
-        indexer,
-        observer,
-        SemanticBuildOptions::default(),
-    )
-}
-
-#[doc(hidden)]
 pub fn build_with_observer_with_options<'a>(
     file: &'a File,
     source: &'a str,
@@ -2406,17 +2332,6 @@ pub fn build_with_observer_with_options<'a>(
     options: SemanticBuildOptions<'_>,
 ) -> SemanticModel {
     build_semantic_model(file, source, indexer, observer, options)
-}
-
-#[doc(hidden)]
-pub fn build_with_observer_at_path<'a>(
-    file: &'a File,
-    source: &'a str,
-    indexer: &Indexer,
-    observer: &mut dyn TraversalObserver<'a>,
-    source_path: Option<&Path>,
-) -> SemanticModel {
-    build_with_observer_at_path_with_resolver(file, source, indexer, observer, source_path, None)
 }
 
 #[doc(hidden)]

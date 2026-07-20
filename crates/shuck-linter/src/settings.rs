@@ -461,11 +461,6 @@ impl LinterSettings {
         self.with_analyzed_path_set(Self::analyzed_path_set(paths))
     }
 
-    pub fn with_per_file_ignores(mut self, per_file_ignores: CompiledPerFileIgnoreList) -> Self {
-        self.per_file_ignores = Arc::new(per_file_ignores);
-        self
-    }
-
     pub fn with_c001_treat_indirect_expansion_targets_as_used(mut self, value: bool) -> Self {
         self.rule_options
             .c001
@@ -520,16 +515,6 @@ impl LinterSettings {
 
     pub fn with_s083_long_function_line_threshold(mut self, value: usize) -> Self {
         self.rule_options.s083.long_function_line_threshold = value;
-        self
-    }
-
-    pub fn with_s084_require_globals(mut self, value: bool) -> Self {
-        self.rule_options.s084.require_globals = value;
-        self
-    }
-
-    pub fn with_s084_require_arguments(mut self, value: bool) -> Self {
-        self.rule_options.s084.require_arguments = value;
         self
     }
 
@@ -663,10 +648,6 @@ impl CompiledPerFileIgnoreList {
             project_root,
             entries,
         })
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
     }
 
     pub fn ignored_rules(&self, path: &Path) -> RuleSet {

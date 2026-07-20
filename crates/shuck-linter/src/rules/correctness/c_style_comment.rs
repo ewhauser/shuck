@@ -19,7 +19,7 @@ impl Violation for CStyleComment {
 }
 
 pub fn c_style_comment(checker: &mut Checker) {
-    for index in 0..checker.facts().commands().len() {
+    for index in 0..checker.facts().commands().count() {
         let diagnostic = {
             let Some(command) = checker.facts().commands().get(index) else {
                 continue;
