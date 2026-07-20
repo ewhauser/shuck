@@ -60,11 +60,6 @@ impl<T> IdRange<T> {
         }
     }
 
-    /// Creates a range from a typed start index and length.
-    pub fn new(start: Idx<T>, len: usize) -> Self {
-        Self::from_start_len(start.index(), len)
-    }
-
     /// Creates a range from untyped start and length values.
     pub fn from_start_len(start: usize, len: usize) -> Self {
         let end = start
@@ -153,14 +148,6 @@ impl<T> ListArena<T> {
         }
     }
 
-    /// Appends one item and returns its typed index.
-    pub fn push(&mut self, item: T) -> Idx<T> {
-        let id = Idx::new(self.items.len());
-        self.items.push(item);
-        self.check_len();
-        id
-    }
-
     /// Appends a variable-length list and returns the typed range for it.
     pub fn push_many<I>(&mut self, items: I) -> IdRange<T>
     where
@@ -177,11 +164,6 @@ impl<T> ListArena<T> {
         &self.items
     }
 
-    /// Returns all arena items as a mutable slice.
-    pub fn as_mut_slice(&mut self) -> &mut [T] {
-        &mut self.items
-    }
-
     /// Returns the slice covered by `range`.
     pub fn get(&self, range: IdRange<T>) -> &[T] {
         range.slice(&self.items)
@@ -190,26 +172,6 @@ impl<T> ListArena<T> {
     /// Returns the mutable slice covered by `range`.
     pub fn get_mut(&mut self, range: IdRange<T>) -> &mut [T] {
         range.slice_mut(&mut self.items)
-    }
-
-    /// Returns the number of items in the arena.
-    pub fn len(&self) -> usize {
-        self.items.len()
-    }
-
-    /// Returns `true` when the arena is empty.
-    pub fn is_empty(&self) -> bool {
-        self.items.is_empty()
-    }
-
-    /// Consumes the arena and returns the packed items.
-    pub fn into_vec(self) -> Vec<T> {
-        self.items
-    }
-
-    /// Consumes the arena and returns the packed items as a boxed slice.
-    pub fn into_boxed_slice(self) -> Box<[T]> {
-        self.items.into_boxed_slice()
     }
 
     fn check_len(&self) {

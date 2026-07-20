@@ -216,16 +216,6 @@ pub struct Args {
 }
 
 impl Args {
-    /// Parse arguments from the current process and exit on invalid input.
-    pub fn parse() -> Self {
-        Self::try_parse().unwrap_or_else(|err| err.exit())
-    }
-
-    /// Parse arguments from the current process without exiting on errors.
-    pub fn try_parse() -> Result<Self, clap::Error> {
-        Self::try_parse_from(std::env::args_os())
-    }
-
     /// Parse arguments from an arbitrary iterator of command-line values.
     pub fn try_parse_from<I, T>(itr: I) -> Result<Self, clap::Error>
     where

@@ -486,14 +486,6 @@ impl<'model> SemanticAnalysis<'model> {
             .as_slice()
     }
 
-    /// Returns whether every CFG block associated with `span` is reachable.
-    pub fn is_reachable(&self, span: &Span) -> bool {
-        let cfg = self.cfg();
-        cfg.block_ids_for_span(*span)
-            .iter()
-            .all(|block| !cfg.unreachable().contains(block))
-    }
-
     #[doc(hidden)]
     pub fn scope_provided_bindings(&self, scope: ScopeId) -> &[ProvidedBinding] {
         self.scope_provided_binding_index()

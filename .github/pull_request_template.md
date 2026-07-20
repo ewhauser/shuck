@@ -22,6 +22,7 @@ Before opening this PR, please confirm:
 
 <!-- How did you verify this works? Tick what applies; add commands you ran. -->
 - [ ] `make check` (fmt + clippy + cargo-shear)
+- [ ] `make hawk` (workspace dead public API)
 - [ ] `make test`
 - [ ] `make test-large-corpus` (for rule changes that affect conformance)
 - [ ] Added or updated unit / integration / insta snapshot tests

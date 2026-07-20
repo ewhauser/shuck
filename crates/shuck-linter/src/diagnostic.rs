@@ -49,9 +49,4 @@ impl Diagnostic {
         self.fix = Some(fix);
         self
     }
-
-    pub fn with_fix_title(mut self, fix_title: impl Into<String>) -> Self {
-        self.fix_title = Some(fix_title.into());
-        self
-    }
 }

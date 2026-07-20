@@ -360,12 +360,8 @@ impl<'facts, 'a> CommandFacts<'facts, 'a> {
         }
     }
 
-    pub fn len(self) -> usize {
+    pub fn count(self) -> usize {
         self.commands.len()
-    }
-
-    pub fn is_empty(self) -> bool {
-        self.commands.is_empty()
     }
 
     pub fn iter(self) -> CommandFactIter<'facts, 'a> {
@@ -428,16 +424,6 @@ impl<'facts, 'a> CommandFacts<'facts, 'a> {
             .take_while(move |fact| fact.span().start.offset <= end_offset)
             .filter(move |fact| fact.span().end.offset <= end_offset)
             .map(move |fact| CommandFactRef::new(fact, store))
-    }
-
-    pub fn first(self) -> Option<CommandFactRef<'facts, 'a>> {
-        self.get(0)
-    }
-
-    pub fn last(self) -> Option<CommandFactRef<'facts, 'a>> {
-        self.commands
-            .last()
-            .map(|fact| CommandFactRef::new(fact, self.store))
     }
 }
 

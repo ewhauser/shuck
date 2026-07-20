@@ -32,19 +32,6 @@ impl<'a> Parser<'a> {
         )
     }
 
-    /// Create a new bash parser with a custom maximum AST depth.
-    ///
-    /// The requested depth is clamped to the parser's hard safety cap. Hitting
-    /// the limit produces a non-clean [`ParseResult`] rather than panicking.
-    pub fn with_max_depth(input: &'a str, max_depth: usize) -> Self {
-        Self::with_limits_and_profile(
-            input,
-            max_depth,
-            DEFAULT_MAX_PARSER_OPERATIONS,
-            ShellProfile::native(ShellDialect::Bash),
-        )
-    }
-
     /// Create a new bash parser with a custom fuel limit.
     ///
     /// Fuel bounds the number of parser operations. Exhaustion produces a
@@ -56,34 +43,6 @@ impl<'a> Parser<'a> {
             max_fuel,
             ShellProfile::native(ShellDialect::Bash),
         )
-    }
-
-    /// Create a new bash parser with custom depth and fuel limits.
-    ///
-    /// `max_depth` is clamped to the parser's hard safety cap to prevent stack
-    /// overflow from misconfiguration. `max_fuel` bounds parser operations.
-    /// Either limit can produce a non-clean [`ParseResult`].
-    pub fn with_limits(input: &'a str, max_depth: usize, max_fuel: usize) -> Self {
-        Self::with_limits_and_profile(
-            input,
-            max_depth,
-            max_fuel,
-            ShellProfile::native(ShellDialect::Bash),
-        )
-    }
-
-    /// Create a new parser with custom depth, fuel, and dialect settings.
-    ///
-    /// This uses [`ShellProfile::native`] for `dialect`; use
-    /// [`Parser::with_limits_and_profile`] when explicit zsh option state is
-    /// available.
-    pub fn with_limits_and_dialect(
-        input: &'a str,
-        max_depth: usize,
-        max_fuel: usize,
-        dialect: ShellDialect,
-    ) -> Self {
-        Self::with_limits_and_profile(input, max_depth, max_fuel, ShellProfile::native(dialect))
     }
 
     /// Create a new parser with custom depth, fuel, and shell-profile settings.

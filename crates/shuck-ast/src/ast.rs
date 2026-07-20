@@ -194,10 +194,6 @@ impl StmtSeq {
         &self.stmts
     }
 
-    pub fn as_mut_slice(&mut self) -> &mut [Stmt] {
-        &mut self.stmts
-    }
-
     pub fn iter(&self) -> std::slice::Iter<'_, Stmt> {
         self.stmts.iter()
     }
@@ -1146,12 +1142,6 @@ pub struct FunctionHeaderEntry {
     pub static_name: Option<Name>,
 }
 
-impl FunctionHeaderEntry {
-    pub fn static_name_span(&self) -> Option<Span> {
-        self.static_name.as_ref().map(|_| self.word.span)
-    }
-}
-
 /// Surface syntax preserved for a named function declaration.
 #[derive(Debug, Clone, Default)]
 pub struct FunctionHeader {
@@ -1167,10 +1157,6 @@ impl FunctionHeader {
 
     pub fn has_trailing_parens(&self) -> bool {
         self.trailing_parens_span.is_some()
-    }
-
-    pub fn has_name_parens(&self) -> bool {
-        self.has_trailing_parens()
     }
 
     pub fn static_names(&self) -> impl Iterator<Item = &Name> + '_ {
@@ -1242,13 +1228,6 @@ impl AnonymousFunctionSurface {
     pub fn uses_function_keyword(&self) -> bool {
         matches!(self, Self::FunctionKeyword { .. })
     }
-
-    pub fn parens_span(self) -> Option<Span> {
-        match self {
-            Self::FunctionKeyword { .. } => None,
-            Self::Parens { parens_span } => Some(parens_span),
-        }
-    }
 }
 
 /// Anonymous zsh function command.
@@ -1313,21 +1292,10 @@ pub struct ParameterExpansion {
 }
 
 impl ParameterExpansion {
-    pub fn is_zsh(&self) -> bool {
-        matches!(self.syntax, ParameterExpansionSyntax::Zsh(_))
-    }
-
     pub fn bourne(&self) -> Option<&BourneParameterExpansion> {
         match &self.syntax {
             ParameterExpansionSyntax::Bourne(syntax) => Some(syntax),
             ParameterExpansionSyntax::Zsh(_) => None,
-        }
-    }
-
-    pub fn zsh(&self) -> Option<&ZshParameterExpansion> {
-        match &self.syntax {
-            ParameterExpansionSyntax::Bourne(_) => None,
-            ParameterExpansionSyntax::Zsh(syntax) => Some(syntax),
         }
     }
 }
@@ -1571,16 +1539,6 @@ impl ZshExpansionOperation {
             | Self::Unknown { .. } => None,
         }
     }
-
-    pub fn source_text(&self) -> Option<&SourceText> {
-        match self {
-            Self::PatternOperation { operand, .. }
-            | Self::Defaulting { operand, .. }
-            | Self::TrimOperation { operand, .. } => Some(operand),
-            Self::ReplacementOperation { .. } | Self::Slice { .. } => None,
-            Self::Unknown { text, .. } => Some(text),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1786,45 +1744,6 @@ impl Word {
             span,
             brace_syntax: Vec::new(),
         }
-    }
-
-    /// Create a source-backed literal word.
-    pub fn source_literal_with_spans(span: Span, part_span: Span) -> Self {
-        Self {
-            parts: vec![WordPartNode::new(
-                WordPart::Literal(LiteralText::source()),
-                part_span,
-            )],
-            span,
-            brace_syntax: Vec::new(),
-        }
-    }
-
-    /// Create a quoted source-backed literal word.
-    pub fn quoted_source_literal_with_spans(span: Span, part_span: Span) -> Self {
-        Self {
-            parts: vec![WordPartNode::new(
-                WordPart::SingleQuoted {
-                    value: SourceText::source(part_span),
-                    dollar: false,
-                },
-                span,
-            )],
-            span,
-            brace_syntax: Vec::new(),
-        }
-    }
-
-    /// Set the source span on an existing word.
-    pub fn with_span(mut self, span: Span) -> Self {
-        let previous_span = self.span;
-        self.span = span;
-        if let [part] = self.parts.as_mut_slice()
-            && part.span == previous_span
-        {
-            part.span = span;
-        }
-        self
     }
 
     /// Get the source span for a specific word part.
@@ -2597,18 +2516,6 @@ impl HeredocBody {
         }
     }
 
-    pub fn source_literal_with_spans(span: Span, part_span: Span) -> Self {
-        Self {
-            mode: HeredocBodyMode::Literal,
-            source_backed: true,
-            parts: vec![HeredocBodyPartNode::new(
-                HeredocBodyPart::Literal(LiteralText::source()),
-                part_span,
-            )],
-            span,
-        }
-    }
-
     pub fn with_mode(mut self, mode: HeredocBodyMode) -> Self {
         self.mode = mode;
         self
@@ -2617,14 +2524,6 @@ impl HeredocBody {
     pub fn with_source_backed(mut self, source_backed: bool) -> Self {
         self.source_backed = source_backed;
         self
-    }
-
-    pub fn part_span(&self, index: usize) -> Option<Span> {
-        self.parts.get(index).map(|part| part.span)
-    }
-
-    pub fn part(&self, index: usize) -> Option<&HeredocBodyPart> {
-        self.parts.get(index).map(|part| &part.kind)
     }
 
     pub fn parts_with_spans(&self) -> impl Iterator<Item = (&HeredocBodyPart, Span)> + '_ {
@@ -2684,11 +2583,6 @@ pub struct Pattern {
 }
 
 impl Pattern {
-    /// Get the source span for a specific pattern part.
-    pub fn part_span(&self, index: usize) -> Option<Span> {
-        self.parts.get(index).map(|part| part.span)
-    }
-
     pub fn is_source_backed(&self) -> bool {
         self.parts
             .iter()
@@ -3095,13 +2989,6 @@ impl ArrayElem {
     }
 
     pub fn value(&self) -> &ArrayValueWord {
-        match self {
-            Self::Sequential(word) => word,
-            Self::Keyed { value, .. } | Self::KeyedAppend { value, .. } => value,
-        }
-    }
-
-    pub fn value_mut(&mut self) -> &mut ArrayValueWord {
         match self {
             Self::Sequential(word) => word,
             Self::Keyed { value, .. } | Self::KeyedAppend { value, .. } => value,
@@ -3927,25 +3814,9 @@ impl Redirect {
         }
     }
 
-    /// Returns the mutable word target for non-heredoc redirects.
-    pub fn word_target_mut(&mut self) -> Option<&mut Word> {
-        match &mut self.target {
-            RedirectTarget::Word(word) => Some(word),
-            RedirectTarget::Heredoc(_) => None,
-        }
-    }
-
     /// Returns heredoc metadata and body when this redirect is a heredoc.
     pub fn heredoc(&self) -> Option<&Heredoc> {
         match &self.target {
-            RedirectTarget::Word(_) => None,
-            RedirectTarget::Heredoc(heredoc) => Some(heredoc),
-        }
-    }
-
-    /// Returns mutable heredoc metadata and body when this redirect is a heredoc.
-    pub fn heredoc_mut(&mut self) -> Option<&mut Heredoc> {
-        match &mut self.target {
             RedirectTarget::Word(_) => None,
             RedirectTarget::Heredoc(heredoc) => Some(heredoc),
         }

@@ -218,31 +218,6 @@ impl<'analysis, 'model> DirectFunctionCallReachability<'analysis, 'model> {
         }
     }
 
-    /// Returns whether `scope` can execute between `after_offset` and `before_offset`.
-    pub fn scope_can_run_between_offsets(
-        &mut self,
-        scope: ScopeId,
-        after_offset: usize,
-        before_offset: usize,
-        persistence: FunctionCallPersistence,
-    ) -> bool {
-        match persistence {
-            FunctionCallPersistence::Any => self.command_scope_can_run_between_offsets(
-                scope,
-                after_offset,
-                before_offset,
-                &mut FxHashSet::default(),
-            ),
-            FunctionCallPersistence::PersistentOnly => self
-                .command_scope_can_run_persistently_between_offsets(
-                    scope,
-                    after_offset,
-                    before_offset,
-                    &mut FxHashSet::default(),
-                ),
-        }
-    }
-
     fn model(&self) -> &'model SemanticModel {
         self.analysis.model
     }

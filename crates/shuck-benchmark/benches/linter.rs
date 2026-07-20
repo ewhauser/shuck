@@ -20,7 +20,7 @@ fn build_linter_facts(
     let facts = LinterFacts::build(&output.file, source, semantic, indexer);
 
     black_box(
-        facts.commands().len()
+        facts.commands().count()
             + facts.words().word_facts().count()
             + facts.words().single_quoted_fragments().len()
             + facts.words().backtick_fragments().len()

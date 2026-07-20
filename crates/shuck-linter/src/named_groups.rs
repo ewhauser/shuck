@@ -13,12 +13,6 @@ impl NamedGroup {
         }
     }
 
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Google => "google",
-        }
-    }
-
     pub const fn rule_set(self) -> RuleSet {
         match self {
             Self::Google => GOOGLE_RULE_SET,

@@ -68,7 +68,6 @@ pub enum MixedShortCircuitKind {
 
 #[derive(Debug, Clone)]
 pub struct ListFact<'a> {
-    key: FactSpan,
     command: &'a BinaryCommand,
     operators: Box<[ListOperatorFact]>,
     segments: Box<[ListSegmentFact<'a>]>,
@@ -77,14 +76,6 @@ pub struct ListFact<'a> {
 }
 
 impl<'a> ListFact<'a> {
-    pub fn key(&self) -> FactSpan {
-        self.key
-    }
-
-    pub fn command(&self) -> &'a BinaryCommand {
-        self.command
-    }
-
     pub fn span(&self) -> Span {
         self.command.span
     }
@@ -165,7 +156,6 @@ pub(crate) fn build_list_facts<'a>(
                 .map(|_| classify_mixed_short_circuit_kind(&segments, &operators));
 
             Some(ListFact {
-                key: fact.key(),
                 command,
                 operators: operators.into_boxed_slice(),
                 segments,

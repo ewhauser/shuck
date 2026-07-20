@@ -38,23 +38,6 @@ pub struct IndexedCloseDelimiter {
     kind: CloseDelimiterKind,
 }
 
-impl IndexedCloseDelimiter {
-    /// Return the parsed compound command range that owns this delimiter.
-    pub fn command_range(self) -> TextRange {
-        self.command_range
-    }
-
-    /// Return the source byte range for the close delimiter itself.
-    pub fn delimiter_range(self) -> TextRange {
-        self.delimiter_range
-    }
-
-    /// Return the delimiter kind.
-    pub fn kind(self) -> CloseDelimiterKind {
-        self.kind
-    }
-}
-
 /// Lookup table for structural close delimiters in parsed shell source.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CloseDelimiterIndex {

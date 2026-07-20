@@ -244,15 +244,6 @@ impl<'source> RawShellScanner<'source> {
         }
     }
 
-    /// Skips an escape, quote, or comment at `offset`.
-    #[must_use]
-    pub fn skip_quoted_or_comment_at(&self, offset: usize) -> Option<usize> {
-        self.skip_escaped_or_quoted_at(offset).or_else(|| {
-            self.comment_starts_at(offset)
-                .then(|| self.comment_end_from(offset))
-        })
-    }
-
     /// Finds the first unquoted shell comment marker in the given range.
     #[must_use]
     pub fn find_comment(&self, start: usize, upper: usize) -> Option<usize> {
@@ -570,17 +561,6 @@ impl<'source> RawShellScanner<'source> {
         }
 
         None
-    }
-
-    fn comment_starts_at(&self, offset: usize) -> bool {
-        self.source[offset..self.upper].starts_with('#')
-            && shell_comment_can_start(self.source, offset)
-    }
-
-    fn comment_end_from(&self, offset: usize) -> usize {
-        self.source[offset..self.upper]
-            .find('\n')
-            .map_or(self.upper, |newline| offset + newline + 1)
     }
 }
 

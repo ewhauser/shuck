@@ -64,21 +64,12 @@ impl PipelineOperatorFact {
 
 #[derive(Debug, Clone)]
 pub struct PipelineFact<'a> {
-    key: FactSpan,
     command: &'a BinaryCommand,
     segments: Box<[PipelineSegmentFact<'a>]>,
     operators: Box<[PipelineOperatorFact]>,
 }
 
 impl<'a> PipelineFact<'a> {
-    pub fn key(&self) -> FactSpan {
-        self.key
-    }
-
-    pub fn command(&self) -> &'a BinaryCommand {
-        self.command
-    }
-
     pub fn span(&self) -> Span {
         self.command.span
     }
@@ -134,7 +125,6 @@ pub(crate) fn build_pipeline_facts<'a>(
             }
 
             Some(PipelineFact {
-                key: fact.key(),
                 command,
                 segments: pipeline
                     .segments

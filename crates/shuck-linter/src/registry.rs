@@ -10,16 +10,6 @@ pub enum Category {
 }
 
 impl Category {
-    pub const fn prefix(self) -> &'static str {
-        match self {
-            Self::Correctness => "C",
-            Self::Style => "S",
-            Self::Performance => "P",
-            Self::Portability => "X",
-            Self::Security => "K",
-        }
-    }
-
     pub fn from_prefix(prefix: &str) -> Option<Self> {
         match prefix {
             "C" => Some(Self::Correctness),

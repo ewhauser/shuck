@@ -53,10 +53,6 @@ impl<'a> FunctionHeaderFact<'a> {
     pub fn function_keyword_span(&self) -> Option<Span> {
         self.function.header.function_keyword_span
     }
-
-    pub fn trailing_parens_span(&self) -> Option<Span> {
-        self.function.header.trailing_parens_span
-    }
 }
 
 #[derive(Debug, Clone, Default)]

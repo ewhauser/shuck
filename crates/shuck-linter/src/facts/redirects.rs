@@ -39,13 +39,6 @@ impl RedirectTargetAnalysis {
         )
     }
 
-    pub fn is_definitely_not_dev_null(self) -> bool {
-        matches!(
-            self.dev_null_status,
-            Some(RedirectDevNullStatus::DefinitelyNotDevNull)
-        )
-    }
-
     pub fn is_runtime_sensitive(self) -> bool {
         self.expansion.literalness == WordLiteralness::Expanded
             || self.runtime_literal.is_runtime_sensitive()

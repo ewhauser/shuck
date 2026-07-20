@@ -227,7 +227,7 @@ fn measured_facts_size(input: &PreparedInput) -> (Frame, usize) {
             Default::default(),
         );
 
-        facts.commands().len()
+        facts.commands().count()
             + facts.words().word_facts().count()
             + facts.words().single_quoted_fragments().len()
             + facts.words().backtick_fragments().len()

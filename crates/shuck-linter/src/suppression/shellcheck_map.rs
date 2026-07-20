@@ -27,10 +27,6 @@ pub struct ShellCheckCodeMap {
 }
 
 impl ShellCheckCodeMap {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn mappings(&self) -> impl Iterator<Item = (u32, Rule)> + '_ {
         self.sc_to_rule
             .iter()

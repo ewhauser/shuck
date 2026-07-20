@@ -52,7 +52,6 @@ impl<'a> LoopHeaderWordFact<'a> {
 #[derive(Debug, Clone)]
 pub struct ForHeaderFact<'a> {
     command: &'a ForCommand,
-    command_id: CommandId,
     nested_word_command: bool,
     words: Box<[LoopHeaderWordFact<'a>]>,
 }
@@ -60,14 +59,6 @@ pub struct ForHeaderFact<'a> {
 impl<'a> ForHeaderFact<'a> {
     pub fn command(&self) -> &'a ForCommand {
         self.command
-    }
-
-    pub fn command_id(&self) -> CommandId {
-        self.command_id
-    }
-
-    pub fn span(&self) -> Span {
-        self.command.span
     }
 
     pub fn is_nested_word_command(&self) -> bool {
@@ -94,8 +85,6 @@ impl<'a> ForHeaderFact<'a> {
 #[derive(Debug, Clone)]
 pub struct SelectHeaderFact<'a> {
     command: &'a SelectCommand,
-    command_id: CommandId,
-    nested_word_command: bool,
     words: Box<[LoopHeaderWordFact<'a>]>,
 }
 
@@ -104,32 +93,12 @@ impl<'a> SelectHeaderFact<'a> {
         self.command
     }
 
-    pub fn command_id(&self) -> CommandId {
-        self.command_id
-    }
-
     pub fn span(&self) -> Span {
         self.command.span
     }
 
-    pub fn is_nested_word_command(&self) -> bool {
-        self.nested_word_command
-    }
-
     pub fn words(&self) -> &[LoopHeaderWordFact<'a>] {
         &self.words
-    }
-
-    pub fn has_command_substitution(&self) -> bool {
-        self.words
-            .iter()
-            .any(LoopHeaderWordFact::has_command_substitution)
-    }
-
-    pub fn has_find_substitution(&self) -> bool {
-        self.words
-            .iter()
-            .any(LoopHeaderWordFact::contains_find_substitution)
     }
 }
 
@@ -148,7 +117,6 @@ pub(crate) fn build_for_header_facts<'a>(
 
             Some(ForHeaderFact {
                 command,
-                command_id: fact.id(),
                 nested_word_command: fact.is_nested_word_command(),
                 words: build_loop_header_word_facts(
                     command.words.iter().flat_map(|words| words.iter()),
@@ -178,8 +146,6 @@ pub(crate) fn build_select_header_facts<'a>(
 
             Some(SelectHeaderFact {
                 command,
-                command_id: fact.id(),
-                nested_word_command: fact.is_nested_word_command(),
                 words: build_loop_header_word_facts(
                     command.words.iter(),
                     commands,

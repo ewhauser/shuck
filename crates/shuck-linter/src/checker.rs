@@ -88,10 +88,6 @@ impl<'a> Checker<'a> {
         &self.semantic_analysis
     }
 
-    pub fn indexer(&self) -> &'a Indexer {
-        self.indexer
-    }
-
     pub fn source(&self) -> &'a str {
         self.source
     }
@@ -180,26 +176,6 @@ impl<'a> Checker<'a> {
     }
 
     pub fn report_all_dedup<V: Violation>(&mut self, spans: Vec<Span>, violation: impl Fn() -> V) {
-        for span in spans {
-            self.report_dedup(violation(), span);
-        }
-    }
-
-    pub fn report_iter<V, I>(&mut self, spans: I, violation: impl Fn() -> V)
-    where
-        V: Violation,
-        I: IntoIterator<Item = Span>,
-    {
-        for span in spans {
-            self.report(violation(), span);
-        }
-    }
-
-    pub fn report_iter_dedup<V, I>(&mut self, spans: I, violation: impl Fn() -> V)
-    where
-        V: Violation,
-        I: IntoIterator<Item = Span>,
-    {
         for span in spans {
             self.report_dedup(violation(), span);
         }

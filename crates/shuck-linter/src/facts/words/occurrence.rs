@@ -314,18 +314,6 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.occurrence().runtime_literal
     }
 
-    pub fn glob_failure_behavior(self) -> GlobFailureBehavior {
-        self.runtime_literal().glob_failure_behavior
-    }
-
-    pub fn glob_dot_behavior(self) -> GlobDotBehavior {
-        self.runtime_literal().glob_dot_behavior
-    }
-
-    pub fn glob_pattern_behavior(self) -> GlobPatternBehavior {
-        self.runtime_literal().glob_pattern_behavior
-    }
-
     pub fn classification(self) -> WordClassification {
         word_classification_from_analysis(self.analysis())
     }
@@ -351,22 +339,6 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
 
     pub fn trailing_literal_char(self) -> Option<char> {
         self.derived().trailing_literal_char
-    }
-
-    pub fn contains_template_placeholder(self, source: &str) -> bool {
-        contains_template_placeholder_text_in_word(self.span().slice(source))
-    }
-
-    pub fn has_suspicious_quoted_command_trailer(self, source: &str) -> bool {
-        quoted_command_name_has_suspicious_ending(
-            self.span().slice(source),
-            self.trailing_literal_char(),
-        )
-    }
-
-    pub fn has_hash_suffix(self, source: &str) -> bool {
-        let text = self.span().slice(source);
-        text != "#" && text.ends_with('#')
     }
 
     pub fn is_plain_scalar_reference(self) -> bool {
@@ -443,10 +415,6 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
             .word_spans(self.occurrence().array_assignment_split_scalar_expansion_spans)
     }
 
-    pub fn array_expansion_spans(self) -> &'facts [Span] {
-        self.facts.command.fact_store.word_spans(self.derived().array_expansion_spans)
-    }
-
     pub fn all_elements_array_expansion_spans(self) -> &'facts [Span] {
         self.facts
             .command
@@ -521,10 +489,6 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
             .word_spans(self.derived().unquoted_literal_between_double_quoted_segments_spans)
     }
 
-    pub fn has_single_part(self) -> bool {
-        self.word().parts.len() == 1
-    }
-
     pub fn parts_len(self) -> usize {
         self.word().parts.len()
     }
@@ -596,20 +560,12 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         )
     }
 
-    pub fn has_quoted_all_elements_array_slice(self) -> bool {
-        word_spans::word_has_quoted_all_elements_array_slice(self.word())
-    }
-
     pub fn double_quoted_scalar_affix_span(self) -> Option<Span> {
         word_spans::double_quoted_scalar_affix_span(self.word())
     }
 
     pub fn is_pure_positional_at_splat(self) -> bool {
         word_spans::word_is_pure_positional_at_splat(self.word())
-    }
-
-    pub fn quoted_unindexed_bash_source_span_in_source(self, source: &str) -> Option<Span> {
-        word_spans::word_quoted_unindexed_bash_source_span_in_source(self.word(), source)
     }
 
     pub fn unquoted_glob_pattern_spans(self, source: &str) -> Vec<Span> {
@@ -631,10 +587,6 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
             runtime.pathname_expansion_behavior,
             runtime.glob_pattern_behavior,
         )
-    }
-
-    pub fn unquoted_glob_pattern_spans_outside_brace_expansion(self, source: &str) -> Vec<Span> {
-        word_spans::word_unquoted_glob_pattern_spans_outside_brace_expansion(self.word(), source)
     }
 
     pub fn active_glob_spans_outside_brace_expansion(self, source: &str) -> Vec<Span> {
@@ -721,10 +673,6 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
 
     pub fn nested_dynamic_double_quote_spans(self) -> Vec<Span> {
         word_spans::word_nested_dynamic_double_quote_spans(self.word())
-    }
-
-    pub fn folded_positional_at_splat_span_in_source(self, source: &str) -> Option<Span> {
-        word_spans::word_folded_positional_at_splat_span_in_source(self.word(), source)
     }
 
     pub fn folded_all_elements_array_span_in_source(self, locator: Locator<'_>) -> Option<Span> {
@@ -1044,13 +992,6 @@ fn bare_done_word_context_reports(context: WordFactContext, host_kind: WordFactH
         },
         WordFactContext::ArithmeticCommand | WordFactContext::ParameterOperand => false,
     }
-}
-
-pub(crate) fn contains_template_placeholder_text_in_word(text: &str) -> bool {
-    let Some(start) = text.find("{{") else {
-        return false;
-    };
-    text[start + 2..].contains("}}")
 }
 
 pub(crate) fn occurrence_word<'a>(nodes: &[WordNode<'a>], occurrence: &WordOccurrence) -> &'a Word {

@@ -508,11 +508,6 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         })
     }
 
-    /// Returns whether `binding_id` is lexically visible at `at`.
-    pub fn binding_visible_at(&self, binding_id: BindingId, at: Span) -> bool {
-        self.model().binding_visible_at(binding_id, at)
-    }
-
     /// Returns whether `binding_id` can contribute a runtime parameter value.
     pub fn binding_can_supply_parameter_value(&self, binding_id: BindingId) -> bool {
         self.model().binding_can_supply_parameter_value(binding_id)

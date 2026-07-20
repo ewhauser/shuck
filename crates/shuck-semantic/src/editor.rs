@@ -297,11 +297,6 @@ impl SemanticModel {
 }
 
 impl<'model> EditorQuery<'model> {
-    /// Creates an editor query over `model`.
-    pub fn new(model: &'model SemanticModel) -> Self {
-        Self { model }
-    }
-
     /// Builds a hierarchical document-symbol tree for the analyzed document.
     pub fn document_symbols(&self) -> Vec<EditorDocumentSymbol> {
         let analysis = self.model.analysis();

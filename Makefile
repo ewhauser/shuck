@@ -1,4 +1,4 @@
-.PHONY: build test build-wasm test-wasm run check check-scripts setup-hooks setup-large-corpus ensure-cache test-large-corpus large-corpus-report large-corpus-report-from-log large-corpus-report-open test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark test-oracle-shfmt-large-corpus update-oracle-shfmt-large-corpus-allowlist test-oracle-shellcheck-cli fuzz-setup fuzz-list fuzz-smoke fuzz-run fuzz-cli bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-large-corpus-hotspots bench-macro bench-macro-single bench-macro-format bench-macro-format-summary bench-macro-format-single bench-macro-site-local bench-repo-corpus profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view profile-large-corpus profile-large-corpus-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli harden-release check-release-security
+.PHONY: build test build-wasm test-wasm run check hawk check-scripts setup-hooks setup-large-corpus ensure-cache test-large-corpus large-corpus-report large-corpus-report-from-log large-corpus-report-open test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark test-oracle-shfmt-large-corpus update-oracle-shfmt-large-corpus-allowlist test-oracle-shellcheck-cli fuzz-setup fuzz-list fuzz-smoke fuzz-run fuzz-cli bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-large-corpus-hotspots bench-macro bench-macro-single bench-macro-format bench-macro-format-summary bench-macro-format-single bench-macro-site-local bench-repo-corpus profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view profile-large-corpus profile-large-corpus-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli harden-release check-release-security
 
 ARGS ?= --help
 WASM_PACK ?= wasm-pack
@@ -6,6 +6,8 @@ WASM_NPM_DIR ?= target/npm/shuck-wasm
 WASM_TEST_DIR ?= target/wasm-test/shuck-wasm
 BENCH_FILE ?=
 NIX_DEVELOP ?= nix --extra-experimental-features 'nix-command flakes' develop --command
+HAWK_RUST_VERSION ?= 1.97.0
+HAWK_TARGET_DIR ?= target/cargo-hawk
 UV_PYTHON ?= uv run python
 FUZZ_SANITIZER_ARG ?= $(if $(filter Darwin,$(shell uname -s)),,-s none)
 FUZZ_SMOKE_ARGS ?= -runs=1
@@ -331,3 +333,12 @@ check:
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
 	$(NIX_DEVELOP) cargo shear
 	$(MAKE) --no-print-directory check-scripts
+
+hawk:
+	@hawk_toolchain_bin="$$(dirname "$$(rustup which cargo --toolchain $(HAWK_RUST_VERSION))")"; \
+		PATH="$$hawk_toolchain_bin:$$PATH" cargo hawk check \
+			--manifest-path Cargo.toml \
+			--target-dir $(HAWK_TARGET_DIR) \
+			--exclude-crate shuck-wasm \
+			-A warnings \
+			-D hawk::dead_public

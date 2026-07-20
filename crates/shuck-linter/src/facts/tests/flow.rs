@@ -135,7 +135,7 @@ fn builds_command_facts_for_wrapped_and_nested_commands() {
         .find(|fact| fact.effective_name_is("printf"))
         .expect("expected structural printf fact");
 
-    assert_eq!(facts.commands().len(), 2);
+    assert_eq!(facts.commands().count(), 2);
     assert_eq!(outer.literal_name(), Some("command"));
     assert_eq!(outer.effective_name(), Some("printf"));
     assert_eq!(outer.wrappers(), &[WrapperKind::Command]);

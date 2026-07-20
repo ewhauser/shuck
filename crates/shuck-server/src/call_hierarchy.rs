@@ -253,7 +253,7 @@ impl BuiltIndex {
             .collect();
         let open_paths: Vec<PathBuf> = open_docs.iter().map(|(path, _)| path.clone()).collect();
         for (path, open) in &open_docs {
-            if index.len() >= max_files {
+            if index.file_count() >= max_files {
                 tracing::warn!(
                     "call hierarchy: open documents exceed the {max_files}-file limit; \
                      indexing only the first {max_files}"
@@ -272,7 +272,7 @@ impl BuiltIndex {
         }
 
         // Discovery is capped to the budget the open buffers left over.
-        let remaining = max_files.saturating_sub(index.len());
+        let remaining = max_files.saturating_sub(index.file_count());
         for file in discover_closed_shell_files(&context.workspace_roots, &open_paths, remaining) {
             let Ok(source) = std::fs::read_to_string(&file) else {
                 continue;
@@ -298,7 +298,7 @@ impl BuiltIndex {
                 break;
             }
             for target in missing {
-                if index.len() >= max_files {
+                if index.file_count() >= max_files {
                     tracing::warn!(
                         "call hierarchy: source-edge targets exceed the {max_files}-file \
                          limit; the call graph may be missing edges"
@@ -525,9 +525,9 @@ mod tests {
         for max_files in [1, 3, 5] {
             let built = BuiltIndex::build(&context_for(&workspace, max_files));
             assert!(
-                built.index.len() <= max_files,
+                built.index.file_count() <= max_files,
                 "index size {} exceeds max_files {max_files}",
-                built.index.len()
+                built.index.file_count()
             );
         }
     }
@@ -540,7 +540,7 @@ mod tests {
 
         let built = BuiltIndex::build(&context_for(&workspace, 100));
         assert_eq!(
-            built.index.len(),
+            built.index.file_count(),
             7,
             "2 open buffers + 4 discovered + 1 edge target"
         );

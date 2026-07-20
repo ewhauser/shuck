@@ -5,7 +5,6 @@ pub use super::core::CommandFactRef;
 #[derive(Debug, Clone)]
 pub struct CommandFact<'a> {
     pub(crate) id: CommandId,
-    pub(crate) key: FactSpan,
     pub(crate) visit: CommandVisit<'a>,
     pub(crate) nested_word_command: bool,
     pub(crate) scope: ScopeId,
@@ -47,10 +46,6 @@ impl RedundantEchoSpaceFact {
 impl<'a> CommandFact<'a> {
     pub fn id(&self) -> CommandId {
         self.id
-    }
-
-    pub fn key(&self) -> FactSpan {
-        self.key
     }
 
     pub fn is_nested_word_command(&self) -> bool {
@@ -153,10 +148,6 @@ impl<'a> CommandFact<'a> {
         self.normalized.has_wrapper(wrapper)
     }
 
-    pub fn declaration(&self) -> Option<&NormalizedDeclaration<'a>> {
-        self.normalized.declaration.as_ref()
-    }
-
     pub fn body_span(&self) -> Span {
         self.normalized.body_span
     }
@@ -210,19 +201,11 @@ impl<'a> CommandFact<'a> {
     pub fn body_args(&self) -> &[&'a Word] {
         self.normalized.body_args()
     }
-
-    pub fn file_operand_words(&self) -> &[&'a Word] {
-        self.options().file_operand_words()
-    }
 }
 
 impl<'facts, 'a> CommandFactRef<'facts, 'a> {
     pub fn id(self) -> CommandId {
         self.fact.id()
-    }
-
-    pub fn key(self) -> FactSpan {
-        self.fact.key()
     }
 
     pub fn is_nested_word_command(self) -> bool {
@@ -296,10 +279,6 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
     pub fn declaration_assignment_probes(self) -> &'facts [DeclarationAssignmentProbe] {
         self.store
             .declaration_assignment_probes(self.fact.declaration_assignment_probes)
-    }
-
-    pub fn normalized(self) -> &'facts NormalizedCommand<'a> {
-        &self.fact.normalized
     }
 
     pub fn options(self) -> CommandOptionFactsRef<'facts, 'a> {
@@ -412,14 +391,6 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
         };
 
         before.trim_end_matches([' ', '\t']).ends_with("\\;")
-    }
-
-    pub fn command_name_word_unquoted_glob_spans(self, source: &str) -> Vec<Span> {
-        let Some(word) = self.command_name_word() else {
-            return Vec::new();
-        };
-
-        word_spans::word_unquoted_glob_pattern_spans_outside_brace_expansion(word, source)
     }
 
     pub fn command_name_word_active_glob_spans_outside_brace_expansion(
@@ -971,7 +942,7 @@ pub(crate) fn build_pipeline_scope_summaries<'a>(
     source: &str,
 ) -> (Vec<PipelineScopeSummary<'a>>, Vec<SmallVec<[usize; 1]>>) {
     let mut summaries = Vec::new();
-    let mut summary_ids_by_writer = vec![SmallVec::<[usize; 1]>::new(); commands.len()];
+    let mut summary_ids_by_writer = vec![SmallVec::<[usize; 1]>::new(); commands.count()];
 
     for pipeline in pipelines {
         let writer_indexes = pipeline

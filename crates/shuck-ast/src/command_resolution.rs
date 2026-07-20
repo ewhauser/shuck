@@ -27,18 +27,6 @@ pub enum DeclarationKind {
     Other(String),
 }
 
-impl DeclarationKind {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::Export => "export",
-            Self::Local => "local",
-            Self::Declare => "declare",
-            Self::Typeset => "typeset",
-            Self::Other(name) => name.as_str(),
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct NormalizedDeclaration<'a> {
     pub kind: DeclarationKind,

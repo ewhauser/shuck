@@ -154,14 +154,6 @@ impl RegionIndex {
         contains_any(&self.heredocs, offset)
     }
 
-    /// Return whether `offset` falls inside a quoted heredoc body.
-    ///
-    /// A heredoc is considered quoted when its delimiter was quoted, which means
-    /// the shell treats the body more like literal text.
-    pub fn is_quoted_heredoc(&self, offset: TextSize) -> bool {
-        contains_any(&self.quoted_heredocs, offset)
-    }
-
     /// Return whether `offset` falls inside a command substitution.
     ///
     /// This covers command substitutions represented by parser spans, including

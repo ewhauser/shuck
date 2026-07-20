@@ -114,15 +114,6 @@ impl ParseResult {
         }
     }
 
-    /// Return the parse result when it is clean, otherwise panic with `message`.
-    pub fn expect(self, message: &str) -> Self {
-        if self.is_ok() {
-            self
-        } else {
-            panic!("{message}: {}", self.strict_error())
-        }
-    }
-
     /// Return the strict parse error when the result is not clean, otherwise panic.
     pub fn unwrap_err(self) -> Error {
         if self.is_err() {
