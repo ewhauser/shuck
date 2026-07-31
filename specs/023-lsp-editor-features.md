@@ -2,7 +2,13 @@
 
 ## Status
 
-Proposed
+Implemented (document-local v1).
+
+Delivered: completion, semantic hover, go-to-definition, references, document
+highlights, document and workspace symbols, conservative same-file rename, and
+document/range formatting. Cross-file rename remains deferred until closed-file
+edit safety is proven. Cross-file call hierarchy is specified separately in
+spec 025; other cross-file navigation is outside this spec's implemented scope.
 
 ## Summary
 
