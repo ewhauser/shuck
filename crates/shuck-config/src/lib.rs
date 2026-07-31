@@ -17,6 +17,7 @@ use std::str::FromStr;
 use anyhow::{Context, Result, anyhow};
 use clap::builder::{TypedValueParser, ValueParserFactory};
 use clap::error::{ContextKind, ContextValue, ErrorKind};
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 use shuck_formatter::{IndentStyle, ShellDialect};
 use shuck_run::RunConfig;
@@ -32,6 +33,7 @@ const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] = &["check", "format", "lint", "run"];
 const CONFIG_OVERRIDE_CHECK_KEYS: &[&str] = &["embedded"];
 const CONFIG_OVERRIDE_FORMAT_KEYS: &[&str] = &[
     "dialect",
+    "exclude",
     "indent-style",
     "indent-width",
     "binary-next-line",
@@ -133,6 +135,8 @@ pub struct CheckConfig {
 pub struct FormatConfig {
     /// Deprecated formatter dialect value retained only to reject config-file use clearly.
     pub dialect: Option<toml::Value>,
+    /// Project-relative glob patterns for files that should not be formatted.
+    pub exclude: Option<Vec<String>>,
     /// Requested indentation style, such as `tab` or `space`.
     pub indent_style: Option<String>,
     /// Requested indentation width.
@@ -149,6 +153,96 @@ pub struct FormatConfig {
     pub function_next_line: Option<bool>,
     /// Whether the formatter should avoid splitting lines.
     pub never_split: Option<bool>,
+}
+
+/// Compiled formatter exclusions resolved relative to one project root.
+#[derive(Debug, Clone)]
+pub struct FormatExclusions {
+    project_root: PathBuf,
+    canonical_project_root: Option<PathBuf>,
+    patterns: Vec<String>,
+    matcher: Option<GlobSet>,
+}
+
+impl PartialEq for FormatExclusions {
+    fn eq(&self, other: &Self) -> bool {
+        self.project_root == other.project_root
+            && self.canonical_project_root == other.canonical_project_root
+            && self.patterns == other.patterns
+    }
+}
+
+impl Eq for FormatExclusions {}
+
+impl FormatExclusions {
+    fn compile(project_root: &Path, patterns: &[String]) -> Result<Self> {
+        let project_root = normalize_path(project_root);
+        let canonical_project_root = fs::canonicalize(&project_root)
+            .ok()
+            .map(|path| normalize_path(&path))
+            .filter(|path| path != &project_root);
+
+        if patterns.is_empty() {
+            return Ok(Self {
+                project_root,
+                canonical_project_root,
+                patterns: Vec::new(),
+                matcher: None,
+            });
+        }
+
+        let mut builder = GlobSetBuilder::new();
+        for pattern in patterns {
+            builder.add(
+                Glob::new(pattern)
+                    .with_context(|| format!("invalid `[format].exclude` pattern `{pattern}`"))?,
+            );
+        }
+
+        Ok(Self {
+            project_root,
+            canonical_project_root,
+            patterns: patterns.to_vec(),
+            matcher: Some(builder.build()?),
+        })
+    }
+
+    /// Return the configured glob patterns in declaration order.
+    pub fn patterns(&self) -> &[String] {
+        &self.patterns
+    }
+
+    /// Return whether a path is excluded from formatting.
+    pub fn is_excluded(&self, path: &Path) -> bool {
+        let Some(matcher) = &self.matcher else {
+            return false;
+        };
+
+        let path = normalize_path(path);
+        let relative_path = path.strip_prefix(&self.project_root).ok().or_else(|| {
+            self.canonical_project_root
+                .as_deref()
+                .and_then(|root| path.strip_prefix(root).ok())
+        });
+
+        relative_path.is_some_and(|path| matcher.is_match(path))
+            || matcher.is_match(&path)
+            || relative_path
+                .unwrap_or(&path)
+                .file_name()
+                .is_some_and(|file_name| matcher.is_match(Path::new(file_name)))
+    }
+}
+
+impl Default for FormatExclusions {
+    fn default() -> Self {
+        Self {
+            project_root: PathBuf::from("."),
+            canonical_project_root: None,
+            patterns: Vec::new(),
+            matcher: None,
+        }
+    }
 }
 
 /// Configuration for lint rule selection and analysis behavior.
@@ -806,7 +900,7 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 4] = [
     },
     ConfigSectionMetadata {
         key: "format",
-        docs: "Formatter style options for `shuck format`.",
+        docs: "Formatter file-selection and style options for `shuck format` and editor formatting.",
         fields: &[
             ConfigFieldMetadata {
                 key: "binary-next-line",
@@ -814,6 +908,13 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 4] = [
                 default: "false",
                 value_type: "bool",
                 example: "binary-next-line = true",
+            },
+            ConfigFieldMetadata {
+                key: "exclude",
+                docs: "Do not format files matching these project-relative glob patterns.",
+                default: "[]",
+                value_type: "list[str]",
+                example: r#"exclude = ["generated/**"]"#,
             },
             ConfigFieldMetadata {
                 key: "function-next-line",
@@ -1668,6 +1769,11 @@ impl FormatConfig {
             minify: None,
         })
     }
+
+    /// Compile formatter exclusions relative to the given project root.
+    pub fn compile_exclusions(&self, project_root: &Path) -> Result<FormatExclusions> {
+        FormatExclusions::compile(project_root, self.exclude.as_deref().unwrap_or_default())
+    }
 }
 
 impl ShuckConfig {
@@ -1691,6 +1797,9 @@ impl FormatConfig {
     fn apply_overrides(&mut self, overrides: FormatConfig) {
         if overrides.dialect.is_some() {
             self.dialect = overrides.dialect;
+        }
+        if overrides.exclude.is_some() {
+            self.exclude = overrides.exclude;
         }
         if overrides.indent_style.is_some() {
             self.indent_style = overrides.indent_style;
@@ -2486,6 +2595,42 @@ mod tests {
     fn inline_config_overrides_validate_supported_keys() {
         let config = parse_config_override("format.indent-width = 2").unwrap();
         assert_eq!(config.format.indent_width, Some(2));
+    }
+
+    #[test]
+    fn inline_config_overrides_accept_format_exclusions() {
+        let config = parse_config_override("format.exclude = ['generated/**']").unwrap();
+        assert_eq!(config.format.exclude, Some(vec!["generated/**".to_owned()]));
+    }
+
+    #[test]
+    fn format_exclusions_match_project_relative_paths_and_basenames() {
+        let project_root = Path::new("/workspace/project");
+        let config = FormatConfig {
+            exclude: Some(vec!["generated/**".to_owned(), "*.generated.sh".to_owned()]),
+            ..FormatConfig::default()
+        };
+        let exclusions = config.compile_exclusions(project_root).unwrap();
+
+        assert!(exclusions.is_excluded(Path::new("/workspace/project/generated/script.sh")));
+        assert!(exclusions.is_excluded(Path::new("/workspace/project/scripts/tool.generated.sh")));
+        assert!(!exclusions.is_excluded(Path::new("/workspace/project/scripts/tool.sh")));
+        assert!(!exclusions.is_excluded(Path::new("/workspace/other/generated/script.sh")));
+    }
+
+    #[test]
+    fn format_exclusions_reject_invalid_globs() {
+        let config = FormatConfig {
+            exclude: Some(vec!["[".to_owned()]),
+            ..FormatConfig::default()
+        };
+
+        let error = config.compile_exclusions(Path::new(".")).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("invalid `[format].exclude` pattern `[`")
+        );
     }
 
     #[test]

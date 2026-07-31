@@ -2236,6 +2236,49 @@ fn format_exclude_skips_walked_files_but_not_explicit_files_without_force_exclud
 }
 
 #[test]
+fn format_config_exclude_skips_walked_and_explicit_files_per_project() {
+    let tempdir = tempdir().unwrap();
+    let nested = tempdir.path().join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(tempdir.path().join("shuck.toml"), "[format]\n").unwrap();
+    fs::write(
+        nested.join("shuck.toml"),
+        "[format]\nexclude = ['**/*p10k.zsh']\n",
+    )
+    .unwrap();
+
+    let regular = nested.join("regular.zsh");
+    let generated = nested.join(".p10k.zsh");
+    let unformatted_regular = "if true; then\nprint ok\nfi\n";
+    let formatted_regular = "if true; then\n\tprint ok\nfi\n";
+    let unformatted_generated = "if true\n";
+    fs::write(&regular, unformatted_regular).unwrap();
+    fs::write(&generated, unformatted_generated).unwrap();
+
+    let mut walked = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut walked, tempdir.path());
+    walked.current_dir(tempdir.path()).arg("format");
+    walked.assert().success().stdout("");
+
+    assert_eq!(fs::read_to_string(&regular).unwrap(), formatted_regular);
+    assert_eq!(
+        fs::read_to_string(&generated).unwrap(),
+        unformatted_generated
+    );
+
+    let mut explicit = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut explicit, tempdir.path());
+    explicit
+        .current_dir(tempdir.path())
+        .args(["format", "nested/.p10k.zsh"]);
+    explicit.assert().success().stdout("");
+    assert_eq!(
+        fs::read_to_string(&generated).unwrap(),
+        unformatted_generated
+    );
+}
+
+#[test]
 fn format_gitignore_and_force_exclude_flags_control_explicit_files() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join(".gitignore"), "ignored.sh\n").unwrap();

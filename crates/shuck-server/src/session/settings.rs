@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use globset::{Glob, GlobMatcher};
 use shuck_config::{
-    ConfigArguments, FormatSettingsPatch, LintConfig, ShuckConfig, apply_config_overrides,
-    load_project_config, resolve_project_root_for_file,
+    ConfigArguments, FormatExclusions, FormatSettingsPatch, LintConfig, ShuckConfig,
+    apply_config_overrides, load_project_config, resolve_project_root_for_file,
 };
 use shuck_formatter::{ShellDialect as FormatDialect, ShellFormatOptions};
 use shuck_linter::{
@@ -31,6 +31,7 @@ pub(crate) struct ClientSettings {
 pub struct ShuckSettings {
     linter: LinterSettings,
     formatter: ShellFormatOptions,
+    format_exclusions: FormatExclusions,
     fixable_rules: RuleSet,
     project_root: Option<PathBuf>,
 }
@@ -45,6 +46,7 @@ pub(crate) struct SettingsResolveContext {
 pub(crate) struct ResolvedProjectSettings {
     linter: ResolvedLinterSettings,
     formatter: ShellFormatOptions,
+    format_exclusions: FormatExclusions,
     fixable_rules: RuleSet,
     project_root: Option<PathBuf>,
 }
@@ -137,6 +139,10 @@ impl ShuckSettings {
         &self.formatter
     }
 
+    pub(crate) fn is_format_excluded(&self, path: Option<&Path>) -> bool {
+        path.is_some_and(|path| self.format_exclusions.is_excluded(path))
+    }
+
     pub(crate) fn fixable_rules(&self) -> RuleSet {
         self.fixable_rules
     }
@@ -151,6 +157,7 @@ impl Default for ShuckSettings {
         Self {
             linter: LinterSettings::default(),
             formatter: ShellFormatOptions::default(),
+            format_exclusions: FormatExclusions::default(),
             fixable_rules: RuleSet::all(),
             project_root: None,
         }
@@ -206,6 +213,13 @@ impl ResolvedProjectSettings {
                 )
             })
             .unwrap_or_default();
+        let format_config = format_config_for_layers(&project_config, option_layers);
+        let format_exclusions = format_config
+            .compile_exclusions(context.config_root())
+            .unwrap_or_else(|error| {
+                tracing::warn!("Failed to compile formatter exclusions: {error}");
+                FormatExclusions::default()
+            });
 
         Self {
             linter: resolved_linter_settings_for_layers(
@@ -213,7 +227,8 @@ impl ResolvedProjectSettings {
                 &project_config,
                 option_layers,
             ),
-            formatter: formatter_settings_for_layers(&project_config, option_layers),
+            formatter: formatter_settings_for_config(&format_config),
+            format_exclusions,
             fixable_rules: fixable_rules_for_layers(&project_config, option_layers),
             project_root: context.project_root.clone(),
         }
@@ -223,6 +238,7 @@ impl ResolvedProjectSettings {
         ShuckSettings {
             linter: self.linter.for_file(file_path),
             formatter: self.formatter.clone(),
+            format_exclusions: self.format_exclusions.clone(),
             fixable_rules: self.fixable_rules,
             project_root: self.project_root.clone(),
         }
@@ -371,10 +387,10 @@ fn resolved_linter_settings_for_layers(
     }
 }
 
-fn formatter_settings_for_layers(
+fn format_config_for_layers(
     project_config: &ShuckConfig,
     option_layers: &[&ClientOptions],
-) -> ShellFormatOptions {
+) -> shuck_config::FormatConfig {
     let mut config = ShuckConfig {
         format: project_config.format.clone(),
         ..ShuckConfig::default()
@@ -383,11 +399,11 @@ fn formatter_settings_for_layers(
         apply_config_overrides(&mut config, options.to_config_overrides());
     }
 
-    formatter_settings_for_config(&config)
+    config.format
 }
 
-fn formatter_settings_for_config(config: &ShuckConfig) -> ShellFormatOptions {
-    let patch = config.format.to_patch().unwrap_or(FormatSettingsPatch {
+fn formatter_settings_for_config(config: &shuck_config::FormatConfig) -> ShellFormatOptions {
+    let patch = config.to_patch().unwrap_or(FormatSettingsPatch {
         ..FormatSettingsPatch::default()
     });
     let mut options = ShellFormatOptions::default();
