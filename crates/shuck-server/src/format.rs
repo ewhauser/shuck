@@ -14,10 +14,17 @@ pub(crate) fn format_document(
     _params: types::DocumentFormattingParams,
 ) -> crate::server::Result<FormatResponse> {
     let query = snapshot.query();
+    let file_path = query.file_path();
+    if snapshot
+        .shuck_settings()
+        .is_format_excluded(file_path.as_deref())
+    {
+        return Ok(None);
+    }
     let source = query.document().contents();
     let formatted = shuck_formatter::format_source(
         source,
-        query.file_path().as_deref(),
+        file_path.as_deref(),
         snapshot.shuck_settings().formatter(),
     )
     .map_err(Error::new)?;
@@ -40,6 +47,13 @@ pub(crate) fn format_range(
     _client: &Client,
     params: types::DocumentRangeFormattingParams,
 ) -> crate::server::Result<FormatResponse> {
+    let file_path = snapshot.query().file_path();
+    if snapshot
+        .shuck_settings()
+        .is_format_excluded(file_path.as_deref())
+    {
+        return Ok(None);
+    }
     let Some(analysis) = snapshot.analysis() else {
         return Ok(None);
     };
@@ -57,7 +71,7 @@ pub(crate) fn format_range(
         &source[usize::from(statement_range.start())..usize::from(statement_range.end())];
     let formatted = shuck_formatter::format_source(
         statement_source,
-        snapshot.query().file_path().as_deref(),
+        file_path.as_deref(),
         snapshot.shuck_settings().formatter(),
     )
     .map_err(Error::new)?;
@@ -245,6 +259,69 @@ mod tests {
         assert_eq!(edits[0].range.start, types::Position::new(1, 0));
         assert_eq!(edits[0].range.end, types::Position::new(1, 0));
         assert_eq!(edits[0].new_text, "\t");
+    }
+
+    #[test]
+    fn formatting_returns_none_for_config_excluded_document() {
+        let tempdir = tempfile::tempdir().expect("workspace should be created");
+        std::fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[format]\nexclude = ['**/*p10k.zsh']\n",
+        )
+        .expect("config should be written");
+
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, _client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+        let workspace_uri =
+            Url::from_file_path(tempdir.path()).expect("workspace path should convert to a URL");
+        let workspaces = Workspaces::new(vec![Workspace::default(workspace_uri)]);
+        let global = GlobalOptions::default().into_settings(client.clone());
+        let mut session = Session::new(
+            &ClientCapabilities::default(),
+            PositionEncoding::UTF16,
+            global,
+            &workspaces,
+            &client,
+        )
+        .expect("test session should initialize");
+
+        let uri = Url::from_file_path(tempdir.path().join(".p10k.zsh"))
+            .expect("script path should convert to a URL");
+        session.open_text_document(
+            uri.clone(),
+            TextDocument::new("if true; then\nprint ok\nfi\n".to_owned(), 1)
+                .with_language_id("shellscript"),
+        );
+
+        let document_response = format_document(
+            session
+                .take_snapshot(uri.clone())
+                .expect("test document should produce a snapshot"),
+            &client,
+            types::DocumentFormattingParams {
+                text_document: types::TextDocumentIdentifier { uri: uri.clone() },
+                options: types::FormattingOptions::default(),
+                work_done_progress_params: types::WorkDoneProgressParams::default(),
+            },
+        )
+        .expect("document formatting should succeed");
+        assert!(document_response.is_none());
+
+        let range_response = format_range(
+            session
+                .take_snapshot(uri.clone())
+                .expect("test document should produce a snapshot"),
+            &client,
+            types::DocumentRangeFormattingParams {
+                text_document: types::TextDocumentIdentifier { uri },
+                range: types::Range::new(types::Position::new(0, 0), types::Position::new(2, 2)),
+                options: types::FormattingOptions::default(),
+                work_done_progress_params: types::WorkDoneProgressParams::default(),
+            },
+        )
+        .expect("range formatting should succeed");
+        assert!(range_response.is_none());
     }
 
     #[test]

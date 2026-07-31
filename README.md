@@ -383,6 +383,7 @@ extend-per-file-shell = { "tools/**/*.zsh" = "zsh" }
 
 [format]
 # Configure `shuck format` and editor formatting.
+exclude = ["generated/**"] # project-relative globs that should never be formatted
 indent-style = "tab"       # tab | space
 indent-width = 4           # used when indent-style = "space"
 binary-next-line = false   # put binary operators on continuation lines
@@ -392,6 +393,11 @@ keep-padding = false       # preserve safe horizontal padding
 function-next-line = false # put function opening braces on their own line
 never-split = false        # prefer compact layouts
 ```
+
+`format.exclude` applies to directory discovery, explicitly named files, and
+whole-document or range formatting requested through the language server. This
+makes it suitable for generated files that must remain untouched even when an
+editor has format-on-save enabled.
 
 Formatter dialect is inferred from the file name or shebang. For stdin or one-off formatting runs, use `shuck format --dialect bash|posix|mksh|zsh`.
 

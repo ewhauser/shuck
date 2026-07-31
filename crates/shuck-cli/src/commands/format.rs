@@ -183,7 +183,9 @@ fn run_format_with_cwd(
     let mut report = FormatReport::default();
 
     for mut run in runs {
-        run.files.retain(|file| file.kind == FileKind::Shell);
+        run.files.retain(|file| {
+            file.kind == FileKind::Shell && !run.settings.is_file_excluded(&file.absolute_path)
+        });
         let settings = run.settings.to_shell_format_options();
         let pending = run.take_pending_files(|file, cached| {
             report.cache_hits += 1;

@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::{Result, anyhow};
 use shuck_cache::{CacheKey, CacheKeyHasher};
-use shuck_config::{ConfigArguments, FormatSettingsPatch, load_project_config};
+use shuck_config::{ConfigArguments, FormatExclusions, FormatSettingsPatch, load_project_config};
 use shuck_formatter::{IndentStyle, ShellDialect, ShellFormatOptions};
 
 const CLI_INDENT_WIDTH_ERROR: &str = "`--indent-width` must be at least 1";
@@ -11,6 +11,7 @@ const CONFIG_INDENT_WIDTH_ERROR: &str = "`[format].indent-width` must be at leas
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ResolvedFormatSettings {
     options: ShellFormatOptions,
+    exclusions: FormatExclusions,
 }
 
 impl CacheKey for ResolvedFormatSettings {
@@ -27,12 +28,17 @@ impl CacheKey for ResolvedFormatSettings {
         state.write_bool(self.options.never_split());
         state.write_bool(self.options.simplify());
         state.write_bool(self.options.minify());
+        self.exclusions.patterns().cache_key(state);
     }
 }
 
 impl ResolvedFormatSettings {
     pub(crate) fn to_shell_format_options(&self) -> ShellFormatOptions {
         self.options.clone()
+    }
+
+    pub(crate) fn is_file_excluded(&self, path: &Path) -> bool {
+        self.exclusions.is_excluded(path)
     }
 
     fn apply_patch(&mut self, patch: FormatSettingsPatch, indent_width_error: &str) -> Result<()> {
@@ -87,8 +93,12 @@ pub(crate) fn resolve_project_format_settings(
 ) -> Result<ResolvedFormatSettings> {
     let config = load_project_config(project_root, config_arguments)?;
     let config_patch = config.format.to_patch()?;
+    let exclusions = config.format.compile_exclusions(project_root)?;
 
-    let mut settings = ResolvedFormatSettings::default();
+    let mut settings = ResolvedFormatSettings {
+        exclusions,
+        ..ResolvedFormatSettings::default()
+    };
     settings.apply_patch(config_patch, CONFIG_INDENT_WIDTH_ERROR)?;
     settings.apply_patch(cli_patch, CLI_INDENT_WIDTH_ERROR)?;
     Ok(settings)

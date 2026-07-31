@@ -1833,6 +1833,7 @@ dependencies = [
  "anyhow",
  "clap",
  "etcetera",
+ "globset",
  "serde",
  "shuck-formatter",
  "shuck-run",
