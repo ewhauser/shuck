@@ -6,16 +6,56 @@ That gives editor diagnostics from the current in-memory buffer instead of rerun
 
 ## Current scope
 
-The current server already covers the core editor feedback loop:
+Shuck advertises a capability only after its request handler is implemented. The
+scope still varies by feature: some requests analyze only the active document,
+while workspace symbols and call hierarchy maintain bounded indexes across
+files.
 
-- Real-time diagnostics for open shell buffers
-- Incremental document sync over LSP
-- Dialect inference from the buffer `languageId`, shebang, and file path
-- Quick fixes, disable-this-line actions, and `source.fixAll.shuck` code actions
-- Hover help for suppression codes in `# shuck:` and `# shellcheck` directives
-- Whole-document and selected-range formatting through LSP
+| Feature | LSP methods | Scope and limitations |
+| --- | --- | --- |
+| Document synchronization | `textDocument/didOpen`, `didChange`, `didClose` | Incremental synchronization for open shell buffers. Dialect inference uses the buffer `languageId`, shebang, and file path. |
+| Diagnostics | `textDocument/diagnostic`, `textDocument/publishDiagnostics` | Pull diagnostics when the client supports them, with push diagnostics as a fallback. Analysis is document-local; workspace diagnostics and inter-file diagnostic dependencies are not supported. |
+| Code actions | `textDocument/codeAction`, `codeAction/resolve` | Quick fixes, disable-this-line actions, and `source.fixAll.shuck` for the active document. |
+| Completion | `textDocument/completion`, `completionItem/resolve` | Variables, functions, declaration names, runtime names, builtins, and shell keywords known to the active document analysis. Command-specific option completion is not supported. |
+| Hover | `textDocument/hover` | Semantic symbol information plus help for suppression codes in `# shuck:` and `# shellcheck` directives. Shuck does not fetch command manuals. |
+| Go to definition | `textDocument/definition` | Definitions resolvable within the active document. A call whose definition exists only in a sourced file does not currently resolve. |
+| Find references | `textDocument/references` | The proven symbol set within the active document. Cross-file references are not currently indexed. |
+| Document highlights | `textDocument/documentHighlight` | Read and write occurrences within the active document. |
+| Document symbols | `textDocument/documentSymbol` | Functions, declarations, and assignments from the active document. |
+| Workspace symbols | `workspace/symbol` | Fuzzy search over open buffers and discovered shell files in workspace folders, subject to a configurable file limit. |
+| Rename | `textDocument/prepareRename`, `textDocument/rename` | Conservative, semantically resolved edits within the active document. Cross-file rename is not supported. |
+| Formatting | `textDocument/formatting`, `textDocument/rangeFormatting` | Whole-document formatting or the smallest complete statement containing the selected range. Incomplete syntactic fragments are left unchanged. |
+| Call hierarchy | `textDocument/prepareCallHierarchy`, `callHierarchy/incomingCalls`, `callHierarchy/outgoingCalls` | Incoming and outgoing calls across the statically resolvable source graph. Literal sources and valid `# shuck: source=` hints participate; runtime-only dispatch and unresolved dynamic sources do not. Multiple same-named function definitions in one file currently collapse onto the first indexed node. |
 
 Editor formatting uses the same parser-backed formatter as [`shuck format`](/docs/formatting). Once `shuck server` is attached, use your editor's normal LSP format command or format-on-save integration.
+
+### Planned or deferred
+
+- Cross-file rename is intentionally disabled until Shuck can prove safe edits
+  for every affected open or closed file.
+- Preparing call hierarchy directly on a call to a function in a sourced file
+  is intended to resolve to the target definition. This currently has a known
+  implementation gap tracked in
+  [issue #1194](https://github.com/ewhauser/shuck/issues/1194).
+- Cross-file go-to-definition and references need a broader workspace-navigation
+  design. They are not covered by the current call-hierarchy index.
+- Language-server support for embedded shell regions, such as scripts inside
+  GitHub Actions YAML, needs a separate position-remapping design.
+
+### Not currently planned
+
+Shuck does not currently advertise semantic tokens, inlay hints, signature
+help, selection ranges, folding ranges, notebook documents, or workspace-wide
+diagnostics. These are not permanent prohibitions, but there is no accepted
+implementation design for them today.
+
+This page is the user-facing support contract. The repository's
+[design specs](https://github.com/ewhauser/shuck/tree/main/specs) record the
+scope and decisions of individual implementation stages, so an older spec may
+describe a feature as a non-goal that a later spec subsequently added. If an
+advertised feature fails within the scope above, please file a bug. If the
+requested behavior is listed as deferred or unsupported, file a feature request
+instead.
 
 ## Before you start
 
