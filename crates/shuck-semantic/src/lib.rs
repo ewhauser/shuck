@@ -2209,6 +2209,12 @@ impl SemanticModel {
             })
     }
 
+    /// Returns whether a function definition is installed on every path
+    /// through its containing command sequence.
+    pub fn function_binding_is_unconditional(&self, id: BindingId) -> bool {
+        self.unconditional_function_bindings().contains(&id)
+    }
+
     /// Returns source-like file references discovered in the script.
     pub fn source_refs(&self) -> &[SourceRef] {
         &self.source_refs

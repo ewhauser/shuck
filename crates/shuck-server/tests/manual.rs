@@ -289,6 +289,137 @@ fn open_document(connection: &Connection, uri: &Url, text: &str) {
 }
 
 #[test]
+fn cross_file_definition_uses_exact_workspace_binding_and_open_buffers() {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+
+    let workspace = tempfile::tempdir().expect("tempdir should be created");
+    std::fs::write(
+        workspace.path().join("shuck.toml"),
+        "[lint]\nsource-paths = [\"lib\"]\n",
+    )
+    .unwrap();
+    std::fs::create_dir(workspace.path().join("lib")).unwrap();
+    let configured_path = workspace.path().join("lib/configured.sh");
+    std::fs::write(&configured_path, "configured() { :; }\n").unwrap();
+
+    let imported_path = workspace.path().join("imported.sh");
+    std::fs::write(&imported_path, "stale() { :; }\n").unwrap();
+    let imported_source = ": '😀'; imported() {\n  :\n}\n";
+
+    let caller_path = workspace.path().join("caller.sh");
+    std::fs::write(&caller_path, "stale_caller\n").unwrap();
+    let caller_source = "# shuck: source=imported.sh\nsource \"$DIR/imported.sh\"\nprintf '😀'; imported\nimported() {\n  :\n}\nimported\nsource configured.sh\nconfigured\nsource \"$dynamic\"\nimported\nunknown\n";
+
+    let imported_uri = Url::from_file_path(std::fs::canonicalize(&imported_path).unwrap()).unwrap();
+    let configured_uri =
+        Url::from_file_path(std::fs::canonicalize(&configured_path).unwrap()).unwrap();
+    let caller_uri = Url::from_file_path(&caller_path).unwrap();
+    let mut capabilities = serde_json::to_value(replay_capabilities()).unwrap();
+    capabilities["general"]["positionEncodings"] = serde_json::json!(["utf-8"]);
+
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": capabilities,
+            "rootUri": Url::from_file_path(workspace.path()).unwrap(),
+        }),
+    );
+    let initialize = recv_response(&client_connection, 1);
+    assert_eq!(
+        initialize["capabilities"]["positionEncoding"],
+        serde_json::json!("utf-8")
+    );
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("initialized should send");
+    open_document(&client_connection, &imported_uri, imported_source);
+    open_document(&client_connection, &caller_uri, caller_source);
+
+    // The first call sees the sourced definition from the unsaved buffer. Its
+    // UTF-8 range begins after a four-byte emoji on the same line.
+    send_request(
+        &client_connection,
+        2,
+        "textDocument/definition",
+        serde_json::json!({
+            "textDocument": { "uri": caller_uri },
+            "position": { "line": 2, "character": 15 },
+        }),
+    );
+    let imported = recv_response(&client_connection, 2);
+    assert_eq!(imported["uri"], serde_json::json!(imported_uri));
+    assert_eq!(
+        imported["range"]["start"],
+        serde_json::json!({ "line": 0, "character": 10 })
+    );
+
+    // The later local definition replaces the imported one for subsequent
+    // calls, while retaining the caller's open-document URI.
+    send_request(
+        &client_connection,
+        3,
+        "textDocument/definition",
+        serde_json::json!({
+            "textDocument": { "uri": caller_uri },
+            "position": { "line": 6, "character": 0 },
+        }),
+    );
+    let local = recv_response(&client_connection, 3);
+    assert_eq!(local["uri"], serde_json::json!(caller_uri));
+    assert_eq!(
+        local["range"]["start"],
+        serde_json::json!({ "line": 3, "character": 0 })
+    );
+
+    // Literal source operands also honor configured source paths.
+    send_request(
+        &client_connection,
+        4,
+        "textDocument/definition",
+        serde_json::json!({
+            "textDocument": { "uri": caller_uri },
+            "position": { "line": 8, "character": 0 },
+        }),
+    );
+    let configured = recv_response(&client_connection, 4);
+    assert_eq!(configured["uri"], serde_json::json!(configured_uri));
+
+    // A dynamic source may replace even a previously proven local function,
+    // so navigation fails closed instead of returning the stale binding.
+    send_request(
+        &client_connection,
+        5,
+        "textDocument/definition",
+        serde_json::json!({
+            "textDocument": { "uri": caller_uri },
+            "position": { "line": 10, "character": 0 },
+        }),
+    );
+    assert!(recv_response(&client_connection, 5).is_null());
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("exit notification should send");
+    server_thread
+        .join()
+        .expect("server thread should join")
+        .expect("server should exit cleanly");
+}
+
+#[test]
 fn prepare_call_hierarchy_resolves_sourced_cross_file_call() {
     let (server_connection, client_connection) = Connection::memory();
     let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));

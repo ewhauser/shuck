@@ -104,6 +104,7 @@ pub(crate) fn workspace_function_index(
 /// Source snapshot retained for one indexed file.
 pub(crate) struct IndexedWorkspaceFile {
     uri: types::Url,
+    open_uri: Option<types::Url>,
     source: String,
     line_index: LineIndex,
     #[allow(dead_code)] // Used by the upcoming cross-file rename safety check.
@@ -115,6 +116,12 @@ pub(crate) struct IndexedWorkspaceFile {
 impl IndexedWorkspaceFile {
     pub(crate) fn uri(&self) -> &types::Url {
         &self.uri
+    }
+
+    /// URI used by the editor for an open buffer, falling back to the
+    /// canonical file URI for disk snapshots.
+    pub(crate) fn editor_uri(&self) -> &types::Url {
+        self.open_uri.as_ref().unwrap_or(&self.uri)
     }
 
     pub(crate) fn source(&self) -> &str {
@@ -325,6 +332,14 @@ impl WorkspaceFunctionIndex {
         self.graph.resolve_call_site(from_path, name_span)
     }
 
+    pub(crate) fn resolve_call_site_exact(
+        &self,
+        from_path: &Path,
+        name_span: Span,
+    ) -> Option<CrossFileCall> {
+        self.graph.resolve_call_site_exact(from_path, name_span)
+    }
+
     pub(crate) fn incoming(
         &self,
         target_path: &Path,
@@ -389,8 +404,7 @@ impl WorkspaceFunctionIndex {
         self.graph.file_count()
     }
 
-    #[cfg(test)]
-    fn contains(&self, path: &Path) -> bool {
+    pub(crate) fn contains(&self, path: &Path) -> bool {
         self.graph.contains(path)
     }
 }
@@ -505,6 +519,7 @@ fn insert_file(
     open_paths: &BTreeSet<PathBuf>,
 ) {
     let key = canonical_path(input.path);
+    let open_uri = input.version.is_some().then(|| input.uri.clone());
     let uri = std::fs::canonicalize(input.path)
         .ok()
         .and_then(|path| types::Url::from_file_path(path).ok())
@@ -538,6 +553,7 @@ fn insert_file(
         key,
         IndexedWorkspaceFile {
             uri,
+            open_uri,
             source: input.source.to_owned(),
             line_index: LineIndex::new(input.source),
             version: input.version,
@@ -857,6 +873,60 @@ mod tests {
             canonical_target
         );
         assert_eq!(built.file(&canonical_target).unwrap().uri(), &target_uri);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_open_target_retains_the_editors_symlink_uri() {
+        use std::os::unix::fs::symlink;
+
+        let tempdir = tempfile::tempdir().unwrap();
+        let real_workspace = tempdir.path().join("real");
+        let linked_workspace = tempdir.path().join("linked");
+        std::fs::create_dir(&real_workspace).unwrap();
+        let real_workspace = std::fs::canonicalize(real_workspace).unwrap();
+        std::fs::write(
+            real_workspace.join("caller.sh"),
+            "source target.sh\ntarget\n",
+        )
+        .unwrap();
+        std::fs::write(real_workspace.join("target.sh"), "stale() { :; }\n").unwrap();
+        symlink(&real_workspace, &linked_workspace).unwrap();
+
+        let caller_uri = types::Url::from_file_path(linked_workspace.join("caller.sh")).unwrap();
+        let target_uri = types::Url::from_file_path(linked_workspace.join("target.sh")).unwrap();
+        let context = WorkspaceFunctionContext {
+            workspace_roots: vec![linked_workspace.clone()],
+            settings_workspace_roots: vec![linked_workspace, real_workspace.clone()],
+            workspace_settings: Vec::new(),
+            global_options: ClientOptions::default(),
+            open_documents: vec![
+                WorkspaceOpenDocument {
+                    uri: caller_uri,
+                    document: Arc::new(
+                        TextDocument::new("source target.sh\ntarget\n".to_owned(), 1)
+                            .with_language_id("shellscript"),
+                    ),
+                },
+                WorkspaceOpenDocument {
+                    uri: target_uri.clone(),
+                    document: Arc::new(
+                        TextDocument::new("target() { :; }\n".to_owned(), 2)
+                            .with_language_id("shellscript"),
+                    ),
+                },
+            ],
+            encoding: PositionEncoding::UTF16,
+            max_files: 100,
+            cache: Arc::new(WorkspaceFunctionIndexCache::default()),
+            epoch: 0,
+            cancellation: RequestCancellationToken::default(),
+        };
+
+        let built = WorkspaceFunctionIndex::build(&context).unwrap();
+        let file = built.file(&real_workspace.join("target.sh")).unwrap();
+        assert_ne!(file.uri(), &target_uri);
+        assert_eq!(file.editor_uri(), &target_uri);
     }
 
     #[test]

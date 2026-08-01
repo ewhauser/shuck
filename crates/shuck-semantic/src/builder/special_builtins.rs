@@ -210,6 +210,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                         kind,
                         span: source_span,
                         path_span: argument.span,
+                        conditionally_executed: flow.conditionally_executed,
                         resolution: SourceRefResolution::Unchecked,
                         explicitly_provided: false,
                         directive,
