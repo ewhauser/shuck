@@ -1,7 +1,7 @@
 use lsp_types::{self as types, request as req};
 
 use crate::server::Result;
-use crate::session::{Client, Session};
+use crate::session::{Client, RequestCancellationToken, Session};
 use crate::symbols;
 
 pub(crate) struct WorkspaceSymbols;
@@ -16,6 +16,7 @@ impl super::super::traits::BackgroundRequestHandler for WorkspaceSymbols {
     fn snapshot(
         session: &Session,
         _params: &types::WorkspaceSymbolParams,
+        _cancellation: RequestCancellationToken,
     ) -> Result<Self::Snapshot> {
         Ok(session.workspace_symbol_context())
     }

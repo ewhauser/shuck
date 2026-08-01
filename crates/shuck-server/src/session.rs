@@ -20,6 +20,7 @@ pub use self::options::{
     ClientOptions, CompletionFeatureOptions, GlobalOptions, RenameFeatureOptions,
     WorkspaceSymbolFeatureOptions,
 };
+pub(crate) use self::request_queue::RequestCancellationToken;
 pub(crate) use self::settings::ShuckSettings;
 pub use client::Client;
 
@@ -38,7 +39,7 @@ pub struct Session {
     resolved_client_capabilities: Arc<ResolvedClientCapabilities>,
     workspace_symbols: Arc<crate::symbols::WorkspaceSymbolIndex>,
     analysis_cache: Arc<DocumentAnalysisCache>,
-    call_index_cache: Arc<crate::call_hierarchy::CallIndexCache>,
+    workspace_function_index: Arc<crate::workspace_functions::WorkspaceFunctionIndexCache>,
     request_queue: RequestQueue,
     shutdown_requested: bool,
 }
@@ -72,7 +73,9 @@ impl Session {
             )),
             workspace_symbols: Arc::new(crate::symbols::WorkspaceSymbolIndex::default()),
             analysis_cache: Arc::new(DocumentAnalysisCache::new()),
-            call_index_cache: Arc::new(crate::call_hierarchy::CallIndexCache::default()),
+            workspace_function_index: Arc::new(
+                crate::workspace_functions::WorkspaceFunctionIndexCache::default(),
+            ),
             request_queue: RequestQueue::new(),
             shutdown_requested: false,
         })
@@ -126,7 +129,7 @@ impl Session {
                 .update_text_document(key, content_changes, new_version, self.encoding());
         if result.is_ok() {
             self.analysis_cache.invalidate_uri(&key.clone().into_url());
-            self.call_index_cache.invalidate();
+            self.workspace_function_index.invalidate();
         }
         result
     }
@@ -134,14 +137,14 @@ impl Session {
     /// Open or replace an in-memory text document.
     pub fn open_text_document(&mut self, url: Url, document: TextDocument) {
         self.analysis_cache.invalidate_uri(&url);
-        self.call_index_cache.invalidate();
+        self.workspace_function_index.invalidate();
         self.index.open_text_document(url, document);
     }
 
     pub(crate) fn close_document(&mut self, key: &DocumentKey) -> crate::Result<()> {
         self.index.close_document(key)?;
         self.analysis_cache.invalidate_uri(&key.clone().into_url());
-        self.call_index_cache.invalidate();
+        self.workspace_function_index.invalidate();
         self.workspace_symbols
             .invalidate_uri(&key.clone().into_url());
         Ok(())
@@ -150,7 +153,7 @@ impl Session {
     pub(crate) fn reload_settings(&mut self, changes: &[FileEvent], client: &Client) {
         self.index.reload_settings(changes, client);
         self.analysis_cache.clear();
-        self.call_index_cache.invalidate();
+        self.workspace_function_index.invalidate();
         self.workspace_symbols.invalidate_file_events(changes);
     }
 
@@ -158,7 +161,7 @@ impl Session {
         self.index
             .open_workspace_folder(url, &self.global_settings, client)?;
         self.analysis_cache.clear();
-        self.call_index_cache.invalidate();
+        self.workspace_function_index.invalidate();
         self.workspace_symbols.invalidate_all();
         Ok(())
     }
@@ -166,7 +169,7 @@ impl Session {
     pub(crate) fn close_workspace_folder(&mut self, url: &Url) -> crate::Result<()> {
         self.index.close_workspace_folder(url)?;
         self.analysis_cache.clear();
-        self.call_index_cache.invalidate();
+        self.workspace_function_index.invalidate();
         self.workspace_symbols.invalidate_all();
         Ok(())
     }
@@ -189,7 +192,7 @@ impl Session {
 
     pub(crate) fn update_client_options(&mut self, options: ClientOptions) {
         self.analysis_cache.clear();
-        self.call_index_cache.invalidate();
+        self.workspace_function_index.invalidate();
         self.workspace_symbols.invalidate_all();
         self.global_settings.update_options(options);
         self.index.clear_project_settings_cache();
@@ -201,7 +204,7 @@ impl Session {
         workspace_options: Option<WorkspaceOptionsMap>,
     ) {
         self.analysis_cache.clear();
-        self.call_index_cache.invalidate();
+        self.workspace_function_index.invalidate();
         self.workspace_symbols.invalidate_all();
         self.global_settings.update_options(options);
         if let Some(workspace_options) = workspace_options {
@@ -247,12 +250,27 @@ impl Session {
         }
     }
 
-    /// Build the workspace context used to answer cross-file call-hierarchy
-    /// requests: the workspace roots, a snapshot of open documents, and the
-    /// negotiated position encoding.
-    pub(crate) fn call_hierarchy_context(&self) -> crate::call_hierarchy::CallHierarchyContext {
-        crate::call_hierarchy::CallHierarchyContext {
-            workspace_roots: self.index.workspace_roots().to_vec(),
+    /// Build the immutable context used by cross-file function features.
+    pub(crate) fn workspace_function_context(
+        &self,
+        cancellation: RequestCancellationToken,
+    ) -> crate::workspace_functions::WorkspaceFunctionContext {
+        let workspace_settings = self.index.workspace_settings_snapshot();
+        let workspace_roots = self.index.workspace_roots().to_vec();
+        let mut settings_workspace_roots = workspace_roots.clone();
+        for workspace in &workspace_settings {
+            let Some(canonical_root) = &workspace.canonical_root else {
+                continue;
+            };
+            if !settings_workspace_roots.contains(canonical_root) {
+                settings_workspace_roots.push(canonical_root.clone());
+            }
+        }
+        crate::workspace_functions::WorkspaceFunctionContext {
+            workspace_roots,
+            settings_workspace_roots,
+            workspace_settings,
+            global_options: self.global_settings.options().clone(),
             open_documents: self.index.open_documents_snapshot(),
             encoding: self.position_encoding,
             max_files: self
@@ -261,8 +279,9 @@ impl Session {
                 .server
                 .call_hierarchy
                 .max_files,
-            epoch: self.call_index_cache.current_epoch(),
-            cache: self.call_index_cache.clone(),
+            epoch: self.workspace_function_index.current_epoch(),
+            cache: self.workspace_function_index.clone(),
+            cancellation,
         }
     }
 }
@@ -399,9 +418,11 @@ mod tests {
     }
 
     #[test]
-    fn call_index_cache_invalidates_after_closed_file_event() {
+    fn workspace_function_index_invalidates_after_closed_file_event() {
         let (workspace, mut session, _uri) = make_test_session();
-        let before = session.call_hierarchy_context().epoch;
+        let before = session
+            .workspace_function_context(RequestCancellationToken::default())
+            .epoch;
         let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
         let (client_sender, _client_receiver) = channel::unbounded();
         let client = Client::new(main_loop_sender, client_sender);
@@ -416,7 +437,12 @@ mod tests {
             &client,
         );
 
-        assert!(session.call_hierarchy_context().epoch > before);
+        assert!(
+            session
+                .workspace_function_context(RequestCancellationToken::default())
+                .epoch
+                > before
+        );
     }
 
     #[test]

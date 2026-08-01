@@ -4,17 +4,24 @@
 
 Implemented (v1).
 
-Delivered: the workspace call-graph index (`FileCallFacts` / `WorkspaceCallIndex`
-in `shuck-semantic`), the shared source-edge resolver, and session-scoped
-`incomingCalls` / `outgoingCalls` handlers that build the index over open
+Delivered: the pure workspace call graph (`FileCallFacts` / `WorkspaceCallIndex`
+in `shuck-semantic`), the shared server-owned `WorkspaceFunctionIndex`, the
+source-edge resolver, and session-scoped `incomingCalls` / `outgoingCalls`
+handlers that build the index over open
 buffers plus discovered workspace files (plus files reachable only through
 resolved source edges, e.g. gitignored vendored targets) and answer both
-directions across files. The built index is cached on the session behind an
+directions across files. `WorkspaceFunctionIndex` owns discovery, open-buffer
+overlay, layered source-path settings, span-to-range source metadata,
+completeness state, and closed-file content hashes so other cross-file editor
+features can reuse the same graph rather than rebuilding call-hierarchy-specific
+variants. The built index is cached on the session behind an
 epoch counter and invalidated by any document, workspace, or configuration
-change, so expanding a call tree reuses one build. Call sites the semantic
-model binds in-file stay binding-accurate (definition order and shadowing are
-honored), while source edges retain their positions so later sourced and local
-definitions override earlier ones; only sites without an effective local
+change, so expanding a call tree reuses one build. Index population checks for
+cancellation between files and phases, and aborted builds do not populate the
+cache. Call sites the semantic model binds in-file stay binding-accurate
+(definition order and shadowing are honored), while source edges retain their
+positions so later sourced and local definitions override earlier ones; only
+sites without an effective local
 binding are matched by name across source edges. Function nodes carry their
 exact definition byte range through `CallHierarchyItem.data`, keeping
 same-named redefinitions distinct across preparation, incoming calls, and
@@ -22,8 +29,9 @@ outgoing calls. Top-level MODULE nodes also round-trip through that payload, so
 their outgoing calls expand. Edges come from all determinable sources
 (literal-resolvable paths and `source=` directives with and without
 `lint=true`), resolved against the annotating file's own directory and the
-configured `[lint] source-paths` roots (memoized per project root, matching
-`shuck check`). The indexed-file count is hard-bounded by
+configured `[lint] source-paths` roots after project, global client, and
+workspace client layers are applied. Open unsaved source targets participate
+without requiring stale disk content. The indexed-file count is hard-bounded by
 `server.callHierarchy.maxFiles` (default 10k): one budget is shared by all
 three population phases — open buffers, closed-file discovery, and source-edge
 expansion — and every insertion checks it, so a runaway workspace degrades to a

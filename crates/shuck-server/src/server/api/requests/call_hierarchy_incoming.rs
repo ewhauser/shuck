@@ -1,8 +1,9 @@
 use lsp_types::{self as types, request as req};
 
-use crate::call_hierarchy::{self, CallHierarchyContext};
+use crate::call_hierarchy;
 use crate::server::Result;
-use crate::session::{Client, Session};
+use crate::session::{Client, RequestCancellationToken, Session};
+use crate::workspace_functions::WorkspaceFunctionContext;
 
 pub(crate) struct CallHierarchyIncomingCalls;
 
@@ -11,13 +12,14 @@ impl super::RequestHandler for CallHierarchyIncomingCalls {
 }
 
 impl super::super::traits::BackgroundRequestHandler for CallHierarchyIncomingCalls {
-    type Snapshot = CallHierarchyContext;
+    type Snapshot = WorkspaceFunctionContext;
 
     fn snapshot(
         session: &Session,
         _params: &types::CallHierarchyIncomingCallsParams,
+        cancellation: RequestCancellationToken,
     ) -> Result<Self::Snapshot> {
-        Ok(session.call_hierarchy_context())
+        Ok(session.workspace_function_context(cancellation))
     }
 
     fn run_with_snapshot(

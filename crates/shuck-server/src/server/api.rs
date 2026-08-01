@@ -187,7 +187,7 @@ where
             .incoming()
             .cancellation_token(&id)
             .expect("request should be registered before scheduling");
-        let snapshot = R::snapshot(session, &params);
+        let snapshot = R::snapshot(session, &params, cancellation_token.clone());
         Box::new(move |client| {
             if cancellation_token.is_cancelled() {
                 return;

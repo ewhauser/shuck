@@ -63,11 +63,12 @@ impl Incoming {
         request_id: &RequestId,
     ) -> Option<RequestCancellationToken> {
         let pending = self.pending.get(request_id)?;
-        Some(RequestCancellationToken::clone(
+        Some(
             pending
                 .cancellation_token
-                .get_or_init(RequestCancellationToken::default),
-        ))
+                .get_or_init(RequestCancellationToken::default)
+                .clone(),
+        )
     }
 
     pub(crate) fn complete(&mut self, request_id: &RequestId) -> Option<(Instant, String)> {
@@ -94,7 +95,7 @@ impl PendingRequest {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct RequestCancellationToken(Arc<AtomicBool>);
 
 impl RequestCancellationToken {
@@ -102,12 +103,8 @@ impl RequestCancellationToken {
         self.0.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    fn cancel(&self) {
+    pub(crate) fn cancel(&self) {
         self.0.store(true, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    fn clone(this: &Self) -> Self {
-        Self(this.0.clone())
     }
 }
 
