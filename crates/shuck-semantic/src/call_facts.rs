@@ -19,7 +19,15 @@ use shuck_ast::{Name, Span};
 use crate::editor::binding_definition_span;
 use crate::{ScopeId, SemanticModel};
 
-type SourceResolution = Option<(PathBuf, Span)>;
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ResolvedDefinition {
+    path: PathBuf,
+    def_span: Span,
+}
+
+/// A definition exported through a source edge, paired with that edge's span
+/// in the referring file for source-order precedence.
+type SourceResolution = Option<(ResolvedDefinition, Span)>;
 
 /// Identity of a call-graph node within a file: a named function, or the file's
 /// top-level (module) body.
@@ -226,7 +234,39 @@ impl WorkspaceCallIndex {
             .find(|definition| &definition.name == callee)
             .map(|definition| definition.def_span);
         let sourced = self.resolve_through_edges_before(from_path, callee, None);
-        choose_resolved_target(from_path, local, sourced)
+        choose_resolved_target(from_path, local, sourced).map(|target| target.path)
+    }
+
+    /// Resolves the exact call token at `name_span` to its function node.
+    ///
+    /// Unlike [`Self::resolve`], this preserves the call site's execution
+    /// position: top-level calls only see source edges that ran before them,
+    /// while calls in deferred function bodies see the final sourced
+    /// environment. File-local definitions participate in the same ordering.
+    pub fn resolve_call_site(&self, from_path: &Path, name_span: Span) -> Option<CrossFileCall> {
+        let facts = self.files.get(from_path)?;
+        let site = facts
+            .call_sites
+            .iter()
+            .find(|site| site.name_span == name_span)?;
+        let cutoff = match site.enclosing {
+            CallNodeKind::TopLevel => Some(site.name_span.start.offset),
+            CallNodeKind::Function(_) => None,
+        };
+        let sourced = self.resolve_through_edges_before(from_path, &site.callee, cutoff);
+        let target = choose_resolved_target(from_path, site.local_definition_span, sourced)?;
+        let definition = self.files.get(&target.path).and_then(|facts| {
+            facts.definitions.iter().find(|definition| {
+                definition.name == site.callee && definition.def_span == target.def_span
+            })
+        });
+        Some(CrossFileCall {
+            path: target.path,
+            node: CallNodeKind::Function(site.callee.clone()),
+            def_span: Some(target.def_span),
+            selection_span: definition.map(|definition| definition.selection_span),
+            call_spans: vec![site.name_span],
+        })
     }
 
     /// Resolves through source edges that execute before `cutoff`. A `None`
@@ -251,7 +291,7 @@ impl WorkspaceCallIndex {
             })
             .find_map(|edge| {
                 self.resolve_exported(&edge.path, callee, &mut stack)
-                    .map(|path| (path, edge.span))
+                    .map(|target| (target, edge.span))
             })
     }
 
@@ -263,7 +303,7 @@ impl WorkspaceCallIndex {
         path: &Path,
         callee: &Name,
         stack: &mut FxHashSet<PathBuf>,
-    ) -> Option<PathBuf> {
+    ) -> Option<ResolvedDefinition> {
         if !stack.insert(path.to_path_buf()) {
             return None;
         }
@@ -273,13 +313,16 @@ impl WorkspaceCallIndex {
         };
 
         enum Event<'a> {
-            Definition,
+            Definition(&'a CallFactDefinition),
             Source(&'a CallFactSourceEdge),
         }
 
         let mut events = Vec::new();
         for definition in facts.definitions.iter().filter(|def| &def.name == callee) {
-            events.push((definition.def_span.start.offset, Event::Definition));
+            events.push((
+                definition.def_span.start.offset,
+                Event::Definition(definition),
+            ));
         }
         for edge in &facts.source_edges {
             events.push((edge.span.start.offset, Event::Source(edge)));
@@ -288,7 +331,10 @@ impl WorkspaceCallIndex {
 
         for (_, event) in events.into_iter().rev() {
             let resolved = match event {
-                Event::Definition => Some(path.to_path_buf()),
+                Event::Definition(definition) => Some(ResolvedDefinition {
+                    path: path.to_path_buf(),
+                    def_span: definition.def_span,
+                }),
                 Event::Source(edge) => self.resolve_exported(&edge.path, callee, stack),
             };
             if resolved.is_some() {
@@ -328,9 +374,10 @@ impl WorkspaceCallIndex {
                 })
                 .clone();
             let target = choose_resolved_target(from_path, site.local_definition_span, sourced);
-            let Some(target_path) = target else {
+            let Some(target) = target else {
                 continue;
             };
+            let target_path = target.path;
             let key = (target_path, site.callee.clone());
             spans
                 .entry(key.clone())
@@ -391,8 +438,7 @@ impl WorkspaceCallIndex {
                     .clone();
                 let resolves =
                     choose_resolved_target(caller_path, site.local_definition_span, sourced)
-                        .as_deref()
-                        == Some(target_path);
+                        .is_some_and(|target| target.path.as_path() == target_path);
                 if !resolves {
                     continue;
                 }
@@ -436,15 +482,18 @@ fn choose_resolved_target(
     from_path: &Path,
     local_definition: Option<Span>,
     sourced: SourceResolution,
-) -> Option<PathBuf> {
+) -> Option<ResolvedDefinition> {
     match (local_definition, sourced) {
-        (Some(definition), Some((path, source_span)))
+        (Some(definition), Some((target, source_span)))
             if source_span != Span::new() && source_span.start.offset > definition.start.offset =>
         {
-            Some(path)
+            Some(target)
         }
-        (Some(_), _) => Some(from_path.to_path_buf()),
-        (None, Some((path, _))) => Some(path),
+        (Some(def_span), _) => Some(ResolvedDefinition {
+            path: from_path.to_path_buf(),
+            def_span,
+        }),
+        (None, Some((target, _))) => Some(target),
         (None, None) => None,
     }
 }
@@ -560,13 +609,24 @@ mod tests {
             facts("greet() { echo a; }\n", &[]),
         );
         // b defines its own greet, so its call resolves locally, not to a.sh.
-        index.insert(
-            PathBuf::from("/w/b.sh"),
-            facts("greet() { echo b; }\ngreet\n", &["/w/a.sh"]),
+        let caller_path = PathBuf::from("/w/b.sh");
+        let caller_facts = facts("greet() { echo b; }\ngreet\n", &["/w/a.sh"]);
+        let call_span = caller_facts
+            .call_sites
+            .iter()
+            .find(|site| site.callee == name("greet"))
+            .expect("greet call should be projected")
+            .name_span;
+        index.insert(caller_path.clone(), caller_facts);
+        assert_eq!(
+            index.resolve(&caller_path, &name("greet")),
+            Some(caller_path.clone())
         );
         assert_eq!(
-            index.resolve(Path::new("/w/b.sh"), &name("greet")),
-            Some(PathBuf::from("/w/b.sh"))
+            index
+                .resolve_call_site(&caller_path, call_span)
+                .map(|call| call.path),
+            Some(caller_path)
         );
         // a.sh's greet therefore has no incoming call from b.sh.
         assert!(
@@ -585,8 +645,12 @@ mod tests {
             PathBuf::from("/w/a.sh"),
             facts("greet() { echo hi; }\n", &[]),
         );
-        index.insert(PathBuf::from("/w/b.sh"), facts("greet\n", &[]));
-        assert_eq!(index.resolve(Path::new("/w/b.sh"), &name("greet")), None);
+        let caller_path = PathBuf::from("/w/b.sh");
+        let caller_facts = facts("greet\n", &[]);
+        let call_span = caller_facts.call_sites[0].name_span;
+        index.insert(caller_path.clone(), caller_facts);
+        assert_eq!(index.resolve(&caller_path, &name("greet")), None);
+        assert!(index.resolve_call_site(&caller_path, call_span).is_none());
         assert!(
             index
                 .incoming(Path::new("/w/a.sh"), &name("greet"))
@@ -616,10 +680,14 @@ mod tests {
         let a_path = PathBuf::from("/w/a.sh");
         let c_path = PathBuf::from("/w/c.sh");
         let mut index = WorkspaceCallIndex::new();
-        index.insert(
-            caller_path.clone(),
-            FileCallFacts::project_with_source_edges(&caller, edges),
-        );
+        let caller_facts = FileCallFacts::project_with_source_edges(&caller, edges);
+        let call_spans = caller_facts
+            .call_sites
+            .iter()
+            .filter(|site| site.callee == name("greet"))
+            .map(|site| site.name_span)
+            .collect::<Vec<_>>();
+        index.insert(caller_path.clone(), caller_facts);
         index.insert(a_path.clone(), facts("greet() { echo a; }\n", &[]));
         index.insert(c_path.clone(), facts("greet() { echo c; }\n", &[]));
 
@@ -635,6 +703,24 @@ mod tests {
             index.resolve(&caller_path, &name("greet")),
             Some(c_path.clone()),
             "the later sourced definition is the final visible binding"
+        );
+        assert_eq!(call_spans.len(), 3);
+        assert!(
+            index
+                .resolve_call_site(&caller_path, call_spans[0])
+                .is_none()
+        );
+        assert_eq!(
+            index
+                .resolve_call_site(&caller_path, call_spans[1])
+                .map(|call| call.path),
+            Some(a_path.clone())
+        );
+        assert_eq!(
+            index
+                .resolve_call_site(&caller_path, call_spans[2])
+                .map(|call| call.path),
+            Some(c_path.clone())
         );
 
         let incoming_a = index.incoming(&a_path, &name("greet"));
@@ -662,10 +748,21 @@ mod tests {
         let caller_path = PathBuf::from("/w/main.sh");
         let a_path = PathBuf::from("/w/a.sh");
         let mut index = WorkspaceCallIndex::new();
-        index.insert(
-            caller_path.clone(),
-            FileCallFacts::project_with_source_edges(&caller, vec![edge]),
-        );
+        let caller_facts = FileCallFacts::project_with_source_edges(&caller, vec![edge]);
+        let call_spans = caller_facts
+            .call_sites
+            .iter()
+            .filter(|site| site.callee == name("greet"))
+            .map(|site| site.name_span)
+            .collect::<Vec<_>>();
+        let final_definition_span = caller_facts
+            .definitions
+            .iter()
+            .filter(|definition| definition.name == name("greet"))
+            .max_by_key(|definition| definition.def_span.start.offset)
+            .expect("final greet definition should be projected")
+            .def_span;
+        index.insert(caller_path.clone(), caller_facts);
         index.insert(a_path.clone(), facts("greet() { echo sourced; }\n", &[]));
 
         let outgoing = index.outgoing(&caller_path, &CallNodeKind::TopLevel);
@@ -680,6 +777,47 @@ mod tests {
             "the final local definition overrides the earlier source"
         );
         assert_eq!(outgoing[1].call_spans.len(), 1);
+        assert_eq!(call_spans.len(), 2);
+        assert_eq!(
+            index
+                .resolve_call_site(&caller_path, call_spans[0])
+                .map(|call| call.path),
+            Some(a_path)
+        );
+        let final_call = index
+            .resolve_call_site(&caller_path, call_spans[1])
+            .expect("final call should resolve locally");
+        assert_eq!(final_call.path, caller_path);
+        assert_eq!(final_call.def_span, Some(final_definition_span));
+    }
+
+    #[test]
+    fn call_site_resolution_preserves_latest_sourced_definition_span() {
+        let caller_path = PathBuf::from("/w/main.sh");
+        let target_path = PathBuf::from("/w/a.sh");
+        let caller_facts = facts("greet\n", &["/w/a.sh"]);
+        let call_span = caller_facts.call_sites[0].name_span;
+        let target_facts = facts("greet() { echo first; }\ngreet() { echo final; }\n", &[]);
+        let final_definition = target_facts
+            .definitions
+            .iter()
+            .max_by_key(|definition| definition.def_span.start.offset)
+            .expect("final sourced definition should be projected")
+            .clone();
+
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(caller_path.clone(), caller_facts);
+        index.insert(target_path.clone(), target_facts);
+
+        let resolved = index
+            .resolve_call_site(&caller_path, call_span)
+            .expect("sourced call should resolve");
+        assert_eq!(resolved.path, target_path);
+        assert_eq!(resolved.def_span, Some(final_definition.def_span));
+        assert_eq!(
+            resolved.selection_span,
+            Some(final_definition.selection_span)
+        );
     }
 
     #[test]

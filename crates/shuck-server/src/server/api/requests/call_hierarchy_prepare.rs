@@ -1,33 +1,46 @@
 use lsp_types::{self as types, request as req};
 
-use crate::editor_features;
-use crate::session::{Client, DocumentSnapshot};
+use crate::call_hierarchy::{self, CallHierarchyContext};
+use crate::editor_features::CallHierarchyPrepareResponse;
+use crate::session::{Client, DocumentSnapshot, Session};
 
 pub(crate) struct CallHierarchyPrepare;
+
+pub(crate) struct CallHierarchyPrepareSnapshot {
+    document: Option<DocumentSnapshot>,
+    context: CallHierarchyContext,
+}
 
 impl super::RequestHandler for CallHierarchyPrepare {
     type RequestType = req::CallHierarchyPrepare;
 }
 
-impl super::BackgroundDocumentRequestHandler for CallHierarchyPrepare {
-    fn document_url(
-        params: &types::CallHierarchyPrepareParams,
-    ) -> std::borrow::Cow<'_, types::Url> {
-        std::borrow::Cow::Borrowed(&params.text_document_position_params.text_document.uri)
-    }
+impl super::super::traits::BackgroundRequestHandler for CallHierarchyPrepare {
+    type Snapshot = CallHierarchyPrepareSnapshot;
 
-    fn run_without_snapshot(
-        _client: &Client,
-        _params: types::CallHierarchyPrepareParams,
-    ) -> crate::server::Result<editor_features::CallHierarchyPrepareResponse> {
-        Ok(None)
+    fn snapshot(
+        session: &Session,
+        params: &types::CallHierarchyPrepareParams,
+    ) -> crate::server::Result<Self::Snapshot> {
+        let uri = params
+            .text_document_position_params
+            .text_document
+            .uri
+            .clone();
+        Ok(CallHierarchyPrepareSnapshot {
+            document: session.take_snapshot(uri),
+            context: session.call_hierarchy_context(),
+        })
     }
 
     fn run_with_snapshot(
-        snapshot: DocumentSnapshot,
+        snapshot: Self::Snapshot,
         client: &Client,
         params: types::CallHierarchyPrepareParams,
-    ) -> crate::server::Result<editor_features::CallHierarchyPrepareResponse> {
-        editor_features::prepare_call_hierarchy(snapshot, client, params)
+    ) -> crate::server::Result<CallHierarchyPrepareResponse> {
+        let Some(document) = snapshot.document else {
+            return Ok(None);
+        };
+        call_hierarchy::prepare_call_hierarchy(snapshot.context, document, client, params)
     }
 }

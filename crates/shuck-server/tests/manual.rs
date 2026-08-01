@@ -289,6 +289,192 @@ fn open_document(connection: &Connection, uri: &Url, text: &str) {
 }
 
 #[test]
+fn prepare_call_hierarchy_resolves_sourced_cross_file_call() {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+
+    let workspace = tempfile::tempdir().expect("tempdir should be created");
+    std::fs::write(workspace.path().join("a.sh"), "greet() {\n  echo hi\n}\n").unwrap();
+    let caller = "greet() {\n  echo local\n}\n# shuck: source=a.sh\nsource \"$DIR/a.sh\"\ngreet\ngreet() {\n  echo final\n}\ngreet\nhandler=greet\n\"$handler\"\n";
+    std::fs::write(workspace.path().join("b.sh"), caller).unwrap();
+    let a_uri = Url::from_file_path(
+        std::fs::canonicalize(workspace.path().join("a.sh"))
+            .expect("definition path should canonicalize"),
+    )
+    .unwrap();
+    let b_uri = Url::from_file_path(workspace.path().join("b.sh")).unwrap();
+    let canonical_b_uri = Url::from_file_path(
+        std::fs::canonicalize(workspace.path().join("b.sh"))
+            .expect("caller path should canonicalize"),
+    )
+    .unwrap();
+
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": replay_capabilities(),
+            "rootUri": Url::from_file_path(workspace.path()).unwrap(),
+        }),
+    );
+    let _ = recv_response(&client_connection, 1);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("initialized should send");
+    open_document(&client_connection, &b_uri, caller);
+
+    send_request(
+        &client_connection,
+        2,
+        "textDocument/prepareCallHierarchy",
+        serde_json::json!({
+            "textDocument": { "uri": b_uri },
+            "position": { "line": 5, "character": 0 },
+        }),
+    );
+    let prepared = recv_response(&client_connection, 2);
+    let item = &prepared.as_array().expect("prepare should return items")[0];
+    assert_eq!(item["name"], serde_json::json!("greet"));
+    assert_eq!(item["uri"], serde_json::json!(a_uri));
+    assert_eq!(
+        item["range"],
+        serde_json::json!({
+            "start": { "line": 0, "character": 0 },
+            "end": { "line": 3, "character": 0 },
+        })
+    );
+    assert_eq!(
+        item["selectionRange"],
+        serde_json::json!({
+            "start": { "line": 0, "character": 0 },
+            "end": { "line": 0, "character": 5 },
+        })
+    );
+
+    // A later local redefinition takes precedence over the sourced function,
+    // and prepare must retain that exact definition rather than the first
+    // same-named definition in the file.
+    send_request(
+        &client_connection,
+        3,
+        "textDocument/prepareCallHierarchy",
+        serde_json::json!({
+            "textDocument": { "uri": b_uri },
+            "position": { "line": 9, "character": 0 },
+        }),
+    );
+    let local_prepared = recv_response(&client_connection, 3);
+    let local_item = &local_prepared
+        .as_array()
+        .expect("local prepare should return items")[0];
+    assert_eq!(local_item["name"], serde_json::json!("greet"));
+    assert_eq!(local_item["uri"], serde_json::json!(canonical_b_uri));
+    assert_eq!(
+        local_item["range"],
+        serde_json::json!({
+            "start": { "line": 6, "character": 0 },
+            "end": { "line": 9, "character": 0 },
+        })
+    );
+    assert_eq!(
+        local_item["selectionRange"],
+        serde_json::json!({
+            "start": { "line": 6, "character": 0 },
+            "end": { "line": 6, "character": 5 },
+        })
+    );
+
+    // Runtime-only dispatch cannot be tied to a concrete function definition,
+    // even though its eventual value happens to spell the sourced function.
+    send_request(
+        &client_connection,
+        4,
+        "textDocument/prepareCallHierarchy",
+        serde_json::json!({
+            "textDocument": { "uri": b_uri },
+            "position": { "line": 11, "character": 2 },
+        }),
+    );
+    assert!(recv_response(&client_connection, 4).is_null());
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("exit notification should send");
+    server_thread
+        .join()
+        .expect("server thread should join")
+        .expect("server should exit cleanly");
+}
+
+#[test]
+fn prepare_call_hierarchy_keeps_local_calls_for_non_file_uri() {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+
+    let workspace = tempfile::tempdir().expect("tempdir should be created");
+    let uri = Url::parse("untitled:script.sh").expect("untitled URI should parse");
+    let source = "greet() {\n  echo hi\n}\ngreet\n";
+
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": replay_capabilities(),
+            "rootUri": Url::from_file_path(workspace.path()).unwrap(),
+        }),
+    );
+    let _ = recv_response(&client_connection, 1);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("initialized should send");
+    open_document(&client_connection, &uri, source);
+
+    send_request(
+        &client_connection,
+        2,
+        "textDocument/prepareCallHierarchy",
+        serde_json::json!({
+            "textDocument": { "uri": uri },
+            "position": { "line": 3, "character": 0 },
+        }),
+    );
+    let prepared = recv_response(&client_connection, 2);
+    let item = &prepared.as_array().expect("prepare should return items")[0];
+    assert_eq!(item["name"], serde_json::json!("greet"));
+    assert_eq!(item["uri"], serde_json::json!(uri));
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("exit notification should send");
+    server_thread
+        .join()
+        .expect("server thread should join")
+        .expect("server should exit cleanly");
+}
+
+#[test]
 fn cross_file_call_hierarchy_spans_source_edges() {
     let (server_connection, client_connection) = Connection::memory();
     let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));

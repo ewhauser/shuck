@@ -4,10 +4,11 @@
 //! building a [`WorkspaceCallIndex`]: every workspace shell file (open buffer
 //! preferred over disk) is parsed and projected into call facts, its
 //! determinable source edges resolved, and the two directions answered as
-//! traversals of the resulting call graph. `prepareCallHierarchy` stays a
-//! single-file identity step; the item it returns (name + file URI + a
-//! [`CallHierarchyData`] payload distinguishing top-level nodes) is enough for
-//! the index queries to locate the node.
+//! traversals of the resulting call graph. `prepareCallHierarchy` first uses
+//! document-local identity and then consults the same index when the cursor is
+//! on a call resolved through a source edge. The returned item contains its
+//! name, file URI, and a [`CallHierarchyData`] payload distinguishing top-level
+//! nodes, which is enough for later index queries to locate it.
 //!
 //! The built index is cached on the session and invalidated whenever a
 //! document, workspace folder, or configuration changes, so expanding a call
@@ -30,13 +31,15 @@ use shuck_config::{ConfigArguments, load_project_config, resolve_project_root_fo
 use shuck_indexer::LineIndex;
 use shuck_linter::ShellDialect;
 use shuck_semantic::{
-    CallFactSourceEdge, CallNodeKind, CrossFileCall, FileCallFacts, WorkspaceCallIndex,
-    resolve_source_ref_targets,
+    CallFactSourceEdge, CallNodeKind, CrossFileCall, EditorSymbolTarget, FileCallFacts,
+    WorkspaceCallIndex, resolve_source_ref_targets,
 };
 
 use crate::PositionEncoding;
+use crate::edit::RangeExt;
 use crate::editor::analyze_editor_document;
-use crate::editor_features::CallHierarchyData;
+use crate::editor_features::{self, CallHierarchyData, CallHierarchyPrepareResponse};
+use crate::session::{Client, DocumentSnapshot};
 use crate::symbols::WorkspaceOpenDocument;
 
 /// Resolves and memoizes `[lint] source-paths` per project root, so cross-file
@@ -74,6 +77,54 @@ impl SourcePathsCache {
 
 pub(crate) type IncomingResponse = Option<Vec<types::CallHierarchyIncomingCall>>;
 pub(crate) type OutgoingResponse = Option<Vec<types::CallHierarchyOutgoingCall>>;
+
+/// Prepares the function under the cursor, including functions resolved from a
+/// statically sourced file.
+pub(crate) fn prepare_call_hierarchy(
+    context: CallHierarchyContext,
+    snapshot: DocumentSnapshot,
+    client: &Client,
+    params: types::CallHierarchyPrepareParams,
+) -> crate::server::Result<CallHierarchyPrepareResponse> {
+    let Some(analysis) = snapshot.analysis() else {
+        return Ok(None);
+    };
+    let source = analysis.source();
+    let position = params.text_document_position_params.position;
+    let offset = usize::from(
+        types::Range {
+            start: position,
+            end: position,
+        }
+        .to_text_range(source, analysis.line_index(), snapshot.encoding())
+        .start(),
+    );
+    let target = analysis.semantic().editor_query().target_at_offset(offset);
+    let Some(EditorSymbolTarget::FunctionCall(call)) = target else {
+        return editor_features::prepare_call_hierarchy(snapshot, client, params);
+    };
+    let Some(path) = snapshot
+        .query()
+        .file_url()
+        .to_file_path()
+        .ok()
+        .map(|path| canonical(&path))
+    else {
+        return editor_features::prepare_call_hierarchy(snapshot, client, params);
+    };
+    let built = cached_index(&context);
+    if let Some(target) = built.index.resolve_call_site(&path, call.name_span) {
+        return Ok(built.item_for(&target).map(|item| vec![item]));
+    }
+
+    // An indexed active document should resolve every proven local function
+    // call. Retain the document-local answer if a configured file limit made
+    // the workspace index partial before it reached this buffer.
+    if call.binding.is_some() {
+        return editor_features::prepare_call_hierarchy(snapshot, client, params);
+    }
+    Ok(None)
+}
 
 /// Workspace state needed to build the call index for one request.
 pub(crate) struct CallHierarchyContext {
