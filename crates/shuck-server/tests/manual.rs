@@ -656,6 +656,8 @@ fn cross_file_hover_uses_exact_workspace_binding_and_open_buffers() {
     std::fs::write(&caller_path, caller_source).unwrap();
 
     let imported_uri = Url::from_file_path(std::fs::canonicalize(&imported_path).unwrap()).unwrap();
+    let configured_uri =
+        Url::from_file_path(std::fs::canonicalize(&configured_path).unwrap()).unwrap();
     let caller_uri = Url::from_file_path(&caller_path).unwrap();
     let mut capabilities = serde_json::to_value(replay_capabilities()).unwrap();
     capabilities["general"]["positionEncodings"] = serde_json::json!(["utf-8"]);
@@ -696,7 +698,10 @@ fn cross_file_hover_uses_exact_workspace_binding_and_open_buffers() {
         .unwrap_or_else(|| panic!("expected sourced function hover: {imported:#}"));
     assert!(imported_markdown.contains("### `imported`"));
     assert!(imported_markdown.contains("Function"));
-    assert!(imported_markdown.contains(&imported_path.display().to_string()));
+    let rendered_imported_path = imported_uri
+        .to_file_path()
+        .expect("imported URI should round-trip to its display path");
+    assert!(imported_markdown.contains(&rendered_imported_path.display().to_string()));
     assert!(
         imported_markdown.contains("line 1, column 8"),
         "unexpected hover content: {imported_markdown}"
@@ -733,10 +738,13 @@ fn cross_file_hover_uses_exact_workspace_binding_and_open_buffers() {
         }),
     );
     let configured = recv_response(&client_connection, 4);
+    let rendered_configured_path = configured_uri
+        .to_file_path()
+        .expect("configured URI should round-trip to its display path");
     assert!(
         configured["contents"]["value"]
             .as_str()
-            .is_some_and(|value| value.contains(&configured_path.display().to_string()))
+            .is_some_and(|value| value.contains(&rendered_configured_path.display().to_string()))
     );
 
     send_request(
