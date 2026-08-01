@@ -435,7 +435,6 @@ pub(crate) fn prepare_rename(
     _client: &Client,
     params: types::TextDocumentPositionParams,
 ) -> crate::server::Result<PrepareRenameResponse> {
-    reject_unsupported_cross_file_rename(&snapshot)?;
     let Some(analysis) = snapshot.analysis() else {
         return Ok(None);
     };
@@ -464,7 +463,6 @@ pub(crate) fn rename(
     _client: &Client,
     params: types::RenameParams,
 ) -> crate::server::Result<RenameResponse> {
-    reject_unsupported_cross_file_rename(&snapshot)?;
     let Some(analysis) = snapshot.analysis() else {
         return Ok(None);
     };
@@ -494,16 +492,6 @@ pub(crate) fn rename(
         &rename,
         &params.new_name,
     )))
-}
-
-fn reject_unsupported_cross_file_rename(snapshot: &DocumentSnapshot) -> crate::server::Result<()> {
-    if snapshot.client_settings().rename().allow_cross_file {
-        return Err(Error::new(
-            anyhow!("cross-file rename is not supported yet"),
-            ErrorCode::InvalidRequest,
-        ));
-    }
-    Ok(())
 }
 
 fn workspace_edit_for_rename(
@@ -635,7 +623,7 @@ fn valid_variable_name(name: &str) -> bool {
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
-fn valid_function_name(name: &str) -> bool {
+pub(crate) fn valid_function_name(name: &str) -> bool {
     !name.is_empty()
         && !name.chars().any(|ch| {
             ch.is_whitespace()
@@ -955,7 +943,7 @@ mod tests {
     }
 
     #[test]
-    fn rename_rejects_cross_file_mode_until_supported() {
+    fn cross_file_mode_keeps_local_variable_rename_available() {
         let source = "name=1\necho \"$name\"\n";
         let options = serde_json::from_value(serde_json::json!({
             "server": {
@@ -968,7 +956,7 @@ mod tests {
         let (snapshot, client, uri) = make_snapshot_with_options(source, options);
         let reference_position = position_for_nth(source, "name", 1);
 
-        let error = rename(
+        let edit = rename(
             snapshot,
             &client,
             RenameParams {
@@ -977,13 +965,15 @@ mod tests {
                 work_done_progress_params: WorkDoneProgressParams::default(),
             },
         )
-        .expect_err("cross-file rename mode should be rejected until supported");
-
-        assert_eq!(error.code as i32, ErrorCode::InvalidRequest as i32);
-        assert!(
-            error
-                .to_string()
-                .contains("cross-file rename is not supported yet")
+        .expect("local variable rename should still succeed")
+        .expect("local variable rename should return edits");
+        assert_eq!(
+            edit.changes
+                .expect("default test client should use changes")
+                .values()
+                .map(Vec::len)
+                .sum::<usize>(),
+            2
         );
     }
 

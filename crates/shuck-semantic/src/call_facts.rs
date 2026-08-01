@@ -395,6 +395,27 @@ pub struct ExactFunctionReference {
     pub span: Span,
 }
 
+/// Exact references and all indexed files whose source relationship can
+/// affect a cross-file function rename.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExactFunctionRename {
+    /// Call tokens proven to resolve to the selected function binding.
+    pub references: Vec<ExactFunctionReference>,
+    /// Source-connected files whose snapshots must still match the index.
+    pub relevant_paths: Vec<PathBuf>,
+}
+
+/// Why an exact cross-file function rename set could not be proven.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExactFunctionRenameError {
+    /// A same-named call in the relevant source graph has ambiguous binding
+    /// identity and therefore cannot be safely included or excluded.
+    AmbiguousReference,
+    /// A source operation in the relevant graph could not be resolved to a
+    /// file represented by the workspace index.
+    IncompleteSourceGraph,
+}
+
 type ExactReferenceIndex = FxHashMap<(PathBuf, CallNodeKind), Vec<ExactFunctionReference>>;
 
 #[derive(Clone, Debug)]
@@ -624,6 +645,28 @@ impl SourceGraphIndex {
 
     fn component_reaches(&self, from: usize, to: usize) -> bool {
         bit_is_set(&self.component_reachability[from], to)
+    }
+
+    fn source_environment_components(
+        &self,
+        target: usize,
+        is_cancelled: &impl Fn() -> bool,
+    ) -> Option<Vec<u64>> {
+        let mut shared = vec![0; self.component_reachability[target].len()];
+        for ancestor in 0..self.component_edges.len() {
+            if is_cancelled() {
+                return None;
+            }
+            if self.component_reaches(ancestor, target) {
+                for (word, reachable) in shared
+                    .iter_mut()
+                    .zip(&self.component_reachability[ancestor])
+                {
+                    *word |= reachable;
+                }
+            }
+        }
+        Some(shared)
     }
 }
 
@@ -1088,6 +1131,36 @@ impl WorkspaceCallIndex {
         context: &ExactWorkspaceContext,
         is_cancelled: &impl Fn() -> bool,
     ) -> Option<CrossFileCall> {
+        let (site, resolution) = self.call_site_exact_resolution_with_context(
+            from_path,
+            name_span,
+            context,
+            is_cancelled,
+        )?;
+        let ExactResolution::Defined(target) = resolution else {
+            return None;
+        };
+        let definition = self.files.get(&target.path).and_then(|facts| {
+            facts.definitions.iter().find(|definition| {
+                definition.name == site.callee && definition.def_span == target.def_span
+            })
+        });
+        Some(CrossFileCall {
+            path: target.path,
+            node: CallNodeKind::Function(CallFunctionId::new(site.callee.clone(), target.def_span)),
+            def_span: Some(target.def_span),
+            selection_span: definition.map(|definition| definition.selection_span),
+            call_spans: vec![site.name_span],
+        })
+    }
+
+    fn call_site_exact_resolution_with_context<'a>(
+        &'a self,
+        from_path: &Path,
+        name_span: Span,
+        context: &ExactWorkspaceContext,
+        is_cancelled: &impl Fn() -> bool,
+    ) -> Option<(&'a CallFactSite, ExactResolution)> {
         let facts = self.files.get(from_path)?;
         let site = facts
             .call_sites
@@ -1108,9 +1181,13 @@ impl WorkspaceCallIndex {
                 is_cancelled,
             ),
             CallNodeKind::Function(function) => {
-                if context
+                let may_mutate = context
                     .called_mutator_function_may_mutate(from_path, function, is_cancelled)
-                    .unwrap_or(true)
+                    .unwrap_or(true);
+                if is_cancelled() {
+                    return None;
+                }
+                if may_mutate
                     || self.top_level_prefix_may_invoke_source(
                         from_path,
                         function.definition_start,
@@ -1125,7 +1202,7 @@ impl WorkspaceCallIndex {
                                 && effect.span.start.offset >= site.name_span.start.offset)
                     })
                 {
-                    return None;
+                    return Some((site, ExactResolution::Ambiguous));
                 }
                 let resolution = self.resolve_exact_events(
                     from_path,
@@ -1157,26 +1234,15 @@ impl WorkspaceCallIndex {
                     &mut FxHashSet::default(),
                     is_cancelled,
                 ) {
-                    return None;
+                    if is_cancelled() {
+                        return None;
+                    }
+                    return Some((site, ExactResolution::Ambiguous));
                 }
                 resolution
             }
         };
-        let ExactResolution::Defined(target) = resolution else {
-            return None;
-        };
-        let definition = self.files.get(&target.path).and_then(|facts| {
-            facts.definitions.iter().find(|definition| {
-                definition.name == site.callee && definition.def_span == target.def_span
-            })
-        });
-        Some(CrossFileCall {
-            path: target.path,
-            node: CallNodeKind::Function(CallFunctionId::new(site.callee.clone(), target.def_span)),
-            def_span: Some(target.def_span),
-            selection_span: definition.map(|definition| definition.selection_span),
-            call_spans: vec![site.name_span],
-        })
+        (!is_cancelled()).then_some((site, resolution))
     }
 
     fn exact_workspace_context(
@@ -1386,6 +1452,90 @@ impl WorkspaceCallIndex {
                 .map(Vec::as_slice)
                 .unwrap_or(&[]),
         )
+    }
+
+    /// Builds the exact reference set required for a safe cross-file rename.
+    ///
+    /// In addition to returning proven references, this rejects a same-named
+    /// call in the source-connected graph when its binding identity is
+    /// ambiguous. The returned paths let callers verify that every snapshot
+    /// which influenced the proof is still current before emitting edits.
+    pub fn exact_function_rename(
+        &self,
+        target_path: &Path,
+        target_node: &CallNodeKind,
+        is_cancelled: impl Fn() -> bool,
+    ) -> Option<Result<ExactFunctionRename, ExactFunctionRenameError>> {
+        let CallNodeKind::Function(target_function) = target_node else {
+            return Some(Err(ExactFunctionRenameError::AmbiguousReference));
+        };
+        let context = self.exact_workspace_context(&is_cancelled)?;
+        let target_component = context.graph.component_for_path(target_path)?;
+        let source_environment = context
+            .graph
+            .source_environment_components(target_component, &is_cancelled)?;
+        let relevant_paths = context
+            .graph
+            .paths
+            .iter()
+            .enumerate()
+            .filter(|(node, _)| bit_is_set(&source_environment, context.graph.components[*node]))
+            .map(|(_, path)| path.clone())
+            .collect::<Vec<_>>();
+        let mut references = Vec::new();
+        for path in &relevant_paths {
+            if is_cancelled() {
+                return None;
+            }
+            let facts = self.files.get(path)?;
+            if facts.source_effects.iter().any(|effect| {
+                effect
+                    .path
+                    .as_ref()
+                    .is_none_or(|target| !self.files.contains_key(target))
+            }) {
+                return Some(Err(ExactFunctionRenameError::IncompleteSourceGraph));
+            }
+            for site in facts
+                .call_sites
+                .iter()
+                .filter(|site| site.callee == target_function.name)
+            {
+                let (_, resolution) = self.call_site_exact_resolution_with_context(
+                    path,
+                    site.name_span,
+                    context,
+                    &is_cancelled,
+                )?;
+                match resolution {
+                    ExactResolution::Defined(target)
+                        if target.path == target_path
+                            && target.def_span.start.offset == target_function.definition_start
+                            && target.def_span.end.offset == target_function.definition_end =>
+                    {
+                        references.push(ExactFunctionReference {
+                            path: path.clone(),
+                            span: site.name_span,
+                        });
+                    }
+                    ExactResolution::Defined(_) | ExactResolution::Absent => {}
+                    ExactResolution::Ambiguous => {
+                        return Some(Err(ExactFunctionRenameError::AmbiguousReference));
+                    }
+                }
+            }
+        }
+        references.sort_by(|left, right| {
+            left.path.cmp(&right.path).then_with(|| {
+                (left.span.start.offset, left.span.end.offset)
+                    .cmp(&(right.span.start.offset, right.span.end.offset))
+            })
+        });
+        references.dedup();
+        Some(Ok(ExactFunctionRename {
+            references,
+            relevant_paths,
+        }))
     }
 
     fn build_exact_reference_index(
@@ -2491,6 +2641,127 @@ mod tests {
     }
 
     #[test]
+    fn exact_function_rename_rejects_ambiguous_calls_in_the_source_graph() {
+        let target_path = PathBuf::from("/w/a.sh");
+        let caller_path = PathBuf::from("/w/caller.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(target_path.clone(), facts("foo() { :; }\n", &[]));
+        index.insert(
+            caller_path,
+            facts_with_positioned_sources("if true; then source a.sh; fi\nfoo\n", &["/w/a.sh"]),
+        );
+
+        let target = function_node(&index, "/w/a.sh", "foo", 0);
+        assert_eq!(
+            index.exact_function_rename(&target_path, &target, || false),
+            Some(Err(ExactFunctionRenameError::AmbiguousReference))
+        );
+    }
+
+    #[test]
+    fn exact_function_rename_rejects_an_unresolved_source_edge() {
+        let target_path = PathBuf::from("/w/a.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(
+            target_path.clone(),
+            facts("foo() { :; }\nfoo\nsource \"$dynamic\"\n", &[]),
+        );
+
+        let target = function_node(&index, "/w/a.sh", "foo", 0);
+        assert_eq!(
+            index.exact_function_rename(&target_path, &target, || false),
+            Some(Err(ExactFunctionRenameError::IncompleteSourceGraph))
+        );
+    }
+
+    #[test]
+    fn exact_function_rename_rejects_an_unindexed_source_target() {
+        let target_path = PathBuf::from("/w/a.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(
+            target_path.clone(),
+            facts_with_positioned_sources(
+                "foo() { :; }\nfoo\nsource missing.sh\n",
+                &["/w/missing.sh"],
+            ),
+        );
+
+        let target = function_node(&index, "/w/a.sh", "foo", 0);
+        assert_eq!(
+            index.exact_function_rename(&target_path, &target, || false),
+            Some(Err(ExactFunctionRenameError::IncompleteSourceGraph))
+        );
+    }
+
+    #[test]
+    fn exact_function_rename_ignores_disconnected_ambiguous_calls() {
+        let target_path = PathBuf::from("/w/main.sh");
+        let unrelated_path = PathBuf::from("/w/unrelated.sh");
+        let main = facts("foo() { :; }\nfoo\n", &[]);
+        let call_span = main.call_sites[0].name_span;
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(target_path.clone(), main);
+        index.insert(unrelated_path, facts("source \"$dynamic\"\nfoo\n", &[]));
+
+        let target = function_node(&index, "/w/main.sh", "foo", 0);
+        assert_eq!(
+            index
+                .exact_function_rename(&target_path, &target, || false)
+                .expect("rename analysis should complete")
+                .expect("disconnected ambiguity should not block rename"),
+            ExactFunctionRename {
+                references: vec![ExactFunctionReference {
+                    path: target_path.clone(),
+                    span: call_span,
+                }],
+                relevant_paths: vec![target_path],
+            }
+        );
+    }
+
+    #[test]
+    fn exact_function_rename_does_not_connect_files_through_a_shared_child() {
+        let target_path = PathBuf::from("/w/target.sh");
+        let unrelated_path = PathBuf::from("/w/unrelated.sh");
+        let common_path = PathBuf::from("/w/common.sh");
+        let target = facts_with_positioned_sources(
+            "source common.sh\nfoo() { :; }\nfoo\n",
+            &["/w/common.sh"],
+        );
+        let target_call = target
+            .call_sites
+            .iter()
+            .find(|site| site.callee == name("foo"))
+            .unwrap()
+            .name_span;
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(target_path.clone(), target);
+        index.insert(
+            unrelated_path,
+            facts_with_positioned_sources(
+                "source common.sh\nsource \"$dynamic\"\nfoo\n",
+                &["/w/common.sh"],
+            ),
+        );
+        index.insert(common_path.clone(), facts(":\n", &[]));
+
+        let target = function_node(&index, "/w/target.sh", "foo", 0);
+        assert_eq!(
+            index
+                .exact_function_rename(&target_path, &target, || false)
+                .expect("rename analysis should complete")
+                .expect("a shared child must not import the target into its other parent"),
+            ExactFunctionRename {
+                references: vec![ExactFunctionReference {
+                    path: target_path.clone(),
+                    span: target_call,
+                }],
+                relevant_paths: vec![common_path, target_path],
+            }
+        );
+    }
+
+    #[test]
     fn exact_reference_index_inherits_bindings_at_source_sites() {
         let main_path = PathBuf::from("/w/main.sh");
         let child_path = PathBuf::from("/w/child.sh");
@@ -2803,6 +3074,16 @@ mod tests {
             .expect("retry should build a complete reverse index");
         assert_eq!(references.len(), 1);
         assert_eq!(references[0].path, caller_path);
+        assert!(
+            index
+                .exact_function_rename(&target_path, &target, || true)
+                .is_none()
+        );
+        let rename = index
+            .exact_function_rename(&target_path, &target, || false)
+            .expect("rename retry should complete")
+            .expect("rename retry should remain exact");
+        assert_eq!(rename.references, references);
     }
 
     #[test]
