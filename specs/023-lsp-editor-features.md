@@ -2,11 +2,12 @@
 
 ## Status
 
-Implemented (document-local v1).
+Implemented (document-local v1 plus sourced function completion).
 
 Delivered: completion, semantic hover, go-to-definition, references, document
 highlights, document and workspace symbols, conservative same-file rename, and
-document/range formatting. Cross-file rename remains deferred until closed-file
+document/range formatting. Function completion also follows the statically
+resolvable source graph. Cross-file rename remains deferred until closed-file
 edit safety is proven. Cross-file call hierarchy is specified separately in
 spec 025; other cross-file navigation is outside this spec's implemented scope.
 
@@ -96,7 +97,7 @@ land:
 
 | Capability | Request | Initial support |
 |---|---|---|
-| Completion | `textDocument/completion`, `completionItem/resolve` | Variables, functions, declaration names, runtime names, and shell keywords known to Shuck |
+| Completion | `textDocument/completion`, `completionItem/resolve` | Variables, declaration names, runtime names, shell keywords, and functions visible locally or through unconditional static source edges |
 | Hover | `textDocument/hover` | Rule-code hovers plus semantic-symbol hovers |
 | Definition | `textDocument/definition` | Variables in the active analysis plus exact function definitions through the statically resolved source graph |
 | References | `textDocument/references` | References and definitions in the same proven symbol set |
@@ -414,6 +415,15 @@ pub(crate) enum CompletionData {
     Keyword { name: String },
 }
 ```
+
+At command positions, the workspace function index contributes definitions
+installed by literal source operands, valid source hints, and configured
+`[lint] source-paths`. Only edges executed before the completion position are
+considered. Source order is applied transitively, later definitions shadow
+earlier ones, and duplicate labels identify only the winning binding. Open
+buffers shadow disk content. Conditional, dynamic, unresolved, and cyclic
+edges do not introduce speculative candidates; cycles terminate traversal
+while preserving definitions reached on acyclic portions of the graph.
 
 `completionItem/resolve` may add Markdown that Shuck authors itself: symbol
 kind, definition location, declaration flags, array/scalar attributes, and

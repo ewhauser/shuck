@@ -139,6 +139,25 @@ pub struct CallFactSourceEdge {
     pub path: PathBuf,
     /// Span of the `source` reference in the referring file.
     pub span: Span,
+    /// Whether control flow may skip the source operation.
+    pub conditional: bool,
+    /// Whether completion may treat the source as an executed top-level edge.
+    pub completion_visible: bool,
+}
+
+/// One function imported by a source edge and visible at a completion point.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VisibleSourcedFunction {
+    /// Visible function name.
+    pub name: Name,
+    /// File containing the winning definition.
+    pub path: PathBuf,
+    /// Full definition span in `path`.
+    pub def_span: Span,
+    /// Name-token span in `path`.
+    pub selection_span: Span,
+    /// Source-edge span in the requesting file that imported this binding.
+    pub import_span: Span,
 }
 
 /// A source operation that may affect function visibility, including
@@ -185,6 +204,8 @@ impl FileCallFacts {
                 .map(|path| CallFactSourceEdge {
                     path,
                     span: Span::new(),
+                    conditional: false,
+                    completion_visible: true,
                 })
                 .collect(),
         )
@@ -375,6 +396,141 @@ impl WorkspaceCallIndex {
     /// Returns the number of indexed files.
     pub fn file_count(&self) -> usize {
         self.files.len()
+    }
+
+    /// Returns sourced functions that are unconditionally visible before
+    /// `cutoff` in `from_path`, with source order and redefinitions applied.
+    pub fn visible_sourced_functions(
+        &self,
+        from_path: &Path,
+        cutoff: usize,
+    ) -> Vec<VisibleSourcedFunction> {
+        let Some(facts) = self.files.get(from_path) else {
+            return Vec::new();
+        };
+        self.visible_sourced_functions_for_edges(
+            from_path,
+            facts.source_edges.iter().filter(|edge| {
+                edge.completion_visible
+                    && (edge.span == Span::new() || edge.span.start.offset < cutoff)
+            }),
+        )
+    }
+
+    /// Returns sourced functions imported by the exact source operations that
+    /// semantic scope analysis proved visible at the completion point.
+    pub fn visible_sourced_functions_from_source_spans(
+        &self,
+        from_path: &Path,
+        source_spans: &[Span],
+    ) -> Vec<VisibleSourcedFunction> {
+        let Some(facts) = self.files.get(from_path) else {
+            return Vec::new();
+        };
+        self.visible_sourced_functions_for_edges(
+            from_path,
+            facts
+                .source_edges
+                .iter()
+                .filter(|edge| source_spans.contains(&edge.span)),
+        )
+    }
+
+    fn visible_sourced_functions_for_edges<'a>(
+        &self,
+        from_path: &Path,
+        edges: impl IntoIterator<Item = &'a CallFactSourceEdge>,
+    ) -> Vec<VisibleSourcedFunction> {
+        let mut visible = FxHashMap::<Name, (ResolvedDefinition, Span)>::default();
+        for edge in edges {
+            let mut stack = FxHashSet::default();
+            stack.insert(from_path.to_path_buf());
+            for (name, definition) in self.exported_functions(&edge.path, &mut stack) {
+                visible.insert(name, (definition, edge.span));
+            }
+        }
+        let mut functions = visible
+            .into_iter()
+            .filter_map(|(name, (definition, import_span))| {
+                let selection_span = self
+                    .files
+                    .get(&definition.path)?
+                    .definitions
+                    .iter()
+                    .find(|candidate| {
+                        candidate.name == name && candidate.def_span == definition.def_span
+                    })?
+                    .selection_span;
+                Some(VisibleSourcedFunction {
+                    name,
+                    path: definition.path,
+                    def_span: definition.def_span,
+                    selection_span,
+                    import_span,
+                })
+            })
+            .collect::<Vec<_>>();
+        functions.sort_by(|left, right| left.name.as_str().cmp(right.name.as_str()));
+        functions
+    }
+
+    fn exported_functions(
+        &self,
+        path: &Path,
+        stack: &mut FxHashSet<PathBuf>,
+    ) -> FxHashMap<Name, ResolvedDefinition> {
+        if !stack.insert(path.to_path_buf()) {
+            return FxHashMap::default();
+        }
+        let Some(facts) = self.files.get(path) else {
+            stack.remove(path);
+            return FxHashMap::default();
+        };
+
+        enum Event<'a> {
+            Definition(&'a CallFactDefinition),
+            Source(&'a CallFactSourceEdge),
+        }
+
+        let mut events = facts
+            .definitions
+            .iter()
+            .filter(|definition| definition.unconditional && definition.persistent_top_level)
+            .map(|definition| {
+                (
+                    definition.def_span.start.offset,
+                    Event::Definition(definition),
+                )
+            })
+            .chain(
+                facts
+                    .source_edges
+                    .iter()
+                    .filter(|edge| edge.completion_visible)
+                    .map(|edge| (edge.span.start.offset, Event::Source(edge))),
+            )
+            .collect::<Vec<_>>();
+        events.sort_by_key(|(offset, _)| *offset);
+
+        let mut exported = FxHashMap::default();
+        for (_, event) in events {
+            match event {
+                Event::Definition(definition) => {
+                    exported.insert(
+                        definition.name.clone(),
+                        ResolvedDefinition {
+                            path: path.to_path_buf(),
+                            def_span: definition.def_span,
+                        },
+                    );
+                }
+                Event::Source(edge) => {
+                    exported.extend(self.exported_functions(&edge.path, stack));
+                }
+            }
+        }
+        stack.remove(path);
+        exported
     }
 
     /// Resolves `callee`, as seen from `from_path`, to the file that defines it:
@@ -898,14 +1054,22 @@ mod tests {
             .source_refs()
             .iter()
             .zip(paths)
-            .map(|(source_ref, path)| CallFactSourceEdge {
-                path: PathBuf::from(path),
-                span: source_ref.span,
+            .map(|(source_ref, path)| {
+                let scope = model.scope_at(source_ref.span.start.offset);
+                CallFactSourceEdge {
+                    path: PathBuf::from(path),
+                    span: source_ref.span,
+                    conditional: source_ref.conditionally_executed,
+                    completion_visible: !source_ref.conditionally_executed
+                        && model.enclosing_function_scope(scope).is_none()
+                        && model
+                            .innermost_transient_scope_within_function(scope)
+                            .is_none(),
+                }
             })
             .collect();
         FileCallFacts::project_with_source_edges(&model, edges)
     }
-
     fn name(text: &str) -> Name {
         Name::from(text)
     }
@@ -1428,6 +1592,95 @@ mod tests {
     }
 
     #[test]
+    fn sourced_completion_applies_cursor_order_and_duplicate_shadowing() {
+        let caller_path = PathBuf::from("/w/main.sh");
+        let a_path = PathBuf::from("/w/a.sh");
+        let b_path = PathBuf::from("/w/b.sh");
+        let source = "source a.sh\nmarker\nsource b.sh\nend\n";
+        let caller = facts_with_positioned_sources(source, &["/w/a.sh", "/w/b.sh"]);
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(caller_path.clone(), caller);
+        index.insert(
+            a_path.clone(),
+            facts("dup() { :; }\nonly_a() { :; }\n", &[]),
+        );
+        index.insert(b_path.clone(), facts("dup() { :; }\n", &[]));
+
+        let before_first = index.visible_sourced_functions(&caller_path, 0);
+        assert!(before_first.is_empty());
+
+        let between = index.visible_sourced_functions(&caller_path, source.find("marker").unwrap());
+        assert_eq!(between.len(), 2);
+        assert!(between.iter().all(|function| function.path == a_path));
+
+        let after = index.visible_sourced_functions(&caller_path, source.len());
+        assert_eq!(after.len(), 2);
+        assert_eq!(
+            after
+                .iter()
+                .find(|function| function.name == name("dup"))
+                .map(|function| &function.path),
+            Some(&b_path)
+        );
+        assert_eq!(
+            after
+                .iter()
+                .find(|function| function.name == name("only_a"))
+                .map(|function| &function.path),
+            Some(&a_path)
+        );
+    }
+
+    #[test]
+    fn sourced_completion_skips_conditional_edges_and_handles_cycles() {
+        let caller_path = PathBuf::from("/w/main.sh");
+        let a_path = PathBuf::from("/w/a.sh");
+        let b_path = PathBuf::from("/w/b.sh");
+        let conditional_path = PathBuf::from("/w/conditional.sh");
+        let caller = facts_with_positioned_sources(
+            "if enabled; then source conditional.sh; fi\nsource a.sh\n",
+            &["/w/conditional.sh", "/w/a.sh"],
+        );
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(caller_path.clone(), caller);
+        index.insert(conditional_path, facts("conditional_only() { :; }\n", &[]));
+        index.insert(
+            a_path.clone(),
+            facts_with_positioned_sources("source b.sh\na_only() { :; }\n", &["/w/b.sh"]),
+        );
+        index.insert(
+            b_path,
+            facts_with_positioned_sources("source a.sh\nb_only() { :; }\n", &["/w/a.sh"]),
+        );
+
+        let visible = index.visible_sourced_functions(&caller_path, usize::MAX);
+        let names = visible
+            .iter()
+            .map(|function| function.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["a_only", "b_only"]);
+    }
+
+    #[test]
+    fn sourced_completion_skips_unexecuted_function_and_subshell_sources() {
+        let caller_path = PathBuf::from("/w/main.sh");
+        let target_path = PathBuf::from("/w/a.sh");
+        let caller = facts_with_positioned_sources(
+            "load() { source a.sh; }\n( source a.sh )\nmarker\n",
+            &["/w/a.sh", "/w/a.sh"],
+        );
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(caller_path.clone(), caller);
+        index.insert(target_path, facts("not_visible() { :; }\n", &[]));
+
+        assert!(
+            index
+                .visible_sourced_functions(&caller_path, usize::MAX)
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn source_order_controls_cross_file_resolution_at_each_top_level_call() {
         let caller_source = "greet\nsource a.sh\ngreet\nsource c.sh\ngreet\n";
         let output = Parser::with_dialect(caller_source, ShellDialect::Bash)
@@ -1442,6 +1695,8 @@ mod tests {
             .map(|(source_ref, path)| CallFactSourceEdge {
                 path: PathBuf::from(path),
                 span: source_ref.span,
+                conditional: source_ref.conditionally_executed,
+                completion_visible: !source_ref.conditionally_executed,
             })
             .collect();
 
@@ -1514,6 +1769,8 @@ mod tests {
         let edge = CallFactSourceEdge {
             path: PathBuf::from("/w/a.sh"),
             span: caller.source_refs()[0].span,
+            conditional: false,
+            completion_visible: true,
         };
 
         let caller_path = PathBuf::from("/w/main.sh");

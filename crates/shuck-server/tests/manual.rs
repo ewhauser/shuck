@@ -420,6 +420,219 @@ fn cross_file_definition_uses_exact_workspace_binding_and_open_buffers() {
 }
 
 #[test]
+fn sourced_function_completion_uses_order_shadowing_and_open_buffers() {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+
+    let workspace = tempfile::tempdir().expect("tempdir should be created");
+    std::fs::write(
+        workspace.path().join("shuck.toml"),
+        "[lint]\nsource-paths = [\"vendor\"]\n",
+    )
+    .unwrap();
+    std::fs::create_dir(workspace.path().join("vendor")).unwrap();
+    std::fs::write(
+        workspace.path().join("vendor/configured.sh"),
+        "configured_function() { :; }\n",
+    )
+    .unwrap();
+    let library_path = workspace.path().join("lib.sh");
+    let caller_path = workspace.path().join("main.sh");
+    std::fs::write(&library_path, "stale_disk_only() { :; }\n").unwrap();
+    let completion_line = ": \"🦀\"; imp";
+    let caller = format!(
+        "imp\n# shuck: source=lib.sh\nsource \"$DIR/lib.sh\"\n{completion_line}\ndup() {{ :; }}\ndu\nlat\nsource later.sh\nsource configured.sh\ncon\necho \"$imp\"\nrun() {{ local imp\n}}\nlocal_scope() {{\n  source inner.sh\n  inn\n}}\n"
+    );
+    std::fs::write(&caller_path, &caller).unwrap();
+    std::fs::write(
+        workspace.path().join("later.sh"),
+        "later_function() { :; }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        workspace.path().join("inner.sh"),
+        "inner_imported() { :; }\n",
+    )
+    .unwrap();
+    let library_uri = Url::from_file_path(&library_path).unwrap();
+    let caller_uri = Url::from_file_path(&caller_path).unwrap();
+    let mut capabilities = serde_json::to_value(replay_capabilities()).unwrap();
+    capabilities["general"]["positionEncodings"] = serde_json::json!(["utf-8"]);
+
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": capabilities,
+            "rootUri": Url::from_file_path(workspace.path()).unwrap(),
+        }),
+    );
+    let initialize = recv_response(&client_connection, 1);
+    assert_eq!(initialize["capabilities"]["positionEncoding"], "utf-8");
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("initialized should send");
+    open_document(
+        &client_connection,
+        &library_uri,
+        "imported() { :; }\ndup() { echo sourced; }\n",
+    );
+    open_document(&client_connection, &caller_uri, &caller);
+
+    send_request(
+        &client_connection,
+        2,
+        "textDocument/completion",
+        serde_json::json!({
+            "textDocument": { "uri": caller_uri },
+            "position": { "line": 0, "character": 3 },
+        }),
+    );
+    let before_source = recv_response(&client_connection, 2);
+    assert!(
+        before_source["items"]
+            .as_array()
+            .is_none_or(|items| items.iter().all(|item| item["label"] != "imported"))
+    );
+
+    send_request(
+        &client_connection,
+        3,
+        "textDocument/completion",
+        serde_json::json!({
+            "textDocument": { "uri": caller_uri },
+            "position": { "line": 3, "character": completion_line.len() },
+        }),
+    );
+    let after_source = recv_response(&client_connection, 3);
+    let imported = after_source["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("completion response should be a list: {after_source:#}"))
+        .iter()
+        .find(|item| item["label"] == "imported")
+        .expect("unsaved sourced function should complete");
+    assert_eq!(imported["detail"], "Function (sourced)");
+    assert_eq!(
+        imported["textEdit"]["range"],
+        serde_json::json!({
+            "start": { "line": 3, "character": completion_line.len() - 3 },
+            "end": { "line": 3, "character": completion_line.len() },
+        })
+    );
+
+    send_request(
+        &client_connection,
+        4,
+        "textDocument/completion",
+        serde_json::json!({
+            "textDocument": { "uri": caller_uri },
+            "position": { "line": 5, "character": 2 },
+        }),
+    );
+    let shadowed = recv_response(&client_connection, 4);
+    let duplicates = shadowed["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["label"] == "dup")
+        .collect::<Vec<_>>();
+    assert_eq!(duplicates.len(), 1);
+    assert_eq!(duplicates[0]["detail"], "Function");
+
+    send_request(
+        &client_connection,
+        5,
+        "textDocument/completion",
+        serde_json::json!({
+            "textDocument": { "uri": caller_uri },
+            "position": { "line": 6, "character": 3 },
+        }),
+    );
+    let before_later_source = recv_response(&client_connection, 5);
+    assert!(
+        before_later_source["items"]
+            .as_array()
+            .is_none_or(|items| items.iter().all(|item| item["label"] != "later_function"))
+    );
+
+    send_request(
+        &client_connection,
+        6,
+        "textDocument/completion",
+        serde_json::json!({
+            "textDocument": { "uri": caller_uri },
+            "position": { "line": 9, "character": 3 },
+        }),
+    );
+    let configured = recv_response(&client_connection, 6);
+    assert!(
+        configured["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "configured_function")
+    );
+
+    for (id, line, character) in [(7, 10, 10), (8, 11, "run() { local imp".len())] {
+        send_request(
+            &client_connection,
+            id,
+            "textDocument/completion",
+            serde_json::json!({
+                "textDocument": { "uri": caller_uri },
+                "position": { "line": line, "character": character },
+            }),
+        );
+        let non_command = recv_response(&client_connection, id);
+        assert!(
+            non_command["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|item| item["label"] != "imported"),
+            "sourced functions must not leak into parameter or declaration completion"
+        );
+    }
+
+    send_request(
+        &client_connection,
+        9,
+        "textDocument/completion",
+        serde_json::json!({
+            "textDocument": { "uri": caller_uri },
+            "position": { "line": 15, "character": 5 },
+        }),
+    );
+    let function_local = recv_response(&client_connection, 9);
+    assert!(
+        function_local["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "inner_imported")
+    );
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("exit notification should send");
+    server_thread
+        .join()
+        .expect("server thread should join")
+        .expect("server should exit cleanly");
+}
+
+#[test]
 fn prepare_call_hierarchy_resolves_sourced_cross_file_call() {
     let (server_connection, client_connection) = Connection::memory();
     let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));

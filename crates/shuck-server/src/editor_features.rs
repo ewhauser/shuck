@@ -5,10 +5,12 @@ use lsp_server::ErrorCode;
 use lsp_types as types;
 use serde::{Deserialize, Serialize};
 use shuck_semantic::{
-    EditorCallHierarchyItem, EditorCallHierarchyTarget, EditorCompletionKind,
-    EditorCompletionOptions, EditorOccurrenceKind, EditorSymbolKind, RenameSet,
+    EditorCallHierarchyItem, EditorCallHierarchyTarget, EditorCompletionContext,
+    EditorCompletionKind, EditorCompletionOptions, EditorOccurrenceKind, EditorSymbolKind,
+    RenameSet, VisibleSourcedFunction,
 };
 
+use crate::analysis::DocumentAnalysis;
 use crate::edit::RangeExt;
 use crate::server::Error;
 use crate::session::{Client, DocumentSnapshot};
@@ -42,16 +44,34 @@ enum CompletionData {
         line: usize,
         column: usize,
     },
+    SourcedFunction {
+        path: String,
+        line: usize,
+        column: usize,
+    },
     RuntimeName,
     Builtin,
     Keyword,
 }
 
+#[cfg(test)]
 pub(crate) fn completion(
+    snapshot: DocumentSnapshot,
+    client: &Client,
+    params: types::CompletionParams,
+) -> crate::server::Result<CompletionResponse> {
+    completion_with_sourced_functions(snapshot, client, params, |_, _| Vec::new())
+}
+
+pub(crate) fn completion_with_sourced_functions<F>(
     snapshot: DocumentSnapshot,
     _client: &Client,
     params: types::CompletionParams,
-) -> crate::server::Result<CompletionResponse> {
+    load_sourced_functions: F,
+) -> crate::server::Result<CompletionResponse>
+where
+    F: FnOnce(&DocumentAnalysis, usize) -> Vec<VisibleSourcedFunction>,
+{
     let Some(analysis) = snapshot.analysis() else {
         return Ok(None);
     };
@@ -68,9 +88,38 @@ pub(crate) fn completion(
             include_keywords: options.include_keywords,
         },
     );
-    let Some(completions) = completions else {
+    let Some(mut completions) = completions else {
         return Ok(None);
     };
+    let prefix = completions.replacement_span.slice(source);
+    let mut sourced_by_name = HashMap::new();
+    if completions.context == EditorCompletionContext::Command {
+        for sourced in load_sourced_functions(&analysis, offset) {
+            if !prefix.is_empty() && !sourced.name.as_str().starts_with(prefix) {
+                continue;
+            }
+            let local_wins = completions.items.iter().any(|item| {
+                item.kind == EditorCompletionKind::Function
+                    && item.name == sourced.name
+                    && item
+                        .definition_span
+                        .is_some_and(|span| span.start.offset > sourced.import_span.start.offset)
+            });
+            if local_wins {
+                continue;
+            }
+            completions.items.retain(|item| item.name != sourced.name);
+            completions.items.push(shuck_semantic::EditorCompletion {
+                name: sourced.name.clone(),
+                kind: EditorCompletionKind::Function,
+                definition_span: None,
+            });
+            sourced_by_name.insert(sourced.name.to_string(), sourced);
+        }
+    }
+    completions
+        .items
+        .sort_by_key(|item| (completion_kind_rank(item.kind), item.name.to_string()));
     let range = crate::edit::to_lsp_range(
         completions.replacement_span.to_range(),
         source,
@@ -81,22 +130,54 @@ pub(crate) fn completion(
         .items
         .into_iter()
         .map(|completion| {
-            let data = match completion.kind {
-                EditorCompletionKind::Variable | EditorCompletionKind::Function => completion
-                    .definition_span
-                    .map(|span| CompletionData::Symbol {
-                        symbol_kind: completion_kind_label(completion.kind).to_owned(),
-                        line: span.start.line,
-                        column: span.start.column,
-                    }),
-                EditorCompletionKind::RuntimeName => Some(CompletionData::RuntimeName),
-                EditorCompletionKind::Builtin => Some(CompletionData::Builtin),
-                EditorCompletionKind::Keyword => Some(CompletionData::Keyword),
+            let sourced = sourced_by_name.get(completion.name.as_str());
+            let data = if let Some(sourced) = sourced {
+                Some(CompletionData::SourcedFunction {
+                    path: sourced.path.display().to_string(),
+                    line: sourced.selection_span.start.line,
+                    column: sourced.selection_span.start.column,
+                })
+            } else {
+                match completion.kind {
+                    EditorCompletionKind::Variable => {
+                        completion
+                            .definition_span
+                            .map(|span| CompletionData::Symbol {
+                                symbol_kind: completion_kind_label(completion.kind).to_owned(),
+                                line: span.start.line,
+                                column: span.start.column,
+                            })
+                    }
+                    EditorCompletionKind::Function => completion
+                        .definition_span
+                        .filter(|span| {
+                            analysis
+                                .semantic()
+                                .binding_for_definition_span(*span)
+                                .is_some_and(|binding_id| {
+                                    analysis
+                                        .semantic()
+                                        .function_binding_is_unconditional(binding_id)
+                                })
+                        })
+                        .map(|span| CompletionData::Symbol {
+                            symbol_kind: completion_kind_label(completion.kind).to_owned(),
+                            line: span.start.line,
+                            column: span.start.column,
+                        }),
+                    EditorCompletionKind::RuntimeName => Some(CompletionData::RuntimeName),
+                    EditorCompletionKind::Builtin => Some(CompletionData::Builtin),
+                    EditorCompletionKind::Keyword => Some(CompletionData::Keyword),
+                }
             };
             types::CompletionItem {
                 label: completion.name.to_string(),
                 kind: Some(to_lsp_completion_kind(completion.kind)),
-                detail: Some(completion_kind_label(completion.kind).to_owned()),
+                detail: Some(if sourced.is_some() {
+                    "Function (sourced)".to_owned()
+                } else {
+                    completion_kind_label(completion.kind).to_owned()
+                }),
                 text_edit: Some(types::CompletionTextEdit::Edit(types::TextEdit::new(
                     range,
                     completion.name.to_string(),
@@ -130,6 +211,9 @@ pub(crate) fn resolve_completion_item(
             line,
             column,
         } => format!("{symbol_kind} defined at line {line}, column {column}."),
+        CompletionData::SourcedFunction { path, line, column } => {
+            format!("Function sourced from `{path}` at line {line}, column {column}.")
+        }
         CompletionData::RuntimeName => "Runtime-provided shell name.".to_owned(),
         CompletionData::Builtin => "Shell builtin modeled by Shuck.".to_owned(),
         CompletionData::Keyword => "Shell keyword.".to_owned(),
@@ -511,6 +595,16 @@ fn to_lsp_completion_kind(kind: EditorCompletionKind) -> types::CompletionItemKi
     }
 }
 
+fn completion_kind_rank(kind: EditorCompletionKind) -> u8 {
+    match kind {
+        EditorCompletionKind::Variable => 0,
+        EditorCompletionKind::Function => 1,
+        EditorCompletionKind::Builtin => 2,
+        EditorCompletionKind::RuntimeName => 3,
+        EditorCompletionKind::Keyword => 4,
+    }
+}
+
 fn completion_kind_label(kind: EditorCompletionKind) -> &'static str {
     match kind {
         EditorCompletionKind::Variable => "Variable",
@@ -690,6 +784,77 @@ mod tests {
         assert!(list.items.iter().any(|item| item.label == "build"));
         assert!(list.items.iter().any(|item| item.label == "printf"));
         assert!(list.items.iter().any(|item| item.label == "if"));
+    }
+
+    #[test]
+    fn non_command_completion_does_not_load_sourced_functions() {
+        let source = "source lib.sh\nprintf '%s\\n' \"$im\"\n";
+        let (snapshot, client, uri) = make_snapshot(source);
+        let mut position = position_for_nth(source, "im", 0);
+        position.character += 2;
+
+        let response = completion_with_sourced_functions(
+            snapshot,
+            &client,
+            CompletionParams {
+                text_document_position: text_position(uri, position),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+                context: None,
+            },
+            |_, _| panic!("parameter completion must not build the workspace index"),
+        )
+        .expect("completion should succeed")
+        .expect("completion should return items");
+        let types::CompletionResponse::List(list) = response else {
+            panic!("expected completion list");
+        };
+        assert!(list.items.iter().all(|item| item.label != "imported"));
+    }
+
+    #[test]
+    fn conditional_local_function_omits_ambiguous_definition_provenance() {
+        let source = "source lib.sh\nif enabled; then dup() { :; }; fi\ndu";
+        let (snapshot, client, uri) = make_snapshot(source);
+        let import_span = snapshot
+            .analysis()
+            .expect("analysis should exist")
+            .semantic()
+            .source_refs()[0]
+            .span;
+
+        let response = completion_with_sourced_functions(
+            snapshot,
+            &client,
+            CompletionParams {
+                text_document_position: text_position(uri, Position::new(2, 2)),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+                context: None,
+            },
+            |_, _| {
+                vec![VisibleSourcedFunction {
+                    name: shuck_ast::Name::from("dup"),
+                    path: std::path::PathBuf::from("/workspace/lib.sh"),
+                    def_span: shuck_ast::Span::new(),
+                    selection_span: shuck_ast::Span::new(),
+                    import_span,
+                }]
+            },
+        )
+        .expect("completion should succeed")
+        .expect("completion should return items");
+        let types::CompletionResponse::List(list) = response else {
+            panic!("expected completion list");
+        };
+        let matching = list
+            .items
+            .iter()
+            .filter(|item| item.label == "dup")
+            .collect::<Vec<_>>();
+        assert_eq!(matching.len(), 1);
+        assert_eq!(matching[0].detail.as_deref(), Some("Function"));
+        assert_eq!(matching[0].data, None);
     }
 
     #[test]

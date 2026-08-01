@@ -20,8 +20,8 @@ use shuck_config::{
 use shuck_indexer::LineIndex;
 use shuck_linter::ShellDialect;
 use shuck_semantic::{
-    CallFactSourceEdge, CallNodeKind, CrossFileCall, FileCallFacts, WorkspaceCallIndex,
-    source_ref_candidate_paths,
+    CallFactSourceEdge, CallNodeKind, CrossFileCall, FileCallFacts, VisibleSourcedFunction,
+    WorkspaceCallIndex, source_ref_candidate_paths,
 };
 
 use crate::PositionEncoding;
@@ -340,6 +340,15 @@ impl WorkspaceFunctionIndex {
         self.graph.resolve_call_site_exact(from_path, name_span)
     }
 
+    pub(crate) fn visible_sourced_functions(
+        &self,
+        from_path: &Path,
+        source_spans: &[Span],
+    ) -> Vec<VisibleSourcedFunction> {
+        self.graph
+            .visible_sourced_functions_from_source_spans(from_path, source_spans)
+    }
+
     pub(crate) fn incoming(
         &self,
         target_path: &Path,
@@ -530,6 +539,7 @@ fn insert_file(
         .source_refs()
         .iter()
         .filter_map(|source_ref| {
+            let scope = model.scope_at(source_ref.span.start.offset);
             source_ref_candidate_paths(
                 input.path,
                 source_ref,
@@ -542,6 +552,12 @@ fn insert_file(
             .map(|target| CallFactSourceEdge {
                 path: target,
                 span: source_ref.span,
+                conditional: source_ref.conditionally_executed,
+                completion_visible: !source_ref.conditionally_executed
+                    && model.enclosing_function_scope(scope).is_none()
+                    && model
+                        .innermost_transient_scope_within_function(scope)
+                        .is_none(),
             })
         })
         .collect::<Vec<_>>();

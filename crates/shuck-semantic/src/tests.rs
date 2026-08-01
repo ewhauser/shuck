@@ -693,6 +693,42 @@ build() {{ {segment}
 }
 
 #[test]
+fn editor_function_completion_retains_the_latest_visible_definition() {
+    let source = "dup() { echo first; }\nsource lib.sh\ndup() { echo final; }\ndu";
+    let output = Parser::with_dialect(source, ShellDialect::Bash)
+        .parse()
+        .unwrap();
+    let indexer = Indexer::new(source, &output);
+    let model = SemanticModel::build(&output.file, source, &indexer);
+    let completions = model
+        .editor_query()
+        .completions_at_offset(
+            source,
+            &indexer,
+            source.len(),
+            EditorCompletionOptions::default(),
+        )
+        .expect("command completion should be available");
+    assert_eq!(completions.context, EditorCompletionContext::Command);
+    let definition = completions
+        .items
+        .iter()
+        .find(|item| item.name.as_str() == "dup")
+        .and_then(|item| item.definition_span)
+        .expect("duplicate function completion should retain a definition");
+    assert!(definition.start.offset > source.find("source lib.sh").unwrap());
+}
+
+#[test]
+fn function_local_source_is_visible_to_later_completion_in_the_same_function() {
+    let source = "local_scope() {\n  source inner.sh\n  inn\n}\n";
+    let model = model(source);
+    let source_ref = &model.source_refs()[0];
+    let cursor = source.find("inn\n").unwrap() + "inn".len();
+    assert!(model.source_ref_visible_at_offset(source_ref, cursor));
+}
+
+#[test]
 fn editor_completion_is_blocked_at_first_comment_byte() {
     let source = "echo ok\n# comment\n";
     let output = Parser::with_dialect(source, ShellDialect::Bash)
