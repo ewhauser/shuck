@@ -92,6 +92,13 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             if unbraced_parameter_reference_matches(candidate, name.as_str()) {
                 let start_offset = span.start.offset + start_rel;
                 let end_offset = start_offset + '$'.len_utf8() + name.as_str().len();
+                if let Some(start) = shifted_position_within_line(span.start, syntax, start_rel)
+                    && let Some(matched) = self.source.get(start_offset..end_offset)
+                    && let Some(end) = shifted_position_within_line(start, matched, matched.len())
+                    && start.offset < end.offset
+                {
+                    return Span::from_positions(start, end);
+                }
                 if let Some((start, end)) =
                     self.source_positions_for_offsets(start_offset, end_offset)
                     && start.offset < end.offset
@@ -114,6 +121,18 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
 
         let start_offset = span.start.offset + start_rel;
         let end_offset = span.end.offset + '}'.len_utf8();
+        if let Some(start) = shifted_position_within_line(span.start, syntax, start_rel) {
+            // The closing brace is a single-column character after the span.
+            let end = Position {
+                line: span.end.line,
+                column: span.end.column + 1,
+                offset: end_offset,
+            };
+            if start.offset < end.offset {
+                return Span::from_positions(start, end);
+            }
+            return span;
+        }
         let Some((start, end)) = self.source_positions_for_offsets(start_offset, end_offset) else {
             return span;
         };
@@ -126,15 +145,33 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
 
     fn reference_name_span(&self, name: &Name, span: Span) -> Option<Span> {
         let syntax = span.slice(self.source);
-        let (relative_start, name_len) = if let Some(start) = syntax.find(name.as_str()) {
-            (start, name.as_str().len())
-        } else if let Some(stripped) = name.as_str().strip_prefix('+') {
-            (syntax.find(stripped)?, stripped.len())
-        } else {
-            return None;
-        };
+        if syntax == name.as_str() {
+            return (span.start.offset < span.end.offset).then_some(span);
+        }
+        // `$name` and `${name}` spans dominate; match them directly instead of
+        // running a substring search per reference.
+        let (relative_start, name_len) =
+            if syntax.as_bytes().first() == Some(&b'$') && syntax[1..] == *name.as_str() {
+                (1, name.as_str().len())
+            } else if let Some(rest) = syntax.strip_prefix("${")
+                && rest.strip_suffix('}') == Some(name.as_str())
+            {
+                (2, name.as_str().len())
+            } else if let Some(start) = syntax.find(name.as_str()) {
+                (start, name.as_str().len())
+            } else if let Some(stripped) = name.as_str().strip_prefix('+') {
+                (syntax.find(stripped)?, stripped.len())
+            } else {
+                return None;
+            };
         let start_offset = span.start.offset + relative_start;
         let end_offset = start_offset + name_len;
+        if let Some(start) = shifted_position_within_line(span.start, syntax, relative_start) {
+            let matched = &syntax[relative_start..relative_start + name_len];
+            if let Some(end) = shifted_position_within_line(start, matched, name_len) {
+                return (start.offset < end.offset).then(|| Span::from_positions(start, end));
+            }
+        }
         let (start, end) = self.source_positions_for_offsets(start_offset, end_offset)?;
         (start.offset < end.offset).then(|| Span::from_positions(start, end))
     }
@@ -151,9 +188,11 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             .find('\n')
             .map(|relative| span.start.offset + relative)
             .unwrap_or(self.source.len());
+
         let search = self.source.get(span.start.offset..search_end)?;
-        let needle = format!("${{{name}");
-        for (start_rel, _) in search.match_indices(&needle) {
+        let mut needle = compact_str::CompactString::const_new("${");
+        needle.push_str(name);
+        for (start_rel, _) in search.match_indices(needle.as_str()) {
             let start_offset = span.start.offset + start_rel;
             if braced_parameter_start_matches(self.source, start_offset, name)
                 && let Some(end_offset) =
@@ -166,7 +205,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             }
         }
 
-        self.recover_braced_reference_span_on_line(&needle, span)
+        self.recover_braced_reference_span_on_line(name, &needle, span)
     }
 
     pub(super) fn recover_unbraced_reference_span(&self, name: &Name, span: Span) -> Option<Span> {
@@ -201,12 +240,12 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
 
     pub(super) fn recover_braced_reference_span_on_line(
         &self,
+        name: &str,
         needle: &str,
         span: Span,
     ) -> Option<Span> {
         let (line_start_offset, line) = source_line(self.source, self.line_index, span.start.line)?;
         let mut best = None::<(usize, usize, usize)>;
-        let name = needle.strip_prefix("${").unwrap_or(needle);
         for (start, _) in line.match_indices(needle) {
             if !braced_parameter_start_matches(line, start, name) {
                 continue;
@@ -353,6 +392,30 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
     }
 }
 
+/// Shift `base` forward by `byte_offset` bytes of `text` (starting at
+/// `base`), staying on the same line. Returns `None` when the prefix spans a
+/// line break so callers can fall back to a full line-index lookup.
+fn shifted_position_within_line(
+    base: Position,
+    text: &str,
+    byte_offset: usize,
+) -> Option<Position> {
+    let prefix = text.get(..byte_offset)?;
+    if prefix.as_bytes().contains(&b'\n') {
+        return None;
+    }
+    let chars = if prefix.is_ascii() {
+        prefix.len()
+    } else {
+        prefix.chars().count()
+    };
+    Some(Position {
+        line: base.line,
+        column: base.column + chars,
+        offset: base.offset + byte_offset,
+    })
+}
+
 fn source_position_at_offset(
     source: &str,
     line_index: &LineIndex,
@@ -364,7 +427,12 @@ fn source_position_at_offset(
 
     let line = line_index.line_number(TextSize::new(offset as u32));
     let line_start = usize::from(line_index.line_start(line)?);
-    let column = source.get(line_start..offset)?.chars().count() + 1;
+    let prefix = source.get(line_start..offset)?;
+    let column = if prefix.is_ascii() {
+        prefix.len()
+    } else {
+        prefix.chars().count()
+    } + 1;
     Some(Position {
         line,
         column,

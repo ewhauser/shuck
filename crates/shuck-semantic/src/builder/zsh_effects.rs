@@ -22,6 +22,29 @@ pub(super) fn recorded_command_info(
     }
 }
 
+/// Cheap effects-only variant of [`recorded_command_info`] for flow tracking.
+///
+/// Only shell-option builtins (possibly behind effect-transparent wrappers)
+/// can carry zsh effects, so anything else skips normalization entirely.
+pub(super) fn recorded_command_zsh_effects(
+    command: &Command,
+    source: &str,
+) -> Vec<RecordedZshCommandEffect> {
+    let Command::Simple(simple) = command else {
+        return Vec::new();
+    };
+    let is_effect_head = static_word_text(&simple.name, source).is_some_and(|name| {
+        matches!(
+            name.as_ref(),
+            "emulate" | "setopt" | "unsetopt" | "set" | "command" | "builtin" | "noglob" | "exec"
+        )
+    });
+    if !is_effect_head {
+        return Vec::new();
+    }
+    recorded_simple_command_info(simple, source, false, false).zsh_effects
+}
+
 pub(super) fn recorded_simple_command_info(
     command: &shuck_ast::SimpleCommand,
     source: &str,
@@ -33,12 +56,28 @@ pub(super) fn recorded_simple_command_info(
         .collect::<Vec<_>>();
     let normalized = normalize_command_words_owned(words, source)
         .expect("recorded simple commands always include a command name");
-    let static_callee = recorded_static_callee(&normalized).map(Into::into);
+    recorded_simple_command_info_with(
+        command,
+        &normalized,
+        source,
+        bash_runtime_vars_enabled,
+        zsh_runtime_vars_enabled,
+    )
+}
+
+pub(super) fn recorded_simple_command_info_with(
+    command: &shuck_ast::SimpleCommand,
+    normalized: &NormalizedCommand<'_>,
+    source: &str,
+    bash_runtime_vars_enabled: bool,
+    zsh_runtime_vars_enabled: bool,
+) -> RecordedCommandInfo {
+    let static_callee = recorded_static_callee(normalized).map(Into::into);
     let dynamic_name_span = static_callee
         .is_none()
         .then_some(normalized.body_word_span())
         .flatten();
-    let static_args = recorded_static_args(command, &normalized, source);
+    let static_args = recorded_static_args(command, normalized, source);
     let source_path_template = normalized
         .literal_name
         .as_deref()
@@ -60,7 +99,7 @@ pub(super) fn recorded_simple_command_info(
         source_path_template,
         zsh_effects: Vec::new(),
     };
-    let Some(effect_command) = normalized_zsh_effect_command(&normalized, source) else {
+    let Some(effect_command) = normalized_zsh_effect_command(normalized, source) else {
         return info;
     };
     let Some(effect_callee) = effect_command.effective_name.as_deref() else {
@@ -108,19 +147,25 @@ fn recorded_static_args(
     command: &shuck_ast::SimpleCommand,
     normalized: &NormalizedCommand<'_>,
     source: &str,
-) -> Box<[Option<String>]> {
+) -> Box<[Option<compact_str::CompactString>]> {
     if normalized.wrappers == [WrapperKind::Noglob] {
         return normalized
             .body_args()
             .iter()
-            .map(|word| static_word_text(word, source).map(|text| text.into_owned()))
+            .map(|word| {
+                static_word_text(word, source)
+                    .map(|text| compact_str::CompactString::from(text.as_ref()))
+            })
             .collect::<Vec<_>>()
             .into_boxed_slice();
     }
     command
         .args
         .iter()
-        .map(|word| static_word_text(word, source).map(|text| text.into_owned()))
+        .map(|word| {
+            static_word_text(word, source)
+                .map(|text| compact_str::CompactString::from(text.as_ref()))
+        })
         .collect::<Vec<_>>()
         .into_boxed_slice()
 }
@@ -133,13 +178,28 @@ fn normalized_zsh_effect_command<'a>(
         return None;
     }
 
-    let effect_start = command
-        .body_words
-        .iter()
-        .position(|word| {
-            static_word_text(word, source).is_none_or(|text| !is_recorded_assignment_word(&text))
-        })
-        .unwrap_or(command.body_words.len());
+    let mut effect_start = command.body_words.len();
+    let mut effect_head_text = None;
+    for (index, word) in command.body_words.iter().enumerate() {
+        let text = static_word_text(word, source);
+        if text.as_deref().is_some_and(is_recorded_assignment_word) {
+            continue;
+        }
+        effect_start = index;
+        effect_head_text = text;
+        break;
+    }
+
+    // Only shell-option builtins (possibly behind effect-transparent wrappers)
+    // can produce zsh effects, so skip renormalization for everything else.
+    let head = effect_head_text?;
+    if !matches!(
+        head.as_ref(),
+        "emulate" | "setopt" | "unsetopt" | "set" | "command" | "builtin" | "noglob" | "exec"
+    ) {
+        return None;
+    }
+
     let effect_command = normalize_command_words(&command.body_words[effect_start..], source)?;
     normalized_command_can_have_zsh_effects(&effect_command).then_some(effect_command)
 }

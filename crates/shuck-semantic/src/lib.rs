@@ -2722,12 +2722,40 @@ fn build_indirect_targets_by_binding(
     indirect_target_hints: &FxHashMap<BindingId, IndirectTargetHint>,
 ) -> FxHashMap<BindingId, Vec<BindingId>> {
     let mut targets_by_binding = FxHashMap::default();
+    if indirect_target_hints.is_empty() {
+        return targets_by_binding;
+    }
+
+    let needs_name_map = indirect_target_hints
+        .values()
+        .any(|hint| matches!(hint, IndirectTargetHint::Exact { .. }));
+    let bindings_by_name = needs_name_map.then(|| {
+        let mut by_name: FxHashMap<&Name, smallvec::SmallVec<[&Binding; 2]>> = FxHashMap::default();
+        for binding in bindings {
+            by_name.entry(&binding.name).or_default().push(binding);
+        }
+        by_name
+    });
+
     for (binding_id, hint) in indirect_target_hints {
-        let targets: Vec<_> = bindings
-            .iter()
-            .filter(|binding| indirect_target_matches(hint, binding))
-            .map(|binding| binding.id)
-            .collect();
+        let targets: Vec<_> = match hint {
+            IndirectTargetHint::Exact { name, array_like } => bindings_by_name
+                .as_ref()
+                .and_then(|by_name| by_name.get(name))
+                .map(|candidates| {
+                    candidates
+                        .iter()
+                        .filter(|binding| !array_like || binding::is_array_like_binding(binding))
+                        .map(|binding| binding.id)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            IndirectTargetHint::Pattern { .. } => bindings
+                .iter()
+                .filter(|binding| indirect_target_matches(hint, binding))
+                .map(|binding| binding.id)
+                .collect(),
+        };
         if !targets.is_empty() {
             targets_by_binding.insert(*binding_id, targets);
         }

@@ -117,6 +117,9 @@ pub(crate) struct SemanticModelBuilder<'a, 'idx, 'observer> {
     arithmetic_reference_kind: ReferenceKind,
     word_reference_kind_override: Option<ReferenceKind>,
     escaped_parameter_template_body_starts_cache: FxHashMap<SpanKey, SmallVec<[usize; 2]>>,
+    /// Normalized command cached by `visit_simple_command` so the recorded
+    /// command info for the same statement does not renormalize it.
+    pending_simple_normalized: Option<(Span, NormalizedCommand<'a>)>,
 }
 
 fn semantic_statement_span(stmt: &Stmt) -> Span {
@@ -228,6 +231,15 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             bindings: FxHashMap::default(),
         };
         let runtime = RuntimePrelude::new(shell_profile.dialect, bash_runtime_vars_enabled);
+        // Rough pre-sizing to avoid repeated regrowth of the hottest vectors:
+        // references track `$` expansions and bindings track `=` assignments,
+        // so byte counts give a cheap upper-ballpark estimate.
+        let reference_estimate = source.bytes().filter(|byte| *byte == b'$').count();
+        let binding_estimate = source
+            .bytes()
+            .filter(|byte| *byte == b'=')
+            .count()
+            .min(reference_estimate.max(64));
         let mut builder = Self {
             source,
             file_entry_contract_collector,
@@ -235,8 +247,8 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             shell_profile: shell_profile.clone(),
             observer,
             scopes: vec![file_scope],
-            bindings: Vec::new(),
-            references: Vec::new(),
+            bindings: Vec::with_capacity(binding_estimate),
+            references: Vec::with_capacity(reference_estimate),
             reference_index: FxHashMap::default(),
             predefined_runtime_refs: FxHashSet::default(),
             guarded_parameter_refs: FxHashSet::default(),
@@ -270,7 +282,13 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             arithmetic_reference_kind: ReferenceKind::ArithmeticRead,
             word_reference_kind_override: None,
             escaped_parameter_template_body_starts_cache: FxHashMap::default(),
+            pending_simple_normalized: None,
         };
+        // Statements roughly track line count in shell sources.
+        let command_estimate = source.bytes().filter(|byte| *byte == b'\n').count();
+        builder
+            .recorded_program
+            .reserve_for_command_estimate(command_estimate);
         let file_commands = builder.visit_stmt_seq(
             &file.body,
             FlowState::for_shell_profile(&builder.shell_profile),

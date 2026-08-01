@@ -373,7 +373,7 @@ pub(crate) struct RecordedElifBranch {
 pub(crate) struct RecordedCommandInfo {
     pub(crate) static_callee: Option<compact_str::CompactString>,
     pub(crate) dynamic_name_span: Option<Span>,
-    pub(crate) static_args: Box<[Option<String>]>,
+    pub(crate) static_args: Box<[Option<compact_str::CompactString>]>,
     pub(crate) source_path_template: Option<SourcePathTemplate>,
     pub(crate) zsh_effects: Vec<RecordedZshCommandEffect>,
 }
@@ -416,6 +416,13 @@ pub(crate) enum RecordedListOperator {
 }
 
 impl RecordedProgram {
+    /// Pre-size the hottest recording vectors for an estimated command count.
+    pub(crate) fn reserve_for_command_estimate(&mut self, commands: usize) {
+        self.commands.reserve(commands);
+        self.command_sequence_items.reserve(commands);
+        self.statement_sequence_commands.reserve(commands);
+    }
+
     pub(crate) fn file_commands(&self) -> RecordedCommandRange {
         self.file_commands
     }

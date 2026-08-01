@@ -1,4 +1,6 @@
-use super::zsh_effects::recorded_command_info;
+use super::zsh_effects::{
+    recorded_command_info, recorded_command_zsh_effects, recorded_simple_command_info_with,
+};
 use super::*;
 
 impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
@@ -104,13 +106,8 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                 if let Some(info) = info {
                     return flow_after_zsh_effects(flow, &info.zsh_effects);
                 }
-                let info = recorded_command_info(
-                    command,
-                    self.source,
-                    self.runtime.bash_enabled(),
-                    self.shell_profile.dialect == ShellDialect::Zsh,
-                );
-                flow_after_zsh_effects(flow, &info.zsh_effects)
+                let effects = recorded_command_zsh_effects(command, self.source);
+                flow_after_zsh_effects(flow, &effects)
             }
             Command::Compound(CompoundCommand::BraceGroup(commands)) => {
                 let after_block = self.flow_after_stmt_seq(
@@ -183,12 +180,24 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             Some(CommandKind::from_command(&stmt.command));
         self.recorded_program.command_mut(recorded).scope = Some(scope);
         self.recorded_program.command_mut(recorded).flow_context = Some(context);
-        let info = recorded_command_info(
-            &stmt.command,
-            self.source,
-            self.runtime.bash_enabled(),
-            self.shell_profile.dialect == ShellDialect::Zsh,
-        );
+        let pending_normalized = self.pending_simple_normalized.take();
+        let info = match (&stmt.command, pending_normalized) {
+            (Command::Simple(simple), Some((span, normalized))) if span == simple.span => {
+                recorded_simple_command_info_with(
+                    simple,
+                    &normalized,
+                    self.source,
+                    self.runtime.bash_enabled(),
+                    self.shell_profile.dialect == ShellDialect::Zsh,
+                )
+            }
+            _ => recorded_command_info(
+                &stmt.command,
+                self.source,
+                self.runtime.bash_enabled(),
+                self.shell_profile.dialect == ShellDialect::Zsh,
+            ),
+        };
         if !info.is_empty() {
             let info_id = self.recorded_program.push_command_info(info);
             self.recorded_program.command_mut(recorded).command_info = Some(info_id);
@@ -293,6 +302,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             }
         }
 
+        self.pending_simple_normalized = Some((command.span, normalized));
         self.record_command(command.span, nested_regions, RecordedCommandKind::Linear)
     }
 
