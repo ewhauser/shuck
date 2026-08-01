@@ -86,6 +86,7 @@ pub fn overwritten_function(checker: &mut Checker) {
     if compat_cutoffs.is_some() {
         reach.enable_activation_index();
     }
+    let scan = C063FileScanIndex::default();
     let mut reports = Vec::new();
 
     for overwritten in overwritten {
@@ -113,7 +114,13 @@ pub fn overwritten_function(checker: &mut Checker) {
     }
 
     for unreached in unreached {
-        if should_suppress_unreached(checker, &mut reach, &unreached, compat_cutoffs.as_ref()) {
+        if should_suppress_unreached(
+            checker,
+            &mut reach,
+            &scan,
+            &unreached,
+            compat_cutoffs.as_ref(),
+        ) {
             continue;
         }
 
@@ -136,7 +143,7 @@ pub fn overwritten_function(checker: &mut Checker) {
             compat_cutoffs,
         ));
         reports.extend(report_transient_shadowed_file_scope_definitions(
-            checker, &mut reach,
+            checker, &mut reach, &scan,
         ));
     }
 
@@ -144,6 +151,17 @@ pub fn overwritten_function(checker: &mut Checker) {
     for (binding, name, reason) in reports {
         report_function_definition(checker, binding, name, reason);
     }
+}
+
+/// Lazily built, sorted offset lists for file-wide scans that the
+/// suppression checks would otherwise repeat per candidate function.
+#[derive(Default)]
+struct C063FileScanIndex {
+    script_terminators: std::cell::OnceCell<Vec<usize>>,
+    file_scope_terminators: std::cell::OnceCell<Vec<usize>>,
+    file_scope_guarded_returns: std::cell::OnceCell<Vec<usize>>,
+    file_scope_returns: std::cell::OnceCell<Vec<usize>>,
+    file_scope_infinite_loops: std::cell::OnceCell<Vec<usize>>,
 }
 
 #[derive(Clone, Copy)]
@@ -294,7 +312,19 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
 
 fn supplemental_function_call_candidates(checker: &Checker<'_>) -> Vec<FunctionCallCandidate> {
     let forwarding_wrappers = first_argument_forwarding_wrappers(checker);
+    // Reachability only ever looks candidates up by function-binding name, so
+    // calls to names with no function definition are dead weight.
+    let function_names = checker
+        .semantic()
+        .bindings()
+        .iter()
+        .filter(|binding| matches!(binding.kind, BindingKind::FunctionDefinition))
+        .map(|binding| binding.name.as_str())
+        .collect::<FxHashSet<_>>();
     let mut candidates = Vec::new();
+    if function_names.is_empty() {
+        return candidates;
+    }
 
     for fact in checker
         .facts()
@@ -302,7 +332,12 @@ fn supplemental_function_call_candidates(checker: &Checker<'_>) -> Vec<FunctionC
         .structural_commands()
         .filter(|fact| !matches!(fact.command(), shuck_ast::Command::Function(_)))
     {
-        if let Some(callee) = fact.effective_name() {
+        // Plain (unwrapped) calls are already recorded as semantic call
+        // sites, so only wrapper-resolved callees add information here.
+        if let Some(callee) = fact.effective_name()
+            && function_names.contains(callee)
+            && fact.literal_name() != Some(callee)
+        {
             candidates.push(FunctionCallCandidate {
                 callee: Name::from(callee),
                 scope: fact.scope(),
@@ -311,17 +346,20 @@ fn supplemental_function_call_candidates(checker: &Checker<'_>) -> Vec<FunctionC
             });
         }
 
-        if fact.effective_name().is_some_and(|name| {
-            wrapper_call_resolves_to_forwarding_binding(
-                checker,
-                &forwarding_wrappers,
-                Name::from(name),
-                fact.scope(),
-                fact.body_word_span(),
-                fact.span(),
-            )
-        }) && let Some(first_arg) = fact.body_args().first()
+        if !forwarding_wrappers.is_empty()
+            && fact.effective_name().is_some_and(|name| {
+                wrapper_call_resolves_to_forwarding_binding(
+                    checker,
+                    &forwarding_wrappers,
+                    Name::from(name),
+                    fact.scope(),
+                    fact.body_word_span(),
+                    fact.span(),
+                )
+            })
+            && let Some(first_arg) = fact.body_args().first()
             && let Some(callee) = static_word_text(first_arg, checker.source())
+            && function_names.contains(callee.as_ref())
         {
             candidates.push(FunctionCallCandidate {
                 callee: Name::from(callee.as_ref()),
@@ -569,6 +607,7 @@ fn report_compat_cutoff_function_definitions(
 fn report_transient_shadowed_file_scope_definitions(
     checker: &Checker<'_>,
     reach: &mut DirectFunctionCallReachability<'_, '_>,
+    scan: &C063FileScanIndex,
 ) -> Vec<(BindingId, CompactString, FunctionNotReachedReason)> {
     let transient_shadow_offsets = transient_function_shadow_offsets_by_name(checker);
 
@@ -586,7 +625,7 @@ fn report_transient_shadowed_file_scope_definitions(
                 return None;
             }
             let terminator_offset =
-                last_script_terminator_offset_after(checker, binding.span.start.offset)?;
+                last_script_terminator_offset_after(checker, scan, binding.span.start.offset)?;
 
             if has_direct_call_to_binding_before_offset(reach, binding.id, first_shadow_offset)
                 || has_non_transient_direct_call_to_binding_between_offsets(
@@ -864,7 +903,8 @@ fn report_function_definition(
 }
 
 fn trim_trailing_function_separator(span: shuck_ast::Span, source: &str) -> shuck_ast::Span {
-    let mut trimmed = span.slice(source);
+    let original = span.slice(source);
+    let mut trimmed = original;
     loop {
         let without_whitespace = trimmed.trim_end_matches(char::is_whitespace);
         if let Some(without_semicolon) = without_whitespace.strip_suffix(';') {
@@ -874,7 +914,39 @@ fn trim_trailing_function_separator(span: shuck_ast::Span, source: &str) -> shuc
         trimmed = without_whitespace;
         break;
     }
-    shuck_ast::Span::from_positions(span.start, span.start.advanced_by(trimmed))
+    if trimmed.len() == original.len() {
+        return span;
+    }
+
+    // The removed tail is ASCII whitespace and semicolons, so walk back from
+    // the original end instead of re-walking the whole definition body.
+    let removed = &original[trimmed.len()..];
+    let removed_newlines = removed.bytes().filter(|byte| *byte == b'\n').count();
+    let end_offset = span.start.offset + trimmed.len();
+    let end = if removed_newlines == 0 {
+        shuck_ast::Position {
+            line: span.end.line,
+            column: span.end.column - removed.len(),
+            offset: end_offset,
+        }
+    } else {
+        let last_line_start = trimmed.rfind('\n').map(|index| index + 1);
+        let tail = &trimmed[last_line_start.unwrap_or(0)..];
+        let tail_chars = if tail.is_ascii() {
+            tail.len()
+        } else {
+            tail.chars().count()
+        };
+        shuck_ast::Position {
+            line: span.end.line - removed_newlines,
+            column: match last_line_start {
+                Some(_) => tail_chars + 1,
+                None => span.start.column + tail_chars,
+            },
+            offset: end_offset,
+        }
+    };
+    shuck_ast::Span::from_positions(span.start, end)
 }
 
 fn should_suppress_overwrite(
@@ -913,6 +985,7 @@ fn should_suppress_overwrite(
 fn should_suppress_unreached(
     checker: &Checker<'_>,
     reach: &mut DirectFunctionCallReachability<'_, '_>,
+    scan: &C063FileScanIndex,
     unreached: &SemanticUnreachedFunction,
     compat_cutoffs: Option<&CompatCutoffIndex>,
 ) -> bool {
@@ -923,25 +996,27 @@ fn should_suppress_unreached(
         .report_unreached_nested_definitions;
     matches!(binding.kind, BindingKind::Imported)
         || (matches!(unreached.reason, UnreachedFunctionReason::ScriptTerminates)
-            && last_script_terminator_offset_after(checker, binding.span.start.offset).is_some_and(
-                |terminator_offset| {
+            && last_script_terminator_offset_after(checker, scan, binding.span.start.offset)
+                .is_some_and(|terminator_offset| {
                     has_direct_call_to_binding_before_offset(
                         reach,
                         unreached.binding,
                         terminator_offset,
                     )
-                },
-            ))
+                }))
         || (matches!(
             unreached.reason,
             UnreachedFunctionReason::UnreachableDefinition
-        ) && !has_file_scope_termination_barrier_before(checker, binding.span.start.offset)
-            && has_direct_call_to_binding_before_offset(reach, unreached.binding, usize::MAX))
+        ) && !has_file_scope_termination_barrier_before(
+            checker,
+            scan,
+            binding.span.start.offset,
+        ) && has_direct_call_to_binding_before_offset(reach, unreached.binding, usize::MAX))
         || (matches!(unreached.reason, UnreachedFunctionReason::ScriptTerminates)
-            && has_apparent_infinite_loop_after(checker, binding.span.start.offset))
+            && has_apparent_infinite_loop_after(checker, scan, binding.span.start.offset))
         || (compat_mode
             && matches!(unreached.reason, UnreachedFunctionReason::ScriptTerminates)
-            && has_top_level_return_after(checker, binding.span.start.offset))
+            && has_top_level_return_after(checker, scan, binding.span.start.offset))
         || (matches!(
             unreached.reason,
             UnreachedFunctionReason::EnclosingFunctionUnreached
@@ -967,34 +1042,48 @@ fn should_suppress_unreached(
 
 fn last_script_terminator_offset_after(
     checker: &Checker<'_>,
+    scan: &C063FileScanIndex,
     after_offset: usize,
 ) -> Option<usize> {
-    let cfg = checker.semantic_analysis().cfg();
-    let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
-    cfg.script_terminators()
-        .iter()
-        .filter(|block_id| !unreachable.contains(block_id))
-        .flat_map(|block_id| cfg.block(*block_id).commands.iter())
-        .filter_map(|span| {
-            let offset = span.start.offset;
-            let scope = checker.semantic().scope_at(offset);
-            (offset > after_offset && !scope_has_transient_ancestor(checker, scope))
-                .then_some(offset)
-        })
-        .max()
+    let offsets = scan.script_terminators.get_or_init(|| {
+        let cfg = checker.semantic_analysis().cfg();
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let mut offsets = cfg
+            .script_terminators()
+            .iter()
+            .filter(|block_id| !unreachable.contains(block_id))
+            .flat_map(|block_id| cfg.block(*block_id).commands.iter())
+            .filter_map(|span| {
+                let offset = span.start.offset;
+                let scope = checker.semantic().scope_at(offset);
+                (!scope_has_transient_ancestor(checker, scope)).then_some(offset)
+            })
+            .collect::<Vec<_>>();
+        offsets.sort_unstable();
+        offsets
+    });
+    offsets
+        .last()
+        .copied()
+        .filter(|offset| *offset > after_offset)
 }
 
-fn has_file_scope_script_terminator_before(checker: &Checker<'_>, before_offset: usize) -> bool {
-    let cfg = checker.semantic_analysis().cfg();
-    let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
-    cfg.script_terminators()
-        .iter()
-        .filter(|block_id| !unreachable.contains(block_id))
-        .flat_map(|block_id| cfg.block(*block_id).commands.iter())
-        .any(|span| {
-            let offset = span.start.offset;
-            offset < before_offset
-                && checker
+fn has_file_scope_script_terminator_before(
+    checker: &Checker<'_>,
+    scan: &C063FileScanIndex,
+    before_offset: usize,
+) -> bool {
+    let offsets = scan.file_scope_terminators.get_or_init(|| {
+        let cfg = checker.semantic_analysis().cfg();
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let mut offsets = cfg
+            .script_terminators()
+            .iter()
+            .filter(|block_id| !unreachable.contains(block_id))
+            .flat_map(|block_id| cfg.block(*block_id).commands.iter())
+            .filter_map(|span| {
+                let offset = span.start.offset;
+                checker
                     .facts()
                     .command_facts()
                     .innermost_command_at(offset)
@@ -1002,42 +1091,76 @@ fn has_file_scope_script_terminator_before(checker: &Checker<'_>, before_offset:
                     .unwrap_or_else(|| {
                         scope_is_file_scope(checker, checker.semantic().scope_at(offset))
                     })
-        })
+                    .then_some(offset)
+            })
+            .collect::<Vec<_>>();
+        offsets.sort_unstable();
+        offsets
+    });
+    offsets
+        .first()
+        .is_some_and(|offset| *offset < before_offset)
 }
 
-fn has_file_scope_termination_barrier_before(checker: &Checker<'_>, before_offset: usize) -> bool {
-    has_file_scope_script_terminator_before(checker, before_offset)
-        || has_file_scope_return_before(checker, before_offset)
+fn has_file_scope_termination_barrier_before(
+    checker: &Checker<'_>,
+    scan: &C063FileScanIndex,
+    before_offset: usize,
+) -> bool {
+    has_file_scope_script_terminator_before(checker, scan, before_offset)
+        || has_file_scope_return_before(checker, scan, before_offset)
 }
 
-fn has_file_scope_return_before(checker: &Checker<'_>, before_offset: usize) -> bool {
-    checker
-        .facts()
-        .command_facts()
-        .structural_commands()
-        .any(|fact| {
-            let offset = fact.body_span().start.offset;
-            offset < before_offset
-                && fact.effective_name_is("return")
-                && scope_is_file_scope(checker, fact.scope())
-                && !command_offset_is_under_dominance_barrier(checker, offset)
-                && !command_offset_is_unreachable(checker, offset)
-        })
+fn has_file_scope_return_before(
+    checker: &Checker<'_>,
+    scan: &C063FileScanIndex,
+    before_offset: usize,
+) -> bool {
+    let offsets = scan.file_scope_guarded_returns.get_or_init(|| {
+        let mut offsets = checker
+            .facts()
+            .command_facts()
+            .structural_commands()
+            .filter_map(|fact| {
+                let offset = fact.body_span().start.offset;
+                (fact.effective_name_is("return")
+                    && scope_is_file_scope(checker, fact.scope())
+                    && !command_offset_is_under_dominance_barrier(checker, offset)
+                    && !command_offset_is_unreachable(checker, offset))
+                .then_some(offset)
+            })
+            .collect::<Vec<_>>();
+        offsets.sort_unstable();
+        offsets
+    });
+    offsets
+        .first()
+        .is_some_and(|offset| *offset < before_offset)
 }
 
-fn has_top_level_return_after(checker: &Checker<'_>, after_offset: usize) -> bool {
-    checker
-        .facts()
-        .command_facts()
-        .structural_commands()
-        .any(|fact| {
-            fact.body_span().start.offset > after_offset
-                && scope_is_file_scope(
-                    checker,
-                    checker.semantic().scope_at(fact.body_span().start.offset),
-                )
-                && fact.effective_name_is("return")
-        })
+fn has_top_level_return_after(
+    checker: &Checker<'_>,
+    scan: &C063FileScanIndex,
+    after_offset: usize,
+) -> bool {
+    let offsets = scan.file_scope_returns.get_or_init(|| {
+        let mut offsets = checker
+            .facts()
+            .command_facts()
+            .structural_commands()
+            .filter_map(|fact| {
+                (fact.effective_name_is("return")
+                    && scope_is_file_scope(
+                        checker,
+                        checker.semantic().scope_at(fact.body_span().start.offset),
+                    ))
+                .then_some(fact.body_span().start.offset)
+            })
+            .collect::<Vec<_>>();
+        offsets.sort_unstable();
+        offsets
+    });
+    offsets.last().is_some_and(|offset| *offset > after_offset)
 }
 
 fn enclosing_function_scope_can_run_persistently(
@@ -1069,19 +1192,30 @@ fn has_direct_call_inside_enclosing_function(
     )
 }
 
-fn has_apparent_infinite_loop_after(checker: &Checker<'_>, offset: usize) -> bool {
-    checker
-        .facts()
-        .command_facts()
-        .structural_commands()
-        .any(|fact| {
-            fact.body_span().start.offset > offset
-                && scope_is_file_scope(
+fn has_apparent_infinite_loop_after(
+    checker: &Checker<'_>,
+    scan: &C063FileScanIndex,
+    offset: usize,
+) -> bool {
+    let offsets = scan.file_scope_infinite_loops.get_or_init(|| {
+        let mut offsets = checker
+            .facts()
+            .command_facts()
+            .structural_commands()
+            .filter_map(|fact| {
+                (scope_is_file_scope(
                     checker,
                     checker.semantic().scope_at(fact.body_span().start.offset),
-                )
-                && command_is_apparent_infinite_loop(checker, fact.command())
-        })
+                ) && command_is_apparent_infinite_loop(checker, fact.command()))
+                .then_some(fact.body_span().start.offset)
+            })
+            .collect::<Vec<_>>();
+        offsets.sort_unstable();
+        offsets
+    });
+    offsets
+        .last()
+        .is_some_and(|loop_offset| *loop_offset > offset)
 }
 
 fn command_is_apparent_infinite_loop(checker: &Checker<'_>, command: &shuck_ast::Command) -> bool {
