@@ -27,7 +27,10 @@ pub(crate) type CallHierarchyPrepareResponse = Option<Vec<types::CallHierarchyIt
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub(crate) enum CallHierarchyData {
-    Function { line: u32, character: u32 },
+    Function {
+        definition_start: usize,
+        definition_end: usize,
+    },
     TopLevel,
 }
 
@@ -221,17 +224,13 @@ fn to_lsp_call_hierarchy_item(
     let uri = snapshot.query().file_url().clone();
     match item.target {
         EditorCallHierarchyTarget::Function(_) => {
-            let full_range = item
-                .full_span
-                .map(|span| {
-                    crate::edit::to_lsp_range(
-                        span.to_range(),
-                        source,
-                        line_index,
-                        snapshot.encoding(),
-                    )
-                })
-                .unwrap_or_default();
+            let full_span = item.full_span.unwrap_or_default();
+            let full_range = crate::edit::to_lsp_range(
+                full_span.to_range(),
+                source,
+                line_index,
+                snapshot.encoding(),
+            );
             let selection_range = item
                 .selection_span
                 .map(|span| {
@@ -243,7 +242,13 @@ fn to_lsp_call_hierarchy_item(
                     )
                 })
                 .unwrap_or(full_range);
-            call_hierarchy_function_item(item.name.to_string(), uri, full_range, selection_range)
+            call_hierarchy_function_item(
+                item.name.to_string(),
+                uri,
+                full_span,
+                full_range,
+                selection_range,
+            )
         }
         EditorCallHierarchyTarget::TopLevel => call_hierarchy_top_level_item(uri),
     }
@@ -255,6 +260,7 @@ fn to_lsp_call_hierarchy_item(
 pub(crate) fn call_hierarchy_function_item(
     name: String,
     uri: types::Url,
+    definition_span: shuck_ast::Span,
     range: types::Range,
     selection_range: types::Range,
 ) -> types::CallHierarchyItem {
@@ -267,8 +273,8 @@ pub(crate) fn call_hierarchy_function_item(
         range,
         selection_range,
         data: serde_json::to_value(CallHierarchyData::Function {
-            line: selection_range.start.line,
-            character: selection_range.start.character,
+            definition_start: definition_span.start.offset,
+            definition_end: definition_span.end.offset,
         })
         .ok(),
     }

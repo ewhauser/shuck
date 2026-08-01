@@ -7,8 +7,8 @@
 //! traversals of the resulting call graph. `prepareCallHierarchy` first uses
 //! document-local identity and then consults the same index when the cursor is
 //! on a call resolved through a source edge. The returned item contains its
-//! name, file URI, and a [`CallHierarchyData`] payload distinguishing top-level
-//! nodes, which is enough for later index queries to locate it.
+//! name, file URI, and a [`CallHierarchyData`] payload carrying the exact
+//! definition byte range, which is enough for later index queries to locate it.
 //!
 //! The built index is cached on the session and invalidated whenever a
 //! document, workspace folder, or configuration changes, so expanding a call
@@ -16,9 +16,8 @@
 //!
 //! Call sites combine binding-accurate in-file definitions with positioned
 //! source edges, so later sourced and local definitions override earlier ones
-//! in shell execution order. Known limitation:
-//! nodes are keyed by function *name* within a file, so two same-named
-//! definitions in one file collapse onto the first.
+//! in shell execution order. Nodes retain their definition ranges, keeping
+//! same-named definitions distinct throughout preparation and expansion.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -31,8 +30,8 @@ use shuck_config::{ConfigArguments, load_project_config, resolve_project_root_fo
 use shuck_indexer::LineIndex;
 use shuck_linter::ShellDialect;
 use shuck_semantic::{
-    CallFactSourceEdge, CallNodeKind, CrossFileCall, EditorSymbolTarget, FileCallFacts,
-    WorkspaceCallIndex, resolve_source_ref_targets,
+    CallFactSourceEdge, CallFunctionId, CallNodeKind, CrossFileCall, EditorSymbolTarget,
+    FileCallFacts, WorkspaceCallIndex, resolve_source_ref_targets,
 };
 
 use crate::PositionEncoding;
@@ -214,14 +213,14 @@ pub(crate) fn incoming_calls(
     let Some((path, node)) = item_identity(&params.item) else {
         return Ok(None);
     };
-    let CallNodeKind::Function(name) = node else {
+    let CallNodeKind::Function(_) = node else {
         // Nothing "calls" a script's top level in this model.
         return Ok(Some(Vec::new()));
     };
     let built = cached_index(&context);
     let calls = built
         .index
-        .incoming(&path, &name)
+        .incoming(&path, &node)
         .into_iter()
         .filter_map(|call| {
             let from = built.item_for(&call)?;
@@ -258,12 +257,13 @@ pub(crate) fn outgoing_calls(
     Ok(Some(calls))
 }
 
-/// The queried node's identity: its file path plus which node in that file.
+/// The queried node's identity: its file path plus which exact node in that file.
 ///
 /// The `data` payload stamped by `prepare` (and by [`BuiltIndex::item_for`])
-/// distinguishes a script top-level MODULE node from a function; without it a
-/// top-level item would be misread as a function named after the file's label.
-/// Items from clients that drop `data` fall back to the LSP `kind`.
+/// distinguishes a script top-level MODULE node from a function and preserves
+/// the function definition's byte range. Function items whose clients drop
+/// `data` cannot be expanded safely because a name may identify more than one
+/// definition, so they are rejected instead of guessed.
 fn item_identity(item: &types::CallHierarchyItem) -> Option<(PathBuf, CallNodeKind)> {
     let path = canonical(&item.uri.to_file_path().ok()?);
     let data = item
@@ -272,11 +272,16 @@ fn item_identity(item: &types::CallHierarchyItem) -> Option<(PathBuf, CallNodeKi
         .and_then(|value| serde_json::from_value::<CallHierarchyData>(value).ok());
     let node = match data {
         Some(CallHierarchyData::TopLevel) => CallNodeKind::TopLevel,
-        Some(CallHierarchyData::Function { .. }) => {
-            CallNodeKind::Function(Name::from(item.name.as_str()))
-        }
+        Some(CallHierarchyData::Function {
+            definition_start,
+            definition_end,
+        }) => CallNodeKind::Function(CallFunctionId {
+            name: Name::from(item.name.as_str()),
+            definition_start,
+            definition_end,
+        }),
         None if item.kind == types::SymbolKind::MODULE => CallNodeKind::TopLevel,
-        None => CallNodeKind::Function(Name::from(item.name.as_str())),
+        None => return None,
     };
     Some((path, node))
 }
@@ -379,15 +384,16 @@ impl BuiltIndex {
     fn item_for(&self, call: &CrossFileCall) -> Option<types::CallHierarchyItem> {
         let uri = types::Url::from_file_path(&call.path).ok()?;
         match &call.node {
-            CallNodeKind::Function(name) => {
+            CallNodeKind::Function(function) => {
                 let range = self.range_of(&call.path, call.def_span?)?;
                 let selection_range = call
                     .selection_span
                     .and_then(|span| self.range_of(&call.path, span))
                     .unwrap_or(range);
                 Some(crate::editor_features::call_hierarchy_function_item(
-                    name.to_string(),
+                    function.name.to_string(),
                     uri,
+                    call.def_span?,
                     range,
                     selection_range,
                 ))

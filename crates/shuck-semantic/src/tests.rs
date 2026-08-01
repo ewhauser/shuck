@@ -32,6 +32,32 @@ fn model_with_profile(source: &str, profile: ShellProfile) -> SemanticModel {
     )
 }
 
+fn indexed_function(
+    index: &WorkspaceCallIndex,
+    path: &Path,
+    name: &str,
+    occurrence: usize,
+) -> CallNodeKind {
+    let facts = index
+        .files()
+        .find_map(|(candidate, facts)| (candidate == path).then_some(facts))
+        .expect("file should be indexed");
+    let definition = facts
+        .definitions
+        .iter()
+        .filter(|definition| definition.name.as_str() == name)
+        .nth(occurrence)
+        .expect("function definition should be indexed");
+    CallNodeKind::Function(definition.identity())
+}
+
+fn call_node_name(node: &CallNodeKind) -> Option<&str> {
+    match node {
+        CallNodeKind::Function(function) => Some(function.name.as_str()),
+        CallNodeKind::TopLevel => None,
+    }
+}
+
 #[test]
 fn editor_document_symbols_include_top_level_assignments_and_declarations() {
     let source = "\
@@ -346,33 +372,34 @@ outer
     let path = std::path::PathBuf::from("/ws/script.sh");
     let mut index = WorkspaceCallIndex::new();
     index.insert(path.clone(), FileCallFacts::project(&model, Vec::new()));
+    let outer = indexed_function(&index, &path, "outer", 0);
+    let inner = indexed_function(&index, &path, "inner", 0);
 
     // `outer` calls `inner` directly once; the `inner` inside `nested` belongs
     // to `nested`, not to `outer`.
     let outgoing = index
-        .outgoing(&path, &CallNodeKind::Function(Name::from("outer")))
+        .outgoing(&path, &outer)
         .into_iter()
-        .map(|call| (call.node.clone(), call.call_spans.len()))
+        .map(|call| {
+            (
+                call_node_name(&call.node).map(str::to_owned),
+                call.call_spans.len(),
+            )
+        })
         .collect::<Vec<_>>();
-    assert_eq!(outgoing, [(CallNodeKind::Function(Name::from("inner")), 1)]);
+    assert_eq!(outgoing, [(Some("inner".to_owned()), 1)]);
 
     // `inner` is called from both `outer` and the nested `nested` function.
     let mut callers = index
-        .incoming(&path, &Name::from("inner"))
+        .incoming(&path, &inner)
         .into_iter()
-        .map(|call| call.node)
+        .filter_map(|call| call_node_name(&call.node).map(str::to_owned))
         .collect::<Vec<_>>();
-    callers.sort_by_key(|node| format!("{node:?}"));
-    assert_eq!(
-        callers,
-        [
-            CallNodeKind::Function(Name::from("nested")),
-            CallNodeKind::Function(Name::from("outer")),
-        ]
-    );
+    callers.sort();
+    assert_eq!(callers, ["nested", "outer"]);
 
     // `outer` itself is called once, from the script top level.
-    let incoming_outer = index.incoming(&path, &Name::from("outer"));
+    let incoming_outer = index.incoming(&path, &outer);
     assert_eq!(incoming_outer.len(), 1);
     assert_eq!(incoming_outer[0].node, CallNodeKind::TopLevel);
     assert_eq!(incoming_outer[0].call_spans.len(), 1);
@@ -542,6 +569,9 @@ main() {
         FileCallFacts::project(&caller, vec![lib_path.clone()]),
     );
     index.insert(lib_path.clone(), FileCallFacts::project(&lib, Vec::new()));
+    let grep = indexed_function(&index, &caller_path, "grep", 0);
+    let main = indexed_function(&index, &caller_path, "main", 0);
+    let helper = indexed_function(&index, &lib_path, "helper", 0);
 
     // The top level's `grep` call precedes the definition, so it resolves to
     // the external command: no edge from the top level.
@@ -551,26 +581,25 @@ main() {
         "expected no top-level edges, got {top_level_outgoing:?}"
     );
     // Symmetrically, the local `grep` function has no callers.
-    assert!(index.incoming(&caller_path, &Name::from("grep")).is_empty());
+    assert!(index.incoming(&caller_path, &grep).is_empty());
 
     // `main` resolves `helper` through the source edge.
     let outgoing = index
-        .outgoing(&caller_path, &CallNodeKind::Function(Name::from("main")))
+        .outgoing(&caller_path, &main)
         .into_iter()
-        .map(|call| (call.path.clone(), call.node.clone()))
+        .map(|call| {
+            (
+                call.path.clone(),
+                call_node_name(&call.node).map(str::to_owned),
+            )
+        })
         .collect::<Vec<_>>();
-    assert_eq!(
-        outgoing,
-        [(
-            lib_path.clone(),
-            CallNodeKind::Function(Name::from("helper"))
-        )]
-    );
+    assert_eq!(outgoing, [(lib_path.clone(), Some("helper".to_owned()))]);
     // And `helper`'s caller is `main` in the sourcing file.
-    let incoming = index.incoming(&lib_path, &Name::from("helper"));
+    let incoming = index.incoming(&lib_path, &helper);
     assert_eq!(incoming.len(), 1);
     assert_eq!(incoming[0].path, caller_path);
-    assert_eq!(incoming[0].node, CallNodeKind::Function(Name::from("main")));
+    assert_eq!(call_node_name(&incoming[0].node), Some("main"));
 }
 
 #[test]

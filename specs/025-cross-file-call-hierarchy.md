@@ -15,8 +15,10 @@ change, so expanding a call tree reuses one build. Call sites the semantic
 model binds in-file stay binding-accurate (definition order and shadowing are
 honored), while source edges retain their positions so later sourced and local
 definitions override earlier ones; only sites without an effective local
-binding are matched by name across source edges. Top-level MODULE nodes
-round-trip through `CallHierarchyItem.data`, so
+binding are matched by name across source edges. Function nodes carry their
+exact definition byte range through `CallHierarchyItem.data`, keeping
+same-named redefinitions distinct across preparation, incoming calls, and
+outgoing calls. Top-level MODULE nodes also round-trip through that payload, so
 their outgoing calls expand. Edges come from all determinable sources
 (literal-resolvable paths and `source=` directives with and without
 `lint=true`), resolved against the annotating file's own directory and the
@@ -28,10 +30,6 @@ expansion — and every insertion checks it, so a runaway workspace degrades to 
 partial graph (with a warning) rather than an unbounded scan. Covered by
 semantic unit tests, an index-size bound test, and black-box multi-file LSP
 tests (including one that resolves only via `source-paths`).
-
-Known limitation (noted follow-up, not blocking): nodes are keyed by function
-name within a file, so two same-named definitions in one file collapse onto the
-first.
 
 ## Summary
 
