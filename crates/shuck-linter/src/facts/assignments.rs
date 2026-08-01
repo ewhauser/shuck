@@ -3420,6 +3420,7 @@ pub(crate) fn build_dollar_question_after_command_spans(
     spans
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn build_declaration_assignment_probes<'a>(
     command: &'a Command,
     normalized: &NormalizedCommand<'a>,
@@ -3733,6 +3734,7 @@ pub(crate) fn advance_escaped_char_boundary(text: &str, start: usize) -> usize {
     next + text[next..].chars().next().map_or(0, char::len_utf8)
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn collect_binding_values<'a>(
     command: &'a Command,
     semantic_artifacts: &'a LinterSemanticArtifacts<'a>,

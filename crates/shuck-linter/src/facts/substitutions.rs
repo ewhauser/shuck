@@ -143,6 +143,7 @@ pub(crate) struct HostedSubstitutionOccurrence<'a> {
     host_kind: SubstitutionHostKind,
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn collect_substitution_occurrences_for_command<'a>(
     command: &'a Command,
     redirects: &'a [Redirect],

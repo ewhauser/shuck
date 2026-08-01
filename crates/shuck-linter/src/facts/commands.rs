@@ -342,7 +342,7 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
     }
 
     pub fn declaration(self) -> Option<&'facts NormalizedDeclaration<'a>> {
-        self.fact.normalized.declaration.as_ref()
+        self.fact.normalized.declaration.as_deref()
     }
 
     pub fn body_span(self) -> Span {
@@ -526,6 +526,7 @@ pub(crate) fn command_span_with_redirects_and_shellcheck_tail(
     ))
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn effective_command_shell_behavior<'a>(
     semantic: &'a SemanticModel,
     offset: usize,

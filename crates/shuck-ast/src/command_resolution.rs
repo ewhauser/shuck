@@ -47,7 +47,7 @@ pub struct NormalizedCommand<'a> {
     pub body_span: Span,
     pub body_word_span: Option<Span>,
     pub body_words: Vec<&'a Word>,
-    pub declaration: Option<NormalizedDeclaration<'a>>,
+    pub declaration: Option<Box<NormalizedDeclaration<'a>>>,
 }
 
 impl<'a> NormalizedCommand<'a> {
@@ -251,7 +251,7 @@ fn normalize_decl_command<'a>(command: &'a DeclClause, source: &'a str) -> Norma
         body_span: command.variant_span,
         body_word_span: None,
         body_words: Vec::new(),
-        declaration: Some(NormalizedDeclaration {
+        declaration: Some(Box::new(NormalizedDeclaration {
             kind: declaration_kind(raw_kind),
             readonly_flag: declaration_has_readonly_flag(command, source),
             span: command.span,
@@ -260,7 +260,7 @@ fn normalize_decl_command<'a>(command: &'a DeclClause, source: &'a str) -> Norma
             assignments: &command.assignments,
             operands: &command.operands,
             assignment_operands,
-        }),
+        })),
     }
 }
 

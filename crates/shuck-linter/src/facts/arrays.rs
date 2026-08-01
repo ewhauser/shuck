@@ -393,6 +393,7 @@ pub(crate) fn parameter_uses_replacement_operator(parameter: &ParameterExpansion
     }
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn collect_broken_assoc_key_spans(
     command: &Command,
     source: &str,
@@ -504,6 +505,7 @@ pub(crate) fn has_unclosed_assoc_key_prefix(word: &Word, source: &str) -> bool {
     saw_equals
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn collect_comma_array_assignment_spans(
     command: &Command,
     source: &str,
@@ -527,6 +529,7 @@ pub(crate) fn collect_comma_array_assignment_spans(
     }
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn collect_ifs_literal_backslash_assignment_value_spans(
     command: &Command,
     source: &str,
