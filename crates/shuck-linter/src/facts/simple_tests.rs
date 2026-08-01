@@ -238,6 +238,7 @@ pub(crate) fn simple_test_operands<'a>(
     }
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn build_simple_test_fact<'a>(
     command: &'a Command,
     source: &str,
@@ -289,6 +290,7 @@ pub(crate) fn build_simple_test_fact<'a>(
     })
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn build_glued_closing_bracket_operand_span(
     command: &Command,
     source: &str,

@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn collect_zsh_option_map_arithmetic_suppressed_subscripts(
     command: &Command,
     semantic: &SemanticModel,
@@ -333,6 +334,7 @@ pub(crate) fn zsh_option_map_subscript_key(owner_name: &str, text: &str) -> bool
             .all(|ch| ch == '-' || ch == '_' || ch.is_ascii_alphanumeric())
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn collect_base_prefix_spans_in_command_parts(
     command: &Command,
     source: &str,
@@ -1273,6 +1275,7 @@ pub(crate) fn build_double_paren_grouping_spans(
         .collect()
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn collect_arithmetic_update_operator_spans_in_command(
     command: &Command,
     semantic: &SemanticModel,

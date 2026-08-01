@@ -315,6 +315,7 @@ impl<'a> ConditionalExpressionVisit<'a> {
     }
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn collect_command_substitution_command_span(
     command: &Command,
     source: &str,
@@ -2087,6 +2088,7 @@ pub(crate) fn collect_status_parameter_spans_in_fragment(
     collect_status_parameter_spans_in_word(word, source, spans);
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn build_conditional_fact<'a>(
     expression_visits: &[ConditionalExpressionVisit<'a>],
     source: &str,

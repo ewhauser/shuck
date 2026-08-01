@@ -699,56 +699,72 @@ pub(crate) fn build_completion_registered_function_scopes(
         }
     }
 
-    for command in commands {
-        let Some(candidate) = file_level_function_candidates[command.id().index()].as_ref() else {
-            continue;
-        };
-        let Some(parent) = nearest_structural_parent_command(semantic, command.id()) else {
-            continue;
-        };
-        if commands.iter().any(|later_command| {
-            later_command.span().start.offset > command.span().start.offset
-                && nearest_structural_parent_command(semantic, later_command.id()) == Some(parent)
-                && same_structural_branch_between(
-                    source,
-                    command.span().end.offset,
-                    later_command.span().start.offset,
-                )
-                && is_same_branch_completion_registration(semantic, later_command)
-                && command_registers_completion_function(later_command, source, &candidate.name)
-        }) {
-            scopes.insert(candidate.scope);
-        }
-    }
-
-    for command in commands {
-        let Some(candidate) = function_candidates[command.id().index()].as_ref() else {
-            continue;
-        };
-        if commands.iter().any(|later_command| {
-            is_unconditional_completion_registration(semantic, later_command)
-                && later_command.effective_or_literal_name() == Some("compdef")
-                && command_registers_completion_function(later_command, source, &candidate.name)
-        }) {
-            scopes.insert(candidate.scope);
-        }
-    }
-
-    for scope in semantic.scopes() {
-        if !top_level_candidate_scopes.contains(&scope.id) {
-            continue;
-        }
-        let ScopeKind::Function(FunctionScopeKind::Named(names)) = &scope.kind else {
-            continue;
-        };
-        if commands.iter().any(|command| {
+    // The registration predicates do not depend on the candidate, so gather
+    // the (typically rare) registration commands once instead of rescanning
+    // every command per candidate.
+    let same_branch_registrations = commands
+        .iter()
+        .filter(|command| is_same_branch_completion_registration(semantic, command))
+        .collect::<Vec<_>>();
+    let compdef_registrations = commands
+        .iter()
+        .filter(|command| {
             is_unconditional_completion_registration(semantic, command)
                 && command.effective_or_literal_name() == Some("compdef")
-                && names.iter().any(|name| {
+        })
+        .collect::<Vec<_>>();
+
+    if !same_branch_registrations.is_empty() {
+        for command in commands {
+            let Some(candidate) = file_level_function_candidates[command.id().index()].as_ref()
+            else {
+                continue;
+            };
+            let Some(parent) = nearest_structural_parent_command(semantic, command.id()) else {
+                continue;
+            };
+            if same_branch_registrations.iter().any(|later_command| {
+                later_command.span().start.offset > command.span().start.offset
+                    && nearest_structural_parent_command(semantic, later_command.id())
+                        == Some(parent)
+                    && same_structural_branch_between(
+                        source,
+                        command.span().end.offset,
+                        later_command.span().start.offset,
+                    )
+                    && command_registers_completion_function(later_command, source, &candidate.name)
+            }) {
+                scopes.insert(candidate.scope);
+            }
+        }
+    }
+
+    if !compdef_registrations.is_empty() {
+        for command in commands {
+            let Some(candidate) = function_candidates[command.id().index()].as_ref() else {
+                continue;
+            };
+            if compdef_registrations.iter().any(|later_command| {
+                command_registers_completion_function(later_command, source, &candidate.name)
+            }) {
+                scopes.insert(candidate.scope);
+            }
+        }
+
+        for scope in semantic.scopes() {
+            if !top_level_candidate_scopes.contains(&scope.id) {
+                continue;
+            }
+            let ScopeKind::Function(FunctionScopeKind::Named(names)) = &scope.kind else {
+                continue;
+            };
+            if compdef_registrations.iter().any(|command| {
+                names.iter().any(|name| {
                     command_registers_completion_function(command, source, name.as_str())
                 })
-        }) {
-            scopes.insert(scope.id);
+            }) {
+                scopes.insert(scope.id);
+            }
         }
     }
 
@@ -778,6 +794,13 @@ pub(crate) fn extend_completion_registered_function_scopes_through_helpers(
         .flat_map(|(scope, bindings)| bindings.iter().map(move |binding| (scope, *binding)))
         .collect::<Vec<_>>();
 
+    // `_arguments` invocations are the only commands the fixed-point loop
+    // inspects, so collect them once up front.
+    let argument_spec_commands = commands
+        .iter()
+        .filter(|command| command.normalized().effective_or_literal_name() == Some("_arguments"))
+        .collect::<Vec<_>>();
+
     let mut changed = true;
     while changed {
         changed = false;
@@ -794,11 +817,10 @@ pub(crate) fn extend_completion_registered_function_scopes_through_helpers(
                             .enclosing_function_scope_at(site.name_span.start.offset)
                             .is_some_and(|caller_scope| scopes.contains(&caller_scope))
                 });
-            let referenced_by_completion_arguments = commands.iter().any(|command| {
-                command.normalized().effective_or_literal_name() == Some("_arguments")
-                    && command
-                        .enclosing_function_scope()
-                        .is_some_and(|caller_scope| scopes.contains(&caller_scope))
+            let referenced_by_completion_arguments = argument_spec_commands.iter().any(|command| {
+                command
+                    .enclosing_function_scope()
+                    .is_some_and(|caller_scope| scopes.contains(&caller_scope))
                     && command.body_args().iter().any(|word| {
                         static_word_text(word, source).is_some_and(|text| {
                             zsh_arguments_spec_invokes_function(
