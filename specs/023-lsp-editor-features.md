@@ -2,14 +2,14 @@
 
 ## Status
 
-Implemented (document-local v1 plus sourced function completion).
+Implemented (document-local v1 plus sourced function completion, definition, and hover).
 
 Delivered: completion, semantic hover, go-to-definition, references, document
 highlights, document and workspace symbols, conservative same-file rename, and
-document/range formatting. Function completion also follows the statically
-resolvable source graph. Cross-file rename remains deferred until closed-file
-edit safety is proven. Cross-file call hierarchy is specified separately in
-spec 025; other cross-file navigation is outside this spec's implemented scope.
+document/range formatting. Function completion, definition, and hover also
+follow exact, statically resolved source edges. Cross-file rename remains
+deferred until closed-file edit safety is proven. Cross-file call hierarchy is
+specified separately in spec 025; other cross-file navigation remains deferred.
 
 ## Summary
 
@@ -98,7 +98,7 @@ land:
 | Capability | Request | Initial support |
 |---|---|---|
 | Completion | `textDocument/completion`, `completionItem/resolve` | Variables, declaration names, runtime names, shell keywords, and functions visible locally or through unconditional static source edges |
-| Hover | `textDocument/hover` | Rule-code hovers plus semantic-symbol hovers |
+| Hover | `textDocument/hover` | Rule-code and semantic-symbol hovers, including exact function bindings through the statically resolved source graph |
 | Definition | `textDocument/definition` | Variables in the active analysis plus exact function definitions through the statically resolved source graph |
 | References | `textDocument/references` | References and definitions in the same proven symbol set |
 | Document highlight | `textDocument/documentHighlight` | Read/write highlights for the symbol under the cursor |
@@ -449,6 +449,14 @@ Semantic hover content includes:
   nameref, integer, and runtime-provided;
 - for functions, a short call-site count when already available from the
   analysis cache.
+
+Function calls whose exact binding lives in a statically sourced file use the
+shared workspace function index. Their hover identifies the winning definition
+file and location. Source order, redefinitions, valid source hints, configured
+source paths, and unsaved open buffers match go-to-definition behavior.
+Dynamic, conditional, missing, partial, or otherwise ambiguous source
+relationships return no cross-file hover instead of falling back to a
+potentially stale local binding.
 
 Hover should avoid diagnostic-style advice. Rule explanations remain attached
 to diagnostics and directive rule-code hovers.
