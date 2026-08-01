@@ -37,7 +37,10 @@ pub(super) fn request(req: server::Request) -> Task {
 
     match req.method.as_str() {
         request::CallHierarchyPrepare::METHOD => {
-            background_request_task::<request::CallHierarchyPrepare>(req, BackgroundSchedule::Worker)
+            background_session_request_task::<request::CallHierarchyPrepare>(
+                req,
+                BackgroundSchedule::Worker,
+            )
         }
         request::CallHierarchyIncomingCalls::METHOD => background_session_request_task::<
             request::CallHierarchyIncomingCalls,
