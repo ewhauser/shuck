@@ -105,6 +105,7 @@ pub(crate) fn build_pipeline_facts<'a>(
         command_ids_by_span,
         command_child_index,
     );
+    let stmt_span_index = build_stmt_span_index(commands);
 
     semantic
         .pipeline_commands()
@@ -114,6 +115,7 @@ pub(crate) fn build_pipeline_facts<'a>(
                 commands,
                 command_fact_indices_by_id,
                 command_ids_by_span,
+                &stmt_span_index,
                 pipeline.span,
                 |command| matches!(command.command(), Command::Binary(_)),
             )?;
@@ -130,7 +132,11 @@ pub(crate) fn build_pipeline_facts<'a>(
                     .segments
                     .iter()
                     .map(|segment| {
-                        build_pipeline_segment_fact(segment.command_span, command_relationships)
+                        build_pipeline_segment_fact(
+                            segment.command_span,
+                            command_relationships,
+                            &stmt_span_index,
+                        )
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
@@ -158,11 +164,13 @@ pub(crate) fn build_pipeline_facts<'a>(
 pub(crate) fn build_pipeline_segment_fact<'a>(
     command_span: Span,
     command_relationships: CommandRelationshipContext<'_, 'a>,
+    stmt_span_index: &StmtSpanIndex,
 ) -> PipelineSegmentFact<'a> {
     let Some(fact) = command_fact_for_semantic_span_matching(
         command_relationships.commands,
         command_relationships.command_fact_indices_by_id,
         command_relationships.command_ids_by_span,
+        stmt_span_index,
         command_span,
         |command| {
             !matches!(

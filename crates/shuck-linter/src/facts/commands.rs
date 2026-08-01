@@ -1460,10 +1460,25 @@ pub(crate) fn command_fact<'facts, 'a>(
         .unwrap_or_else(|| panic!("command id {} must exist", id.index()))
 }
 
+/// Command positions keyed by their statement span, in source order.
+pub(crate) type StmtSpanIndex = FxHashMap<FactSpan, SmallVec<[u32; 2]>>;
+
+pub(crate) fn build_stmt_span_index(commands: &[CommandFact<'_>]) -> StmtSpanIndex {
+    let mut index = StmtSpanIndex::default();
+    for (position, command) in commands.iter().enumerate() {
+        index
+            .entry(FactSpan::new(command.stmt().span))
+            .or_default()
+            .push(position as u32);
+    }
+    index
+}
+
 pub(crate) fn command_fact_for_semantic_span_matching<'facts, 'a>(
     commands: &'facts [CommandFact<'a>],
     indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
+    stmt_span_index: &StmtSpanIndex,
     span: Span,
     predicate: impl Fn(&CommandFact<'a>) -> bool,
 ) -> Option<&'facts CommandFact<'a>> {
@@ -1476,9 +1491,14 @@ pub(crate) fn command_fact_for_semantic_span_matching<'facts, 'a>(
                 .find(|command| predicate(command))
         })
         .or_else(|| {
-            commands.iter().find(|command| {
-                predicate(command) && FactSpan::new(command.stmt().span) == FactSpan::new(span)
-            })
+            stmt_span_index
+                .get(&FactSpan::new(span))
+                .and_then(|positions| {
+                    positions
+                        .iter()
+                        .map(|position| &commands[*position as usize])
+                        .find(|command| predicate(command))
+                })
         })
         .or_else(|| {
             commands
