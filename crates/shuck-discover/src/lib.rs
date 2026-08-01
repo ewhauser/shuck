@@ -10,7 +10,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::{DirEntry, ParallelVisitor, WalkBuilder, WalkState};
 use shuck_config::{resolve_project_root_for_file, resolve_project_root_for_input};
-use shuck_extract::is_extractable;
+use shuck_extract::{is_embedded_host, is_extractable};
 use shuck_linter::ShellDialect;
 
 pub const DEFAULT_IGNORED_DIR_NAMES: &[&str] = &[
@@ -143,7 +143,9 @@ fn collect_input(
         }
         collect_directory(input, cwd, project_root, exclude_matcher, options, files)?;
     } else if metadata.is_file() {
-        let kind = explicit_file_kind(input)?;
+        let Some(kind) = explicit_file_kind(input)? else {
+            return Ok(());
+        };
         if options.force_exclude {
             if exclude_matcher.matches(input, cwd) {
                 return Ok(());
@@ -628,13 +630,20 @@ fn discovered_file_kind(path: &Path) -> Result<Option<FileKind>> {
     Ok(None)
 }
 
-fn explicit_file_kind(path: &Path) -> Result<FileKind> {
+fn explicit_file_kind(path: &Path) -> Result<Option<FileKind>> {
     // A directly named regular file is an authoritative request to process that
-    // file. Preserve embedded-host detection, but otherwise let the shell parser
-    // decide whether the contents are valid instead of silently dropping the
-    // input. Directory walks continue to use `discovered_file_kind` so unknown
-    // files are not parsed indiscriminately.
-    Ok(discovered_file_kind(path)?.unwrap_or(FileKind::Shell))
+    // file. Preserve embedded-host detection and skip other files in a format
+    // owned by an embedded extractor; otherwise let the shell parser decide
+    // whether the contents are valid instead of silently dropping the input.
+    // Directory walks continue to use `discovered_file_kind` so unknown files
+    // are not parsed indiscriminately.
+    if let Some(kind) = discovered_file_kind(path)? {
+        return Ok(Some(kind));
+    }
+    if is_embedded_host(path) {
+        return Ok(None);
+    }
+    Ok(Some(FileKind::Shell))
 }
 
 fn read_shebang_prefix(path: &Path) -> Result<Vec<u8>> {
@@ -829,6 +838,35 @@ mod tests {
 
         assert_eq!(files.len(), 3);
         assert!(files.iter().all(|file| file.kind == FileKind::Shell));
+    }
+
+    #[test]
+    fn explicit_plain_yaml_is_not_treated_as_shell() {
+        let tempdir = tempdir().unwrap();
+        let plain_yaml = tempdir.path().join("config.yaml");
+        let workflows = tempdir.path().join(".github/workflows");
+        let workflow = workflows.join("ci.yml");
+        fs::create_dir_all(&workflows).unwrap();
+        fs::write(&plain_yaml, "key: value\n").unwrap();
+        fs::write(
+            &workflow,
+            "on: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps: []\n",
+        )
+        .unwrap();
+
+        let files = discover_files(
+            &[plain_yaml, workflow],
+            tempdir.path(),
+            &DiscoveryOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(
+            files[0].display_path,
+            PathBuf::from(".github/workflows/ci.yml")
+        );
+        assert_eq!(files[0].kind, FileKind::Embedded);
     }
 
     #[test]
