@@ -20,21 +20,23 @@ impl<'a> Parser<'a> {
                 operand_word_ast,
                 colon_variant,
             } => Some(BourneParameterExpansion::Operation {
-                reference,
+                reference: *reference,
                 operator: self.enrich_parameter_operator(operator),
-                operand,
+                operand: operand.map(|operand| *operand),
                 operand_word_ast,
                 colon_variant,
             }),
             WordPart::Length(reference) | WordPart::ArrayLength(reference) => {
-                Some(BourneParameterExpansion::Length { reference })
+                Some(BourneParameterExpansion::Length {
+                    reference: *reference,
+                })
             }
-            WordPart::ArrayAccess(reference) => {
-                Some(BourneParameterExpansion::Access { reference })
-            }
-            WordPart::ArrayIndices(reference) => {
-                Some(BourneParameterExpansion::Indices { reference })
-            }
+            WordPart::ArrayAccess(reference) => Some(BourneParameterExpansion::Access {
+                reference: *reference,
+            }),
+            WordPart::ArrayIndices(reference) => Some(BourneParameterExpansion::Indices {
+                reference: *reference,
+            }),
             WordPart::Substring {
                 reference,
                 offset,
@@ -53,11 +55,11 @@ impl<'a> Parser<'a> {
                 length_ast,
                 length_word_ast,
             } => Some(BourneParameterExpansion::Slice {
-                reference,
-                offset,
+                reference: *reference,
+                offset: *offset,
                 offset_ast,
                 offset_word_ast,
-                length,
+                length: length.map(|length| *length),
                 length_ast,
                 length_word_ast,
             }),
@@ -68,9 +70,9 @@ impl<'a> Parser<'a> {
                 operand_word_ast,
                 colon_variant,
             } => Some(BourneParameterExpansion::Indirect {
-                reference,
+                reference: *reference,
                 operator: operator.map(|operator| self.enrich_parameter_operator(operator)),
-                operand,
+                operand: operand.map(|operand| *operand),
                 operand_word_ast,
                 colon_variant,
             }),
@@ -81,7 +83,7 @@ impl<'a> Parser<'a> {
                 reference,
                 operator,
             } => Some(BourneParameterExpansion::Transformation {
-                reference,
+                reference: *reference,
                 operator,
             }),
             WordPart::Variable(name) if raw_body_text == name.as_str() => {

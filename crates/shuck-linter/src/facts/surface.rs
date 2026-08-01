@@ -1142,7 +1142,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 );
                 self.collect_parameter_operator_patterns(
                     operator,
-                    operand.as_ref(),
+                    operand.as_ref().map(|v| &**v),
                     operand_word_ast.as_deref(),
                     context,
                 );
@@ -1218,7 +1218,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                     });
                 self.collect_parameter_operator_patterns(
                     operator,
-                    operand.as_ref(),
+                    operand.as_ref().map(|v| &**v),
                     operand_word_ast.as_deref(),
                     context,
                 );
@@ -1311,7 +1311,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                         .push(LegacyArithmeticFragmentFact { span: part.span });
                     collect_positional_parameter_operator_spans_in_arithmetic(
                         part.span,
-                        expression_ast.as_ref(),
+                        expression_ast.as_deref(),
                         expression,
                         self.source,
                         &mut self.facts.positional_parameter_operator_spans,
@@ -1332,7 +1332,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 } => {
                     collect_positional_parameter_operator_spans_in_arithmetic(
                         part.span,
-                        expression_ast.as_ref(),
+                        expression_ast.as_deref(),
                         expression,
                         self.source,
                         &mut self.facts.positional_parameter_operator_spans,

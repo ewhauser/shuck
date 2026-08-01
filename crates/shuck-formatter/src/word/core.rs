@@ -701,7 +701,7 @@ pub(super) fn render_word_part(
             rendered,
             reference,
             operator.as_ref(),
-            operand.as_ref(),
+            operand.as_ref().map(|v| &**v),
             *colon_variant,
             Some(span),
             env,

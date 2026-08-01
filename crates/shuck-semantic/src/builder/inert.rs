@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn inert_zsh_qualified_glob_short_circuits() {
-        let word = word(vec![WordPart::ZshQualifiedGlob(
+        let word = word(vec![WordPart::ZshQualifiedGlob(Box::new(
             shuck_ast::ZshQualifiedGlob {
                 span: Span::new(),
                 segments: vec![
@@ -180,7 +180,7 @@ mod tests {
                 ],
                 qualifiers: None,
             },
-        )]);
+        ))]);
 
         assert!(word_is_semantically_inert(&word));
     }
@@ -189,14 +189,14 @@ mod tests {
     fn pattern_with_expanding_word_is_not_inert() {
         let pattern = pattern(vec![PatternPart::Word(word(vec![
             WordPart::ParameterExpansion {
-                reference: VarRef {
+                reference: Box::new(VarRef {
                     name: "name".into(),
                     name_span: Span::new(),
                     subscript: None,
                     span: Span::new(),
-                },
+                }),
                 operator: Box::new(ParameterOp::UseDefault),
-                operand: Some(SourceText::from("fallback")),
+                operand: Some(Box::new(SourceText::from("fallback"))),
                 operand_word_ast: Some(Box::new(Word::literal("fallback"))),
                 colon_variant: true,
             },

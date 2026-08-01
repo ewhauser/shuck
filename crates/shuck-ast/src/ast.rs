@@ -517,37 +517,37 @@ pub enum BinaryOp {
 #[derive(Debug, Clone)]
 pub enum CompoundCommand {
     /// If statement
-    If(IfCommand),
+    If(Box<IfCommand>),
     /// For loop
-    For(ForCommand),
+    For(Box<ForCommand>),
     /// Zsh repeat loop
-    Repeat(RepeatCommand),
+    Repeat(Box<RepeatCommand>),
     /// Zsh foreach loop
-    Foreach(ForeachCommand),
+    Foreach(Box<ForeachCommand>),
     /// C-style for loop: for ((init; cond; step))
     ArithmeticFor(Box<ArithmeticForCommand>),
     /// While loop
-    While(WhileCommand),
+    While(Box<WhileCommand>),
     /// Until loop
-    Until(UntilCommand),
+    Until(Box<UntilCommand>),
     /// Case statement
-    Case(CaseCommand),
+    Case(Box<CaseCommand>),
     /// Select loop
-    Select(SelectCommand),
+    Select(Box<SelectCommand>),
     /// Subshell (commands in parentheses)
     Subshell(StmtSeq),
     /// Brace group
     BraceGroup(StmtSeq),
     /// Arithmetic command ((expression))
-    Arithmetic(ArithmeticCommand),
+    Arithmetic(Box<ArithmeticCommand>),
     /// Time command - measure execution time
-    Time(TimeCommand),
+    Time(Box<TimeCommand>),
     /// Conditional expression [[ ... ]]
-    Conditional(ConditionalCommand),
+    Conditional(Box<ConditionalCommand>),
     /// Coprocess: `coproc [NAME] command`
-    Coproc(CoprocCommand),
+    Coproc(Box<CoprocCommand>),
     /// Zsh always/finally-style cleanup block.
-    Always(AlwaysCommand),
+    Always(Box<AlwaysCommand>),
 }
 
 /// Coprocess command - runs a command with bidirectional communication.
@@ -2487,8 +2487,8 @@ pub enum HeredocBodyPart {
     },
     ArithmeticExpansion {
         expression: SourceText,
-        expression_ast: Option<ArithmeticExprNode>,
-        expression_word_ast: Word,
+        expression_ast: Option<Box<ArithmeticExprNode>>,
+        expression_word_ast: Box<Word>,
         syntax: ArithmeticExpansionSyntax,
     },
     Parameter(Box<ParameterExpansion>),
@@ -2805,7 +2805,7 @@ pub enum WordPart {
     /// Literal text
     Literal(LiteralText),
     /// Zsh glob with one classic trailing qualifier group such as `*(.)`.
-    ZshQualifiedGlob(ZshQualifiedGlob),
+    ZshQualifiedGlob(Box<ZshQualifiedGlob>),
     /// Single-quoted literal content, including `$'...'` ANSI-C quoting.
     SingleQuoted { value: SourceText, dollar: bool },
     /// Double-quoted content with nested expansions.
@@ -2834,29 +2834,29 @@ pub enum WordPart {
     /// Parameter expansion with operator ${var:-default}, ${var:=default}, etc.
     /// `colon_variant` distinguishes `:-` (unset-or-empty) from `-` (unset-only).
     ParameterExpansion {
-        reference: VarRef,
+        reference: Box<VarRef>,
         operator: Box<ParameterOp>,
-        operand: Option<SourceText>,
+        operand: Option<Box<SourceText>>,
         operand_word_ast: Option<Box<Word>>,
         colon_variant: bool,
     },
     /// Length expansion ${#var}
-    Length(VarRef),
+    Length(Box<VarRef>),
     /// Array element access `${arr[index]}` or `${arr[@]}` or `${arr[*]}`
-    ArrayAccess(VarRef),
+    ArrayAccess(Box<VarRef>),
     /// Array length `${#arr[@]}` or `${#arr[*]}`
-    ArrayLength(VarRef),
+    ArrayLength(Box<VarRef>),
     /// Array indices `${!arr[@]}` or `${!arr[*]}`
-    ArrayIndices(VarRef),
+    ArrayIndices(Box<VarRef>),
     /// Substring extraction `${var:offset}` or `${var:offset:length}`
     Substring {
-        reference: VarRef,
-        offset: SourceText,
+        reference: Box<VarRef>,
+        offset: Box<SourceText>,
         /// Typed arithmetic view of `offset` when it parses as arithmetic.
         offset_ast: Option<Box<ArithmeticExprNode>>,
         /// Parsed shell-word view of `offset`.
         offset_word_ast: Box<Word>,
-        length: Option<SourceText>,
+        length: Option<Box<SourceText>>,
         /// Typed arithmetic view of `length` when it parses as arithmetic.
         length_ast: Option<Box<ArithmeticExprNode>>,
         /// Parsed shell-word view of `length`.
@@ -2864,13 +2864,13 @@ pub enum WordPart {
     },
     /// Array slice `${arr[@]:offset:length}`
     ArraySlice {
-        reference: VarRef,
-        offset: SourceText,
+        reference: Box<VarRef>,
+        offset: Box<SourceText>,
         /// Typed arithmetic view of `offset` when it parses as arithmetic.
         offset_ast: Option<Box<ArithmeticExprNode>>,
         /// Parsed shell-word view of `offset`.
         offset_word_ast: Box<Word>,
-        length: Option<SourceText>,
+        length: Option<Box<SourceText>>,
         /// Typed arithmetic view of `length` when it parses as arithmetic.
         length_ast: Option<Box<ArithmeticExprNode>>,
         /// Parsed shell-word view of `length`.
@@ -2879,9 +2879,9 @@ pub enum WordPart {
     /// Indirect expansion `${!var}` - expands to value of variable named by var's value
     /// Optionally composed with an operator: `${!var:-default}`, `${!var:=val}`, etc.
     IndirectExpansion {
-        reference: VarRef,
+        reference: Box<VarRef>,
         operator: Option<Box<ParameterOp>>,
-        operand: Option<SourceText>,
+        operand: Option<Box<SourceText>>,
         operand_word_ast: Option<Box<Word>>,
         colon_variant: bool,
     },
@@ -2895,7 +2895,10 @@ pub enum WordPart {
         is_input: bool,
     },
     /// Parameter transformation `${var@op}` where op is Q, E, P, A, K, a, u, U, L
-    Transformation { reference: VarRef, operator: char },
+    Transformation {
+        reference: Box<VarRef>,
+        operator: char,
+    },
 }
 
 impl WordPart {
@@ -3217,7 +3220,7 @@ fn fmt_word_part_with_source_mode(
                     f,
                     "{}-{}}}",
                     c,
-                    display_source_text(operand.as_ref(), source)
+                    display_source_text(operand.as_deref(), source)
                 )?
             }
             ParameterOp::AssignDefault => {
@@ -3228,7 +3231,7 @@ fn fmt_word_part_with_source_mode(
                     f,
                     "{}={}}}",
                     c,
-                    display_source_text(operand.as_ref(), source)
+                    display_source_text(operand.as_deref(), source)
                 )?
             }
             ParameterOp::UseReplacement => {
@@ -3239,7 +3242,7 @@ fn fmt_word_part_with_source_mode(
                     f,
                     "{}+{}}}",
                     c,
-                    display_source_text(operand.as_ref(), source)
+                    display_source_text(operand.as_deref(), source)
                 )?
             }
             ParameterOp::Error => {
@@ -3250,7 +3253,7 @@ fn fmt_word_part_with_source_mode(
                     f,
                     "{}?{}}}",
                     c,
-                    display_source_text(operand.as_ref(), source)
+                    display_source_text(operand.as_deref(), source)
                 )?
             }
             ParameterOp::RemovePrefixShort { pattern } => {
@@ -3415,7 +3418,7 @@ fn fmt_word_part_with_source_mode(
                     reference_syntax,
                     c,
                     op_char,
-                    display_source_text(operand.as_ref(), source)
+                    display_source_text(operand.as_deref(), source)
                 )?
             } else {
                 write!(f, "${{!{}}}", reference_syntax)?
@@ -3550,7 +3553,7 @@ fn part_is_source_backed(part: &WordPart) -> bool {
         } => {
             reference.is_source_backed()
                 && operator_is_source_backed(operator)
-                && operand.as_ref().is_none_or(SourceText::is_source_backed)
+                && operand.as_deref().is_none_or(SourceText::is_source_backed)
         }
         WordPart::Length(reference)
         | WordPart::ArrayAccess(reference)
@@ -3575,7 +3578,7 @@ fn part_is_source_backed(part: &WordPart) -> bool {
         } => {
             reference.is_source_backed()
                 && operator.is_none()
-                && operand.as_ref().is_none_or(SourceText::is_source_backed)
+                && operand.as_deref().is_none_or(SourceText::is_source_backed)
         }
         WordPart::CommandSubstitution { .. }
         | WordPart::Variable(_)
@@ -3829,7 +3832,7 @@ pub enum RedirectTarget {
     /// Standard redirect operand like a path or file descriptor.
     Word(Word),
     /// Heredoc delimiter metadata plus decoded body.
-    Heredoc(Heredoc),
+    Heredoc(Box<Heredoc>),
 }
 
 /// Heredoc delimiter metadata and decoded body.
@@ -4159,7 +4162,7 @@ mod tests {
             WordPart::Variable("name".into())
         ])));
         assert!(word_is_standalone_variable_like(&word(vec![
-            WordPart::Length(plain_ref("name"))
+            WordPart::Length(Box::new(plain_ref("name")))
         ])));
         assert!(!word_is_standalone_variable_like(&word(vec![
             WordPart::Literal(LiteralText::owned("prefix")),
@@ -4424,9 +4427,9 @@ mod tests {
                 ),
                 WordPartNode::new(
                     WordPart::ParameterExpansion {
-                        reference: plain_ref("PREFIXED_VERSION"),
+                        reference: Box::new(plain_ref("PREFIXED_VERSION")),
                         operator: Box::new(ParameterOp::UseDefault),
-                        operand: Some("$PROVIDED_VERSION".into()),
+                        operand: Some(Box::new("$PROVIDED_VERSION".into())),
                         operand_word_ast: Some(Box::new(word(vec![WordPart::Variable(
                             "PROVIDED_VERSION".into(),
                         )]))),
@@ -4579,42 +4582,44 @@ mod tests {
 
     #[test]
     fn word_display_length() {
-        let w = word(vec![WordPart::Length(plain_ref("var"))]);
+        let w = word(vec![WordPart::Length(Box::new(plain_ref("var")))]);
         assert_eq!(format!("{w}"), "${#var}");
     }
 
     #[test]
     fn word_display_array_access() {
-        let w = word(vec![WordPart::ArrayAccess(indexed_ref("arr", "0"))]);
+        let w = word(vec![WordPart::ArrayAccess(Box::new(indexed_ref(
+            "arr", "0",
+        )))]);
         assert_eq!(format!("{w}"), "${arr[0]}");
     }
 
     #[test]
     fn word_display_array_length() {
-        let w = word(vec![WordPart::ArrayLength(selector_ref(
+        let w = word(vec![WordPart::ArrayLength(Box::new(selector_ref(
             "arr",
             SubscriptSelector::At,
-        ))]);
+        )))]);
         assert_eq!(format!("{w}"), "${#arr[@]}");
     }
 
     #[test]
     fn word_display_array_indices() {
-        let w = word(vec![WordPart::ArrayIndices(selector_ref(
+        let w = word(vec![WordPart::ArrayIndices(Box::new(selector_ref(
             "arr",
             SubscriptSelector::At,
-        ))]);
+        )))]);
         assert_eq!(format!("{w}"), "${!arr[@]}");
     }
 
     #[test]
     fn word_display_substring_with_length() {
         let w = word(vec![WordPart::Substring {
-            reference: plain_ref("var"),
-            offset: "2".into(),
+            reference: Box::new(plain_ref("var")),
+            offset: Box::new("2".into()),
             offset_ast: None,
             offset_word_ast: Box::new(Word::literal("2")),
-            length: Some("3".into()),
+            length: Some(Box::new("3".into())),
             length_ast: None,
             length_word_ast: Some(Box::new(Word::literal("3"))),
         }]);
@@ -4624,8 +4629,8 @@ mod tests {
     #[test]
     fn word_display_substring_without_length() {
         let w = word(vec![WordPart::Substring {
-            reference: plain_ref("var"),
-            offset: "2".into(),
+            reference: Box::new(plain_ref("var")),
+            offset: Box::new("2".into()),
             offset_ast: None,
             offset_word_ast: Box::new(Word::literal("2")),
             length: None,
@@ -4638,11 +4643,11 @@ mod tests {
     #[test]
     fn word_display_array_slice_with_length() {
         let w = word(vec![WordPart::ArraySlice {
-            reference: selector_ref("arr", SubscriptSelector::At),
-            offset: "1".into(),
+            reference: Box::new(selector_ref("arr", SubscriptSelector::At)),
+            offset: Box::new("1".into()),
             offset_ast: None,
             offset_word_ast: Box::new(Word::literal("1")),
-            length: Some("2".into()),
+            length: Some(Box::new("2".into())),
             length_ast: None,
             length_word_ast: Some(Box::new(Word::literal("2"))),
         }]);
@@ -4652,8 +4657,8 @@ mod tests {
     #[test]
     fn word_display_array_slice_without_length() {
         let w = word(vec![WordPart::ArraySlice {
-            reference: selector_ref("arr", SubscriptSelector::At),
-            offset: "1".into(),
+            reference: Box::new(selector_ref("arr", SubscriptSelector::At)),
+            offset: Box::new("1".into()),
             offset_ast: None,
             offset_word_ast: Box::new(Word::literal("1")),
             length: None,
@@ -4666,7 +4671,7 @@ mod tests {
     #[test]
     fn word_display_indirect_expansion() {
         let w = word(vec![WordPart::IndirectExpansion {
-            reference: plain_ref("ref"),
+            reference: Box::new(plain_ref("ref")),
             operator: None,
             operand: None,
             operand_word_ast: None,
@@ -4695,7 +4700,7 @@ mod tests {
 
     #[test]
     fn word_render_syntax_preserves_raw_quoted_subscript() {
-        let w = word(vec![WordPart::ArrayAccess(VarRef {
+        let w = word(vec![WordPart::ArrayAccess(Box::new(VarRef {
             name: "assoc".into(),
             name_span: Span::new(),
             subscript: Some(Box::new(Subscript {
@@ -4707,7 +4712,7 @@ mod tests {
                 arithmetic_ast: None,
             })),
             span: Span::new(),
-        })]);
+        }))]);
         assert_eq!(format!("{w}"), "${assoc[\"key\"]}");
         assert_eq!(w.render_syntax(""), "${assoc[\"key\"]}");
     }
@@ -4715,7 +4720,7 @@ mod tests {
     #[test]
     fn word_display_transformation() {
         let w = word(vec![WordPart::Transformation {
-            reference: plain_ref("var"),
+            reference: Box::new(plain_ref("var")),
             operator: 'Q',
         }]);
         assert_eq!(format!("{w}"), "${var@Q}");
@@ -4806,9 +4811,9 @@ mod tests {
     #[test]
     fn word_display_parameter_expansion_use_default_colon() {
         let w = word(vec![WordPart::ParameterExpansion {
-            reference: plain_ref("var"),
+            reference: Box::new(plain_ref("var")),
             operator: Box::new(ParameterOp::UseDefault),
-            operand: Some("fallback".into()),
+            operand: Some(Box::new("fallback".into())),
             operand_word_ast: Some(Box::new(Word::literal("fallback"))),
             colon_variant: true,
         }]);
@@ -4818,9 +4823,9 @@ mod tests {
     #[test]
     fn word_display_parameter_expansion_use_default_no_colon() {
         let w = word(vec![WordPart::ParameterExpansion {
-            reference: plain_ref("var"),
+            reference: Box::new(plain_ref("var")),
             operator: Box::new(ParameterOp::UseDefault),
-            operand: Some("fallback".into()),
+            operand: Some(Box::new("fallback".into())),
             operand_word_ast: Some(Box::new(Word::literal("fallback"))),
             colon_variant: false,
         }]);
@@ -4830,9 +4835,9 @@ mod tests {
     #[test]
     fn word_display_parameter_expansion_assign_default() {
         let w = word(vec![WordPart::ParameterExpansion {
-            reference: plain_ref("var"),
+            reference: Box::new(plain_ref("var")),
             operator: Box::new(ParameterOp::AssignDefault),
-            operand: Some("val".into()),
+            operand: Some(Box::new("val".into())),
             operand_word_ast: Some(Box::new(Word::literal("val"))),
             colon_variant: true,
         }]);
@@ -4842,9 +4847,9 @@ mod tests {
     #[test]
     fn word_display_parameter_expansion_use_replacement() {
         let w = word(vec![WordPart::ParameterExpansion {
-            reference: plain_ref("var"),
+            reference: Box::new(plain_ref("var")),
             operator: Box::new(ParameterOp::UseReplacement),
-            operand: Some("alt".into()),
+            operand: Some(Box::new("alt".into())),
             operand_word_ast: Some(Box::new(Word::literal("alt"))),
             colon_variant: true,
         }]);
@@ -4854,9 +4859,9 @@ mod tests {
     #[test]
     fn word_display_parameter_expansion_error() {
         let w = word(vec![WordPart::ParameterExpansion {
-            reference: plain_ref("var"),
+            reference: Box::new(plain_ref("var")),
             operator: Box::new(ParameterOp::Error),
-            operand: Some("msg".into()),
+            operand: Some(Box::new("msg".into())),
             operand_word_ast: Some(Box::new(Word::literal("msg"))),
             colon_variant: true,
         }]);
@@ -4867,7 +4872,7 @@ mod tests {
     fn word_display_parameter_expansion_prefix_suffix() {
         // RemovePrefixShort
         let w = word(vec![WordPart::ParameterExpansion {
-            reference: plain_ref("var"),
+            reference: Box::new(plain_ref("var")),
             operator: Box::new(ParameterOp::RemovePrefixShort {
                 pattern: pattern(vec![PatternPart::Literal("pat".into())]),
             }),
@@ -4879,7 +4884,7 @@ mod tests {
 
         // RemovePrefixLong
         let w = word(vec![WordPart::ParameterExpansion {
-            reference: plain_ref("var"),
+            reference: Box::new(plain_ref("var")),
             operator: Box::new(ParameterOp::RemovePrefixLong {
                 pattern: pattern(vec![PatternPart::Literal("pat".into())]),
             }),
@@ -4891,7 +4896,7 @@ mod tests {
 
         // RemoveSuffixShort
         let w = word(vec![WordPart::ParameterExpansion {
-            reference: plain_ref("var"),
+            reference: Box::new(plain_ref("var")),
             operator: Box::new(ParameterOp::RemoveSuffixShort {
                 pattern: pattern(vec![PatternPart::Literal("pat".into())]),
             }),
@@ -4903,7 +4908,7 @@ mod tests {
 
         // RemoveSuffixLong
         let w = word(vec![WordPart::ParameterExpansion {
-            reference: plain_ref("var"),
+            reference: Box::new(plain_ref("var")),
             operator: Box::new(ParameterOp::RemoveSuffixLong {
                 pattern: pattern(vec![PatternPart::Literal("pat".into())]),
             }),
@@ -4917,7 +4922,7 @@ mod tests {
     #[test]
     fn word_display_parameter_expansion_replace() {
         let w = word(vec![WordPart::ParameterExpansion {
-            reference: plain_ref("var"),
+            reference: Box::new(plain_ref("var")),
             operator: Box::new(ParameterOp::ReplaceFirst {
                 pattern: pattern(vec![PatternPart::Literal("old".into())]),
                 replacement: "new".into(),
@@ -4930,7 +4935,7 @@ mod tests {
         assert_eq!(format!("{w}"), "${var/old/new}");
 
         let w = word(vec![WordPart::ParameterExpansion {
-            reference: plain_ref("var"),
+            reference: Box::new(plain_ref("var")),
             operator: Box::new(ParameterOp::ReplaceAll {
                 pattern: pattern(vec![PatternPart::Literal("old".into())]),
                 replacement: "new".into(),
@@ -4947,7 +4952,7 @@ mod tests {
     fn word_display_parameter_expansion_case() {
         let check = |op: ParameterOp, expected: &str| {
             let w = word(vec![WordPart::ParameterExpansion {
-                reference: plain_ref("var"),
+                reference: Box::new(plain_ref("var")),
                 operator: Box::new(op),
                 operand: None,
                 operand_word_ast: None,
@@ -5170,11 +5175,11 @@ mod tests {
             fd_var_span: None,
             kind: RedirectKind::HereDoc,
             span: Span::new(),
-            target: RedirectTarget::Heredoc(Heredoc {
+            target: RedirectTarget::Heredoc(Box::new(Heredoc {
                 delimiter,
                 body: HeredocBody::literal_with_span("body", Span::new())
                     .with_mode(HeredocBodyMode::Literal),
-            }),
+            })),
         };
 
         let heredoc = redirect.heredoc().expect("expected heredoc payload");
@@ -5426,19 +5431,19 @@ mod tests {
 
     #[test]
     fn compound_command_arithmetic() {
-        let cmd = CompoundCommand::Arithmetic(ArithmeticCommand {
+        let cmd = CompoundCommand::Arithmetic(Box::new(ArithmeticCommand {
             span: Span::new(),
             left_paren_span: Span::new(),
             expr_span: Some(Span::new()),
             expr_ast: None,
             right_paren_span: Span::new(),
-        });
+        }));
         assert!(matches!(cmd, CompoundCommand::Arithmetic(_)));
     }
 
     #[test]
     fn compound_command_conditional() {
-        let cmd = CompoundCommand::Conditional(ConditionalCommand {
+        let cmd = CompoundCommand::Conditional(Box::new(ConditionalCommand {
             expression: ConditionalExpr::Unary(ConditionalUnaryExpr {
                 op: ConditionalUnaryOp::RegularFile,
                 op_span: Span::new(),
@@ -5447,7 +5452,7 @@ mod tests {
             span: Span::new(),
             left_bracket_span: Span::new(),
             right_bracket_span: Span::new(),
-        });
+        }));
         if let CompoundCommand::Conditional(command) = &cmd {
             let ConditionalExpr::Unary(expr) = &command.expression else {
                 panic!("expected unary conditional");

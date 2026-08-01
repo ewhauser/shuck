@@ -425,7 +425,7 @@ fn expect_parameter_operation_part(
             operator,
             operand,
             ..
-        } => (reference, operator.as_ref(), operand.as_ref()),
+        } => (reference, operator.as_ref(), operand.as_ref().map(|v| &**v)),
         WordPart::Parameter(parameter) => match &parameter.syntax {
             ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
                 reference,
@@ -466,7 +466,7 @@ fn expect_indirect_expansion_part(
         } => (
             reference,
             operator.as_deref(),
-            operand.as_ref(),
+            operand.as_ref().map(|v| &**v),
             *colon_variant,
         ),
         WordPart::Parameter(parameter) => match &parameter.syntax {

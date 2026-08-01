@@ -35,8 +35,8 @@ impl<'a> Parser<'a> {
                 syntax,
             } => HeredocBodyPart::ArithmeticExpansion {
                 expression,
-                expression_ast: expression_ast.map(|ast| *ast),
-                expression_word_ast: *expression_word_ast,
+                expression_ast,
+                expression_word_ast,
                 syntax,
             },
             WordPart::Parameter(parameter) => HeredocBodyPart::Parameter(parameter),

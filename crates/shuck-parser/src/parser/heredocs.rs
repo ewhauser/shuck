@@ -98,7 +98,7 @@ impl<'a> Parser<'a> {
                 RedirectKind::HereDoc
             },
             span: operator_span.merge(delimiter.span),
-            target: RedirectTarget::Heredoc(Heredoc { delimiter, body }),
+            target: RedirectTarget::Heredoc(Box::new(Heredoc { delimiter, body })),
         });
 
         // Advance so re-injected rest-of-line tokens are picked up.

@@ -256,13 +256,13 @@ impl<'a> Parser<'a> {
         };
 
         self.pop_depth();
-        Ok(CompoundCommand::For(ForCommand {
+        Ok(CompoundCommand::For(Box::new(ForCommand {
             targets: targets.into_vec(),
             words: words.map(SmallVec::into_vec),
             body,
             syntax,
             span: start_span.merge(end_span),
-        }))
+        })))
     }
 
     pub(super) fn parse_for_targets(
@@ -490,12 +490,12 @@ impl<'a> Parser<'a> {
         };
 
         self.pop_depth();
-        Ok(CompoundCommand::Repeat(RepeatCommand {
+        Ok(CompoundCommand::Repeat(Box::new(RepeatCommand {
             count,
             body,
             syntax,
             span: start_span.merge(end_span),
-        }))
+        })))
     }
 
     /// Parse a zsh foreach loop.
@@ -630,14 +630,14 @@ impl<'a> Parser<'a> {
         };
 
         self.pop_depth();
-        Ok(CompoundCommand::Foreach(ForeachCommand {
+        Ok(CompoundCommand::Foreach(Box::new(ForeachCommand {
             variable,
             variable_span,
             words: words.into_vec(),
             body,
             syntax,
             span: start_span.merge(end_span),
-        }))
+        })))
     }
 
     /// Parse select loop: select var in list; do body; done
@@ -710,14 +710,14 @@ impl<'a> Parser<'a> {
         self.advance();
 
         self.pop_depth();
-        Ok(CompoundCommand::Select(SelectCommand {
+        Ok(CompoundCommand::Select(Box::new(SelectCommand {
             variable,
             variable_span,
             words: words.into_vec(),
             body,
             done_span,
             span: start_span.merge(self.current_span),
-        }))
+        })))
     }
 
     /// Parse C-style arithmetic for loop inner: for ((init; cond; step)); do body; done
@@ -964,12 +964,12 @@ impl<'a> Parser<'a> {
         };
 
         self.pop_depth();
-        Ok(CompoundCommand::While(WhileCommand {
+        Ok(CompoundCommand::While(Box::new(WhileCommand {
             condition,
             body,
             done_span,
             span: start_span.merge(end_span),
-        }))
+        })))
     }
 
     /// Parse an until loop
@@ -1043,11 +1043,11 @@ impl<'a> Parser<'a> {
         };
 
         self.pop_depth();
-        Ok(CompoundCommand::Until(UntilCommand {
+        Ok(CompoundCommand::Until(Box::new(UntilCommand {
             condition,
             body,
             done_span,
             span: start_span.merge(end_span),
-        }))
+        })))
     }
 }

@@ -197,13 +197,13 @@ impl<'a> Parser<'a> {
         }
 
         self.pop_depth();
-        Ok(CompoundCommand::If(IfCommand {
+        Ok(CompoundCommand::If(Box::new(IfCommand {
             condition,
             then_branch,
             elif_branches,
             else_branch,
             syntax,
             span: start_span.merge(self.current_span),
-        }))
+        })))
     }
 }

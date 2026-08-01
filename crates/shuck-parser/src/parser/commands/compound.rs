@@ -19,11 +19,11 @@ impl<'a> Parser<'a> {
         // time with no command is valid in bash (just outputs timing header)
         let command = self.parse_pipeline()?.map(Box::new);
 
-        Ok(CompoundCommand::Time(TimeCommand {
+        Ok(CompoundCommand::Time(Box::new(TimeCommand {
             posix_format,
             command,
             span: start_span.merge(self.current_span),
-        }))
+        })))
     }
 
     /// Parse a coproc command: `coproc [NAME] command`
@@ -70,12 +70,12 @@ impl<'a> Parser<'a> {
         let body = self.parse_pipeline()?;
         let body = body.ok_or_else(|| self.error("coproc: missing command"))?;
 
-        Ok(CompoundCommand::Coproc(CoprocCommand {
+        Ok(CompoundCommand::Coproc(Box::new(CoprocCommand {
             name,
             name_span,
             body: Box::new(body),
             span: start_span.merge(self.current_span),
-        }))
+        })))
     }
 
     /// Check if current token is ;; (case terminator)
@@ -191,11 +191,11 @@ impl<'a> Parser<'a> {
                 BraceBodyContext::Ordinary,
             )?;
             (
-                CompoundCommand::Always(AlwaysCommand {
+                CompoundCommand::Always(Box::new(AlwaysCommand {
                     body,
                     always_body,
                     span: left_brace_span.merge(always_right_brace_span),
-                }),
+                })),
                 always_right_brace_span,
             )
         } else {
