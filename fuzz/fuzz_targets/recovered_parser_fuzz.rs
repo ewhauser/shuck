@@ -27,7 +27,7 @@ fn validate_recovered_parse(source: &str, parse_result: &ParseResult) {
     recovered_common::assert_span_valid(parse_result.file.span, source);
     if parse_result.status != ParseStatus::Fatal {
         assert_eq!(
-            parse_result.file.span.end.offset,
+            parse_result.file.span.end.offset(),
             source.len(),
             "non-fatal parse should cover the full source"
         );
@@ -87,5 +87,5 @@ fn validate_recovered_parse(source: &str, parse_result: &ParseResult) {
 
 fn validate_non_overlapping_root_span(span: Span, source: &str) {
     recovered_common::assert_span_valid(span, source);
-    assert_eq!(span.start.offset, 0, "root span should start at offset 0");
+    assert_eq!(span.start.offset(), 0, "root span should start at offset 0");
 }

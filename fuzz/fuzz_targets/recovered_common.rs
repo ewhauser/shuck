@@ -14,22 +14,22 @@ pub(crate) const PARSER_DIALECTS: [ParseDialect; 4] = [
 
 pub(crate) fn assert_span_valid(span: Span, source: &str) {
     assert!(
-        span.start.offset <= span.end.offset,
+        span.start.offset() <= span.end.offset(),
         "invalid span ordering: {:?}",
         span
     );
     assert!(
-        span.end.offset <= source.len(),
+        span.end.offset() <= source.len(),
         "span end is out of bounds: {:?}",
         span
     );
     assert!(
-        source.is_char_boundary(span.start.offset),
+        source.is_char_boundary(span.start.offset()),
         "span start is not a char boundary: {:?}",
         span
     );
     assert!(
-        source.is_char_boundary(span.end.offset),
+        source.is_char_boundary(span.end.offset()),
         "span end is not a char boundary: {:?}",
         span
     );
