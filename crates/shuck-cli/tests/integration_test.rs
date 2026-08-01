@@ -2022,9 +2022,10 @@ jobs:
     cmd.assert()
         .code(1)
         .stdout(predicate::str::contains("jobs.test.steps[0].run"))
-        .stdout(predicate::str::contains(
-            "--> .github/workflows/ci.yml:7:11",
-        ));
+        .stdout(predicate::str::contains(format!(
+            "--> {}:7:11",
+            platform_path(".github/workflows/ci.yml")
+        )));
 }
 
 #[test]
