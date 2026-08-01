@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.0.46](https://github.com/ewhauser/shuck/compare/v0.0.45...v0.0.46) (2026-08-01)
+
+
+### Features
+
+* **formatter:** support config-based file exclusions ([#1196](https://github.com/ewhauser/shuck/issues/1196)) ([4d4307c](https://github.com/ewhauser/shuck/commit/4d4307cb908d4387dd98bcaf4b5857d60bb477bc))
+
+
+### Bug Fixes
+
+* **deps:** update dependency next to v16.2.11 [security] ([#1187](https://github.com/ewhauser/shuck/issues/1187)) ([c81e2a6](https://github.com/ewhauser/shuck/commit/c81e2a68c58fc8bdf20aebb9945737bafc3c5d69))
+* **discover:** skip explicit plain YAML files ([#1199](https://github.com/ewhauser/shuck/issues/1199)) ([b6d4c00](https://github.com/ewhauser/shuck/commit/b6d4c00d61c565fcf2cb71fc7efacbe738b54598))
+* **server:** resolve sourced calls in call hierarchy preparation ([#1198](https://github.com/ewhauser/shuck/issues/1198)) ([755a502](https://github.com/ewhauser/shuck/commit/755a502460d573767f6803b5df427d980eb4573f))
+
+
+### Performance
+
+* cut allocation churn across parse, semantic, and fact building ([#1201](https://github.com/ewhauser/shuck/issues/1201)) ([f82a331](https://github.com/ewhauser/shuck/commit/f82a331a7270ce182ae2a098cba717f36959e6fc))
+* **linter:** eliminate quadratic completion-registration scans ([#1218](https://github.com/ewhauser/shuck/issues/1218)) ([2361882](https://github.com/ewhauser/shuck/commit/2361882453f19aa5ea46a10512c7cf5f036acd7b))
+* **semantic:** speed up semantic model construction ([#1202](https://github.com/ewhauser/shuck/issues/1202)) ([2d94004](https://github.com/ewhauser/shuck/commit/2d940045ba42a8e02c5d4ad5713462c5a003c070))
+
+
+### Documentation
+
+* **server:** document LSP capability scope ([#1195](https://github.com/ewhauser/shuck/issues/1195)) ([116853c](https://github.com/ewhauser/shuck/commit/116853cc4df9d7a71ac4decab6b356d177bc207f))
+* **server:** document sourced call hierarchy preparation ([#1200](https://github.com/ewhauser/shuck/issues/1200)) ([8058588](https://github.com/ewhauser/shuck/commit/805858866718668253ee286397d21d1ed46ca894))
+
 ## [0.0.45](https://github.com/ewhauser/shuck/compare/v0.0.44...v0.0.45) (2026-07-17)
 
 
