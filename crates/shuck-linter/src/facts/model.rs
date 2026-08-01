@@ -586,6 +586,32 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
     }
 
     pub(crate) fn fork_bomb_pattern_spans(self) -> Vec<Span> {
+        if self.facts.command.function_headers.is_empty() {
+            return Vec::new();
+        }
+
+        // Collect (enclosing function scope, self-piped name) pairs once
+        // instead of rescanning every command per function header.
+        let source = self.facts.source_facts.source;
+        let mut background_self_pipes: Vec<(ScopeId, std::borrow::Cow<'_, str>)> = Vec::new();
+        for command in self.facts.command.commands.iter() {
+            let Some(scope) = command.enclosing_function_scope() else {
+                continue;
+            };
+            if !stmt_is_plain_background(command.stmt()) {
+                continue;
+            }
+            let Command::Binary(binary) = command.command() else {
+                continue;
+            };
+            if let Some(name) = binary_two_segment_self_pipe_name(binary, source) {
+                background_self_pipes.push((scope, name));
+            }
+        }
+        if background_self_pipes.is_empty() {
+            return Vec::new();
+        }
+
         self.facts
             .command
             .function_headers
@@ -593,25 +619,14 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
             .filter_map(|function| {
                 let (name, _) = function.static_name_entry()?;
                 let scope = function.function_scope()?;
-                self.function_has_background_self_pipe(name.as_str(), scope)
+                background_self_pipes
+                    .iter()
+                    .any(|(pipe_scope, pipe_name)| {
+                        *pipe_scope == scope && pipe_name.as_ref() == name.as_str()
+                    })
                     .then(|| function.span_in_source(self.facts.source_facts.source))
             })
             .collect()
-    }
-
-    fn function_has_background_self_pipe(self, name: &str, scope: ScopeId) -> bool {
-        self.facts.command.commands.iter().any(|command| {
-            command.enclosing_function_scope() == Some(scope)
-                && stmt_is_plain_background(command.stmt())
-                && match command.command() {
-                    Command::Binary(binary) => binary_is_two_segment_self_pipe(
-                        binary,
-                        name,
-                        self.facts.source_facts.source,
-                    ),
-                    _ => false,
-                }
-        })
     }
 
     pub(crate) fn function_in_alias_facts(self) -> &'facts [FunctionInAliasFact] {
@@ -1737,10 +1752,13 @@ fn stmt_is_plain_background(stmt: &Stmt) -> bool {
     )
 }
 
-fn binary_is_two_segment_self_pipe(binary: &BinaryCommand, name: &str, source: &str) -> bool {
-    let Some(chain) = BinaryCommandChain::pipeline(binary) else {
-        return false;
-    };
+/// Returns the callee name when `binary` is a `name | name` pipe of two
+/// zero-argument calls to the same statically named command.
+fn binary_two_segment_self_pipe_name<'a>(
+    binary: &'a BinaryCommand,
+    source: &'a str,
+) -> Option<std::borrow::Cow<'a, str>> {
+    let chain = BinaryCommandChain::pipeline(binary)?;
 
     let mut segments = Vec::new();
     let mut operators = Vec::new();
@@ -1749,21 +1767,28 @@ fn binary_is_two_segment_self_pipe(binary: &BinaryCommand, name: &str, source: &
         |operator| operators.push(operator),
     );
 
-    matches!(operators.as_slice(), [operator] if operator.op == BinaryOp::Pipe)
-        && matches!(segments.as_slice(), [left, right] if {
-            stmt_is_zero_arg_call_to(left, name, source)
-                && stmt_is_zero_arg_call_to(right, name, source)
-        })
+    if !matches!(operators.as_slice(), [operator] if operator.op == BinaryOp::Pipe) {
+        return None;
+    }
+    let [left, right] = segments.as_slice() else {
+        return None;
+    };
+    let left_name = stmt_zero_arg_call_name(left, source)?;
+    let right_name = stmt_zero_arg_call_name(right, source)?;
+    (left_name == right_name).then_some(left_name)
 }
 
-fn stmt_is_zero_arg_call_to(stmt: &Stmt, name: &str, source: &str) -> bool {
+fn stmt_zero_arg_call_name<'a>(
+    stmt: &'a Stmt,
+    source: &'a str,
+) -> Option<std::borrow::Cow<'a, str>> {
     let Command::Simple(command) = &stmt.command else {
-        return false;
+        return None;
     };
-
-    command.assignments.is_empty()
-        && command.args.is_empty()
-        && static_command_name_text(&command.name, source).as_deref() == Some(name)
+    if !command.assignments.is_empty() || !command.args.is_empty() {
+        return None;
+    }
+    static_command_name_text(&command.name, source)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
