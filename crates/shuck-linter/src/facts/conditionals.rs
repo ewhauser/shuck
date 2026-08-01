@@ -796,8 +796,9 @@ impl<'a> RecentSequenceStatus<'a> {
     }
 }
 
-pub(crate) fn sequence_tail_test_index(commands: &[Stmt], source: &str) -> Vec<bool> {
-    let mut suffix = vec![false; commands.len() + 1];
+pub(crate) fn sequence_tail_test_index(commands: &[Stmt], source: &str) -> SmallVec<[bool; 16]> {
+    let mut suffix = SmallVec::<[bool; 16]>::new();
+    suffix.resize(commands.len() + 1, false);
     for (index, stmt) in commands.iter().enumerate().rev() {
         suffix[index] = suffix[index + 1] || stmt_terminals_are_test_commands(stmt, source);
     }

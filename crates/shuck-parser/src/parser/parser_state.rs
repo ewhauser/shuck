@@ -147,6 +147,8 @@ pub struct Parser<'a> {
     pub(super) shell_profile: ShellProfile,
     pub(super) zsh_timeline: Option<Arc<ZshOptionTimeline>>,
     pub(super) dialect: ShellDialect,
+    /// Reusable scratch buffer for cross-part brace syntax scans.
+    pub(super) brace_scan_chars: std::cell::RefCell<Vec<(char, Position)>>,
     #[cfg(feature = "benchmarking")]
     pub(super) benchmark_counters: Option<ParserBenchmarkCounters>,
 }

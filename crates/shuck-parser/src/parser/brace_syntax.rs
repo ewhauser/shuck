@@ -84,9 +84,11 @@ impl<'a> Parser<'a> {
         }
 
         if self.needs_cross_part_brace_scan(parts) {
-            let mut chars = Vec::new();
+            let mut chars = self.brace_scan_chars.take();
+            chars.clear();
             self.collect_brace_scan_chars_from_parts(parts, &mut chars);
             Self::scan_brace_syntax_chars(&chars, quote_context, brace_ccl_enabled, out);
+            self.brace_scan_chars.replace(chars);
         }
     }
 

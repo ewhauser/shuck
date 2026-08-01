@@ -11,7 +11,8 @@ use shuck_ast::{
     PatternGroupKind, PatternPart, PatternPartNode, Position, SourceText, Span, Stmt, StmtSeq,
     Subscript, SubscriptInterpretation, TextSize, VarRef, Word, WordPart, WordPartNode,
     WrapperKind, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment, ZshParameterExpansion,
-    normalize_command_words, static_word_text, try_static_word_parts_text,
+    normalize_command_words, normalize_command_words_owned, static_word_text,
+    try_static_word_parts_text,
 };
 use shuck_indexer::{Indexer, LineIndex};
 use shuck_parser::{ShellDialect, ShellProfile, ZshEmulationMode, ZshOptionState, parser::Parser};

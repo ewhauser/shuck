@@ -53,20 +53,6 @@ impl DenseBitSet {
         self.words.copy_from_slice(words);
     }
 
-    pub(crate) fn replace_if_changed(&mut self, other: &Self) -> bool {
-        self.replace_if_changed_words(&other.words)
-    }
-
-    pub(crate) fn replace_if_changed_words(&mut self, words: &[usize]) -> bool {
-        debug_assert_eq!(self.words.len(), words.len());
-        if self.words == words {
-            false
-        } else {
-            self.copy_from_words(words);
-            true
-        }
-    }
-
     pub(crate) fn union_with(&mut self, other: &Self) {
         self.union_with_words(&other.words);
     }
@@ -152,6 +138,39 @@ impl DenseBitMatrix {
             .is_some_and(|word| (word & (1usize << bit)) != 0)
     }
 
+    /// Iterate the set bit indexes of `row`.
+    #[cfg(test)]
+    pub(crate) fn row_ones(&self, row: usize) -> DenseBitSetIter<'_> {
+        DenseBitSetIter {
+            words: self.row(row),
+            word_index: 0,
+            current_word: 0,
+        }
+    }
+
+    /// Union `src` words into `row`.
+    pub(crate) fn union_row_with_words(&mut self, row: usize, src: &[usize]) {
+        debug_assert_eq!(src.len(), self.words_per_row);
+        let start = row * self.words_per_row;
+        for (word, other_word) in self.data[start..start + self.words_per_row]
+            .iter_mut()
+            .zip(src)
+        {
+            *word |= *other_word;
+        }
+    }
+
+    /// Copy the contents of row `src` into row `dst`.
+    pub(crate) fn copy_row_from_row(&mut self, dst: usize, src: usize) {
+        if dst == src {
+            return;
+        }
+        let src_start = src * self.words_per_row;
+        let dst_start = dst * self.words_per_row;
+        self.data
+            .copy_within(src_start..src_start + self.words_per_row, dst_start);
+    }
+
     /// Replace `row` with `src` if they differ. Returns whether the row changed.
     pub(crate) fn replace_row_if_changed(&mut self, row: usize, src: &[usize]) -> bool {
         debug_assert_eq!(src.len(), self.words_per_row);
@@ -170,6 +189,17 @@ pub(crate) struct DenseBitSetIter<'a> {
     words: &'a [usize],
     word_index: usize,
     current_word: usize,
+}
+
+impl<'a> DenseBitSetIter<'a> {
+    /// Iterate the set bit indexes of a raw word slice.
+    pub(crate) fn over_words(words: &'a [usize]) -> Self {
+        Self {
+            words,
+            word_index: 0,
+            current_word: 0,
+        }
+    }
 }
 
 impl Iterator for DenseBitSetIter<'_> {

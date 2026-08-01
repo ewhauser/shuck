@@ -31,7 +31,7 @@ pub(super) fn recorded_simple_command_info(
     let words = std::iter::once(&command.name)
         .chain(command.args.iter())
         .collect::<Vec<_>>();
-    let normalized = normalize_command_words(&words, source)
+    let normalized = normalize_command_words_owned(words, source)
         .expect("recorded simple commands always include a command name");
     let static_callee = recorded_static_callee(&normalized).map(Into::into);
     let dynamic_name_span = static_callee

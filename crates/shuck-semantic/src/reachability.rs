@@ -1589,7 +1589,16 @@ impl<'model> SemanticAnalysis<'model> {
 }
 
 fn build_binding_block_index(blocks: &[BasicBlock], binding_count: usize) -> Vec<Vec<BlockId>> {
-    let mut binding_blocks = vec![Vec::new(); binding_count];
+    let mut block_counts = vec![0usize; binding_count];
+    for block in blocks {
+        for &binding in &block.bindings {
+            block_counts[binding.index()] += 1;
+        }
+    }
+    let mut binding_blocks: Vec<Vec<BlockId>> = block_counts
+        .iter()
+        .map(|&count| Vec::with_capacity(count))
+        .collect();
     for block in blocks {
         for &binding in &block.bindings {
             binding_blocks[binding.index()].push(block.id);

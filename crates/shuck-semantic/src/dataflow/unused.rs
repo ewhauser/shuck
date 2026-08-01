@@ -655,7 +655,7 @@ fn mark_used_bindings_with_backward_liveness(
     reference_name_ids: &[NameId],
     synthetic_read_name_ids: &[NameId],
     read_plans: &[ScopeReadPlan],
-    transitive_reads: &[DenseBitSet],
+    transitive_reads: &DenseBitMatrix,
     used_bindings: &mut DenseBitSet,
 ) {
     let slots = UnusedAssignmentSlots::new(&exact.binding_data.binding_name_ids, exact.names.len());
@@ -702,7 +702,12 @@ fn build_unused_assignment_events(
     exact: &ExactVariableDataflow,
     read_plans: &[ScopeReadPlan],
 ) -> Vec<Vec<UnusedAssignmentEvent>> {
-    let mut events = vec![Vec::new(); context.cfg.blocks().len()];
+    let mut events: Vec<Vec<UnusedAssignmentEvent>> = context
+        .cfg
+        .blocks()
+        .iter()
+        .map(|block| Vec::with_capacity(block.references.len() + block.bindings.len()))
+        .collect();
 
     for block in context.cfg.blocks() {
         let block_events = &mut events[block.id.index()];
@@ -784,7 +789,7 @@ fn apply_unused_assignment_event(
     options: UnusedAssignmentAnalysisOptions,
     reference_name_ids: &[NameId],
     synthetic_read_name_ids: &[NameId],
-    transitive_reads: &[DenseBitSet],
+    transitive_reads: &DenseBitMatrix,
     slots: &UnusedAssignmentSlots,
     live: &mut SlotLiveSet,
     used_bindings: &mut DenseBitSet,
@@ -813,7 +818,11 @@ fn apply_unused_assignment_event(
         }
         UnusedAssignmentEventKind::Call(callee_scope)
         | UnusedAssignmentEventKind::FunctionDefinition(callee_scope) => {
-            union_name_reads_into_live_slots(live, &transitive_reads[callee_scope.index()], slots);
+            union_name_reads_into_live_slots(
+                live,
+                transitive_reads.row(callee_scope.index()),
+                slots,
+            );
         }
         UnusedAssignmentEventKind::Binding(binding_id) => {
             apply_unused_assignment_binding_event(context, slots, live, used_bindings, binding_id);
@@ -868,10 +877,11 @@ fn binding_writes_unused_assignment_slot(binding: &Binding) -> bool {
 
 fn union_name_reads_into_live_slots(
     live: &mut SlotLiveSet,
-    reads: &DenseBitSet,
+    read_words: &[usize],
     slots: &UnusedAssignmentSlots,
 ) {
-    for name_index in reads.iter_ones() {
+    let reads = DenseBitSetIter::over_words(read_words);
+    for name_index in reads {
         live.insert(slots.slot_for_name(NameId(name_index as u32)).index());
     }
 }

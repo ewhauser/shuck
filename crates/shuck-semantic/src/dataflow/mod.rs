@@ -21,7 +21,7 @@ use shuck_ast::Name;
 use shuck_ast::Span;
 use smallvec::SmallVec;
 
-use crate::dense_bit_set::{DenseBitMatrix, DenseBitSet};
+use crate::dense_bit_set::{DenseBitMatrix, DenseBitSet, DenseBitSetIter};
 use crate::function_resolution::resolved_function_calls_with_callee_scope;
 use crate::reachability::block_reaches_without;
 use crate::runtime::RuntimePrelude;

@@ -111,16 +111,68 @@ fn normalize_simple_command<'a>(
     let words = std::iter::once(&command.name)
         .chain(command.args.iter())
         .collect::<Vec<_>>();
-    let Some(normalized) = normalize_command_words(words.as_slice(), source) else {
+    let Some(normalized) = normalize_command_words_owned(words, source) else {
         unreachable!("simple commands always have a name");
     };
     normalized
+}
+
+struct NormalizedWordScan<'a> {
+    literal_name: Option<Cow<'a, str>>,
+    effective_name: Option<Cow<'a, str>>,
+    wrappers: Vec<WrapperKind>,
+    body_span: Span,
+    body_word_span: Option<Span>,
+    body_start: Option<usize>,
 }
 
 pub fn normalize_command_words<'a>(
     words: &[&'a Word],
     source: &'a str,
 ) -> Option<NormalizedCommand<'a>> {
+    let scan = normalize_command_words_scan(words, source)?;
+    let body_words = scan
+        .body_start
+        .map_or_else(Vec::new, |start| words[start..].to_vec());
+    Some(finish_normalized_command(scan, body_words))
+}
+
+/// Like [`normalize_command_words`], but reuses the caller's vector for the
+/// normalized body words instead of copying it.
+pub fn normalize_command_words_owned<'a>(
+    mut words: Vec<&'a Word>,
+    source: &'a str,
+) -> Option<NormalizedCommand<'a>> {
+    let scan = normalize_command_words_scan(&words, source)?;
+    let body_words = match scan.body_start {
+        Some(start) => {
+            words.drain(..start);
+            words
+        }
+        None => Vec::new(),
+    };
+    Some(finish_normalized_command(scan, body_words))
+}
+
+fn finish_normalized_command<'a>(
+    scan: NormalizedWordScan<'a>,
+    body_words: Vec<&'a Word>,
+) -> NormalizedCommand<'a> {
+    NormalizedCommand {
+        literal_name: scan.literal_name,
+        effective_name: scan.effective_name,
+        wrappers: scan.wrappers,
+        body_span: scan.body_span,
+        body_word_span: scan.body_word_span,
+        body_words,
+        declaration: None,
+    }
+}
+
+fn normalize_command_words_scan<'a>(
+    words: &[&'a Word],
+    source: &'a str,
+) -> Option<NormalizedWordScan<'a>> {
     let first_word = words.first().copied()?;
     let literal_name = static_command_name_text(first_word, source);
     let mut effective_name = literal_name.clone();
@@ -171,14 +223,13 @@ pub fn normalize_command_words<'a>(
         }
     }
 
-    Some(NormalizedCommand {
+    Some(NormalizedWordScan {
         literal_name,
         effective_name,
         wrappers,
         body_span,
         body_word_span,
-        body_words: body_start.map_or_else(Vec::new, |start| words[start..].to_vec()),
-        declaration: None,
+        body_start,
     })
 }
 

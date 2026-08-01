@@ -740,9 +740,8 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             locator,
         );
         let case_items = build_case_item_facts(&commands, self.source);
-        let case_pattern_shadows = build_case_pattern_shadow_facts(&commands, self.source);
-        let case_pattern_impossible_spans =
-            build_case_pattern_impossible_spans(&commands, self.source);
+        let (case_pattern_shadows, case_pattern_impossible_spans) =
+            build_case_pattern_facts(&commands, self.source);
         let pipelines = build_pipeline_facts(
             &commands,
             &command_fact_indices_by_id,

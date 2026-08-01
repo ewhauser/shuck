@@ -858,7 +858,16 @@ fn build_command_child_ids(
     command_ids: &[CommandId],
     parent_ids: &[Option<CommandId>],
 ) -> Vec<Vec<CommandId>> {
-    let mut child_ids = vec![Vec::new(); command_count];
+    let mut child_counts = vec![0usize; command_count];
+    for child in command_ids.iter().copied() {
+        if let Some(parent) = parent_ids[child.index()] {
+            child_counts[parent.index()] += 1;
+        }
+    }
+    let mut child_ids: Vec<Vec<CommandId>> = child_counts
+        .iter()
+        .map(|&count| Vec::with_capacity(count))
+        .collect();
     for child in command_ids.iter().copied() {
         if let Some(parent) = parent_ids[child.index()] {
             child_ids[parent.index()].push(child);
