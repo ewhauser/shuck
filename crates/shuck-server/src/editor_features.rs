@@ -54,7 +54,7 @@ enum CompletionData {
     Keyword,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "fuzzing"))]
 pub(crate) fn completion(
     snapshot: DocumentSnapshot,
     client: &Client,
