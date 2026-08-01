@@ -4,7 +4,7 @@ use lsp_types::notification::Notification as LspNotification;
 use lsp_types::request::Request;
 
 use crate::server::Result;
-use crate::session::{Client, DocumentSnapshot, Session};
+use crate::session::{Client, DocumentSnapshot, RequestCancellationToken, Session};
 
 pub(super) trait RequestHandler {
     type RequestType: Request;
@@ -47,6 +47,7 @@ pub(super) trait BackgroundRequestHandler: RequestHandler {
     fn snapshot(
         session: &Session,
         params: &<<Self as RequestHandler>::RequestType as Request>::Params,
+        cancellation: RequestCancellationToken,
     ) -> Result<Self::Snapshot>;
 
     fn run_with_snapshot(

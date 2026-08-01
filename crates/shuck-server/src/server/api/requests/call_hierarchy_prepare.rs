@@ -1,14 +1,15 @@
 use lsp_types::{self as types, request as req};
 
-use crate::call_hierarchy::{self, CallHierarchyContext};
+use crate::call_hierarchy;
 use crate::editor_features::CallHierarchyPrepareResponse;
-use crate::session::{Client, DocumentSnapshot, Session};
+use crate::session::{Client, DocumentSnapshot, RequestCancellationToken, Session};
+use crate::workspace_functions::WorkspaceFunctionContext;
 
 pub(crate) struct CallHierarchyPrepare;
 
 pub(crate) struct CallHierarchyPrepareSnapshot {
     document: Option<DocumentSnapshot>,
-    context: CallHierarchyContext,
+    context: WorkspaceFunctionContext,
 }
 
 impl super::RequestHandler for CallHierarchyPrepare {
@@ -21,6 +22,7 @@ impl super::super::traits::BackgroundRequestHandler for CallHierarchyPrepare {
     fn snapshot(
         session: &Session,
         params: &types::CallHierarchyPrepareParams,
+        cancellation: RequestCancellationToken,
     ) -> crate::server::Result<Self::Snapshot> {
         let uri = params
             .text_document_position_params
@@ -29,7 +31,7 @@ impl super::super::traits::BackgroundRequestHandler for CallHierarchyPrepare {
             .clone();
         Ok(CallHierarchyPrepareSnapshot {
             document: session.take_snapshot(uri),
-            context: session.call_hierarchy_context(),
+            context: session.workspace_function_context(cancellation),
         })
     }
 
