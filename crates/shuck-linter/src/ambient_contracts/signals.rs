@@ -70,6 +70,7 @@ impl<'a> SourceSignals<'a> {
         let mut has_source_command = false;
         let mut loads_zsh_colors = false;
 
+        let source_mentions_zmodload = source.contains("zmodload");
         for line in source.lines() {
             let code = code_before_shell_comment(line);
             let trimmed = code.trim();
@@ -78,7 +79,7 @@ impl<'a> SourceSignals<'a> {
             has_probable_function_definition |= probable_function_definition(trimmed);
             has_source_command |= source_command_line(trimmed);
             loads_zsh_colors |= line_autoloads_zsh_colors(trim_start);
-            if code.contains("zmodload") {
+            if source_mentions_zmodload && code.contains("zmodload") {
                 zmodload_lines.push(code);
             }
         }
@@ -258,7 +259,13 @@ fn probable_function_definition(trimmed: &str) -> bool {
         return rest.contains('{');
     }
 
-    trimmed.contains("() {") || trimmed.contains("(){")
+    for (position, _) in trimmed.match_indices('(') {
+        let rest = &trimmed[position + 1..];
+        if rest.starts_with(") {") || rest.starts_with("){") {
+            return true;
+        }
+    }
+    false
 }
 
 fn source_command_line(trimmed: &str) -> bool {
@@ -269,6 +276,14 @@ fn source_command_line(trimmed: &str) -> bool {
 }
 
 fn line_autoloads_zsh_colors(code: &str) -> bool {
+    // The command must be the first word of the first segment, so a cheap
+    // first-token check avoids the separator searches on ordinary lines.
+    if !matches!(
+        code.split_whitespace().next(),
+        Some("autoload" | "builtin" | "command")
+    ) {
+        return false;
+    }
     let code = first_shell_command_segment(code);
     let mut words = code.split_whitespace();
     let mut command = words.next();
