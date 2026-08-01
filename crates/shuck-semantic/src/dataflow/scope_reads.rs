@@ -57,7 +57,7 @@ impl ScopeReadPlan {
 
 #[derive(Debug, Clone)]
 pub(super) struct ScopeFutureReads {
-    pub(super) suffix_reads: Vec<DenseBitSet>,
+    pub(super) suffix_reads: DenseBitMatrix,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,7 +68,7 @@ pub(super) struct CallerReadSite {
 
 #[derive(Debug, Clone)]
 pub(super) struct CompatibilityReadSets {
-    pub(super) escape_reads: Vec<DenseBitSet>,
+    pub(super) escape_reads: DenseBitMatrix,
     pub(super) future_reads: Vec<ScopeFutureReads>,
 }
 
@@ -166,7 +166,7 @@ pub(crate) fn summarize_scope_provided_functions(
     let mut definite_counts = FxHashMap::<Name, usize>::default();
 
     for exit_block in &exit_blocks {
-        let reaching = &reaching_definitions.reaching_out[exit_block.index()];
+        let reaching_row = exit_block.index();
 
         for name in &eligible_names {
             let Some(name_id) = exact.names.get(name) else {
@@ -175,7 +175,10 @@ pub(crate) fn summarize_scope_provided_functions(
             let mut maybe_present = false;
             let mut definite_present = false;
             for binding_index in exact.binding_data.bindings_for_name[name_id.index()].iter_ones() {
-                if !reaching.contains(binding_index) {
+                if !reaching_definitions
+                    .reaching_out
+                    .contains(reaching_row, binding_index)
+                {
                     continue;
                 }
                 let binding = &context.bindings[binding_index];
@@ -339,21 +342,21 @@ pub(super) fn compute_transitive_read_sets(
     read_plans: &[ScopeReadPlan],
     scopes: &[Scope],
     name_count: usize,
-) -> Vec<DenseBitSet> {
+) -> DenseBitMatrix {
     let nested_child_scopes = nested_non_function_child_scopes(scopes);
-    let mut transitive_reads = vec![DenseBitSet::new(name_count); read_plans.len()];
+    let mut transitive_reads = DenseBitMatrix::zeros(read_plans.len(), name_count);
     let mut reads = DenseBitSet::new(name_count);
     loop {
         let mut changed = false;
         for (scope_index, plan) in read_plans.iter().enumerate() {
             reads.copy_from(&plan.direct_reads);
             for &child_scope in &nested_child_scopes[scope_index] {
-                reads.union_with(&transitive_reads[child_scope.index()]);
+                reads.union_with_words(transitive_reads.row(child_scope.index()));
             }
             for call in &plan.calls {
-                reads.union_with(&transitive_reads[call.callee_scope.index()]);
+                reads.union_with_words(transitive_reads.row(call.callee_scope.index()));
             }
-            if transitive_reads[scope_index].replace_if_changed(&reads) {
+            if transitive_reads.replace_row_if_changed(scope_index, reads.as_words()) {
                 changed = true;
             }
         }
@@ -368,11 +371,11 @@ pub(super) fn compute_transitive_read_sets(
 pub(super) fn compute_compatibility_read_sets(
     read_plans: &[ScopeReadPlan],
     callers_by_callee: &[Vec<CallerReadSite>],
-    transitive_reads: &[DenseBitSet],
+    transitive_reads: &DenseBitMatrix,
     name_count: usize,
 ) -> CompatibilityReadSets {
     let future_reads = build_future_read_summaries(read_plans, transitive_reads, name_count);
-    let mut escape_reads = vec![DenseBitSet::new(name_count); read_plans.len()];
+    let mut escape_reads = DenseBitMatrix::zeros(read_plans.len(), name_count);
     let mut reads = DenseBitSet::new(name_count);
     loop {
         let mut changed = false;
@@ -392,7 +395,7 @@ pub(super) fn compute_compatibility_read_sets(
                     &escape_reads,
                 );
             }
-            if escape_reads[scope_index].replace_if_changed(&reads) {
+            if escape_reads.replace_row_if_changed(scope_index, reads.as_words()) {
                 changed = true;
             }
         }
@@ -423,24 +426,24 @@ fn nested_non_function_child_scopes(scopes: &[Scope]) -> Vec<Vec<ScopeId>> {
 
 fn build_future_read_summaries(
     read_plans: &[ScopeReadPlan],
-    transitive_reads: &[DenseBitSet],
+    transitive_reads: &DenseBitMatrix,
     name_count: usize,
 ) -> Vec<ScopeFutureReads> {
     read_plans
         .iter()
         .map(|plan| {
-            let mut suffix_reads = vec![DenseBitSet::new(name_count); plan.events.len() + 1];
+            let mut suffix_reads = DenseBitMatrix::zeros(plan.events.len() + 1, name_count);
             for event_index in (0..plan.events.len()).rev() {
-                let (current_and_before, next_and_after) =
-                    suffix_reads.split_at_mut(event_index + 1);
-                let current = &mut current_and_before[event_index];
-                current.copy_from(&next_and_after[0]);
+                suffix_reads.copy_row_from_row(event_index, event_index + 1);
                 match plan.events[event_index].kind {
                     ScopeReadEventKind::Direct(name_id) => {
-                        current.insert(name_id.index());
+                        suffix_reads.insert(event_index, name_id.index());
                     }
                     ScopeReadEventKind::Call(callee_scope) => {
-                        current.union_with(&transitive_reads[callee_scope.index()]);
+                        suffix_reads.union_row_with_words(
+                            event_index,
+                            transitive_reads.row(callee_scope.index()),
+                        );
                     }
                 }
             }
@@ -455,13 +458,13 @@ fn future_reads_union_after(
     offset: usize,
     read_plans: &[ScopeReadPlan],
     future_reads: &[ScopeFutureReads],
-    escape_reads: &[DenseBitSet],
+    escape_reads: &DenseBitMatrix,
 ) {
     let plan = &read_plans[scope.index()];
     let index = plan.events.partition_point(|event| event.offset <= offset);
-    destination.union_with(&future_reads[scope.index()].suffix_reads[index]);
+    destination.union_with_words(future_reads[scope.index()].suffix_reads.row(index));
     if plan.is_function {
-        destination.union_with(&escape_reads[scope.index()]);
+        destination.union_with_words(escape_reads.row(scope.index()));
     }
 }
 
@@ -471,12 +474,14 @@ fn future_reads_contain_after(
     name_id: NameId,
     read_plans: &[ScopeReadPlan],
     future_reads: &[ScopeFutureReads],
-    escape_reads: &[DenseBitSet],
+    escape_reads: &DenseBitMatrix,
 ) -> bool {
     let plan = &read_plans[scope.index()];
     let index = plan.events.partition_point(|event| event.offset <= offset);
-    future_reads[scope.index()].suffix_reads[index].contains(name_id.index())
-        || (plan.is_function && escape_reads[scope.index()].contains(name_id.index()))
+    future_reads[scope.index()]
+        .suffix_reads
+        .contains(index, name_id.index())
+        || (plan.is_function && escape_reads.contains(scope.index(), name_id.index()))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -488,13 +493,13 @@ pub(super) fn binding_has_future_reads_before_local_shadow(
     cfg: &ControlFlowGraph,
     binding_blocks: &[Option<BlockId>],
     read_plans: &[ScopeReadPlan],
-    transitive_reads: &[DenseBitSet],
+    transitive_reads: &DenseBitMatrix,
     future_reads: &[ScopeFutureReads],
-    escape_reads: &[DenseBitSet],
+    escape_reads: &DenseBitMatrix,
 ) -> bool {
     let shadow = next_local_shadows[binding.id.index()].map(|shadow| &bindings[shadow.index()]);
     let escape_reads_visible = read_plans[binding.scope.index()].is_function
-        && escape_reads[binding.scope.index()].contains(name_id.index());
+        && escape_reads.contains(binding.scope.index(), name_id.index());
 
     if let Some(shadow) = shadow {
         if let (Some(binding_block), Some(shadow_block)) = (
@@ -560,7 +565,7 @@ pub(super) fn future_reads_contain_after_until(
     before_offset: usize,
     name_id: NameId,
     read_plans: &[ScopeReadPlan],
-    transitive_reads: &[DenseBitSet],
+    transitive_reads: &DenseBitMatrix,
 ) -> bool {
     if before_offset <= after_offset {
         return false;
@@ -579,7 +584,7 @@ pub(super) fn future_reads_contain_after_until(
         .any(|event| match event.kind {
             ScopeReadEventKind::Direct(candidate) => candidate == name_id,
             ScopeReadEventKind::Call(callee_scope) => {
-                transitive_reads[callee_scope.index()].contains(name_id.index())
+                transitive_reads.contains(callee_scope.index(), name_id.index())
             }
         })
 }
@@ -593,7 +598,7 @@ fn future_reads_contain_after_without_shadow(
     shadow_block: BlockId,
     name_id: NameId,
     read_plans: &[ScopeReadPlan],
-    transitive_reads: &[DenseBitSet],
+    transitive_reads: &DenseBitMatrix,
     cfg: &ControlFlowGraph,
 ) -> bool {
     let plan = &read_plans[scope.index()];
@@ -605,7 +610,7 @@ fn future_reads_contain_after_without_shadow(
         let uses_name = match event.kind {
             ScopeReadEventKind::Direct(candidate) => candidate == name_id,
             ScopeReadEventKind::Call(callee_scope) => {
-                transitive_reads[callee_scope.index()].contains(name_id.index())
+                transitive_reads.contains(callee_scope.index(), name_id.index())
             }
         };
         if !uses_name {

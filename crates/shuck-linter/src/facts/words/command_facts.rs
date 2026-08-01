@@ -1510,7 +1510,7 @@ pub(crate) fn single_quoted_literal_exempt_here_string(command_name: Option<&str
 pub(crate) fn single_quoted_literal_instructional_output_argument(
     command_name: Option<&str>,
     redirects: &[Redirect],
-    inherited_output_sinks: &FxHashMap<i32, CommandOutputSink>,
+    inherited_output_sinks: &OutputSinkState,
     shell_behavior: &ShellBehaviorAt<'_>,
     writes_to_stdout: bool,
     word: &Word,
@@ -1545,14 +1545,14 @@ pub(crate) fn single_quoted_literal_instructional_output_argument(
 
 fn command_redirects_stdout_to_file(
     redirects: &[Redirect],
-    inherited_output_sinks: &FxHashMap<i32, CommandOutputSink>,
+    inherited_output_sinks: &OutputSinkState,
     source: &str,
     shell_behavior: &ShellBehaviorAt<'_>,
 ) -> bool {
     let mut fds = inherited_output_sinks.clone();
     apply_output_redirects(redirects, source, shell_behavior, &mut fds);
 
-    matches!(fds.get(&1), Some(CommandOutputSink::File))
+    matches!(fds.get(1), Some(CommandOutputSink::File))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1561,15 +1561,45 @@ pub(crate) enum CommandOutputSink {
     Other,
 }
 
-pub(crate) fn output_sink_state_defaults() -> FxHashMap<i32, CommandOutputSink> {
-    FxHashMap::from_iter([(1, CommandOutputSink::Other), (2, CommandOutputSink::Other)])
+/// Per-command output descriptor states, keyed by fd number.
+///
+/// Commands touch at most a handful of descriptors, so this stays inline
+/// instead of allocating a hash map per command.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct OutputSinkState {
+    entries: SmallVec<[(i32, CommandOutputSink); 4]>,
+}
+
+impl OutputSinkState {
+    pub(crate) fn insert(&mut self, fd: i32, sink: CommandOutputSink) {
+        match self.entries.iter_mut().find(|(entry_fd, _)| *entry_fd == fd) {
+            Some((_, entry_sink)) => *entry_sink = sink,
+            None => self.entries.push((fd, sink)),
+        }
+    }
+
+    pub(crate) fn get(&self, fd: i32) -> Option<CommandOutputSink> {
+        self.entries
+            .iter()
+            .find(|(entry_fd, _)| *entry_fd == fd)
+            .map(|(_, sink)| *sink)
+    }
+}
+
+pub(crate) fn output_sink_state_defaults() -> OutputSinkState {
+    OutputSinkState {
+        entries: SmallVec::from_slice(&[
+            (1, CommandOutputSink::Other),
+            (2, CommandOutputSink::Other),
+        ]),
+    }
 }
 
 pub(crate) fn apply_output_redirects(
     redirects: &[Redirect],
     source: &str,
     shell_behavior: &ShellBehaviorAt<'_>,
-    fds: &mut FxHashMap<i32, CommandOutputSink>,
+    fds: &mut OutputSinkState,
 ) {
     for redirect in redirects {
         match redirect.kind {
@@ -1608,7 +1638,7 @@ pub(crate) fn apply_output_redirects(
                     .word_target()
                     .and_then(|_| analyze_redirect_target(redirect, source, Some(shell_behavior)))
                     .and_then(|analysis| analysis.numeric_descriptor_target)
-                    .and_then(|target_fd| fds.get(&target_fd).copied())
+                    .and_then(|target_fd| fds.get(target_fd))
                     .unwrap_or(CommandOutputSink::Other);
                 fds.insert(fd, sink);
             }

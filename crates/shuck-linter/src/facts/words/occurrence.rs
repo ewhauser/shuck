@@ -2664,8 +2664,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         }
     }
 
-    fn inherited_output_sinks(&self) -> FxHashMap<i32, CommandOutputSink> {
-        let mut parent_ids = Vec::new();
+    fn inherited_output_sinks(&self) -> OutputSinkState {
+        let mut parent_ids = SmallVec::<[shuck_semantic::CommandId; 8]>::new();
         let mut parent_id = self.semantic.syntax_backed_command_parent_id(self.command_id);
         while let Some(id) = parent_id {
             parent_ids.push(id);

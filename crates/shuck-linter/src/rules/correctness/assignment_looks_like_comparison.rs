@@ -27,12 +27,20 @@ impl Violation for AssignmentLooksLikeComparison {
 
 pub fn assignment_looks_like_comparison(checker: &mut Checker) {
     let source = checker.source();
+    if !checker
+        .facts()
+        .commands()
+        .iter()
+        .any(|fact| fact.literal_name() == Some(""))
+    {
+        return;
+    }
     let known_names = checker
         .semantic()
         .bindings()
         .iter()
         .filter(|binding| binding_contributes_known_variable_name(binding))
-        .map(|binding| binding.name.as_str().to_owned())
+        .map(|binding| binding.name.as_str())
         .collect::<FxHashSet<_>>();
     let spans = checker
         .facts()
@@ -55,7 +63,7 @@ fn command_assignment_spans(
     checker: &Checker<'_>,
     command: &Command,
     source: &str,
-    known_names: &FxHashSet<String>,
+    known_names: &FxHashSet<&str>,
 ) -> Vec<Span> {
     match command {
         Command::Simple(command) => command
@@ -84,7 +92,7 @@ fn assignment_value_looks_like_comparison(
     checker: &Checker<'_>,
     assignment: &Assignment,
     source: &str,
-    known_names: &FxHashSet<String>,
+    known_names: &FxHashSet<&str>,
     context: WordFactContext,
 ) -> Option<Span> {
     let AssignmentValue::Scalar(word) = &assignment.value else {

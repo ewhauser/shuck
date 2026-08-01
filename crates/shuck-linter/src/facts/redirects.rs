@@ -55,8 +55,8 @@ impl RedirectTargetAnalysis {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum ComparablePathKey {
-    Literal(Box<str>),
-    Parameter(Box<str>),
+    Literal(compact_str::CompactString),
+    Parameter(compact_str::CompactString),
     Template(Box<[ComparablePathPart]>),
 }
 
@@ -68,8 +68,8 @@ pub(crate) struct ComparablePathMatchKey {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum ComparablePathPart {
-    Literal(Box<str>),
-    Parameter(Box<str>),
+    Literal(compact_str::CompactString),
+    Parameter(compact_str::CompactString),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,7 +97,7 @@ impl ComparablePath {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct ComparableNameKey(pub(crate) Box<str>);
+pub(crate) struct ComparableNameKey(pub(crate) compact_str::CompactString);
 
 impl ComparableNameKey {
     pub(crate) fn as_str(&self) -> &str {
@@ -547,9 +547,7 @@ pub(crate) fn push_comparable_literal(text: &str, components: &mut Vec<Comparabl
 
     match components.last_mut() {
         Some(ComparablePathPart::Literal(existing)) => {
-            let mut merged = existing.to_string();
-            merged.push_str(text);
-            *existing = merged.into_boxed_str();
+            existing.push_str(text);
         }
         _ => components.push(ComparablePathPart::Literal(text.into())),
     }
@@ -661,7 +659,6 @@ pub(crate) fn analyze_redirect_target(
     })
 }
 
-#[cfg_attr(shuck_profiling, inline(never))]
 pub(crate) fn build_redirect_facts<'a>(
     redirects: &'a [Redirect],
     semantic: Option<&LinterSemanticArtifacts<'a>>,

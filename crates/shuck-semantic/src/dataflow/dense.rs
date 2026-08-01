@@ -49,8 +49,8 @@ pub(super) struct DenseBindingData {
 
 #[derive(Debug, Clone)]
 pub(super) struct DenseReachingDefinitions {
-    pub(super) reaching_in: Vec<DenseBitSet>,
-    pub(super) reaching_out: Vec<DenseBitSet>,
+    pub(super) reaching_in: DenseBitMatrix,
+    pub(super) reaching_out: DenseBitMatrix,
 }
 
 #[cfg(test)]
@@ -72,15 +72,17 @@ fn materialize_dense_reaching_definitions(
     for block in cfg.blocks() {
         reaching_in.insert(
             block.id,
-            dense.reaching_in[block.id.index()]
-                .iter_ones()
+            dense
+                .reaching_in
+                .row_ones(block.id.index())
                 .map(|binding_index| BindingId(binding_index as u32))
                 .collect::<FxHashSet<_>>(),
         );
         reaching_out.insert(
             block.id,
-            dense.reaching_out[block.id.index()]
-                .iter_ones()
+            dense
+                .reaching_out
+                .row_ones(block.id.index())
                 .map(|binding_index| BindingId(binding_index as u32))
                 .collect::<FxHashSet<_>>(),
         );
@@ -409,8 +411,8 @@ pub(super) fn compute_reaching_definitions_dense(
         })
         .collect::<Vec<_>>();
 
-    let mut reaching_in = vec![DenseBitSet::new(binding_count); block_count];
-    let mut reaching_out = vec![DenseBitSet::new(binding_count); block_count];
+    let mut reaching_in = DenseBitMatrix::zeros(block_count, binding_count);
+    let mut reaching_out = DenseBitMatrix::zeros(block_count, binding_count);
     let mut incoming = DenseBitSet::new(binding_count);
     let mut carried = DenseBitSet::new(binding_count);
     let mut outgoing = DenseBitSet::new(binding_count);
@@ -419,7 +421,7 @@ pub(super) fn compute_reaching_definitions_dense(
         let block_index = block_id.index();
         incoming.clear();
         for predecessor in cfg.predecessors(block_id) {
-            incoming.union_with(&reaching_out[predecessor.index()]);
+            incoming.union_with_words(reaching_out.row(predecessor.index()));
         }
         if entry_blocks.contains(&block_id) {
             for binding in entry_bindings {
@@ -432,8 +434,8 @@ pub(super) fn compute_reaching_definitions_dense(
         outgoing.copy_from(&gen_sets[block_index]);
         outgoing.union_with(&carried);
 
-        reaching_in[block_index].replace_if_changed(&incoming);
-        reaching_out[block_index].replace_if_changed(&outgoing)
+        reaching_in.replace_row_if_changed(block_index, incoming.as_words());
+        reaching_out.replace_row_if_changed(block_index, outgoing.as_words())
     });
 
     DenseReachingDefinitions {

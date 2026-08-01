@@ -105,7 +105,7 @@ fn future_reads_contain_after_until_ignores_backwards_intervals() {
         }],
         is_function: false,
     };
-    let transitive_reads = vec![DenseBitSet::new(1)];
+    let transitive_reads = DenseBitMatrix::zeros(1, 1);
 
     assert!(!future_reads_contain_after_until(
         ScopeId(0),

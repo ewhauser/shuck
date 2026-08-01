@@ -53,8 +53,8 @@ impl PathSignals {
 
 pub(super) struct SourceSignals<'a> {
     source: &'a str,
-    mentioned_names: BTreeSet<String>,
-    assigned_names: BTreeSet<String>,
+    mentioned_names: BTreeSet<&'a str>,
+    assigned_names: BTreeSet<&'a str>,
     code_lines: Vec<&'a str>,
     zmodload_lines: Vec<&'a str>,
     has_probable_function_definition: bool,
@@ -185,7 +185,7 @@ impl<'a> SourceSignals<'a> {
     }
 }
 
-fn collect_parameter_mentions(source: &str) -> BTreeSet<String> {
+fn collect_parameter_mentions(source: &str) -> BTreeSet<&str> {
     let mut names = BTreeSet::new();
     let bytes = source.as_bytes();
     let mut cursor = 0;
@@ -196,7 +196,7 @@ fn collect_parameter_mentions(source: &str) -> BTreeSet<String> {
             let name_start = after_dollar + 1;
             if let Some((name, after_name)) = parse_shell_name_at(source, name_start) {
                 if matches!(bytes.get(after_name), Some(b'}' | b'[' | b':')) {
-                    names.insert(name.to_owned());
+                    names.insert(name);
                 }
                 cursor = after_name;
             } else {
@@ -212,18 +212,18 @@ fn collect_parameter_mentions(source: &str) -> BTreeSet<String> {
     names
 }
 
-fn insert_unbraced_name_prefixes(name: &str, names: &mut BTreeSet<String>) {
+fn insert_unbraced_name_prefixes<'a>(name: &'a str, names: &mut BTreeSet<&'a str>) {
     for (offset, ch) in name.char_indices() {
         let end = if offset == 0 {
             ch.len_utf8()
         } else {
             offset + ch.len_utf8()
         };
-        names.insert(name[..end].to_owned());
+        names.insert(&name[..end]);
     }
 }
 
-fn collect_assignment_names(source: &str) -> BTreeSet<String> {
+fn collect_assignment_names(source: &str) -> BTreeSet<&str> {
     let mut names = BTreeSet::new();
     for (offset, ch) in source.char_indices() {
         if !(ch == '_' || ch.is_ascii_alphabetic()) {
@@ -243,7 +243,7 @@ fn collect_assignment_names(source: &str) -> BTreeSet<String> {
         let assignment_like = matches!(after, Some('=') | Some('['))
             || (after == Some('+') && source[after_name..].chars().nth(1) == Some('='));
         if assignment_like {
-            names.insert(name.to_owned());
+            names.insert(name);
         }
     }
     names

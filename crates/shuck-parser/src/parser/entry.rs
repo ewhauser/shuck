@@ -133,6 +133,7 @@ impl<'a> Parser<'a> {
             dialect: shell_profile.dialect,
             shell_profile,
             zsh_timeline,
+            brace_scan_chars: std::cell::RefCell::new(Vec::new()),
             #[cfg(feature = "benchmarking")]
             benchmark_counters: benchmark_counters_enabled.then(ParserBenchmarkCounters::default),
         }

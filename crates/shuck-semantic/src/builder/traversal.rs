@@ -254,7 +254,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         let command_words = std::iter::once(&command.name)
             .chain(command.args.iter())
             .collect::<Vec<_>>();
-        let normalized = normalize_command_words(&command_words, self.source)
+        let normalized = normalize_command_words_owned(command_words, self.source)
             .expect("simple commands always have a name");
         if !flow.in_subshell
             && let Some(collector) = self.file_entry_contract_collector.as_deref_mut()

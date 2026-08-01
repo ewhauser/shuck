@@ -128,11 +128,11 @@ impl ExactVariableDataflow {
         let Some(name_id) = self.names.get(&reference.name) else {
             return Vec::new();
         };
-        let incoming = &self.reaching_definitions(context).reaching_in[block_id.index()];
+        let reaching_in = &self.reaching_definitions(context).reaching_in;
 
         self.binding_data.bindings_for_name[name_id.index()]
             .iter_ones()
-            .filter(|binding_index| incoming.contains(*binding_index))
+            .filter(|binding_index| reaching_in.contains(block_id.index(), *binding_index))
             .map(|binding_index| BindingId(binding_index as u32))
             .collect()
     }
@@ -150,10 +150,10 @@ impl ExactVariableDataflow {
             return false;
         }
 
-        let incoming = &self.reaching_definitions(context).reaching_in[block_id.index()];
+        let reaching_in = &self.reaching_definitions(context).reaching_in;
         candidate_bindings
             .into_iter()
-            .any(|binding_id| incoming.contains(binding_id.index()))
+            .any(|binding_id| reaching_in.contains(block_id.index(), binding_id.index()))
     }
 
     pub(crate) fn binding_block(&self, binding_id: BindingId) -> Option<BlockId> {

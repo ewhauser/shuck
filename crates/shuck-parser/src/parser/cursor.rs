@@ -220,7 +220,7 @@ impl<'a> Parser<'a> {
     where
         F: FnMut(char) -> bool,
     {
-        let mut text = String::new();
+        let mut text = String::with_capacity(16);
         while let Some(&ch) = chars.peek() {
             if !predicate(ch) {
                 break;

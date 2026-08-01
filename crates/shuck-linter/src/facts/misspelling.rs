@@ -221,9 +221,17 @@ impl MisspellingCandidateLookup {
             }
 
             index.env_trie.insert(name, id);
-            for key in edit1_deletion_keys(name) {
-                index.edit1_deletions.entry(key).or_default().push(id);
-            }
+            for_each_edit1_deletion_key(name, |key| {
+                if let Some(ids) = index.edit1_deletions.get_mut(key) {
+                    if ids.last() != Some(&id) {
+                        ids.push(id);
+                    }
+                } else {
+                    index
+                        .edit1_deletions
+                        .insert(key.into(), SmallVec::from_slice(&[id]));
+                }
+            });
         }
 
         index
@@ -671,21 +679,6 @@ fn ascii_edit_distance_at_most_inner(mut left: &[u8], mut right: &[u8], edits_le
     ascii_edit_distance_at_most_inner(&left[1..], right, edits_left - 1)
         || ascii_edit_distance_at_most_inner(left, &right[1..], edits_left - 1)
         || ascii_edit_distance_at_most_inner(&left[1..], &right[1..], edits_left - 1)
-}
-
-fn edit1_deletion_keys(name: &str) -> Vec<Box<str>> {
-    let bytes = name.as_bytes();
-    let mut keys = Vec::with_capacity(bytes.len() + 1);
-    keys.push(name.into());
-    for skip in 0..bytes.len() {
-        let mut key = String::with_capacity(bytes.len().saturating_sub(1));
-        key.push_str(&name[..skip]);
-        key.push_str(&name[skip + 1..]);
-        keys.push(key.into_boxed_str());
-    }
-    keys.sort_unstable();
-    keys.dedup();
-    keys
 }
 
 fn for_each_edit1_deletion_key(name: &str, mut visit: impl FnMut(&str)) {
