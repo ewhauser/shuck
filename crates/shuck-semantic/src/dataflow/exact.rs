@@ -18,6 +18,8 @@ use super::*;
 #[derive(Debug)]
 pub(crate) struct ExactVariableDataflow {
     pub(super) names: NameTable,
+    pub(super) reference_name_ids: Vec<NameId>,
+    pub(super) synthetic_read_name_ids: Vec<NameId>,
     pub(super) binding_data: DenseBindingData,
     pub(super) binding_blocks: Vec<Option<BlockId>>,
     pub(super) reference_blocks: Vec<Option<BlockId>>,

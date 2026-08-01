@@ -151,9 +151,9 @@ pub(crate) use dense::materialize_reaching_definitions;
 use dense::*;
 pub(crate) use exact::ExactVariableDataflow;
 use scope_reads::{
-    ScopeReadPlan, binding_has_future_reads_before_local_shadow, build_scope_read_plans,
-    compute_compatibility_read_sets, compute_transitive_read_sets, is_function_escape_candidate,
-    next_shadowing_local_declarations, reachable_blocks_dense,
+    BoundNameSpace, ScopeReadPlan, binding_has_future_reads_before_local_shadow,
+    build_scope_read_plans, compute_compatibility_read_sets, compute_transitive_read_sets,
+    is_function_escape_candidate, next_shadowing_local_declarations, reachable_blocks_dense,
 };
 pub(crate) use scope_reads::{
     binding_initializes_name, function_binding_certainty, summarize_scope_provided_bindings,
@@ -195,7 +195,7 @@ pub(crate) fn analyze_unused_assignments_with_options(
 pub(crate) fn build_exact_variable_dataflow(
     context: &DataflowContext<'_>,
 ) -> ExactVariableDataflow {
-    let names = build_name_table(
+    let (names, reference_name_ids, synthetic_read_name_ids) = build_name_table(
         context.bindings,
         context.references,
         context.synthetic_reads,
@@ -207,6 +207,8 @@ pub(crate) fn build_exact_variable_dataflow(
 
     ExactVariableDataflow {
         names,
+        reference_name_ids,
+        synthetic_read_name_ids,
         binding_data,
         binding_blocks,
         reference_blocks,
