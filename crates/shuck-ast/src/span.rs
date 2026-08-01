@@ -136,6 +136,7 @@ impl Span {
     }
 
     /// Slice the source text covered by this span.
+    #[inline]
     pub fn slice<'a>(&self, source: &'a str) -> &'a str {
         slice_with_byte_offsets(source, self.start.offset, self.end.offset)
     }
@@ -240,6 +241,7 @@ impl TextRange {
     }
 
     /// Slice the source text covered by this range.
+    #[inline]
     pub fn slice<'a>(&self, source: &'a str) -> &'a str {
         slice_with_byte_offsets(source, usize::from(self.start), usize::from(self.end))
     }
@@ -253,15 +255,19 @@ impl TextRange {
     }
 }
 
+#[inline]
 fn slice_with_byte_offsets(source: &str, start: usize, end: usize) -> &str {
-    if start > end || end > source.len() {
-        return "";
-    }
-
     if let Some(slice) = source.get(start..end) {
         return slice;
     }
+    slice_with_clamped_byte_offsets(source, start, end)
+}
 
+#[cold]
+fn slice_with_clamped_byte_offsets(source: &str, start: usize, end: usize) -> &str {
+    if start > end || end > source.len() {
+        return "";
+    }
     let start = floor_char_boundary(source, start);
     let end = ceil_char_boundary(source, end);
     source.get(start..end).unwrap_or("")
