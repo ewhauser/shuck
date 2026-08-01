@@ -785,7 +785,7 @@ struct CallInfo {
     name: Name,
     scope: ScopeId,
     span: Span,
-    args: Vec<Option<String>>,
+    args: Vec<Option<compact_str::CompactString>>,
 }
 
 #[derive(Debug, Clone)]
@@ -1345,7 +1345,7 @@ fn is_current_source_part(part: &WordPart, source: &str) -> bool {
 fn source_candidates(
     kind: &SourceRefKind,
     template: Option<&SourcePathTemplate>,
-    call_args: Option<&[Vec<Option<String>>]>,
+    call_args: Option<&[Vec<Option<compact_str::CompactString>>]>,
     source_path: &Path,
 ) -> Vec<String> {
     match kind {
@@ -1359,7 +1359,7 @@ fn source_candidates(
 
 fn source_candidates_from_template(
     template: Option<&SourcePathTemplate>,
-    call_args: Option<&[Vec<Option<String>>]>,
+    call_args: Option<&[Vec<Option<compact_str::CompactString>>]>,
     source_path: &Path,
 ) -> Vec<String> {
     let Some(template) = template else {
@@ -1474,7 +1474,7 @@ fn uses_positional_args(parts: &[TemplatePart]) -> bool {
 
 fn render_template_candidate(
     parts: &[TemplatePart],
-    args: &[Option<String>],
+    args: &[Option<compact_str::CompactString>],
     source_path: &Path,
 ) -> Option<String> {
     let mut rendered = String::new();
@@ -1522,7 +1522,7 @@ fn path_to_template_string(path: &Path) -> String {
 fn resolve_literal_call_args_by_scope(
     model: &SemanticModel,
     calls: &[CallInfo],
-) -> FxHashMap<ScopeId, Vec<Vec<Option<String>>>> {
+) -> FxHashMap<ScopeId, Vec<Vec<Option<compact_str::CompactString>>>> {
     call_payloads_by_callee_scope(
         &model.function_binding_lookup(),
         &model.recorded_program().function_body_scopes,
@@ -2058,7 +2058,9 @@ outer() {
 
         assert_eq!(
             args_by_scope.get(&scope),
-            Some(&vec![vec![Some("./helper.sh".to_owned())]])
+            Some(&vec![vec![Some(compact_str::CompactString::from(
+                "./helper.sh"
+            ))]])
         );
     }
 
@@ -2082,7 +2084,9 @@ noglob load_helper ./helper.sh
 
         assert_eq!(
             args_by_scope.get(&scope),
-            Some(&vec![vec![Some("./helper.sh".to_owned())]])
+            Some(&vec![vec![Some(compact_str::CompactString::from(
+                "./helper.sh"
+            ))]])
         );
     }
 
