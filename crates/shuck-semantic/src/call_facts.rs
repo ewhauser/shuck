@@ -29,12 +29,39 @@ struct ResolvedDefinition {
 /// in the referring file for source-order precedence.
 type SourceResolution = Option<(ResolvedDefinition, Span)>;
 
-/// Identity of a call-graph node within a file: a named function, or the file's
-/// top-level (module) body.
+/// Stable identity of one function node within its file.
+///
+/// Function names alone are insufficient because shell permits later
+/// definitions to replace earlier same-named definitions. The definition byte
+/// range distinguishes those bindings while remaining serializable through an
+/// LSP call-hierarchy item's opaque data payload.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct CallFunctionId {
+    /// Function name.
+    pub name: Name,
+    /// Inclusive byte offset where the full definition starts.
+    pub definition_start: usize,
+    /// Exclusive byte offset where the full definition ends.
+    pub definition_end: usize,
+}
+
+impl CallFunctionId {
+    /// Creates an identity from a function name and its full definition span.
+    pub fn new(name: Name, definition_span: Span) -> Self {
+        Self {
+            name,
+            definition_start: definition_span.start.offset,
+            definition_end: definition_span.end.offset,
+        }
+    }
+}
+
+/// Identity of a call-graph node within a file: an exact function definition,
+/// or the file's top-level (module) body.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum CallNodeKind {
-    /// A named function defined in the file.
-    Function(Name),
+    /// One named function definition in the file.
+    Function(CallFunctionId),
     /// The file's top-level statements.
     TopLevel,
 }
@@ -48,6 +75,13 @@ pub struct CallFactDefinition {
     pub def_span: Span,
     /// Span to select when navigating to the definition (the name token).
     pub selection_span: Span,
+}
+
+impl CallFactDefinition {
+    /// Returns this definition's exact call-graph identity.
+    pub fn identity(&self) -> CallFunctionId {
+        CallFunctionId::new(self.name.clone(), self.def_span)
+    }
 }
 
 /// A call site discovered in a file.
@@ -112,32 +146,43 @@ impl FileCallFacts {
         let analysis = model.analysis();
         source_edges.sort_by_key(|edge| edge.span.start.offset);
 
-        let mut function_names_by_scope: FxHashMap<ScopeId, Vec<Name>> = FxHashMap::default();
+        let mut functions_by_scope: FxHashMap<ScopeId, Vec<(CallFunctionId, Span)>> =
+            FxHashMap::default();
         let mut definitions = Vec::new();
         for binding in model.function_definition_bindings() {
-            definitions.push(CallFactDefinition {
+            let definition = CallFactDefinition {
                 name: binding.name.clone(),
                 def_span: binding_definition_span(binding),
                 selection_span: binding.span,
-            });
+            };
             if let Some(scope) = analysis.function_scope_for_binding(binding.id) {
-                function_names_by_scope
+                functions_by_scope
                     .entry(scope)
                     .or_default()
-                    .push(binding.name.clone());
+                    .push((definition.identity(), definition.def_span));
             }
+            definitions.push(definition);
         }
 
         let mut call_sites = Vec::new();
         for site in model.all_call_sites() {
             let enclosing_functions = model
                 .ancestor_scopes(site.scope)
-                .find_map(|scope| function_names_by_scope.get(&scope));
+                .find_map(|scope| functions_by_scope.get(&scope));
             let local_definition_span = analysis
                 .visible_function_binding_at_call(&site.callee, site.name_span)
-                .map(|binding_id| binding_definition_span(model.binding(binding_id)));
+                .map(|binding_id| binding_definition_span(model.binding(binding_id)))
+                .or_else(|| {
+                    enclosing_functions.and_then(|functions| {
+                        functions
+                            .iter()
+                            .rev()
+                            .find(|(function, _)| function.name == site.callee)
+                            .map(|(_, definition_span)| *definition_span)
+                    })
+                });
             if let Some(enclosing_functions) = enclosing_functions {
-                for enclosing in enclosing_functions {
+                for (enclosing, _) in enclosing_functions {
                     call_sites.push(CallFactSite {
                         callee: site.callee.clone(),
                         name_span: site.name_span,
@@ -162,9 +207,13 @@ impl FileCallFacts {
         }
     }
 
-    /// Returns the definition of `name` in this file, if any (first wins).
-    pub fn definition(&self, name: &Name) -> Option<&CallFactDefinition> {
-        self.definitions.iter().find(|def| &def.name == name)
+    /// Returns the exact function definition identified by `function`.
+    pub fn definition(&self, function: &CallFunctionId) -> Option<&CallFactDefinition> {
+        self.definitions.iter().find(|definition| {
+            definition.name == function.name
+                && definition.def_span.start.offset == function.definition_start
+                && definition.def_span.end.offset == function.definition_end
+        })
     }
 }
 
@@ -262,7 +311,7 @@ impl WorkspaceCallIndex {
         });
         Some(CrossFileCall {
             path: target.path,
-            node: CallNodeKind::Function(site.callee.clone()),
+            node: CallNodeKind::Function(CallFunctionId::new(site.callee.clone(), target.def_span)),
             def_span: Some(target.def_span),
             selection_span: definition.map(|definition| definition.selection_span),
             call_spans: vec![site.name_span],
@@ -354,8 +403,8 @@ impl WorkspaceCallIndex {
             return Vec::new();
         };
 
-        let mut order: Vec<(PathBuf, Name)> = Vec::new();
-        let mut spans: FxHashMap<(PathBuf, Name), Vec<Span>> = FxHashMap::default();
+        let mut order: Vec<(PathBuf, CallFunctionId)> = Vec::new();
+        let mut spans: FxHashMap<(PathBuf, CallFunctionId), Vec<Span>> = FxHashMap::default();
         // Resolution is per-callee, not per-site: memoize it so repeated calls
         // to the same helper do not re-run the source-edge search.
         let mut resolved: FxHashMap<(Name, Option<usize>), SourceResolution> = FxHashMap::default();
@@ -378,7 +427,8 @@ impl WorkspaceCallIndex {
                 continue;
             };
             let target_path = target.path;
-            let key = (target_path, site.callee.clone());
+            let function = CallFunctionId::new(site.callee.clone(), target.def_span);
+            let key = (target_path, function);
             spans
                 .entry(key.clone())
                 .or_insert_with(|| {
@@ -390,29 +440,34 @@ impl WorkspaceCallIndex {
 
         order
             .into_iter()
-            .map(|(target_path, name)| {
+            .map(|(target_path, function)| {
                 let definition = self
                     .files
                     .get(&target_path)
-                    .and_then(|facts| facts.definition(&name));
+                    .and_then(|facts| facts.definition(&function));
                 let call_spans = spans
-                    .remove(&(target_path.clone(), name.clone()))
+                    .remove(&(target_path.clone(), function.clone()))
                     .unwrap_or_default();
                 CrossFileCall {
                     path: target_path,
                     def_span: definition.map(|def| def.def_span),
                     selection_span: definition.map(|def| def.selection_span),
-                    node: CallNodeKind::Function(name),
+                    node: CallNodeKind::Function(function),
                     call_spans,
                 }
             })
             .collect()
     }
 
-    /// Returns the callers of the function `name` defined in `target_path`,
-    /// grouped by caller node. A caller is any file that transitively sources
-    /// `target_path` and calls `name` without a nearer shadowing definition.
-    pub fn incoming(&self, target_path: &Path, name: &Name) -> Vec<CrossFileCall> {
+    /// Returns callers of the exact function node in `target_path`, grouped by
+    /// caller node. A caller is any file that transitively sources
+    /// `target_path` and calls that binding without a nearer shadowing
+    /// definition. Top-level nodes have no callers.
+    pub fn incoming(&self, target_path: &Path, target_node: &CallNodeKind) -> Vec<CrossFileCall> {
+        let CallNodeKind::Function(target_function) = target_node else {
+            return Vec::new();
+        };
+        let name = &target_function.name;
         let mut order: Vec<(PathBuf, CallNodeKind)> = Vec::new();
         let mut spans: FxHashMap<(PathBuf, CallNodeKind), Vec<Span>> = FxHashMap::default();
 
@@ -438,7 +493,11 @@ impl WorkspaceCallIndex {
                     .clone();
                 let resolves =
                     choose_resolved_target(caller_path, site.local_definition_span, sourced)
-                        .is_some_and(|target| target.path.as_path() == target_path);
+                        .is_some_and(|target| {
+                            target.path.as_path() == target_path
+                                && target.def_span.start.offset == target_function.definition_start
+                                && target.def_span.end.offset == target_function.definition_end
+                        });
                 if !resolves {
                     continue;
                 }
@@ -518,6 +577,32 @@ mod tests {
         Name::from(text)
     }
 
+    fn function_node(
+        index: &WorkspaceCallIndex,
+        path: &str,
+        function_name: &str,
+        occurrence: usize,
+    ) -> CallNodeKind {
+        let facts = index
+            .files()
+            .find_map(|(candidate, facts)| (candidate == Path::new(path)).then_some(facts))
+            .expect("file should be indexed");
+        let definition = facts
+            .definitions
+            .iter()
+            .filter(|definition| definition.name == name(function_name))
+            .nth(occurrence)
+            .expect("function definition should be indexed");
+        CallNodeKind::Function(definition.identity())
+    }
+
+    fn function_name(node: &CallNodeKind) -> Option<&str> {
+        match node {
+            CallNodeKind::Function(function) => Some(function.name.as_str()),
+            CallNodeKind::TopLevel => None,
+        }
+    }
+
     #[test]
     fn projects_definitions_call_sites_and_enclosing() {
         let facts = facts(
@@ -539,8 +624,12 @@ mod tests {
             .iter()
             .map(|site| (site.callee.to_string(), site.enclosing.clone()))
             .collect();
-        assert!(enclosings.contains(&("inner".to_owned(), CallNodeKind::Function(name("outer")))));
-        assert!(enclosings.contains(&("inner".to_owned(), CallNodeKind::Function(name("nested")))));
+        assert!(enclosings.iter().any(|(callee, enclosing)| {
+            callee == "inner" && function_name(enclosing) == Some("outer")
+        }));
+        assert!(enclosings.iter().any(|(callee, enclosing)| {
+            callee == "inner" && function_name(enclosing) == Some("nested")
+        }));
         assert!(enclosings.contains(&("outer".to_owned(), CallNodeKind::TopLevel)));
     }
 
@@ -574,29 +663,34 @@ mod tests {
     #[test]
     fn incoming_collects_callers_across_files_including_assume_and_top_level() {
         let index = three_file_index();
-        let incoming = index.incoming(Path::new("/w/a.sh"), &name("greet"));
+        let greet = function_node(&index, "/w/a.sh", "greet", 0);
+        let incoming = index.incoming(Path::new("/w/a.sh"), &greet);
         let mut callers: Vec<String> = incoming
             .iter()
-            .map(|call| format!("{}:{:?}", call.path.to_string_lossy(), call.node))
+            .map(|call| {
+                format!(
+                    "{}:{}",
+                    call.path.to_string_lossy(),
+                    function_name(&call.node).unwrap_or("top-level")
+                )
+            })
             .collect();
         callers.sort();
         // b.sh's `run` (follow edge) and c.sh's top level (assume edge).
         assert_eq!(
             callers,
-            vec![
-                format!("/w/b.sh:{:?}", CallNodeKind::Function(name("run"))),
-                format!("/w/c.sh:{:?}", CallNodeKind::TopLevel),
-            ]
+            vec!["/w/b.sh:run".to_owned(), "/w/c.sh:top-level".to_owned(),]
         );
     }
 
     #[test]
     fn outgoing_descends_into_followed_file() {
         let index = three_file_index();
-        let outgoing = index.outgoing(Path::new("/w/b.sh"), &CallNodeKind::Function(name("run")));
+        let run = function_node(&index, "/w/b.sh", "run", 0);
+        let outgoing = index.outgoing(Path::new("/w/b.sh"), &run);
         assert_eq!(outgoing.len(), 1);
         assert_eq!(outgoing[0].path, PathBuf::from("/w/a.sh"));
-        assert_eq!(outgoing[0].node, CallNodeKind::Function(name("greet")));
+        assert_eq!(function_name(&outgoing[0].node), Some("greet"));
         assert_eq!(outgoing[0].call_spans.len(), 1);
         assert!(outgoing[0].def_span.is_some());
     }
@@ -629,11 +723,109 @@ mod tests {
             Some(caller_path)
         );
         // a.sh's greet therefore has no incoming call from b.sh.
+        let sourced_greet = function_node(&index, "/w/a.sh", "greet", 0);
         assert!(
             index
-                .incoming(Path::new("/w/a.sh"), &name("greet"))
+                .incoming(Path::new("/w/a.sh"), &sourced_greet)
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn same_named_definitions_keep_distinct_recursive_edges() {
+        let source = "left() { :; }\nright() { :; }\nworker() { left; worker; }\nworker\nworker() { right; worker; }\nworker\n";
+        let path = PathBuf::from("/w/script.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(path.clone(), facts(source, &[]));
+
+        let first_worker = function_node(&index, "/w/script.sh", "worker", 0);
+        let second_worker = function_node(&index, "/w/script.sh", "worker", 1);
+
+        let first_outgoing = index.outgoing(&path, &first_worker);
+        assert_eq!(
+            first_outgoing
+                .iter()
+                .filter_map(|call| function_name(&call.node))
+                .collect::<Vec<_>>(),
+            ["left", "worker"]
+        );
+        assert!(first_outgoing.iter().any(|call| call.node == first_worker));
+        assert!(!first_outgoing.iter().any(|call| call.node == second_worker));
+
+        let second_outgoing = index.outgoing(&path, &second_worker);
+        assert_eq!(
+            second_outgoing
+                .iter()
+                .filter_map(|call| function_name(&call.node))
+                .collect::<Vec<_>>(),
+            ["right", "worker"]
+        );
+        assert!(
+            second_outgoing
+                .iter()
+                .any(|call| call.node == second_worker)
+        );
+        assert!(!second_outgoing.iter().any(|call| call.node == first_worker));
+
+        let first_incoming = index.incoming(&path, &first_worker);
+        assert_eq!(first_incoming.len(), 2, "recursive and top-level callers");
+        assert_eq!(
+            first_incoming
+                .iter()
+                .map(|call| call.call_spans.len())
+                .sum::<usize>(),
+            2
+        );
+        let second_incoming = index.incoming(&path, &second_worker);
+        assert_eq!(second_incoming.len(), 2, "recursive and top-level callers");
+        assert_eq!(
+            second_incoming
+                .iter()
+                .map(|call| call.call_spans.len())
+                .sum::<usize>(),
+            2
+        );
+    }
+
+    #[test]
+    fn sourced_redefinitions_report_incoming_calls_only_for_final_binding() {
+        let target_path = PathBuf::from("/w/lib.sh");
+        let caller_path = PathBuf::from("/w/main.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(
+            target_path.clone(),
+            facts("greet() { echo first; }\ngreet() { echo final; }\n", &[]),
+        );
+        index.insert(caller_path, facts("greet\n", &["/w/lib.sh"]));
+
+        let first = function_node(&index, "/w/lib.sh", "greet", 0);
+        let final_binding = function_node(&index, "/w/lib.sh", "greet", 1);
+        assert!(index.incoming(&target_path, &first).is_empty());
+        let incoming = index.incoming(&target_path, &final_binding);
+        assert_eq!(incoming.len(), 1);
+        assert_eq!(incoming[0].call_spans.len(), 1);
+    }
+
+    #[test]
+    fn replaced_file_does_not_resolve_a_stale_function_identity_by_name() {
+        let path = PathBuf::from("/w/script.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(
+            path.clone(),
+            facts("worker() { helper; }\nhelper() { :; }\nworker\n", &[]),
+        );
+        let stale_worker = function_node(&index, "/w/script.sh", "worker", 0);
+
+        index.insert(
+            path.clone(),
+            facts(
+                "# moved\nworker() { helper; }\nhelper() { :; }\nworker\n",
+                &[],
+            ),
+        );
+
+        assert!(index.outgoing(&path, &stale_worker).is_empty());
+        assert!(index.incoming(&path, &stale_worker).is_empty());
     }
 
     #[test]
@@ -651,11 +843,8 @@ mod tests {
         index.insert(caller_path.clone(), caller_facts);
         assert_eq!(index.resolve(&caller_path, &name("greet")), None);
         assert!(index.resolve_call_site(&caller_path, call_span).is_none());
-        assert!(
-            index
-                .incoming(Path::new("/w/a.sh"), &name("greet"))
-                .is_empty()
-        );
+        let greet = function_node(&index, "/w/a.sh", "greet", 0);
+        assert!(index.incoming(Path::new("/w/a.sh"), &greet).is_empty());
     }
 
     #[test]
@@ -723,10 +912,12 @@ mod tests {
             Some(c_path.clone())
         );
 
-        let incoming_a = index.incoming(&a_path, &name("greet"));
+        let greet_a = function_node(&index, "/w/a.sh", "greet", 0);
+        let incoming_a = index.incoming(&a_path, &greet_a);
         assert_eq!(incoming_a.len(), 1);
         assert_eq!(incoming_a[0].call_spans.len(), 1);
-        let incoming_c = index.incoming(&c_path, &name("greet"));
+        let greet_c = function_node(&index, "/w/c.sh", "greet", 0);
+        let incoming_c = index.incoming(&c_path, &greet_c);
         assert_eq!(incoming_c.len(), 1);
         assert_eq!(incoming_c[0].call_spans.len(), 1);
     }
@@ -832,22 +1023,18 @@ mod tests {
         let mut index = WorkspaceCallIndex::new();
         index.insert(path.clone(), FileCallFacts::project(&model, Vec::new()));
 
-        let outgoing = index.outgoing(&path, &CallNodeKind::Function(name("itunes")));
+        let itunes = function_node(&index, "/w/script.zsh", "itunes", 0);
+        let outgoing = index.outgoing(&path, &itunes);
         assert_eq!(outgoing.len(), 1);
-        assert_eq!(outgoing[0].node, CallNodeKind::Function(name("helper")));
+        assert_eq!(function_name(&outgoing[0].node), Some("helper"));
 
+        let helper = function_node(&index, "/w/script.zsh", "helper", 0);
         let mut callers = index
-            .incoming(&path, &name("helper"))
+            .incoming(&path, &helper)
             .into_iter()
-            .map(|call| call.node)
+            .filter_map(|call| function_name(&call.node).map(str::to_owned))
             .collect::<Vec<_>>();
-        callers.sort_by_key(|node| format!("{node:?}"));
-        assert_eq!(
-            callers,
-            [
-                CallNodeKind::Function(name("itunes")),
-                CallNodeKind::Function(name("music")),
-            ]
-        );
+        callers.sort();
+        assert_eq!(callers, ["itunes", "music"]);
     }
 }

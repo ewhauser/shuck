@@ -694,3 +694,99 @@ fn cross_file_call_hierarchy_honors_configured_source_paths() {
         .expect("server thread should join")
         .expect("server should exit cleanly");
 }
+
+#[test]
+fn call_hierarchy_round_trips_same_named_definition_identity() {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+
+    let workspace = tempfile::tempdir().expect("tempdir should be created");
+    let script_path = workspace.path().join("script.sh");
+    std::fs::write(&script_path, "stale() { :; }\n").unwrap();
+    let script_uri = Url::from_file_path(&script_path).unwrap();
+    let source = "first() { :; }\nsecond() { :; }\nworker() {\n  first\n}\nworker\nworker() {\n  second\n}\nworker\n";
+
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": replay_capabilities(),
+            "rootUri": Url::from_file_path(workspace.path()).unwrap(),
+        }),
+    );
+    let _ = recv_response(&client_connection, 1);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("initialized should send");
+    open_document(&client_connection, &script_uri, source);
+
+    let mut prepared = Vec::new();
+    for (request_id, line) in [(2, 2), (3, 6)] {
+        send_request(
+            &client_connection,
+            request_id,
+            "textDocument/prepareCallHierarchy",
+            serde_json::json!({
+                "textDocument": { "uri": script_uri },
+                "position": { "line": line, "character": 0 },
+            }),
+        );
+        let response = recv_response(&client_connection, request_id);
+        prepared.push(response.as_array().unwrap()[0].clone());
+    }
+
+    assert_eq!(prepared[0]["range"]["start"]["line"], 2);
+    assert_eq!(prepared[1]["range"]["start"]["line"], 6);
+    assert_ne!(prepared[0]["data"], prepared[1]["data"]);
+
+    for (request_id, item, expected_callee) in
+        [(4, &prepared[0], "first"), (5, &prepared[1], "second")]
+    {
+        send_request(
+            &client_connection,
+            request_id,
+            "callHierarchy/outgoingCalls",
+            serde_json::json!({ "item": item }),
+        );
+        let response = recv_response(&client_connection, request_id);
+        let outgoing = response.as_array().unwrap();
+        assert_eq!(outgoing.len(), 1);
+        assert_eq!(outgoing[0]["to"]["name"], expected_callee);
+    }
+
+    for (request_id, item, expected_call_line) in [(6, &prepared[0], 5), (7, &prepared[1], 9)] {
+        send_request(
+            &client_connection,
+            request_id,
+            "callHierarchy/incomingCalls",
+            serde_json::json!({ "item": item }),
+        );
+        let response = recv_response(&client_connection, request_id);
+        let incoming = response.as_array().unwrap();
+        assert_eq!(incoming.len(), 1);
+        assert_eq!(incoming[0]["fromRanges"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            incoming[0]["fromRanges"][0]["start"]["line"],
+            expected_call_line
+        );
+    }
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("exit notification should send");
+    server_thread
+        .join()
+        .expect("server thread should join")
+        .expect("server should exit cleanly");
+}
