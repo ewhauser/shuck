@@ -24,12 +24,12 @@ impl<'a> Parser<'a> {
             _ => return Err(self.error("expected ']]' to close conditional expression")),
         };
 
-        Ok(CompoundCommand::Conditional(ConditionalCommand {
+        Ok(CompoundCommand::Conditional(Box::new(ConditionalCommand {
             expression,
             span: left_bracket_span.merge(right_bracket_span),
             left_bracket_span,
             right_bracket_span,
-        }))
+        })))
     }
 
     pub(super) fn skip_conditional_newlines(&mut self) {
@@ -764,13 +764,13 @@ impl<'a> Parser<'a> {
             .parse_explicit_arithmetic_span(expr_span, "invalid arithmetic command")
             .ok()
             .flatten();
-        Ok(CompoundCommand::Arithmetic(ArithmeticCommand {
+        Ok(CompoundCommand::Arithmetic(Box::new(ArithmeticCommand {
             span: left_paren_span.merge(right_paren_span),
             left_paren_span,
             expr_span,
             expr_ast,
             right_paren_span,
-        }))
+        })))
     }
 
     pub(super) fn scan_arithmetic_command_close(&self, left_paren_span: Span) -> Option<Span> {

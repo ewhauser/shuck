@@ -110,7 +110,7 @@ pub(super) fn render_heredoc_body_part(
                 push_arithmetic_expansion(
                     rendered,
                     expression,
-                    expression_ast.as_ref(),
+                    expression_ast.as_deref(),
                     *syntax,
                     context,
                 );

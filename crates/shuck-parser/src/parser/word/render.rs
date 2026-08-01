@@ -51,7 +51,7 @@ impl<'a> Parser<'a> {
                 } => {
                     reference.is_source_backed()
                         && self.parameter_operator_is_source_backed(operator)
-                        && operand.as_ref().is_none_or(SourceText::is_source_backed)
+                        && operand.as_deref().is_none_or(SourceText::is_source_backed)
                 }
                 WordPart::Length(reference)
                 | WordPart::ArrayAccess(reference)
@@ -72,7 +72,7 @@ impl<'a> Parser<'a> {
                 } => {
                     reference.is_source_backed()
                         && offset.is_source_backed()
-                        && length.as_ref().is_none_or(SourceText::is_source_backed)
+                        && length.as_deref().is_none_or(SourceText::is_source_backed)
                 }
                 WordPart::IndirectExpansion {
                     reference,
@@ -82,7 +82,7 @@ impl<'a> Parser<'a> {
                 } => {
                     reference.is_source_backed()
                         && operator.is_none()
-                        && operand.as_ref().is_none_or(SourceText::is_source_backed)
+                        && operand.as_deref().is_none_or(SourceText::is_source_backed)
                 }
             }
     }
@@ -273,7 +273,7 @@ impl<'a> Parser<'a> {
                 self.push_parameter_operator_syntax(
                     out,
                     operator,
-                    operand.as_ref(),
+                    operand.as_ref().map(|v| &**v),
                     *colon_variant,
                 );
                 out.push('}');
@@ -333,7 +333,7 @@ impl<'a> Parser<'a> {
                     self.push_parameter_operator_syntax(
                         out,
                         operator,
-                        operand.as_ref(),
+                        operand.as_ref().map(|v| &**v),
                         *colon_variant,
                     );
                 }

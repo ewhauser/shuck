@@ -1,6 +1,5 @@
 use shuck_ast::{
-    Command, CompoundCommand, ForCommand, IfCommand, IfSyntax, RepeatCommand, SelectCommand, Span,
-    Stmt, StmtSeq, StmtTerminator, UntilCommand, WhileCommand,
+    Command, CompoundCommand, IfCommand, IfSyntax, Span, Stmt, StmtSeq, StmtTerminator,
 };
 
 use crate::command::{stmt_format_span, stmt_span};
@@ -377,13 +376,23 @@ fn command_allows_done_without_semicolon(command: &Command) -> bool {
 fn compound_allows_done_without_semicolon(command: &CompoundCommand) -> bool {
     match command {
         CompoundCommand::Case(_) => true,
-        CompoundCommand::BraceGroup(commands)
-        | CompoundCommand::For(ForCommand { body: commands, .. })
-        | CompoundCommand::Repeat(RepeatCommand { body: commands, .. })
-        | CompoundCommand::While(WhileCommand { body: commands, .. })
-        | CompoundCommand::Until(UntilCommand { body: commands, .. })
-        | CompoundCommand::Select(SelectCommand { body: commands, .. }) => {
+        CompoundCommand::BraceGroup(commands) => {
             brace_group_last_stmt_allows_done_without_semicolon(commands)
+        }
+        CompoundCommand::For(command) => {
+            brace_group_last_stmt_allows_done_without_semicolon(&command.body)
+        }
+        CompoundCommand::Repeat(command) => {
+            brace_group_last_stmt_allows_done_without_semicolon(&command.body)
+        }
+        CompoundCommand::While(command) => {
+            brace_group_last_stmt_allows_done_without_semicolon(&command.body)
+        }
+        CompoundCommand::Until(command) => {
+            brace_group_last_stmt_allows_done_without_semicolon(&command.body)
+        }
+        CompoundCommand::Select(command) => {
+            brace_group_last_stmt_allows_done_without_semicolon(&command.body)
         }
         CompoundCommand::ArithmeticFor(command) => {
             brace_group_last_stmt_allows_done_without_semicolon(&command.body)

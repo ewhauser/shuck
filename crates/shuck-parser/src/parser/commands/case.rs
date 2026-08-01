@@ -63,12 +63,12 @@ impl<'a> Parser<'a> {
         self.advance();
 
         self.pop_depth();
-        Ok(CompoundCommand::Case(CaseCommand {
+        Ok(CompoundCommand::Case(Box::new(CaseCommand {
             word,
             cases,
             esac_span,
             span: start_span.merge(self.current_span),
-        }))
+        })))
     }
 
     pub(super) fn parse_case_patterns(&mut self) -> Result<Vec<Pattern>> {

@@ -1831,7 +1831,7 @@ pub(crate) fn collect_status_parameter_spans_in_word_part(
             collect_status_parameter_spans_in_var_ref(reference, source, spans);
             collect_status_parameter_spans_in_fragment(
                 operand_word_ast.as_deref(),
-                operand.as_ref(),
+                operand.as_ref().map(|v| &**v),
                 source,
                 spans,
             );

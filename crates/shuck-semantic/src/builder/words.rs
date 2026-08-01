@@ -421,7 +421,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                 }
                 self.visit_parameter_operator_operand(
                     operator,
-                    operand.as_ref(),
+                    operand.as_ref().map(|v| &**v),
                     operand_word_ast.as_deref(),
                     kind,
                     flow,
@@ -493,7 +493,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                 if let Some(operator) = operator {
                     self.visit_parameter_operator_operand(
                         operator,
-                        operand.as_ref(),
+                        operand.as_ref().map(|v| &**v),
                         operand_word_ast.as_deref(),
                         kind,
                         flow,
@@ -601,7 +601,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             }
             HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => {
                 self.visit_optional_arithmetic_expr_into(
-                    expression_ast.as_ref(),
+                    expression_ast.as_deref(),
                     flow,
                     nested_regions,
                 );

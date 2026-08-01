@@ -436,9 +436,9 @@ impl<'a> Parser<'a> {
             .parse_optional_source_text_as_word(operand.as_ref())
             .map(Box::new);
         WordPart::ParameterExpansion {
-            reference,
+            reference: Box::new(reference),
             operator: Box::new(operator),
-            operand,
+            operand: operand.map(Box::new),
             operand_word_ast,
             colon_variant,
         }
@@ -455,9 +455,9 @@ impl<'a> Parser<'a> {
             .parse_optional_source_text_as_word(operand.as_ref())
             .map(Box::new);
         WordPart::IndirectExpansion {
-            reference,
+            reference: Box::new(reference),
             operator: operator.map(Box::new),
-            operand,
+            operand: operand.map(Box::new),
             operand_word_ast,
             colon_variant,
         }
@@ -481,11 +481,11 @@ impl<'a> Parser<'a> {
             .parse_optional_source_text_as_word(length.as_ref())
             .map(Box::new);
         WordPart::Substring {
-            reference,
-            offset,
+            reference: Box::new(reference),
+            offset: Box::new(offset),
             offset_ast,
             offset_word_ast,
-            length,
+            length: length.map(Box::new),
             length_ast,
             length_word_ast,
         }
@@ -688,8 +688,9 @@ impl<'a> Parser<'a> {
                         let operator = Self::next_word_char_unwrap(chars, cursor);
                         Self::consume_word_char_if(chars, cursor, '}');
                         WordPart::Transformation {
-                            reference: self
-                                .parameter_var_ref(part_start, "${", var_name, None, *cursor),
+                            reference: Box::new(
+                                self.parameter_var_ref(part_start, "${", var_name, None, *cursor),
+                            ),
                             operator,
                         }
                     } else {
@@ -734,11 +735,11 @@ impl<'a> Parser<'a> {
             .parse_optional_source_text_as_word(length.as_ref())
             .map(Box::new);
         WordPart::ArraySlice {
-            reference,
-            offset,
+            reference: Box::new(reference),
+            offset: Box::new(offset),
             offset_ast,
             offset_word_ast,
-            length,
+            length: length.map(Box::new),
             length_ast,
             length_word_ast,
         }

@@ -961,9 +961,9 @@ impl<'a> Parser<'a> {
                             .and_then(Subscript::selector)
                             .is_some()
                         {
-                            WordPart::ArrayLength(reference)
+                            WordPart::ArrayLength(Box::new(reference))
                         } else {
-                            WordPart::Length(reference)
+                            WordPart::Length(Box::new(reference))
                         };
                         let part = self.parameter_word_part_from_legacy(
                             part,
@@ -975,9 +975,9 @@ impl<'a> Parser<'a> {
                     } else {
                         Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                         let part = self.parameter_word_part_from_legacy(
-                            WordPart::Length(
+                            WordPart::Length(Box::new(
                                 self.parameter_var_ref(part_start, "${#", &var_name, None, cursor),
-                            ),
+                            )),
                             part_start,
                             cursor,
                             source_backed,
@@ -1051,7 +1051,7 @@ impl<'a> Parser<'a> {
                                 .and_then(Subscript::selector)
                                 .is_some()
                             {
-                                WordPart::ArrayIndices(reference)
+                                WordPart::ArrayIndices(Box::new(reference))
                             } else {
                                 self.indirect_expansion_word_part(reference, None, None, false)
                             },
@@ -1599,43 +1599,43 @@ impl<'a> Parser<'a> {
                                 let operator = Self::next_word_char_unwrap(&mut chars, &mut cursor);
                                 Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                                 WordPart::Transformation {
-                                    reference: self.parameter_var_ref(
+                                    reference: Box::new(self.parameter_var_ref(
                                         part_start,
                                         "${",
                                         &var_name,
                                         Some(subscript),
                                         cursor,
-                                    ),
+                                    )),
                                     operator,
                                 }
                             } else {
                                 Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                                WordPart::ArrayAccess(self.parameter_var_ref(
+                                WordPart::ArrayAccess(Box::new(self.parameter_var_ref(
                                     part_start,
                                     "${",
                                     &var_name,
                                     Some(subscript),
                                     cursor,
-                                ))
+                                )))
                             }
                         } else {
                             Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                            WordPart::ArrayAccess(self.parameter_var_ref(
+                            WordPart::ArrayAccess(Box::new(self.parameter_var_ref(
                                 part_start,
                                 "${",
                                 &var_name,
                                 Some(subscript),
                                 cursor,
-                            ))
+                            )))
                         }
                     } else {
-                        WordPart::ArrayAccess(self.parameter_var_ref(
+                        WordPart::ArrayAccess(Box::new(self.parameter_var_ref(
                             part_start,
                             "${",
                             &var_name,
                             Some(subscript),
                             cursor,
-                        ))
+                        )))
                     };
 
                     let part = self.parameter_word_part_from_legacy(
@@ -1719,13 +1719,13 @@ impl<'a> Parser<'a> {
                                 raw_index,
                                 SubscriptInterpretation::Contextual,
                             );
-                            WordPart::ArrayAccess(self.parameter_var_ref(
+                            WordPart::ArrayAccess(Box::new(self.parameter_var_ref(
                                 part_start,
                                 "$",
                                 &var_name,
                                 Some(subscript),
                                 cursor,
-                            ))
+                            )))
                         } else {
                             WordPart::Variable(var_name.into())
                         };

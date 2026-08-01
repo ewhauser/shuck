@@ -978,11 +978,11 @@ impl<'a> Parser<'a> {
 
         Some(self.word_with_parts(
             vec![WordPartNode::new(
-                WordPart::ZshQualifiedGlob(ZshQualifiedGlob {
+                WordPart::ZshQualifiedGlob(Box::new(ZshQualifiedGlob {
                     span,
                     segments,
                     qualifiers,
-                }),
+                })),
                 span,
             )],
             span,

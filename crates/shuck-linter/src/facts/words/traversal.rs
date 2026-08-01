@@ -842,11 +842,11 @@ mod tests {
         };
         let word = Word {
             parts: vec![WordPartNode::new(
-                WordPart::ZshQualifiedGlob(ZshQualifiedGlob {
+                WordPart::ZshQualifiedGlob(Box::new(ZshQualifiedGlob {
                     span: span_for(source, 0, source.len()),
                     segments: vec![ZshGlobSegment::Pattern(pattern)],
                     qualifiers: None,
-                }),
+                })),
                 span_for(source, 0, source.len()),
             )],
             span: span_for(source, 0, source.len()),

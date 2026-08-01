@@ -1040,7 +1040,7 @@ pub(crate) fn collect_base_prefix_spans_in_arithmetic_word_part(
             collect_base_prefix_spans_in_var_ref(reference, source, spans);
             collect_base_prefix_spans_in_arithmetic_fragment(
                 operand_word_ast.as_deref(),
-                operand.as_ref(),
+                operand.as_ref().map(|v| &**v),
                 source,
                 spans,
             );
