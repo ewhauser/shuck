@@ -771,6 +771,7 @@ pub struct SemanticModel {
     shell_profile: ShellProfile,
     scopes: Vec<Scope>,
     scope_lookup: ScopeLookup,
+    scope_at_segments: OnceLock<Vec<(usize, ScopeId)>>,
     bindings: Vec<Binding>,
     references: Vec<Reference>,
     reference_index: FxHashMap<Name, SmallVec<[ReferenceId; 2]>>,
@@ -887,6 +888,7 @@ impl SemanticModel {
             shell_profile: built.shell_profile,
             scopes: built.scopes,
             scope_lookup,
+            scope_at_segments: OnceLock::new(),
             bindings: built.bindings,
             references: built.references,
             reference_index,
@@ -1617,9 +1619,13 @@ impl SemanticModel {
 
     /// Returns the innermost semantic scope containing `offset`.
     pub fn scope_at(&self, offset: usize) -> ScopeId {
-        self.scope_lookup
-            .scope_at(&self.scopes, offset)
-            .unwrap_or(ScopeId(0))
+        let segments = self
+            .scope_at_segments
+            .get_or_init(|| build_scope_at_segments(&self.scopes, &self.scope_lookup));
+        let index = segments.partition_point(|(start, _)| *start <= offset);
+        index
+            .checked_sub(1)
+            .map_or(ScopeId(0), |index| segments[index].1)
     }
 
     /// Returns the kind metadata for `scope`.
@@ -2527,6 +2533,32 @@ fn infer_bash_from_shebang(source: &str) -> Option<bool> {
 
 fn contains_offset(span: Span, offset: usize) -> bool {
     span.start.offset <= offset && offset <= span.end.offset
+}
+
+/// Flattens the scope tree into (start offset, innermost scope) segments.
+///
+/// The innermost scope only changes at a scope-span start or one past a
+/// scope-span end, so evaluating the tree descent at each such breakpoint
+/// yields a table that answers `scope_at` with one binary search while
+/// reproducing the descent's tie-breaking exactly.
+fn build_scope_at_segments(scopes: &[Scope], lookup: &ScopeLookup) -> Vec<(usize, ScopeId)> {
+    let mut breakpoints = Vec::with_capacity(scopes.len() * 2 + 1);
+    breakpoints.push(0usize);
+    for scope in scopes {
+        breakpoints.push(scope.span.start.offset);
+        breakpoints.push(scope.span.end.offset + 1);
+    }
+    breakpoints.sort_unstable();
+    breakpoints.dedup();
+
+    let mut segments = Vec::with_capacity(breakpoints.len());
+    for breakpoint in breakpoints {
+        let scope = lookup.scope_at(scopes, breakpoint).unwrap_or(ScopeId(0));
+        if segments.last().map(|(_, last)| *last) != Some(scope) {
+            segments.push((breakpoint, scope));
+        }
+    }
+    segments
 }
 
 fn build_references_sorted_by_start(references: &[Reference]) -> Vec<ReferenceId> {
