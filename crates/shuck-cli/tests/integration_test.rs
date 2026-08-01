@@ -1979,6 +1979,56 @@ fn check_analyzes_every_explicit_regular_file() {
 }
 
 #[test]
+fn check_skips_explicit_plain_yaml_files() {
+    let tempdir = tempdir().unwrap();
+    for name in ["config.yml", "config.yaml"] {
+        fs::write(tempdir.path().join(name), "- foo: 'bar'\n  bar: [foo]\n").unwrap();
+    }
+
+    for extra_args in [Vec::new(), vec!["--config", "check.embedded=false"]] {
+        let mut cmd = Command::cargo_bin("shuck").unwrap();
+        configure_env_cache(&mut cmd, tempdir.path());
+        cmd.current_dir(tempdir.path())
+            .args(["check", "--no-cache"])
+            .args(extra_args)
+            .args(["config.yml", "config.yaml"]);
+        cmd.assert().success().stdout("");
+    }
+}
+
+#[test]
+fn check_extracts_explicit_workflow_yaml() {
+    let tempdir = tempdir().unwrap();
+    let workflows = tempdir.path().join(".github/workflows");
+    fs::create_dir_all(&workflows).unwrap();
+    fs::write(
+        workflows.join("ci.yml"),
+        r#"on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          unused=1
+          echo ok
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--no-cache", ".github/workflows/ci.yml"]);
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("jobs.test.steps[0].run"))
+        .stdout(predicate::str::contains(format!(
+            "--> {}:7:11",
+            platform_path(".github/workflows/ci.yml")
+        )));
+}
+
+#[test]
 fn check_per_file_shell_reaches_explicit_extensionless_file() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("configured"), "{\n").unwrap();

@@ -128,6 +128,12 @@ pub struct ImplicitShellFlags {
 
 /// Extracts embedded shell snippets from a host file.
 pub trait Extractor {
+    /// Returns true when the path has a host-file format owned by this extractor,
+    /// even if its location is not one the extractor should inspect.
+    fn matches_host_format(&self, path: &Path) -> bool {
+        self.matches(path)
+    }
+
     /// Returns true when this extractor should inspect the given path.
     fn matches(&self, path: &Path) -> bool;
 
@@ -141,6 +147,13 @@ pub trait Extractor {
 /// Returns true when any registered extractor can handle the path.
 pub fn is_extractable(path: &Path) -> bool {
     extractors().iter().any(|extractor| extractor.matches(path))
+}
+
+/// Returns true when the path has a host-file format owned by a registered extractor.
+pub fn is_embedded_host(path: &Path) -> bool {
+    extractors()
+        .iter()
+        .any(|extractor| extractor.matches_host_format(path))
 }
 
 /// Runs all matching extractors for a host path and source.
@@ -162,6 +175,10 @@ fn extractors() -> [GitHubActionsExtractor; 1] {
 struct GitHubActionsExtractor;
 
 impl Extractor for GitHubActionsExtractor {
+    fn matches_host_format(&self, path: &Path) -> bool {
+        is_yaml_path(path)
+    }
+
     fn matches(&self, path: &Path) -> bool {
         gha_path_matches(path)
     }
@@ -324,10 +341,7 @@ fn yaml_mapping_get_scalar<'a>(
 }
 
 fn gha_path_matches(path: &Path) -> bool {
-    let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
-        return false;
-    };
-    if !matches!(extension.to_ascii_lowercase().as_str(), "yml" | "yaml") {
+    if !is_yaml_path(path) {
         return false;
     }
 
@@ -351,6 +365,12 @@ fn gha_path_matches(path: &Path) -> bool {
     parts
         .windows(2)
         .any(|window| matches!(window, [".github", "workflows"]))
+}
+
+fn is_yaml_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| matches!(extension.to_ascii_lowercase().as_str(), "yml" | "yaml"))
 }
 
 fn is_github_actions_mapping(root: &YamlMapping<'_>) -> bool {
@@ -1859,6 +1879,10 @@ mod tests {
         assert!(is_extractable(Path::new("action.yaml")));
         assert!(!is_extractable(Path::new("ci.yml")));
         assert!(!is_extractable(Path::new("script.sh")));
+
+        assert!(is_embedded_host(Path::new("ci.yml")));
+        assert!(is_embedded_host(Path::new("CONFIG.YAML")));
+        assert!(!is_embedded_host(Path::new("script.sh")));
     }
 
     #[test]
