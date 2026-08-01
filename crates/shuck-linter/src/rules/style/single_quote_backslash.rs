@@ -30,7 +30,7 @@ pub fn single_quote_backslash(checker: &mut Checker) {
         .filter_map(|fragment| single_quoted_fragment_backslash_span(fragment.span(), source))
         .map(|span| {
             Diagnostic::new(SingleQuoteBackslash, span).with_fix(Fix::safe_edit(
-                Edit::replacement_at(span.start.offset, span.start.offset + 2, "'\\\\"),
+                Edit::replacement_at(span.start.offset(), span.start.offset() + 2, "'\\\\"),
             ))
         })
         .collect::<Vec<_>>();

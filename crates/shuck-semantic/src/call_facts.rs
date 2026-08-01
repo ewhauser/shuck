@@ -78,8 +78,8 @@ impl CallFunctionId {
     pub fn new(name: Name, definition_span: Span) -> Self {
         Self {
             name,
-            definition_start: definition_span.start.offset,
-            definition_end: definition_span.end.offset,
+            definition_start: definition_span.start.offset(),
+            definition_end: definition_span.end.offset(),
         }
     }
 }
@@ -217,7 +217,7 @@ impl FileCallFacts {
         mut source_edges: Vec<CallFactSourceEdge>,
     ) -> Self {
         let analysis = model.analysis();
-        source_edges.sort_by_key(|edge| edge.span.start.offset);
+        source_edges.sort_by_key(|edge| edge.span.start.offset());
 
         let mut functions_by_scope: FxHashMap<ScopeId, Vec<(CallFunctionId, Span)>> =
             FxHashMap::default();
@@ -339,8 +339,8 @@ impl FileCallFacts {
     pub fn definition(&self, function: &CallFunctionId) -> Option<&CallFactDefinition> {
         self.definitions.iter().find(|definition| {
             definition.name == function.name
-                && definition.def_span.start.offset == function.definition_start
-                && definition.def_span.end.offset == function.definition_end
+                && definition.def_span.start.offset() == function.definition_start
+                && definition.def_span.end.offset() == function.definition_end
         })
     }
 }
@@ -562,7 +562,7 @@ impl WorkspaceCallIndex {
             .iter()
             .find(|site| site.name_span == name_span)?;
         let cutoff = match site.enclosing {
-            CallNodeKind::TopLevel => Some(site.name_span.start.offset),
+            CallNodeKind::TopLevel => Some(site.name_span.start.offset()),
             CallNodeKind::Function(_) => None,
         };
         let sourced = self.resolve_through_edges_before(from_path, &site.callee, cutoff);
@@ -807,7 +807,7 @@ impl WorkspaceCallIndex {
             .rev()
             .filter(|edge| {
                 edge.span == Span::new()
-                    || cutoff.is_none_or(|offset| edge.span.start.offset < offset)
+                    || cutoff.is_none_or(|offset| edge.span.start.offset() < offset)
             })
             .find_map(|edge| {
                 self.resolve_exported(&edge.path, callee, &mut stack)
@@ -840,12 +840,12 @@ impl WorkspaceCallIndex {
         let mut events = Vec::new();
         for definition in facts.definitions.iter().filter(|def| &def.name == callee) {
             events.push((
-                definition.def_span.start.offset,
+                definition.def_span.start.offset(),
                 Event::Definition(definition),
             ));
         }
         for edge in &facts.source_edges {
-            events.push((edge.span.start.offset, Event::Source(edge)));
+            events.push((edge.span.start.offset(), Event::Source(edge)));
         }
         events.sort_by_key(|(offset, _)| *offset);
 
@@ -884,7 +884,7 @@ impl WorkspaceCallIndex {
                 continue;
             }
             let cutoff = match site.enclosing {
-                CallNodeKind::TopLevel => Some(site.name_span.start.offset),
+                CallNodeKind::TopLevel => Some(site.name_span.start.offset()),
                 CallNodeKind::Function(_) => None,
             };
             let sourced = resolved
@@ -955,7 +955,7 @@ impl WorkspaceCallIndex {
                     continue;
                 }
                 let cutoff = match site.enclosing {
-                    CallNodeKind::TopLevel => Some(site.name_span.start.offset),
+                    CallNodeKind::TopLevel => Some(site.name_span.start.offset()),
                     CallNodeKind::Function(_) => None,
                 };
                 let sourced = edge_resolutions
@@ -966,8 +966,9 @@ impl WorkspaceCallIndex {
                     choose_resolved_target(caller_path, site.local_definition_span, sourced)
                         .is_some_and(|target| {
                             target.path.as_path() == target_path
-                                && target.def_span.start.offset == target_function.definition_start
-                                && target.def_span.end.offset == target_function.definition_end
+                                && target.def_span.start.offset()
+                                    == target_function.definition_start
+                                && target.def_span.end.offset() == target_function.definition_end
                         });
                 if !resolves {
                     continue;
@@ -1015,7 +1016,8 @@ fn choose_resolved_target(
 ) -> Option<ResolvedDefinition> {
     match (local_definition, sourced) {
         (Some(definition), Some((target, source_span)))
-            if source_span != Span::new() && source_span.start.offset > definition.start.offset =>
+            if source_span != Span::new()
+                && source_span.start.offset() > definition.start.offset() =>
         {
             Some(target)
         }
@@ -1787,7 +1789,7 @@ mod tests {
             .definitions
             .iter()
             .filter(|definition| definition.name == name("greet"))
-            .max_by_key(|definition| definition.def_span.start.offset)
+            .max_by_key(|definition| definition.def_span.start.offset())
             .expect("final greet definition should be projected")
             .def_span;
         index.insert(caller_path.clone(), caller_facts);
@@ -1829,7 +1831,7 @@ mod tests {
         let final_definition = target_facts
             .definitions
             .iter()
-            .max_by_key(|definition| definition.def_span.start.offset)
+            .max_by_key(|definition| definition.def_span.start.offset())
             .expect("final sourced definition should be projected")
             .clone();
 

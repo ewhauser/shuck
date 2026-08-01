@@ -86,8 +86,8 @@ fn test_parse_conditional_builds_structured_logical_ast() {
     assert_eq!(binary.op, ConditionalBinaryOp::And);
     assert!(matches!(binary.left.as_ref(), ConditionalExpr::Word(_)));
     assert!(matches!(binary.right.as_ref(), ConditionalExpr::Word(_)));
-    assert_eq!(command.left_bracket_span.start.column, 1);
-    assert_eq!(command.right_bracket_span.start.column, 19);
+    assert_eq!(command.left_bracket_span.start.column(), 1);
+    assert_eq!(command.right_bracket_span.start.column(), 19);
 }
 
 #[test]

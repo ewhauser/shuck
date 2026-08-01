@@ -35,7 +35,7 @@ pub struct Edit {
 
 impl Edit {
     pub fn deletion(span: Span) -> Self {
-        Self::deletion_at(span.start.offset, span.end.offset)
+        Self::deletion_at(span.start.offset(), span.end.offset())
     }
 
     pub fn deletion_at(start: usize, end: usize) -> Self {
@@ -43,7 +43,7 @@ impl Edit {
     }
 
     pub fn replacement(content: impl Into<CompactString>, span: Span) -> Self {
-        Self::replacement_at(span.start.offset, span.end.offset, content)
+        Self::replacement_at(span.start.offset(), span.end.offset(), content)
     }
 
     pub fn replacement_at(start: usize, end: usize, content: impl Into<CompactString>) -> Self {
@@ -274,16 +274,8 @@ mod tests {
 
     fn span(start: usize, end: usize) -> Span {
         Span::from_positions(
-            Position {
-                line: 1,
-                column: start + 1,
-                offset: start,
-            },
-            Position {
-                line: 1,
-                column: end + 1,
-                offset: end,
-            },
+            Position::at(1, start + 1, start),
+            Position::at(1, end + 1, end),
         )
     }
 

@@ -134,12 +134,12 @@ fn command_can_return_before(
     before_offset: usize,
 ) -> bool {
     let command = program.command(command_id);
-    if command.span.start.offset >= before_offset {
+    if command.span.start.offset() >= before_offset {
         return false;
     }
 
     match program.command(command_id).kind {
-        RecordedCommandKind::Return => command.span.start.offset < before_offset,
+        RecordedCommandKind::Return => command.span.start.offset() < before_offset,
         RecordedCommandKind::List { first, rest } => {
             command_can_return_before(program, first, before_offset)
                 || program
@@ -209,7 +209,7 @@ fn resolve_script_terminating_call_spans(
         }
         if file_entry_can_return_before_function_definition(
             program,
-            bindings[call.binding.index()].span.start.offset,
+            bindings[call.binding.index()].span.start.offset(),
         ) {
             continue;
         }
@@ -241,8 +241,8 @@ pub(crate) fn recorded_command_span_for_call_site(
         })
         .min_by_key(|command| {
             (
-                command.span.end.offset - command.span.start.offset,
-                command.span.start.offset,
+                command.span.end.offset() - command.span.start.offset(),
+                command.span.start.offset(),
             )
         })
         .or_else(|| {
@@ -252,8 +252,8 @@ pub(crate) fn recorded_command_span_for_call_site(
                 .filter(|command| span_contains(command.span, site.span))
                 .min_by_key(|command| {
                     (
-                        command.span.end.offset - command.span.start.offset,
-                        command.span.start.offset,
+                        command.span.end.offset() - command.span.start.offset(),
+                        command.span.start.offset(),
                     )
                 })
         })
@@ -359,7 +359,7 @@ fn command_exit_effect(
 }
 
 fn span_contains(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+    outer.start.offset() <= inner.start.offset() && inner.end.offset() <= outer.end.offset()
 }
 
 fn list_exit_effect(

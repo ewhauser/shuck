@@ -19,10 +19,10 @@ impl Violation for DoubleQuoteNesting {
 }
 
 fn span_is_strictly_inside(span: &shuck_ast::Span, host: &shuck_ast::Span) -> bool {
-    host.start.offset <= span.start.offset
-        && span.end.offset <= host.end.offset
-        && span.start.offset != host.start.offset
-        && span.end.offset != host.end.offset
+    host.start.offset() <= span.start.offset()
+        && span.end.offset() <= host.end.offset()
+        && span.start.offset() != host.start.offset()
+        && span.end.offset() != host.end.offset()
 }
 
 pub fn double_quote_nesting(checker: &mut Checker) {

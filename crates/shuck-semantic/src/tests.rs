@@ -177,7 +177,7 @@ echo \"$foo\"
     let reference_span = span_for_nth(source, "foo", 1);
     let reference = model
         .editor_query()
-        .hover_at_offset(reference_span.start.offset)
+        .hover_at_offset(reference_span.start.offset())
         .expect("reference should have hover");
     assert_eq!(reference.symbol.name.as_str(), "foo");
     assert_eq!(reference.symbol.definition_span.slice(source), "foo");
@@ -196,7 +196,7 @@ build() {
     let declaration = span_for_nth(source, "items", 0);
     let hover = model
         .editor_query()
-        .hover_at_offset(declaration.start.offset)
+        .hover_at_offset(declaration.start.offset())
         .expect("declaration should have hover");
     assert_eq!(hover.symbol.name.as_str(), "items");
     assert_eq!(hover.symbol.kind, EditorSymbolKind::Array);
@@ -214,7 +214,7 @@ build
     let call = span_for_nth(source, "build", 1);
     let hover = model
         .editor_query()
-        .hover_at_offset(call.start.offset)
+        .hover_at_offset(call.start.offset())
         .expect("function call should have hover");
     assert_eq!(hover.symbol.name.as_str(), "build");
     assert_eq!(hover.symbol.kind, EditorSymbolKind::Function);
@@ -233,7 +233,7 @@ fn editor_hover_reports_runtime_names_without_definitions() {
     let name = span_for_nth(source, "HOME", 0);
     let hover = model
         .editor_query()
-        .hover_at_offset(name.start.offset)
+        .hover_at_offset(name.start.offset())
         .expect("runtime name should have hover");
     assert_eq!(hover.symbol.name.as_str(), "HOME");
     assert_eq!(hover.symbol.kind, EditorSymbolKind::RuntimeName);
@@ -254,14 +254,14 @@ printf '%s\\n' \"${created:=fallback}\"
 
     let braced_reference = span_for_nth(source, "foo", 1);
     let hover = query
-        .hover_at_offset(braced_reference.start.offset)
+        .hover_at_offset(braced_reference.start.offset())
         .expect("braced reference name should have hover");
     assert_eq!(hover.symbol.name.as_str(), "foo");
     assert_eq!(hover.target_span, braced_reference);
 
     let default_assignment = span_for_nth(source, "created", 0);
     let hover = query
-        .hover_at_offset(default_assignment.start.offset)
+        .hover_at_offset(default_assignment.start.offset())
         .expect("default assignment name should have hover");
     assert_eq!(hover.symbol.name.as_str(), "created");
     assert_eq!(hover.target_span, default_assignment);
@@ -269,8 +269,8 @@ printf '%s\\n' \"${created:=fallback}\"
     for offset in [
         source.find(":-").unwrap(),
         source.find(":=").unwrap(),
-        span_for_nth(source, "fallback", 0).start.offset,
-        span_for_nth(source, "fallback", 1).start.offset,
+        span_for_nth(source, "fallback", 0).start.offset(),
+        span_for_nth(source, "fallback", 1).start.offset(),
     ] {
         assert!(query.hover_at_offset(offset).is_none(), "{offset}");
     }
@@ -284,7 +284,7 @@ fn editor_hover_skips_known_runtime_names_that_are_not_active_for_shell() {
     assert!(
         model
             .editor_query()
-            .hover_at_offset(name.start.offset)
+            .hover_at_offset(name.start.offset())
             .is_none()
     );
 }
@@ -314,7 +314,7 @@ build
     let query = model.editor_query();
 
     let variable_ref = span_for_nth(source, "name", 2);
-    let definitions = query.definition_spans_at_offset(variable_ref.start.offset);
+    let definitions = query.definition_spans_at_offset(variable_ref.start.offset());
     assert_eq!(
         definitions
             .iter()
@@ -323,7 +323,7 @@ build
         ["name", "name"]
     );
 
-    let variable_occurrences = query.occurrences_at_offset(variable_ref.start.offset, true);
+    let variable_occurrences = query.occurrences_at_offset(variable_ref.start.offset(), true);
     assert_eq!(
         variable_occurrences
             .iter()
@@ -339,7 +339,7 @@ build
     let function_call = span_for_nth(source, "build", 1);
     assert_eq!(
         query
-            .definition_spans_at_offset(function_call.start.offset)
+            .definition_spans_at_offset(function_call.start.offset())
             .iter()
             .map(|span| span.slice(source))
             .collect::<Vec<_>>(),
@@ -347,7 +347,7 @@ build
     );
     assert_eq!(
         query
-            .occurrences_at_offset(function_call.start.offset, true)
+            .occurrences_at_offset(function_call.start.offset(), true)
             .iter()
             .map(|occurrence| (occurrence.span.slice(source), occurrence.kind))
             .collect::<Vec<_>>(),
@@ -413,7 +413,7 @@ fn editor_call_hierarchy_preserves_zsh_multi_name_function_bodies() {
 
     let itunes_def = span_for_nth(source, "itunes", 0);
     let itunes = query
-        .prepare_call_hierarchy(itunes_def.start.offset)
+        .prepare_call_hierarchy(itunes_def.start.offset())
         .expect("itunes should resolve to a function node");
     let outgoing = query.outgoing_calls(&itunes);
     assert_eq!(outgoing.len(), 1);
@@ -421,7 +421,7 @@ fn editor_call_hierarchy_preserves_zsh_multi_name_function_bodies() {
 
     let helper_def = span_for_nth(source, "helper", 1);
     let helper = query
-        .prepare_call_hierarchy(helper_def.start.offset)
+        .prepare_call_hierarchy(helper_def.start.offset())
         .expect("helper should resolve to a function node");
     let mut callers = query
         .incoming_calls(&helper)
@@ -760,7 +760,7 @@ build
 
     let variable_ref = span_for_nth(source, "name", 1);
     let rename = query
-        .rename_set_at_offset(variable_ref.start.offset)
+        .rename_set_at_offset(variable_ref.start.offset())
         .expect("plain variable should be renameable");
     assert_eq!(rename.name.as_str(), "name");
     assert_eq!(
@@ -774,7 +774,7 @@ build
 
     let function_call = span_for_nth(source, "build", 1);
     let rename = query
-        .rename_set_at_offset(function_call.start.offset)
+        .rename_set_at_offset(function_call.start.offset())
         .expect("function call should be renameable");
     assert_eq!(
         rename
@@ -787,7 +787,7 @@ build
 
     let nameref = span_for_nth(source, "ref", 0);
     assert_eq!(
-        query.rename_set_at_offset(nameref.start.offset),
+        query.rename_set_at_offset(nameref.start.offset()),
         Err(RenameUnavailable::Nameref)
     );
 }
@@ -1119,11 +1119,11 @@ printf '%s\\n' \"$fd\"
 
     let redirect_target_ref = fd_refs
         .iter()
-        .find(|reference| reference.span.start.line == 3)
+        .find(|reference| reference.span.start.line() == 3)
         .unwrap();
     let later_ref = fd_refs
         .iter()
-        .find(|reference| reference.span.start.line == 4)
+        .find(|reference| reference.span.start.line() == 4)
         .unwrap();
 
     assert_eq!(
@@ -1165,11 +1165,11 @@ printf '%s\\n' \"$scoped\"
 
     let inner_ref = scoped_refs
         .iter()
-        .find(|reference| reference.span.start.line == 4)
+        .find(|reference| reference.span.start.line() == 4)
         .unwrap();
     let outer_ref = scoped_refs
         .iter()
-        .find(|reference| reference.span.start.line == 6)
+        .find(|reference| reference.span.start.line() == 6)
         .unwrap();
 
     assert_eq!(
@@ -1238,11 +1238,11 @@ fn zsh_anonymous_functions_create_function_scoped_locals() {
 
     let inner_ref = scoped_refs
         .iter()
-        .find(|reference| reference.span.start.line == 1)
+        .find(|reference| reference.span.start.line() == 1)
         .unwrap();
     let outer_ref = scoped_refs
         .iter()
-        .find(|reference| reference.span.start.line == 2)
+        .find(|reference| reference.span.start.line() == 2)
         .unwrap();
 
     assert_eq!(
@@ -1290,7 +1290,7 @@ fn zsh_nested_expansion_subscript_references_are_source_anchored() {
     let reference = model
         .references()
         .iter()
-        .find(|reference| reference.name == "i" && reference.span.start.line > 0)
+        .find(|reference| reference.name == "i" && reference.span.start.line() > 0)
         .expect("nested arithmetic subscript should reference `i`");
     assert_eq!(reference.span.slice(source), "i");
 }
@@ -2227,7 +2227,7 @@ print -r -- \"$value\"
     let pipeline_assignment = model
         .bindings()
         .iter()
-        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .find(|binding| binding.span.start.offset() == source.find("value=new").unwrap())
         .unwrap();
     assert!(!matches!(
         model.scope_kind(pipeline_assignment.scope),
@@ -2248,7 +2248,7 @@ print -r -- \"$value\"
     let pipeline_assignment = model
         .bindings()
         .iter()
-        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .find(|binding| binding.span.start.offset() == source.find("value=new").unwrap())
         .unwrap();
     assert!(matches!(
         model.scope_kind(pipeline_assignment.scope),
@@ -2274,7 +2274,7 @@ print -r -- \"$value\"
     let pipeline_assignment = model
         .bindings()
         .iter()
-        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .find(|binding| binding.span.start.offset() == source.find("value=new").unwrap())
         .unwrap();
     assert!(matches!(
         model.scope_kind(pipeline_assignment.scope),
@@ -2295,7 +2295,7 @@ print -r -- \"$value\"
     let pipeline_assignment = model
         .bindings()
         .iter()
-        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .find(|binding| binding.span.start.offset() == source.find("value=new").unwrap())
         .unwrap();
     assert!(matches!(
         model.scope_kind(pipeline_assignment.scope),
@@ -2316,7 +2316,7 @@ print -r -- \"$value\"
     let pipeline_assignment = model
         .bindings()
         .iter()
-        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .find(|binding| binding.span.start.offset() == source.find("value=new").unwrap())
         .unwrap();
     assert!(matches!(
         model.scope_kind(pipeline_assignment.scope),
@@ -2337,7 +2337,7 @@ print -r -- \"$value\"
     let pipeline_assignment = model
         .bindings()
         .iter()
-        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .find(|binding| binding.span.start.offset() == source.find("value=new").unwrap())
         .unwrap();
     assert!(matches!(
         model.scope_kind(pipeline_assignment.scope),
@@ -2358,7 +2358,7 @@ print -r -- \"$value\"
     let pipeline_assignment = model
         .bindings()
         .iter()
-        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .find(|binding| binding.span.start.offset() == source.find("value=new").unwrap())
         .unwrap();
     assert!(matches!(
         model.scope_kind(pipeline_assignment.scope),
@@ -2379,7 +2379,7 @@ print -r -- \"$value\"
     let pipeline_assignment = model
         .bindings()
         .iter()
-        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .find(|binding| binding.span.start.offset() == source.find("value=new").unwrap())
         .unwrap();
     assert!(matches!(
         model.scope_kind(pipeline_assignment.scope),
@@ -2400,7 +2400,7 @@ print -r -- \"$value\"
     let pipeline_assignment = model
         .bindings()
         .iter()
-        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .find(|binding| binding.span.start.offset() == source.find("value=new").unwrap())
         .unwrap();
     assert!(matches!(
         model.scope_kind(pipeline_assignment.scope),
@@ -2422,7 +2422,7 @@ print -r -- \"$value\"
     let pipeline_assignment = model
         .bindings()
         .iter()
-        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .find(|binding| binding.span.start.offset() == source.find("value=new").unwrap())
         .unwrap();
     assert!(!matches!(
         model.scope_kind(pipeline_assignment.scope),
@@ -2443,7 +2443,7 @@ print -r -- \"$value\"
         let binding = model
             .bindings()
             .iter()
-            .find(|binding| binding.span.start.offset == source.find(assignment).unwrap())
+            .find(|binding| binding.span.start.offset() == source.find(assignment).unwrap())
             .unwrap();
         assert!(matches!(
             model.scope_kind(binding.scope),
@@ -2521,7 +2521,7 @@ outer() {
         })
         .min_by_key(|id| {
             let span = model.command_syntax_span(*id);
-            span.end.offset - span.start.offset
+            span.end.offset() - span.start.offset()
         })
         .unwrap();
 
@@ -2562,8 +2562,9 @@ fn command_topology_exposes_syntax_backed_commands_in_source_order() {
         let left = model.command_syntax_span(ids[0]);
         let right = model.command_syntax_span(ids[1]);
         assert!(
-            left.start.offset < right.start.offset
-                || (left.start.offset == right.start.offset && left.end.offset >= right.end.offset),
+            left.start.offset() < right.start.offset()
+                || (left.start.offset() == right.start.offset()
+                    && left.end.offset() >= right.end.offset()),
             "commands are out of source order: {left:?} before {right:?}"
         );
     }
@@ -3318,7 +3319,7 @@ printf '%s\\n' \"$(
     let scope = model.scope_at(
         span_for_nth(source, "printf '%s\\n' \"$1\"", 0)
             .start
-            .offset,
+            .offset(),
     );
 
     assert!(
@@ -3351,7 +3352,7 @@ caller() {
     let scope = model.scope_at(
         span_for_nth(source, "printf '%s\\n' \"$1\"", 0)
             .start
-            .offset,
+            .offset(),
     );
     let transients = model
         .transient_ancestor_scopes_within_function(scope)
@@ -3381,7 +3382,7 @@ exit
 ";
     let model = model(source);
     let binding = function_binding_id(&model, "target", 0);
-    let cutoff = span_for_nth(source, "exit", 0).start.offset;
+    let cutoff = span_for_nth(source, "exit", 0).start.offset();
     let analysis = model.analysis();
     let mut reachability = analysis.direct_function_call_reachability(Vec::new());
 
@@ -3401,9 +3402,9 @@ exit
 ";
     let model = model(source);
     let binding = function_binding_id(&model, "target", 0);
-    let after = span_for_nth(source, "echo", 0).start.offset;
-    let before = span_for_nth(source, "exit", 0).start.offset;
-    let early_before = span_for_nth(source, "target", 1).start.offset - 1;
+    let after = span_for_nth(source, "echo", 0).start.offset();
+    let before = span_for_nth(source, "exit", 0).start.offset();
+    let early_before = span_for_nth(source, "target", 1).start.offset() - 1;
     let analysis = model.analysis();
     let mut reachability = analysis.direct_function_call_reachability(Vec::new());
 
@@ -3519,7 +3520,7 @@ command target
     let command_span = span_for_nth(source, "command target", 0);
     let supplemental = vec![FunctionCallCandidate {
         callee: Name::from("target"),
-        scope: model.scope_at(target_span.start.offset),
+        scope: model.scope_at(target_span.start.offset()),
         name_span: target_span,
         command_span,
     }];
@@ -5557,7 +5558,7 @@ foo=bar
     );
     let plain_unused = plain.analysis().unused_assignments().to_vec();
     assert_eq!(plain_unused.len(), 1);
-    assert_eq!(plain.binding(plain_unused[0]).span.start.line, 3);
+    assert_eq!(plain.binding(plain_unused[0]).span.start.line(), 3);
 
     let local = model(
         "\
@@ -5571,7 +5572,7 @@ f
     );
     let local_unused = local.analysis().unused_assignments().to_vec();
     assert_eq!(local_unused.len(), 1);
-    assert_eq!(local.binding(local_unused[0]).span.start.line, 4);
+    assert_eq!(local.binding(local_unused[0]).span.start.line(), 4);
 }
 
 #[test]
@@ -5708,8 +5709,8 @@ printf '%s\\n' \"$foo\"
     let reference_block = analysis
         .block_for_reference_id(reference.id)
         .expect("expected reference block");
-    let entry =
-        analysis.flow_entry_block_for_binding_scopes(&[binding.scope], reference.span.start.offset);
+    let entry = analysis
+        .flow_entry_block_for_binding_scopes(&[binding.scope], reference.span.start.offset());
     let cover_blocks = FxHashSet::from_iter([binding_block]);
 
     assert!(!analysis.blocks_cover_all_paths_to_block(entry, reference_block, &cover_blocks));
@@ -5857,8 +5858,8 @@ printf done
     let value_flow = analysis.value_flow();
     let use_span = model.command_span(printf);
     let synthetic_use_block = analysis.flow_entry_block_for_binding_scopes(
-        &[model.scope_at(use_span.start.offset)],
-        use_span.start.offset,
+        &[model.scope_at(use_span.start.offset())],
+        use_span.start.offset(),
     );
 
     assert_eq!(
@@ -5928,7 +5929,7 @@ printf done
     assert!(value_flow.name_can_fan_out_when_unquoted_without_reference(
         &Name::from("foo"),
         use_span,
-        model.scope_at(use_span.start.offset),
+        model.scope_at(use_span.start.offset()),
     ));
 
     let scalar_source = "\
@@ -5947,7 +5948,7 @@ printf done
         !scalar_value_flow.name_can_fan_out_when_unquoted_without_reference(
             &Name::from("foo"),
             scalar_use_span,
-            scalar_model.scope_at(scalar_use_span.start.offset),
+            scalar_model.scope_at(scalar_use_span.start.offset()),
         )
     );
 }
@@ -6243,9 +6244,9 @@ printf '%s\\n' \"$foo\"
         .expect("expected helper scope");
     let analysis = model.analysis();
     let value_flow = analysis.value_flow();
-    let caller_scope = model.scope_at(reference.span.start.offset);
+    let caller_scope = model.scope_at(reference.span.start.offset());
     let callee_scopes = value_flow
-        .transitively_called_function_scopes_before(caller_scope, reference.span.start.offset);
+        .transitively_called_function_scopes_before(caller_scope, reference.span.start.offset());
 
     assert!(callee_scopes.contains(&helper_scope));
 }
@@ -6967,7 +6968,7 @@ printf '%s\\n' \
             expected
                 .entry(reference.name.as_str().to_owned())
                 .or_default()
-                .push(reference.span.start.offset);
+                .push(reference.span.start.offset());
         }
     }
 
@@ -7002,10 +7003,10 @@ relay() {
 
     let greet_use_offset = span_for_nth(source, "printf '%s\\n' \"$1\"", 0)
         .start
-        .offset;
+        .offset();
     let relay_use_offset = span_for_nth(source, "printf '%s\\n' \"$@\"", 0)
         .start
-        .offset;
+        .offset();
     let greet_scope = model
         .enclosing_function_scope(model.scope_at(greet_use_offset))
         .unwrap();
@@ -7048,7 +7049,7 @@ relay() {
     let transient_scope = model
         .innermost_transient_scope_within_function(model.scope_at(greet_use_offset))
         .unwrap();
-    let reset_offset = span_for_nth(source, "set -- inner", 0).start.offset;
+    let reset_offset = span_for_nth(source, "set -- inner", 0).start.offset();
     let mut local_resets = FxHashMap::default();
     local_resets.insert(transient_scope, vec![reset_offset]);
 
@@ -7219,8 +7220,8 @@ rvm_info=\"
         .find(|reference| reference.name == "_system_info")
         .unwrap();
 
-    assert_eq!(reference.span.start.line, 3);
-    assert_eq!(reference.span.start.column, 12);
+    assert_eq!(reference.span.start.line(), 3);
+    assert_eq!(reference.span.start.column(), 12);
     assert_eq!(reference.span.slice(source), "${_system_info}");
 }
 
@@ -7249,8 +7250,8 @@ payload=\"{
         .find(|reference| reference.name == "serverfilesdu")
         .unwrap();
 
-    assert_eq!(reference.span.start.line, 10);
-    assert_eq!(reference.span.start.column, 20);
+    assert_eq!(reference.span.start.line(), 10);
+    assert_eq!(reference.span.start.column(), 20);
     assert_eq!(reference.span.slice(source), "${serverfilesdu}");
 }
 
@@ -7303,9 +7304,9 @@ fi
         rvm_gem_home.span.slice(source),
         "${rvm_ruby_gem_home%%${rvm_gemset_separator:-\"@\"}*}"
     );
-    assert_eq!(rvm_gem_home.span.end.column, 71);
+    assert_eq!(rvm_gem_home.span.end.column(), 71);
     assert_eq!(skiprdeps.span.slice(source), "${skiprdeps/${_lf}/}");
-    assert_eq!(skiprdeps.span.end.column, 27);
+    assert_eq!(skiprdeps.span.end.column(), 27);
 }
 
 #[test]

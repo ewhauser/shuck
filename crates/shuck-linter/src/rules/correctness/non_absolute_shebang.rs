@@ -71,7 +71,7 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::NonAbsoluteShebang));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "#!bin/sh");
     }
 

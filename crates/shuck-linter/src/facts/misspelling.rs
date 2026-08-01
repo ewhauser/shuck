@@ -410,8 +410,8 @@ pub(crate) fn scan_possible_variable_misspelling_candidate(
             candidate_match_rank(target_name, binding.name.as_str()).map(|rank| {
                 (
                     rank,
-                    binding.span.start.offset,
-                    binding.span.end.offset,
+                    binding.span.start.offset(),
+                    binding.span.end.offset(),
                     binding.name.as_str(),
                 )
             })
@@ -449,8 +449,8 @@ fn scan_presence_tested_candidate_name<'a>(
             candidate_match_rank(target_name, candidate_name.as_str()).map(|rank| {
                 (
                     rank,
-                    first_span.start.offset,
-                    first_span.end.offset,
+                    first_span.start.offset(),
+                    first_span.end.offset(),
                     candidate_name.as_str(),
                 )
             })
@@ -526,7 +526,7 @@ fn first_presence_test_span(
                 .flatten()
                 .map(|presence| presence.tested_span()),
         )
-        .min_by_key(|span| (span.start.offset, span.end.offset))
+        .min_by_key(|span| (span.start.offset(), span.end.offset()))
 }
 
 fn compare_candidates(
@@ -538,13 +538,13 @@ fn compare_candidates(
     let (_, right_rank, right_entry) = right;
     let ordering = (
         left_rank,
-        left_entry.first_span.start.offset,
-        left_entry.first_span.end.offset,
+        left_entry.first_span.start.offset(),
+        left_entry.first_span.end.offset(),
     )
         .cmp(&(
             right_rank,
-            right_entry.first_span.start.offset,
-            right_entry.first_span.end.offset,
+            right_entry.first_span.start.offset(),
+            right_entry.first_span.end.offset(),
         ));
     if !ordering.is_eq() {
         return ordering;

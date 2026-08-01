@@ -26,7 +26,7 @@ fn test_parse_recovered_skips_invalid_command_and_continues() {
     assert_eq!(recovered.file.body.len(), 2);
     assert_eq!(recovered.diagnostics.len(), 1);
     assert_eq!(recovered.diagnostics[0].message, "expected word");
-    assert_eq!(recovered.diagnostics[0].span.start.line, 2);
+    assert_eq!(recovered.diagnostics[0].span.start.line(), 2);
 
     let first = expect_simple(&recovered.file.body[0]);
     assert_eq!(first.name.render(input), "echo");

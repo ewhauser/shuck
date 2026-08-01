@@ -704,13 +704,13 @@ impl<'source> CloseDelimiterCollector<'source> {
     }
 
     fn delimiter_range_from_span(&self, span: Span, text: &str) -> Option<TextRange> {
-        let start = span.start.offset;
+        let start = span.start.offset();
         let start_end = start.checked_add(text.len())?;
         if self.source.get(start..start_end) == Some(text) {
             return Some(text_range(start, start_end));
         }
 
-        let end = span.end.offset;
+        let end = span.end.offset();
         let end_start = end.checked_sub(text.len())?;
         if self.source.get(end_start..end) == Some(text) {
             return Some(text_range(end_start, end));

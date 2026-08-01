@@ -345,19 +345,11 @@ pub(crate) fn shebang_space_after_hash_in_line(line: &str) -> Option<(usize, usi
 }
 
 pub(crate) fn point_span(line_number: usize, column: usize, offset: usize) -> Span {
-    Span::at(Position {
-        line: line_number,
-        column,
-        offset,
-    })
+    Span::at(Position::at(line_number, column, offset))
 }
 
 pub(crate) fn line_prefix_span(line_number: usize, offset: usize, prefix: &str) -> Span {
-    let start = Position {
-        line: line_number,
-        column: 1,
-        offset,
-    };
+    let start = Position::at(line_number, 1, offset);
     let end = start.advanced_by(prefix);
     Span::from_positions(start, end)
 }
@@ -369,11 +361,7 @@ pub(crate) fn line_slice_span(
     slice_start: usize,
     slice_len: usize,
 ) -> Span {
-    let line_start = Position {
-        line: line_number,
-        column: 1,
-        offset: line_offset,
-    };
+    let line_start = Position::at(line_number, 1, line_offset);
     let start = line_start.advanced_by(&line[..slice_start]);
     let end = start.advanced_by(&line[slice_start..slice_start + slice_len]);
     Span::from_positions(start, end)
@@ -385,11 +373,7 @@ pub(crate) fn line_with_ending_span(
     line: &str,
     line_ending: &str,
 ) -> Span {
-    let start = Position {
-        line: line_number,
-        column: 1,
-        offset,
-    };
+    let start = Position::at(line_number, 1, offset);
     let end = start.advanced_by(line).advanced_by(line_ending);
     Span::from_positions(start, end)
 }
@@ -502,11 +486,7 @@ pub(crate) fn shebang_short_option_cluster_enables_errexit(word: &str) -> bool {
 }
 
 pub(crate) fn line_span(line_number: usize, offset: usize, line: &str) -> Span {
-    let start = Position {
-        line: line_number,
-        column: 1,
-        offset,
-    };
+    let start = Position::at(line_number, 1, offset);
     let end = start.advanced_by(line);
     Span::from_positions(start, end)
 }
@@ -541,11 +521,7 @@ pub(crate) fn build_commented_continuation_comment_spans(
             }
             let caret_offset = comment_start + trimmed_comment_text.len();
 
-            let line_start_position = Position {
-                line,
-                column: 1,
-                offset: line_start,
-            };
+            let line_start_position = Position::at(line, 1, line_start);
             let caret = line_start_position.advanced_by(&source[line_start..caret_offset]);
             Some(Span::at(caret))
         })
@@ -704,11 +680,7 @@ pub(crate) fn build_trailing_directive_comment_spans(
                 return None;
             }
 
-            let line_start_position = Position {
-                line,
-                column: 1,
-                offset: line_start,
-            };
+            let line_start_position = Position::at(line, 1, line_start);
             let start = line_start_position.advanced_by(&source[line_start..comment_start]);
             let end = start.advanced_by("#");
             Some(Span::from_positions(start, end))
@@ -750,11 +722,7 @@ pub(crate) fn build_todo_comment_facts(
                 return None;
             }
 
-            let line_start_position = Position {
-                line,
-                column: 1,
-                offset: line_start,
-            };
+            let line_start_position = Position::at(line, 1, line_start);
             let content_start_position =
                 line_start_position.advanced_by(&source[line_start..content_start]);
             let content_span = Span::from_positions(
@@ -776,7 +744,7 @@ pub(crate) fn case_item_label_comment(
             return false;
         };
 
-        if pattern.span.end.line != line || comment_start < pattern.span.end.offset {
+        if pattern.span.end.line() != line || comment_start < pattern.span.end.offset() {
             return false;
         }
 
@@ -784,7 +752,7 @@ pub(crate) fn case_item_label_comment(
             return true;
         };
 
-        stmt.span.start.line != line
+        stmt.span.start.line() != line
     })
 }
 

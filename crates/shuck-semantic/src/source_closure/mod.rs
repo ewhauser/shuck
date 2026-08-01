@@ -206,7 +206,7 @@ pub(crate) fn collect_source_ref_metadata(
     let mut source_ref_diagnostic_classes = Vec::new();
 
     for source_ref in model.source_refs() {
-        let scope = model.scope_at(source_ref.span.start.offset);
+        let scope = model.scope_at(source_ref.span.start.offset());
         let template = effective_source_template(
             model,
             source_ref,
@@ -274,7 +274,7 @@ fn collect_source_closure_contracts_with_cache(
     let mut source_ref_diagnostic_classes = Vec::new();
 
     for source_ref in model.source_refs() {
-        let scope = model.scope_at(source_ref.span.start.offset);
+        let scope = model.scope_at(source_ref.span.start.offset());
         let template = effective_source_template(
             model,
             source_ref,
@@ -340,7 +340,7 @@ fn collect_source_closure_contracts_with_cache(
 
     if let Some(plugin_resolver) = context.plugin_resolver {
         for request in collect_plugin_requests(model, file, source, source_path, plugin_resolver) {
-            let scope = model.scope_at(request.span.start.offset);
+            let scope = model.scope_at(request.span.start.offset());
             let resolution = plugin_resolver.resolve_plugin_request(source_path, &request);
             requesting_file_contract = FileContract::merge_candidate_contracts(&[
                 requesting_file_contract,
@@ -381,7 +381,7 @@ fn collect_source_closure_contracts_with_cache(
             &imported_functions,
             &call.name,
             call.scope,
-            call.span.start.offset,
+            call.span.start.offset(),
         );
         if let Some(function_site) = imported_function_site {
             for name in &function_site.contract.required_reads {
@@ -407,7 +407,7 @@ fn collect_source_closure_contracts_with_cache(
         }
         if imported_function_site.is_none()
             && function_binding_lookup
-                .visible_function_binding(&call.name, call.scope, call.span.start.offset)
+                .visible_function_binding(&call.name, call.scope, call.span.start.offset())
                 .is_none()
             && let Some(bindings) = unresolved_zsh_reply_bindings_for_call(
                 source_path,
@@ -603,7 +603,7 @@ fn dedup_synthetic_reads(reads: Vec<SyntheticRead>) -> Vec<SyntheticRead> {
     let mut seen = FxHashSet::default();
     let mut deduped = Vec::new();
     for read in reads {
-        if seen.insert((read.scope, read.span.start.offset, read.name.clone())) {
+        if seen.insert((read.scope, read.span.start.offset(), read.name.clone())) {
             deduped.push(read);
         }
     }
@@ -621,7 +621,12 @@ fn dedup_imported_bindings(
             binding,
             origin_paths,
         } = site;
-        let key = (scope, span.start.offset, binding.name.clone(), binding.kind);
+        let key = (
+            scope,
+            span.start.offset(),
+            binding.name.clone(),
+            binding.kind,
+        );
         let entry = merged
             .entry(key)
             .or_insert((span, binding.certainty, Vec::<PathBuf>::new()));
@@ -726,7 +731,7 @@ fn visible_imported_function_contract<'a>(
         .map(|binding| {
             (
                 VisibleFunctionTarget::Local,
-                model.binding(binding).span.start.offset,
+                model.binding(binding).span.start.offset(),
             )
         });
         let imported =
@@ -734,7 +739,7 @@ fn visible_imported_function_contract<'a>(
                 .map(|site| {
                     (
                         VisibleFunctionTarget::Imported(site),
-                        site.span.start.offset,
+                        site.span.start.offset(),
                     )
                 });
 
@@ -769,8 +774,8 @@ fn visible_imported_function_in_scope<'a>(
     imported_functions
         .iter()
         .filter(|site| site.scope == target_scope && site.contract.name == *name)
-        .filter(|site| target_scope != call_scope || site.span.start.offset <= offset)
-        .max_by_key(|site| site.span.start.offset)
+        .filter(|site| target_scope != call_scope || site.span.start.offset() <= offset)
+        .max_by_key(|site| site.span.start.offset())
 }
 
 #[derive(Debug, Clone)]
@@ -809,7 +814,7 @@ fn collect_ast_facts(model: &SemanticModel) -> AstFacts {
     };
     let program = model.recorded_program();
     let mut commands = program.commands().iter().collect::<Vec<_>>();
-    commands.sort_by_key(|command| (command.span.start.offset, command.span.end.offset));
+    commands.sort_by_key(|command| (command.span.start.offset(), command.span.end.offset()));
 
     for command in commands {
         let Some(info) = program.command_info_for_span(command.span) else {
@@ -826,7 +831,7 @@ fn collect_ast_facts(model: &SemanticModel) -> AstFacts {
         let is_source_builtin = matches!(name.as_str(), "source" | ".");
         facts.calls.push(CallInfo {
             name,
-            scope: model.scope_at(command.span.start.offset),
+            scope: model.scope_at(command.span.start.offset()),
             span: command.span,
             args: info.static_args.to_vec(),
         });
@@ -1090,12 +1095,13 @@ where
             SourcePathTemplate::Interpolated(vec![TemplatePart::SourceFile])
         }
         ZshExpansionTarget::Reference(reference) => {
-            let span =
-                if reference.name_span.start.offset == 0 && reference.name_span.end.offset == 0 {
-                    expansion_span
-                } else {
-                    reference.name_span
-                };
+            let span = if reference.name_span.start.offset() == 0
+                && reference.name_span.end.offset() == 0
+            {
+                expansion_span
+            } else {
+                reference.name_span
+            };
             (context.resolve_variable_template)(&reference.name, span)?
         }
         ZshExpansionTarget::Nested(nested_expansion) => {
@@ -1530,7 +1536,7 @@ fn resolve_literal_call_args_by_scope(
             (
                 &call.name,
                 call.scope,
-                call.span.start.offset,
+                call.span.start.offset(),
                 call.args.clone(),
             )
         }),
@@ -2273,7 +2279,11 @@ set_flag() {
             explicit: false,
             root_hint: None,
         };
-        alpha_implicit.span.start.offset = 7;
+        alpha_implicit.span.start = shuck_ast::Position::at(
+            alpha_implicit.span.start.line(),
+            alpha_implicit.span.start.column(),
+            7,
+        );
 
         let mut beta_explicit = PluginRequest {
             framework: PluginFramework::OhMyZsh,
@@ -2283,7 +2293,11 @@ set_flag() {
             explicit: true,
             root_hint: None,
         };
-        beta_explicit.span.start.offset = 7;
+        beta_explicit.span.start = shuck_ast::Position::at(
+            beta_explicit.span.start.line(),
+            beta_explicit.span.start.column(),
+            7,
+        );
 
         let mut alpha_explicit = alpha_implicit.clone();
         alpha_explicit.explicit = true;

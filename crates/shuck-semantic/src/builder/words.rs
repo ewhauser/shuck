@@ -197,7 +197,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         let escaped_template_starts = self.escaped_parameter_template_body_starts_cached(word_span);
         for part in parts {
             if !escaped_template_starts.is_empty()
-                && escaped_template_starts.contains(&part.span.start.offset)
+                && escaped_template_starts.contains(&part.span.start.offset())
             {
                 continue;
             }
@@ -287,7 +287,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             subscript.interpretation,
             shuck_ast::SubscriptInterpretation::Associative
         ) || owner_name.is_some_and(|name| {
-            self.name_uses_associative_word_semantics(name, subscript.span().start.offset)
+            self.name_uses_associative_word_semantics(name, subscript.span().start.offset())
         });
         if !uses_associative_word_semantics
             && let Some(expression) = subscript.arithmetic_ast.as_ref()

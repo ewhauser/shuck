@@ -50,7 +50,7 @@ fn collect_leading_static_word_prefix_edits_from_part(
         WordPart::Literal(text) => collect_leading_static_word_prefix_edit_from_segment(
             text.syntax_str(source, part.span),
             semantic.as_str(),
-            part.span.start.offset,
+            part.span.start.offset(),
             remaining,
             edits,
         ),
@@ -59,7 +59,7 @@ fn collect_leading_static_word_prefix_edits_from_part(
             collect_leading_static_word_prefix_edit_from_segment(
                 content_span.slice(source),
                 semantic.as_str(),
-                content_span.start.offset,
+                content_span.start.offset(),
                 remaining,
                 edits,
             )

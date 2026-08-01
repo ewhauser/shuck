@@ -36,11 +36,11 @@ pub fn single_test_subshell(checker: &mut Checker) {
 }
 
 fn remove_outer_parens_fix(source: &str, span: Span) -> Fix {
-    let close_start = span.end.offset.saturating_sub(1);
+    let close_start = span.end.offset().saturating_sub(1);
     Fix::unsafe_edits([
         Edit::deletion_at(
-            opening_paren_delete_start(source, span.start.offset),
-            span.start.offset + 1,
+            opening_paren_delete_start(source, span.start.offset()),
+            span.start.offset() + 1,
         ),
         closing_paren_edit(source, close_start),
     ])

@@ -25,10 +25,13 @@ fn main() {
 
     let mut lexer = Lexer::new(&input);
     while let Some(token) = lexer.next_lexed_token() {
-        if token.span.start.line >= start_line && token.span.start.line <= end_line {
+        if token.span.start.line() >= start_line && token.span.start.line() <= end_line {
             println!(
                 "{:>6}:{:<4} {:<30?} {:?}",
-                token.span.start.line, token.span.start.column, token.span, token
+                token.span.start.line(),
+                token.span.start.column(),
+                token.span,
+                token
             );
         }
     }

@@ -69,8 +69,8 @@ pub fn quoted_bash_regex(checker: &mut Checker) {
 fn quoted_bash_regex_fix(word: &shuck_ast::Word, source: &str) -> Option<Fix> {
     let content_span = word.quoted_content_span_in_source(source)?;
     Some(Fix::unsafe_edits([
-        Edit::deletion_at(word.span.start.offset, content_span.start.offset),
-        Edit::deletion_at(content_span.end.offset, word.span.end.offset),
+        Edit::deletion_at(word.span.start.offset(), content_span.start.offset()),
+        Edit::deletion_at(content_span.end.offset(), word.span.end.offset()),
     ]))
 }
 
@@ -140,7 +140,7 @@ mod tests {
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| diagnostic.span.start.line)
+                .map(|diagnostic| diagnostic.span.start.line())
                 .collect::<Vec<_>>(),
             vec![3, 4]
         );

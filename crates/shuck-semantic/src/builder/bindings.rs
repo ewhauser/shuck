@@ -48,7 +48,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             && !explicit_array_declaration
             && self.previous_visible_binding_is_assoc(
                 &assignment.target.name,
-                assignment.target.name_span.start.offset,
+                assignment.target.name_span.start.offset(),
             )
         {
             attributes |= BindingAttributes::ARRAY | BindingAttributes::ASSOC;
@@ -72,7 +72,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                 .resolve_reference(
                     &assignment.target.name,
                     self.current_scope(),
-                    assignment.target.name_span.start.offset,
+                    assignment.target.name_span.start.offset(),
                 )
                 .map(|binding_id| {
                     self.bindings[binding_id.index()]
@@ -122,7 +122,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         self.resolve_reference(
             &assignment.target.name,
             self.current_scope(),
-            assignment.target.name_span.start.offset,
+            assignment.target.name_span.start.offset(),
         )
         .is_some_and(|binding_id| {
             !crate::binding::is_array_like_binding(&self.bindings[binding_id.index()])
@@ -202,7 +202,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
     ) -> bool {
         for scope in ancestor_scopes(&self.scopes, lookup_scope) {
             let clear_lower_bound = if scope == binding.scope {
-                binding.span.start.offset
+                binding.span.start.offset()
             } else {
                 0
             };
@@ -238,7 +238,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             .and_then(|bindings| {
                 bindings.iter().rev().copied().find(|binding_id| {
                     let binding = &self.bindings[binding_id.index()];
-                    binding.span.start.offset <= offset
+                    binding.span.start.offset() <= offset
                         && binding.attributes.contains(BindingAttributes::LOCAL)
                 })
             })
@@ -246,7 +246,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                 !self.binding_was_cleared_in_scope_between(
                     name,
                     scope,
-                    self.bindings[binding_id.index()].span.start.offset,
+                    self.bindings[binding_id.index()].span.start.offset(),
                     offset,
                 )
             })
@@ -270,7 +270,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             return attributes;
         };
         if attributes.contains(BindingAttributes::LOCAL)
-            || self.has_uncleared_local_binding_in_scope(name, function_scope, span.start.offset)
+            || self.has_uncleared_local_binding_in_scope(name, function_scope, span.start.offset())
         {
             return attributes;
         }
@@ -340,7 +340,7 @@ fn assignment_source_path_template_for_binding(
         zsh_runtime_vars_enabled,
         |name, span| {
             builder
-                .resolve_reference(name, builder.current_scope(), span.start.offset)
+                .resolve_reference(name, builder.current_scope(), span.start.offset())
                 .and_then(|binding_id| {
                     builder
                         .source_path_templates_by_binding

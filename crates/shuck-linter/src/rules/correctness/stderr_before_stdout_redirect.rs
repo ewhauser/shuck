@@ -122,9 +122,9 @@ fn reordered_redirect_segment(
     for index in stderr_index + 1..=stdout_index {
         let span = redirects[index].redirect().span;
         let gap = if index == stderr_index + 1 {
-            strip_leading_shell_trivia(&source[moved_span.end.offset..span.start.offset])
+            strip_leading_shell_trivia(&source[moved_span.end.offset()..span.start.offset()])
         } else {
-            &source[redirects[index - 1].redirect().span.end.offset..span.start.offset]
+            &source[redirects[index - 1].redirect().span.end.offset()..span.start.offset()]
         };
         replacement.push_str(gap);
         replacement.push_str(span.slice(source));
@@ -211,7 +211,7 @@ out=$(bar 2>&1 >/dev/null)
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
     }
 
     #[test]
@@ -415,6 +415,6 @@ echo ok | foo 2>&1 >/dev/null
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 }

@@ -52,7 +52,7 @@ pub fn implicit_global_in_function(checker: &mut Checker) {
                 .is_some_and(|offsets| {
                     offsets
                         .iter()
-                        .any(|offset| *offset <= binding.span.start.offset)
+                        .any(|offset| *offset <= binding.span.start.offset())
                 });
             (!has_local_declaration).then(|| {
                 Diagnostic::new(
@@ -235,7 +235,7 @@ fn binding_is_file_scoped(binding: &Binding, semantic: &shuck_semantic::Semantic
         semantic.scope_kind(binding.scope),
         shuck_semantic::ScopeKind::File
     ) && matches!(
-        semantic.scope_kind(semantic.scope_at(binding.span.start.offset)),
+        semantic.scope_kind(semantic.scope_at(binding.span.start.offset())),
         shuck_semantic::ScopeKind::File
     )
 }
@@ -248,7 +248,7 @@ fn reference_is_top_level(
         semantic.scope_kind(reference.scope),
         shuck_semantic::ScopeKind::File
     ) && matches!(
-        semantic.scope_kind(semantic.scope_at(reference.span.start.offset)),
+        semantic.scope_kind(semantic.scope_at(reference.span.start.offset())),
         shuck_semantic::ScopeKind::File
     )
 }
@@ -284,7 +284,7 @@ fn function_local_declarations(
             declarations
                 .entry((function_scope, binding.name.clone()))
                 .or_default()
-                .push(binding.span.start.offset);
+                .push(binding.span.start.offset());
         }
     }
 
@@ -293,7 +293,7 @@ fn function_local_declarations(
             continue;
         }
 
-        let declaration_scope = semantic.scope_at(declaration.span.start.offset);
+        let declaration_scope = semantic.scope_at(declaration.span.start.offset());
         let Some(function_scope) = semantic.enclosing_function_scope(declaration_scope) else {
             continue;
         };
@@ -326,10 +326,10 @@ fn declaration_operand_names(
         .operands
         .iter()
         .filter_map(|operand| match operand {
-            DeclarationOperand::Name { name, span } => Some((name, span.start.offset)),
+            DeclarationOperand::Name { name, span } => Some((name, span.start.offset())),
             DeclarationOperand::Assignment {
                 name, name_span, ..
-            } => Some((name, name_span.start.offset)),
+            } => Some((name, name_span.start.offset())),
             DeclarationOperand::Flag { .. } | DeclarationOperand::DynamicWord { .. } => None,
         })
 }
@@ -519,7 +519,7 @@ work() {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "SHARED");
-        assert_eq!(diagnostics[0].span.start.line, 5);
+        assert_eq!(diagnostics[0].span.start.line(), 5);
     }
 
     #[test]
@@ -541,7 +541,7 @@ work() {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "SHARED");
-        assert_eq!(diagnostics[0].span.start.line, 7);
+        assert_eq!(diagnostics[0].span.start.line(), 7);
     }
 
     #[test]
@@ -564,7 +564,7 @@ work() {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "SHARED");
-        assert_eq!(diagnostics[0].span.start.line, 8);
+        assert_eq!(diagnostics[0].span.start.line(), 8);
     }
 
     #[test]

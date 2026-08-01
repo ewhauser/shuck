@@ -12,7 +12,7 @@ pub(super) fn if_branch_upper_bound(
             .branch_prefix_first_comment_offset(start, end)
             .unwrap_or(end)
     } else {
-        facts.if_close_span(command).start.offset
+        facts.if_close_span(command).start.offset()
     }
 }
 
@@ -30,8 +30,8 @@ fn if_next_branch_region(
 fn branch_body_content_end(body: &StmtSeq, source: &str, facts: &FormatterFacts<'_>) -> usize {
     let mut end = body
         .last()
-        .map(|stmt| stmt_span(stmt).end.offset)
-        .unwrap_or(body.span.end.offset);
+        .map(|stmt| stmt_span(stmt).end.offset())
+        .unwrap_or(body.span.end.offset());
     if let Some(stmt) = body.last() {
         for redirect in &stmt.redirects {
             let Some(heredoc) = redirect.heredoc() else {
@@ -40,7 +40,7 @@ fn branch_body_content_end(body: &StmtSeq, source: &str, facts: &FormatterFacts<
             let heredoc_end = facts
                 .heredoc_closing_marker_bounds(heredoc)
                 .map(|(_, line_end)| line_end)
-                .unwrap_or(heredoc.body.span.end.offset);
+                .unwrap_or(heredoc.body.span.end.offset());
             end = end.max(heredoc_end);
         }
     }
@@ -81,8 +81,8 @@ pub(super) fn unmodeled_branch_background_operator(
         return None;
     }
 
-    let body_end = body.span.end.offset.min(upper_bound).min(source.len());
-    let stmt_start = stmt_span(last).start.offset.min(body_end);
+    let body_end = body.span.end.offset().min(upper_bound).min(source.len());
+    let stmt_start = stmt_span(last).start.offset().min(body_end);
     if let Some(body_tail) = source.get(stmt_start..body_end)
         && let Some(operator) = trailing_unmodeled_background_operator(body_tail)
     {
@@ -91,7 +91,7 @@ pub(super) fn unmodeled_branch_background_operator(
 
     let start = stmt_span(last)
         .end
-        .offset
+        .offset()
         .min(upper_bound)
         .min(source.len());
     let end = upper_bound.min(source.len());

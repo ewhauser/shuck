@@ -173,7 +173,7 @@ impl<'a> Lexer<'a> {
         // parser. Always replay a terminating newline so parsing stops before
         // tokens that originally lived on later source lines, like `}` or `do`.
         let post_heredoc_offset = self.offset;
-        self.offset = rest_of_line_start.offset;
+        self.offset = rest_of_line_start.offset();
         for ch in rest_of_line.chars() {
             self.reinject_buf.push_back(ch);
         }

@@ -50,12 +50,12 @@ fn simple_test_spans(fact: &crate::SimpleTestFact<'_>, source: &str) -> Vec<(Spa
 }
 
 fn at_splat_edit(span: Span) -> Option<Edit> {
-    let start = span.start.offset;
-    let offset = match span.end.offset.saturating_sub(start) {
+    let start = span.start.offset();
+    let offset = match span.end.offset().saturating_sub(start) {
         2 => start + 1,
         _ => start + 2,
     };
-    (offset < span.end.offset).then(|| Edit::replacement_at(offset, offset + 1, "*"))
+    (offset < span.end.offset()).then(|| Edit::replacement_at(offset, offset + 1, "*"))
 }
 
 #[cfg(test)]

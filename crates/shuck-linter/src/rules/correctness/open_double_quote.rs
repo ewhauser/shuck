@@ -52,8 +52,8 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::OpenDoubleQuote));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 6);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 6);
         assert_eq!(diagnostics[0].span.start, diagnostics[0].span.end);
     }
 
@@ -89,8 +89,8 @@ line two\"$suffix
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::OpenDoubleQuote));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 6);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 6);
         assert_eq!(diagnostics[0].span.start, diagnostics[0].span.end);
     }
 
@@ -104,8 +104,8 @@ line two''tail'
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::OpenDoubleQuote));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 6);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 6);
         assert_eq!(diagnostics[0].span.start, diagnostics[0].span.end);
     }
 
@@ -120,10 +120,10 @@ echo \"alpha
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::OpenDoubleQuote));
 
         assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 6);
-        assert_eq!(diagnostics[1].span.start.line, 3);
-        assert_eq!(diagnostics[1].span.start.column, 6);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 6);
+        assert_eq!(diagnostics[1].span.start.line(), 3);
+        assert_eq!(diagnostics[1].span.start.column(), 6);
     }
 
     #[test]
@@ -137,10 +137,10 @@ echo \"a
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::OpenDoubleQuote));
 
         assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 6);
-        assert_eq!(diagnostics[1].span.start.line, 3);
-        assert_eq!(diagnostics[1].span.start.column, 8);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 6);
+        assert_eq!(diagnostics[1].span.start.line(), 3);
+        assert_eq!(diagnostics[1].span.start.column(), 8);
     }
 
     #[test]
@@ -154,10 +154,10 @@ echo \"a
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::OpenDoubleQuote));
 
         assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 6);
-        assert_eq!(diagnostics[1].span.start.line, 3);
-        assert_eq!(diagnostics[1].span.start.column, 11);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 6);
+        assert_eq!(diagnostics[1].span.start.line(), 3);
+        assert_eq!(diagnostics[1].span.start.column(), 11);
     }
 
     #[test]
@@ -279,8 +279,8 @@ echo \"GEM_PATH: \\$GEM_PATH\"
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::OpenDoubleQuote));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 8);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 8);
         assert_eq!(diagnostics[0].span.start, diagnostics[0].span.end);
     }
 }

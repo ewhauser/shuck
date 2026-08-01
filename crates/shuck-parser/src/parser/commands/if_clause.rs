@@ -114,8 +114,8 @@ impl<'a> Parser<'a> {
                 if elif_body.is_empty() {
                     if self.dialect == ShellDialect::Zsh
                         && self.has_recorded_comment_between(
-                            elif_body_region_start.offset,
-                            self.current_span.start.offset,
+                            elif_body_region_start.offset(),
+                            self.current_span.start.offset(),
                         )
                     {
                         Self::stmt_seq_with_span(
@@ -164,8 +164,8 @@ impl<'a> Parser<'a> {
                 if branch.is_empty() {
                     if self.dialect == ShellDialect::Zsh
                         && self.has_recorded_comment_between(
-                            else_region_start.offset,
-                            self.current_span.start.offset,
+                            else_region_start.offset(),
+                            self.current_span.start.offset(),
                         )
                     {
                         Some(Self::stmt_seq_with_span(

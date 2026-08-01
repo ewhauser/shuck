@@ -31,8 +31,8 @@ pub fn mixed_and_or_in_condition(checker: &mut Checker) {
                 .iter()
                 .flat_map(|span| {
                     [
-                        Edit::insertion(span.start.offset, "( "),
-                        Edit::insertion(span.end.offset, " )"),
+                        Edit::insertion(span.start.offset(), "( "),
+                        Edit::insertion(span.end.offset(), " )"),
                     ]
                 })
                 .collect::<Vec<_>>();

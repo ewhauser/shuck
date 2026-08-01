@@ -123,14 +123,14 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                 if let Some((argument, span, mut attributes)) = zstyle_target(args, self.source) {
                     if attributes.contains(BindingAttributes::ARRAY)
                         && self
-                            .resolve_reference(&argument, self.current_scope(), span.start.offset)
+                            .resolve_reference(&argument, self.current_scope(), span.start.offset())
                             .map(|binding_id| {
                                 let binding = &self.bindings[binding_id.index()];
                                 binding.attributes.contains(BindingAttributes::ASSOC)
                                     && !self.binding_was_cleared_before_lookup(
                                         binding,
                                         self.current_scope(),
-                                        span.start.offset,
+                                        span.start.offset(),
                                     )
                             })
                             .unwrap_or(false)
@@ -517,9 +517,11 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
 
             if nameref_mode {
                 let name = Name::from(text.as_ref());
-                let Some(binding_id) =
-                    self.resolve_reference(&name, self.current_scope(), argument.span.start.offset)
-                else {
+                let Some(binding_id) = self.resolve_reference(
+                    &name,
+                    self.current_scope(),
+                    argument.span.start.offset(),
+                ) else {
                     continue;
                 };
                 let binding = &self.bindings[binding_id.index()];
@@ -533,7 +535,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             self.cleared_variables
                 .entry((self.current_scope(), Name::from(text.as_ref())))
                 .or_default()
-                .push(argument.span.start.offset);
+                .push(argument.span.start.offset());
         }
     }
 
@@ -542,7 +544,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             return DescribeDynamicStart::Unknown;
         };
         let Some(binding_id) =
-            self.resolve_reference(&name, self.current_scope(), word.span.start.offset)
+            self.resolve_reference(&name, self.current_scope(), word.span.start.offset())
         else {
             return DescribeDynamicStart::Unknown;
         };
@@ -812,7 +814,7 @@ fn static_scalar_assignment_value(binding: &Binding, source: &str) -> Option<Str
         return None;
     }
 
-    let rest = source.get(binding.span.end.offset..)?;
+    let rest = source.get(binding.span.end.offset()..)?;
     let rest = rest.strip_prefix('=')?;
     parse_static_assignment_literal(rest)
 }

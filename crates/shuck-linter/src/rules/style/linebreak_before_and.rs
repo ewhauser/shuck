@@ -29,8 +29,8 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LinebreakBeforeAnd));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 3);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "&&");
     }
 

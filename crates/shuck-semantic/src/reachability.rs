@@ -129,7 +129,7 @@ impl<'model> SemanticAnalysis<'model> {
             && visible.id != binding_id
             && visible.scope != binding.scope
             && matches!(visible.kind, BindingKind::FunctionDefinition)
-            && visible.span.start.offset < visibility_span.start.offset
+            && visible.span.start.offset() < visibility_span.start.offset()
             && self
                 .model
                 .ancestor_scopes(call_scope)
@@ -144,7 +144,7 @@ impl<'model> SemanticAnalysis<'model> {
             .is_some_and(|visible| {
                 visible.id != binding_id
                     && matches!(visible.kind, BindingKind::FunctionDefinition)
-                    && visible.span.start.offset < visibility_span.start.offset
+                    && visible.span.start.offset() < visibility_span.start.offset()
                     && self
                         .model
                         .ancestor_scopes(call_scope)
@@ -160,7 +160,7 @@ impl<'model> SemanticAnalysis<'model> {
                         return false;
                     }
                     let other_binding = self.model.binding(other);
-                    other_binding.span.start.offset < visibility_span.start.offset
+                    other_binding.span.start.offset() < visibility_span.start.offset()
                         && self
                             .model
                             .ancestor_scopes(call_scope)
@@ -310,7 +310,7 @@ impl<'model> SemanticAnalysis<'model> {
                             &function.name,
                             caller,
                             function_binding,
-                            function.span.start.offset,
+                            function.span.start.offset(),
                             binding_blocks,
                             shadow_blocks,
                             unreachable,
@@ -664,7 +664,8 @@ impl<'model> SemanticAnalysis<'model> {
             }
         }
 
-        unreached.sort_by_key(|unreached| self.model.binding(unreached.binding).span.start.offset);
+        unreached
+            .sort_by_key(|unreached| self.model.binding(unreached.binding).span.start.offset());
         unreached
     }
 
@@ -808,7 +809,7 @@ impl<'model> SemanticAnalysis<'model> {
                             script_terminators,
                         ) && self.call_site_can_execute_after_function_definition(
                             site,
-                            function.span.start.offset,
+                            function.span.start.offset(),
                         ) && self.call_site_context_can_run_before_termination(
                             site,
                             cfg,
@@ -864,7 +865,7 @@ impl<'model> SemanticAnalysis<'model> {
                             script_terminators,
                         ) && self.call_site_can_execute_after_function_definition(
                             site,
-                            function.span.start.offset,
+                            function.span.start.offset(),
                         ) && !self.scope_runs_in_transient_context(site.scope)
                             && self.call_site_context_can_run_persistently_before_termination(
                                 site,
@@ -887,7 +888,7 @@ impl<'model> SemanticAnalysis<'model> {
         site: &CallSite,
         function_offset: usize,
     ) -> bool {
-        site.span.start.offset > function_offset || {
+        site.span.start.offset() > function_offset || {
             let mut visiting_scopes = FxHashSet::default();
             self.call_site_context_can_run_after_offset(site, function_offset, &mut visiting_scopes)
         }
@@ -900,7 +901,7 @@ impl<'model> SemanticAnalysis<'model> {
         visiting_scopes: &mut FxHashSet<ScopeId>,
     ) -> bool {
         let Some(function_scope) = self.enclosing_function_scope(site.scope) else {
-            return site.span.start.offset > after_offset;
+            return site.span.start.offset() > after_offset;
         };
         if !visiting_scopes.insert(function_scope) {
             return false;
@@ -924,7 +925,7 @@ impl<'model> SemanticAnalysis<'model> {
                             &function.name,
                             caller,
                             function_binding,
-                        ) && (caller.span.start.offset > after_offset
+                        ) && (caller.span.start.offset() > after_offset
                             || self.call_site_context_can_run_after_offset(
                                 caller,
                                 after_offset,
@@ -1215,7 +1216,7 @@ impl<'model> SemanticAnalysis<'model> {
                             self.model.binding(*other).kind,
                             BindingKind::FunctionDefinition
                         )
-                        && self.model.binding(*other).span.start.offset < site.span.start.offset
+                        && self.model.binding(*other).span.start.offset() < site.span.start.offset()
                 })
             {
                 return true;
@@ -1237,7 +1238,7 @@ impl<'model> SemanticAnalysis<'model> {
         let consumer_execution_scope = self.call_site_execution_scope(site.scope);
         if self.function_scope_is_called_before_offset(
             consumer_execution_scope,
-            binding.span.start.offset,
+            binding.span.start.offset(),
             window,
         ) {
             return false;
@@ -1261,7 +1262,7 @@ impl<'model> SemanticAnalysis<'model> {
                     .call_sites_for(&provider.name)
                     .iter()
                     .any(|provider_site| {
-                        provider_site.span.start.offset < site.span.start.offset
+                        provider_site.span.start.offset() < site.span.start.offset()
                             && self.call_site_execution_scope(provider_site.scope)
                                 == consumer_execution_scope
                             && self.overwrite_call_site_resolves_to_binding(
@@ -1307,7 +1308,7 @@ impl<'model> SemanticAnalysis<'model> {
                     .call_sites_for(&function.name)
                     .iter()
                     .any(|site| {
-                        site.span.start.offset < offset
+                        site.span.start.offset() < offset
                             && self.overwrite_call_site_resolves_to_binding(
                                 &function.name,
                                 site,
@@ -1401,7 +1402,7 @@ impl<'model> SemanticAnalysis<'model> {
             .any(|function_binding| {
                 let function = self.model.binding(function_binding);
                 let function_name = function.name.clone();
-                let function_offset = function.span.start.offset;
+                let function_offset = function.span.start.offset();
                 self.model
                     .call_sites_for(&function_name)
                     .iter()
@@ -1444,7 +1445,7 @@ impl<'model> SemanticAnalysis<'model> {
             .filter(|other| {
                 let other_binding = self.model.binding(*other);
                 other_binding.scope == binding.scope
-                    && other_binding.span.start.offset > binding.span.start.offset
+                    && other_binding.span.start.offset() > binding.span.start.offset()
             })
             .flat_map(|other| {
                 binding_blocks
@@ -1472,7 +1473,7 @@ impl<'model> SemanticAnalysis<'model> {
             .filter(|other| {
                 let other_binding = self.model.binding(*other);
                 other_binding.scope == binding.scope
-                    && other_binding.span.start.offset > binding.span.start.offset
+                    && other_binding.span.start.offset() > binding.span.start.offset()
             })
             .flat_map(|other| {
                 self.blocks_containing_binding(other)
@@ -1522,7 +1523,7 @@ impl<'model> SemanticAnalysis<'model> {
 
             for scope_bindings in bindings_by_scope.values_mut() {
                 scope_bindings
-                    .sort_by_key(|binding| self.model.binding(*binding).span.start.offset);
+                    .sort_by_key(|binding| self.model.binding(*binding).span.start.offset());
 
                 for pair in scope_bindings.windows(2) {
                     let first = pair[0];
@@ -1580,8 +1581,8 @@ impl<'model> SemanticAnalysis<'model> {
 
         overwritten.sort_by_key(|overwritten| {
             (
-                self.model.binding(overwritten.first).span.start.offset,
-                self.model.binding(overwritten.second).span.start.offset,
+                self.model.binding(overwritten.first).span.start.offset(),
+                self.model.binding(overwritten.second).span.start.offset(),
             )
         });
         overwritten
@@ -1712,12 +1713,12 @@ fn block_min_offset(block: &BasicBlock, model: &SemanticModel) -> Option<usize> 
     block
         .commands
         .iter()
-        .map(|span| span.start.offset)
+        .map(|span| span.start.offset())
         .chain(
             block
                 .bindings
                 .iter()
-                .map(|binding| model.binding(*binding).span.start.offset),
+                .map(|binding| model.binding(*binding).span.start.offset()),
         )
         .min()
 }

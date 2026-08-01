@@ -11,7 +11,7 @@ pub(crate) fn build_heredoc_fact_summary(
 
     for command in commands {
         let unused_heredoc_command = command.literal_name() == Some("")
-            && command.body_span().start.offset == command.body_span().end.offset;
+            && command.body_span().start.offset() == command.body_span().end.offset();
         let echo_here_doc_command = command.effective_name_is("echo")
             && command
                 .redirects()
@@ -36,7 +36,7 @@ pub(crate) fn build_heredoc_fact_summary(
             let Some(heredoc) = redirect.heredoc() else {
                 continue;
             };
-            let reaches_file_end = heredoc.body.span.end.offset == file_end;
+            let reaches_file_end = heredoc.body.span.end.offset() == file_end;
             if reaches_file_end {
                 summary.heredoc_missing_end_spans.push(redirect.span);
             }
@@ -136,7 +136,7 @@ pub(crate) fn heredoc_closer_not_alone_span(
     locator: Locator<'_>,
 ) -> Option<Span> {
     let source = locator.source();
-    let mut line_start_offset = body_span.start.offset;
+    let mut line_start_offset = body_span.start.offset();
     for raw_line in body_span.slice(source).split_inclusive('\n') {
         let (candidate_line, tab_prefix_len) = normalized_heredoc_line(raw_line, strip_tabs);
         if !candidate_line.ends_with(delimiter)
@@ -183,7 +183,7 @@ pub(crate) fn heredoc_end_space_span(
     locator: Locator<'_>,
 ) -> Option<Span> {
     let source = locator.source();
-    let line_start_offset = body_span.end.offset;
+    let line_start_offset = body_span.end.offset();
     let remainder = source.get(line_start_offset..)?;
     let raw_line = remainder.split_inclusive('\n').next().unwrap_or(remainder);
     let (candidate_line, tab_prefix_len) = normalized_heredoc_line(raw_line, strip_tabs);
@@ -204,7 +204,7 @@ pub(crate) fn spaced_tabstrip_close_spans(
 ) -> Vec<Span> {
     let source = locator.source();
     let mut spans = Vec::new();
-    let mut line_start_offset = body_span.start.offset;
+    let mut line_start_offset = body_span.start.offset();
     for raw_line in body_span.slice(source).split_inclusive('\n') {
         let line_without_newline = raw_line.trim_end_matches('\n').trim_end_matches('\r');
         if is_spaced_tabstrip_close_line(line_without_newline, delimiter)
@@ -225,7 +225,7 @@ fn indented_heredoc_close_facts(
 ) -> Vec<(Span, Span)> {
     let source = locator.source();
     let mut facts = Vec::new();
-    let mut line_start_offset = body_span.start.offset;
+    let mut line_start_offset = body_span.start.offset();
     for raw_line in body_span.slice(source).split_inclusive('\n') {
         let line_without_newline = raw_line.trim_end_matches('\n').trim_end_matches('\r');
         let trimmed = line_without_newline.trim_start_matches([' ', '\t']);

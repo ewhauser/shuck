@@ -30,10 +30,9 @@ pub fn c_prototype_fragment(checker: &mut Checker) {
         .collect::<Vec<_>>();
 
     for span in spans {
-        checker.report_diagnostic_dedup(
-            crate::Diagnostic::new(CPrototypeFragment, span)
-                .with_fix(Fix::safe_edit(Edit::insertion(span.start.offset + 1, " "))),
-        );
+        checker.report_diagnostic_dedup(crate::Diagnostic::new(CPrototypeFragment, span).with_fix(
+            Fix::safe_edit(Edit::insertion(span.start.offset() + 1, " ")),
+        ));
     }
 }
 
@@ -49,7 +48,7 @@ fn attached_background_ampersand_span(
         return None;
     }
 
-    let next = source[terminator_span.end.offset..].chars().next()?;
+    let next = source[terminator_span.end.offset()..].chars().next()?;
     if !matches!(next, '_' | 'A'..='Z' | 'a'..='z' | '0'..='9') {
         return None;
     }
@@ -72,10 +71,10 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CPrototypeFragment));
 
         assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 3);
-        assert_eq!(diagnostics[1].span.start.line, 3);
-        assert_eq!(diagnostics[1].span.start.column, 10);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 3);
+        assert_eq!(diagnostics[1].span.start.line(), 3);
+        assert_eq!(diagnostics[1].span.start.column(), 10);
     }
 
     #[test]

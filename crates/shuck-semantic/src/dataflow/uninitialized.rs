@@ -124,7 +124,7 @@ impl ParameterGuardFlowIndex {
             offsets_by_block_name
                 .entry((block, name))
                 .or_default()
-                .push(guard.span.start.offset);
+                .push(guard.span.start.offset());
         }
         for offsets in offsets_by_block_name.values_mut() {
             offsets.sort_unstable();
@@ -138,7 +138,7 @@ impl ParameterGuardFlowIndex {
         self.offsets_by_block_name
             .get(&(block, name))
             .is_some_and(|offsets| {
-                offsets.partition_point(|offset| *offset < reference.span.start.offset) > 0
+                offsets.partition_point(|offset| *offset < reference.span.start.offset()) > 0
             })
     }
 }

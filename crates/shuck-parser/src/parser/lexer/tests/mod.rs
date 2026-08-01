@@ -41,7 +41,8 @@ fn assert_non_newline_tokens_stay_on_one_line(input: &str) {
         }
 
         assert_eq!(
-            token.span.start.line, token.span.end.line,
+            token.span.start.line(),
+            token.span.end.line(),
             "token should stay on one line: {:?}",
             token
         );

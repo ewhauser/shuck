@@ -24,16 +24,16 @@ impl<'a> Parser<'a> {
         let needle_len = "$(".len() + inner_text.len() + ")".len();
         // The approximate start is usually exact, so try it before scanning.
         let subst_start =
-            if substitution_matches_at(self.input, approximate_dollar_start.offset, inner_text) {
-                approximate_dollar_start.offset
+            if substitution_matches_at(self.input, approximate_dollar_start.offset(), inner_text) {
+                approximate_dollar_start.offset()
             } else {
                 let search_start = floor_char_boundary(
                     self.input,
-                    approximate_dollar_start.offset.saturating_sub(512),
+                    approximate_dollar_start.offset().saturating_sub(512),
                 );
                 let search_end = ceil_char_boundary(
                     self.input,
-                    (approximate_dollar_start.offset + needle_len + 4096).min(self.input.len()),
+                    (approximate_dollar_start.offset() + needle_len + 4096).min(self.input.len()),
                 );
                 let haystack = self.input.get(search_start..search_end)?;
                 // Occurrences arrive in ascending order, so the distance to the
@@ -45,7 +45,7 @@ impl<'a> Parser<'a> {
                         continue;
                     }
                     let distance =
-                        (search_start + relative_start).abs_diff(approximate_dollar_start.offset);
+                        (search_start + relative_start).abs_diff(approximate_dollar_start.offset());
                     match best {
                         Some((_, best_distance)) if distance >= best_distance => break,
                         _ => best = Some((relative_start, distance)),
@@ -606,8 +606,8 @@ impl<'a> Parser<'a> {
                             let replacement = self.read_brace_operand(chars, cursor, source_backed);
                             (
                                 replacement,
-                                cursor.offset > 0
-                                    && self.input_prefix_ends_with(cursor.offset, '}'),
+                                cursor.offset() > 0
+                                    && self.input_prefix_ends_with(cursor.offset(), '}'),
                             )
                         } else {
                             (self.empty_source_text(*cursor), false)
@@ -616,7 +616,7 @@ impl<'a> Parser<'a> {
                         Self::consume_word_char_if(chars, cursor, '}');
                     }
                     if !self.input_span_ends_with(part_start, *cursor, '}')
-                        && self.input_suffix_starts_with(cursor.offset, '}')
+                        && self.input_suffix_starts_with(cursor.offset(), '}')
                     {
                         cursor.advance('}');
                     }
@@ -1024,7 +1024,7 @@ impl<'a> Parser<'a> {
         let Some(first) = probe.next() else {
             return true;
         };
-        let Some(source_suffix) = self.input.get(cursor.offset..) else {
+        let Some(source_suffix) = self.input.get(cursor.offset()..) else {
             return false;
         };
         source_suffix.starts_with(first)

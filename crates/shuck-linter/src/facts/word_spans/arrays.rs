@@ -515,7 +515,7 @@ pub(crate) fn escaped_parameter_template_bodies(
     source: &str,
 ) -> SmallVec<[EscapedParameterTemplateBody; 2]> {
     let mut bodies = SmallVec::new();
-    if word_span.start.offset >= word_span.end.offset || word_span.end.offset > source.len() {
+    if word_span.start.offset() >= word_span.end.offset() || word_span.end.offset() > source.len() {
         return bodies;
     }
 
@@ -528,7 +528,7 @@ pub(crate) fn escaped_parameter_template_bodies(
     while index < text.len() {
         if text[index..].starts_with("\\${") {
             let dollar_offset = index + '\\'.len_utf8();
-            if offset_is_backslash_escaped(word_span.start.offset + dollar_offset, source)
+            if offset_is_backslash_escaped(word_span.start.offset() + dollar_offset, source)
                 && let Some(end_offset) = escaped_parameter_template_end(text, dollar_offset)
             {
                 let body_start = dollar_offset + "${".len();
@@ -564,7 +564,7 @@ pub(crate) fn span_start_inside_escaped_parameter_template(
     bodies
         .iter()
         .copied()
-        .any(|body| body.contains(span.start.offset))
+        .any(|body| body.contains(span.start.offset()))
 }
 
 fn collect_direct_all_elements_array_expansion_spans_with_escaped_templates(
@@ -622,7 +622,7 @@ fn collect_direct_all_elements_array_expansion_spans_with_escaped_templates(
 
 impl EscapedParameterTemplateBody {
     fn contains(self, offset: usize) -> bool {
-        self.span.start.offset <= offset && offset < self.span.end.offset
+        self.span.start.offset() <= offset && offset < self.span.end.offset()
     }
 }
 
@@ -737,7 +737,7 @@ pub(crate) fn normalize_all_elements_array_expansion_span(
     let source = locator.source();
     let text = span.slice(source);
     if text == "$@"
-        && source_starts_with_non_at_selector_subscript(&source[span.end.offset..], shell_dialect)
+        && source_starts_with_non_at_selector_subscript(&source[span.end.offset()..], shell_dialect)
     {
         return None;
     }
@@ -747,7 +747,7 @@ pub(crate) fn normalize_all_elements_array_expansion_span(
         return Some(span);
     }
 
-    let base_offset = span.start.offset;
+    let base_offset = span.start.offset();
     let mut search_from = 0usize;
 
     while let Some(found) = text[search_from..].find('$') {
@@ -794,7 +794,7 @@ pub(crate) fn normalize_direct_all_elements_array_expansion_span(
     let source = locator.source();
     let text = span.slice(source);
     if text == "$@"
-        && source_starts_with_non_at_selector_subscript(&source[span.end.offset..], shell_dialect)
+        && source_starts_with_non_at_selector_subscript(&source[span.end.offset()..], shell_dialect)
     {
         return None;
     }
@@ -804,7 +804,7 @@ pub(crate) fn normalize_direct_all_elements_array_expansion_span(
         return Some(span);
     }
 
-    let base_offset = span.start.offset;
+    let base_offset = span.start.offset();
     let mut search_from = 0usize;
 
     while let Some(found) = text[search_from..].find('$') {
@@ -861,7 +861,7 @@ pub(crate) fn normalize_nested_direct_all_elements_array_expansion_span(
         return None;
     }
 
-    let base_offset = span.start.offset;
+    let base_offset = span.start.offset();
     let bytes = text.as_bytes();
     let mut index = 0usize;
     let mut nested_braced_depth = 0usize;
@@ -981,8 +981,8 @@ pub(crate) fn widen_all_elements_array_expansion_span(
         return None;
     }
 
-    let start_offset = span.start.offset.checked_sub(2)?;
-    if source.as_bytes().get(start_offset..span.start.offset)? != b"${" {
+    let start_offset = span.start.offset().checked_sub(2)?;
+    if source.as_bytes().get(start_offset..span.start.offset())? != b"${" {
         return None;
     }
     if offset_is_backslash_escaped(start_offset, source) {
@@ -1012,8 +1012,8 @@ pub(crate) fn widen_direct_all_elements_array_expansion_span(
         return None;
     }
 
-    let start_offset = span.start.offset.checked_sub(2)?;
-    if source.as_bytes().get(start_offset..span.start.offset)? != b"${" {
+    let start_offset = span.start.offset().checked_sub(2)?;
+    if source.as_bytes().get(start_offset..span.start.offset())? != b"${" {
         return None;
     }
     if offset_is_backslash_escaped(start_offset, source) {
@@ -2207,8 +2207,8 @@ eval \\
         let spans = all_elements_array_expansion_part_spans(&command.args[0], source);
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].slice(source), "${shims[@]}");
-        assert_eq!(spans[0].start.column, 5);
-        assert_eq!(spans[0].end.column, 16);
+        assert_eq!(spans[0].start.column(), 5);
+        assert_eq!(spans[0].end.column(), 16);
     }
 
     #[test]

@@ -60,8 +60,8 @@ pub fn append_to_array_as_string(checker: &mut Checker) {
             Some((
                 binding.span,
                 Fix::unsafe_edits([
-                    Edit::insertion(value.span.start.offset, "("),
-                    Edit::insertion(value.span.end.offset, ")"),
+                    Edit::insertion(value.span.start.offset(), "("),
+                    Edit::insertion(value.span.end.offset(), ")"),
                 ]),
             ))
         })

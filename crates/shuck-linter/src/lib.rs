@@ -436,7 +436,7 @@ impl<'a> LinterSemanticArtifacts<'a> {
     ) -> Option<bool> {
         let mut trailing_loop_kind = None;
         self.for_each_command_visit_in_body(body, false, |visit| {
-            if visit.stmt.span.end.offset != eof_offset {
+            if visit.stmt.span.end.offset() != eof_offset {
                 return;
             }
 
@@ -446,7 +446,7 @@ impl<'a> LinterSemanticArtifacts<'a> {
                 _ => return,
             };
 
-            let start_offset = visit.stmt.span.start.offset;
+            let start_offset = visit.stmt.span.start.offset();
             if trailing_loop_kind
                 .as_ref()
                 .is_none_or(|(best_start, _)| start_offset >= *best_start)
@@ -772,7 +772,7 @@ impl<'a> TraversalObserver<'a> for LintTraversalObserver<'a> {
                 .resize(id.index() + 1, None);
         }
         let span = statement_suppression_span(stmt);
-        if span.start.line != 0 && span.end.line != 0 {
+        if span.start.line() != 0 && span.end.line() != 0 {
             self.suppression_command_spans_by_id[id.index()] = Some(span);
         }
     }
@@ -1021,7 +1021,7 @@ fn finalize_diagnostics(result: &mut LinterAnalysisResult<'_>, request: &Analysi
 
     result
         .diagnostics
-        .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
+        .sort_by_key(|diagnostic| (diagnostic.span.start.offset(), diagnostic.span.end.offset()));
 }
 
 fn resolve_shell(
@@ -1049,7 +1049,7 @@ fn parse_error_position(parse_result: &ParseResult) -> Option<(usize, usize)> {
     parse_result
         .diagnostics
         .first()
-        .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+        .map(|diagnostic| (diagnostic.span.start.line(), diagnostic.span.start.column()))
 }
 
 fn filter_suppressed_diagnostics(
@@ -1060,7 +1060,7 @@ fn filter_suppressed_diagnostics(
     diagnostics.retain(|diagnostic| {
         let line = indexer
             .line_index()
-            .line_number(TextSize::new(diagnostic.span.start.offset as u32));
+            .line_number(TextSize::new(diagnostic.span.start.offset() as u32));
         let Ok(line) = u32::try_from(line) else {
             return true;
         };
@@ -1093,24 +1093,25 @@ fn sanitize_diagnostic_spans_cold(diagnostics: &mut [Diagnostic], locator: Locat
 #[cold]
 fn sanitize_span(span: Span, locator: Locator<'_>) -> Span {
     let source = locator.source();
-    if span.start.offset <= span.end.offset
-        && span.end.offset <= source.len()
-        && source.is_char_boundary(span.start.offset)
-        && source.is_char_boundary(span.end.offset)
+    if span.start.offset() <= span.end.offset()
+        && span.end.offset() <= source.len()
+        && source.is_char_boundary(span.start.offset())
+        && source.is_char_boundary(span.end.offset())
     {
         return span;
     }
 
-    let offsets_are_bounded = span.start.offset <= source.len() && span.end.offset <= source.len();
+    let offsets_are_bounded =
+        span.start.offset() <= source.len() && span.end.offset() <= source.len();
     let offsets_are_aligned =
-        source.is_char_boundary(span.start.offset) && source.is_char_boundary(span.end.offset);
-    if offsets_are_bounded && offsets_are_aligned && span.start.offset > span.end.offset {
+        source.is_char_boundary(span.start.offset()) && source.is_char_boundary(span.end.offset());
+    if offsets_are_bounded && offsets_are_aligned && span.start.offset() > span.end.offset() {
         return Span::from_positions(span.end, span.start);
     }
 
     let len = source.len();
-    let raw_start = span.start.offset.min(len);
-    let raw_end = span.end.offset.min(len);
+    let raw_start = span.start.offset().min(len);
+    let raw_end = span.end.offset().min(len);
     let (start_offset, end_offset) = if raw_start <= raw_end {
         (
             floor_char_boundary(source, raw_start),
@@ -1311,7 +1312,7 @@ mod tests {
                     return None;
                 };
                 let span = command.name.span;
-                Some(source[span.start.offset..span.end.offset].to_owned())
+                Some(source[span.start.offset()..span.end.offset()].to_owned())
             })
             .collect()
     }
@@ -1451,11 +1452,7 @@ mod tests {
     #[test]
     fn parse_error_position_falls_back_to_first_diagnostic_span() {
         let file = Parser::new("#!/bin/bash\n").parse().unwrap().file;
-        let diagnostic_start = Position {
-            line: 3,
-            column: 2,
-            offset: 14,
-        };
+        let diagnostic_start = Position::at(3, 2, 14);
         let parse_result = ParseResult {
             file,
             diagnostics: vec![ParseDiagnostic {
@@ -2755,7 +2752,7 @@ END
 
             for diagnostic in diagnostics {
                 assert!(
-                    diagnostic.span.start.offset <= diagnostic.span.end.offset,
+                    diagnostic.span.start.offset() <= diagnostic.span.end.offset(),
                     "invalid span ordering for {} with path {:?} and dialect {:?}: {:?}",
                     diagnostic.code(),
                     path,
@@ -2763,7 +2760,7 @@ END
                     diagnostic.span
                 );
                 assert!(
-                    diagnostic.span.end.offset <= source.len(),
+                    diagnostic.span.end.offset() <= source.len(),
                     "span end out of bounds for {} with path {:?} and dialect {:?}: {:?}",
                     diagnostic.code(),
                     path,
@@ -2771,7 +2768,7 @@ END
                     diagnostic.span
                 );
                 assert!(
-                    source.is_char_boundary(diagnostic.span.start.offset),
+                    source.is_char_boundary(diagnostic.span.start.offset()),
                     "span start not on char boundary for {} with path {:?} and dialect {:?}: {:?}",
                     diagnostic.code(),
                     path,
@@ -2779,7 +2776,7 @@ END
                     diagnostic.span
                 );
                 assert!(
-                    source.is_char_boundary(diagnostic.span.end.offset),
+                    source.is_char_boundary(diagnostic.span.end.offset()),
                     "span end not on char boundary for {} with path {:?} and dialect {:?}: {:?}",
                     diagnostic.code(),
                     path,
@@ -3043,8 +3040,8 @@ printf '%s\\n' \"${!args_var}\"
         let diagnostics = lint_for_rule("#!/bin/bash\nrest=1\nREST=2\n", Rule::UnusedAssignment);
 
         assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[1].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[1].span.start.line(), 3);
     }
 
     #[test]
@@ -3168,7 +3165,7 @@ f a
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 8);
+        assert_eq!(diagnostics[0].span.start.line(), 8);
         assert_eq!(diagnostics[0].span.slice(
             "#!/bin/bash\nf() {\n  local opts\n  case \"$1\" in\n    a) opts=alpha ;;\n    *) opts=beta ;;\n  esac\n  while IFS= read -r line; do :; done < <(printf '%s\\n' \"$opts\")\n}\nf a\n"
         ), "line");
@@ -3187,7 +3184,7 @@ f
         let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
         assert_eq!(diagnostics[0].span.slice(source), "foo");
     }
 
@@ -3801,7 +3798,7 @@ f
         let diagnostics = lint(source, &LinterSettings::for_rule(Rule::DeclareCommand));
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "declare -a values");
-        assert_eq!(diagnostics[0].span.end.line, 2);
+        assert_eq!(diagnostics[0].span.end.line(), 2);
     }
 
     #[test]
@@ -3890,7 +3887,7 @@ fi
         let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 5);
+        assert_eq!(diagnostics[0].span.start.line(), 5);
     }
 
     #[test]
@@ -4087,8 +4084,8 @@ printf '%s\\n' \"${!foo}\"
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
         assert!(diagnostics[0].message.contains("foo"));
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 16);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 16);
     }
 
     #[test]
@@ -4103,8 +4100,8 @@ printf '%s\\n' \"${!tools[$target]}\"
         assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
         assert!(diagnostics[0].message.contains("tools"));
         assert!(!diagnostics[0].message.contains("target"));
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 16);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 16);
     }
 
     #[test]
@@ -4178,8 +4175,8 @@ printf '%s\\n' \"${missing%%/*}\"
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
         assert!(diagnostics[0].message.contains("missing"));
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 16);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 16);
     }
 
     #[test]
@@ -4195,8 +4192,8 @@ rvm_info=\"
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
         assert!(diagnostics[0].message.contains("_system_info"));
-        assert_eq!(diagnostics[0].span.start.line, 3);
-        assert_eq!(diagnostics[0].span.start.column, 12);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
+        assert_eq!(diagnostics[0].span.start.column(), 12);
         assert_eq!(diagnostics[0].span.slice(source), "${_system_info}");
     }
 
@@ -4223,8 +4220,8 @@ payload=\"{
             .find(|diagnostic| diagnostic.message.contains("serverfilesdu"))
             .unwrap();
 
-        assert_eq!(diagnostic.span.start.line, 9);
-        assert_eq!(diagnostic.span.start.column, 20);
+        assert_eq!(diagnostic.span.start.line(), 9);
+        assert_eq!(diagnostic.span.start.column(), 20);
         assert_eq!(diagnostic.span.slice(source), "${serverfilesdu}");
     }
 
@@ -4505,7 +4502,7 @@ fi
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
-        assert_eq!(diagnostics[0].span.start.line, 5);
+        assert_eq!(diagnostics[0].span.start.line(), 5);
         assert_eq!(diagnostics[0].span.slice(source), "${db_configure_flags}");
     }
 
@@ -4587,10 +4584,10 @@ printf '%s %s\\n' \"$missing\" \"$also_missing\"
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
         assert!(diagnostics[0].message.contains("missing"));
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
         assert_eq!(diagnostics[1].rule, Rule::UndefinedVariable);
         assert!(diagnostics[1].message.contains("also_missing"));
-        assert_eq!(diagnostics[1].span.start.line, 3);
+        assert_eq!(diagnostics[1].span.start.line(), 3);
     }
 
     #[test]
@@ -4608,13 +4605,13 @@ printf '%s\\n' \"$plain_missing\"
             diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("before_default")
-                    && diagnostic.span.start.line == 2)
+                    && diagnostic.span.start.line() == 2)
         );
         assert!(
             diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("plain_missing")
-                    && diagnostic.span.start.line == 4)
+                    && diagnostic.span.start.line() == 4)
         );
         assert!(
             diagnostics
@@ -5437,8 +5434,8 @@ source \"${BASH_SOURCE[1]}__dep.bash\"
         let diagnostics = lint_path_for_rule(&main, Rule::UnusedAssignment);
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -5618,11 +5615,11 @@ printf '%s\\n' two
             diagnostics[0].span.slice(source),
             "if true; then\n  echo one\nfi"
         );
-        assert_eq!(diagnostics[0].span.end.line, 5);
-        assert_eq!(diagnostics[0].span.end.column, 3);
+        assert_eq!(diagnostics[0].span.end.line(), 5);
+        assert_eq!(diagnostics[0].span.end.column(), 3);
         assert_eq!(diagnostics[1].span.slice(source), "printf '%s\\n' two");
-        assert_eq!(diagnostics[1].span.end.line, 6);
-        assert_eq!(diagnostics[1].span.end.column, 18);
+        assert_eq!(diagnostics[1].span.end.line(), 6);
+        assert_eq!(diagnostics[1].span.end.column(), 18);
     }
 
     #[test]
@@ -6241,7 +6238,7 @@ foo=2
 ";
         let diagnostics = lint(source, &LinterSettings::default());
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 5);
+        assert_eq!(diagnostics[0].span.start.line(), 5);
     }
 
     #[test]

@@ -44,8 +44,8 @@ pub fn dollar_string_in_sh(checker: &mut Checker) {
 
 fn dollar_string_in_sh_fix(span: Span) -> Fix {
     Fix::unsafe_edit(Edit::deletion_at(
-        span.start.offset,
-        span.start.offset + "$".len(),
+        span.start.offset(),
+        span.start.offset() + "$".len(),
     ))
 }
 

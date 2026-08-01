@@ -154,7 +154,7 @@ impl<'a> Parser<'a> {
         span: Span,
         source_backed: bool,
     ) -> SourceText {
-        if source_backed && span.end.offset <= self.input.len() {
+        if source_backed && span.end.offset() <= self.input.len() {
             let syntax = span.slice(self.input);
             if let Some(body) = syntax
                 .strip_prefix("${")

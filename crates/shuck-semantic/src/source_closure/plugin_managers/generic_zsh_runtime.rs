@@ -127,7 +127,7 @@ fn source_time_registration_scopes(
             let Some(binding) = analysis.visible_function_binding_defined_before(
                 &call.name,
                 call.scope,
-                call.span.start.offset,
+                call.span.start.offset(),
             ) else {
                 continue;
             };
@@ -213,7 +213,7 @@ fn function_scopes_by_name(
                 .map(|function_scope| (binding, function_scope))
         })
         .collect::<Vec<_>>();
-    definitions.sort_by_key(|(binding, _)| binding.span.start.offset);
+    definitions.sort_by_key(|(binding, _)| binding.span.start.offset());
 
     for (binding, function_scope) in definitions {
         if semantic.scope(function_scope).parent != Some(scope) {
@@ -330,8 +330,8 @@ fn generated_eval_calls_for_scope(
     args: &[Option<compact_str::CompactString>],
 ) -> Vec<Name> {
     let scope = &semantic.scopes()[scope.index()];
-    let body =
-        &source[scope.span.start.offset.min(source.len())..scope.span.end.offset.min(source.len())];
+    let body = &source
+        [scope.span.start.offset().min(source.len())..scope.span.end.offset().min(source.len())];
     let aliases = positional_aliases(body);
     let member_scopes = scope_members_excluding_functions(semantic.scopes(), scope.id);
     let mut calls = Vec::new();

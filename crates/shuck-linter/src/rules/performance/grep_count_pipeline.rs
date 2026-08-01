@@ -101,10 +101,10 @@ fn grep_count_pipeline_fix(
 ) -> Option<Fix> {
     let grep_name = grep.body_name_word()?;
     let wc_span = wc.span_in_source(source);
-    let delete_start = pipeline_delete_start(source, operator_span.start.offset);
+    let delete_start = pipeline_delete_start(source, operator_span.start.offset());
     Some(Fix::unsafe_edits([
-        Edit::insertion(grep_name.span.end.offset, " -c"),
-        Edit::deletion_at(delete_start, wc_span.end.offset),
+        Edit::insertion(grep_name.span.end.offset(), " -c"),
+        Edit::deletion_at(delete_start, wc_span.end.offset()),
     ]))
 }
 
@@ -113,14 +113,14 @@ fn command_body_span(fact: CommandFactRef<'_, '_>) -> Option<Span> {
     let mut end = body_name.span.end;
 
     for word in fact.body_args() {
-        if word.span.end.offset > end.offset {
+        if word.span.end.offset() > end.offset() {
             end = word.span.end;
         }
     }
 
     for redirect in fact.redirect_facts() {
         let redirect_end = redirect.redirect().span.end;
-        if redirect_end.offset > end.offset {
+        if redirect_end.offset() > end.offset() {
             end = redirect_end;
         }
     }

@@ -98,7 +98,7 @@ greet
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "greet");
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]
@@ -116,9 +116,9 @@ greet
 
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.slice(source), "greet");
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
         assert_eq!(diagnostics[1].span.slice(source), "greet");
-        assert_eq!(diagnostics[1].span.start.line, 4);
+        assert_eq!(diagnostics[1].span.start.line(), 4);
     }
 
     #[test]
@@ -166,7 +166,7 @@ usage
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "usage");
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]
@@ -248,7 +248,7 @@ requires_name
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "requires_name");
-        assert_eq!(diagnostics[0].span.start.line, 8);
+        assert_eq!(diagnostics[0].span.start.line(), 8);
     }
 
     #[test]
@@ -298,7 +298,7 @@ greet
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "greet");
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]
@@ -321,9 +321,9 @@ removed_chpwd
 
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.slice(source), "removed_precmd");
-        assert_eq!(diagnostics[0].span.start.line, 7);
+        assert_eq!(diagnostics[0].span.start.line(), 7);
         assert_eq!(diagnostics[1].span.slice(source), "removed_chpwd");
-        assert_eq!(diagnostics[1].span.start.line, 8);
+        assert_eq!(diagnostics[1].span.start.line(), 8);
     }
 
     #[test]
@@ -349,7 +349,7 @@ cb_keep
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "cb_two");
-        assert_eq!(diagnostics[0].span.start.line, 10);
+        assert_eq!(diagnostics[0].span.start.line(), 10);
     }
 
     #[test]
@@ -386,13 +386,13 @@ cb_keep
 
         assert_eq!(diagnostics.len(), 4);
         assert_eq!(diagnostics[0].span.slice(source), "cb_1");
-        assert_eq!(diagnostics[0].span.start.line, 17);
+        assert_eq!(diagnostics[0].span.start.line(), 17);
         assert_eq!(diagnostics[1].span.slice(source), "cb_2");
-        assert_eq!(diagnostics[1].span.start.line, 18);
+        assert_eq!(diagnostics[1].span.start.line(), 18);
         assert_eq!(diagnostics[2].span.slice(source), "cb_10");
-        assert_eq!(diagnostics[2].span.start.line, 19);
+        assert_eq!(diagnostics[2].span.start.line(), 19);
         assert_eq!(diagnostics[3].span.slice(source), "cb_a");
-        assert_eq!(diagnostics[3].span.start.line, 20);
+        assert_eq!(diagnostics[3].span.start.line(), 20);
     }
 
     #[test]
@@ -412,7 +412,7 @@ removed_widget
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "removed_widget");
-        assert_eq!(diagnostics[0].span.start.line, 5);
+        assert_eq!(diagnostics[0].span.start.line(), 5);
     }
 
     #[test]
@@ -474,9 +474,9 @@ latent_hook
 
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.slice(source), "latent_widget");
-        assert_eq!(diagnostics[0].span.start.line, 6);
+        assert_eq!(diagnostics[0].span.start.line(), 6);
         assert_eq!(diagnostics[1].span.slice(source), "latent_hook");
-        assert_eq!(diagnostics[1].span.start.line, 7);
+        assert_eq!(diagnostics[1].span.start.line(), 7);
     }
 
     #[test]
@@ -495,7 +495,7 @@ dynamic_widget
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "dynamic_widget");
-        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
     }
 
     #[test]
@@ -594,7 +594,7 @@ greet
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "greet");
-        assert_eq!(diagnostics[0].span.start.line, 5);
+        assert_eq!(diagnostics[0].span.start.line(), 5);
     }
 
     #[test]
@@ -615,7 +615,7 @@ wrapper
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "foo");
-        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
     }
 
     #[test]
@@ -689,7 +689,7 @@ greet
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "greet");
-        assert_eq!(diagnostics[0].span.start.line, 7);
+        assert_eq!(diagnostics[0].span.start.line(), 7);
     }
 
     #[test]
@@ -716,7 +716,7 @@ outer_with_args
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "inner");
-        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
     }
 
     #[test]
@@ -735,7 +735,7 @@ greet
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "greet");
-        assert_eq!(diagnostics[0].span.start.line, 6);
+        assert_eq!(diagnostics[0].span.start.line(), 6);
     }
 
     #[test]
@@ -785,7 +785,7 @@ greet
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "greet");
-        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
     }
 
     #[test]
@@ -841,7 +841,7 @@ greet
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "greet");
-        assert_eq!(diagnostics[0].span.start.line, 6);
+        assert_eq!(diagnostics[0].span.start.line(), 6);
     }
 
     #[test]
@@ -883,7 +883,7 @@ greet
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "greet");
-        assert_eq!(diagnostics[0].span.start.line, 9);
+        assert_eq!(diagnostics[0].span.start.line(), 9);
     }
 
     #[test]

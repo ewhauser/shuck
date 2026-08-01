@@ -460,9 +460,9 @@ docker inspect -f '{{ if ne \"true\" (index .Config.Labels \"com.dokku.devcontai
                 .collect::<Vec<_>>(),
             vec!["$(docker ps -q)"]
         );
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 105);
-        assert_eq!(diagnostics[0].span.end.column, 120);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 105);
+        assert_eq!(diagnostics[0].span.end.column(), 120);
     }
 
     #[test]
@@ -544,8 +544,8 @@ fi
                 .collect::<Vec<_>>(),
             vec!["$(echo cfgtest_${name})"]
         );
-        assert_eq!(diagnostics[0].span.start.line, 9);
-        assert_eq!(diagnostics[0].span.start.column, 22);
-        assert_eq!(diagnostics[0].span.end.column, 45);
+        assert_eq!(diagnostics[0].span.start.line(), 9);
+        assert_eq!(diagnostics[0].span.start.column(), 22);
+        assert_eq!(diagnostics[0].span.end.column(), 45);
     }
 }

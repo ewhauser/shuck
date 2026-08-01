@@ -273,8 +273,8 @@ fn test_heredoc_span_does_not_leak() {
     assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
 
     let heredoc = lexer.read_heredoc("EOF", false);
-    let start = heredoc.content_span.start.offset;
-    let end = heredoc.content_span.end.offset;
+    let start = heredoc.content_span.start.offset();
+    let end = heredoc.content_span.end.offset();
     assert!(
         end <= source.len(),
         "heredoc span end ({end}) exceeds source length ({})",
@@ -397,8 +397,8 @@ fn test_heredoc_with_unicode_content() {
 
     let heredoc = lexer.read_heredoc("EOF", false);
     assert_eq!(heredoc.content, "# 你好\ncafé\n");
-    let start = heredoc.content_span.start.offset;
-    let end = heredoc.content_span.end.offset;
+    let start = heredoc.content_span.start.offset();
+    let end = heredoc.content_span.end.offset();
     assert!(
         source.is_char_boundary(start),
         "heredoc span start ({start}) not on char boundary"

@@ -196,11 +196,12 @@ fn record_smaller_span(best: &mut Option<Span>, candidate: Span) {
 }
 
 fn span_width(span: Span) -> usize {
-    span.end.offset.saturating_sub(span.start.offset)
+    span.end.offset().saturating_sub(span.start.offset())
 }
 
 fn span_contains_text_range(span: Span, range: TextRange) -> bool {
-    span.start.offset <= usize::from(range.start()) && usize::from(range.end()) <= span.end.offset
+    span.start.offset() <= usize::from(range.start())
+        && usize::from(range.end()) <= span.end.offset()
 }
 
 #[cfg(test)]

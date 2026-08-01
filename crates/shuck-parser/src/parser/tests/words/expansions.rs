@@ -875,8 +875,8 @@ echo \"script
 
     assert_eq!(inner.name.span.slice(input), "basename");
     assert_eq!(inner.args[0].span.slice(input), "$child");
-    assert_eq!(inner.args[0].span.start.line, 3);
-    assert_eq!(inner.args[0].span.start.column, 29);
+    assert_eq!(inner.args[0].span.start.line(), 3);
+    assert_eq!(inner.args[0].span.start.column(), 29);
 }
 
 #[test]
@@ -2001,7 +2001,7 @@ fn test_read_replacement_pattern_stops_before_unescaped_delimiter() {
 
     let pattern = parser.read_replacement_pattern(&mut chars, &mut cursor, true);
     assert_eq!(pattern.slice(input), "\\\\");
-    assert_eq!(cursor.offset, offset + 2);
+    assert_eq!(cursor.offset(), offset + 2);
 }
 
 #[test]
@@ -2189,10 +2189,10 @@ fn test_command_substitution_spans_are_absolute() {
     assert_eq!(*syntax, CommandSubstitutionSyntax::DollarParen);
     let inner = expect_simple(&commands[0]);
 
-    assert_eq!(inner.name.span.start.line, 2);
-    assert_eq!(inner.name.span.start.column, 3);
-    assert_eq!(inner.args[0].span.start.line, 2);
-    assert_eq!(inner.args[1].span.start.column, 17);
+    assert_eq!(inner.name.span.start.line(), 2);
+    assert_eq!(inner.name.span.start.column(), 3);
+    assert_eq!(inner.args[0].span.start.line(), 2);
+    assert_eq!(inner.args[1].span.start.column(), 17);
 }
 
 #[test]

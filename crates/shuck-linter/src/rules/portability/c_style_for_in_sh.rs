@@ -80,7 +80,7 @@ fn c_style_for_fix(
         return None;
     }
 
-    let indent = line_indent_before(source, replacement_span.start.offset);
+    let indent = line_indent_before(source, replacement_span.start.offset());
     let child_indent = format!("{indent}  ");
     let mut replacement = String::new();
     if let Some(init) = init.filter(|init| !init.is_empty()) {

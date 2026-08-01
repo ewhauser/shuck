@@ -156,8 +156,8 @@ coproc pycoproc (python3 \"$pywrapper\")
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionParamsInSh));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 18);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 18);
         assert_eq!(diagnostics[0].span.start, diagnostics[0].span.end);
     }
 }

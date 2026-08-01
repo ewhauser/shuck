@@ -17,7 +17,7 @@ pub(crate) fn if_condition_starts_after_keyword(
     command
         .condition
         .first()
-        .is_some_and(|stmt| facts.stmt(stmt).rendered_start_line() > command.span.start.line)
+        .is_some_and(|stmt| facts.stmt(stmt).rendered_start_line() > command.span.start.line())
 }
 
 pub(crate) fn if_condition_has_explicit_statement_break(
@@ -32,7 +32,7 @@ pub(crate) fn if_condition_has_explicit_statement_break(
     }
     condition_sequence_has_explicit_statement_break(
         &command.condition,
-        then_span.start.offset,
+        then_span.start.offset(),
         source,
         source_map,
     )
@@ -44,8 +44,8 @@ fn raw_if_condition_starts_with_negation_continuation(
     source: &str,
     facts: &FormatterFacts,
 ) -> bool {
-    let condition_start = command.span.start.offset.saturating_add("if".len());
-    let condition_end = then_span.start.offset.min(source.len());
+    let condition_start = command.span.start.offset().saturating_add("if".len());
+    let condition_end = then_span.start.offset().min(source.len());
     let Some(raw) = source.get(condition_start..condition_end) else {
         return false;
     };
@@ -74,7 +74,7 @@ fn condition_sequence_has_explicit_statement_break(
         if !matches!(stmt.command, Command::Simple(_)) {
             return false;
         }
-        let start = stmt_span(stmt).start.offset;
+        let start = stmt_span(stmt).start.offset();
         let command_end = condition_stmt_command_end(stmt).min(upper_bound);
         return source
             .get(start..command_end)
@@ -82,19 +82,19 @@ fn condition_sequence_has_explicit_statement_break(
     }
 
     condition.as_slice().windows(2).any(|pair| {
-        let previous_start = stmt_span(&pair[0]).start.offset;
-        let next_start = stmt_span(&pair[1]).start.offset;
+        let previous_start = stmt_span(&pair[0]).start.offset();
+        let next_start = stmt_span(&pair[1]).start.offset();
         source_map.contains_newline_between(previous_start, next_start)
     })
 }
 
 fn condition_stmt_command_end(stmt: &Stmt) -> usize {
-    let mut end = command_format_span(&stmt.command).end.offset;
+    let mut end = command_format_span(&stmt.command).end.offset();
     if end == 0 {
-        end = stmt_span(stmt).end.offset;
+        end = stmt_span(stmt).end.offset();
     }
     for redirect in &stmt.redirects {
-        end = end.max(redirect.span.end.offset);
+        end = end.max(redirect.span.end.offset());
     }
     end
 }
@@ -106,7 +106,7 @@ pub(crate) fn elif_condition_has_explicit_statement_break(
     source_map: &SourceMap<'_>,
 ) -> bool {
     let upper_bound =
-        branch_open_keyword_start(body, source, "then").unwrap_or(body.span.start.offset);
+        branch_open_keyword_start(body, source, "then").unwrap_or(body.span.start.offset());
     condition_sequence_has_explicit_statement_break(condition, upper_bound, source, source_map)
 }
 
@@ -142,7 +142,7 @@ fn has_unescaped_line_break(text: &str) -> bool {
 pub(crate) fn loop_condition_starts_after_keyword(condition: &StmtSeq, span: Span) -> bool {
     condition
         .first()
-        .is_some_and(|stmt| stmt_span(stmt).start.line > span.start.line)
+        .is_some_and(|stmt| stmt_span(stmt).start.line() > span.start.line())
 }
 
 pub(crate) fn condition_keyword_on_previous_non_empty_line(
@@ -155,7 +155,7 @@ pub(crate) fn condition_keyword_on_previous_non_empty_line(
         return false;
     };
     let Some((mut line_start, _)) =
-        source_map.line_bounds_for_offset(stmt_span(first).start.offset)
+        source_map.line_bounds_for_offset(stmt_span(first).start.offset())
     else {
         return false;
     };
@@ -184,8 +184,8 @@ pub(crate) fn raw_grouped_if_condition(
     if !if_condition_starts_after_keyword(command, then_span, source, facts) {
         return None;
     }
-    let start = command.span.start.offset.checked_add("if".len())?;
-    let end = then_span.start.offset;
+    let start = command.span.start.offset().checked_add("if".len())?;
+    let end = then_span.start.offset();
     if start >= end || end > source.len() {
         return None;
     }
@@ -194,7 +194,7 @@ pub(crate) fn raw_grouped_if_condition(
         return None;
     }
     let outer_indent = source_map
-        .line_indent_before_offset(command.span.start.offset)
+        .line_indent_before_offset(command.span.start.offset())
         .unwrap_or("");
     Some(strip_outer_indent_after_first_line(raw, outer_indent))
 }
@@ -226,11 +226,11 @@ fn stmt_renders_with_subshell_open(stmt: &Stmt) -> bool {
     if stmt.negated {
         return false;
     }
-    let command_start = command_format_span(&stmt.command).start.offset;
+    let command_start = command_format_span(&stmt.command).start.offset();
     if stmt
         .redirects
         .iter()
-        .any(|redirect| redirect.span.start.offset < command_start)
+        .any(|redirect| redirect.span.start.offset() < command_start)
     {
         return false;
     }

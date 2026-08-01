@@ -45,7 +45,7 @@ fn if_dollar_command_fix(span: Span, source: &str) -> Option<(Span, Fix)> {
     Some((
         span,
         Fix::unsafe_edit(Edit::replacement_at(
-            span.start.offset,
+            span.start.offset(),
             close_cleanup.end,
             close_cleanup.replacement_body(body),
         )),
@@ -67,15 +67,15 @@ impl CloseCleanup<'_> {
 }
 
 fn command_substitution_close_cleanup<'a>(span: Span, source: &'a str) -> CloseCleanup<'a> {
-    let close_start = span.end.offset.saturating_sub(1);
+    let close_start = span.end.offset().saturating_sub(1);
     if !offset_is_indented_line_start(source, close_start) {
         return CloseCleanup {
-            end: span.end.offset,
+            end: span.end.offset(),
             list_operator: None,
         };
     }
 
-    let mut end = span.end.offset;
+    let mut end = span.end.offset();
     while source
         .as_bytes()
         .get(end)
@@ -85,7 +85,7 @@ fn command_substitution_close_cleanup<'a>(span: Span, source: &'a str) -> CloseC
     }
     let Some((operator, operator_len)) = close_cleanup_operator(source, end) else {
         return CloseCleanup {
-            end: span.end.offset,
+            end: span.end.offset(),
             list_operator: None,
         };
     };

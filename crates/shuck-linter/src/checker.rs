@@ -40,8 +40,8 @@ impl DiagnosticKey {
     fn new(rule: Rule, span: Span) -> Self {
         Self {
             rule,
-            start: span.start.offset,
-            end: span.end.offset,
+            start: span.start.offset(),
+            end: span.end.offset(),
         }
     }
 }
@@ -139,7 +139,7 @@ impl<'a> Checker<'a> {
         let line = self
             .indexer
             .line_index()
-            .line_number(TextSize::new(span.start.offset as u32));
+            .line_number(TextSize::new(span.start.offset() as u32));
         let Ok(line) = u32::try_from(line) else {
             return false;
         };

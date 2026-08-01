@@ -83,9 +83,9 @@ pub fn pattern_with_variable(checker: &mut Checker) {
 }
 
 fn span_is_within_any(span: Span, hosts: &[Span]) -> bool {
-    hosts
-        .iter()
-        .any(|host| host.start.offset <= span.start.offset && span.end.offset <= host.end.offset)
+    hosts.iter().any(|host| {
+        host.start.offset() <= span.start.offset() && span.end.offset() <= host.end.offset()
+    })
 }
 
 fn span_is_zsh_numeric_glob_tail_group(span: Span, source: &str) -> bool {
@@ -93,7 +93,7 @@ fn span_is_zsh_numeric_glob_tail_group(span: Span, source: &str) -> bool {
         return false;
     }
 
-    let Some(prefix) = source.get(..span.start.offset) else {
+    let Some(prefix) = source.get(..span.start.offset()) else {
         return false;
     };
 

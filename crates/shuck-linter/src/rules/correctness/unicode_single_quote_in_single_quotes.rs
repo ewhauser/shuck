@@ -35,8 +35,8 @@ pub fn unicode_single_quote_in_single_quotes(checker: &mut Checker) {
                 let start = fragment.span().start.advanced_by(&text[..offset]);
                 let span = shuck_ast::Span::from_positions(start, start);
                 let fix = Fix::unsafe_edit(Edit::replacement_at(
-                    start.offset,
-                    start.offset + char.len_utf8(),
+                    start.offset(),
+                    start.offset() + char.len_utf8(),
                     "'\\''",
                 ));
                 Some(Diagnostic::new(UnicodeSingleQuoteInSingleQuotes, span).with_fix(fix))
@@ -73,11 +73,11 @@ echo \"hello ‘world’\"
                 .iter()
                 .map(|diagnostic| {
                     (
-                        diagnostic.span.start.line,
-                        diagnostic.span.start.column,
-                        diagnostic.span.end.line,
-                        diagnostic.span.end.column,
-                        source[diagnostic.span.start.offset..]
+                        diagnostic.span.start.line(),
+                        diagnostic.span.start.column(),
+                        diagnostic.span.end.line(),
+                        diagnostic.span.end.column(),
+                        source[diagnostic.span.start.offset()..]
                             .chars()
                             .next()
                             .unwrap(),

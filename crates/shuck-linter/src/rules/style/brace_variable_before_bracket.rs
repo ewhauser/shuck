@@ -47,7 +47,7 @@ pub fn brace_variable_before_bracket(checker: &mut Checker) {
 }
 
 fn brace_variable_fix(span: Span, source: &str) -> Option<Fix> {
-    let offset = span.start.offset;
+    let offset = span.start.offset();
     let tail = source.get(offset..)?;
     let rest = tail.strip_prefix('$')?;
     let mut chars = rest.char_indices();
@@ -96,7 +96,7 @@ $cmd[0] arg
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+                .map(|diagnostic| (diagnostic.span.start.line(), diagnostic.span.start.column()))
                 .collect::<Vec<_>>(),
             vec![(2, 7), (3, 7), (4, 10), (5, 7), (6, 1)]
         );
@@ -146,7 +146,7 @@ sed_var() {
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+                .map(|diagnostic| (diagnostic.span.start.line(), diagnostic.span.start.column()))
                 .collect::<Vec<_>>(),
             vec![(4, 33), (7, 14)]
         );

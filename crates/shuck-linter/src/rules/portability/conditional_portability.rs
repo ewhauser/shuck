@@ -328,7 +328,7 @@ pub fn caret_negation_in_bracket(checker: &mut Checker) {
 }
 
 fn caret_negation_fix(span: Span) -> Edit {
-    Edit::replacement_at(span.start.offset + 1, span.start.offset + 2, "!")
+    Edit::replacement_at(span.start.offset() + 1, span.start.offset() + 2, "!")
 }
 
 pub fn a_test_in_sh(checker: &mut Checker) {

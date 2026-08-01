@@ -76,7 +76,7 @@ fn then_fi_if_style(
     fi_span: Span,
     context: RenderContext<'_, '_>,
 ) -> IfLayoutStyle {
-    let fi_upper_bound = fi_span.start.offset;
+    let fi_upper_bound = fi_span.start.offset();
     let no_elifs = command.elif_branches.is_empty();
 
     if no_elifs
@@ -218,7 +218,7 @@ pub(crate) fn case_can_format_inline(
                     || case_item_body_was_inline_without_terminator(item))
                 && !context
                     .facts
-                    .sequence(&item.body, Some(command.span.end.offset))
+                    .sequence(&item.body, Some(command.span.end.offset()))
                     .has_comments()
     })
 }

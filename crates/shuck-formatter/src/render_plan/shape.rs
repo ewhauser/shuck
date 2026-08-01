@@ -14,7 +14,7 @@ pub(crate) fn can_inline_body(
         context,
         commands,
         enclosing_span,
-        Some(enclosing_span.end.offset),
+        Some(enclosing_span.end.offset()),
     )
 }
 
@@ -37,7 +37,8 @@ pub(crate) fn can_inline_body_with_upper_bound(
         return false;
     }
 
-    context.options.compact_layout() || stmt_span(command).start.line == enclosing_span.start.line
+    context.options.compact_layout()
+        || stmt_span(command).start.line() == enclosing_span.start.line()
 }
 
 pub(crate) fn can_inline_stmt(context: RenderContext<'_, '_>, stmt: &Stmt) -> bool {
@@ -74,7 +75,7 @@ pub(crate) fn can_inline_else_branch_close(
         || !can_inline_stmt(context, stmt)
         || context
             .facts
-            .sequence(body, Some(fi_span.start.offset))
+            .sequence(body, Some(fi_span.start.offset()))
             .has_comments()
     {
         return false;
@@ -86,8 +87,8 @@ pub(crate) fn can_inline_else_branch_close(
         return false;
     };
     let else_line = context.source_map().line_number_for_offset(else_offset);
-    let body_line = stmt_span(stmt).start.line;
-    else_line == body_line && body_line == fi_span.start.line
+    let body_line = stmt_span(stmt).start.line();
+    else_line == body_line && body_line == fi_span.start.line()
 }
 
 pub(crate) fn can_inline_if_chain(
@@ -95,7 +96,7 @@ pub(crate) fn can_inline_if_chain(
     command: &IfCommand,
     fi_span: Span,
 ) -> bool {
-    if command.elif_branches.is_empty() || command.span.start.line != fi_span.end.line {
+    if command.elif_branches.is_empty() || command.span.start.line() != fi_span.end.line() {
         return false;
     }
 
@@ -120,7 +121,7 @@ pub(crate) fn can_inline_if_chain(
     }
 
     command.else_branch.as_ref().is_none_or(|body| {
-        can_inline_body_with_upper_bound(context, body, command.span, Some(fi_span.start.offset))
+        can_inline_body_with_upper_bound(context, body, command.span, Some(fi_span.start.offset()))
     })
 }
 
@@ -130,7 +131,7 @@ pub(crate) fn then_branch_starts_with_inline_if(
     then_span: Span,
     fi_span: Span,
 ) -> bool {
-    if command.span.start.line != fi_span.end.line {
+    if command.span.start.line() != fi_span.end.line() {
         return false;
     }
     let [stmt] = command.then_branch.as_slice() else {
@@ -143,7 +144,7 @@ pub(crate) fn then_branch_starts_with_inline_if(
         return false;
     };
     matches!(inner.syntax, IfSyntax::ThenFi { .. })
-        && then_span.end.line == inner.span.start.line
+        && then_span.end.line() == inner.span.start.line()
         && !context
             .facts
             .sequence(
@@ -164,7 +165,7 @@ pub(crate) fn can_inline_group(
 
     can_inline_stmt(context, command)
         && can_inline_body(context, commands, stmt_span(command))
-        && (stmt_span(command).start.line == stmt_span(command).end.line
+        && (stmt_span(command).start.line() == stmt_span(command).end.line()
             || group_delimiters_attach_to_wrapped_body(context, commands, open_char))
 }
 
@@ -193,8 +194,8 @@ pub(crate) fn group_delimiters_attach_to_wrapped_body(
         return false;
     };
 
-    group_span.start.line == stmt_format_span(first).start.line
-        && group_span.end.line == stmt_format_span(last).end.line
+    group_span.start.line() == stmt_format_span(first).start.line()
+        && group_span.end.line() == stmt_format_span(last).end.line()
 }
 
 pub(crate) fn can_inline_source_line_subshell(
@@ -211,7 +212,7 @@ pub(crate) fn can_inline_source_line_subshell(
     {
         return false;
     }
-    if commands.span.start.line != commands.span.end.line {
+    if commands.span.start.line() != commands.span.end.line() {
         return false;
     }
 
@@ -250,8 +251,8 @@ pub(crate) fn can_format_multiline_subshell_inline(
         return false;
     }
 
-    let first_start = stmt_span(stmt).start.offset.min(context.source.len());
-    let open_end = group_span.start.offset.saturating_add('('.len_utf8());
+    let first_start = stmt_span(stmt).start.offset().min(context.source.len());
+    let open_end = group_span.start.offset().saturating_add('('.len_utf8());
     if context
         .source
         .get(open_end..first_start)
@@ -264,7 +265,7 @@ pub(crate) fn can_format_multiline_subshell_inline(
         group_close_offset(context.source, group_span, upper_bound, ')', ')'.len_utf8());
     let stmt_end = stmt_span(stmt)
         .end
-        .offset
+        .offset()
         .min(close_offset)
         .min(context.source.len());
     context
@@ -287,7 +288,7 @@ pub(crate) fn body_starts_with_inline_do_brace_group(
     else {
         return false;
     };
-    source_line_before_offset_ends_with_do(context.source, group_span.start.offset)
+    source_line_before_offset_ends_with_do(context.source, group_span.start.offset())
 }
 
 pub(crate) fn body_starts_with_inline_do_if(
@@ -300,7 +301,7 @@ pub(crate) fn body_starts_with_inline_do_if(
     if !matches!(command.syntax, IfSyntax::ThenFi { .. }) {
         return false;
     }
-    source_line_before_offset_ends_with_do(context.source, command.span.start.offset)
+    source_line_before_offset_ends_with_do(context.source, command.span.start.offset())
 }
 
 pub(crate) fn inline_do_brace_group_done_separator(
@@ -323,7 +324,7 @@ pub(crate) fn inline_do_brace_group_done_separator(
     };
     let between = context
         .source
-        .get(group_span.end.offset..enclosing_span.end.offset)
+        .get(group_span.end.offset()..enclosing_span.end.offset())
         .unwrap_or_default()
         .trim_start_matches([' ', '\t', '\r']);
     if between.starts_with(';') {
@@ -408,14 +409,14 @@ fn group_close_offset(
     close_char: char,
     close_len: usize,
 ) -> usize {
-    let fallback = span.end.offset.saturating_sub(close_len);
+    let fallback = span.end.offset().saturating_sub(close_len);
     let search_end = upper_bound
         .map(|offset| offset.saturating_add(close_len))
-        .unwrap_or(span.end.offset)
+        .unwrap_or(span.end.offset())
         .min(source.len())
-        .max(span.start.offset);
+        .max(span.start.offset());
     source
-        .get(span.start.offset..search_end)
+        .get(span.start.offset()..search_end)
         .and_then(|text| text.rfind(close_char))
-        .map_or(fallback, |offset| span.start.offset + offset)
+        .map_or(fallback, |offset| span.start.offset() + offset)
 }

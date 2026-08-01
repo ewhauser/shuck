@@ -761,7 +761,7 @@ fn build_unused_assignment_events(
         for reference_id in &block.references {
             let reference = &context.references[reference_id.index()];
             block_events.push(UnusedAssignmentEvent {
-                offset: reference.span.start.offset,
+                offset: reference.span.start.offset(),
                 order: 0,
                 kind: UnusedAssignmentEventKind::Reference(*reference_id),
             });
@@ -769,7 +769,7 @@ fn build_unused_assignment_events(
         for binding_id in &block.bindings {
             let binding = &context.bindings[binding_id.index()];
             block_events.push(UnusedAssignmentEvent {
-                offset: binding.span.start.offset,
+                offset: binding.span.start.offset(),
                 order: 1,
                 kind: UnusedAssignmentEventKind::Binding(*binding_id),
             });
@@ -779,7 +779,7 @@ fn build_unused_assignment_events(
     for (read_index, synthetic_read) in context.synthetic_reads.iter().enumerate() {
         let mut push_synthetic_read = |block_id: BlockId| {
             events[block_id.index()].push(UnusedAssignmentEvent {
-                offset: synthetic_read.span.start.offset,
+                offset: synthetic_read.span.start.offset(),
                 order: 0,
                 kind: UnusedAssignmentEventKind::SyntheticRead(read_index),
             });
@@ -817,7 +817,7 @@ fn build_unused_assignment_events(
         };
         let binding = &context.bindings[binding_id.index()];
         events[block_id.index()].push(UnusedAssignmentEvent {
-            offset: binding.span.start.offset,
+            offset: binding.span.start.offset(),
             order: 0,
             kind: UnusedAssignmentEventKind::FunctionDefinition(scope_id),
         });

@@ -63,8 +63,8 @@ fn combined_ampersand_redirect_span(redirect: &RedirectFact<'_>, source: &str) -
         return None;
     }
 
-    let redirect_start = redirect_data.span.start.offset;
-    let target_start = target.span.start.offset;
+    let redirect_start = redirect_data.span.start.offset();
+    let target_start = target.span.start.offset();
     if redirect_start > target_start || target_start > source.len() {
         return None;
     }

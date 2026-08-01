@@ -36,8 +36,8 @@ echo \"$(( x $1 y ))\"
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 7);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 7);
         assert_eq!(diagnostics[0].span.end, diagnostics[0].span.start);
     }
 
@@ -69,8 +69,8 @@ echo \"$(( value + prefix$1 ))\"
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 7);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 7);
         assert_eq!(diagnostics[0].span.end, diagnostics[0].span.start);
     }
 

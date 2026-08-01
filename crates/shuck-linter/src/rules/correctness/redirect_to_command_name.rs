@@ -65,7 +65,7 @@ pub fn redirect_to_command_name(checker: &mut Checker) {
     for span in spans {
         checker.report_diagnostic_dedup(
             crate::Diagnostic::new(RedirectToCommandName, span)
-                .with_fix(Fix::safe_edit(Edit::insertion(span.start.offset, "./"))),
+                .with_fix(Fix::safe_edit(Edit::insertion(span.start.offset(), "./"))),
         );
     }
 }
@@ -194,7 +194,7 @@ cat input &> printf
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| diagnostic.span.start.line)
+                .map(|diagnostic| diagnostic.span.start.line())
                 .collect::<Vec<_>>(),
             vec![2, 3, 4, 5, 6, 7, 8]
         );

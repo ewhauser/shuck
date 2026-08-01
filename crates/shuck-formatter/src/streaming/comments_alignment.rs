@@ -30,7 +30,7 @@ where
         operator_end: usize,
     ) {
         let preserve_blank_before_comments = comments.first().is_some_and(|comment| {
-            gap_has_blank_line(self.source(), operator_end, comment.span().start.offset)
+            gap_has_blank_line(self.source(), operator_end, comment.span().start.offset())
         });
         if preserve_blank_before_comments {
             self.newline();
@@ -184,7 +184,7 @@ impl CommentAlignmentFacts {
         comment: &SourceComment<'_>,
     ) -> Self {
         let source_indent_column = source_map
-            .line_indent_before_offset(comment.span().start.offset)
+            .line_indent_before_offset(comment.span().start.offset())
             .map_or(0, |indent| indent.chars().count());
         Self {
             source_indent_column,
@@ -337,12 +337,13 @@ fn close_suffix_comment_alignment_entries(
     source_map: &SourceMap<'_>,
     comment: &SourceComment<'_>,
 ) -> Option<Vec<CloseSuffixAlignmentEntry>> {
-    let (line_start, line_end) = source_map.line_bounds_for_offset(comment.span().start.offset)?;
+    let (line_start, line_end) =
+        source_map.line_bounds_for_offset(comment.span().start.offset())?;
     let mut entries = vec![close_suffix_alignment_entry(
         source,
         line_start,
         line_end,
-        Some(comment.span().start.offset),
+        Some(comment.span().start.offset()),
     )?];
 
     let mut previous_start = line_start;
@@ -419,9 +420,10 @@ pub(super) fn trailing_comment_alignment_column(
     comment: &SourceComment<'_>,
     current_indent_column: usize,
 ) -> Option<usize> {
-    let (line_start, line_end) = source_map.line_bounds_for_offset(comment.span().start.offset)?;
+    let (line_start, line_end) =
+        source_map.line_bounds_for_offset(comment.span().start.offset())?;
     let mut widths = vec![trimmed_line_width(
-        source.get(line_start..comment.span().start.offset)?,
+        source.get(line_start..comment.span().start.offset())?,
     )?];
 
     let mut previous_start = line_start;
@@ -470,11 +472,11 @@ fn trailing_comment_tab_indent_adjust(
     comment: &SourceComment<'_>,
 ) -> usize {
     let Some((line_start, line_end)) =
-        source_map.line_bounds_for_offset(comment.span().start.offset)
+        source_map.line_bounds_for_offset(comment.span().start.offset())
     else {
         return 0;
     };
-    let Some(current_line) = source.get(line_start..comment.span().start.offset) else {
+    let Some(current_line) = source.get(line_start..comment.span().start.offset()) else {
         return 0;
     };
     let current_tabs = leading_tabs_only_indent_width(current_line);
@@ -1051,11 +1053,12 @@ fn comment_precedes_close_keyword_at_same_indent(
     source_map: &SourceMap<'_>,
     comment: &SourceComment<'_>,
 ) -> bool {
-    let Some(comment_indent) = source_map.line_indent_before_offset(comment.span().start.offset)
+    let Some(comment_indent) = source_map.line_indent_before_offset(comment.span().start.offset())
     else {
         return false;
     };
-    let Some((_, comment_line_end)) = source_map.line_bounds_for_offset(comment.span().end.offset)
+    let Some((_, comment_line_end)) =
+        source_map.line_bounds_for_offset(comment.span().end.offset())
     else {
         return false;
     };

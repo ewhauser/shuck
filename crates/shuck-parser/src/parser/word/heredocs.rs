@@ -71,7 +71,7 @@ impl<'a> Parser<'a> {
         part: WordPart,
         span: Span,
     ) -> HeredocBodyPart {
-        if span.end.offset <= self.input.len() {
+        if span.end.offset() <= self.input.len() {
             return HeredocBodyPart::Literal(LiteralText::source());
         }
 

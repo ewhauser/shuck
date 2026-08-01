@@ -117,7 +117,7 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
         }
 
         self.semantic
-            .shell_behavior_at(reference.span.start.offset)
+            .shell_behavior_at(reference.span.start.offset())
             .array_reference_policy()
     }
 
@@ -127,7 +127,7 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
             .to_vec();
         candidate_bindings.into_iter().any(|binding_id| {
             let binding = self.semantic.binding(binding_id);
-            binding.span.start.offset <= reference.span.start.offset
+            binding.span.start.offset() <= reference.span.start.offset()
                 && self
                     .same_simple_command_is_assignment_only(binding.span, reference.span)
                     .is_some_and(|assignment_only| {
@@ -168,7 +168,9 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
         let reference_binding = self.resolved_binding_id(reference.id);
         self.presence_test_ends_by_binding(&reference.name)
             .get(&reference_binding)
-            .is_some_and(|ends| ends.partition_point(|end| *end < reference.span.start.offset) > 0)
+            .is_some_and(|ends| {
+                ends.partition_point(|end| *end < reference.span.start.offset()) > 0
+            })
     }
 
     fn presence_test_ends_by_binding(
@@ -183,7 +185,7 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
                 by_binding
                     .entry(binding_id)
                     .or_default()
-                    .push(test.command_span().end.offset);
+                    .push(test.command_span().end.offset());
             }
 
             for test in self.facts.assignments().presence_test_names(name) {
@@ -194,7 +196,7 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
                 by_binding
                     .entry(binding_id)
                     .or_default()
-                    .push(test.command_span().end.offset);
+                    .push(test.command_span().end.offset());
             }
 
             for ends in by_binding.values_mut() {
@@ -242,7 +244,7 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
                     })
                     .collect::<Vec<_>>();
                 bindings.sort_unstable_by_key(|binding_id| {
-                    self.semantic.binding(*binding_id).span.start.offset
+                    self.semantic.binding(*binding_id).span.start.offset()
                 });
                 bindings
             })
@@ -277,10 +279,10 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
         reference_span: Span,
     ) -> Option<bool> {
         let binding_ancestors = self
-            .simple_command_ancestors(binding_span.start.offset)
+            .simple_command_ancestors(binding_span.start.offset())
             .to_vec();
         let reference_ancestors = self
-            .simple_command_ancestors(reference_span.start.offset)
+            .simple_command_ancestors(reference_span.start.offset())
             .to_vec();
 
         for reference_ancestor in reference_ancestors {
@@ -303,7 +305,7 @@ pub(crate) struct SimpleCommandAncestor {
 }
 
 pub(crate) fn span_is_within(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+    outer.start.offset() <= inner.start.offset() && inner.end.offset() <= outer.end.offset()
 }
 
 pub(crate) fn loop_header_word_quote(facts: &LinterFacts<'_>, span: Span) -> Option<WordQuote> {
@@ -440,7 +442,7 @@ pub(crate) fn has_unclosed_assoc_key_prefix(word: &Word, source: &str) -> bool {
     }
 
     let mut excluded = expansion_part_spans(word);
-    excluded.sort_by_key(|span| span.start.offset);
+    excluded.sort_by_key(|span| span.start.offset());
     let mut excluded = excluded.into_iter().peekable();
 
     let mut bracket_depth = 0_i32;
@@ -450,16 +452,16 @@ pub(crate) fn has_unclosed_assoc_key_prefix(word: &Word, source: &str) -> bool {
     let mut saw_equals = false;
 
     for (offset, ch) in text.char_indices() {
-        let absolute_offset = word.span.start.offset + offset;
+        let absolute_offset = word.span.start.offset() + offset;
         while matches!(
             excluded.peek(),
-            Some(span) if absolute_offset >= span.end.offset
+            Some(span) if absolute_offset >= span.end.offset()
         ) {
             excluded.next();
         }
         if matches!(
             excluded.peek(),
-            Some(span) if absolute_offset >= span.start.offset && absolute_offset < span.end.offset
+            Some(span) if absolute_offset >= span.start.offset() && absolute_offset < span.end.offset()
         ) {
             continue;
         }

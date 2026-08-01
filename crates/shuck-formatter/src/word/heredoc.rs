@@ -63,7 +63,7 @@ pub(super) fn render_heredoc_body_part(
             } else if render_heredoc_body_command_substitution(
                 rendered,
                 body,
-                span.end.offset,
+                span.end.offset(),
                 source,
                 options,
                 facts,
@@ -82,7 +82,7 @@ pub(super) fn render_heredoc_body_part(
                 if render_command_substitution(
                     rendered,
                     body,
-                    span.end.offset,
+                    span.end.offset(),
                     context,
                     layout,
                     embedded_command_indent_levels,
@@ -137,14 +137,14 @@ pub(super) fn escaped_heredoc_expansion_source(
         return Some(raw);
     }
 
-    let start = span.start.offset;
+    let start = span.start.offset();
     if start > 0
         && source
             .as_bytes()
             .get(start - 1)
             .is_some_and(|byte| *byte == b'\\')
     {
-        return source.get(start - 1..span.end.offset);
+        return source.get(start - 1..span.end.offset());
     }
 
     None

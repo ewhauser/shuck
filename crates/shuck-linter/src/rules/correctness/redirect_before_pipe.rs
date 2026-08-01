@@ -72,8 +72,8 @@ fn move_redirect_after_pipeline_fix(
     let redirect_span = redirect.redirect().span;
     let delete_span = redirect_deletion_span(redirect_span, source);
     let insertion_offset = trim_trailing_whitespace_offset(
-        pipeline.last_segment()?.stmt().span.start.offset,
-        pipeline.last_segment()?.stmt().span.end.offset,
+        pipeline.last_segment()?.stmt().span.start.offset(),
+        pipeline.last_segment()?.stmt().span.end.offset(),
         source,
     );
     let insertion = format!(" {}", redirect_span.slice(source).trim());
@@ -95,7 +95,7 @@ fn trim_trailing_whitespace_offset(start: usize, mut end: usize, source: &str) -
 }
 
 fn redirect_deletion_span(span: Span, source: &str) -> Span {
-    let mut start = span.start.offset;
+    let mut start = span.start.offset();
     while start > 0 {
         let previous = source.as_bytes()[start - 1];
         if !matches!(previous, b' ' | b'\t') {
@@ -105,14 +105,13 @@ fn redirect_deletion_span(span: Span, source: &str) -> Span {
     }
 
     Span::from_positions(
-        Position {
-            offset: start,
-            line: span.start.line,
-            column: span
-                .start
-                .column
-                .saturating_sub(span.start.offset.saturating_sub(start)),
-        },
+        Position::at(
+            span.start.line(),
+            span.start
+                .column()
+                .saturating_sub(span.start.offset().saturating_sub(start)),
+            start,
+        ),
         span.end,
     )
 }
@@ -172,7 +171,7 @@ fn stdout_redirect_span_before_pipe(
 fn redirect_operator_span(redirect: &crate::RedirectFact<'_>, source: &str) -> Option<Span> {
     let target_span = redirect.target_span()?;
     let operator_slice =
-        source.get(redirect.redirect().span.start.offset..target_span.start.offset)?;
+        source.get(redirect.redirect().span.start.offset()..target_span.start.offset())?;
     let operator_start = operator_slice.find('>')?;
     let operator_end = operator_slice.rfind(|ch: char| !ch.is_whitespace())? + 1;
     let operator_start_pos = redirect

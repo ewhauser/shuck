@@ -82,12 +82,12 @@ impl<'a> Parser<'a> {
 
     pub(super) fn record_zsh_case_group_parts_from_current_case_header(&mut self) {
         let start = self.current_span.start;
-        let mut split_features = self.zsh_glob_parse_features_at(start.offset);
+        let mut split_features = self.zsh_glob_parse_features_at(start.offset());
         if self.dialect != ShellDialect::Zsh {
             split_features.bare_groups = true;
         }
 
-        let Some((pattern_spans, _)) = (if self.input[start.offset..].starts_with('(')
+        let Some((pattern_spans, _)) = (if self.input[start.offset()..].starts_with('(')
             && let Some(wrapper_close) = self.scan_zsh_case_group_close(start)
             && self.case_wrapper_close_is_arm_delimiter(wrapper_close)
         {
@@ -106,7 +106,7 @@ impl<'a> Parser<'a> {
         };
 
         for span in pattern_spans {
-            let mut features = self.zsh_glob_parse_features_at(span.start.offset);
+            let mut features = self.zsh_glob_parse_features_at(span.start.offset());
             if self.dialect != ShellDialect::Zsh {
                 features.bare_groups = true;
             }
@@ -166,7 +166,7 @@ impl<'a> Parser<'a> {
             .collect::<Vec<_>>();
 
         while self.current_token.is_some()
-            && self.current_span.start.offset < delimiter_span.end.offset
+            && self.current_span.start.offset() < delimiter_span.end.offset()
         {
             self.advance();
         }
@@ -189,7 +189,7 @@ impl<'a> Parser<'a> {
         &self,
         start: Position,
     ) -> Option<(Vec<Span>, Span)> {
-        if self.input[start.offset..].starts_with('(')
+        if self.input[start.offset()..].starts_with('(')
             && let Some(wrapper_close) = self.scan_zsh_case_group_close(start)
             && self.case_wrapper_close_is_arm_delimiter(wrapper_close)
         {
@@ -206,7 +206,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn case_wrapper_close_is_arm_delimiter(&self, close_span: Span) -> bool {
-        self.input[close_span.end.offset..]
+        self.input[close_span.end.offset()..]
             .chars()
             .next()
             .is_none_or(char::is_whitespace)
@@ -215,7 +215,7 @@ impl<'a> Parser<'a> {
     pub(super) fn split_zsh_case_pattern_alternatives(&self, span: Span) -> Option<Vec<Span>> {
         self.split_zsh_case_pattern_alternatives_with_features(
             span,
-            self.zsh_glob_parse_features_at(span.start.offset),
+            self.zsh_glob_parse_features_at(span.start.offset()),
         )
     }
 
@@ -225,7 +225,7 @@ impl<'a> Parser<'a> {
         features: ZshGlobParseFeatures,
     ) -> Option<Vec<Span>> {
         let mut state = ZshCaseScanState::new(span.start);
-        let mut chars = self.input[span.start.offset..span.end.offset]
+        let mut chars = self.input[span.start.offset()..span.end.offset()]
             .chars()
             .peekable();
         let mut part_start = span.start;
@@ -353,7 +353,7 @@ impl<'a> Parser<'a> {
 
     pub(super) fn scan_zsh_case_group_close(&self, start: Position) -> Option<Span> {
         let mut state = ZshCaseScanState::new(start);
-        let mut chars = self.input[start.offset..].chars().peekable();
+        let mut chars = self.input[start.offset()..].chars().peekable();
 
         if Self::next_word_char_unwrap(&mut chars, &mut state.position) != '(' {
             return None;
@@ -443,7 +443,7 @@ impl<'a> Parser<'a> {
 
     pub(super) fn scan_zsh_case_arm_delimiter(&self, start: Position) -> Option<Span> {
         let mut state = ZshCaseScanState::new(start);
-        let mut chars = self.input[start.offset..].chars().peekable();
+        let mut chars = self.input[start.offset()..].chars().peekable();
 
         while let Some(ch) = chars.peek().copied() {
             let ch_start = state.position;

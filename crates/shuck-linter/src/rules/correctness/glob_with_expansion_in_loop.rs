@@ -39,8 +39,8 @@ pub fn glob_with_expansion_in_loop(checker: &mut Checker) {
     for span in spans {
         checker.report_diagnostic_dedup(Diagnostic::new(GlobWithExpansionInLoop, span).with_fix(
             Fix::unsafe_edits([
-                Edit::insertion(span.start.offset, "\""),
-                Edit::insertion(span.end.offset, "\""),
+                Edit::insertion(span.start.offset(), "\""),
+                Edit::insertion(span.end.offset(), "\""),
             ]),
         ));
     }

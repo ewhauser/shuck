@@ -41,7 +41,7 @@ pub fn missing_main_entrypoint(checker: &mut Checker) {
                 .is_none()
                 .then_some(statement.body_span())
         })
-        .max_by_key(|span| span.end.offset.saturating_sub(span.start.offset))
+        .max_by_key(|span| span.end.offset().saturating_sub(span.start.offset()))
     else {
         return;
     };
@@ -50,7 +50,7 @@ pub fn missing_main_entrypoint(checker: &mut Checker) {
         .statement_facts()
         .iter()
         .filter(|statement| statement.body_span() == top_level_body_span)
-        .max_by_key(|statement| statement.stmt_span().end.offset)
+        .max_by_key(|statement| statement.stmt_span().end.offset())
     else {
         return;
     };

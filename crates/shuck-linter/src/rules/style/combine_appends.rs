@@ -45,7 +45,7 @@ pub fn combine_appends(checker: &mut Checker) {
 }
 
 fn append_run_spans_in_body(checker: &Checker<'_>, statements: &mut [StatementFact]) -> Vec<Span> {
-    statements.sort_by_key(|fact| fact.stmt_span().start.offset);
+    statements.sort_by_key(|fact| fact.stmt_span().start.offset());
 
     let mut spans = Vec::new();
     let mut current_key: Option<ComparablePathKey> = None;
@@ -123,17 +123,17 @@ fn append_target_for_statement(
                     .redirect_facts()
                     .iter()
                     .map(|redirect| redirect.redirect().span.end)
-                    .max_by_key(|position| position.offset)
+                    .max_by_key(|position| position.offset())
                     .unwrap_or(command_end);
                 anchor_start = Some(command.body_span().start);
-                anchor_end = Some(if redirect_end.offset > command_end.offset {
+                anchor_end = Some(if redirect_end.offset() > command_end.offset() {
                     redirect_end
                 } else {
                     command_end
                 });
             }
             if let Some(current_end) = &mut anchor_end
-                && comparable.span().end.offset > current_end.offset
+                && comparable.span().end.offset() > current_end.offset()
             {
                 *current_end = comparable.span().end;
             }

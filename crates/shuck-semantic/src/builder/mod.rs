@@ -125,11 +125,11 @@ pub(crate) struct SemanticModelBuilder<'a, 'idx, 'observer> {
 fn semantic_statement_span(stmt: &Stmt) -> Span {
     let mut end = stmt
         .terminator_span
-        .filter(|terminator| terminator.end.offset == stmt.span.end.offset)
+        .filter(|terminator| terminator.end.offset() == stmt.span.end.offset())
         .map_or(stmt.span.end, |terminator| terminator.start);
 
     for redirect in stmt.redirects.iter() {
-        if redirect.span.end.offset > end.offset {
+        if redirect.span.end.offset() > end.offset() {
             end = redirect.span.end;
         }
     }
@@ -1166,7 +1166,7 @@ pub(super) fn escaped_parameter_template_body_starts(
     source: &str,
 ) -> SmallVec<[usize; 2]> {
     let mut starts = SmallVec::new();
-    if word_span.start.offset >= word_span.end.offset {
+    if word_span.start.offset() >= word_span.end.offset() {
         return starts;
     }
     let text = word_span.slice(source);
@@ -1178,7 +1178,7 @@ pub(super) fn escaped_parameter_template_body_starts(
     while index < text.len() {
         if text[index..].starts_with("\\${") {
             let dollar_offset = index + '\\'.len_utf8();
-            if offset_is_backslash_escaped(word_span.start.offset + dollar_offset, source)
+            if offset_is_backslash_escaped(word_span.start.offset() + dollar_offset, source)
                 && let Some(end_offset) = escaped_parameter_template_end(text, dollar_offset)
             {
                 let body_start = dollar_offset + "${".len();
@@ -1189,7 +1189,7 @@ pub(super) fn escaped_parameter_template_body_starts(
                         .next()
                         .is_some_and(is_name_start_character)
                 {
-                    starts.push(word_span.start.offset + body_start);
+                    starts.push(word_span.start.offset() + body_start);
                 }
                 index = end_offset;
                 continue;
@@ -1757,7 +1757,7 @@ fn contiguous_word_groups<'a>(words: &'a [&'a Word]) -> Vec<&'a [&'a Word]> {
     while start < words.len() {
         let mut end = start + 1;
         while let Some(next) = words.get(end).copied() {
-            if words[end - 1].span.end.offset != next.span.start.offset {
+            if words[end - 1].span.end.offset() != next.span.start.offset() {
                 break;
             }
             end += 1;
@@ -1873,10 +1873,10 @@ fn printf_attached_v_target(word: &Word, source: &str, target_text: &str) -> Opt
 fn read_option_attached_target_span(span: Span, source: &str, start: usize, end: usize) -> Span {
     let start_pos = span
         .start
-        .advanced_by(&source[span.start.offset..span.start.offset + start]);
+        .advanced_by(&source[span.start.offset()..span.start.offset() + start]);
     let end_pos = span
         .start
-        .advanced_by(&source[span.start.offset..span.start.offset + end]);
+        .advanced_by(&source[span.start.offset()..span.start.offset() + end]);
     Span::from_positions(start_pos, end_pos)
 }
 
@@ -2249,7 +2249,7 @@ fn assignment_target_span(assignment: &Assignment, source: &str) -> Span {
 
     let subscript_end = subscript.syntax_source_text().span().end;
     if source
-        .get(subscript_end.offset..)
+        .get(subscript_end.offset()..)
         .is_some_and(|rest| rest.starts_with(']'))
     {
         return Span::from_positions(

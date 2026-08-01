@@ -38,7 +38,7 @@ pub fn spaced_tabstrip_close(checker: &mut Checker) {
 }
 
 fn spaced_tabstrip_close_fix(span: Span, source: &str) -> Option<(Span, Fix)> {
-    let start = span.start.offset;
+    let start = span.start.offset();
     let line = source.get(start..)?.split_inclusive('\n').next()?;
     let mut edits = Vec::new();
     let mut offset = start;
@@ -71,8 +71,8 @@ END
             test_snippet(source, &LinterSettings::for_rule(Rule::SpacedTabstripClose));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -88,8 +88,8 @@ END
             test_snippet(source, &LinterSettings::for_rule(Rule::SpacedTabstripClose));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -149,7 +149,7 @@ END
             test_snippet(source, &LinterSettings::for_rule(Rule::SpacedTabstripClose));
 
         assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.line, 4);
-        assert_eq!(diagnostics[1].span.start.line, 5);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
+        assert_eq!(diagnostics[1].span.start.line(), 5);
     }
 }

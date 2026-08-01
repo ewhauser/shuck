@@ -2,7 +2,7 @@ use super::super::*;
 
 impl<'a> Parser<'a> {
     pub(in crate::parser) fn word_syntax_is_source_backed(&self, word: &Word) -> bool {
-        word.span.end.offset <= self.input.len()
+        word.span.end.offset() <= self.input.len()
             && word
                 .parts
                 .first()
@@ -22,7 +22,7 @@ impl<'a> Parser<'a> {
         part: &WordPart,
         span: Span,
     ) -> bool {
-        span.end.offset <= self.input.len()
+        span.end.offset() <= self.input.len()
             && match part {
                 WordPart::Literal(text) => text.is_source_backed(),
                 WordPart::ZshQualifiedGlob(glob) => {
@@ -498,7 +498,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::parser) fn push_pattern_syntax(&self, out: &mut String, pattern: &Pattern) {
-        if pattern.is_source_backed() && pattern.span.end.offset <= self.input.len() {
+        if pattern.is_source_backed() && pattern.span.end.offset() <= self.input.len() {
             out.push_str(pattern.span.slice(self.input));
             return;
         }

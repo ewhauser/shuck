@@ -38,7 +38,7 @@ pub(crate) fn unchecked_directory_change_spans(checker: &mut Checker) -> Vec<(&'
         .commands()
         .iter()
         .filter_map(|fact| {
-            let scope = semantic.scope_at(fact.stmt().span.start.offset);
+            let scope = semantic.scope_at(fact.stmt().span.start.offset());
             if fact.is_nested_word_command()
                 && !matches!(semantic.scope_kind(scope), ScopeKind::CommandSubstitution)
             {
@@ -72,7 +72,7 @@ pub(crate) fn report_span(fact: crate::facts::CommandFactRef<'_, '_>, source: &s
                 .map(|word| word.span.end)
                 .into_iter()
                 .chain(fact.redirects().iter().map(|redirect| redirect.span.end))
-                .max_by_key(|position| position.offset)
+                .max_by_key(|position| position.offset())
                 .unwrap_or(command.name.span.end);
             Span::from_positions(start, end)
         }

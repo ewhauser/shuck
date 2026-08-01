@@ -58,14 +58,14 @@ fn command_body_span(fact: CommandFactRef<'_, '_>) -> Option<Span> {
     let mut end = body_name.span.end;
 
     for word in fact.body_args() {
-        if word.span.end.offset > end.offset {
+        if word.span.end.offset() > end.offset() {
             end = word.span.end;
         }
     }
 
     for redirect in fact.redirect_facts() {
         let redirect_end = redirect.redirect().span.end;
-        if redirect_end.offset > end.offset {
+        if redirect_end.offset() > end.offset() {
             end = redirect_end;
         }
     }

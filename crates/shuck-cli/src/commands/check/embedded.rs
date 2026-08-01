@@ -157,10 +157,10 @@ fn remap_embedded_lint_diagnostics(
             absolute_path: pending.file.absolute_path.clone(),
             span: remap_embedded_span(
                 embedded,
-                diagnostic.span.start.line,
-                diagnostic.span.start.column,
-                diagnostic.span.end.line,
-                diagnostic.span.end.column,
+                diagnostic.span.start.line(),
+                diagnostic.span.start.column(),
+                diagnostic.span.end.line(),
+                diagnostic.span.end.column(),
             ),
             message: prefixed_embedded_message(embedded, &diagnostic.message),
             kind: DisplayedDiagnosticKind::Lint {

@@ -68,12 +68,12 @@ impl TokenText<'_> {
     fn into_shared<'a>(self, source: &Arc<str>, span: Option<Span>) -> TokenText<'a> {
         match self {
             Self::Borrowed(text) => span
-                .filter(|span| span.end.offset <= source.len())
+                .filter(|span| span.end.offset() <= source.len())
                 .map_or_else(
                     || TokenText::Owned(text.to_string()),
                     |span| TokenText::Shared {
                         source: Arc::clone(source),
-                        range: span.start.offset..span.end.offset,
+                        range: span.start.offset()..span.end.offset(),
                     },
                 ),
             Self::Shared { source, range } => TokenText::Shared { source, range },
@@ -532,8 +532,9 @@ impl<'a> LexedToken<'a> {
             return None;
         }
 
-        (self.span.start.offset <= self.span.end.offset && self.span.end.offset <= source.len())
-            .then(|| &source[self.span.start.offset..self.span.end.offset])
+        (self.span.start.offset() <= self.span.end.offset()
+            && self.span.end.offset() <= source.len())
+        .then(|| &source[self.span.start.offset()..self.span.end.offset()])
     }
 
     /// Return the file-descriptor payload for redirection tokens that carry one.
@@ -669,12 +670,12 @@ impl<'a> PositionMap<'a> {
     }
 
     fn position(&mut self, offset: usize) -> Position {
-        if offset == self.cached.offset {
+        if offset == self.cached.offset() {
             return self.cached;
         }
 
-        let position = if offset > self.cached.offset && offset <= self.source.len() {
-            Self::advance_from(self.cached, &self.source[self.cached.offset..offset])
+        let position = if offset > self.cached.offset() && offset <= self.source.len() {
+            Self::advance_from(self.cached, &self.source[self.cached.offset()..offset])
         } else {
             self.position_uncached(offset)
         };
@@ -696,36 +697,33 @@ impl<'a> PositionMap<'a> {
             line_text.chars().count() + 1
         };
 
-        Position {
-            line: line_index + 1,
-            column,
-            offset,
-        }
+        Position::at(line_index + 1, column, offset)
     }
 
-    fn advance_from(mut position: Position, text: &str) -> Position {
-        position.offset += text.len();
+    fn advance_from(position: Position, text: &str) -> Position {
+        let offset = position.offset() + text.len();
         let newline_count = memchr_iter(b'\n', text.as_bytes()).count();
         if newline_count == 0 {
-            position.column += if text.is_ascii() {
-                text.len()
-            } else {
-                text.chars().count()
-            };
-            return position;
+            let column = position.column()
+                + if text.is_ascii() {
+                    text.len()
+                } else {
+                    text.chars().count()
+                };
+            return Position::at(position.line(), column, offset);
         }
 
-        position.line += newline_count;
+        let line = position.line() + newline_count;
         let tail_start = memrchr(b'\n', text.as_bytes())
             .map(|index| index + 1)
             .unwrap_or_default();
         let tail = &text[tail_start..];
-        position.column = if tail.is_ascii() {
+        let column = if tail.is_ascii() {
             tail.len() + 1
         } else {
             tail.chars().count() + 1
         };
-        position
+        Position::at(line, column, offset)
     }
 }
 

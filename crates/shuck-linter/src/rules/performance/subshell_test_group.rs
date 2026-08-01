@@ -39,7 +39,7 @@ pub fn subshell_test_group(checker: &mut Checker) {
 }
 
 fn brace_group_fix(source: &str, span: Span) -> Fix {
-    let close_start = span.end.offset.saturating_sub(1);
+    let close_start = span.end.offset().saturating_sub(1);
     let close_replacement = if offset_is_indented_line_start(source, close_start) {
         "}"
     } else {
@@ -47,8 +47,8 @@ fn brace_group_fix(source: &str, span: Span) -> Fix {
     };
 
     Fix::unsafe_edits([
-        Edit::replacement_at(span.start.offset, span.start.offset + 1, "{"),
-        Edit::replacement_at(close_start, span.end.offset, close_replacement),
+        Edit::replacement_at(span.start.offset(), span.start.offset() + 1, "{"),
+        Edit::replacement_at(close_start, span.end.offset(), close_replacement),
     ])
 }
 

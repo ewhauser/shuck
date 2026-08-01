@@ -202,7 +202,7 @@ pub(crate) fn build_function_doc_content_facts<'a>(
                 source,
                 line_index,
                 comment_index,
-                function_span.start.line,
+                function_span.start.line(),
             );
             let summary = summaries.remove(&function_scope).unwrap_or_default();
             let uses_positional_parameters = positional_parameter_facts
@@ -352,7 +352,7 @@ fn binding_targets_prior_local(
         .any(|candidate| {
             let candidate = semantic.binding(*candidate);
             candidate.id != binding.id
-                && candidate.span.start.offset < binding.span.start.offset
+                && candidate.span.start.offset() < binding.span.start.offset()
                 && candidate.attributes.contains(BindingAttributes::LOCAL)
                 && semantic.enclosing_function_scope(candidate.scope) == Some(function_scope)
         })
@@ -480,11 +480,7 @@ fn leading_function_doc_block(
             break;
         };
 
-        let line_start_position = Position {
-            line,
-            column: 1,
-            offset: line_start,
-        };
+        let line_start_position = Position::at(line, 1, line_start);
         let comment_start_position =
             line_start_position.advanced_by(&source[line_start..comment_start]);
         let comment_end_position =
@@ -547,7 +543,7 @@ fn build_function_scopes_using_positional_parameters(
         if reference_has_local_positional_reset(
             semantic,
             reference.scope,
-            reference.span.start.offset,
+            reference.span.start.offset(),
             &local_reset_offsets_by_scope,
         ) {
             continue;
@@ -566,7 +562,7 @@ fn is_positional_parameter_reference_name(name: &str) -> bool {
 }
 
 fn span_line_count(span: Span) -> usize {
-    span.end.line.saturating_sub(span.start.line) + 1
+    span.end.line().saturating_sub(span.start.line()) + 1
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
@@ -724,13 +720,13 @@ pub(crate) fn build_completion_registered_function_scopes(
                 continue;
             };
             if same_branch_registrations.iter().any(|later_command| {
-                later_command.span().start.offset > command.span().start.offset
+                later_command.span().start.offset() > command.span().start.offset()
                     && nearest_structural_parent_command(semantic, later_command.id())
                         == Some(parent)
                     && same_structural_branch_between(
                         source,
-                        command.span().end.offset,
-                        later_command.span().start.offset,
+                        command.span().end.offset(),
+                        later_command.span().start.offset(),
                     )
                     && command_registers_completion_function(later_command, source, &candidate.name)
             }) {
@@ -814,7 +810,7 @@ pub(crate) fn extend_completion_registered_function_scopes_through_helpers(
                 .any(|(site, resolved_binding)| {
                     resolved_binding == *binding_id
                         && semantic_analysis
-                            .enclosing_function_scope_at(site.name_span.start.offset)
+                            .enclosing_function_scope_at(site.name_span.start.offset())
                             .is_some_and(|caller_scope| scopes.contains(&caller_scope))
                 });
             let referenced_by_completion_arguments = argument_spec_commands.iter().any(|command| {
@@ -1151,7 +1147,7 @@ pub(crate) fn completion_registered_function_candidate(
         return None;
     };
     let (name, _) = function.static_name_entries().next()?;
-    let scope = semantic.scope_at(function.body.span.start.offset);
+    let scope = semantic.scope_at(function.body.span.start.offset());
 
     Some(CompletionRegisteredFunctionCandidate {
         scope,
@@ -1172,7 +1168,7 @@ pub(crate) fn file_level_completion_function_candidate(
         return None;
     };
     let (name, _) = function.static_name_entries().next()?;
-    let scope = semantic.scope_at(function.body.span.start.offset);
+    let scope = semantic.scope_at(function.body.span.start.offset());
 
     Some(CompletionRegisteredFunctionCandidate {
         scope,
@@ -1188,7 +1184,7 @@ pub(crate) fn external_entrypoint_function_candidate(
         return None;
     };
     let (name, _) = function.static_name_entries().next()?;
-    let scope = semantic.scope_at(function.body.span.start.offset);
+    let scope = semantic.scope_at(function.body.span.start.offset());
     let name_text = name.as_str();
 
     Some(CompletionRegisteredFunctionCandidate {
@@ -1639,10 +1635,10 @@ pub(crate) fn function_parameter_fallback_span(
     if commands.is_empty() {
         return None;
     }
-    if first.span().start.line != second.span().start.line {
+    if first.span().start.line() != second.span().start.line() {
         return None;
     }
-    let tail = source.get(second.span().end.offset..)?;
+    let tail = source.get(second.span().end.offset()..)?;
     if !matches!(next_function_body_delimiter(tail), Some('{') | Some('(')) {
         return None;
     }
@@ -1664,7 +1660,7 @@ pub(crate) fn named_coproc_subshell_fallback_span(command: &CommandFact<'_>) -> 
         return None;
     }
     let body_start = coproc.body.span.start;
-    if coproc.span.start.line != body_start.line {
+    if coproc.span.start.line() != body_start.line() {
         return None;
     }
     Some(Span::from_positions(body_start, body_start))
@@ -1694,7 +1690,7 @@ pub(crate) fn build_function_call_arity_facts<'a>(
     let mut offsets = Vec::new();
     for name in &unique_function_names {
         for (site, _) in semantic_analysis.function_call_arity_sites(name) {
-            offsets.push(site.name_span.start.offset);
+            offsets.push(site.name_span.start.offset());
         }
     }
     if offsets.is_empty() {
@@ -1707,7 +1703,7 @@ pub(crate) fn build_function_call_arity_facts<'a>(
         for (site, binding_id) in semantic_analysis.function_call_arity_sites(name) {
             let Some(command_id) = precomputed_command_id_for_offset(
                 &command_ids_by_offset,
-                site.name_span.start.offset,
+                site.name_span.start.offset(),
             ) else {
                 continue;
             };
@@ -1856,7 +1852,7 @@ pub(crate) fn build_function_positional_parameter_facts(
         .collect::<FxHashMap<_, _>>();
 
     for fragment in positional_parameter_fragments {
-        let fragment_offset = fragment.span().start.offset;
+        let fragment_offset = fragment.span().start.offset();
         let fragment_scope = semantic.scope_at(fragment_offset);
         if reference_has_local_positional_reset(
             semantic,
@@ -1911,7 +1907,7 @@ fn local_positional_reset_offsets_by_scope(
             continue;
         }
 
-        let offset = command.span().start.offset;
+        let offset = command.span().start.offset();
         if let Some(scope) = semantic.innermost_transient_scope_within_function(command.scope()) {
             local_reset_offsets_by_scope
                 .entry(scope)

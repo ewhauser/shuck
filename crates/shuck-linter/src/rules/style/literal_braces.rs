@@ -23,7 +23,7 @@ pub fn literal_braces(checker: &mut Checker) {
         for span in facts.words().literal_brace_spans().iter().copied() {
             report(
                 Diagnostic::new(LiteralBraces, span)
-                    .with_fix(Fix::safe_edit(Edit::insertion(span.start.offset, "\\"))),
+                    .with_fix(Fix::safe_edit(Edit::insertion(span.start.offset(), "\\"))),
             );
         }
     });
@@ -40,8 +40,8 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
 
         assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.column, 11);
-        assert_eq!(diagnostics[1].span.start.column, 13);
+        assert_eq!(diagnostics[0].span.start.column(), 11);
+        assert_eq!(diagnostics[1].span.start.column(), 13);
     }
 
     #[test]
@@ -189,8 +189,8 @@ xargs printf -I{x}
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
 
         assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.column, 16);
-        assert_eq!(diagnostics[1].span.start.column, 18);
+        assert_eq!(diagnostics[0].span.start.column(), 16);
+        assert_eq!(diagnostics[1].span.start.column(), 18);
     }
 
     #[test]
@@ -240,7 +240,7 @@ value=$(cut -d} -f1)
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.column, 15);
+        assert_eq!(diagnostics[0].span.start.column(), 15);
     }
 
     #[test]
@@ -273,8 +273,8 @@ value=$(
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
-        assert_eq!(diagnostics[0].span.start.column, 11);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
+        assert_eq!(diagnostics[0].span.start.column(), 11);
     }
 
     #[test]
@@ -297,10 +297,10 @@ go list -f {{.Dir}} \"$path\"
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
 
         assert_eq!(diagnostics.len(), 4);
-        assert_eq!(diagnostics[0].span.start.column, 12);
-        assert_eq!(diagnostics[1].span.start.column, 13);
-        assert_eq!(diagnostics[2].span.start.column, 18);
-        assert_eq!(diagnostics[3].span.start.column, 19);
+        assert_eq!(diagnostics[0].span.start.column(), 12);
+        assert_eq!(diagnostics[1].span.start.column(), 13);
+        assert_eq!(diagnostics[2].span.start.column(), 18);
+        assert_eq!(diagnostics[3].span.start.column(), 19);
     }
 
     #[test]
@@ -313,12 +313,12 @@ cut -d} -f1
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
 
         assert_eq!(diagnostics.len(), 3);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 36);
-        assert_eq!(diagnostics[1].span.start.line, 2);
-        assert_eq!(diagnostics[1].span.start.column, 74);
-        assert_eq!(diagnostics[2].span.start.line, 3);
-        assert_eq!(diagnostics[2].span.start.column, 7);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 36);
+        assert_eq!(diagnostics[1].span.start.line(), 2);
+        assert_eq!(diagnostics[1].span.start.column(), 74);
+        assert_eq!(diagnostics[2].span.start.line(), 3);
+        assert_eq!(diagnostics[2].span.start.column(), 7);
     }
 
     #[test]
@@ -402,7 +402,7 @@ exec {IPC_FIFO_FD}>&-
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
         let positions = diagnostics
             .iter()
-            .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+            .map(|diagnostic| (diagnostic.span.start.line(), diagnostic.span.start.column()))
             .collect::<Vec<_>>();
 
         assert_eq!(positions, vec![(3, 29), (3, 43), (4, 11), (4, 44)]);
@@ -444,7 +444,7 @@ fi
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
         let positions = diagnostics
             .iter()
-            .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+            .map(|diagnostic| (diagnostic.span.start.line(), diagnostic.span.start.column()))
             .collect::<Vec<_>>();
 
         assert_eq!(positions, vec![(2, 24), (2, 36)]);
@@ -459,7 +459,7 @@ echo \\${${name}}/\\${fallback}
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
         let positions = diagnostics
             .iter()
-            .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+            .map(|diagnostic| (diagnostic.span.start.line(), diagnostic.span.start.column()))
             .collect::<Vec<_>>();
 
         assert_eq!(positions, vec![(2, 8), (2, 16), (2, 20), (2, 29)]);
@@ -478,7 +478,7 @@ nft add chain inet fw4 input { type filter hook input priority filter \\; } 2>/d
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
         let positions = diagnostics
             .iter()
-            .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+            .map(|diagnostic| (diagnostic.span.start.line(), diagnostic.span.start.column()))
             .collect::<Vec<_>>();
 
         assert_eq!(

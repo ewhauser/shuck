@@ -131,7 +131,7 @@ impl<'a> Parser<'a> {
                     let span = left_paren_span.merge(right_paren_span);
                     let text = span.slice(self.input).to_string();
                     while self.current_token.is_some()
-                        && self.current_span.start.offset < right_paren_span.end.offset
+                        && self.current_span.start.offset() < right_paren_span.end.offset()
                     {
                         self.advance();
                     }
@@ -271,7 +271,7 @@ impl<'a> Parser<'a> {
         stop_at_right_paren: bool,
         starts_with_paren: bool,
     ) -> Option<(String, Position)> {
-        if start.offset >= self.input.len() {
+        if start.offset() >= self.input.len() {
             return None;
         }
 
@@ -286,8 +286,8 @@ impl<'a> Parser<'a> {
         let mut escaped = false;
         let mut prev_char = None;
 
-        while cursor.offset < self.input.len() {
-            let rest = &self.input[cursor.offset..];
+        while cursor.offset() < self.input.len() {
+            let rest = &self.input[cursor.offset()..];
             if !in_single
                 && !in_double
                 && !in_backtick
@@ -311,7 +311,7 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            let ch = self.input[cursor.offset..].chars().next()?;
+            let ch = self.input[cursor.offset()..].chars().next()?;
             cursor.advance(ch);
             text.push(ch);
 
@@ -351,8 +351,8 @@ impl<'a> Parser<'a> {
         stop_at_right_paren: bool,
     ) -> Option<(TokenKind, Span)> {
         let mut cursor = end;
-        while cursor.offset < self.input.len() {
-            let rest = &self.input[cursor.offset..];
+        while cursor.offset() < self.input.len() {
+            let rest = &self.input[cursor.offset()..];
             let ch = rest.chars().next()?;
             if matches!(ch, ' ' | '\t') {
                 cursor.advance(ch);
@@ -361,7 +361,7 @@ impl<'a> Parser<'a> {
             break;
         }
 
-        let rest = self.input.get(cursor.offset..)?;
+        let rest = self.input.get(cursor.offset()..)?;
         let (kind, text) = if rest.starts_with("]]") {
             (TokenKind::DoubleRightBracket, "]]")
         } else if rest.starts_with("&&") {
@@ -506,7 +506,7 @@ impl<'a> Parser<'a> {
             }
 
             if let Some(prev_end) = previous_end
-                && prev_end.offset < self.current_span.start.offset
+                && prev_end.offset() < self.current_span.start.offset()
             {
                 let gap_span = Span::from_positions(prev_end, self.current_span.start);
                 let gap_text = gap_span.slice(self.input);
@@ -681,7 +681,7 @@ impl<'a> Parser<'a> {
                 | Some(TokenKind::RedirectOut)
                 | Some(TokenKind::RedirectReadWrite) => {
                     let literal = self.input
-                        [self.current_span.start.offset..self.current_span.end.offset]
+                        [self.current_span.start.offset()..self.current_span.end.offset()]
                         .to_string();
                     if start.is_none() {
                         start = Some(self.current_span.start);
@@ -705,7 +705,7 @@ impl<'a> Parser<'a> {
                 }
                 _ => {
                     let literal = self.input
-                        [self.current_span.start.offset..self.current_span.end.offset]
+                        [self.current_span.start.offset()..self.current_span.end.offset()]
                         .to_string();
                     if literal.is_empty() {
                         break;
@@ -754,7 +754,7 @@ impl<'a> Parser<'a> {
             ));
         };
         while self.current_token.is_some()
-            && self.current_span.start.offset < right_paren_span.end.offset
+            && self.current_span.start.offset() < right_paren_span.end.offset()
         {
             self.advance();
         }
@@ -781,8 +781,8 @@ impl<'a> Parser<'a> {
         let mut in_backtick = false;
         let mut escaped = false;
 
-        while cursor.offset < self.input.len() {
-            let rest = &self.input[cursor.offset..];
+        while cursor.offset() < self.input.len() {
+            let rest = &self.input[cursor.offset()..];
 
             if !in_single && !in_double && !in_backtick {
                 if rest.starts_with("((") {

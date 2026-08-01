@@ -58,8 +58,8 @@ pub(super) fn display_lint_diagnostics_for_file(
             relative_path: file.relative_path.clone(),
             absolute_path: file.absolute_path.clone(),
             span: DisplaySpan::new(
-                DisplayPosition::new(diagnostic.span.start.line, diagnostic.span.start.column),
-                DisplayPosition::new(diagnostic.span.end.line, diagnostic.span.end.column),
+                DisplayPosition::new(diagnostic.span.start.line(), diagnostic.span.start.column()),
+                DisplayPosition::new(diagnostic.span.end.line(), diagnostic.span.end.column()),
             ),
             message: diagnostic.message.clone(),
             kind: DisplayedDiagnosticKind::Lint {
@@ -174,8 +174,8 @@ pub(super) fn push_lint_diagnostics(
             relative_path: relative_path.to_path_buf(),
             absolute_path: absolute_path.to_path_buf(),
             span: DisplaySpan::new(
-                DisplayPosition::new(diagnostic.span.start.line, diagnostic.span.start.column),
-                DisplayPosition::new(diagnostic.span.end.line, diagnostic.span.end.column),
+                DisplayPosition::new(diagnostic.span.start.line(), diagnostic.span.start.column()),
+                DisplayPosition::new(diagnostic.span.end.line(), diagnostic.span.end.column()),
             ),
             message: diagnostic.message.clone(),
             kind: DisplayedDiagnosticKind::Lint {

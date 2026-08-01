@@ -46,7 +46,7 @@ fi
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].code(), "C064");
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 }

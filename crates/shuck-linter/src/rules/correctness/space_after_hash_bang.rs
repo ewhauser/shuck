@@ -51,9 +51,9 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SpaceAfterHashBang));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 1);
-        assert_eq!(diagnostics[0].span.start.column, 2);
-        assert_eq!(diagnostics[0].span.end.column, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 1);
+        assert_eq!(diagnostics[0].span.start.column(), 2);
+        assert_eq!(diagnostics[0].span.end.column(), 2);
     }
 
     #[test]
@@ -76,8 +76,8 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SpaceAfterHashBang));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.column, 2);
-        assert_eq!(diagnostics[0].span.end.column, 2);
+        assert_eq!(diagnostics[0].span.start.column(), 2);
+        assert_eq!(diagnostics[0].span.end.column(), 2);
     }
 
     #[test]
@@ -86,9 +86,9 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SpaceAfterHashBang));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 2);
-        assert_eq!(diagnostics[0].span.end.column, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 2);
+        assert_eq!(diagnostics[0].span.end.column(), 2);
     }
 
     #[test]

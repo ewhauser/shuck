@@ -49,14 +49,14 @@ pub fn function_body_without_braces(checker: &mut Checker) {
 fn wrap_function_body_fix(span: Span, source: &str) -> Fix {
     let insert_end = trim_trailing_whitespace_offset(span, source);
     Fix::safe_edits([
-        Edit::insertion(span.start.offset, "{ "),
+        Edit::insertion(span.start.offset(), "{ "),
         Edit::insertion(insert_end, "; }"),
     ])
 }
 
 fn trim_trailing_whitespace_offset(span: Span, source: &str) -> usize {
-    let mut offset = span.end.offset;
-    while offset > span.start.offset {
+    let mut offset = span.end.offset();
+    while offset > span.start.offset() {
         let Some(ch) = source[..offset].chars().next_back() else {
             break;
         };

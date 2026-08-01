@@ -1048,17 +1048,17 @@ fn map_diagnostic(
     let level = level_for_diagnostic(diagnostic.rule, diagnostic.severity, code);
     let fix = compat_fix_for_diagnostic(
         code,
-        diagnostic.span.start.line,
-        diagnostic.span.start.column,
-        diagnostic.span.end.line,
-        diagnostic.span.end.column,
+        diagnostic.span.start.line(),
+        diagnostic.span.start.column(),
+        diagnostic.span.end.line(),
+        diagnostic.span.end.column(),
     );
     threshold.allows(level).then(|| CompatDiagnostic {
         file: display_path(path, cwd),
-        line: diagnostic.span.start.line,
-        end_line: diagnostic.span.end.line,
-        column: diagnostic.span.start.column,
-        end_column: diagnostic.span.end.column,
+        line: diagnostic.span.start.line(),
+        end_line: diagnostic.span.end.line(),
+        column: diagnostic.span.start.column(),
+        end_column: diagnostic.span.end.column(),
         level,
         code,
         message: diagnostic.message,

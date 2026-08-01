@@ -121,7 +121,7 @@ fn pattern_span_if_risky(
 }
 
 fn span_contains(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
+    outer.start.offset() <= inner.start.offset() && outer.end.offset() >= inner.end.offset()
 }
 
 fn intentional_join_fix(expansion_spans: &[Span], source: &str) -> Option<Fix> {

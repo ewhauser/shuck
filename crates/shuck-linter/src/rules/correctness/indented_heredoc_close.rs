@@ -66,7 +66,7 @@ EOF
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+                .map(|diagnostic| (diagnostic.span.start.line(), diagnostic.span.start.column()))
                 .collect::<Vec<_>>(),
             vec![(4, 1), (5, 1)]
         );
@@ -108,7 +108,7 @@ hi
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
     }
 
     #[test]
@@ -126,7 +126,7 @@ hi
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
     }
 
     #[test]

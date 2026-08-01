@@ -32,7 +32,7 @@ pub fn missing_bracket_space(checker: &mut Checker) {
             let span = fact.glued_closing_bracket_operand_span()?;
             let insert_offset = fact.glued_closing_bracket_insert_offset()?;
             seen_lines
-                .insert(span.start.line)
+                .insert(span.start.line())
                 .then_some((span, insert_offset))
         })
         .map(|(span, insert_offset)| diagnostic_for_glued_closing_bracket(span, insert_offset))
@@ -78,7 +78,7 @@ fi
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+                .map(|diagnostic| (diagnostic.span.start.line(), diagnostic.span.start.column()))
                 .collect::<Vec<_>>(),
             vec![(2, 9), (8, 9), (11, 9)]
         );
@@ -98,8 +98,8 @@ fi
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
             (
-                diagnostics[0].span.start.line,
-                diagnostics[0].span.start.column
+                diagnostics[0].span.start.line(),
+                diagnostics[0].span.start.column()
             ),
             (2, 11)
         );

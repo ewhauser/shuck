@@ -74,9 +74,9 @@ mod tests {
             test_snippet(source, &LinterSettings::for_rule(Rule::BashCaseFallthrough));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
-        assert_eq!(diagnostics[0].span.end.line, 6);
-        assert_eq!(diagnostics[0].span.end.column, 5);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
+        assert_eq!(diagnostics[0].span.end.line(), 6);
+        assert_eq!(diagnostics[0].span.end.column(), 5);
     }
 }

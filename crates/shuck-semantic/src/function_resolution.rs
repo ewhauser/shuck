@@ -81,7 +81,7 @@ impl FunctionBindingLookup<'_> {
         for (name, sites) in self.call_sites {
             for site in sites {
                 let Some(binding) =
-                    resolver.visible_function_binding(name, site.scope, site.span.start.offset)
+                    resolver.visible_function_binding(name, site.scope, site.span.start.offset())
                 else {
                     continue;
                 };
@@ -273,7 +273,7 @@ impl FunctionCallResolver<'_> {
                 }
 
                 if scope_id == scope {
-                    if candidate.span.start.offset <= offset
+                    if candidate.span.start.offset() <= offset
                         && self.unconditional_function_bindings.contains(&binding)
                     {
                         return Some(binding);
@@ -299,7 +299,7 @@ impl FunctionCallResolver<'_> {
         candidate: &Binding,
         scope: ScopeId,
     ) -> bool {
-        if candidate.span.start.offset <= self.scopes[scope.index()].span.start.offset {
+        if candidate.span.start.offset() <= self.scopes[scope.index()].span.start.offset() {
             return true;
         }
 
@@ -307,7 +307,7 @@ impl FunctionCallResolver<'_> {
         !self.scope_has_known_entry_before_offset(
             scope,
             candidate.scope,
-            candidate.span.start.offset,
+            candidate.span.start.offset(),
             &mut visiting,
         )
     }
@@ -364,7 +364,7 @@ impl FunctionCallResolver<'_> {
     ) -> bool {
         let command_start = crate::cfg::recorded_command_span_for_call_site(self.program, site)
             .start
-            .offset;
+            .offset();
         let Some(enclosing_function) = self.enclosing_function_scope(site.scope) else {
             if self.scope_has_ancestor(site.scope, call_scope) {
                 return command_start < offset;
@@ -394,11 +394,11 @@ impl FunctionCallResolver<'_> {
             return self.lexically_visible_function_binding_in_scope(
                 &target.name,
                 site.scope,
-                site.span.start.offset,
+                site.span.start.offset(),
             ) == Some(binding);
         }
 
-        target.span.start.offset < offset
+        target.span.start.offset() < offset
     }
 
     fn enclosing_function_scope(&self, scope: ScopeId) -> Option<ScopeId> {
@@ -449,6 +449,6 @@ pub(crate) fn lexically_visible_function_binding_in_scope(
     candidates.iter().rev().copied().find(|binding| {
         let candidate = &bindings[binding.index()];
         matches!(candidate.kind, BindingKind::FunctionDefinition)
-            && candidate.span.start.offset <= offset
+            && candidate.span.start.offset() <= offset
     })
 }

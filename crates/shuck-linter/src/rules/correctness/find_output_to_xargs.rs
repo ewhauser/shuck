@@ -117,16 +117,21 @@ fn find_print0_insertion_offset(command: CommandFactRef<'_, '_>) -> usize {
     command
         .redirect_facts()
         .first()
-        .map(|redirect| redirect.redirect().span.start.offset)
-        .or_else(|| command.body_args().last().map(|word| word.span.end.offset))
-        .or_else(|| command.body_name_word().map(|word| word.span.end.offset))
+        .map(|redirect| redirect.redirect().span.start.offset())
+        .or_else(|| {
+            command
+                .body_args()
+                .last()
+                .map(|word| word.span.end.offset())
+        })
+        .or_else(|| command.body_name_word().map(|word| word.span.end.offset()))
         .expect("find command diagnostics should have a body insertion point")
 }
 
 fn xargs_null_input_insertion_offset(command: CommandFactRef<'_, '_>) -> usize {
     command
         .body_name_word()
-        .map(|word| word.span.end.offset)
+        .map(|word| word.span.end.offset())
         .expect("xargs command diagnostics should have a body name word")
 }
 
@@ -196,7 +201,7 @@ command find . -type f | xargs rm
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FindOutputToXargs));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
         assert_eq!(diagnostics[0].span.slice(source), "find . -type f");
     }
 
@@ -250,7 +255,7 @@ find \"$pkg\" -print0 | xargs rm
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FindOutputToXargs));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
         assert_eq!(diagnostics[0].span.slice(source), "find \"$pkg\" -print0");
     }
 

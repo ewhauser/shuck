@@ -79,7 +79,7 @@ impl SuppressionIndex {
 pub(crate) fn first_statement_line(file: &File) -> Option<u32> {
     file.body
         .iter()
-        .filter_map(|command| u32::try_from(command.span.start.line).ok())
+        .filter_map(|command| u32::try_from(command.span.start.line()).ok())
         .min()
 }
 
@@ -146,22 +146,22 @@ pub(crate) fn sort_command_spans_for_lookup(spans: &mut [Span]) {
     // children during `next_command_range_after`.
     spans.sort_by(|left, right| {
         left.start
-            .offset
-            .cmp(&right.start.offset)
-            .then_with(|| right.end.offset.cmp(&left.end.offset))
+            .offset()
+            .cmp(&right.start.offset())
+            .then_with(|| right.end.offset().cmp(&left.end.offset()))
     });
 }
 
 fn next_command_range_after(spans: &[Span], offset: TextSize) -> Option<LineRange> {
     let offset = offset.to_u32() as usize;
-    let idx = spans.partition_point(|span| span.start.offset <= offset);
+    let idx = spans.partition_point(|span| span.start.offset() <= offset);
     spans.get(idx).copied().and_then(line_range)
 }
 
 fn line_range(span: Span) -> Option<LineRange> {
-    let start_line = u32::try_from(span.start.line).ok()?;
-    let mut end_line = u32::try_from(span.end.line).ok()?;
-    if span.end.offset > span.start.offset && span.end.column == 1 {
+    let start_line = u32::try_from(span.start.line()).ok()?;
+    let mut end_line = u32::try_from(span.end.line()).ok()?;
+    if span.end.offset() > span.start.offset() && span.end.column() == 1 {
         end_line = end_line.saturating_sub(1);
     }
 
@@ -235,13 +235,13 @@ fn extend_span_with_heredoc_body(span: &mut Span, parts: &[HeredocBodyPartNode])
 }
 
 fn extend_span(span: &mut Span, extension: Span) {
-    if extension.start.line == 0 || extension.end.line == 0 {
+    if extension.start.line() == 0 || extension.end.line() == 0 {
         return;
     }
-    if span.start.line == 0 || extension.start.offset < span.start.offset {
+    if span.start.line() == 0 || extension.start.offset() < span.start.offset() {
         span.start = extension.start;
     }
-    if span.end.line == 0 || extension.end.offset > span.end.offset {
+    if span.end.line() == 0 || extension.end.offset() > span.end.offset() {
         span.end = extension.end;
     }
 }

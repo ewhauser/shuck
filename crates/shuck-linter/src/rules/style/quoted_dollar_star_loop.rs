@@ -56,14 +56,14 @@ pub fn quoted_dollar_star_loop(checker: &mut Checker) {
 }
 
 fn quoted_loop_word_fix(span: Span) -> Option<(Span, Fix)> {
-    if span.end.offset < span.start.offset + 2 {
+    if span.end.offset() < span.start.offset() + 2 {
         return None;
     }
     Some((
         span,
         Fix::unsafe_edits([
-            Edit::deletion_at(span.start.offset, span.start.offset + 1),
-            Edit::deletion_at(span.end.offset - 1, span.end.offset),
+            Edit::deletion_at(span.start.offset(), span.start.offset() + 1),
+            Edit::deletion_at(span.end.offset() - 1, span.end.offset()),
         ]),
     ))
 }

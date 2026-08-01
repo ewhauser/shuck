@@ -38,8 +38,8 @@ pub struct FactSpan {
 impl FactSpan {
     pub fn new(span: Span) -> Self {
         Self {
-            start: span.start.offset,
-            end: span.end.offset,
+            start: span.start.offset(),
+            end: span.end.offset(),
         }
     }
 }
@@ -413,16 +413,16 @@ impl<'facts, 'a> CommandFacts<'facts, 'a> {
         self,
         outer: Span,
     ) -> impl Iterator<Item = CommandFactRef<'facts, 'a>> {
-        let start_offset = outer.start.offset;
-        let end_offset = outer.end.offset;
+        let start_offset = outer.start.offset();
+        let end_offset = outer.end.offset();
         let start = self
             .commands
-            .partition_point(|fact| fact.span().start.offset < start_offset);
+            .partition_point(|fact| fact.span().start.offset() < start_offset);
         let store = self.store;
         self.commands[start..]
             .iter()
-            .take_while(move |fact| fact.span().start.offset <= end_offset)
-            .filter(move |fact| fact.span().end.offset <= end_offset)
+            .take_while(move |fact| fact.span().start.offset() <= end_offset)
+            .filter(move |fact| fact.span().end.offset() <= end_offset)
             .map(move |fact| CommandFactRef::new(fact, store))
     }
 }

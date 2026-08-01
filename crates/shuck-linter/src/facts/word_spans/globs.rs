@@ -18,7 +18,7 @@ pub fn word_active_glob_pattern_spans(
 
     let mut spans = Vec::new();
     collect_active_glob_pattern_spans(&word.parts, source, false, pattern_behavior, &mut spans);
-    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.sort_by_key(|span| (span.start.offset(), span.end.offset()));
     spans.dedup();
     spans
 }
@@ -44,8 +44,8 @@ pub fn word_unquoted_glob_pattern_spans_outside_brace_expansion(
         .into_iter()
         .filter(|glob_span| {
             !active_brace_spans.iter().any(|brace_span| {
-                brace_span.start.offset <= glob_span.start.offset
-                    && glob_span.end.offset <= brace_span.end.offset
+                brace_span.start.offset() <= glob_span.start.offset()
+                    && glob_span.end.offset() <= brace_span.end.offset()
             })
         })
         .collect()
@@ -73,8 +73,8 @@ pub fn word_active_glob_pattern_spans_outside_brace_expansion(
         .into_iter()
         .filter(|glob_span| {
             !active_brace_spans.iter().any(|brace_span| {
-                brace_span.start.offset <= glob_span.start.offset
-                    && glob_span.end.offset <= brace_span.end.offset
+                brace_span.start.offset() <= glob_span.start.offset()
+                    && glob_span.end.offset() <= brace_span.end.offset()
             })
         })
         .collect()
@@ -123,7 +123,7 @@ pub fn word_suspicious_brace_character_class_spans(word: &Word, source: &str) ->
         .map(|brace| brace.span)
         .collect::<Vec<_>>();
     collect_literal_suspicious_brace_character_class_spans(word, source, &mut spans);
-    spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+    spans.sort_unstable_by_key(|span| (span.start.offset(), span.end.offset()));
     spans.dedup();
     spans
 }
@@ -577,7 +577,7 @@ pub(crate) fn active_literal_glob_pattern_spans(
         .filter(|glob_span| !span_is_within_any(*glob_span, &spans))
         .collect::<Vec<_>>();
     spans.extend(basic_spans);
-    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.sort_by_key(|span| (span.start.offset(), span.end.offset()));
     spans.dedup();
     spans
 }
@@ -724,9 +724,9 @@ fn pattern_operator_may_be_active(behavior: PatternOperatorBehavior) -> bool {
 }
 
 fn span_is_within_any(span: Span, hosts: &[Span]) -> bool {
-    hosts
-        .iter()
-        .any(|host| host.start.offset <= span.start.offset && span.end.offset <= host.end.offset)
+    hosts.iter().any(|host| {
+        host.start.offset() <= span.start.offset() && span.end.offset() <= host.end.offset()
+    })
 }
 
 pub(crate) fn suspicious_bracket_glob_text(text: &str) -> bool {
@@ -894,10 +894,10 @@ pub(crate) fn hyphen_is_range_separator(
 pub(crate) fn span_within_literal(span: Span, source: &str, start: usize, end: usize) -> Span {
     let start_pos = span
         .start
-        .advanced_by(&source[span.start.offset..span.start.offset + start]);
+        .advanced_by(&source[span.start.offset()..span.start.offset() + start]);
     let end_pos = span
         .start
-        .advanced_by(&source[span.start.offset..span.start.offset + end]);
+        .advanced_by(&source[span.start.offset()..span.start.offset() + end]);
     Span::from_positions(start_pos, end_pos)
 }
 
@@ -1111,7 +1111,7 @@ pub(crate) fn word_surface_bytes(
         return None;
     }
 
-    let word_start = word.span.start.offset;
+    let word_start = word.span.start.offset();
     let mut surface = Vec::new();
     let mut source_offsets = Vec::new();
 
@@ -1119,7 +1119,7 @@ pub(crate) fn word_surface_bytes(
         match &part.kind {
             WordPart::Literal(_) => {
                 let part_text = part.span.slice(source);
-                let relative_start = part.span.start.offset.checked_sub(word_start)?;
+                let relative_start = part.span.start.offset().checked_sub(word_start)?;
                 for (index, byte) in part_text.as_bytes().iter().copied().enumerate() {
                     surface.push(byte);
                     source_offsets.push(Some(relative_start + index));

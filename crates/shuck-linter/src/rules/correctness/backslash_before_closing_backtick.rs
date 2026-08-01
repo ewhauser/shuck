@@ -88,10 +88,10 @@ echo \"$ARCH\"
                 .iter()
                 .map(|diagnostic| {
                     (
-                        diagnostic.span.start.line,
-                        diagnostic.span.start.column,
-                        diagnostic.span.end.line,
-                        diagnostic.span.end.column,
+                        diagnostic.span.start.line(),
+                        diagnostic.span.start.column(),
+                        diagnostic.span.end.line(),
+                        diagnostic.span.end.column(),
                     )
                 })
                 .collect::<Vec<_>>(),

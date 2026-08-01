@@ -891,14 +891,14 @@ fn build_command_containing_offset_entries(
             };
             [
                 CommandContainingOffsetEvent {
-                    offset: span.start.offset,
-                    end_offset: span.end.offset,
+                    offset: span.start.offset(),
+                    end_offset: span.end.offset(),
                     id,
                     kind: CommandContainingOffsetEventKind::Start,
                 },
                 CommandContainingOffsetEvent {
-                    offset: span.end.offset.saturating_add(1),
-                    end_offset: span.end.offset,
+                    offset: span.end.offset().saturating_add(1),
+                    end_offset: span.end.offset(),
                     id,
                     kind: CommandContainingOffsetEventKind::End,
                 },
@@ -1263,7 +1263,7 @@ fn attach_function_body_commands(
         let child_span = model.command_syntax_span(child);
         while let Some(function_id) = function_ids.get(next_function).copied() {
             let function_span = model.command_syntax_span(function_id);
-            if function_span.start.offset > child_span.start.offset {
+            if function_span.start.offset() > child_span.start.offset() {
                 break;
             }
             while active_functions.last().is_some_and(|active| {
@@ -1290,7 +1290,7 @@ fn attach_function_body_commands(
 }
 
 fn contains_command_span(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+    outer.start.offset() <= inner.start.offset() && inner.end.offset() <= outer.end.offset()
 }
 
 fn compare_command_ids_by_syntax_span(
@@ -1302,8 +1302,8 @@ fn compare_command_ids_by_syntax_span(
     let right_span = model.command_syntax_span(right);
     left_span
         .start
-        .offset
-        .cmp(&right_span.start.offset)
-        .then_with(|| right_span.end.offset.cmp(&left_span.end.offset))
+        .offset()
+        .cmp(&right_span.start.offset())
+        .then_with(|| right_span.end.offset().cmp(&left_span.end.offset()))
         .then_with(|| right.index().cmp(&left.index()))
 }

@@ -25,9 +25,9 @@ fn test_unterminated_double_quote_reports_segment_start() {
     let parsed = Parser::new(&input).parse();
     let diagnostic = parsed.diagnostics.first().unwrap();
 
-    assert_eq!(diagnostic.span.start.line, 27);
-    assert_eq!(diagnostic.span.start.column, 9);
-    assert_eq!(diagnostic.span.start.offset, input.find('"').unwrap());
+    assert_eq!(diagnostic.span.start.line(), 27);
+    assert_eq!(diagnostic.span.start.column(), 9);
+    assert_eq!(diagnostic.span.start.offset(), input.find('"').unwrap());
 
     let Error::Parse { line, column, .. } = parsed.strict_error();
     assert_eq!((line, column), (27, 9));
@@ -44,8 +44,8 @@ fn test_unterminated_multiline_quotes_report_their_opening_tokens() {
         let parsed = Parser::new(input).parse();
         let diagnostic = parsed.diagnostics.first().unwrap();
 
-        assert_eq!(diagnostic.span.start.line, 1, "{input:?}");
-        assert_eq!(diagnostic.span.start.column, expected_column, "{input:?}");
+        assert_eq!(diagnostic.span.start.line(), 1, "{input:?}");
+        assert_eq!(diagnostic.span.start.column(), expected_column, "{input:?}");
     }
 }
 
@@ -98,9 +98,9 @@ fn test_process_substitution_spans_are_absolute() {
     assert!(*is_input);
 
     let inner = expect_simple(&commands[0]);
-    assert_eq!(inner.name.span.start.line, 2);
-    assert_eq!(inner.name.span.start.column, 3);
-    assert_eq!(inner.args[1].span.start.column, 17);
+    assert_eq!(inner.name.span.start.line(), 2);
+    assert_eq!(inner.name.span.start.column(), 3);
+    assert_eq!(inner.args[1].span.start.column(), 17);
 }
 
 #[test]

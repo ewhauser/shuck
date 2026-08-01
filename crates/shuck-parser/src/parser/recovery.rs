@@ -39,7 +39,7 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            let before_offset = self.current_span.start.offset;
+            let before_offset = self.current_span.start.offset();
             self.advance();
             advanced = true;
 
@@ -47,8 +47,8 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            if self.current_span.start.offset > failed_offset
-                && before_offset != self.current_span.start.offset
+            if self.current_span.start.offset() > failed_offset
+                && before_offset != self.current_span.start.offset()
             {
                 continue;
             }
@@ -65,7 +65,7 @@ impl<'a> Parser<'a> {
         let mut terminal_error = None;
 
         while self.current_token.is_some() {
-            let checkpoint = self.current_span.start.offset;
+            let checkpoint = self.current_span.start.offset();
 
             if let Err(error) = self.tick() {
                 diagnostics.push(self.parse_diagnostic_from_error(error.clone()));
@@ -82,7 +82,7 @@ impl<'a> Parser<'a> {
                 let recovered = self.recover_to_command_boundary(checkpoint);
                 if recovered
                     || (self.current_token.is_some()
-                        && self.current_span.start.offset < self.input.len())
+                        && self.current_span.start.offset() < self.input.len())
                 {
                     terminal_error.get_or_insert(error);
                 }
@@ -95,7 +95,7 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            let command_start = self.current_span.start.offset;
+            let command_start = self.current_span.start.offset();
             match self.parse_command_list_required() {
                 Ok(command_stmts) => {
                     self.apply_stmt_list_effects(&command_stmts);
@@ -106,7 +106,7 @@ impl<'a> Parser<'a> {
                     let recovered = self.recover_to_command_boundary(command_start);
                     if recovered
                         || (self.current_token.is_some()
-                            && self.current_span.start.offset < self.input.len())
+                            && self.current_span.start.offset() < self.input.len())
                     {
                         terminal_error.get_or_insert(error);
                     }

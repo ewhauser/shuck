@@ -23,7 +23,7 @@ pub fn double_paren_grouping(checker: &mut Checker) {
         for span in facts.words().double_paren_grouping_spans().iter().copied() {
             report(
                 Diagnostic::new(DoubleParenGrouping, span).with_fix(Fix::unsafe_edit(
-                    Edit::insertion(span.start.offset + 1, " "),
+                    Edit::insertion(span.start.offset() + 1, " "),
                 )),
             );
         }
@@ -47,8 +47,8 @@ mod tests {
             test_snippet(source, &LinterSettings::for_rule(Rule::DoubleParenGrouping));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]

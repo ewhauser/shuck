@@ -642,7 +642,7 @@ complete -F _comp_cmd_later later
                     .command_facts()
                     .command_is_in_completion_registered_function(command.id())
             })
-            .map(|command| command.span().start.line)
+            .map(|command| command.span().start.line())
             .collect::<Vec<_>>();
 
         assert!(!flagged_lines.is_empty());
@@ -669,7 +669,7 @@ compdef __grunt grunt
                     .command_facts()
                     .command_is_in_completion_registered_function(command.id())
             })
-            .map(|command| command.span().start.line)
+            .map(|command| command.span().start.line())
             .collect::<Vec<_>>();
 
         assert!(!flagged_lines.is_empty());
@@ -698,7 +698,7 @@ setup_completion() {
                     .command_facts()
                     .command_is_in_completion_registered_function(command.id())
             })
-            .map(|command| command.span().start.line)
+            .map(|command| command.span().start.line())
             .collect::<Vec<_>>();
 
         assert_eq!(flagged_lines, Vec::<usize>::new());
@@ -726,7 +726,7 @@ compdef __grunt grunt
                     .command_facts()
                     .command_is_in_completion_registered_function(command.id())
             })
-            .map(|command| command.span().start.line)
+            .map(|command| command.span().start.line())
             .collect::<Vec<_>>();
 
         assert_eq!(flagged_lines, Vec::<usize>::new());
@@ -752,7 +752,7 @@ compdef __grunt=grunt
                     .command_facts()
                     .command_is_in_completion_registered_function(command.id())
             })
-            .map(|command| command.span().start.line)
+            .map(|command| command.span().start.line())
             .collect::<Vec<_>>();
 
         assert_eq!(flagged_lines, Vec::<usize>::new());
@@ -778,7 +778,7 @@ compdef -d grunt
                     .command_facts()
                     .command_is_in_completion_registered_function(command.id())
             })
-            .map(|command| command.span().start.line)
+            .map(|command| command.span().start.line())
             .collect::<Vec<_>>();
 
         assert_eq!(flagged_lines, Vec::<usize>::new());
@@ -804,7 +804,7 @@ __grunt() {
                     .command_facts()
                     .command_is_in_completion_registered_function(command.id())
             })
-            .map(|command| command.span().start.line)
+            .map(|command| command.span().start.line())
             .collect::<Vec<_>>();
 
         assert_eq!(flagged_lines, Vec::<usize>::new());
@@ -830,7 +830,7 @@ compdef -P 'grunt-*' __grunt grunt
                     .command_facts()
                     .command_is_in_completion_registered_function(command.id())
             })
-            .map(|command| command.span().start.line)
+            .map(|command| command.span().start.line())
             .collect::<Vec<_>>();
 
         assert!(!flagged_lines.is_empty());
@@ -857,7 +857,7 @@ compdef -P 'grunt-*' -N __grunt grunt
                     .command_facts()
                     .command_is_in_completion_registered_function(command.id())
             })
-            .map(|command| command.span().start.line)
+            .map(|command| command.span().start.line())
             .collect::<Vec<_>>();
 
         assert!(!flagged_lines.is_empty());
@@ -884,7 +884,7 @@ __grunt() {
                     .command_facts()
                     .command_is_in_completion_registered_function(command.id())
             })
-            .map(|command| command.span().start.line)
+            .map(|command| command.span().start.line())
             .collect::<Vec<_>>();
 
         assert!(!flagged_lines.is_empty());

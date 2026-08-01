@@ -440,13 +440,13 @@ pub(crate) fn dedup_comparable_name_uses(uses: &mut Vec<ComparableNameUse>) {
 
 pub(crate) fn heredoc_variable_name_span(span: Span, locator: Locator<'_>) -> Span {
     let source = locator.source();
-    let Some(text) = source.get(span.start.offset..span.end.offset) else {
+    let Some(text) = source.get(span.start.offset()..span.end.offset()) else {
         return span;
     };
     let Some(relative_start) = text.find('$') else {
         return span;
     };
-    let start_offset = span.start.offset + relative_start + '$'.len_utf8();
+    let start_offset = span.start.offset() + relative_start + '$'.len_utf8();
     let Some(start) = locator.position_at_offset(start_offset) else {
         return span;
     };
@@ -733,7 +733,7 @@ pub(crate) fn comparable_redirect_name_uses(
 
 pub(crate) fn brace_fd_redirection_span(redirect: &Redirect, source: &str) -> Option<Span> {
     let brace_span = redirect_fd_var_brace_span(redirect, source)?;
-    let gap = source.get(brace_span.end.offset..redirect.span.start.offset)?;
+    let gap = source.get(brace_span.end.offset()..redirect.span.start.offset())?;
     brace_fd_gap_allows_attachment(gap)
         .then(|| Span::from_positions(brace_span.start, redirect.span.end))
 }
@@ -871,7 +871,7 @@ pub(super) fn duplicate_redirect_facts(
         let Some(span) = duplicate_redirect_report_span(redirect, source) else {
             continue;
         };
-        if seen_spans.insert((span.start.offset, span.end.offset)) {
+        if seen_spans.insert((span.start.offset(), span.end.offset())) {
             let written_fds = duplicate_redirect_fds(redirect, source);
             let fully_overwritten = !written_fds.is_empty()
                 && written_fds
@@ -898,15 +898,15 @@ pub(super) fn duplicate_redirect_facts(
 }
 
 fn redirect_deletion_span(span: Span, source: &str) -> Span {
-    let whitespace_start = source[..span.start.offset]
+    let whitespace_start = source[..span.start.offset()]
         .rfind(|ch| !matches!(ch, ' ' | '\t'))
         .map_or(0, |offset| offset + 1);
-    let removed_whitespace = span.start.offset - whitespace_start;
-    let start = shuck_ast::Position {
-        line: span.start.line,
-        column: span.start.column - removed_whitespace,
-        offset: whitespace_start,
-    };
+    let removed_whitespace = span.start.offset() - whitespace_start;
+    let start = shuck_ast::Position::at(
+        span.start.line(),
+        span.start.column() - removed_whitespace,
+        whitespace_start,
+    );
     Span::from_positions(start, span.end)
 }
 
@@ -1084,7 +1084,7 @@ fn append_redirect_is_output_both(redirect: &Redirect, source: &str) -> bool {
     let Some(target) = redirect.word_target() else {
         return false;
     };
-    let Some(prefix) = source.get(redirect.span.start.offset..target.span.start.offset) else {
+    let Some(prefix) = source.get(redirect.span.start.offset()..target.span.start.offset()) else {
         return false;
     };
     prefix
@@ -1108,7 +1108,7 @@ fn csh_both_output_redirect_span_and_target<'a>(
         .fd
         .map(|fd| redirect.span.start.advanced_by(&fd.to_string()))
         .unwrap_or(redirect.span.start);
-    let prefix = source.get(operator_start.offset..target.span.start.offset)?;
+    let prefix = source.get(operator_start.offset()..target.span.start.offset())?;
 
     let (span, target_text) = if prefix == ">&" {
         (

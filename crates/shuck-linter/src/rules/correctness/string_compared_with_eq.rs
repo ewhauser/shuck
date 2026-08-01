@@ -156,8 +156,8 @@ fn string_eq_fix(binary: ConditionalBinaryFact<'_>, operands: &[StringOperand]) 
         .iter()
         .filter(|operand| operand.quote == Some(WordQuote::Unquoted))
     {
-        edits.push(Edit::insertion(operand.span.start.offset, "\""));
-        edits.push(Edit::insertion(operand.span.end.offset, "\""));
+        edits.push(Edit::insertion(operand.span.start.offset(), "\""));
+        edits.push(Edit::insertion(operand.span.end.offset(), "\""));
     }
 
     Some(Fix::unsafe_edits(edits))
@@ -197,7 +197,7 @@ fn looks_like_defined_variable_name(checker: &Checker<'_>, text: &str, span: Spa
         .copied()
         .any(|binding_id| {
             let binding = checker.semantic().binding(binding_id);
-            binding.span.start.offset != span.start.offset
+            binding.span.start.offset() != span.start.offset()
                 && binding_defines_variable_name_at(checker, binding, span)
         })
 }

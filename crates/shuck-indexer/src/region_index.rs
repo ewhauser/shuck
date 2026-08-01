@@ -1105,7 +1105,7 @@ fn push_range(ranges: &mut Vec<TextRange>, range: TextRange) {
 }
 
 fn heredoc_closing_marker_range(heredoc: &Heredoc, source: &str) -> Option<TextRange> {
-    let mut start = heredoc.body.span.end.offset.min(source.len());
+    let mut start = heredoc.body.span.end.offset().min(source.len());
     if source
         .as_bytes()
         .get(start)

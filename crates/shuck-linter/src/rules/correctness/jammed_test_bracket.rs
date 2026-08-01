@@ -67,9 +67,9 @@ case x in a)[! -r x ];; esac
                 .iter()
                 .map(|diagnostic| {
                     (
-                        diagnostic.span.start.line,
-                        diagnostic.span.start.column,
-                        diagnostic.span.end.column,
+                        diagnostic.span.start.line(),
+                        diagnostic.span.start.column(),
+                        diagnostic.span.end.column(),
                     )
                 })
                 .collect::<Vec<_>>(),

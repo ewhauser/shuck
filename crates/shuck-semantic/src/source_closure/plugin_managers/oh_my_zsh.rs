@@ -566,10 +566,12 @@ fn anchor_configured_plugin_requests(
     anchored
 }
 
-fn position_after(mut position: shuck_ast::Position) -> shuck_ast::Position {
-    position.offset += 1;
-    position.column += 1;
-    position
+fn position_after(position: shuck_ast::Position) -> shuck_ast::Position {
+    shuck_ast::Position::at(
+        position.line(),
+        position.column() + 1,
+        position.offset() + 1,
+    )
 }
 
 pub(in crate::source_closure) fn dedup_plugin_requests(
@@ -591,7 +593,7 @@ pub(in crate::source_closure) fn dedup_plugin_requests(
             request.framework.clone(),
             request.kind,
             request.name.clone(),
-            request.span.start.offset,
+            request.span.start.offset(),
             request.root_hint.clone(),
         );
         if let Some(&position) = positions.get(&key) {

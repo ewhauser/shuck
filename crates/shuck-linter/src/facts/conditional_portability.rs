@@ -187,7 +187,8 @@ pub(crate) fn build_conditional_portability_facts<'a>(
 
 fn span_is_within_any(span: Span, containers: &[Span]) -> bool {
     containers.iter().any(|container| {
-        container.start.offset <= span.start.offset && span.end.offset <= container.end.offset
+        container.start.offset() <= span.start.offset()
+            && span.end.offset() <= container.end.offset()
     })
 }
 

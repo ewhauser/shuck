@@ -948,42 +948,42 @@ fn redundant_return_status_delete_span(stmt: &Stmt, command_span: Span, source: 
     } else {
         command_span.end
     };
-    let line_start = source[..command_span.start.offset]
+    let line_start = source[..command_span.start.offset()]
         .rfind('\n')
         .map_or(0, |offset| offset + 1);
-    let delete_start = if source[line_start..command_span.start.offset]
+    let delete_start = if source[line_start..command_span.start.offset()]
         .bytes()
         .all(|byte| matches!(byte, b' ' | b'\t'))
     {
         line_start
     } else {
-        command_span.start.offset
+        command_span.start.offset()
     };
 
-    let line_end = source[command_end.offset..]
+    let line_end = source[command_end.offset()..]
         .find('\n')
-        .map_or(source.len(), |offset| command_end.offset + offset);
-    let suffix = &source[command_end.offset..line_end];
-    let delete_end = if delete_start < command_span.start.offset
+        .map_or(source.len(), |offset| command_end.offset() + offset);
+    let suffix = &source[command_end.offset()..line_end];
+    let delete_end = if delete_start < command_span.start.offset()
         && suffix.bytes().all(|byte| matches!(byte, b' ' | b'\t'))
     {
         line_end.saturating_add((line_end < source.len()) as usize)
     } else {
-        command_end.offset
+        command_end.offset()
     };
 
-    let delete_start_position = Position {
-        line: command_span.start.line,
-        column: command_span
+    let delete_start_position = Position::at(
+        command_span.start.line(),
+        command_span
             .start
-            .column
-            .saturating_sub(command_span.start.offset - delete_start),
-        offset: delete_start,
-    };
-    let delete_end_position = if delete_end == command_end.offset {
+            .column()
+            .saturating_sub(command_span.start.offset() - delete_start),
+        delete_start,
+    );
+    let delete_end_position = if delete_end == command_end.offset() {
         command_end
     } else {
-        command_end.advanced_by(&source[command_end.offset..delete_end])
+        command_end.advanced_by(&source[command_end.offset()..delete_end])
     };
 
     Span::from_positions(delete_start_position, delete_end_position)
@@ -1292,7 +1292,7 @@ pub(crate) fn stmt_plain_assignment_only_name(stmt: &Stmt) -> Option<&Name> {
         return None;
     };
     if !command.args.is_empty()
-        || command.name.span.start.offset != command.name.span.end.offset
+        || command.name.span.start.offset() != command.name.span.end.offset()
         || command.assignments.len() != 1
     {
         return None;
@@ -1311,7 +1311,7 @@ pub(crate) fn stmt_is_assignment_only_unquoted_status_capture(stmt: &Stmt) -> bo
     };
 
     command.args.is_empty()
-        && command.name.span.start.offset == command.name.span.end.offset
+        && command.name.span.start.offset() == command.name.span.end.offset()
         && !command.assignments.is_empty()
         && command
             .assignments
@@ -1340,7 +1340,7 @@ pub(crate) fn stmt_is_plain_command_with_standalone_status_argument(stmt: &Stmt)
 
     match &stmt.command {
         Command::Simple(command) => {
-            command.name.span.start.offset != command.name.span.end.offset
+            command.name.span.start.offset() != command.name.span.end.offset()
                 && (word_is_unquoted_standalone_status_capture(&command.name)
                     || command
                         .args

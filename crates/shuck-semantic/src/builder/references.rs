@@ -25,7 +25,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         };
         let id = ReferenceId(self.references.len() as u32);
         let scope = self.current_scope();
-        let resolved = self.resolve_reference(name, scope, span.start.offset);
+        let resolved = self.resolve_reference(name, scope, span.start.offset());
         let predefined_runtime = resolved.is_none() && self.runtime.is_preinitialized(name);
 
         self.references.push(Reference {
@@ -74,7 +74,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         kind: ReferenceKind,
         span: Span,
     ) -> Span {
-        if span.end.offset >= self.source.len() {
+        if span.end.offset() >= self.source.len() {
             return span;
         }
 
@@ -90,18 +90,18 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         if let Some(start_rel) = syntax.find('$') {
             let candidate = &syntax[start_rel..];
             if unbraced_parameter_reference_matches(candidate, name.as_str()) {
-                let start_offset = span.start.offset + start_rel;
+                let start_offset = span.start.offset() + start_rel;
                 let end_offset = start_offset + '$'.len_utf8() + name.as_str().len();
                 if let Some(start) = shifted_position_within_line(span.start, syntax, start_rel)
                     && let Some(matched) = self.source.get(start_offset..end_offset)
                     && let Some(end) = shifted_position_within_line(start, matched, matched.len())
-                    && start.offset < end.offset
+                    && start.offset() < end.offset()
                 {
                     return Span::from_positions(start, end);
                 }
                 if let Some((start, end)) =
                     self.source_positions_for_offsets(start_offset, end_offset)
-                    && start.offset < end.offset
+                    && start.offset() < end.offset()
                 {
                     return Span::from_positions(start, end);
                 }
@@ -113,22 +113,18 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                 .or_else(|| self.recover_braced_reference_span(name, span))
                 .unwrap_or(span);
         };
-        if self.source.as_bytes().get(span.end.offset) != Some(&b'}') {
+        if self.source.as_bytes().get(span.end.offset()) != Some(&b'}') {
             return self
                 .recover_braced_reference_span(name, span)
                 .unwrap_or(span);
         }
 
-        let start_offset = span.start.offset + start_rel;
-        let end_offset = span.end.offset + '}'.len_utf8();
+        let start_offset = span.start.offset() + start_rel;
+        let end_offset = span.end.offset() + '}'.len_utf8();
         if let Some(start) = shifted_position_within_line(span.start, syntax, start_rel) {
             // The closing brace is a single-column character after the span.
-            let end = Position {
-                line: span.end.line,
-                column: span.end.column + 1,
-                offset: end_offset,
-            };
-            if start.offset < end.offset {
+            let end = Position::at(span.end.line(), span.end.column() + 1, end_offset);
+            if start.offset() < end.offset() {
                 return Span::from_positions(start, end);
             }
             return span;
@@ -136,7 +132,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         let Some((start, end)) = self.source_positions_for_offsets(start_offset, end_offset) else {
             return span;
         };
-        if start.offset < end.offset {
+        if start.offset() < end.offset() {
             Span::from_positions(start, end)
         } else {
             span
@@ -146,7 +142,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
     fn reference_name_span(&self, name: &Name, span: Span) -> Option<Span> {
         let syntax = span.slice(self.source);
         if syntax == name.as_str() {
-            return (span.start.offset < span.end.offset).then_some(span);
+            return (span.start.offset() < span.end.offset()).then_some(span);
         }
         // `$name` and `${name}` spans dominate; match them directly instead of
         // running a substring search per reference.
@@ -164,42 +160,42 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             } else {
                 return None;
             };
-        let start_offset = span.start.offset + relative_start;
+        let start_offset = span.start.offset() + relative_start;
         let end_offset = start_offset + name_len;
         if let Some(start) = shifted_position_within_line(span.start, syntax, relative_start) {
             let matched = &syntax[relative_start..relative_start + name_len];
             if let Some(end) = shifted_position_within_line(start, matched, name_len) {
-                return (start.offset < end.offset).then(|| Span::from_positions(start, end));
+                return (start.offset() < end.offset()).then(|| Span::from_positions(start, end));
             }
         }
         let (start, end) = self.source_positions_for_offsets(start_offset, end_offset)?;
-        (start.offset < end.offset).then(|| Span::from_positions(start, end))
+        (start.offset() < end.offset()).then(|| Span::from_positions(start, end))
     }
 
     pub(super) fn recover_braced_reference_span(&self, name: &Name, span: Span) -> Option<Span> {
-        if name.is_empty() || span.start.offset >= self.source.len() {
+        if name.is_empty() || span.start.offset() >= self.source.len() {
             return None;
         }
 
         let name = name.as_str();
         let search_end = self
             .source
-            .get(span.start.offset..)?
+            .get(span.start.offset()..)?
             .find('\n')
-            .map(|relative| span.start.offset + relative)
+            .map(|relative| span.start.offset() + relative)
             .unwrap_or(self.source.len());
 
-        let search = self.source.get(span.start.offset..search_end)?;
+        let search = self.source.get(span.start.offset()..search_end)?;
         let mut needle = compact_str::CompactString::const_new("${");
         needle.push_str(name);
         for (start_rel, _) in search.match_indices(needle.as_str()) {
-            let start_offset = span.start.offset + start_rel;
+            let start_offset = span.start.offset() + start_rel;
             if braced_parameter_start_matches(self.source, start_offset, name)
                 && let Some(end_offset) =
                     braced_parameter_end_offset(self.source, start_offset, search_end)
                 && let Some((start, end)) =
                     self.source_positions_for_offsets(start_offset, end_offset)
-                && start.offset < end.offset
+                && start.offset() < end.offset()
             {
                 return Some(Span::from_positions(start, end));
             }
@@ -209,11 +205,12 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
     }
 
     pub(super) fn recover_unbraced_reference_span(&self, name: &Name, span: Span) -> Option<Span> {
-        if name.is_empty() || span.start.offset >= self.source.len() {
+        if name.is_empty() || span.start.offset() >= self.source.len() {
             return None;
         }
 
-        let (line_start_offset, line) = source_line(self.source, self.line_index, span.start.line)?;
+        let (line_start_offset, line) =
+            source_line(self.source, self.line_index, span.start.line())?;
         let name = name.as_str();
         let mut best = None::<(usize, usize, usize)>;
         for (start, _) in line.match_indices('$') {
@@ -222,7 +219,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             }
             let end = start + '$'.len_utf8() + name.len();
             let column = line.get(..start)?.chars().count() + 1;
-            let distance = column.abs_diff(span.start.column);
+            let distance = column.abs_diff(span.start.column());
             if best
                 .as_ref()
                 .is_none_or(|(_, _, best_distance)| distance < *best_distance)
@@ -235,7 +232,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         let start_offset = line_start_offset + start;
         let end_offset = line_start_offset + end;
         let (start, end) = self.source_positions_for_offsets(start_offset, end_offset)?;
-        (start.offset < end.offset).then(|| Span::from_positions(start, end))
+        (start.offset() < end.offset()).then(|| Span::from_positions(start, end))
     }
 
     pub(super) fn recover_braced_reference_span_on_line(
@@ -244,7 +241,8 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         needle: &str,
         span: Span,
     ) -> Option<Span> {
-        let (line_start_offset, line) = source_line(self.source, self.line_index, span.start.line)?;
+        let (line_start_offset, line) =
+            source_line(self.source, self.line_index, span.start.line())?;
         let mut best = None::<(usize, usize, usize)>;
         for (start, _) in line.match_indices(needle) {
             if !braced_parameter_start_matches(line, start, name) {
@@ -254,7 +252,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                 continue;
             };
             let column = line.get(..start)?.chars().count() + 1;
-            let distance = column.abs_diff(span.start.column);
+            let distance = column.abs_diff(span.start.column());
             if best
                 .as_ref()
                 .is_none_or(|(_, _, best_distance)| distance < *best_distance)
@@ -267,7 +265,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         let start_offset = line_start_offset + start;
         let end_offset = line_start_offset + end;
         let (start, end) = self.source_positions_for_offsets(start_offset, end_offset)?;
-        (start.offset < end.offset).then(|| Span::from_positions(start, end))
+        (start.offset() < end.offset()).then(|| Span::from_positions(start, end))
     }
 
     pub(super) fn source_positions_for_offsets(
@@ -296,7 +294,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                 .resolve_reference(
                     &reference.name,
                     self.current_scope(),
-                    reference.name_span.start.offset,
+                    reference.name_span.start.offset(),
                 )
                 .map(|binding_id| {
                     let binding = &self.bindings[binding_id.index()];
@@ -304,7 +302,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                         && !self.binding_was_cleared_before_lookup(
                             binding,
                             self.current_scope(),
-                            reference.name_span.start.offset,
+                            reference.name_span.start.offset(),
                         )
                 })
                 .unwrap_or(false)
@@ -327,7 +325,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
 
     pub(super) fn add_reference_if_bound(&mut self, name: &Name, kind: ReferenceKind, span: Span) {
         if self
-            .resolve_reference(name, self.current_scope(), span.start.offset)
+            .resolve_reference(name, self.current_scope(), span.start.offset())
             .is_some()
         {
             self.add_reference(name, kind, span);
@@ -363,7 +361,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                 }
             } else {
                 for binding in bindings.iter().rev().copied() {
-                    if self.bindings[binding.index()].span.start.offset <= offset {
+                    if self.bindings[binding.index()].span.start.offset() <= offset {
                         return Some(binding);
                     }
                 }
@@ -409,11 +407,11 @@ fn shifted_position_within_line(
     } else {
         prefix.chars().count()
     };
-    Some(Position {
-        line: base.line,
-        column: base.column + chars,
-        offset: base.offset + byte_offset,
-    })
+    Some(Position::at(
+        base.line(),
+        base.column() + chars,
+        base.offset() + byte_offset,
+    ))
 }
 
 fn source_position_at_offset(
@@ -433,11 +431,7 @@ fn source_position_at_offset(
     } else {
         prefix.chars().count()
     } + 1;
-    Some(Position {
-        line,
-        column,
-        offset,
-    })
+    Some(Position::at(line, column, offset))
 }
 
 #[cfg(test)]
@@ -451,37 +445,21 @@ mod tests {
 
         assert_eq!(
             source_position_at_offset(source, &line_index, 0),
-            Some(Position {
-                line: 1,
-                column: 1,
-                offset: 0
-            })
+            Some(Position::at(1, 1, 0))
         );
         let beta_offset = source.find('b').expect("expected second line");
         assert_eq!(
             source_position_at_offset(source, &line_index, beta_offset),
-            Some(Position {
-                line: 2,
-                column: 1,
-                offset: beta_offset
-            })
+            Some(Position::at(2, 1, beta_offset))
         );
         let after_e_acute = beta_offset + "b\u{e9}".len();
         assert_eq!(
             source_position_at_offset(source, &line_index, after_e_acute),
-            Some(Position {
-                line: 2,
-                column: 3,
-                offset: after_e_acute
-            })
+            Some(Position::at(2, 3, after_e_acute))
         );
         assert_eq!(
             source_position_at_offset(source, &line_index, source.len()),
-            Some(Position {
-                line: 3,
-                column: 1,
-                offset: source.len()
-            })
+            Some(Position::at(3, 1, source.len()))
         );
     }
 }

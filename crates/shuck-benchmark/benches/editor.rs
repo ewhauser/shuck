@@ -61,26 +61,26 @@ fn hover_probes(source: &str, semantic: &SemanticModel) -> Vec<usize> {
         semantic
             .bindings()
             .iter()
-            .filter(|binding| binding.span.start.offset < binding.span.end.offset)
+            .filter(|binding| binding.span.start.offset() < binding.span.end.offset())
             .take(64)
-            .map(|binding| binding.span.start.offset),
+            .map(|binding| binding.span.start.offset()),
     );
     probes.extend(
         semantic
             .references()
             .iter()
-            .filter(|reference| reference.span.start.offset < reference.span.end.offset)
+            .filter(|reference| reference.span.start.offset() < reference.span.end.offset())
             .take(64)
-            .map(|reference| reference.span.start.offset),
+            .map(|reference| reference.span.start.offset()),
     );
     for binding in semantic.function_definition_bindings().take(32) {
         probes.extend(
             semantic
                 .call_sites_for(&binding.name)
                 .iter()
-                .filter(|site| site.name_span.start.offset < site.name_span.end.offset)
+                .filter(|site| site.name_span.start.offset() < site.name_span.end.offset())
                 .take(2)
-                .map(|site| site.name_span.start.offset),
+                .map(|site| site.name_span.start.offset()),
         );
     }
     probes.extend(miss_probes(source).take(16));

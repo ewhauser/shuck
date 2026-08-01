@@ -88,8 +88,14 @@ fn command_is_empty_set_after_removing_span(
     span: shuck_ast::Span,
 ) -> bool {
     let command = command_span.slice(source);
-    let remove_start = span.start.offset.saturating_sub(command_span.start.offset);
-    let remove_end = span.end.offset.saturating_sub(command_span.start.offset);
+    let remove_start = span
+        .start
+        .offset()
+        .saturating_sub(command_span.start.offset());
+    let remove_end = span
+        .end
+        .offset()
+        .saturating_sub(command_span.start.offset());
     let mut remaining = String::with_capacity(command.len());
     remaining.push_str(&command[..remove_start]);
     remaining.push_str(&command[remove_end..]);

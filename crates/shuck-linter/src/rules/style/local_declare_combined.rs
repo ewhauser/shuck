@@ -70,30 +70,29 @@ fn declaration_combination_span(fact: crate::CommandFactRef<'_, '_>) -> Option<s
 
 fn operand_deletion_span(span: shuck_ast::Span, source: &str) -> shuck_ast::Span {
     let bytes = source.as_bytes();
-    let mut end_offset = span.end.offset;
+    let mut end_offset = span.end.offset();
     while end_offset < bytes.len() && matches!(bytes[end_offset], b' ' | b'\t') {
         end_offset += 1;
     }
-    if end_offset > span.end.offset {
+    if end_offset > span.end.offset() {
         return shuck_ast::Span::from_positions(
             span.start,
-            span.end.advanced_by(&source[span.end.offset..end_offset]),
+            span.end.advanced_by(&source[span.end.offset()..end_offset]),
         );
     }
 
-    let mut start_offset = span.start.offset;
+    let mut start_offset = span.start.offset();
     while start_offset > 0 && matches!(bytes[start_offset - 1], b' ' | b'\t') {
         start_offset -= 1;
     }
     shuck_ast::Span::from_positions(
-        shuck_ast::Position {
-            offset: start_offset,
-            line: span.start.line,
-            column: span
-                .start
-                .column
-                .saturating_sub(span.start.offset.saturating_sub(start_offset)),
-        },
+        shuck_ast::Position::at(
+            span.start.line(),
+            span.start
+                .column()
+                .saturating_sub(span.start.offset().saturating_sub(start_offset)),
+            start_offset,
+        ),
         span.end,
     )
 }

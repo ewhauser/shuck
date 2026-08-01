@@ -386,7 +386,7 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
         let Some(word) = self.command_name_word() else {
             return false;
         };
-        let Some(before) = source.get(..word.span.start.offset) else {
+        let Some(before) = source.get(..word.span.start.offset()) else {
             return false;
         };
 
@@ -508,14 +508,14 @@ pub(crate) fn command_span_with_redirects_and_shellcheck_tail(
     let mut end = body_name.span.end;
 
     for word in command.body_args() {
-        if word.span.end.offset > end.offset {
+        if word.span.end.offset() > end.offset() {
             end = word.span.end;
         }
     }
 
     for redirect in command.redirect_facts() {
         let redirect_end = redirect.redirect().span.end;
-        if redirect_end.offset > end.offset {
+        if redirect_end.offset() > end.offset() {
             end = redirect_end;
         }
     }
@@ -680,7 +680,7 @@ pub(crate) fn extend_over_shellcheck_trailing_inline_space(
     end: Position,
     source: &str,
 ) -> Position {
-    let tail = &source[end.offset..];
+    let tail = &source[end.offset()..];
     let spaces_len = tail
         .char_indices()
         .take_while(|(_, ch)| matches!(ch, ' ' | '\t'))
@@ -713,7 +713,7 @@ pub(crate) fn build_background_semicolon_spans(
     let case_terminator_starts = case_items
         .iter()
         .filter_map(CaseItemFact::terminator_span)
-        .map(|span| span.start.offset)
+        .map(|span| span.start.offset())
         .collect::<FxHashSet<_>>();
     let mut spans = commands
         .iter()
@@ -738,12 +738,12 @@ pub(crate) fn background_semicolon_span(
         return None;
     }
 
-    let semicolon_offset = source[terminator_span.end.offset..]
+    let semicolon_offset = source[terminator_span.end.offset()..]
         .char_indices()
         .find_map(|(relative, ch)| match ch {
             ' ' | '\t' | '\r' => None,
             '\n' | '#' => Some(None),
-            ';' => Some(Some(terminator_span.end.offset + relative)),
+            ';' => Some(Some(terminator_span.end.offset() + relative)),
             _ => Some(None),
         })??;
 
@@ -796,22 +796,22 @@ pub(crate) fn repeated_echo_argument_space_span(
     right: Span,
     source: &str,
 ) -> Option<Span> {
-    if left.end.line != right.start.line {
+    if left.end.line() != right.start.line() {
         return None;
     }
 
     // Some spans can collapse a backslash-newline continuation onto one logical
     // line. S037 only cares about repeated spaces on the same physical line.
-    let context_start = source[..left.end.offset]
+    let context_start = source[..left.end.offset()]
         .char_indices()
         .next_back()
-        .map_or(left.end.offset, |(idx, _)| idx);
-    let context = source.get(context_start..right.start.offset)?;
+        .map_or(left.end.offset(), |(idx, _)| idx);
+    let context = source.get(context_start..right.start.offset())?;
     if context.chars().any(|ch| matches!(ch, '\n' | '\r')) {
         return None;
     }
 
-    let gap = source.get(left.end.offset..right.start.offset)?;
+    let gap = source.get(left.end.offset()..right.start.offset())?;
     if gap.len() < 4 || !gap.chars().all(|ch| ch == ' ') {
         return None;
     }
@@ -1207,7 +1207,7 @@ pub(crate) fn for_each_nested_command<'facts, 'a>(
         None => return,
     };
     for other in commands.iter_from(start) {
-        if other.span().start.offset > outer_span.end.offset {
+        if other.span().start.offset() > outer_span.end.offset() {
             break;
         }
         if contains_span(outer_span, other.span()) {
@@ -1347,12 +1347,12 @@ pub(crate) fn collect_command_conditional_path_words<'a>(
 }
 
 pub(crate) fn contains_span(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+    outer.start.offset() <= inner.start.offset() && inner.end.offset() <= outer.end.offset()
 }
 
 pub(crate) fn contains_span_strictly(outer: Span, inner: Span) -> bool {
     contains_span(outer, inner)
-        && (outer.start.offset < inner.start.offset || inner.end.offset < outer.end.offset)
+        && (outer.start.offset() < inner.start.offset() || inner.end.offset() < outer.end.offset())
 }
 
 pub(crate) fn build_backtick_command_name_spans(commands: &[CommandFact<'_>]) -> Vec<Span> {
@@ -1368,7 +1368,7 @@ pub(crate) fn build_backtick_command_name_spans(commands: &[CommandFact<'_>]) ->
 
     let mut seen = FxHashSet::default();
     spans.retain(|span| seen.insert(FactSpan::new(*span)));
-    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.sort_by_key(|span| (span.start.offset(), span.end.offset()));
     spans
 }
 
@@ -1506,12 +1506,12 @@ pub(crate) fn command_fact_for_semantic_span_matching<'facts, 'a>(
                 .filter(|command| {
                     let command_span = command.span();
                     predicate(command)
-                        && span.start.offset <= command_span.start.offset
-                        && command_span.end.offset <= span.end.offset
+                        && span.start.offset() <= command_span.start.offset()
+                        && command_span.end.offset() <= span.end.offset()
                 })
                 .max_by_key(|command| {
                     let span = command.span();
-                    (span.end.offset, std::cmp::Reverse(span.start.offset))
+                    (span.end.offset(), std::cmp::Reverse(span.start.offset()))
                 })
         })
 }
@@ -1623,9 +1623,9 @@ pub(crate) fn compare_command_parent_entries(
 ) -> std::cmp::Ordering {
     left_span
         .start
-        .offset
-        .cmp(&right_span.start.offset)
-        .then_with(|| right_span.end.offset.cmp(&left_span.end.offset))
+        .offset()
+        .cmp(&right_span.start.offset())
+        .then_with(|| right_span.end.offset().cmp(&left_span.end.offset()))
         .then_with(|| right_id.index().cmp(&left_id.index()))
 }
 
@@ -1662,7 +1662,7 @@ pub(crate) fn command_slot_count(commands: &[CommandFact<'_>]) -> usize {
 pub(crate) fn sort_and_dedup_spans(spans: &mut Vec<Span>) {
     let mut seen = FxHashSet::default();
     spans.retain(|span| seen.insert(FactSpan::new(*span)));
-    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.sort_by_key(|span| (span.start.offset(), span.end.offset()));
 }
 
 pub(crate) fn trim_trailing_whitespace_span(span: Span, source: &str) -> Span {

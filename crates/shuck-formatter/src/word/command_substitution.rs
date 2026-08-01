@@ -10,14 +10,14 @@ pub(super) fn push_raw_word_with_normalized_command_redirect_spacing(
 ) {
     let mut spans = Vec::new();
     collect_raw_command_substitution_spans(word.parts.as_slice(), &mut spans);
-    spans.sort_by_key(|span| span.start.offset);
-    let mut cursor = word.span.start.offset;
-    let word_end = word.span.end.offset.min(source.len());
+    spans.sort_by_key(|span| span.start.offset());
+    let mut cursor = word.span.start.offset();
+    let word_end = word.span.end.offset().min(source.len());
     let source_view = SourceView::new(source);
     let mut wrote_span = false;
     for span in spans {
-        let start = span.start.offset;
-        let end = span.end.offset;
+        let start = span.start.offset();
+        let end = span.end.offset();
         if start < cursor || end > word_end || start >= end {
             continue;
         }
@@ -1353,7 +1353,7 @@ pub(super) fn render_process_substitution(
     let has_heredoc = stmt_seq_has_heredoc(context.facts, body);
     let mut nested = String::new();
     context
-        .format_stmt_sequence_to_buf(body, span.end.offset.checked_sub(1), &mut nested)
+        .format_stmt_sequence_to_buf(body, span.end.offset().checked_sub(1), &mut nested)
         .ok()?;
 
     let prefix = if is_input { '<' } else { '>' };
@@ -1385,7 +1385,7 @@ pub(super) fn render_process_substitution(
             rendered.push(')');
         } else {
             let outer_levels =
-                source_indent_units_before_offset(source, span.start.offset, options);
+                source_indent_units_before_offset(source, span.start.offset(), options);
             rendered.push(prefix);
             rendered.push_str("(\n");
             push_indented_rendered_block(rendered, trimmed, options, outer_levels + 1);

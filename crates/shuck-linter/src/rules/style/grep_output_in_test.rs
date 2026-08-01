@@ -211,7 +211,7 @@ fn collect_conditional_spans(
 
 fn shellcheck_truthy_test_span(source: &str, span: Span) -> Span {
     let Some(next) = source
-        .get(span.end.offset..)
+        .get(span.end.offset()..)
         .and_then(|tail| tail.chars().next())
     else {
         return span;
@@ -220,8 +220,8 @@ fn shellcheck_truthy_test_span(source: &str, span: Span) -> Span {
         return span;
     }
 
-    let end_offset = span.end.offset + next.len_utf8();
-    let separator = &source[span.end.offset..end_offset];
+    let end_offset = span.end.offset() + next.len_utf8();
+    let separator = &source[span.end.offset()..end_offset];
     Span::from_positions(span.start, span.end.advanced_by(separator))
 }
 
@@ -266,7 +266,7 @@ fn word_has_top_level_grep_substitution(
 }
 
 fn span_contains(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
+    outer.start.offset() <= inner.start.offset() && outer.end.offset() >= inner.end.offset()
 }
 
 #[cfg(test)]

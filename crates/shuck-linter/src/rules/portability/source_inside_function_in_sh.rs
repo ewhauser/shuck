@@ -68,13 +68,13 @@ fn source_command_for_ref<'checker, 'ast>(
 }
 
 fn same_start(left: Span, right: Span) -> bool {
-    left.start.offset == right.start.offset
+    left.start.offset() == right.start.offset()
 }
 
 fn inside_function(checker: &Checker<'_>, span: Span) -> bool {
     checker
         .semantic_analysis()
-        .enclosing_function_scope_at(span.start.offset)
+        .enclosing_function_scope_at(span.start.offset())
         .is_some()
 }
 

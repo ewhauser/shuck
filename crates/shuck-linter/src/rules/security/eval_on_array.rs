@@ -78,8 +78,8 @@ eval \\
 
         assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
         assert_eq!(diagnostics[0].span.slice(source), "${shims[@]}");
-        assert_eq!(diagnostics[0].span.start.line, 6);
-        assert_eq!(diagnostics[0].span.start.column, 5);
+        assert_eq!(diagnostics[0].span.start.line(), 6);
+        assert_eq!(diagnostics[0].span.start.column(), 5);
     }
 
     #[test]

@@ -95,7 +95,7 @@ pub fn overwritten_function(checker: &mut Checker) {
             if has_direct_call_to_binding_before_offset(
                 &mut reach,
                 overwritten.first,
-                second.span.start.offset,
+                second.span.start.offset(),
             ) {
                 continue;
             }
@@ -226,7 +226,7 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
     let mut break_offsets = Vec::new();
 
     for fact in checker.facts().command_facts().structural_commands() {
-        let offset = fact.body_span().start.offset;
+        let offset = fact.body_span().start.offset();
         scopes_by_offset.entry(offset).or_insert(fact.scope());
         let is_function = matches!(fact.command(), shuck_ast::Command::Function(_));
         if is_function {
@@ -270,7 +270,7 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
             .assignments()
             .function_unset_commands_for_name(&binding.name)
         {
-            let offset = fact.body_span().start.offset;
+            let offset = fact.body_span().start.offset();
             if !command_offset_is_under_dominance_barrier(checker, offset)
                 && !command_offset_is_unreachable(checker, offset)
             {
@@ -289,8 +289,8 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
         .into_iter()
         .filter(|candidate| {
             !break_offsets.iter().any(|break_offset| {
-                *break_offset >= candidate.body_span.start.offset
-                    && *break_offset <= candidate.body_span.end.offset
+                *break_offset >= candidate.body_span.start.offset()
+                    && *break_offset <= candidate.body_span.end.offset()
             })
         })
         .map(|candidate| candidate.offset)
@@ -467,7 +467,7 @@ fn build_compat_script_terminator_facts(
         .filter(|block_id| !unreachable.contains(block_id))
         .flat_map(|block_id| cfg.block(*block_id).commands.iter())
         .filter_map(|span| {
-            let offset = span.start.offset;
+            let offset = span.start.offset();
             let scope = structural_facts
                 .scopes_by_offset
                 .get(&offset)
@@ -554,12 +554,12 @@ fn build_compat_unset_facts(
                     .filter(|site| {
                         !command_offset_is_under_dominance_barrier(
                             checker,
-                            site.name_span.start.offset,
+                            site.name_span.start.offset(),
                         )
                     })
                     .map(|site| CompatUnsetCutoffFact {
                         scope: site.scope,
-                        offset: site.name_span.start.offset,
+                        offset: site.name_span.start.offset(),
                     }),
             );
         }
@@ -620,12 +620,12 @@ fn report_transient_shadowed_file_scope_definitions(
             let first_shadow_offset = offsets
                 .iter()
                 .copied()
-                .find(|offset| *offset > binding.span.start.offset)?;
+                .find(|offset| *offset > binding.span.start.offset())?;
             if !checker.semantic_analysis().cfg().script_always_terminates() {
                 return None;
             }
             let terminator_offset =
-                last_script_terminator_offset_after(checker, scan, binding.span.start.offset)?;
+                last_script_terminator_offset_after(checker, scan, binding.span.start.offset())?;
 
             if has_direct_call_to_binding_before_offset(reach, binding.id, first_shadow_offset)
                 || has_non_transient_direct_call_to_binding_between_offsets(
@@ -662,7 +662,7 @@ fn transient_function_shadow_offsets_by_name(checker: &Checker<'_>) -> FxHashMap
         offsets_by_name
             .entry(name.clone())
             .or_default()
-            .push(span.start.offset);
+            .push(span.start.offset());
     }
     for offsets in offsets_by_name.values_mut() {
         offsets.sort_unstable();
@@ -677,7 +677,7 @@ fn first_compat_cutoff_after_binding(
     cutoffs: &CompatCutoffIndex,
 ) -> Option<FunctionCutoff> {
     let binding = checker.semantic().binding(binding_id);
-    let binding_offset = binding.span.start.offset;
+    let binding_offset = binding.span.start.offset();
 
     let unset_cutoff = first_unset_function_cutoff_offset(
         binding.name.as_str(),
@@ -779,7 +779,7 @@ fn command_offset_is_unreachable(checker: &Checker<'_>, offset: usize) -> bool {
         cfg.block(*block_id)
             .commands
             .iter()
-            .any(|span| span.start.offset == offset)
+            .any(|span| span.start.offset() == offset)
     })
 }
 
@@ -922,13 +922,13 @@ fn trim_trailing_function_separator(span: shuck_ast::Span, source: &str) -> shuc
     // the original end instead of re-walking the whole definition body.
     let removed = &original[trimmed.len()..];
     let removed_newlines = removed.bytes().filter(|byte| *byte == b'\n').count();
-    let end_offset = span.start.offset + trimmed.len();
+    let end_offset = span.start.offset() + trimmed.len();
     let end = if removed_newlines == 0 {
-        shuck_ast::Position {
-            line: span.end.line,
-            column: span.end.column - removed.len(),
-            offset: end_offset,
-        }
+        shuck_ast::Position::at(
+            span.end.line(),
+            span.end.column() - removed.len(),
+            end_offset,
+        )
     } else {
         let last_line_start = trimmed.rfind('\n').map(|index| index + 1);
         let tail = &trimmed[last_line_start.unwrap_or(0)..];
@@ -937,14 +937,14 @@ fn trim_trailing_function_separator(span: shuck_ast::Span, source: &str) -> shuc
         } else {
             tail.chars().count()
         };
-        shuck_ast::Position {
-            line: span.end.line - removed_newlines,
-            column: match last_line_start {
+        shuck_ast::Position::at(
+            span.end.line() - removed_newlines,
+            match last_line_start {
                 Some(_) => tail_chars + 1,
-                None => span.start.column + tail_chars,
+                None => span.start.column() + tail_chars,
             },
-            offset: end_offset,
-        }
+            end_offset,
+        )
     };
     shuck_ast::Span::from_positions(span.start, end)
 }
@@ -996,7 +996,7 @@ fn should_suppress_unreached(
         .report_unreached_nested_definitions;
     matches!(binding.kind, BindingKind::Imported)
         || (matches!(unreached.reason, UnreachedFunctionReason::ScriptTerminates)
-            && last_script_terminator_offset_after(checker, scan, binding.span.start.offset)
+            && last_script_terminator_offset_after(checker, scan, binding.span.start.offset())
                 .is_some_and(|terminator_offset| {
                     has_direct_call_to_binding_before_offset(
                         reach,
@@ -1010,13 +1010,13 @@ fn should_suppress_unreached(
         ) && !has_file_scope_termination_barrier_before(
             checker,
             scan,
-            binding.span.start.offset,
+            binding.span.start.offset(),
         ) && has_direct_call_to_binding_before_offset(reach, unreached.binding, usize::MAX))
         || (matches!(unreached.reason, UnreachedFunctionReason::ScriptTerminates)
-            && has_apparent_infinite_loop_after(checker, scan, binding.span.start.offset))
+            && has_apparent_infinite_loop_after(checker, scan, binding.span.start.offset()))
         || (compat_mode
             && matches!(unreached.reason, UnreachedFunctionReason::ScriptTerminates)
-            && has_top_level_return_after(checker, scan, binding.span.start.offset))
+            && has_top_level_return_after(checker, scan, binding.span.start.offset()))
         || (matches!(
             unreached.reason,
             UnreachedFunctionReason::EnclosingFunctionUnreached
@@ -1054,7 +1054,7 @@ fn last_script_terminator_offset_after(
             .filter(|block_id| !unreachable.contains(block_id))
             .flat_map(|block_id| cfg.block(*block_id).commands.iter())
             .filter_map(|span| {
-                let offset = span.start.offset;
+                let offset = span.start.offset();
                 let scope = checker.semantic().scope_at(offset);
                 (!scope_has_transient_ancestor(checker, scope)).then_some(offset)
             })
@@ -1082,7 +1082,7 @@ fn has_file_scope_script_terminator_before(
             .filter(|block_id| !unreachable.contains(block_id))
             .flat_map(|block_id| cfg.block(*block_id).commands.iter())
             .filter_map(|span| {
-                let offset = span.start.offset;
+                let offset = span.start.offset();
                 checker
                     .facts()
                     .command_facts()
@@ -1122,7 +1122,7 @@ fn has_file_scope_return_before(
             .command_facts()
             .structural_commands()
             .filter_map(|fact| {
-                let offset = fact.body_span().start.offset;
+                let offset = fact.body_span().start.offset();
                 (fact.effective_name_is("return")
                     && scope_is_file_scope(checker, fact.scope())
                     && !command_offset_is_under_dominance_barrier(checker, offset)
@@ -1152,9 +1152,9 @@ fn has_top_level_return_after(
                 (fact.effective_name_is("return")
                     && scope_is_file_scope(
                         checker,
-                        checker.semantic().scope_at(fact.body_span().start.offset),
+                        checker.semantic().scope_at(fact.body_span().start.offset()),
                     ))
-                .then_some(fact.body_span().start.offset)
+                .then_some(fact.body_span().start.offset())
             })
             .collect::<Vec<_>>();
         offsets.sort_unstable();
@@ -1187,7 +1187,7 @@ fn has_direct_call_inside_enclosing_function(
 
     reach.binding_has_reachable_direct_call(
         binding_id,
-        DirectFunctionCallWindow::between_offsets(binding.span.start.offset, usize::MAX)
+        DirectFunctionCallWindow::between_offsets(binding.span.start.offset(), usize::MAX)
             .within_scope(enclosing_scope),
     )
 }
@@ -1205,9 +1205,9 @@ fn has_apparent_infinite_loop_after(
             .filter_map(|fact| {
                 (scope_is_file_scope(
                     checker,
-                    checker.semantic().scope_at(fact.body_span().start.offset),
+                    checker.semantic().scope_at(fact.body_span().start.offset()),
                 ) && command_is_apparent_infinite_loop(checker, fact.command()))
-                .then_some(fact.body_span().start.offset)
+                .then_some(fact.body_span().start.offset())
             })
             .collect::<Vec<_>>();
         offsets.sort_unstable();
@@ -1258,8 +1258,8 @@ fn loop_body_contains_break(checker: &Checker<'_>, body_span: shuck_ast::Span) -
         .command_facts()
         .structural_commands()
         .any(|fact| {
-            fact.body_span().start.offset >= body_span.start.offset
-                && fact.body_span().end.offset <= body_span.end.offset
+            fact.body_span().start.offset() >= body_span.start.offset()
+                && fact.body_span().end.offset() <= body_span.end.offset()
                 && matches!(
                     fact.command(),
                     shuck_ast::Command::Builtin(shuck_ast::BuiltinCommand::Break(_))
@@ -1366,7 +1366,7 @@ parse() { :; }
 
         assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
         assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
-        assert_eq!(diagnostics[0].span.start.line, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 1);
     }
 
     #[test]
@@ -1460,7 +1460,7 @@ exit 0
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
-        assert_eq!(diagnostics[0].span.start.line, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 1);
     }
 
     #[test]
@@ -1487,7 +1487,7 @@ exit 0
 
         let nested = diagnostics
             .iter()
-            .find(|diagnostic| diagnostic.span.start.column == 10)
+            .find(|diagnostic| diagnostic.span.start.column() == 10)
             .expect("expected nested function diagnostic");
         assert_eq!(nested.span.slice(source), "trans() { echo trans; }");
     }
@@ -1524,7 +1524,7 @@ outer() {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
         assert_eq!(
             diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
             Some(Applicability::Unsafe)
@@ -1557,7 +1557,7 @@ End
 
         assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
         assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
-        assert_eq!(diagnostics[0].span.start.line, 5);
+        assert_eq!(diagnostics[0].span.start.line(), 5);
     }
 
     #[test]
@@ -1579,7 +1579,7 @@ End
 
         assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
         assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
     }
 
     #[test]
@@ -1599,7 +1599,7 @@ outer() {
         );
 
         assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
     }
 
     #[test]
@@ -1618,7 +1618,7 @@ exit 0
         );
 
         assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
-        assert_eq!(diagnostics[0].span.start.line, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 1);
     }
 
     #[test]
@@ -1638,7 +1638,7 @@ outer() { :; }
         );
 
         assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
-        assert_eq!(diagnostics[0].span.start.line, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 1);
     }
 
     #[test]
@@ -1659,7 +1659,7 @@ cleanup 0
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
-        assert_eq!(diagnostics[0].span.start.line, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 1);
     }
 
     #[test]
@@ -1678,7 +1678,7 @@ value=$(outer)
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
     }
 
     #[test]
@@ -1722,7 +1722,7 @@ fi
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
     }
 
     #[test]
@@ -1769,7 +1769,7 @@ exit 0
         );
 
         assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]
@@ -1795,7 +1795,7 @@ main
         );
 
         assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]
@@ -1914,7 +1914,7 @@ outer() {
         );
         let lines = diagnostics
             .iter()
-            .map(|diagnostic| diagnostic.span.start.line)
+            .map(|diagnostic| diagnostic.span.start.line())
             .collect::<Vec<_>>();
 
         assert_eq!(lines, [2, 3], "diagnostics: {diagnostics:?}");
@@ -1936,7 +1936,7 @@ outer() {
         );
 
         assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]
@@ -1956,7 +1956,7 @@ exit 0
         );
 
         assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
-        assert_eq!(diagnostics[0].span.start.line, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 1);
     }
 
     #[test]
@@ -2041,7 +2041,7 @@ exit 0
         );
 
         assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
-        assert_eq!(diagnostics[0].span.start.line, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 1);
     }
 
     #[test]
@@ -2149,7 +2149,7 @@ exit 0
         );
         let lines = diagnostics
             .iter()
-            .map(|diagnostic| diagnostic.span.start.line)
+            .map(|diagnostic| diagnostic.span.start.line())
             .collect::<Vec<_>>();
 
         assert_eq!(lines, [1, 6], "diagnostics: {diagnostics:?}");
@@ -2170,7 +2170,7 @@ helper
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 1);
     }
 
     #[test]
@@ -2340,7 +2340,7 @@ exit 0
 
         assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
         assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
-        assert_eq!(diagnostics[0].span.start.line, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 1);
     }
 
     #[test]
@@ -2364,7 +2364,7 @@ main
 
         assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
         assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
-        assert_eq!(diagnostics[0].span.start.line, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 1);
     }
 
     #[test]
@@ -2628,13 +2628,13 @@ exit
         assert!(
             diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.span.start.line == 1),
+                .any(|diagnostic| diagnostic.span.start.line() == 1),
             "diagnostics: {diagnostics:?}"
         );
         assert!(
             diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.span.start.line == 5),
+                .any(|diagnostic| diagnostic.span.start.line() == 5),
             "diagnostics: {diagnostics:?}"
         );
     }
@@ -2664,7 +2664,7 @@ exit
         assert!(
             diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.span.start.line == 1),
+                .any(|diagnostic| diagnostic.span.start.line() == 1),
             "diagnostics: {diagnostics:?}"
         );
     }
@@ -2696,7 +2696,7 @@ exit
         assert!(
             diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.span.start.line == 1),
+                .any(|diagnostic| diagnostic.span.start.line() == 1),
             "diagnostics: {diagnostics:?}"
         );
     }
@@ -2731,7 +2731,7 @@ myfunc() { echo hi; }
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
     }
 
     #[test]
@@ -2751,7 +2751,7 @@ driver
         assert!(
             diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.span.start.line == 2),
+                .any(|diagnostic| diagnostic.span.start.line() == 2),
             "diagnostics: {diagnostics:?}"
         );
     }
@@ -2773,7 +2773,7 @@ driver
         assert!(
             diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.span.start.line == 2),
+                .any(|diagnostic| diagnostic.span.start.line() == 2),
             "diagnostics: {diagnostics:?}"
         );
     }

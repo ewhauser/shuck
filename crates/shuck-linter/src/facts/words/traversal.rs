@@ -316,7 +316,7 @@ fn walk_word_parts<'a>(
 fn literal_text_for_context<'a>(text: &'a LiteralText, source: &'a str, span: Span) -> &'a str {
     match text {
         LiteralText::Owned(_) => text.as_str(source, span),
-        LiteralText::Source | LiteralText::CookedSource(_) if span.end.offset <= source.len() => {
+        LiteralText::Source | LiteralText::CookedSource(_) if span.end.offset() <= source.len() => {
             text.as_str(source, span)
         }
         LiteralText::Source | LiteralText::CookedSource(_) => "",

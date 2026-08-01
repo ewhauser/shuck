@@ -323,7 +323,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 &mut ifs_literal_backslash_assignment_value_spans,
             );
             let normalized = command::normalize_command(visit.command, self.source);
-            let command_start_offset = command_span(visit.command).start.offset;
+            let command_start_offset = command_span(visit.command).start.offset();
             let scope = context.scope();
             let command_shell_behavior =
                 effective_command_shell_behavior(self.semantic, command_start_offset, &normalized);
@@ -609,10 +609,10 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         }
 
         arithmetic_update_operator_spans
-            .sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+            .sort_unstable_by_key(|span| (span.start.offset(), span.end.offset()));
         arithmetic_update_operator_spans.dedup();
         redundant_return_status_spans
-            .sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+            .sort_unstable_by_key(|span| (span.start.offset(), span.end.offset()));
         redundant_return_status_spans.dedup_by_key(|span| FactSpan::new(*span));
         sort_and_dedup_spans(&mut arithmetic_summary.arithmetic_expansion_spans);
         sort_and_dedup_spans(&mut arithmetic_summary.arithmetic_index_subscript_spans);
@@ -626,7 +626,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 Vec::new()
             };
         arithmetic_literal_spans
-            .sort_unstable_by_key(|(span, kind)| (span.start.offset, span.end.offset, *kind));
+            .sort_unstable_by_key(|(span, kind)| (span.start.offset(), span.end.offset(), *kind));
         arithmetic_literal_spans.dedup();
         let arithmetic_literal_facts = arithmetic_literal_spans
             .iter()
@@ -635,7 +635,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     *span,
                     *kind,
                     self.semantic
-                        .shell_behavior_at(span.start.offset)
+                        .shell_behavior_at(span.start.offset())
                         .arithmetic_literals(),
                 )
             })
@@ -870,7 +870,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             };
             let behavior = self
                 .semantic
-                .shell_behavior_at(span.start.offset)
+                .shell_behavior_at(span.start.offset())
                 .subscript_indexing();
             *fragment = (*fragment).with_subscript_index_behavior(behavior);
         }
@@ -884,7 +884,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &arithmetic_only_suppressed_subscript_spans,
         );
         let heredoc_summary =
-            build_heredoc_fact_summary(&commands, locator, self.file.span.end.offset);
+            build_heredoc_fact_summary(&commands, locator, self.file.span.end.offset());
         let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);
         let literal_brace_spans = build_literal_brace_spans(
             &word_nodes,
@@ -1025,7 +1025,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &commands,
             commands
                 .iter()
-                .map(|command| command.span().start.offset)
+                .map(|command| command.span().start.offset())
                 .collect(),
         );
         attach_positional_parameter_trim_fixes(
@@ -1039,7 +1039,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             self.semantic
                 .bindings()
                 .iter()
-                .map(|binding| binding.span.start.offset)
+                .map(|binding| binding.span.start.offset())
                 .collect(),
         );
         let assignment_value_target_index = build_assignment_value_target_index(&commands);
@@ -1072,7 +1072,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 .map(|escaped| escaped.reference_span),
         );
         backtick_escaped_parameter_reference_spans
-            .sort_by_key(|span| (span.start.offset, span.end.offset));
+            .sort_by_key(|span| (span.start.offset(), span.end.offset()));
         backtick_escaped_parameter_reference_spans.dedup();
         let backtick_double_escaped_parameter_spans =
             word_spans::backtick_double_escaped_parameter_spans(
@@ -1277,14 +1277,14 @@ fn attach_positional_parameter_trim_fixes(
         commands,
         fragments
             .iter()
-            .map(|fragment| fragment.span().start.offset)
+            .map(|fragment| fragment.span().start.offset())
             .collect(),
     );
     let mut fragment_indices_by_command = FxHashMap::<CommandId, Vec<usize>>::default();
     for (index, fragment) in fragments.iter().enumerate() {
         let Some(command_id) = precomputed_command_id_for_offset(
             &command_ids_by_fragment_offset,
-            fragment.span().start.offset,
+            fragment.span().start.offset(),
         ) else {
             continue;
         };
@@ -1306,16 +1306,16 @@ fn attach_positional_parameter_trim_fixes(
         if command.is_nested_word_command() {
             continue;
         }
-        indices.sort_unstable_by_key(|index| fragments[*index].span().start.offset);
+        indices.sort_unstable_by_key(|index| fragments[*index].span().start.offset());
         let first_span = fragments[indices[0]].span();
-        if command.span().start.line != first_span.start.line {
+        if command.span().start.line() != first_span.start.line() {
             continue;
         }
 
-        let line_start = source[..command.span().start.offset]
+        let line_start = source[..command.span().start.offset()]
             .rfind('\n')
             .map_or(0, |offset| offset + 1);
-        let indent = &source[line_start..command.span().start.offset];
+        let indent = &source[line_start..command.span().start.offset()];
         if !indent.bytes().all(|byte| matches!(byte, b' ' | b'\t'))
             || previous_line_ends_with_control_operator(source, line_start)
         {
@@ -1535,7 +1535,7 @@ pub(crate) fn build_c006_suppressing_reference_offsets_by_name(
                 offsets_by_name
                     .entry(reference.name.clone())
                     .or_default()
-                    .push(reference.span.start.offset);
+                    .push(reference.span.start.offset());
             }
         }
     }
@@ -1554,16 +1554,19 @@ pub(crate) fn c006_subscript_reference_suppresses_later_references(
     innermost_command_ids_by_offset: &CommandOffsetLookup,
     reference: &Reference,
 ) -> bool {
-    precomputed_command_id_for_offset(innermost_command_ids_by_offset, reference.span.start.offset)
-        .and_then(|id| {
-            command_fact_indices_by_id
-                .get(id.index())
-                .copied()
-                .flatten()
-                .and_then(|index| commands.get(index))
-        })
-        .and_then(CommandFact::static_utility_name)
-        .is_none_or(|name| !matches!(name, "unset" | "[" | "[[" | "test"))
+    precomputed_command_id_for_offset(
+        innermost_command_ids_by_offset,
+        reference.span.start.offset(),
+    )
+    .and_then(|id| {
+        command_fact_indices_by_id
+            .get(id.index())
+            .copied()
+            .flatten()
+            .and_then(|index| commands.get(index))
+    })
+    .and_then(CommandFact::static_utility_name)
+    .is_none_or(|name| !matches!(name, "unset" | "[" | "[[" | "test"))
 }
 
 pub(crate) fn stmt_seq_contains_nested_control_flow(
@@ -1642,7 +1645,7 @@ pub(crate) fn build_linebreak_in_test_site(
     }
     let insert_offset = linebreak_in_test_insert_offset(current_span, source)?;
 
-    let between = source.get(current_span.end.offset..next.span().start.offset)?;
+    let between = source.get(current_span.end.offset()..next.span().start.offset())?;
     if !between.chars().all(|char| matches!(char, ' ' | '\t')) {
         return None;
     }
@@ -1660,9 +1663,9 @@ pub(crate) fn build_linebreak_in_test_site(
 pub(crate) fn linebreak_in_test_insert_offset(span: Span, source: &str) -> Option<usize> {
     let text = span.slice(source);
     if text.ends_with("\r\n") {
-        Some(span.end.offset - 2)
+        Some(span.end.offset() - 2)
     } else if text.ends_with('\n') {
-        Some(span.end.offset - 1)
+        Some(span.end.offset() - 1)
     } else {
         None
     }
@@ -1773,7 +1776,7 @@ pub(crate) fn sort_and_dedup_case_pattern_expansions(
 ) {
     let mut seen = FxHashSet::default();
     expansions.retain(|fact| seen.insert(FactSpan::new(fact.span())));
-    expansions.sort_by_key(|fact| (fact.span().start.offset, fact.span().end.offset));
+    expansions.sort_by_key(|fact| (fact.span().start.offset(), fact.span().end.offset()));
 }
 
 #[cfg(test)]

@@ -195,7 +195,7 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TodoFormat));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
         assert_eq!(diagnostics[0].span.slice(source), "TODO");
     }
 }

@@ -48,9 +48,9 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.slice(source), ";");
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
         assert_eq!(diagnostics[1].span.slice(source), ";");
-        assert_eq!(diagnostics[1].span.start.line, 3);
+        assert_eq!(diagnostics[1].span.start.line(), 3);
     }
 
     #[test]

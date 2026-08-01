@@ -28,10 +28,10 @@ fn test_unterminated_segmented_quote_error_span_starts_at_quote() {
 
     assert_eq!(token.kind, TokenKind::Error);
     assert_eq!(token.error_kind(), Some(LexerErrorKind::DoubleQuote));
-    assert_eq!(token.span.start.line, 1);
-    assert_eq!(token.span.start.column, 10);
-    assert_eq!(token.span.start.offset, 9);
-    assert_eq!(token.span.end.offset, source.len());
+    assert_eq!(token.span.start.line(), 1);
+    assert_eq!(token.span.start.column(), 10);
+    assert_eq!(token.span.start.offset(), 9);
+    assert_eq!(token.span.end.offset(), source.len());
 }
 
 #[test]

@@ -104,7 +104,7 @@ impl<'a> Parser<'a> {
                     in_backtick = !in_backtick
                 }
                 ',' if !in_single && !in_ansi_c_single && !in_double && !in_backtick => {
-                    let comma_offset = word.span.start.offset + index;
+                    let comma_offset = word.span.start.offset() + index;
                     if !self.comma_is_brace_separator(word, comma_offset, was_escaped)
                         && !self.comma_is_zsh_word_syntax(word, comma_offset)
                     {
@@ -531,7 +531,7 @@ impl<'a> Parser<'a> {
             .iter()
             .copied()
             .filter(|brace| brace.expands())
-            .any(|brace| brace.span.start.offset <= offset && offset < brace.span.end.offset)
+            .any(|brace| brace.span.start.offset() <= offset && offset < brace.span.end.offset())
     }
 
     pub(in crate::parser) fn comma_is_zsh_word_syntax(
@@ -552,12 +552,12 @@ impl<'a> Parser<'a> {
         word: &Word,
         comma_offset: usize,
     ) -> bool {
-        if comma_offset < word.span.start.offset || word.span.end.offset <= comma_offset {
+        if comma_offset < word.span.start.offset() || word.span.end.offset() <= comma_offset {
             return false;
         }
 
         let text = word.span.slice(self.input);
-        let relative_comma = comma_offset - word.span.start.offset;
+        let relative_comma = comma_offset - word.span.start.offset();
         let Some(group_start) = Self::enclosing_terminal_group_start(text, relative_comma) else {
             return false;
         };
@@ -622,7 +622,7 @@ impl<'a> Parser<'a> {
         let mut brace_depth = 0usize;
 
         for (index, ch) in text.char_indices() {
-            let absolute = word.span.start.offset + index;
+            let absolute = word.span.start.offset() + index;
 
             if absolute == target_offset {
                 return brace_depth > 0;

@@ -226,18 +226,18 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
                 .iter()
                 .copied()
                 .find(|span| {
-                    span.start.offset <= part_span.start.offset
-                        && span.end.offset >= part_span.end.offset
+                    span.start.offset() <= part_span.start.offset()
+                        && span.end.offset() >= part_span.end.offset()
                 })
         else {
             return false;
         };
 
-        let mut index = backtick_span.start.offset.saturating_add('`'.len_utf8());
-        let limit = part_span.start.offset.min(
+        let mut index = backtick_span.start.offset().saturating_add('`'.len_utf8());
+        let limit = part_span.start.offset().min(
             backtick_span
                 .end
-                .offset
+                .offset()
                 .saturating_sub('`'.len_utf8()),
         );
         let mut in_single_quote = false;
@@ -510,8 +510,8 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
                 if part_span.slice(source) == expected {
                     part_span
                 } else {
-                    let search_start = part_span.start.offset.saturating_sub(1);
-                    let search_end = (part_span.end.offset + 1).min(source.len());
+                    let search_start = part_span.start.offset().saturating_sub(1);
+                    let search_end = (part_span.end.offset() + 1).min(source.len());
                     source
                         .get(search_start..search_end)
                         .and_then(|window| window.find(&expected))
@@ -622,7 +622,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         if self
             .facts
             .semantic
-            .shell_behavior_at(self.span().start.offset)
+            .shell_behavior_at(self.span().start.offset())
             .brace_character_classes()
             .can_expand()
         {
@@ -720,7 +720,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
             Some(shuck_ast::BraceExpansionKind::CharacterClass) => self
                 .facts
                 .semantic
-                .shell_behavior_at(brace.span.start.offset)
+                .shell_behavior_at(brace.span.start.offset())
                 .brace_character_classes()
                 .can_expand(),
             None => false,
@@ -732,32 +732,32 @@ pub(crate) fn shellcheck_parameter_span_inside_escaped_quotes(
     span: Span,
     locator: Locator<'_>,
 ) -> Option<Span> {
-    if span.start.line != span.end.line {
+    if span.start.line() != span.end.line() {
         return None;
     }
 
     let source = locator.source();
     let search_start = locator.offset_for_line_column(
-        span.start.line,
-        span.start.column.saturating_sub(2).max(1),
+        span.start.line(),
+        span.start.column().saturating_sub(2).max(1),
     )?;
     let search_end = locator.offset_for_line_column(
-        span.end.line,
-        span.end.column.saturating_add(3),
+        span.end.line(),
+        span.end.column().saturating_add(3),
     )
-    .or_else(|| locator.line_range(span.end.line).map(|range| usize::from(range.end())))?;
+    .or_else(|| locator.line_range(span.end.line()).map(|range| usize::from(range.end())))?;
     let window = source.get(search_start..search_end)?;
     let relative_dollar = window.find('$')?;
     let start_offset = search_start + relative_dollar;
     let start = locator.position_at_offset(start_offset)?;
-    if start.line != span.start.line
-        || start.column < span.start.column
-        || start.column > span.start.column.saturating_add(2)
+    if start.line() != span.start.line()
+        || start.column() < span.start.column()
+        || start.column() > span.start.column().saturating_add(2)
     {
         return None;
     }
 
-    let span_start_offset = locator.offset_for_line_column(span.start.line, span.start.column)?;
+    let span_start_offset = locator.offset_for_line_column(span.start.line(), span.start.column())?;
     let prefix = source.get(span_start_offset..start_offset)?;
     if !prefix.contains('"') && !prefix.contains('\\') {
         return None;
@@ -765,14 +765,14 @@ pub(crate) fn shellcheck_parameter_span_inside_escaped_quotes(
 
     let end_offset = parameter_expansion_end_offset(source, start_offset)?;
     let end = locator.position_at_offset(end_offset)?;
-    if end.line != span.end.line
-        || end.column < span.end.column
-        || end.column > span.end.column.saturating_add(3)
+    if end.line() != span.end.line()
+        || end.column() < span.end.column()
+        || end.column() > span.end.column().saturating_add(3)
     {
         return None;
     }
 
-    if start.column == span.start.column && end.column == span.end.column {
+    if start.column() == span.start.column() && end.column() == span.end.column() {
         return None;
     }
 
@@ -1587,7 +1587,7 @@ fn collect_derived_word_traversal_spans<'a>(
         );
         spans
             .active_expansion_spans
-            .sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+            .sort_unstable_by_key(|span| (span.start.offset(), span.end.offset()));
         spans.active_expansion_spans.dedup();
     }
 
@@ -2142,7 +2142,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             surface_body_arg_start_offset: normalized
                 .body_args()
                 .first()
-                .map(|word| word.span.start.offset),
+                .map(|word| word.span.start.offset()),
             command_shell_behavior,
             command_visits_by_id: outputs.command_visits_by_id,
             word_nodes: outputs.word_nodes,
@@ -2428,7 +2428,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                         command
                             .args
                             .iter()
-                            .position(|word| word.span.start.offset == offset)
+                            .position(|word| word.span.start.offset() == offset)
                     })
                     .unwrap_or_else(|| wrapper_target_arg_index.map_or(0, |index| index + 1));
                 let trap_command =

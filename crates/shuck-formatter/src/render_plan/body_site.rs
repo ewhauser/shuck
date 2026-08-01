@@ -316,9 +316,11 @@ impl<'a> CompoundBodySite<'a> {
         let close_span = cached_close_span.or_else(|| {
             done_close_span(source_map.source(), source_map, enclosing_span, done_span)
         });
-        let upper_bound = close_span.map(|span| span.start.offset).unwrap_or_else(|| {
-            done_span.map_or(enclosing_span.end.offset, |span| span.start.offset)
-        });
+        let upper_bound = close_span
+            .map(|span| span.start.offset())
+            .unwrap_or_else(|| {
+                done_span.map_or(enclosing_span.end.offset(), |span| span.start.offset())
+            });
         Self {
             body,
             enclosing_span,
@@ -332,7 +334,7 @@ impl<'a> CompoundBodySite<'a> {
         Self {
             body,
             enclosing_span,
-            bounds: CompoundBodyBounds::shared(enclosing_span.end.offset),
+            bounds: CompoundBodyBounds::shared(enclosing_span.end.offset()),
             open: CompoundBodyOpen::Direct,
             close_span: None,
         }
@@ -358,8 +360,8 @@ impl<'a> CompoundBodySite<'a> {
             body,
             enclosing_span,
             bounds: CompoundBodyBounds::split(
-                right_brace_span.start.offset,
-                enclosing_span.end.offset,
+                right_brace_span.start.offset(),
+                enclosing_span.end.offset(),
             ),
             open: CompoundBodyOpen::Group('{'),
             close_span: Some(close_span),

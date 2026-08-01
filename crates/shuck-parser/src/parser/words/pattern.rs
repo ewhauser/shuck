@@ -5,13 +5,13 @@ impl<'a> Parser<'a> {
         PatternParser::new(
             self.input,
             word,
-            self.zsh_glob_parse_features_at(word.span.start.offset),
+            self.zsh_glob_parse_features_at(word.span.start.offset()),
         )
         .parse()
     }
 
     pub(in crate::parser) fn pattern_from_conditional_word(&self, word: &Word) -> Pattern {
-        let features = self.zsh_glob_parse_features_at(word.span.start.offset);
+        let features = self.zsh_glob_parse_features_at(word.span.start.offset());
         let source_backed_word = self
             .conditional_prefixed_bare_group_source_word(word, features)
             .unwrap_or_else(|| word.clone());
@@ -162,7 +162,7 @@ impl<'a> Parser<'a> {
         } else {
             self.decode_word_text(text, span, span.start, true)
         };
-        let features = self.zsh_glob_parse_features_at(span.start.offset);
+        let features = self.zsh_glob_parse_features_at(span.start.offset());
         self.pattern_from_zsh_case_word_with_features(&word, features)
     }
 
@@ -208,7 +208,7 @@ impl<'a> Parser<'a> {
             self.input,
             &parts,
             span,
-            self.zsh_glob_parse_features_at(span.start.offset),
+            self.zsh_glob_parse_features_at(span.start.offset()),
         )
         .parse();
         self.source_text_pattern_depth -= 1;
@@ -405,11 +405,11 @@ impl<'a> Parser<'a> {
         &self,
         start: Position,
     ) -> Option<(String, Position)> {
-        if start.offset >= self.input.len() {
+        if start.offset() >= self.input.len() {
             return None;
         }
 
-        let source = &self.input[start.offset..];
+        let source = &self.input[start.offset()..];
         let mut chars = source.chars().peekable();
         let mut cursor = start;
         let mut text = String::new();
@@ -525,7 +525,7 @@ impl<'a> Parser<'a> {
             SubscriptInterpretation::Contextual,
         )?;
 
-        while self.current_token.is_some() && self.current_span.start.offset < end.offset {
+        while self.current_token.is_some() && self.current_span.start.offset() < end.offset() {
             self.advance();
         }
 

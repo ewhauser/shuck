@@ -36,7 +36,7 @@ mod tests {
             );
 
             assert_eq!(diagnostics.len(), 1);
-            assert_eq!(diagnostics[0].span.start.line, 1);
+            assert_eq!(diagnostics[0].span.start.line(), 1);
         }
     }
 
