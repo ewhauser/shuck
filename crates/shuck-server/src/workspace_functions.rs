@@ -433,6 +433,15 @@ impl WorkspaceFunctionIndex {
         self.files.get(path)
     }
 
+    pub(crate) fn source_target(
+        &self,
+        from_path: &Path,
+        source_span: Span,
+    ) -> Option<(&Path, &types::Url)> {
+        let target = self.graph.source_target(from_path, source_span)?;
+        self.file(target).map(|file| (target, file.editor_uri()))
+    }
+
     pub(crate) fn range_of(&self, path: &Path, span: Span) -> Option<types::Range> {
         let file = self.file(path)?;
         Some(crate::edit::to_lsp_range(

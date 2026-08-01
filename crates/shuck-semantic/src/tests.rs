@@ -435,10 +435,19 @@ fn editor_call_hierarchy_preserves_zsh_multi_name_function_bodies() {
 #[test]
 fn source_directives_override_dynamic_classification() {
     // source=<path>: assert the target and import symbols only.
-    let plain = model("# shuck: source=lib/util.sh\nsource \"$DIR/util.sh\"\n");
+    let plain_source = "# shuck: source=lib/util.sh\nsource \"$DIR/util.sh\"\n";
+    let plain = model(plain_source);
     let refs = plain.source_refs();
     assert_eq!(refs.len(), 1);
     assert_eq!(refs[0].kind, SourceRefKind::Directive("lib/util.sh".into()));
+    assert_eq!(refs[0].path_span.slice(plain_source), "\"$DIR/util.sh\"");
+    assert_eq!(
+        refs[0]
+            .directive_path_span
+            .expect("directive path should retain its source span")
+            .slice(plain_source),
+        "lib/util.sh"
+    );
     assert_eq!(
         refs[0].directive,
         Some(SourceDirectiveInfo {

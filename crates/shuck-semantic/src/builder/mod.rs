@@ -9,7 +9,7 @@ use shuck_ast::{
     FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, LiteralText, Name,
     NormalizedCommand, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
     PatternGroupKind, PatternPart, PatternPartNode, Position, SourceText, Span, Stmt, StmtSeq,
-    Subscript, SubscriptInterpretation, TextSize, VarRef, Word, WordPart, WordPartNode,
+    Subscript, SubscriptInterpretation, TextRange, TextSize, VarRef, Word, WordPart, WordPartNode,
     WrapperKind, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment, ZshParameterExpansion,
     normalize_command_words, normalize_command_words_owned, static_word_text,
     try_static_word_parts_text,
@@ -2051,8 +2051,17 @@ fn parse_source_directives(
                 .or_insert_with(|| directive.clone());
         }
 
-        let text = comment.range.slice(source).trim_start_matches('#').trim();
-        if let Some(directive) = parse_source_directive_override(text, comment.is_own_line) {
+        let comment_text = comment.range.slice(source);
+        let without_markers = comment_text.trim_start_matches('#');
+        let text = without_markers.trim();
+        let text_offset = usize::from(comment.range.start())
+            + comment_text.len().saturating_sub(without_markers.len())
+            + without_markers
+                .len()
+                .saturating_sub(without_markers.trim_start().len());
+        if let Some(directive) =
+            parse_source_directive_override(text, text_offset, comment.is_own_line)
+        {
             directives.insert(comment.line, directive.clone());
             pending_own_line = comment.is_own_line.then_some(directive);
         }
@@ -2062,7 +2071,11 @@ fn parse_source_directives(
     directives
 }
 
-fn parse_source_directive_override(text: &str, own_line: bool) -> Option<SourceDirectiveOverride> {
+fn parse_source_directive_override(
+    text: &str,
+    text_offset: usize,
+    own_line: bool,
+) -> Option<SourceDirectiveOverride> {
     // The shuck-native spelling asserts a target and, optionally, a lint
     // policy:
     //   `# shuck: source=<path>`            -> import the target's symbols only
@@ -2097,6 +2110,7 @@ fn parse_source_directive_override(text: &str, own_line: bool) -> Option<SourceD
         if let Some(value) = target {
             return Some(source_directive_override(
                 value,
+                source_value_range(text, text_offset, value),
                 SourceDirectiveInfo {
                     origin: SourceDirectiveOrigin::Shuck,
                     lint: lint.unwrap_or(false),
@@ -2115,6 +2129,7 @@ fn parse_source_directive_override(text: &str, own_line: bool) -> Option<SourceD
             if let Some(value) = part.strip_prefix("source=") {
                 return Some(source_directive_override(
                     value,
+                    source_value_range(text, text_offset, value),
                     SourceDirectiveInfo {
                         origin: SourceDirectiveOrigin::ShellCheck,
                         lint: false,
@@ -2140,6 +2155,7 @@ fn strip_shuck_directive_prefix(text: &str) -> Option<&str> {
 
 fn source_directive_override(
     value: &str,
+    path_range: TextRange,
     directive: SourceDirectiveInfo,
     own_line: bool,
 ) -> SourceDirectiveOverride {
@@ -2151,8 +2167,18 @@ fn source_directive_override(
     SourceDirectiveOverride {
         kind,
         directive,
+        path_range,
         own_line,
     }
+}
+
+fn source_value_range(text: &str, text_offset: usize, value: &str) -> TextRange {
+    let relative = value.as_ptr() as usize - text.as_ptr() as usize;
+    let start = text_offset + relative;
+    TextRange::new(
+        TextSize::new(start as u32),
+        TextSize::new((start + value.len()) as u32),
+    )
 }
 
 fn arithmetic_name_span(span: Span, name: &Name) -> Span {

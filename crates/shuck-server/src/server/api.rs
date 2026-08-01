@@ -67,6 +67,9 @@ pub(super) fn request(req: server::Request) -> Task {
         request::DocumentHighlight::METHOD => {
             background_request_task::<request::DocumentHighlight>(req, BackgroundSchedule::Worker)
         }
+        request::DocumentLinks::METHOD => background_session_request_task::<
+            request::DocumentLinks,
+        >(req, BackgroundSchedule::Worker),
         request::DocumentSymbols::METHOD => {
             background_request_task::<request::DocumentSymbols>(req, BackgroundSchedule::Worker)
         }

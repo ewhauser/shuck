@@ -915,6 +915,16 @@ impl WorkspaceCallIndex {
         self.files.len()
     }
 
+    /// Returns the resolved target of the source operation at `span`.
+    pub fn source_target(&self, from_path: &Path, span: Span) -> Option<&Path> {
+        self.files
+            .get(from_path)?
+            .source_edges
+            .iter()
+            .find(|edge| edge.span == span)
+            .map(|edge| edge.path.as_path())
+    }
+
     /// Returns sourced functions that are unconditionally visible before
     /// `cutoff` in `from_path`, with source order and redefinitions applied.
     pub fn visible_sourced_functions(

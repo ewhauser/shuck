@@ -212,6 +212,7 @@ mod tests {
             kind: SourceRefKind::Directive("util.sh".into()),
             span: Default::default(),
             path_span: Default::default(),
+            directive_path_span: None,
             conditionally_executed: false,
             resolution: crate::SourceRefResolution::Unchecked,
             explicitly_provided: false,
