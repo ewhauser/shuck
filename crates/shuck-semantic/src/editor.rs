@@ -184,8 +184,21 @@ pub struct EditorCompletion {
 pub struct EditorCompletions {
     /// Span replaced by each completion item.
     pub replacement_span: Span,
+    /// Syntax context that requested these candidates.
+    pub context: EditorCompletionContext,
     /// Candidate items.
     pub items: Vec<EditorCompletion>,
+}
+
+/// Syntax context for one completion request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditorCompletionContext {
+    /// Parameter or variable-name completion.
+    Parameter,
+    /// Declaration operand completion.
+    Declaration,
+    /// Shell command-name completion.
+    Command,
 }
 
 /// Editor completion feature switches.
@@ -608,7 +621,6 @@ impl<'model> EditorQuery<'model> {
     ) -> Option<EditorCompletions> {
         completion_context(source, indexer, offset)
             .map(|context| completions_for_context(self.model, source, offset, context, options))
-            .filter(|completions| !completions.items.is_empty())
     }
 
     /// Returns a conservative rename set for the target under `offset`.
@@ -1167,7 +1179,11 @@ fn declaration_operand_context(source: &str, indexer: &Indexer, word_start: usiz
 
 fn command_position_context(source: &str, word_start: usize) -> bool {
     let raw_before = &source[..word_start];
-    if raw_before.ends_with('\n') {
+    if raw_before.ends_with('\n')
+        || raw_before
+            .rsplit_once('\n')
+            .is_some_and(|(_, line_prefix)| line_prefix.trim().is_empty())
+    {
         return true;
     }
     let before = raw_before.trim_end();
@@ -1196,13 +1212,15 @@ fn completions_for_context(
     context: CompletionContext,
     options: EditorCompletionOptions,
 ) -> EditorCompletions {
-    let (replacement_span, mut items) = match context {
+    let (replacement_span, completion_context, mut items) = match context {
         CompletionContext::Parameter { replacement_span } => (
             replacement_span,
+            EditorCompletionContext::Parameter,
             variable_completions(model, offset, options.include_runtime_names),
         ),
         CompletionContext::Declaration { replacement_span } => (
             replacement_span,
+            EditorCompletionContext::Declaration,
             variable_completions(model, offset, options.include_runtime_names),
         ),
         CompletionContext::Command { replacement_span } => {
@@ -1211,12 +1229,13 @@ fn completions_for_context(
             if options.include_keywords {
                 items.extend(keyword_completions());
             }
-            (replacement_span, items)
+            (replacement_span, EditorCompletionContext::Command, items)
         }
     };
     filter_and_sort_completions(&mut items, replacement_span.slice(source));
     EditorCompletions {
         replacement_span,
+        context: completion_context,
         items,
     }
 }
@@ -1264,7 +1283,8 @@ fn function_completions(model: &SemanticModel, offset: usize) -> Vec<EditorCompl
     let at = Span::at(position_with_offset(offset));
     let mut seen = BTreeSet::new();
     let mut items = Vec::new();
-    for binding in model.function_definition_bindings() {
+    let bindings = model.function_definition_bindings().collect::<Vec<_>>();
+    for binding in bindings.into_iter().rev() {
         if !model.binding_visible_at(binding.id, at) || !seen.insert(binding.name.to_string()) {
             continue;
         }

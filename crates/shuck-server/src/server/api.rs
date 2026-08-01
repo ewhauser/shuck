@@ -55,7 +55,7 @@ pub(super) fn request(req: server::Request) -> Task {
             sync_request_task::<request::CodeActionResolve>(req)
         }
         request::Completion::METHOD => {
-            background_request_task::<request::Completion>(req, BackgroundSchedule::Worker)
+            background_session_request_task::<request::Completion>(req, BackgroundSchedule::Worker)
         }
         request::CompletionResolve::METHOD => sync_request_task::<request::CompletionResolve>(req),
         request::Definition::METHOD => {

@@ -44,7 +44,7 @@ pub use binding::{
 /// Workspace call-graph index types for cross-file call hierarchy.
 pub use call_facts::{
     CallFactDefinition, CallFactSite, CallFactSourceEdge, CallFunctionId, CallNodeKind,
-    CrossFileCall, FileCallFacts, WorkspaceCallIndex,
+    CrossFileCall, FileCallFacts, VisibleSourcedFunction, WorkspaceCallIndex,
 };
 pub use call_graph::{
     CallGraph, CallSite, OverwrittenFunction, UnreachedFunction, UnreachedFunctionReason,
@@ -76,11 +76,11 @@ pub use dataflow::{
 pub use declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 /// Editor-facing semantic query types.
 pub use editor::{
-    EditorCallHierarchyItem, EditorCallHierarchyTarget, EditorCompletion, EditorCompletionKind,
-    EditorCompletionOptions, EditorCompletions, EditorDocumentSymbol, EditorFunctionCallTarget,
-    EditorHover, EditorIncomingCall, EditorOccurrence, EditorOccurrenceKind, EditorOutgoingCall,
-    EditorQuery, EditorRuntimeNameTarget, EditorSymbol, EditorSymbolKind, EditorSymbolTarget,
-    RenameSet, RenameUnavailable,
+    EditorCallHierarchyItem, EditorCallHierarchyTarget, EditorCompletion, EditorCompletionContext,
+    EditorCompletionKind, EditorCompletionOptions, EditorCompletions, EditorDocumentSymbol,
+    EditorFunctionCallTarget, EditorHover, EditorIncomingCall, EditorOccurrence,
+    EditorOccurrenceKind, EditorOutgoingCall, EditorQuery, EditorRuntimeNameTarget, EditorSymbol,
+    EditorSymbolKind, EditorSymbolTarget, RenameSet, RenameUnavailable,
 };
 /// Direct function-call reachability query types.
 pub use function_call_reachability::{
@@ -2218,6 +2218,28 @@ impl SemanticModel {
     /// Returns source-like file references discovered in the script.
     pub fn source_refs(&self) -> &[SourceRef] {
         &self.source_refs
+    }
+
+    /// Returns whether a source operation is guaranteed to have executed in
+    /// the completion point's enclosing execution scope.
+    pub fn source_ref_visible_at_offset(&self, source_ref: &SourceRef, offset: usize) -> bool {
+        if source_ref.conditionally_executed || source_ref.span.start.offset >= offset {
+            return false;
+        }
+        let source_scope = self.scope_at(source_ref.span.start.offset);
+        let cursor_scope = self.scope_at(offset);
+        if let Some(transient_scope) = self.innermost_transient_scope_within_function(source_scope)
+        {
+            return self.scope_is_in_scope_or_descendant(cursor_scope, transient_scope);
+        }
+        match (
+            self.enclosing_function_scope(source_scope),
+            self.enclosing_function_scope(cursor_scope),
+        ) {
+            (None, _) => true,
+            (Some(source_function), Some(cursor_function)) => source_function == cursor_function,
+            (Some(_), None) => false,
+        }
     }
 
     /// Returns synthetic reads introduced by contracts or semantic modeling.
