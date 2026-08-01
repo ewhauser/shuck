@@ -112,6 +112,7 @@ fn future_reads_contain_after_until_ignores_backwards_intervals() {
         10,
         5,
         NameId(0),
+        0,
         &[plan],
         &transitive_reads,
     ));

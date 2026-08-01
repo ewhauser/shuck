@@ -127,18 +127,20 @@ pub(super) fn build_name_table(
     bindings: &[Binding],
     references: &[Reference],
     synthetic_reads: &[SyntheticRead],
-) -> NameTable {
+) -> (NameTable, Vec<NameId>, Vec<NameId>) {
     let mut names = NameTable::default();
     for binding in bindings {
         names.intern(&binding.name);
     }
-    for reference in references {
-        names.intern(&reference.name);
-    }
-    for synthetic_read in synthetic_reads {
-        names.intern(&synthetic_read.name);
-    }
-    names
+    let reference_name_ids = references
+        .iter()
+        .map(|reference| names.intern(&reference.name))
+        .collect();
+    let synthetic_read_name_ids = synthetic_reads
+        .iter()
+        .map(|synthetic_read| names.intern(&synthetic_read.name))
+        .collect();
+    (names, reference_name_ids, synthetic_read_name_ids)
 }
 
 pub(super) fn build_dense_binding_data(

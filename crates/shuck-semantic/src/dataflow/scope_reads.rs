@@ -44,6 +44,41 @@ pub(super) struct ScopeReadPlan {
     pub(super) is_function: bool,
 }
 
+/// Compact id space covering only names that have bindings.
+///
+/// Scope-read bitsets are only ever queried for binding names, so the
+/// matrices stay narrow by dropping every other referenced name.
+pub(super) struct BoundNameSpace {
+    compact_by_name: Vec<Option<u32>>,
+    len: usize,
+}
+
+impl BoundNameSpace {
+    pub(super) fn new(binding_name_ids: &[NameId], name_count: usize) -> Self {
+        let mut compact_by_name = vec![None; name_count];
+        let mut len = 0u32;
+        for name in binding_name_ids {
+            let compact = &mut compact_by_name[name.index()];
+            if compact.is_none() {
+                *compact = Some(len);
+                len += 1;
+            }
+        }
+        Self {
+            compact_by_name,
+            len: len as usize,
+        }
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.len
+    }
+
+    pub(super) fn get(&self, name: NameId) -> Option<usize> {
+        self.compact_by_name[name.index()].map(|compact| compact as usize)
+    }
+}
+
 impl ScopeReadPlan {
     pub(super) fn new(name_count: usize, is_function: bool) -> Self {
         Self {
@@ -280,7 +315,7 @@ pub(super) fn build_scope_read_plans(
     call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
     visible_function_call_bindings: &FxHashMap<SpanKey, BindingId>,
     function_body_scopes: &FxHashMap<BindingId, ScopeId>,
-    name_count: usize,
+    bound_names: &BoundNameSpace,
 ) -> (Vec<ScopeReadPlan>, Vec<Vec<CallerReadSite>>) {
     let calls_by_scope = resolved_calls_by_scope(
         call_sites,
@@ -289,14 +324,21 @@ pub(super) fn build_scope_read_plans(
     );
     let mut plans = scopes
         .iter()
-        .map(|scope| ScopeReadPlan::new(name_count, matches!(scope.kind, ScopeKind::Function(_))))
+        .map(|scope| {
+            ScopeReadPlan::new(
+                bound_names.len(),
+                matches!(scope.kind, ScopeKind::Function(_)),
+            )
+        })
         .collect::<Vec<_>>();
     let mut callers_by_callee = vec![Vec::new(); scopes.len()];
 
     for (reference_index, reference) in references.iter().enumerate() {
         let plan = &mut plans[reference.scope.index()];
         let name_id = reference_name_ids[reference_index];
-        plan.direct_reads.insert(name_id.index());
+        if let Some(compact) = bound_names.get(name_id) {
+            plan.direct_reads.insert(compact);
+        }
         plan.events.push(ScopeReadEvent {
             offset: reference.span.start.offset,
             block: reference_blocks[reference_index],
@@ -307,7 +349,9 @@ pub(super) fn build_scope_read_plans(
     for (read_index, synthetic_read) in synthetic_reads.iter().enumerate() {
         let plan = &mut plans[synthetic_read.scope.index()];
         let name_id = synthetic_read_name_ids[read_index];
-        plan.direct_reads.insert(name_id.index());
+        if let Some(compact) = bound_names.get(name_id) {
+            plan.direct_reads.insert(compact);
+        }
         plan.events.push(ScopeReadEvent {
             offset: synthetic_read.span.start.offset,
             block: command_block_for_span(cfg, synthetic_read.span),
@@ -372,11 +416,11 @@ pub(super) fn compute_compatibility_read_sets(
     read_plans: &[ScopeReadPlan],
     callers_by_callee: &[Vec<CallerReadSite>],
     transitive_reads: &DenseBitMatrix,
-    name_count: usize,
+    bound_names: &BoundNameSpace,
 ) -> CompatibilityReadSets {
-    let future_reads = build_future_read_summaries(read_plans, transitive_reads, name_count);
-    let mut escape_reads = DenseBitMatrix::zeros(read_plans.len(), name_count);
-    let mut reads = DenseBitSet::new(name_count);
+    let future_reads = build_future_read_summaries(read_plans, transitive_reads, bound_names);
+    let mut escape_reads = DenseBitMatrix::zeros(read_plans.len(), bound_names.len());
+    let mut reads = DenseBitSet::new(bound_names.len());
     loop {
         let mut changed = false;
         for (scope_index, plan) in read_plans.iter().enumerate() {
@@ -427,17 +471,19 @@ fn nested_non_function_child_scopes(scopes: &[Scope]) -> Vec<Vec<ScopeId>> {
 fn build_future_read_summaries(
     read_plans: &[ScopeReadPlan],
     transitive_reads: &DenseBitMatrix,
-    name_count: usize,
+    bound_names: &BoundNameSpace,
 ) -> Vec<ScopeFutureReads> {
     read_plans
         .iter()
         .map(|plan| {
-            let mut suffix_reads = DenseBitMatrix::zeros(plan.events.len() + 1, name_count);
+            let mut suffix_reads = DenseBitMatrix::zeros(plan.events.len() + 1, bound_names.len());
             for event_index in (0..plan.events.len()).rev() {
                 suffix_reads.copy_row_from_row(event_index, event_index + 1);
                 match plan.events[event_index].kind {
                     ScopeReadEventKind::Direct(name_id) => {
-                        suffix_reads.insert(event_index, name_id.index());
+                        if let Some(compact) = bound_names.get(name_id) {
+                            suffix_reads.insert(event_index, compact);
+                        }
                     }
                     ScopeReadEventKind::Call(callee_scope) => {
                         suffix_reads.union_row_with_words(
@@ -471,7 +517,7 @@ fn future_reads_union_after(
 fn future_reads_contain_after(
     scope: ScopeId,
     offset: usize,
-    name_id: NameId,
+    compact_name: usize,
     read_plans: &[ScopeReadPlan],
     future_reads: &[ScopeFutureReads],
     escape_reads: &DenseBitMatrix,
@@ -480,14 +526,15 @@ fn future_reads_contain_after(
     let index = plan.events.partition_point(|event| event.offset <= offset);
     future_reads[scope.index()]
         .suffix_reads
-        .contains(index, name_id.index())
-        || (plan.is_function && escape_reads.contains(scope.index(), name_id.index()))
+        .contains(index, compact_name)
+        || (plan.is_function && escape_reads.contains(scope.index(), compact_name))
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn binding_has_future_reads_before_local_shadow(
     binding: &Binding,
     name_id: NameId,
+    bound_names: &BoundNameSpace,
     bindings: &[Binding],
     next_local_shadows: &[Option<BindingId>],
     cfg: &ControlFlowGraph,
@@ -497,9 +544,12 @@ pub(super) fn binding_has_future_reads_before_local_shadow(
     future_reads: &[ScopeFutureReads],
     escape_reads: &DenseBitMatrix,
 ) -> bool {
+    let Some(compact_name) = bound_names.get(name_id) else {
+        return false;
+    };
     let shadow = next_local_shadows[binding.id.index()].map(|shadow| &bindings[shadow.index()]);
     let escape_reads_visible = read_plans[binding.scope.index()].is_function
-        && escape_reads.contains(binding.scope.index(), name_id.index());
+        && escape_reads.contains(binding.scope.index(), compact_name);
 
     if let Some(shadow) = shadow {
         if let (Some(binding_block), Some(shadow_block)) = (
@@ -514,6 +564,7 @@ pub(super) fn binding_has_future_reads_before_local_shadow(
                     binding_block,
                     shadow_block,
                     name_id,
+                    compact_name,
                     read_plans,
                     transitive_reads,
                     cfg,
@@ -525,6 +576,7 @@ pub(super) fn binding_has_future_reads_before_local_shadow(
                     binding.span.start.offset,
                     shadow.span.start.offset,
                     name_id,
+                    compact_name,
                     read_plans,
                     transitive_reads,
                 )
@@ -533,7 +585,7 @@ pub(super) fn binding_has_future_reads_before_local_shadow(
         future_reads_contain_after(
             binding.scope,
             binding.span.start.offset,
-            name_id,
+            compact_name,
             read_plans,
             future_reads,
             escape_reads,
@@ -541,12 +593,15 @@ pub(super) fn binding_has_future_reads_before_local_shadow(
     }
 }
 
-pub(super) fn next_shadowing_local_declarations(bindings: &[Binding]) -> Vec<Option<BindingId>> {
+pub(super) fn next_shadowing_local_declarations(
+    bindings: &[Binding],
+    binding_name_ids: &[NameId],
+) -> Vec<Option<BindingId>> {
     let mut next_shadows = vec![None; bindings.len()];
-    let mut next_by_scope_and_name: FxHashMap<(ScopeId, Name), BindingId> = FxHashMap::default();
+    let mut next_by_scope_and_name: FxHashMap<(ScopeId, NameId), BindingId> = FxHashMap::default();
 
     for binding in bindings.iter().rev() {
-        let key = (binding.scope, binding.name.clone());
+        let key = (binding.scope, binding_name_ids[binding.id.index()]);
         next_shadows[binding.id.index()] = next_by_scope_and_name.get(&key).copied();
 
         if matches!(binding.kind, BindingKind::Declaration(_))
@@ -564,6 +619,7 @@ pub(super) fn future_reads_contain_after_until(
     after_offset: usize,
     before_offset: usize,
     name_id: NameId,
+    compact_name: usize,
     read_plans: &[ScopeReadPlan],
     transitive_reads: &DenseBitMatrix,
 ) -> bool {
@@ -584,7 +640,7 @@ pub(super) fn future_reads_contain_after_until(
         .any(|event| match event.kind {
             ScopeReadEventKind::Direct(candidate) => candidate == name_id,
             ScopeReadEventKind::Call(callee_scope) => {
-                transitive_reads.contains(callee_scope.index(), name_id.index())
+                transitive_reads.contains(callee_scope.index(), compact_name)
             }
         })
 }
@@ -597,6 +653,7 @@ fn future_reads_contain_after_without_shadow(
     binding_block: BlockId,
     shadow_block: BlockId,
     name_id: NameId,
+    compact_name: usize,
     read_plans: &[ScopeReadPlan],
     transitive_reads: &DenseBitMatrix,
     cfg: &ControlFlowGraph,
@@ -610,7 +667,7 @@ fn future_reads_contain_after_without_shadow(
         let uses_name = match event.kind {
             ScopeReadEventKind::Direct(candidate) => candidate == name_id,
             ScopeReadEventKind::Call(callee_scope) => {
-                transitive_reads.contains(callee_scope.index(), name_id.index())
+                transitive_reads.contains(callee_scope.index(), compact_name)
             }
         };
         if !uses_name {
