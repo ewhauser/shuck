@@ -2,14 +2,16 @@
 
 ## Status
 
-Implemented (document-local v1 plus sourced function completion).
+Implemented (document-local v1 plus sourced function completion, definition,
+and references).
 
 Delivered: completion, semantic hover, go-to-definition, references, document
 highlights, document and workspace symbols, conservative same-file rename, and
-document/range formatting. Function completion also follows the statically
-resolvable source graph. Cross-file rename remains deferred until closed-file
-edit safety is proven. Cross-file call hierarchy is specified separately in
-spec 025; other cross-file navigation is outside this spec's implemented scope.
+document/range formatting. Function completion follows the statically
+resolvable source graph, while definition and references require exact source
+bindings. Cross-file rename remains deferred until closed-file edit safety is
+proven. Cross-file call hierarchy is specified separately in spec 025; other
+cross-file navigation remains deferred.
 
 ## Summary
 
@@ -100,7 +102,7 @@ land:
 | Completion | `textDocument/completion`, `completionItem/resolve` | Variables, declaration names, runtime names, shell keywords, and functions visible locally or through unconditional static source edges |
 | Hover | `textDocument/hover` | Rule-code hovers plus semantic-symbol hovers |
 | Definition | `textDocument/definition` | Variables in the active analysis plus exact function definitions through the statically resolved source graph |
-| References | `textDocument/references` | References and definitions in the same proven symbol set |
+| References | `textDocument/references` | Exact function references through the statically resolved workspace graph; other symbols use the active analysis |
 | Document highlight | `textDocument/documentHighlight` | Read/write highlights for the symbol under the cursor |
 | Document symbols | `textDocument/documentSymbol` | Hierarchical symbols for functions plus top-level declarations and assignments |
 | Workspace symbols | `workspace/symbol` | Fuzzy search over indexed shell files in workspace folders |
@@ -314,6 +316,15 @@ References honor `ReferenceContext::include_declaration`:
 - `include_declaration = true`: include definition/write spans and read spans.
 - `include_declaration = false`: include only read-like references and call
   sites.
+
+For function bindings, the shared workspace index lazily builds a reverse map
+from exact definition identity to proven call tokens. Source order,
+redefinitions, cycles, valid source hints, configured source paths, and unsaved
+open buffers use the same fail-closed resolver as go-to-definition. Dynamic or
+ambiguous calls are omitted rather than name-matched. The reverse map is cached
+only after a complete, uncancelled build and is invalidated with the containing
+workspace index. A partial workspace index returns no cross-file reference set
+instead of presenting incomplete results as exhaustive.
 
 Document highlights are file-local and classify spans as:
 

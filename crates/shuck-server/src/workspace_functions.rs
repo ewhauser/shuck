@@ -336,8 +336,43 @@ impl WorkspaceFunctionIndex {
         &self,
         from_path: &Path,
         name_span: Span,
+        cancellation: &RequestCancellationToken,
     ) -> Option<CrossFileCall> {
-        self.graph.resolve_call_site_exact(from_path, name_span)
+        self.graph
+            .resolve_call_site_exact_cancellable(from_path, name_span, || {
+                cancellation.is_cancelled()
+            })
+    }
+
+    pub(crate) fn exact_function_reference_locations(
+        &self,
+        target_path: &Path,
+        target_node: &CallNodeKind,
+        cancellation: &RequestCancellationToken,
+    ) -> Option<Vec<types::Location>> {
+        if !self.complete || cancellation.is_cancelled() {
+            return None;
+        }
+        let references = self
+            .graph
+            .exact_function_references(target_path, target_node, || cancellation.is_cancelled())?;
+        let mut locations = Vec::with_capacity(references.len());
+        for reference in references {
+            if cancellation.is_cancelled() {
+                return None;
+            }
+            let file = self.file(&reference.path)?;
+            locations.push(types::Location {
+                uri: file.editor_uri().clone(),
+                range: crate::edit::to_lsp_range(
+                    reference.span.to_range(),
+                    file.source(),
+                    file.line_index(),
+                    self.encoding,
+                ),
+            });
+        }
+        Some(locations)
     }
 
     pub(crate) fn visible_sourced_functions(
