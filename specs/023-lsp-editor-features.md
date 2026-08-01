@@ -98,7 +98,7 @@ land:
 |---|---|---|
 | Completion | `textDocument/completion`, `completionItem/resolve` | Variables, functions, declaration names, runtime names, and shell keywords known to Shuck |
 | Hover | `textDocument/hover` | Rule-code hovers plus semantic-symbol hovers |
-| Definition | `textDocument/definition` | Variable/function definitions Shuck can resolve in the current analysis graph |
+| Definition | `textDocument/definition` | Variables in the active analysis plus exact function definitions through the statically resolved source graph |
 | References | `textDocument/references` | References and definitions in the same proven symbol set |
 | Document highlight | `textDocument/documentHighlight` | Read/write highlights for the symbol under the cursor |
 | Document symbols | `textDocument/documentSymbol` | Hierarchical symbols for functions plus top-level declarations and assignments |
@@ -303,7 +303,10 @@ Definition and references use the same symbol target resolution as rename:
 Definitions return a single location when the target is uniquely resolved and a
 location list when multiple static definitions are intentionally visible, such
 as a top-level variable with multiple declaration forms that Shuck groups into
-one storage family. If all candidates are ambiguous, the result is `None`.
+one storage family. Function calls additionally resolve through determinable
+source edges in the shared workspace function index, preserving source order,
+redefinitions, and open-buffer content. Dynamic or unresolved calls return no
+cross-file target. If all candidates are ambiguous, the result is `None`.
 
 References honor `ReferenceContext::include_declaration`:
 
@@ -644,7 +647,8 @@ Manual editor black-box scenarios should cover:
 - command-position completion includes local functions and omits variables;
 - hover on a variable shows definition and attributes;
 - hover on a rule code still shows the spec 018 rule documentation;
-- go-to-definition from a function call lands on the function name;
+- go-to-definition from a local or statically sourced function call lands on
+  the exact visible definition;
 - references honor `includeDeclaration`;
 - highlights mark reads and writes differently;
 - document symbols show functions and local declarations without noisy transient

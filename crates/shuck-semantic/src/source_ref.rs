@@ -48,6 +48,8 @@ pub struct SourceRef {
     pub span: Span,
     /// Span of the path-like portion being resolved.
     pub path_span: Span,
+    /// Whether shell control flow may skip this source operation.
+    pub conditionally_executed: bool,
     /// Resolution status computed for this reference.
     pub resolution: SourceRefResolution,
     /// Whether the path came from an explicitly provided source directive.

@@ -29,6 +29,34 @@ struct ResolvedDefinition {
 /// in the referring file for source-order precedence.
 type SourceResolution = Option<(ResolvedDefinition, Span)>;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ExactResolution {
+    Defined(ResolvedDefinition),
+    Absent,
+    Ambiguous,
+}
+
+#[derive(Clone, Copy)]
+struct ExactQuery<'a> {
+    top_level_cutoff: usize,
+    local_definition: Option<Span>,
+    include_top_level_definitions: bool,
+    enclosing_function: Option<&'a CallFunctionId>,
+    local_call_offset: Option<usize>,
+}
+
+impl ExactQuery<'_> {
+    fn top_level(cutoff: usize) -> Self {
+        Self {
+            top_level_cutoff: cutoff,
+            local_definition: None,
+            include_top_level_definitions: true,
+            enclosing_function: None,
+            local_call_offset: None,
+        }
+    }
+}
+
 /// Stable identity of one function node within its file.
 ///
 /// Function names alone are insufficient because shell permits later
@@ -75,6 +103,10 @@ pub struct CallFactDefinition {
     pub def_span: Span,
     /// Span to select when navigating to the definition (the name token).
     pub selection_span: Span,
+    /// Whether every path through the containing command installs it.
+    pub unconditional: bool,
+    /// Whether the definition executes in the persistent file scope.
+    pub persistent_top_level: bool,
 }
 
 impl CallFactDefinition {
@@ -109,6 +141,22 @@ pub struct CallFactSourceEdge {
     pub span: Span,
 }
 
+/// A source operation that may affect function visibility, including
+/// operations whose target could not be resolved statically.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallFactSourceEffect {
+    /// Resolved target, or `None` when the operation is dynamic or unavailable.
+    pub path: Option<PathBuf>,
+    /// Span of the source operation in the referring file.
+    pub span: Span,
+    /// Whether control flow may skip the operation.
+    pub conditional: bool,
+    /// Innermost function containing the operation, if any.
+    pub enclosing_function: Option<CallFunctionId>,
+    /// Whether the operation's effects survive its containing execution scope.
+    pub persistent: bool,
+}
+
 /// Call-relevant facts projected from one file, plus its resolved source edges.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FileCallFacts {
@@ -119,6 +167,10 @@ pub struct FileCallFacts {
     /// Resolved on-disk paths of this file's determinable source edges (literal
     /// resolvable paths plus `source=` directive targets).
     pub source_edges: Vec<CallFactSourceEdge>,
+    /// All source operations, including unresolved or conditional effects.
+    pub source_effects: Vec<CallFactSourceEffect>,
+    has_dynamic_command_dispatch: bool,
+    analyzable: bool,
 }
 
 impl FileCallFacts {
@@ -154,6 +206,11 @@ impl FileCallFacts {
                 name: binding.name.clone(),
                 def_span: binding_definition_span(binding),
                 selection_span: binding.span,
+                unconditional: model.function_binding_is_unconditional(binding.id),
+                persistent_top_level: model.enclosing_function_scope(binding.scope).is_none()
+                    && model
+                        .innermost_transient_scope_within_function(binding.scope)
+                        .is_none(),
             };
             if let Some(scope) = analysis.function_scope_for_binding(binding.id) {
                 functions_by_scope
@@ -200,10 +257,60 @@ impl FileCallFacts {
             }
         }
 
+        let mut source_effects = model
+            .source_refs()
+            .iter()
+            .map(|source_ref| {
+                let scope = model.scope_at(source_ref.span.start.offset);
+                let enclosing_function = model
+                    .ancestor_scopes(scope)
+                    .find_map(|scope| functions_by_scope.get(&scope))
+                    .and_then(|functions| functions.first())
+                    .map(|(function, _)| function.clone());
+                CallFactSourceEffect {
+                    path: source_edges
+                        .iter()
+                        .find(|edge| edge.span == source_ref.span)
+                        .map(|edge| edge.path.clone()),
+                    span: source_ref.span,
+                    conditional: source_ref.conditionally_executed,
+                    enclosing_function,
+                    persistent: model
+                        .innermost_transient_scope_within_function(scope)
+                        .is_none(),
+                }
+            })
+            .collect::<Vec<_>>();
+        for edge in &source_edges {
+            if !source_effects.iter().any(|effect| effect.span == edge.span) {
+                source_effects.push(CallFactSourceEffect {
+                    path: Some(edge.path.clone()),
+                    span: edge.span,
+                    conditional: false,
+                    enclosing_function: None,
+                    persistent: true,
+                });
+            }
+        }
+        source_effects.sort_by_key(|effect| effect.span.start.offset);
+        let has_dynamic_command_dispatch =
+            model.recorded_program().commands().iter().any(|command| {
+                command.command_info.is_some_and(|info| {
+                    model
+                        .recorded_program()
+                        .command_info(info)
+                        .dynamic_name_span
+                        .is_some()
+                })
+            });
+
         Self {
             definitions,
             call_sites,
             source_edges,
+            source_effects,
+            has_dynamic_command_dispatch,
+            analyzable: true,
         }
     }
 
@@ -316,6 +423,214 @@ impl WorkspaceCallIndex {
             selection_span: definition.map(|definition| definition.selection_span),
             call_spans: vec![site.name_span],
         })
+    }
+
+    /// Resolves a call only when source effects prove one exact definition.
+    ///
+    /// Unlike call hierarchy's best-effort graph, navigation must not guess
+    /// across dynamic or conditional source operations. Calls in deferred
+    /// function bodies also fail closed when a later source operation could
+    /// run either before or after the function is invoked.
+    pub fn resolve_call_site_exact(
+        &self,
+        from_path: &Path,
+        name_span: Span,
+    ) -> Option<CrossFileCall> {
+        let facts = self.files.get(from_path)?;
+        let site = facts
+            .call_sites
+            .iter()
+            .find(|site| site.name_span == name_span)?;
+        let mut stack = FxHashSet::default();
+        stack.insert(from_path.to_path_buf());
+        let resolution = match &site.enclosing {
+            CallNodeKind::TopLevel => self.resolve_exact_events(
+                from_path,
+                &site.callee,
+                ExactQuery::top_level(site.name_span.start.offset),
+                &mut stack,
+            ),
+            CallNodeKind::Function(function) => {
+                if self.called_source_function_may_mutate(from_path, function)
+                    || facts.source_effects.iter().any(|effect| {
+                        (effect.enclosing_function.is_none()
+                            && effect.span.start.offset >= function.definition_start)
+                            || (effect.enclosing_function.as_ref() == Some(function)
+                                && effect.span.start.offset >= site.name_span.start.offset)
+                    })
+                {
+                    return None;
+                }
+                self.resolve_exact_events(
+                    from_path,
+                    &site.callee,
+                    ExactQuery {
+                        top_level_cutoff: function.definition_start,
+                        local_definition: site.local_definition_span,
+                        include_top_level_definitions: false,
+                        enclosing_function: Some(function),
+                        local_call_offset: Some(site.name_span.start.offset),
+                    },
+                    &mut stack,
+                )
+            }
+        };
+        let ExactResolution::Defined(target) = resolution else {
+            return None;
+        };
+        let definition = self.files.get(&target.path).and_then(|facts| {
+            facts.definitions.iter().find(|definition| {
+                definition.name == site.callee && definition.def_span == target.def_span
+            })
+        });
+        Some(CrossFileCall {
+            path: target.path,
+            node: CallNodeKind::Function(CallFunctionId::new(site.callee.clone(), target.def_span)),
+            def_span: Some(target.def_span),
+            selection_span: definition.map(|definition| definition.selection_span),
+            call_spans: vec![site.name_span],
+        })
+    }
+
+    fn called_source_function_may_mutate(
+        &self,
+        current_path: &Path,
+        current_function: &CallFunctionId,
+    ) -> bool {
+        let called_names = self
+            .files
+            .values()
+            .flat_map(|facts| facts.call_sites.iter().map(|site| &site.callee))
+            .collect::<FxHashSet<_>>();
+        let has_dynamic_dispatch = self
+            .files
+            .values()
+            .any(|facts| facts.has_dynamic_command_dispatch);
+        self.files.iter().any(|(path, facts)| {
+            facts.source_effects.iter().any(|effect| {
+                effect.enclosing_function.as_ref().is_some_and(|function| {
+                    (path.as_path() != current_path || function != current_function)
+                        && (has_dynamic_dispatch || called_names.contains(&function.name))
+                })
+            })
+        })
+    }
+
+    fn resolve_exact_events(
+        &self,
+        path: &Path,
+        callee: &Name,
+        query: ExactQuery<'_>,
+        stack: &mut FxHashSet<PathBuf>,
+    ) -> ExactResolution {
+        let Some(facts) = self.files.get(path) else {
+            return ExactResolution::Ambiguous;
+        };
+        if !facts.analyzable
+            || facts.source_effects.iter().any(|effect| {
+                !effect.persistent
+                    && ((effect.enclosing_function.is_none()
+                        && effect.span.start.offset < query.top_level_cutoff)
+                        || (effect.enclosing_function.as_ref() == query.enclosing_function
+                            && query
+                                .local_call_offset
+                                .is_some_and(|offset| effect.span.start.offset < offset)))
+            })
+        {
+            return ExactResolution::Ambiguous;
+        }
+
+        enum Event<'a> {
+            Definition(&'a CallFactDefinition),
+            Source(&'a CallFactSourceEffect),
+        }
+
+        let mut events = Vec::new();
+        if query.include_top_level_definitions {
+            for definition in facts.definitions.iter().filter(|definition| {
+                definition.persistent_top_level
+                    && &definition.name == callee
+                    && definition.def_span.start.offset < query.top_level_cutoff
+            }) {
+                events.push((
+                    definition.def_span.start.offset,
+                    Event::Definition(definition),
+                ));
+            }
+        } else if let Some(definition_span) = query.local_definition
+            && let Some(definition) = facts
+                .definitions
+                .iter()
+                .find(|definition| definition.def_span == definition_span)
+        {
+            events.push((
+                definition.def_span.start.offset,
+                Event::Definition(definition),
+            ));
+        }
+        for effect in facts.source_effects.iter().filter(|effect| {
+            effect.persistent
+                && ((effect.enclosing_function.is_none()
+                    && effect.span.start.offset < query.top_level_cutoff)
+                    || (effect.enclosing_function.as_ref() == query.enclosing_function
+                        && query
+                            .local_call_offset
+                            .is_some_and(|offset| effect.span.start.offset < offset)))
+        }) {
+            events.push((effect.span.start.offset, Event::Source(effect)));
+        }
+        events.sort_by_key(|(offset, _)| *offset);
+
+        for (_, event) in events.into_iter().rev() {
+            match event {
+                Event::Definition(definition) => {
+                    if !definition.unconditional {
+                        return ExactResolution::Ambiguous;
+                    }
+                    return ExactResolution::Defined(ResolvedDefinition {
+                        path: path.to_path_buf(),
+                        def_span: definition.def_span,
+                    });
+                }
+                Event::Source(effect) => {
+                    let Some(target_path) = effect.path.as_deref() else {
+                        return ExactResolution::Ambiguous;
+                    };
+                    let target = self.resolve_exported_exact(target_path, callee, stack);
+                    if effect.conditional {
+                        match target {
+                            ExactResolution::Absent => continue,
+                            ExactResolution::Defined(_) | ExactResolution::Ambiguous => {
+                                return ExactResolution::Ambiguous;
+                            }
+                        }
+                    }
+                    match target {
+                        ExactResolution::Defined(target) => {
+                            return ExactResolution::Defined(target);
+                        }
+                        ExactResolution::Absent => continue,
+                        ExactResolution::Ambiguous => return ExactResolution::Ambiguous,
+                    }
+                }
+            }
+        }
+        ExactResolution::Absent
+    }
+
+    fn resolve_exported_exact(
+        &self,
+        path: &Path,
+        callee: &Name,
+        stack: &mut FxHashSet<PathBuf>,
+    ) -> ExactResolution {
+        if !stack.insert(path.to_path_buf()) {
+            return ExactResolution::Ambiguous;
+        }
+        let resolved =
+            self.resolve_exact_events(path, callee, ExactQuery::top_level(usize::MAX), stack);
+        stack.remove(path);
+        resolved
     }
 
     /// Resolves through source edges that execute before `cutoff`. A `None`
@@ -571,6 +886,24 @@ mod tests {
         let indexer = Indexer::new(source, &output);
         let model = SemanticModel::build(&output.file, source, &indexer);
         FileCallFacts::project(&model, edges.iter().map(PathBuf::from).collect())
+    }
+
+    fn facts_with_positioned_sources(source: &str, paths: &[&str]) -> FileCallFacts {
+        let output = Parser::with_dialect(source, ShellDialect::Bash)
+            .parse()
+            .unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build(&output.file, source, &indexer);
+        let edges = model
+            .source_refs()
+            .iter()
+            .zip(paths)
+            .map(|(source_ref, path)| CallFactSourceEdge {
+                path: PathBuf::from(path),
+                span: source_ref.span,
+            })
+            .collect();
+        FileCallFacts::project_with_source_edges(&model, edges)
     }
 
     fn name(text: &str) -> Name {
@@ -845,6 +1178,253 @@ mod tests {
         assert!(index.resolve_call_site(&caller_path, call_span).is_none());
         let greet = function_node(&index, "/w/a.sh", "greet", 0);
         assert!(index.incoming(Path::new("/w/a.sh"), &greet).is_empty());
+    }
+
+    #[test]
+    fn exact_resolution_rejects_dynamic_source_that_may_replace_a_local_function() {
+        let path = PathBuf::from("/w/main.sh");
+        let caller = facts("foo() { :; }\nsource \"$plugin\"\nfoo\n", &[]);
+        let call_span = caller
+            .call_sites
+            .iter()
+            .find(|site| site.callee == name("foo"))
+            .unwrap()
+            .name_span;
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(path.clone(), caller);
+
+        assert!(index.resolve_call_site(&path, call_span).is_some());
+        assert!(index.resolve_call_site_exact(&path, call_span).is_none());
+    }
+
+    #[test]
+    fn exact_resolution_rejects_conditional_source_and_conditional_export() {
+        let caller_path = PathBuf::from("/w/main.sh");
+        let target_path = PathBuf::from("/w/lib.sh");
+        let caller = facts_with_positioned_sources(
+            "foo() { :; }\nif enabled; then source lib.sh; fi\nfoo\n",
+            &["/w/lib.sh"],
+        );
+        let call_span = caller
+            .call_sites
+            .iter()
+            .find(|site| site.callee == name("foo"))
+            .unwrap()
+            .name_span;
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(caller_path.clone(), caller);
+        index.insert(target_path, facts("foo() { echo sourced; }\n", &[]));
+        assert!(
+            index
+                .resolve_call_site_exact(&caller_path, call_span)
+                .is_none()
+        );
+
+        let caller = facts_with_positioned_sources("source lib.sh\nfoo\n", &["/w/lib.sh"]);
+        let call_span = caller.call_sites[0].name_span;
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(caller_path.clone(), caller);
+        index.insert(
+            PathBuf::from("/w/lib.sh"),
+            facts("if enabled; then foo() { :; }; fi\n", &[]),
+        );
+        assert!(
+            index
+                .resolve_call_site_exact(&caller_path, call_span)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn exact_resolution_fails_closed_for_later_sources_after_deferred_definition() {
+        let caller_path = PathBuf::from("/w/main.sh");
+        let target_path = PathBuf::from("/w/lib.sh");
+        let caller =
+            facts_with_positioned_sources("run() { foo; }\nrun\nsource lib.sh\n", &["/w/lib.sh"]);
+        let call_span = caller
+            .call_sites
+            .iter()
+            .find(|site| site.callee == name("foo"))
+            .unwrap()
+            .name_span;
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(caller_path.clone(), caller);
+        index.insert(target_path.clone(), facts("foo() { :; }\n", &[]));
+
+        assert_eq!(
+            index
+                .resolve_call_site(&caller_path, call_span)
+                .map(|call| call.path),
+            Some(target_path)
+        );
+        assert!(
+            index
+                .resolve_call_site_exact(&caller_path, call_span)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn exact_resolution_accepts_source_before_deferred_function_definition() {
+        let caller_path = PathBuf::from("/w/main.sh");
+        let target_path = PathBuf::from("/w/lib.sh");
+        let caller =
+            facts_with_positioned_sources("source lib.sh\nrun() { foo; }\nrun\n", &["/w/lib.sh"]);
+        let call_span = caller
+            .call_sites
+            .iter()
+            .find(|site| site.callee == name("foo"))
+            .unwrap()
+            .name_span;
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(caller_path.clone(), caller);
+        index.insert(target_path.clone(), facts("foo() { :; }\n", &[]));
+
+        assert_eq!(
+            index
+                .resolve_call_site_exact(&caller_path, call_span)
+                .map(|call| call.path),
+            Some(target_path)
+        );
+    }
+
+    #[test]
+    fn exact_resolution_scopes_function_local_sources_to_the_containing_function() {
+        let caller_path = PathBuf::from("/w/main.sh");
+        let target_path = PathBuf::from("/w/lib.sh");
+        let caller = facts_with_positioned_sources(
+            "unused() { source other.sh; }\nrun() { source lib.sh; foo; }\n",
+            &["/w/other.sh", "/w/lib.sh"],
+        );
+        let call_span = caller
+            .call_sites
+            .iter()
+            .find(|site| site.callee == name("foo"))
+            .unwrap()
+            .name_span;
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(caller_path.clone(), caller);
+        index.insert(PathBuf::from("/w/other.sh"), facts(":\n", &[]));
+        index.insert(target_path.clone(), facts("foo() { :; }\n", &[]));
+
+        assert_eq!(
+            index
+                .resolve_call_site_exact(&caller_path, call_span)
+                .map(|call| call.path),
+            Some(target_path)
+        );
+    }
+
+    #[test]
+    fn exact_resolution_rejects_later_source_in_a_repeated_function_call() {
+        let caller_path = PathBuf::from("/w/main.sh");
+        let caller = facts_with_positioned_sources(
+            "foo() { :; }\nrun() { foo; source lib.sh; }\nrun\nrun\n",
+            &["/w/lib.sh"],
+        );
+        let call_span = caller
+            .call_sites
+            .iter()
+            .find(|site| site.callee == name("foo"))
+            .unwrap()
+            .name_span;
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(caller_path.clone(), caller);
+        index.insert(
+            PathBuf::from("/w/lib.sh"),
+            facts("foo() { echo sourced; }\n", &[]),
+        );
+
+        assert!(
+            index
+                .resolve_call_site_exact(&caller_path, call_span)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn exact_resolution_rejects_an_invoked_source_bearing_function() {
+        let caller_path = PathBuf::from("/w/main.sh");
+        let caller = facts_with_positioned_sources(
+            "foo() { :; }\nload() { source lib.sh; }\nrun() { foo; }\nrun\nload\nrun\n",
+            &["/w/lib.sh"],
+        );
+        let call_span = caller
+            .call_sites
+            .iter()
+            .find(|site| site.callee == name("foo"))
+            .unwrap()
+            .name_span;
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(caller_path.clone(), caller);
+        index.insert(
+            PathBuf::from("/w/lib.sh"),
+            facts("foo() { echo sourced; }\n", &[]),
+        );
+
+        assert!(
+            index
+                .resolve_call_site_exact(&caller_path, call_span)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn exact_resolution_rejects_a_called_sourced_function_that_can_mutate_bindings() {
+        let caller_path = PathBuf::from("/w/main.sh");
+        let library_path = PathBuf::from("/w/lib.sh");
+        let caller = facts_with_positioned_sources(
+            "source lib.sh\nfoo() { :; }\nrun() { foo; }\nrun\nload\nrun\n",
+            &["/w/lib.sh"],
+        );
+        let library =
+            facts_with_positioned_sources("load() { source override.sh; }\n", &["/w/override.sh"]);
+        let call_span = caller
+            .call_sites
+            .iter()
+            .find(|site| site.callee == name("foo"))
+            .unwrap()
+            .name_span;
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(caller_path.clone(), caller);
+        index.insert(library_path, library);
+        index.insert(
+            PathBuf::from("/w/override.sh"),
+            facts("foo() { echo sourced; }\n", &[]),
+        );
+
+        assert!(
+            index
+                .resolve_call_site_exact(&caller_path, call_span)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn exact_resolution_rejects_dynamic_dispatch_to_a_source_bearing_function() {
+        let caller_path = PathBuf::from("/w/main.sh");
+        let caller = facts_with_positioned_sources(
+            "foo() { :; }\nload() { source lib.sh; }\nrun() { foo; }\nrun\nname=load\n\"$name\"\nrun\n",
+            &["/w/lib.sh"],
+        );
+        let call_span = caller
+            .call_sites
+            .iter()
+            .find(|site| site.callee == name("foo"))
+            .unwrap()
+            .name_span;
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(caller_path.clone(), caller);
+        index.insert(
+            PathBuf::from("/w/lib.sh"),
+            facts("foo() { echo sourced; }\n", &[]),
+        );
+
+        assert!(
+            index
+                .resolve_call_site_exact(&caller_path, call_span)
+                .is_none()
+        );
     }
 
     #[test]

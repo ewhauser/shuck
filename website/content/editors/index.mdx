@@ -18,7 +18,7 @@ files.
 | Code actions | `textDocument/codeAction`, `codeAction/resolve` | Quick fixes, disable-this-line actions, and `source.fixAll.shuck` for the active document. |
 | Completion | `textDocument/completion`, `completionItem/resolve` | Variables, functions, declaration names, runtime names, builtins, and shell keywords known to the active document analysis. Command-specific option completion is not supported. |
 | Hover | `textDocument/hover` | Semantic symbol information plus help for suppression codes in `# shuck:` and `# shellcheck` directives. Shuck does not fetch command manuals. |
-| Go to definition | `textDocument/definition` | Definitions resolvable within the active document. A call whose definition exists only in a sourced file does not currently resolve. |
+| Go to definition | `textDocument/definition` | Variables resolve within the active document. Function calls also resolve through literal sources, valid `# shuck: source=` hints, and configured source paths, with open buffers and shell source order taking precedence. Dynamic sources are not guessed. |
 | Find references | `textDocument/references` | The proven symbol set within the active document. Cross-file references are not currently indexed. |
 | Document highlights | `textDocument/documentHighlight` | Read and write occurrences within the active document. |
 | Document symbols | `textDocument/documentSymbol` | Functions, declarations, and assignments from the active document. |
@@ -33,8 +33,7 @@ Editor formatting uses the same parser-backed formatter as [`shuck format`](/doc
 
 - Cross-file rename is intentionally disabled until Shuck can prove safe edits
   for every affected open or closed file.
-- Cross-file go-to-definition and references need a broader workspace-navigation
-  design. They are not covered by the current call-hierarchy index.
+- Cross-file references still need exact binding-aware workspace results; go-to-definition already uses the shared source graph for functions.
 - Language-server support for embedded shell regions, such as scripts inside
   GitHub Actions YAML, needs a separate position-remapping design.
 

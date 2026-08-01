@@ -59,7 +59,7 @@ pub(super) fn request(req: server::Request) -> Task {
         }
         request::CompletionResolve::METHOD => sync_request_task::<request::CompletionResolve>(req),
         request::Definition::METHOD => {
-            background_request_task::<request::Definition>(req, BackgroundSchedule::Worker)
+            background_session_request_task::<request::Definition>(req, BackgroundSchedule::Worker)
         }
         request::DocumentDiagnostic::METHOD => {
             background_request_task::<request::DocumentDiagnostic>(req, BackgroundSchedule::Worker)
