@@ -21,25 +21,40 @@ impl<'a> Parser<'a> {
         inner_text: &str,
         approximate_dollar_start: Position,
     ) -> Option<(Position, Position)> {
-        let needle = format!("$({inner_text})");
-        let search_start = floor_char_boundary(
-            self.input,
-            approximate_dollar_start.offset.saturating_sub(512),
-        );
-        let search_end = ceil_char_boundary(
-            self.input,
-            (approximate_dollar_start.offset + needle.len() + 4096).min(self.input.len()),
-        );
-        let haystack = self.input.get(search_start..search_end)?;
-        let (relative_start, _) =
-            haystack
-                .match_indices(&needle)
-                .min_by_key(|(relative_start, _)| {
-                    (search_start + relative_start).abs_diff(approximate_dollar_start.offset)
-                })?;
-        let subst_start = search_start + relative_start;
+        let needle_len = "$(".len() + inner_text.len() + ")".len();
+        // The approximate start is usually exact, so try it before scanning.
+        let subst_start =
+            if substitution_matches_at(self.input, approximate_dollar_start.offset, inner_text) {
+                approximate_dollar_start.offset
+            } else {
+                let search_start = floor_char_boundary(
+                    self.input,
+                    approximate_dollar_start.offset.saturating_sub(512),
+                );
+                let search_end = ceil_char_boundary(
+                    self.input,
+                    (approximate_dollar_start.offset + needle_len + 4096).min(self.input.len()),
+                );
+                let haystack = self.input.get(search_start..search_end)?;
+                // Occurrences arrive in ascending order, so the distance to the
+                // approximate start is V-shaped and the scan can stop as soon as
+                // it grows again.
+                let mut best: Option<(usize, usize)> = None;
+                for (relative_start, _) in haystack.match_indices("$(") {
+                    if !substitution_matches_at(haystack, relative_start, inner_text) {
+                        continue;
+                    }
+                    let distance =
+                        (search_start + relative_start).abs_diff(approximate_dollar_start.offset);
+                    match best {
+                        Some((_, best_distance)) if distance >= best_distance => break,
+                        _ => best = Some((relative_start, distance)),
+                    }
+                }
+                search_start + best?.0
+            };
         let body_start_offset = subst_start + "$(".len();
-        let body_end_offset = subst_start + needle.len() - ")".len();
+        let body_end_offset = subst_start + needle_len - ")".len();
 
         Some((
             self.lexer.position_at_offset(body_start_offset),
@@ -1058,4 +1073,16 @@ impl<'a> Parser<'a> {
 
         false
     }
+}
+
+/// Returns whether `haystack[offset..]` starts a `$(<inner_text>)` command
+/// substitution.
+fn substitution_matches_at(haystack: &str, offset: usize, inner_text: &str) -> bool {
+    let Some(rest) = haystack.get(offset..) else {
+        return false;
+    };
+    let bytes = rest.as_bytes();
+    bytes.starts_with(b"$(")
+        && bytes[2..].starts_with(inner_text.as_bytes())
+        && bytes.get(2 + inner_text.len()) == Some(&b')')
 }
