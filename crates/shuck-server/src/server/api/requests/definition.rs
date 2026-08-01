@@ -89,7 +89,8 @@ fn definition(
     let Some(index) = workspace_function_index(&workspace) else {
         return Ok(None);
     };
-    if let Some(target) = index.resolve_call_site_exact(&path, call.name_span)
+    if let Some(target) =
+        index.resolve_call_site_exact(&path, call.name_span, &workspace.cancellation)
         && let Some(definition_span) = target.def_span
         && let Some(range) = index.range_of(&target.path, definition_span)
     {

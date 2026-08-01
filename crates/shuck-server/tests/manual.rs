@@ -774,6 +774,169 @@ fn cross_file_hover_uses_exact_workspace_binding_and_open_buffers() {
 }
 
 #[test]
+fn cross_file_references_preserve_binding_identity_and_open_buffers() {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+
+    let workspace = tempfile::tempdir().expect("tempdir should be created");
+    std::fs::write(
+        workspace.path().join("shuck.toml"),
+        "[lint]\nsource-paths = [\"lib\"]\n",
+    )
+    .unwrap();
+    std::fs::create_dir(workspace.path().join("lib")).unwrap();
+    let target_path = workspace.path().join("lib/a.sh");
+    let other_path = workspace.path().join("other.sh");
+    let caller_path = workspace.path().join("caller.sh");
+    let child_path = workspace.path().join("child.sh");
+    let hinted_path = workspace.path().join("hinted.sh");
+    let ambiguous_path = workspace.path().join("ambiguous.sh");
+    std::fs::write(&target_path, "stale() { :; }\n").unwrap();
+    std::fs::write(&other_path, "shared() { echo other; }\n").unwrap();
+    let caller_source = "source a.sh\nsource child.sh\nshared\nsource other.sh\nshared\n";
+    std::fs::write(&caller_path, caller_source).unwrap();
+    std::fs::write(&child_path, "shared\n").unwrap();
+    std::fs::write(
+        &hinted_path,
+        "# shuck: source=lib/a.sh\nsource \"$DIR/a.sh\"\nshared\n",
+    )
+    .unwrap();
+    std::fs::write(
+        &ambiguous_path,
+        "source a.sh\nsource \"$dynamic\"\nshared\n",
+    )
+    .unwrap();
+
+    let target_uri = Url::from_file_path(std::fs::canonicalize(&target_path).unwrap()).unwrap();
+    let caller_uri = Url::from_file_path(&caller_path).unwrap();
+    let child_uri = Url::from_file_path(std::fs::canonicalize(&child_path).unwrap()).unwrap();
+    let hinted_uri = Url::from_file_path(std::fs::canonicalize(&hinted_path).unwrap()).unwrap();
+    let ambiguous_uri =
+        Url::from_file_path(std::fs::canonicalize(&ambiguous_path).unwrap()).unwrap();
+    let other_uri = Url::from_file_path(std::fs::canonicalize(&other_path).unwrap()).unwrap();
+    let mut capabilities = serde_json::to_value(replay_capabilities()).unwrap();
+    capabilities["general"]["positionEncodings"] = serde_json::json!(["utf-8"]);
+
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": capabilities,
+            "rootUri": Url::from_file_path(workspace.path()).unwrap(),
+        }),
+    );
+    let initialize = recv_response(&client_connection, 1);
+    assert_eq!(initialize["capabilities"]["positionEncoding"], "utf-8");
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("initialized should send");
+    open_document(&client_connection, &target_uri, ": '😀'; shared() { :; }\n");
+    open_document(&client_connection, &caller_uri, caller_source);
+    open_document(&client_connection, &child_uri, "shared\n");
+
+    let reference_params = |uri: &Url, line, character, include_declaration| {
+        serde_json::json!({
+            "textDocument": { "uri": uri },
+            "position": { "line": line, "character": character },
+            "context": { "includeDeclaration": include_declaration },
+        })
+    };
+    send_request(
+        &client_connection,
+        2,
+        "textDocument/references",
+        reference_params(&caller_uri, 2, 0, true),
+    );
+    let with_declaration = recv_response(&client_connection, 2);
+    let locations = with_declaration
+        .as_array()
+        .unwrap_or_else(|| panic!("expected reference locations: {with_declaration:#}"));
+    assert_eq!(locations.len(), 4);
+    let target = locations
+        .iter()
+        .find(|location| location["uri"] == serde_json::json!(target_uri))
+        .expect("open-buffer declaration should be included");
+    assert_eq!(
+        target["range"]["start"],
+        serde_json::json!({ "line": 0, "character": 10 })
+    );
+    assert!(locations.iter().any(|location| {
+        location["uri"] == serde_json::json!(caller_uri) && location["range"]["start"]["line"] == 2
+    }));
+    assert!(locations.iter().any(|location| {
+        location["uri"] == serde_json::json!(child_uri) && location["range"]["start"]["line"] == 0
+    }));
+    assert!(locations.iter().any(|location| {
+        location["uri"] == serde_json::json!(hinted_uri) && location["range"]["start"]["line"] == 2
+    }));
+    assert!(locations.iter().all(|location| {
+        location["uri"] != serde_json::json!(ambiguous_uri)
+            && location["uri"] != serde_json::json!(other_uri)
+    }));
+
+    send_request(
+        &client_connection,
+        3,
+        "textDocument/references",
+        reference_params(&child_uri, 0, 0, false),
+    );
+    let without_declaration = recv_response(&client_connection, 3);
+    assert_eq!(without_declaration.as_array().map(Vec::len), Some(3));
+    assert!(
+        without_declaration
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|location| { location["uri"] != serde_json::json!(target_uri) })
+    );
+
+    send_request(
+        &client_connection,
+        4,
+        "textDocument/references",
+        reference_params(&target_uri, 0, 10, true),
+    );
+    assert_eq!(recv_response(&client_connection, 4), with_declaration);
+
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "textDocument/didChange".to_owned(),
+            serde_json::json!({
+                "textDocument": { "uri": target_uri, "version": 2 },
+                "contentChanges": [{ "text": "renamed() { :; }\n" }],
+            }),
+        )))
+        .expect("didChange should send");
+    send_request(
+        &client_connection,
+        5,
+        "textDocument/references",
+        reference_params(&caller_uri, 2, 0, true),
+    );
+    assert!(recv_response(&client_connection, 5).is_null());
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("exit notification should send");
+    server_thread
+        .join()
+        .expect("server thread should join")
+        .expect("server should exit cleanly");
+}
+
+#[test]
 fn prepare_call_hierarchy_resolves_sourced_cross_file_call() {
     let (server_connection, client_connection) = Connection::memory();
     let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));

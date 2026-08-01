@@ -12,6 +12,7 @@
 //! layer stays pure graph logic and is unit-testable without a filesystem.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Name, Span};
@@ -188,6 +189,7 @@ pub struct FileCallFacts {
     pub source_edges: Vec<CallFactSourceEdge>,
     /// All source operations, including unresolved or conditional effects.
     pub source_effects: Vec<CallFactSourceEffect>,
+    binding_mutators: Vec<CallFunctionId>,
     has_dynamic_command_dispatch: bool,
     analyzable: bool,
 }
@@ -324,12 +326,32 @@ impl FileCallFacts {
                         .is_some()
                 })
             });
+        let mut binding_mutators = FxHashSet::default();
+        for binding in model.function_definition_bindings() {
+            if model
+                .innermost_transient_scope_within_function(binding.scope)
+                .is_some()
+            {
+                continue;
+            }
+            if let Some(enclosing_functions) = model
+                .ancestor_scopes(binding.scope)
+                .find_map(|scope| functions_by_scope.get(&scope))
+            {
+                binding_mutators.extend(
+                    enclosing_functions
+                        .iter()
+                        .map(|(function, _)| function.clone()),
+                );
+            }
+        }
 
         Self {
             definitions,
             call_sites,
             source_edges,
             source_effects,
+            binding_mutators: binding_mutators.into_iter().collect(),
             has_dynamic_command_dispatch,
             analyzable: true,
         }
@@ -364,10 +386,460 @@ pub struct CrossFileCall {
     pub call_spans: Vec<Span>,
 }
 
+/// One call token proven to resolve to an exact workspace function binding.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExactFunctionReference {
+    /// File containing the call token.
+    pub path: PathBuf,
+    /// Span of the callee token in `path`.
+    pub span: Span,
+}
+
+type ExactReferenceIndex = FxHashMap<(PathBuf, CallNodeKind), Vec<ExactFunctionReference>>;
+
+#[derive(Clone, Debug)]
+struct ExactIncomingSource {
+    parent_path: PathBuf,
+    span: Span,
+    conditional: bool,
+    persistent: bool,
+    enclosing_function: Option<CallFunctionId>,
+}
+
+#[derive(Debug)]
+struct ExactWorkspaceContext {
+    graph: SourceGraphIndex,
+    incoming: FxHashMap<PathBuf, Vec<ExactIncomingSource>>,
+    calls_by_component: Vec<FxHashSet<Name>>,
+    dynamic_dispatch_by_component: Vec<bool>,
+    mutator_functions_by_name: FxHashMap<Name, Vec<(usize, PathBuf, CallFunctionId, bool)>>,
+    function_calls_by_name: FxHashMap<Name, Vec<(usize, Name)>>,
+    may_mutate_cache: Mutex<FxHashMap<(usize, Name), bool>>,
+    mutation_summary_cache: Mutex<FxHashMap<usize, MutationSummary>>,
+}
+
+#[derive(Clone, Debug)]
+enum MutationSummary {
+    None,
+    Single(PathBuf, CallFunctionId, bool),
+    Multiple,
+}
+
+impl MutationSummary {
+    fn add(&mut self, path: &Path, function: &CallFunctionId, can_exclude_current: bool) {
+        match self {
+            Self::None => {
+                *self = Self::Single(path.to_path_buf(), function.clone(), can_exclude_current);
+            }
+            Self::Single(existing_path, existing_function, existing_can_exclude)
+                if existing_path.as_path() == path && existing_function == function =>
+            {
+                *existing_can_exclude &= can_exclude_current;
+            }
+            Self::Single(_, _, _) => *self = Self::Multiple,
+            Self::Multiple => {}
+        }
+    }
+
+    fn may_mutate_other_than(&self, path: &Path, function: &CallFunctionId) -> bool {
+        match self {
+            Self::None => false,
+            Self::Single(candidate_path, candidate, can_exclude_current) => {
+                candidate_path.as_path() != path || candidate != function || !can_exclude_current
+            }
+            Self::Multiple => true,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct SourceGraphIndex {
+    paths: Vec<PathBuf>,
+    nodes: FxHashMap<PathBuf, usize>,
+    components: Vec<usize>,
+    component_reachability: Vec<Vec<u64>>,
+    component_edges: Vec<Vec<usize>>,
+}
+
 /// A workspace-wide index of per-file call facts.
 #[derive(Debug, Default)]
 pub struct WorkspaceCallIndex {
     files: FxHashMap<PathBuf, FileCallFacts>,
+    exact_context: OnceLock<ExactWorkspaceContext>,
+    exact_references: OnceLock<ExactReferenceIndex>,
+}
+
+impl SourceGraphIndex {
+    fn build(
+        files: &FxHashMap<PathBuf, FileCallFacts>,
+        is_cancelled: &impl Fn() -> bool,
+    ) -> Option<Self> {
+        let mut paths = files.keys().cloned().collect::<Vec<_>>();
+        paths.sort();
+        let nodes = paths
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(index, path)| (path, index))
+            .collect::<FxHashMap<_, _>>();
+        let mut edges = vec![Vec::new(); paths.len()];
+        let mut reverse_edges = vec![Vec::new(); paths.len()];
+        for (from, path) in paths.iter().enumerate() {
+            if is_cancelled() {
+                return None;
+            }
+            for edge in &files.get(path)?.source_edges {
+                let Some(&to) = nodes.get(&edge.path) else {
+                    continue;
+                };
+                edges[from].push(to);
+                reverse_edges[to].push(from);
+            }
+            edges[from].sort_unstable();
+            edges[from].dedup();
+        }
+
+        let mut visited = vec![false; paths.len()];
+        let mut order = Vec::with_capacity(paths.len());
+        for start in 0..paths.len() {
+            if visited[start] {
+                continue;
+            }
+            visited[start] = true;
+            let mut stack = vec![(start, 0usize)];
+            while let Some((node, next_edge)) = stack.last_mut() {
+                if is_cancelled() {
+                    return None;
+                }
+                if *next_edge < edges[*node].len() {
+                    let next = edges[*node][*next_edge];
+                    *next_edge += 1;
+                    if !visited[next] {
+                        visited[next] = true;
+                        stack.push((next, 0));
+                    }
+                } else {
+                    let (node, _) = stack.pop()?;
+                    order.push(node);
+                }
+            }
+        }
+
+        let mut components = vec![usize::MAX; paths.len()];
+        let mut component_count = 0usize;
+        for &start in order.iter().rev() {
+            if components[start] != usize::MAX {
+                continue;
+            }
+            components[start] = component_count;
+            let mut stack = vec![start];
+            while let Some(node) = stack.pop() {
+                if is_cancelled() {
+                    return None;
+                }
+                for &next in &reverse_edges[node] {
+                    if components[next] == usize::MAX {
+                        components[next] = component_count;
+                        stack.push(next);
+                    }
+                }
+            }
+            component_count += 1;
+        }
+
+        let mut component_edges = vec![Vec::new(); component_count];
+        for (from, outgoing) in edges.iter().enumerate() {
+            for &to in outgoing {
+                let from_component = components[from];
+                let to_component = components[to];
+                if from_component != to_component {
+                    component_edges[from_component].push(to_component);
+                }
+            }
+        }
+        for outgoing in &mut component_edges {
+            outgoing.sort_unstable();
+            outgoing.dedup();
+        }
+
+        let mut component_postorder = Vec::with_capacity(component_count);
+        let mut visited = vec![false; component_count];
+        for start in 0..component_count {
+            if visited[start] {
+                continue;
+            }
+            visited[start] = true;
+            let mut stack = vec![(start, 0usize)];
+            while let Some((component, next_edge)) = stack.last_mut() {
+                if is_cancelled() {
+                    return None;
+                }
+                if *next_edge < component_edges[*component].len() {
+                    let next = component_edges[*component][*next_edge];
+                    *next_edge += 1;
+                    if !visited[next] {
+                        visited[next] = true;
+                        stack.push((next, 0));
+                    }
+                } else {
+                    let (component, _) = stack.pop()?;
+                    component_postorder.push(component);
+                }
+            }
+        }
+
+        let word_count = component_count.div_ceil(64);
+        let mut component_reachability = vec![vec![0u64; word_count]; component_count];
+        for &component in &component_postorder {
+            if is_cancelled() {
+                return None;
+            }
+            set_bit(&mut component_reachability[component], component);
+            for &successor in &component_edges[component] {
+                let successor_reachability = component_reachability[successor].clone();
+                for (word, value) in component_reachability[component]
+                    .iter_mut()
+                    .zip(successor_reachability)
+                {
+                    if is_cancelled() {
+                        return None;
+                    }
+                    *word |= value;
+                }
+            }
+        }
+
+        Some(Self {
+            paths,
+            nodes,
+            components,
+            component_reachability,
+            component_edges,
+        })
+    }
+
+    fn component_for_path(&self, path: &Path) -> Option<usize> {
+        self.nodes.get(path).map(|&node| self.components[node])
+    }
+
+    fn component_reaches(&self, from: usize, to: usize) -> bool {
+        bit_is_set(&self.component_reachability[from], to)
+    }
+}
+
+impl ExactWorkspaceContext {
+    fn build(
+        files: &FxHashMap<PathBuf, FileCallFacts>,
+        is_cancelled: &impl Fn() -> bool,
+    ) -> Option<Self> {
+        let graph = SourceGraphIndex::build(files, is_cancelled)?;
+        let mut incoming: FxHashMap<PathBuf, Vec<ExactIncomingSource>> = FxHashMap::default();
+        let mut function_calls_by_name: FxHashMap<Name, Vec<(usize, Name)>> = FxHashMap::default();
+        let mut calls_by_component = vec![FxHashSet::default(); graph.component_edges.len()];
+        let mut dynamic_dispatch_by_component = vec![false; graph.component_edges.len()];
+        let mut mutators: FxHashMap<(PathBuf, CallFunctionId), (usize, bool)> =
+            FxHashMap::default();
+        for (node, path) in graph.paths.iter().enumerate() {
+            if is_cancelled() {
+                return None;
+            }
+            let facts = files.get(path)?;
+            let component = graph.components[node];
+            dynamic_dispatch_by_component[component] |= facts.has_dynamic_command_dispatch;
+            for site in &facts.call_sites {
+                calls_by_component[component].insert(site.callee.clone());
+                if let CallNodeKind::Function(function) = &site.enclosing {
+                    function_calls_by_name
+                        .entry(function.name.clone())
+                        .or_default()
+                        .push((component, site.callee.clone()));
+                }
+            }
+            for effect in &facts.source_effects {
+                if let Some(function) = &effect.enclosing_function {
+                    mutators
+                        .entry((path.clone(), function.clone()))
+                        .or_insert((component, true));
+                }
+                if let Some(target) = &effect.path {
+                    incoming
+                        .entry(target.clone())
+                        .or_default()
+                        .push(ExactIncomingSource {
+                            parent_path: path.clone(),
+                            span: effect.span,
+                            conditional: effect.conditional,
+                            persistent: effect.persistent,
+                            enclosing_function: effect.enclosing_function.clone(),
+                        });
+                }
+            }
+            for function in &facts.binding_mutators {
+                mutators
+                    .entry((path.clone(), function.clone()))
+                    .and_modify(|(_, can_exclude_current)| *can_exclude_current = false)
+                    .or_insert((component, false));
+            }
+        }
+        let mut mutator_functions_by_name: FxHashMap<
+            Name,
+            Vec<(usize, PathBuf, CallFunctionId, bool)>,
+        > = FxHashMap::default();
+        for ((path, function), (component, can_exclude_current)) in mutators {
+            mutator_functions_by_name
+                .entry(function.name.clone())
+                .or_default()
+                .push((component, path, function, can_exclude_current));
+        }
+        for edges in incoming.values_mut() {
+            edges.sort_by(|left, right| {
+                left.parent_path
+                    .cmp(&right.parent_path)
+                    .then_with(|| left.span.start.offset.cmp(&right.span.start.offset))
+            });
+        }
+
+        Some(Self {
+            graph,
+            incoming,
+            calls_by_component,
+            dynamic_dispatch_by_component,
+            mutator_functions_by_name,
+            function_calls_by_name,
+            may_mutate_cache: Mutex::new(FxHashMap::default()),
+            mutation_summary_cache: Mutex::new(FxHashMap::default()),
+        })
+    }
+
+    fn called_mutator_function_may_mutate(
+        &self,
+        current_path: &Path,
+        current_function: &CallFunctionId,
+        is_cancelled: &impl Fn() -> bool,
+    ) -> Option<bool> {
+        let Some(component) = self.graph.component_for_path(current_path) else {
+            return Some(true);
+        };
+        if let Ok(cache) = self.mutation_summary_cache.lock()
+            && let Some(summary) = cache.get(&component)
+        {
+            return Some(summary.may_mutate_other_than(current_path, current_function));
+        }
+        let mut summary = MutationSummary::None;
+        let dynamic =
+            self.dynamic_dispatch_by_component
+                .iter()
+                .enumerate()
+                .any(|(candidate, &dynamic)| {
+                    self.graph.component_reaches(component, candidate) && dynamic
+                });
+        if dynamic {
+            for mutators in self.mutator_functions_by_name.values() {
+                for (mutator_component, path, function, can_exclude_current) in mutators {
+                    if is_cancelled() {
+                        return None;
+                    }
+                    if self.graph.component_reaches(component, *mutator_component) {
+                        summary.add(path, function, *can_exclude_current);
+                    }
+                }
+            }
+        } else {
+            let mut called_names = FxHashSet::default();
+            for (candidate, calls) in self.calls_by_component.iter().enumerate() {
+                if is_cancelled() {
+                    return None;
+                }
+                if self.graph.component_reaches(component, candidate) {
+                    called_names.extend(calls.iter().cloned());
+                }
+            }
+            for name in called_names {
+                self.collect_mutators(component, &name, &mut summary, is_cancelled)?;
+                if matches!(summary, MutationSummary::Multiple) {
+                    break;
+                }
+            }
+        }
+        if let Ok(mut cache) = self.mutation_summary_cache.lock() {
+            cache.insert(component, summary.clone());
+        }
+        Some(summary.may_mutate_other_than(current_path, current_function))
+    }
+
+    fn name_may_mutate(
+        &self,
+        from_path: &Path,
+        name: &Name,
+        is_cancelled: &impl Fn() -> bool,
+    ) -> Option<bool> {
+        let Some(component) = self.graph.component_for_path(from_path) else {
+            return Some(true);
+        };
+        let key = (component, name.clone());
+        if let Ok(cache) = self.may_mutate_cache.lock()
+            && let Some(&cached) = cache.get(&key)
+        {
+            return Some(cached);
+        }
+        let mut summary = MutationSummary::None;
+        self.collect_mutators(component, name, &mut summary, is_cancelled)?;
+        let result = !matches!(summary, MutationSummary::None);
+        if let Ok(mut cache) = self.may_mutate_cache.lock() {
+            cache.insert(key, result);
+        }
+        Some(result)
+    }
+
+    fn collect_mutators(
+        &self,
+        component: usize,
+        name: &Name,
+        summary: &mut MutationSummary,
+        is_cancelled: &impl Fn() -> bool,
+    ) -> Option<()> {
+        let mut pending = vec![name.clone()];
+        let mut visited = FxHashSet::default();
+        while let Some(name) = pending.pop() {
+            if is_cancelled() {
+                return None;
+            }
+            if !visited.insert(name.clone()) {
+                continue;
+            }
+            for (mutator_component, path, function, can_exclude_current) in self
+                .mutator_functions_by_name
+                .get(&name)
+                .into_iter()
+                .flatten()
+            {
+                if self.graph.component_reaches(component, *mutator_component) {
+                    summary.add(path, function, *can_exclude_current);
+                }
+            }
+            if matches!(summary, MutationSummary::Multiple) {
+                return Some(());
+            }
+            for (call_component, callee) in
+                self.function_calls_by_name.get(&name).into_iter().flatten()
+            {
+                if self.graph.component_reaches(component, *call_component) {
+                    pending.push(callee.clone());
+                }
+            }
+        }
+        Some(())
+    }
+}
+
+fn set_bit(words: &mut [u64], bit: usize) {
+    words[bit / 64] |= 1u64 << (bit % 64);
+}
+
+fn bit_is_set(words: &[u64], bit: usize) -> bool {
+    words
+        .get(bit / 64)
+        .is_some_and(|word| word & (1u64 << (bit % 64)) != 0)
 }
 
 impl WorkspaceCallIndex {
@@ -379,6 +851,8 @@ impl WorkspaceCallIndex {
     /// Inserts or replaces the facts for `path`.
     pub fn insert(&mut self, path: PathBuf, facts: FileCallFacts) {
         self.files.insert(path, facts);
+        self.exact_context.take();
+        self.exact_references.take();
     }
 
     /// Returns whether `path` is indexed.
@@ -592,22 +1066,58 @@ impl WorkspaceCallIndex {
         from_path: &Path,
         name_span: Span,
     ) -> Option<CrossFileCall> {
+        self.resolve_call_site_exact_cancellable(from_path, name_span, || false)
+    }
+
+    /// Resolves one exact call token while allowing workspace-context analysis
+    /// to stop before publishing a partial answer.
+    pub fn resolve_call_site_exact_cancellable(
+        &self,
+        from_path: &Path,
+        name_span: Span,
+        is_cancelled: impl Fn() -> bool,
+    ) -> Option<CrossFileCall> {
+        let context = self.exact_workspace_context(&is_cancelled)?;
+        self.resolve_call_site_exact_with_context(from_path, name_span, context, &is_cancelled)
+    }
+
+    fn resolve_call_site_exact_with_context(
+        &self,
+        from_path: &Path,
+        name_span: Span,
+        context: &ExactWorkspaceContext,
+        is_cancelled: &impl Fn() -> bool,
+    ) -> Option<CrossFileCall> {
         let facts = self.files.get(from_path)?;
         let site = facts
             .call_sites
             .iter()
             .find(|site| site.name_span == name_span)?;
+        if is_cancelled() {
+            return None;
+        }
         let mut stack = FxHashSet::default();
         stack.insert(from_path.to_path_buf());
         let resolution = match &site.enclosing {
-            CallNodeKind::TopLevel => self.resolve_exact_events(
+            CallNodeKind::TopLevel => self.resolve_top_level_with_incoming(
                 from_path,
                 &site.callee,
-                ExactQuery::top_level(site.name_span.start.offset()),
+                site.name_span.start.offset(),
+                context,
                 &mut stack,
+                is_cancelled,
             ),
             CallNodeKind::Function(function) => {
-                if self.called_source_function_may_mutate(from_path, function)
+                if context
+                    .called_mutator_function_may_mutate(from_path, function, is_cancelled)
+                    .unwrap_or(true)
+                    || self.top_level_prefix_may_invoke_source(
+                        from_path,
+                        function.definition_start,
+                        context,
+                        &mut FxHashSet::default(),
+                        is_cancelled,
+                    )
                     || facts.source_effects.iter().any(|effect| {
                         (effect.enclosing_function.is_none()
                             && effect.span.start.offset() >= function.definition_start)
@@ -617,7 +1127,7 @@ impl WorkspaceCallIndex {
                 {
                     return None;
                 }
-                self.resolve_exact_events(
+                let resolution = self.resolve_exact_events(
                     from_path,
                     &site.callee,
                     ExactQuery {
@@ -628,7 +1138,28 @@ impl WorkspaceCallIndex {
                         local_call_offset: Some(site.name_span.start.offset()),
                     },
                     &mut stack,
-                )
+                );
+                let resolution = if resolution == ExactResolution::Absent {
+                    self.resolve_incoming_environment(
+                        from_path,
+                        &site.callee,
+                        context,
+                        &mut stack,
+                        is_cancelled,
+                    )
+                } else {
+                    resolution
+                };
+                if !self.deferred_incoming_contexts_are_stable(
+                    from_path,
+                    &site.callee,
+                    context,
+                    &mut FxHashSet::default(),
+                    is_cancelled,
+                ) {
+                    return None;
+                }
+                resolution
             }
         };
         let ExactResolution::Defined(target) = resolution else {
@@ -648,28 +1179,255 @@ impl WorkspaceCallIndex {
         })
     }
 
-    fn called_source_function_may_mutate(
+    fn exact_workspace_context(
         &self,
-        current_path: &Path,
-        current_function: &CallFunctionId,
+        is_cancelled: &impl Fn() -> bool,
+    ) -> Option<&ExactWorkspaceContext> {
+        if self.exact_context.get().is_none() {
+            let context = ExactWorkspaceContext::build(&self.files, is_cancelled)?;
+            let _ = self.exact_context.set(context);
+        }
+        if is_cancelled() {
+            return None;
+        }
+        self.exact_context.get()
+    }
+
+    fn resolve_top_level_with_incoming(
+        &self,
+        path: &Path,
+        callee: &Name,
+        cutoff: usize,
+        context: &ExactWorkspaceContext,
+        stack: &mut FxHashSet<PathBuf>,
+        is_cancelled: &impl Fn() -> bool,
+    ) -> ExactResolution {
+        if is_cancelled() {
+            return ExactResolution::Ambiguous;
+        }
+        if self.top_level_prefix_may_invoke_source(
+            path,
+            cutoff,
+            context,
+            &mut FxHashSet::default(),
+            is_cancelled,
+        ) {
+            return ExactResolution::Ambiguous;
+        }
+        let resolution =
+            self.resolve_exact_events(path, callee, ExactQuery::top_level(cutoff), stack);
+        if resolution != ExactResolution::Absent {
+            return resolution;
+        }
+        self.resolve_incoming_environment(path, callee, context, stack, is_cancelled)
+    }
+
+    fn top_level_prefix_may_invoke_source(
+        &self,
+        path: &Path,
+        cutoff: usize,
+        context: &ExactWorkspaceContext,
+        visiting: &mut FxHashSet<PathBuf>,
+        is_cancelled: &impl Fn() -> bool,
     ) -> bool {
-        let called_names = self
-            .files
-            .values()
-            .flat_map(|facts| facts.call_sites.iter().map(|site| &site.callee))
-            .collect::<FxHashSet<_>>();
-        let has_dynamic_dispatch = self
-            .files
-            .values()
-            .any(|facts| facts.has_dynamic_command_dispatch);
-        self.files.iter().any(|(path, facts)| {
-            facts.source_effects.iter().any(|effect| {
-                effect.enclosing_function.as_ref().is_some_and(|function| {
-                    (path.as_path() != current_path || function != current_function)
-                        && (has_dynamic_dispatch || called_names.contains(&function.name))
-                })
+        if is_cancelled() {
+            return true;
+        }
+        if !visiting.insert(path.to_path_buf()) {
+            return false;
+        }
+        let Some(facts) = self.files.get(path) else {
+            visiting.remove(path);
+            return true;
+        };
+        let may_invoke = facts.has_dynamic_command_dispatch
+            || facts.call_sites.iter().any(|site| {
+                matches!(site.enclosing, CallNodeKind::TopLevel)
+                    && site.name_span.start.offset < cutoff
+                    && context
+                        .name_may_mutate(path, &site.callee, is_cancelled)
+                        .unwrap_or(true)
             })
-        })
+            || facts.source_effects.iter().any(|effect| {
+                effect.enclosing_function.is_none()
+                    && effect.persistent
+                    && effect.span.start.offset < cutoff
+                    && effect.path.as_deref().is_some_and(|target| {
+                        self.top_level_prefix_may_invoke_source(
+                            target,
+                            usize::MAX,
+                            context,
+                            visiting,
+                            is_cancelled,
+                        )
+                    })
+            });
+        visiting.remove(path);
+        may_invoke
+    }
+
+    fn resolve_incoming_environment(
+        &self,
+        path: &Path,
+        callee: &Name,
+        context: &ExactWorkspaceContext,
+        stack: &mut FxHashSet<PathBuf>,
+        is_cancelled: &impl Fn() -> bool,
+    ) -> ExactResolution {
+        let Some(incoming) = context.incoming.get(path) else {
+            return ExactResolution::Absent;
+        };
+        let mut inherited = None;
+        for edge in incoming {
+            if is_cancelled()
+                || edge.conditional
+                || !edge.persistent
+                || edge.enclosing_function.is_some()
+                || !stack.insert(edge.parent_path.clone())
+            {
+                return ExactResolution::Ambiguous;
+            }
+            let resolution = self.resolve_top_level_with_incoming(
+                &edge.parent_path,
+                callee,
+                edge.span.start.offset,
+                context,
+                stack,
+                is_cancelled,
+            );
+            stack.remove(&edge.parent_path);
+            match (&inherited, resolution) {
+                (_, ExactResolution::Ambiguous) => return ExactResolution::Ambiguous,
+                (None, resolution) => inherited = Some(resolution),
+                (Some(previous), resolution) if previous == &resolution => {}
+                _ => return ExactResolution::Ambiguous,
+            }
+        }
+        inherited.unwrap_or(ExactResolution::Absent)
+    }
+
+    fn deferred_incoming_contexts_are_stable(
+        &self,
+        path: &Path,
+        callee: &Name,
+        context: &ExactWorkspaceContext,
+        visited: &mut FxHashSet<PathBuf>,
+        is_cancelled: &impl Fn() -> bool,
+    ) -> bool {
+        if !visited.insert(path.to_path_buf()) {
+            return false;
+        }
+        let stable = context.incoming.get(path).is_none_or(|incoming| {
+            incoming.iter().all(|edge| {
+                if is_cancelled()
+                    || edge.conditional
+                    || !edge.persistent
+                    || edge.enclosing_function.is_some()
+                {
+                    return false;
+                }
+                let Some(parent) = self.files.get(&edge.parent_path) else {
+                    return false;
+                };
+                if !parent.analyzable
+                    || parent.has_dynamic_command_dispatch
+                    || parent.definitions.iter().any(|definition| {
+                        definition.name == *callee
+                            && definition.def_span.start.offset > edge.span.start.offset
+                    })
+                    || parent
+                        .source_effects
+                        .iter()
+                        .any(|effect| effect.span.start.offset > edge.span.start.offset)
+                    || parent.call_sites.iter().any(|site| {
+                        matches!(site.enclosing, CallNodeKind::TopLevel)
+                            && site.name_span.start.offset > edge.span.start.offset
+                            && context
+                                .name_may_mutate(&edge.parent_path, &site.callee, is_cancelled)
+                                .unwrap_or(true)
+                    })
+                {
+                    return false;
+                }
+                self.deferred_incoming_contexts_are_stable(
+                    &edge.parent_path,
+                    callee,
+                    context,
+                    visited,
+                    is_cancelled,
+                )
+            })
+        });
+        visited.remove(path);
+        stable
+    }
+
+    /// Returns call tokens proven to resolve to `target_node` in `target_path`.
+    ///
+    /// The reverse index is built lazily and retained only after a complete,
+    /// uncancelled pass. Ambiguous or unresolved calls are deliberately absent.
+    pub fn exact_function_references(
+        &self,
+        target_path: &Path,
+        target_node: &CallNodeKind,
+        is_cancelled: impl Fn() -> bool,
+    ) -> Option<&[ExactFunctionReference]> {
+        if self.exact_references.get().is_none() {
+            let built = self.build_exact_reference_index(&is_cancelled)?;
+            let _ = self.exact_references.set(built);
+        }
+        if is_cancelled() {
+            return None;
+        }
+        Some(
+            self.exact_references
+                .get()?
+                .get(&(target_path.to_path_buf(), target_node.clone()))
+                .map(Vec::as_slice)
+                .unwrap_or(&[]),
+        )
+    }
+
+    fn build_exact_reference_index(
+        &self,
+        is_cancelled: &impl Fn() -> bool,
+    ) -> Option<ExactReferenceIndex> {
+        let context = self.exact_workspace_context(is_cancelled)?;
+        let mut paths = self.files.keys().cloned().collect::<Vec<_>>();
+        paths.sort();
+        let mut references = ExactReferenceIndex::default();
+        for path in paths {
+            if is_cancelled() {
+                return None;
+            }
+            let mut call_spans = self
+                .files
+                .get(&path)?
+                .call_sites
+                .iter()
+                .map(|site| site.name_span)
+                .collect::<Vec<_>>();
+            call_spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+            call_spans.dedup();
+            for span in call_spans {
+                if is_cancelled() {
+                    return None;
+                }
+                let Some(target) =
+                    self.resolve_call_site_exact_with_context(&path, span, context, is_cancelled)
+                else {
+                    continue;
+                };
+                references
+                    .entry((target.path, target.node))
+                    .or_default()
+                    .push(ExactFunctionReference {
+                        path: path.clone(),
+                        span,
+                    });
+            }
+        }
+        Some(references)
     }
 
     fn resolve_exact_events(
@@ -1680,6 +2438,447 @@ mod tests {
                 .visible_sourced_functions(&caller_path, usize::MAX)
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn exact_reference_index_preserves_binding_identity_and_source_order() {
+        let a_path = PathBuf::from("/w/a.sh");
+        let b_path = PathBuf::from("/w/b.sh");
+        let caller_path = PathBuf::from("/w/caller.sh");
+        let local_path = PathBuf::from("/w/local.sh");
+        let caller_source = "source a.sh\nfoo\nsource b.sh\nfoo\n";
+        let caller = facts_with_positioned_sources(caller_source, &["/w/a.sh", "/w/b.sh"]);
+        let caller_spans = caller
+            .call_sites
+            .iter()
+            .filter(|site| site.callee == name("foo"))
+            .map(|site| site.name_span)
+            .collect::<Vec<_>>();
+
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(a_path.clone(), facts("foo() { :; }\n", &[]));
+        index.insert(b_path.clone(), facts("foo() { :; }\n", &[]));
+        index.insert(caller_path.clone(), caller);
+        index.insert(
+            local_path,
+            facts_with_positioned_sources(
+                "source a.sh\nfoo() { echo local; }\nfoo\n",
+                &["/w/a.sh"],
+            ),
+        );
+
+        let a_node = function_node(&index, "/w/a.sh", "foo", 0);
+        let a_references = index
+            .exact_function_references(&a_path, &a_node, || false)
+            .expect("reference build should complete");
+        assert_eq!(
+            a_references,
+            &[ExactFunctionReference {
+                path: caller_path.clone(),
+                span: caller_spans[0],
+            }]
+        );
+
+        let b_node = function_node(&index, "/w/b.sh", "foo", 0);
+        let b_references = index
+            .exact_function_references(&b_path, &b_node, || false)
+            .expect("cached reference lookup should complete");
+        assert_eq!(
+            b_references,
+            &[ExactFunctionReference {
+                path: caller_path,
+                span: caller_spans[1],
+            }]
+        );
+    }
+
+    #[test]
+    fn exact_reference_index_inherits_bindings_at_source_sites() {
+        let main_path = PathBuf::from("/w/main.sh");
+        let child_path = PathBuf::from("/w/child.sh");
+        let child = facts("foo\n", &[]);
+        let child_call = child.call_sites[0].name_span;
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(
+            main_path.clone(),
+            facts_with_positioned_sources("foo() { :; }\nsource child.sh\n", &["/w/child.sh"]),
+        );
+        index.insert(child_path.clone(), child);
+
+        let target = function_node(&index, "/w/main.sh", "foo", 0);
+        assert_eq!(
+            index
+                .exact_function_references(&main_path, &target, || false)
+                .expect("inherited source environment should resolve"),
+            &[ExactFunctionReference {
+                path: child_path,
+                span: child_call,
+            }]
+        );
+    }
+
+    #[test]
+    fn exact_reference_index_omits_deferred_calls_with_incoming_overrides() {
+        let base_path = PathBuf::from("/w/base.sh");
+        let lib_path = PathBuf::from("/w/lib.sh");
+        let caller_path = PathBuf::from("/w/caller.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(base_path.clone(), facts("foo() { :; }\n", &[]));
+        index.insert(
+            lib_path,
+            facts_with_positioned_sources("source base.sh\nrun() { foo; }\n", &["/w/base.sh"]),
+        );
+        index.insert(
+            caller_path,
+            facts_with_positioned_sources(
+                "source lib.sh\nfoo() { echo override; }\nrun\nsource base.sh\n",
+                &["/w/lib.sh", "/w/base.sh"],
+            ),
+        );
+
+        let target = function_node(&index, "/w/base.sh", "foo", 0);
+        assert!(
+            index
+                .exact_function_references(&base_path, &target, || false)
+                .is_some_and(<[_]>::is_empty)
+        );
+    }
+
+    #[test]
+    fn exact_reference_index_rejects_top_level_source_function_side_effects() {
+        let base_path = PathBuf::from("/w/base.sh");
+        let override_path = PathBuf::from("/w/override.sh");
+        let main_path = PathBuf::from("/w/main.sh");
+        let child_path = PathBuf::from("/w/child.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(base_path.clone(), facts("foo() { :; }\n", &[]));
+        index.insert(override_path, facts("foo() { echo override; }\n", &[]));
+        index.insert(
+            main_path,
+            facts_with_positioned_sources(
+                "source base.sh\nload() { source override.sh; }\nload\nfoo\nsource child.sh\n",
+                &["/w/base.sh", "/w/override.sh", "/w/child.sh"],
+            ),
+        );
+        index.insert(child_path, facts("foo\n", &[]));
+
+        let target = function_node(&index, "/w/base.sh", "foo", 0);
+        assert!(
+            index
+                .exact_function_references(&base_path, &target, || false)
+                .is_some_and(<[_]>::is_empty)
+        );
+    }
+
+    #[test]
+    fn invoked_nested_function_definitions_are_binding_mutators() {
+        let path = PathBuf::from("/w/main.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(
+            path.clone(),
+            facts(
+                "foo() { echo base; }\ninstall() { foo() { echo override; }; }\ninstall\nfoo\n",
+                &[],
+            ),
+        );
+
+        let target = function_node(&index, "/w/main.sh", "foo", 0);
+        assert!(
+            index
+                .exact_function_references(&path, &target, || false)
+                .is_some_and(<[_]>::is_empty)
+        );
+    }
+
+    #[test]
+    fn repeated_current_binding_mutator_does_not_get_excluded() {
+        let path = PathBuf::from("/w/main.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(
+            path.clone(),
+            facts(
+                "foo() { echo base; }\nrun() { foo; foo() { echo override; }; }\nrun\nrun\n",
+                &[],
+            ),
+        );
+
+        let target = function_node(&index, "/w/main.sh", "foo", 0);
+        assert!(
+            index
+                .exact_function_references(&path, &target, || false)
+                .is_some_and(<[_]>::is_empty)
+        );
+    }
+
+    #[test]
+    fn conditional_sources_still_propagate_possible_loader_side_effects() {
+        let base_path = PathBuf::from("/w/base.sh");
+        let override_path = PathBuf::from("/w/override.sh");
+        let child_path = PathBuf::from("/w/child.sh");
+        let main_path = PathBuf::from("/w/main.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(base_path.clone(), facts("foo() { :; }\n", &[]));
+        index.insert(override_path, facts("foo() { echo override; }\n", &[]));
+        index.insert(
+            child_path,
+            facts_with_positioned_sources(
+                "load() { source override.sh; }\nload\n",
+                &["/w/override.sh"],
+            ),
+        );
+        index.insert(
+            main_path,
+            facts_with_positioned_sources(
+                "source base.sh\nif enabled; then source child.sh; fi\nfoo\n",
+                &["/w/base.sh", "/w/child.sh"],
+            ),
+        );
+
+        let target = function_node(&index, "/w/base.sh", "foo", 0);
+        assert!(
+            index
+                .exact_function_references(&base_path, &target, || false)
+                .is_some_and(<[_]>::is_empty)
+        );
+    }
+
+    #[test]
+    fn exact_reference_index_rejects_transitive_source_function_wrappers() {
+        let base_path = PathBuf::from("/w/base.sh");
+        let lib_path = PathBuf::from("/w/lib.sh");
+        let override_path = PathBuf::from("/w/override.sh");
+        let caller_path = PathBuf::from("/w/caller.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(base_path.clone(), facts("foo() { :; }\n", &[]));
+        index.insert(
+            lib_path,
+            facts_with_positioned_sources("source base.sh\nrun() { foo; }\n", &["/w/base.sh"]),
+        );
+        index.insert(override_path, facts("foo() { echo override; }\n", &[]));
+        index.insert(
+            caller_path,
+            facts_with_positioned_sources(
+                "source lib.sh\nload() { source override.sh; }\nouter() { load; }\nouter\nrun\n",
+                &["/w/lib.sh", "/w/override.sh"],
+            ),
+        );
+
+        let target = function_node(&index, "/w/base.sh", "foo", 0);
+        assert!(
+            index
+                .exact_function_references(&base_path, &target, || false)
+                .is_some_and(<[_]>::is_empty)
+        );
+    }
+
+    #[test]
+    fn source_wrapper_cycles_do_not_cache_query_order_dependent_negatives() {
+        let path = PathBuf::from("/w/main.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(
+            path.clone(),
+            facts_with_positioned_sources(
+                "a() { b; load; }\nb() { a; }\nload() { source plugin.sh; }\n",
+                &["/w/plugin.sh"],
+            ),
+        );
+        index.insert(PathBuf::from("/w/plugin.sh"), facts(":\n", &[]));
+        let context = ExactWorkspaceContext::build(&index.files, &|| false)
+            .expect("exact context should build");
+
+        assert_eq!(
+            context.name_may_mutate(&path, &name("a"), &|| false),
+            Some(true)
+        );
+        assert_eq!(
+            context.name_may_mutate(&path, &name("b"), &|| false),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn deep_mutator_wrapper_walk_is_iterative_and_cancellable() {
+        let path = PathBuf::from("/w/main.sh");
+        let depth = 4_096usize;
+        let mut call_sites = Vec::with_capacity(depth - 1);
+        for index in 0..depth - 1 {
+            call_sites.push(CallFactSite {
+                callee: name(&format!("wrapper_{}", index + 1)),
+                name_span: Span::new(),
+                enclosing: CallNodeKind::Function(CallFunctionId::new(
+                    name(&format!("wrapper_{index}")),
+                    Span::new(),
+                )),
+                local_definition_span: None,
+            });
+        }
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(
+            path.clone(),
+            FileCallFacts {
+                definitions: Vec::new(),
+                call_sites,
+                source_edges: Vec::new(),
+                source_effects: Vec::new(),
+                binding_mutators: vec![CallFunctionId::new(
+                    name(&format!("wrapper_{}", depth - 1)),
+                    Span::new(),
+                )],
+                has_dynamic_command_dispatch: false,
+                analyzable: true,
+            },
+        );
+        let context = ExactWorkspaceContext::build(&index.files, &|| false)
+            .expect("exact context should build");
+        let checks = std::cell::Cell::new(0usize);
+        assert_eq!(
+            context.name_may_mutate(&path, &name("wrapper_0"), &|| {
+                checks.set(checks.get() + 1);
+                checks.get() > 16
+            }),
+            None
+        );
+        assert_eq!(
+            context.name_may_mutate(&path, &name("wrapper_0"), &|| false),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn unrelated_source_functions_do_not_suppress_exact_references() {
+        let main_path = PathBuf::from("/w/main.sh");
+        let unrelated_path = PathBuf::from("/w/unrelated.sh");
+        let plugin_path = PathBuf::from("/w/plugin.sh");
+        let main = facts("foo() { :; }\nrun() { foo; }\nrun\n", &[]);
+        let inner_call = main
+            .call_sites
+            .iter()
+            .find(|site| site.callee == name("foo"))
+            .expect("inner foo call")
+            .name_span;
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(main_path.clone(), main);
+        index.insert(
+            unrelated_path,
+            facts_with_positioned_sources(
+                "load() { source plugin.sh; }\nload\n",
+                &["/w/plugin.sh"],
+            ),
+        );
+        index.insert(plugin_path, facts(":\n", &[]));
+
+        let target = function_node(&index, "/w/main.sh", "foo", 0);
+        assert_eq!(
+            index
+                .exact_function_references(&main_path, &target, || false)
+                .expect("unrelated source closure should not interfere"),
+            &[ExactFunctionReference {
+                path: main_path,
+                span: inner_call,
+            }]
+        );
+    }
+
+    #[test]
+    fn exact_reference_index_cancels_without_caching_partial_results() {
+        let target_path = PathBuf::from("/w/a.sh");
+        let caller_path = PathBuf::from("/w/caller.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(target_path.clone(), facts("foo() { :; }\n", &[]));
+        index.insert(
+            caller_path.clone(),
+            facts_with_positioned_sources("source a.sh\nfoo\n", &["/w/a.sh"]),
+        );
+        let target = function_node(&index, "/w/a.sh", "foo", 0);
+        let checks = std::cell::Cell::new(0usize);
+        assert!(
+            index
+                .exact_function_references(&target_path, &target, || {
+                    checks.set(checks.get() + 1);
+                    checks.get() > 1
+                })
+                .is_none()
+        );
+
+        let references = index
+            .exact_function_references(&target_path, &target, || false)
+            .expect("retry should build a complete reverse index");
+        assert_eq!(references.len(), 1);
+        assert_eq!(references[0].path, caller_path);
+    }
+
+    #[test]
+    fn exact_call_resolution_cancels_without_caching_partial_context() {
+        let path = PathBuf::from("/w/main.sh");
+        let facts = facts("foo() { :; }\nfoo\n", &[]);
+        let call_span = facts.call_sites[0].name_span;
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(path.clone(), facts);
+
+        assert!(
+            index
+                .resolve_call_site_exact_cancellable(&path, call_span, || true)
+                .is_none()
+        );
+        assert!(index.exact_context.get().is_none());
+        assert!(
+            index
+                .resolve_call_site_exact_cancellable(&path, call_span, || false)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn replacing_file_facts_invalidates_exact_reference_index() {
+        let target_path = PathBuf::from("/w/a.sh");
+        let caller_path = PathBuf::from("/w/caller.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(target_path.clone(), facts("foo() { :; }\n", &[]));
+        index.insert(
+            caller_path.clone(),
+            facts_with_positioned_sources("source a.sh\nfoo\n", &["/w/a.sh"]),
+        );
+        let target = function_node(&index, "/w/a.sh", "foo", 0);
+        assert_eq!(
+            index
+                .exact_function_references(&target_path, &target, || false)
+                .map(<[_]>::len),
+            Some(1)
+        );
+
+        index.insert(caller_path, facts("unrelated\n", &[]));
+        assert!(
+            index
+                .exact_function_references(&target_path, &target, || false)
+                .is_some_and(<[_]>::is_empty)
+        );
+    }
+
+    #[test]
+    fn exact_reference_index_terminates_source_cycles() {
+        let target_path = PathBuf::from("/w/a.sh");
+        let cycle_path = PathBuf::from("/w/cycle.sh");
+        let caller_path = PathBuf::from("/w/caller.sh");
+        let mut index = WorkspaceCallIndex::new();
+        index.insert(
+            target_path.clone(),
+            facts_with_positioned_sources("source cycle.sh\nfoo() { :; }\n", &["/w/cycle.sh"]),
+        );
+        index.insert(
+            cycle_path,
+            facts_with_positioned_sources("source a.sh\n", &["/w/a.sh"]),
+        );
+        index.insert(
+            caller_path.clone(),
+            facts_with_positioned_sources("source a.sh\nfoo\n", &["/w/a.sh"]),
+        );
+        let target = function_node(&index, "/w/a.sh", "foo", 0);
+
+        let references = index
+            .exact_function_references(&target_path, &target, || false)
+            .expect("cyclic graph should terminate");
+        assert_eq!(references.len(), 1);
+        assert_eq!(references[0].path, caller_path);
     }
 
     #[test]
