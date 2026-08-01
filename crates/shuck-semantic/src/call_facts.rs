@@ -282,7 +282,7 @@ impl FileCallFacts {
             .source_refs()
             .iter()
             .map(|source_ref| {
-                let scope = model.scope_at(source_ref.span.start.offset);
+                let scope = model.scope_at(source_ref.span.start.offset());
                 let enclosing_function = model
                     .ancestor_scopes(scope)
                     .find_map(|scope| functions_by_scope.get(&scope))
@@ -313,7 +313,7 @@ impl FileCallFacts {
                 });
             }
         }
-        source_effects.sort_by_key(|effect| effect.span.start.offset);
+        source_effects.sort_by_key(|effect| effect.span.start.offset());
         let has_dynamic_command_dispatch =
             model.recorded_program().commands().iter().any(|command| {
                 command.command_info.is_some_and(|info| {
@@ -603,16 +603,16 @@ impl WorkspaceCallIndex {
             CallNodeKind::TopLevel => self.resolve_exact_events(
                 from_path,
                 &site.callee,
-                ExactQuery::top_level(site.name_span.start.offset),
+                ExactQuery::top_level(site.name_span.start.offset()),
                 &mut stack,
             ),
             CallNodeKind::Function(function) => {
                 if self.called_source_function_may_mutate(from_path, function)
                     || facts.source_effects.iter().any(|effect| {
                         (effect.enclosing_function.is_none()
-                            && effect.span.start.offset >= function.definition_start)
+                            && effect.span.start.offset() >= function.definition_start)
                             || (effect.enclosing_function.as_ref() == Some(function)
-                                && effect.span.start.offset >= site.name_span.start.offset)
+                                && effect.span.start.offset() >= site.name_span.start.offset())
                     })
                 {
                     return None;
@@ -625,7 +625,7 @@ impl WorkspaceCallIndex {
                         local_definition: site.local_definition_span,
                         include_top_level_definitions: false,
                         enclosing_function: Some(function),
-                        local_call_offset: Some(site.name_span.start.offset),
+                        local_call_offset: Some(site.name_span.start.offset()),
                     },
                     &mut stack,
                 )
@@ -686,11 +686,11 @@ impl WorkspaceCallIndex {
             || facts.source_effects.iter().any(|effect| {
                 !effect.persistent
                     && ((effect.enclosing_function.is_none()
-                        && effect.span.start.offset < query.top_level_cutoff)
+                        && effect.span.start.offset() < query.top_level_cutoff)
                         || (effect.enclosing_function.as_ref() == query.enclosing_function
                             && query
                                 .local_call_offset
-                                .is_some_and(|offset| effect.span.start.offset < offset)))
+                                .is_some_and(|offset| effect.span.start.offset() < offset)))
             })
         {
             return ExactResolution::Ambiguous;
@@ -706,10 +706,10 @@ impl WorkspaceCallIndex {
             for definition in facts.definitions.iter().filter(|definition| {
                 definition.persistent_top_level
                     && &definition.name == callee
-                    && definition.def_span.start.offset < query.top_level_cutoff
+                    && definition.def_span.start.offset() < query.top_level_cutoff
             }) {
                 events.push((
-                    definition.def_span.start.offset,
+                    definition.def_span.start.offset(),
                     Event::Definition(definition),
                 ));
             }
@@ -720,20 +720,20 @@ impl WorkspaceCallIndex {
                 .find(|definition| definition.def_span == definition_span)
         {
             events.push((
-                definition.def_span.start.offset,
+                definition.def_span.start.offset(),
                 Event::Definition(definition),
             ));
         }
         for effect in facts.source_effects.iter().filter(|effect| {
             effect.persistent
                 && ((effect.enclosing_function.is_none()
-                    && effect.span.start.offset < query.top_level_cutoff)
+                    && effect.span.start.offset() < query.top_level_cutoff)
                     || (effect.enclosing_function.as_ref() == query.enclosing_function
                         && query
                             .local_call_offset
-                            .is_some_and(|offset| effect.span.start.offset < offset)))
+                            .is_some_and(|offset| effect.span.start.offset() < offset)))
         }) {
-            events.push((effect.span.start.offset, Event::Source(effect)));
+            events.push((effect.span.start.offset(), Event::Source(effect)));
         }
         events.sort_by_key(|(offset, _)| *offset);
 
