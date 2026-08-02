@@ -196,6 +196,7 @@ impl Server {
                     work_done_progress: Some(true),
                 },
             })),
+            selection_range_provider: Some(types::SelectionRangeProviderCapability::Simple(true)),
             text_document_sync: Some(TextDocumentSyncCapability::Options(
                 TextDocumentSyncOptions {
                     open_close: Some(true),

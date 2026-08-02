@@ -23,6 +23,7 @@ mod comment_index;
 mod folding_range_index;
 mod line_index;
 mod region_index;
+mod selection_range_index;
 
 /// Structural close-delimiter lookup types derived from parser output.
 pub use close_delimiter_index::{CloseDelimiterIndex, CloseDelimiterKind, IndexedCloseDelimiter};
@@ -34,6 +35,8 @@ pub use folding_range_index::{FoldingRangeIndex, FoldingRangeKind, IndexedFoldin
 pub use line_index::{LineEndingStyle, LineIndex};
 /// Structural region indexes over parsed shell source.
 pub use region_index::{IndexedHeredoc, RegionIndex, RegionKind};
+/// Syntax-containment ranges used by editor selection expansion.
+pub use selection_range_index::SelectionRangeIndex;
 
 use line_index::{RawContinuationCandidate, RawContinuationMode};
 use shuck_ast::{File, TextSize};
@@ -49,6 +52,7 @@ use shuck_parser::parser::ParseResult;
 pub struct IndexerOptions {
     source_layout_indexes: bool,
     folding_ranges: bool,
+    selection_ranges: bool,
 }
 
 impl IndexerOptions {
@@ -74,7 +78,6 @@ impl IndexerOptions {
     pub fn source_layout_indexes(self) -> bool {
         self.source_layout_indexes
     }
-
     /// Enable or disable syntax-aware folding range collection.
     ///
     /// Folding data is intended for editor integrations and is disabled by
@@ -88,6 +91,20 @@ impl IndexerOptions {
     /// Return whether syntax-aware folding ranges are enabled.
     pub fn folding_ranges(self) -> bool {
         self.folding_ranges
+    }
+
+    /// Enable or disable syntax-containment collection for editor selections.
+    ///
+    /// This is disabled by default so lint-only consumers do not retain
+    /// editor-specific syntax range data.
+    pub fn with_selection_ranges(mut self, enabled: bool) -> Self {
+        self.selection_ranges = enabled;
+        self
+    }
+
+    /// Return whether syntax-containment selection ranges are enabled.
+    pub fn selection_ranges(self) -> bool {
+        self.selection_ranges
     }
 }
 
@@ -109,6 +126,7 @@ pub struct Indexer {
     close_delimiter_index: CloseDelimiterIndex,
     continuation_lines: Vec<TextSize>,
     folding_range_index: FoldingRangeIndex,
+    selection_range_index: SelectionRangeIndex,
 }
 
 impl Indexer {
@@ -155,6 +173,7 @@ impl Indexer {
             file,
             options.source_layout_indexes(),
             options.folding_ranges(),
+            options.selection_ranges(),
         );
         let close_delimiter_index = if options.source_layout_indexes() {
             CloseDelimiterIndex::new(source, file)
@@ -174,6 +193,11 @@ impl Indexer {
         } else {
             FoldingRangeIndex::default()
         };
+        let selection_range_index = if options.selection_ranges() {
+            SelectionRangeIndex::new(source, &comment_index, &region_index)
+        } else {
+            SelectionRangeIndex::default()
+        };
 
         Self {
             line_index,
@@ -182,6 +206,7 @@ impl Indexer {
             close_delimiter_index,
             continuation_lines,
             folding_range_index,
+            selection_range_index,
         }
     }
 
@@ -230,6 +255,11 @@ impl Indexer {
     /// Return stable syntax-aware folding ranges for this source file.
     pub fn folding_range_index(&self) -> &FoldingRangeIndex {
         &self.folding_range_index
+    }
+
+    /// Return syntax-containment ranges for editor selection expansion.
+    pub fn selection_range_index(&self) -> &SelectionRangeIndex {
+        &self.selection_range_index
     }
 
     /// Return whether `offset` is on a semantic continuation line.

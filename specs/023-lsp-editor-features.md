@@ -3,24 +3,24 @@
 ## Status
 
 Implemented (document-local v1 plus statically resolved source-aware
-completion, definition, hover, references, document links, and opt-in
-cross-file rename, plus syntax-aware folding ranges).
+completion, definition, hover, references, document links, opt-in cross-file
+rename, syntax-aware folding ranges, and AST-based selection ranges).
 
 Delivered: completion, semantic hover, go-to-definition, references, document
 links, document highlights, document and workspace symbols, conservative
-rename, document/range formatting, and folding ranges. Function completion follows the
-statically resolvable source graph, and resolvable source paths are exposed as
-document links. Definition, hover, references, and opt-in cross-file function
-rename require exact source bindings. Cross-file call hierarchy is specified
-separately in spec 025.
+rename, AST-based selection ranges, document/range formatting, and folding
+ranges. Function completion follows the statically resolvable source graph, and
+resolvable source paths are exposed as document links. Definition, hover,
+references, and opt-in cross-file function rename require exact source bindings.
+Cross-file call hierarchy is specified separately in spec 025.
 
 ## Summary
 
 Extend `shuck server` beyond diagnostics, quick fixes, directive hovers, and
 document synchronization to cover the remaining editor-facing LSP features:
 completion, symbol hover, go-to-definition, find references, occurrence
-highlighting, document symbols, workspace symbols, rename, formatting, and
-folding ranges.
+highlighting, document symbols, workspace symbols, rename, formatting, folding
+ranges, and selection ranges.
 The implementation builds on spec 018 by adding a shared document-analysis
 cache, editor-symbol indexes over Shuck's semantic model, conservative rename
 sets, and advertised formatting support once the existing formatter handlers
@@ -84,8 +84,8 @@ linter, and formatter crates.
   It requires command-specific metadata that Shuck does not currently author.
 - Shell command manual-page hovers are out of scope. General hover starts with
   Shuck semantic symbols and repo-authored metadata.
-- Semantic tokens, inlay hints, and selection ranges are not covered by this
-  spec. Cross-file call hierarchy is specified separately in spec 025.
+- Semantic tokens and inlay hints are not covered by this spec. Cross-file call
+  hierarchy is specified separately in spec 025.
 - Rename across dynamically sourced files is out of scope unless Shuck can map
   every affected document to a concrete workspace URI and prove the rename set.
 - This spec does not change lint rule behavior or diagnostic parity.
@@ -110,6 +110,7 @@ land:
 | Document symbols | `textDocument/documentSymbol` | Hierarchical symbols for functions plus top-level declarations and assignments |
 | Workspace symbols | `workspace/symbol` | Fuzzy search over indexed shell files in workspace folders |
 | Rename | `textDocument/prepareRename`, `textDocument/rename` | Conservative variable and function rename sets |
+| Selection ranges | `textDocument/selectionRange` | Strict parser-owned containment chains from the innermost syntax node through the complete file |
 | Formatting | `textDocument/formatting`, `textDocument/rangeFormatting` | Full-document formatting; range requests format the smallest complete statement span that contains the requested range |
 | Folding ranges | `textDocument/foldingRange` | Parser-backed multiline shell constructs, heredocs, comment blocks, and active continuation regions with duplicate and crossing ranges removed |
 
@@ -526,6 +527,7 @@ Feature handlers use the existing scheduler:
 | Prepare rename | Worker |
 | Rename | Worker |
 | Folding ranges | Worker |
+| Selection range | Worker |
 | Formatting | Fmt |
 | Range formatting | Fmt |
 

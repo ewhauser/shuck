@@ -101,6 +101,9 @@ pub(super) fn request(req: server::Request) -> Task {
         request::Rename::METHOD => {
             background_session_request_task::<request::Rename>(req, BackgroundSchedule::Worker)
         }
+        request::SelectionRanges::METHOD => background_session_request_task::<
+            request::SelectionRanges,
+        >(req, BackgroundSchedule::Worker),
         request::WorkspaceSymbols::METHOD => {
             background_session_request_task::<request::WorkspaceSymbols>(
                 req,

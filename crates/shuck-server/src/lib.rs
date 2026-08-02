@@ -30,6 +30,7 @@ pub mod fuzzing;
 mod lint;
 mod logging;
 mod resolve;
+mod selection;
 mod server;
 mod session;
 mod symbols;

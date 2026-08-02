@@ -70,6 +70,7 @@ pub struct RegionIndex {
     expansion_brace_edges: Vec<TextSize>,
     dollar_brace_pairs: Vec<TextRange>,
     structural_folding_ranges: Vec<TextRange>,
+    selection_ranges: Vec<TextRange>,
 }
 
 impl RegionIndex {
@@ -80,7 +81,7 @@ impl RegionIndex {
     /// driven by AST spans from `file`. `source` and `file` should describe the
     /// same parsed text.
     pub fn new(source: &str, file: &File) -> Self {
-        Self::new_with_options(source, file, false, false)
+        Self::new_with_options(source, file, false, false, false)
     }
 
     /// Build a region index that also retains source-layout metadata.
@@ -90,7 +91,7 @@ impl RegionIndex {
     /// build an [`crate::Indexer`] with
     /// [`crate::IndexerOptions::with_source_layout_indexes`].
     pub fn with_source_layout_indexes(source: &str, file: &File) -> Self {
-        Self::new_with_options(source, file, true, false)
+        Self::new_with_options(source, file, true, false, false)
     }
 
     pub(crate) fn new_with_options(
@@ -98,8 +99,14 @@ impl RegionIndex {
         file: &File,
         source_layout_indexes: bool,
         folding_ranges: bool,
+        selection_ranges: bool,
     ) -> Self {
-        let mut collector = RegionCollector::new(source, source_layout_indexes, folding_ranges);
+        let mut collector = RegionCollector::new(
+            source,
+            source_layout_indexes,
+            folding_ranges,
+            selection_ranges,
+        );
         collector.visit_file(file);
         collector.finish()
     }
@@ -239,9 +246,12 @@ impl RegionIndex {
             .copied()
             .filter(|pair| pair.start() < range.end())
     }
-
     pub(crate) fn structural_folding_ranges(&self) -> &[TextRange] {
         &self.structural_folding_ranges
+    }
+
+    pub(crate) fn selection_ranges(&self) -> &[TextRange] {
+        &self.selection_ranges
     }
 }
 
@@ -249,6 +259,7 @@ struct RegionCollector<'a> {
     _source: &'a str,
     source_layout_indexes: bool,
     collect_folding_ranges: bool,
+    collect_selection_ranges: bool,
     single_quoted: Vec<TextRange>,
     double_quoted: Vec<TextRange>,
     heredocs: Vec<TextRange>,
@@ -261,14 +272,21 @@ struct RegionCollector<'a> {
     expansion_brace_edges: Vec<TextSize>,
     dollar_brace_pairs: Vec<TextRange>,
     structural_folding_ranges: Vec<TextRange>,
+    selection_ranges: Vec<TextRange>,
 }
 
 impl<'a> RegionCollector<'a> {
-    fn new(source: &'a str, source_layout_indexes: bool, collect_folding_ranges: bool) -> Self {
+    fn new(
+        source: &'a str,
+        source_layout_indexes: bool,
+        collect_folding_ranges: bool,
+        collect_selection_ranges: bool,
+    ) -> Self {
         Self {
             _source: source,
             source_layout_indexes,
             collect_folding_ranges,
+            collect_selection_ranges,
             single_quoted: Vec::new(),
             double_quoted: Vec::new(),
             heredocs: Vec::new(),
@@ -281,6 +299,7 @@ impl<'a> RegionCollector<'a> {
             expansion_brace_edges: Vec::new(),
             dollar_brace_pairs: Vec::new(),
             structural_folding_ranges: Vec::new(),
+            selection_ranges: Vec::new(),
         }
     }
 
@@ -307,6 +326,8 @@ impl<'a> RegionCollector<'a> {
             .dedup_by_key(|range| (range.start(), range.end()));
         sort_ranges(&mut self.structural_folding_ranges);
         self.structural_folding_ranges.dedup();
+        sort_ranges(&mut self.selection_ranges);
+        self.selection_ranges.dedup();
 
         let mut regions = Vec::with_capacity(
             self.single_quoted.len()
@@ -378,14 +399,17 @@ impl<'a> RegionCollector<'a> {
             expansion_brace_edges: self.expansion_brace_edges,
             dollar_brace_pairs: self.dollar_brace_pairs,
             structural_folding_ranges: self.structural_folding_ranges,
+            selection_ranges: self.selection_ranges,
         }
     }
 
     fn visit_file(&mut self, file: &File) {
+        self.push_selection_range(file.span.to_range());
         self.visit_stmt_seq(&file.body);
     }
 
     fn visit_stmt_seq(&mut self, commands: &StmtSeq) {
+        self.push_selection_range(commands.span.to_range());
         for stmt in commands.iter() {
             self.visit_stmt(stmt);
         }
@@ -396,6 +420,7 @@ impl<'a> RegionCollector<'a> {
     }
 
     fn visit_stmt_with_folding(&mut self, stmt: &Stmt, record_folding_range: bool) {
+        self.push_selection_range(stmt.span.to_range());
         for redirect in &stmt.redirects {
             self.visit_redirect(redirect);
         }
@@ -408,6 +433,7 @@ impl<'a> RegionCollector<'a> {
         statement_range: TextRange,
         record_folding_range: bool,
     ) {
+        self.push_selection_range(command_range(command));
         match command {
             Command::Simple(command) => {
                 self.visit_word(&command.name);
@@ -565,6 +591,16 @@ impl<'a> RegionCollector<'a> {
             }
             CompoundCommand::ArithmeticFor(command) => {
                 self.push_arithmetic_range(command);
+                for expression in [
+                    command.init_ast.as_ref(),
+                    command.condition_ast.as_ref(),
+                    command.step_ast.as_ref(),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    self.visit_arithmetic_shell_words(expression);
+                }
                 self.visit_stmt_seq(&command.body);
             }
             CompoundCommand::While(command) => {
@@ -599,6 +635,9 @@ impl<'a> RegionCollector<'a> {
             }
             CompoundCommand::Arithmetic(command) => {
                 push_range(&mut self.arithmetic, command.span.to_range());
+                if let Some(expression) = command.expr_ast.as_ref() {
+                    self.visit_arithmetic_shell_words(expression);
+                }
             }
             CompoundCommand::Time(command) => {
                 if let Some(command) = &command.command {
@@ -700,6 +739,7 @@ impl<'a> RegionCollector<'a> {
     }
 
     fn visit_conditional_expr(&mut self, expression: &ConditionalExpr) {
+        self.push_selection_range(expression.span().to_range());
         match expression {
             ConditionalExpr::Binary(expression) => {
                 self.visit_conditional_expr(&expression.left);
@@ -716,6 +756,7 @@ impl<'a> RegionCollector<'a> {
     }
 
     fn visit_redirect(&mut self, redirect: &Redirect) {
+        self.push_selection_range(redirect.span.to_range());
         match redirect.kind {
             RedirectKind::HereDoc | RedirectKind::HereDocStrip => {
                 let Some(heredoc) = redirect.heredoc() else {
@@ -751,6 +792,7 @@ impl<'a> RegionCollector<'a> {
     }
 
     fn visit_assignment(&mut self, assignment: &Assignment) {
+        self.push_selection_range(assignment.span.to_range());
         self.visit_var_ref_subscript(&assignment.target);
         match &assignment.value {
             AssignmentValue::Scalar(word) => self.visit_word(word),
@@ -770,7 +812,9 @@ impl<'a> RegionCollector<'a> {
     }
 
     fn visit_word(&mut self, word: &Word) {
+        self.push_selection_range(word.span.to_range());
         for brace in word.brace_syntax.iter().copied() {
+            self.push_selection_range(brace.span.to_range());
             if brace.expands() {
                 self.push_expansion_brace_pair(brace.span.to_range());
             }
@@ -925,15 +969,18 @@ impl<'a> RegionCollector<'a> {
     }
 
     fn visit_heredoc_body(&mut self, body: &HeredocBody) {
+        self.push_selection_range(body.span.to_range());
         self.visit_heredoc_body_parts(&body.parts);
     }
 
     fn visit_pattern(&mut self, pattern: &Pattern) {
+        self.push_selection_range(pattern.span.to_range());
         self.visit_pattern_parts(&pattern.parts);
     }
 
     fn visit_pattern_parts(&mut self, parts: &[PatternPartNode]) {
         for part in parts {
+            self.push_selection_range(part.span.to_range());
             match &part.kind {
                 PatternPart::Group { patterns, .. } => {
                     for pattern in patterns {
@@ -952,6 +999,7 @@ impl<'a> RegionCollector<'a> {
     fn visit_word_parts(&mut self, parts: &[WordPartNode]) {
         for part in parts {
             let range = part.span.to_range();
+            self.push_selection_range(range);
             match &part.kind {
                 WordPart::ZshQualifiedGlob(glob) => {
                     for segment in &glob.segments {
@@ -1062,6 +1110,7 @@ impl<'a> RegionCollector<'a> {
     fn visit_heredoc_body_parts(&mut self, parts: &[HeredocBodyPartNode]) {
         for part in parts {
             let range = part.span.to_range();
+            self.push_selection_range(range);
             match &part.kind {
                 HeredocBodyPart::CommandSubstitution { body, syntax } => {
                     push_range(&mut self.command_substitutions, range);
@@ -1090,6 +1139,8 @@ impl<'a> RegionCollector<'a> {
     }
 
     fn visit_var_ref_subscript(&mut self, reference: &VarRef) {
+        self.push_selection_range(reference.name_span.to_range());
+        self.push_selection_range(reference.span.to_range());
         self.visit_subscript(reference.subscript.as_deref());
     }
 
@@ -1097,6 +1148,7 @@ impl<'a> RegionCollector<'a> {
         let Some(subscript) = subscript else {
             return;
         };
+        self.push_selection_range(subscript.span().to_range());
         if subscript.selector().is_some() {
             return;
         }
@@ -1117,6 +1169,7 @@ impl<'a> RegionCollector<'a> {
     }
 
     fn visit_arithmetic_shell_words(&mut self, expression: &shuck_ast::ArithmeticExprNode) {
+        self.push_selection_range(expression.span.to_range());
         match &expression.kind {
             shuck_ast::ArithmeticExpr::Number(_) | shuck_ast::ArithmeticExpr::Variable(_) => {}
             shuck_ast::ArithmeticExpr::Indexed { index, .. } => {
@@ -1150,6 +1203,55 @@ impl<'a> RegionCollector<'a> {
                 self.visit_arithmetic_shell_words(value);
             }
         }
+    }
+
+    fn push_selection_range(&mut self, range: TextRange) {
+        if self.collect_selection_ranges {
+            push_range(&mut self.selection_ranges, range);
+        }
+    }
+}
+
+fn command_range(command: &Command) -> TextRange {
+    match command {
+        Command::Simple(command) => command.span.to_range(),
+        Command::Builtin(command) => builtin_range(command),
+        Command::Decl(command) => command.span.to_range(),
+        Command::Binary(command) => command.span.to_range(),
+        Command::Compound(command) => compound_range(command),
+        Command::Function(command) => command.span.to_range(),
+        Command::AnonymousFunction(command) => command.span.to_range(),
+    }
+}
+
+fn builtin_range(command: &BuiltinCommand) -> TextRange {
+    match command {
+        BuiltinCommand::Break(command) => command.span.to_range(),
+        BuiltinCommand::Continue(command) => command.span.to_range(),
+        BuiltinCommand::Return(command) => command.span.to_range(),
+        BuiltinCommand::Exit(command) => command.span.to_range(),
+    }
+}
+
+fn compound_range(command: &CompoundCommand) -> TextRange {
+    match command {
+        CompoundCommand::If(command) => command.span.to_range(),
+        CompoundCommand::For(command) => command.span.to_range(),
+        CompoundCommand::Repeat(command) => command.span.to_range(),
+        CompoundCommand::Foreach(command) => command.span.to_range(),
+        CompoundCommand::ArithmeticFor(command) => command.span.to_range(),
+        CompoundCommand::While(command) => command.span.to_range(),
+        CompoundCommand::Until(command) => command.span.to_range(),
+        CompoundCommand::Case(command) => command.span.to_range(),
+        CompoundCommand::Select(command) => command.span.to_range(),
+        CompoundCommand::Subshell(sequence) | CompoundCommand::BraceGroup(sequence) => {
+            sequence.span.to_range()
+        }
+        CompoundCommand::Arithmetic(command) => command.span.to_range(),
+        CompoundCommand::Time(command) => command.span.to_range(),
+        CompoundCommand::Conditional(command) => command.span.to_range(),
+        CompoundCommand::Coproc(command) => command.span.to_range(),
+        CompoundCommand::Always(command) => command.span.to_range(),
     }
 }
 
