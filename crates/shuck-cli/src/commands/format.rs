@@ -164,6 +164,7 @@ fn run_format_with_cwd(
         parallel: true,
         cache_root: Some(cache_root.to_path_buf()),
         use_config_roots: config_arguments.use_config_roots(),
+        ..DiscoveryOptions::default()
     };
     let runs = prepare_project_runs::<FormatCacheData, ResolvedFormatSettings, _>(
         &args.files,

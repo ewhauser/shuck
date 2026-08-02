@@ -44,6 +44,7 @@ pub(super) fn run_check_with_cwd(
                 parallel: true,
                 cache_root: Some(cache_root.to_path_buf()),
                 use_config_roots: config_arguments.use_config_roots(),
+                ..DiscoveryOptions::default()
             },
             cache_root,
             no_cache: args.no_cache || fix_applicability.is_some(),
