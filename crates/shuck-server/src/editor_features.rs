@@ -943,17 +943,9 @@ mod tests {
     }
 
     #[test]
-    fn cross_file_mode_keeps_local_variable_rename_available() {
+    fn default_cross_file_mode_keeps_local_variable_rename_available() {
         let source = "name=1\necho \"$name\"\n";
-        let options = serde_json::from_value(serde_json::json!({
-            "server": {
-                "rename": {
-                    "allowCrossFile": true
-                }
-            }
-        }))
-        .expect("rename options should deserialize");
-        let (snapshot, client, uri) = make_snapshot_with_options(source, options);
+        let (snapshot, client, uri) = make_snapshot(source);
         let reference_position = position_for_nth(source, "name", 1);
 
         let edit = rename(

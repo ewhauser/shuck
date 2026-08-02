@@ -826,6 +826,21 @@ mod tests {
         assert!(settings.fix_all());
         assert!(!settings.unsafe_fixes());
         assert!(!settings.show_syntax_errors());
+        assert!(settings.rename().allow_cross_file);
+
+        let options = serde_json::from_value(serde_json::json!({
+            "server": {
+                "rename": {
+                    "allowCrossFile": false
+                }
+            }
+        }))
+        .expect("rename opt-out should deserialize");
+        assert!(
+            !ClientSettings::from_options(&options)
+                .rename()
+                .allow_cross_file
+        );
     }
 
     #[test]
