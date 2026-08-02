@@ -23,10 +23,6 @@ impl GlobalOptions {
     pub fn into_settings(self, client: Client) -> GlobalClientSettings {
         GlobalClientSettings::new(self.client, client)
     }
-
-    pub(crate) fn workspace_diagnostics_enabled(&self) -> bool {
-        self.client.server.workspace_diagnostics.enabled
-    }
 }
 
 /// Per-client or per-workspace Shuck options supplied through LSP settings.
@@ -388,7 +384,7 @@ impl WorkspaceDiagnosticsFeatureOptionsOverrides {
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceDiagnosticsFeatureOptions {
     /// Whether workspace diagnostic requests are advertised and served.
-    #[serde(default)]
+    #[serde(default = "default_workspace_diagnostics_enabled")]
     pub enabled: bool,
     /// Maximum number of workspace files returned by one request.
     #[serde(default = "default_workspace_diagnostics_max_files")]
@@ -404,12 +400,16 @@ pub struct WorkspaceDiagnosticsFeatureOptions {
 impl Default for WorkspaceDiagnosticsFeatureOptions {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: default_workspace_diagnostics_enabled(),
             max_files: default_workspace_diagnostics_max_files(),
             max_entries: default_workspace_diagnostics_max_entries(),
             max_source_bytes: default_workspace_diagnostics_max_source_bytes(),
         }
     }
+}
+
+fn default_workspace_diagnostics_enabled() -> bool {
+    true
 }
 
 fn default_workspace_diagnostics_max_files() -> usize {
@@ -477,5 +477,79 @@ impl AllOptions {
             global,
             workspace: None,
         }
+    }
+
+    pub(crate) fn workspace_diagnostics_enabled(&self) -> bool {
+        let global = self.global.client.server.workspace_diagnostics;
+        global.enabled
+            || self.workspace.as_ref().is_some_and(|workspaces| {
+                workspaces.values().any(|options| {
+                    options
+                        .server
+                        .workspace_diagnostics_layered_over(global)
+                        .enabled
+                })
+            })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AllOptions;
+
+    #[test]
+    fn workspace_diagnostics_are_enabled_by_default_and_can_be_disabled() {
+        let defaults = AllOptions::from_value(serde_json::json!({}));
+        assert!(defaults.workspace_diagnostics_enabled());
+
+        let disabled = AllOptions::from_value(serde_json::json!({
+            "shuck": {
+                "server": {
+                    "workspaceDiagnostics": {
+                        "enabled": false
+                    }
+                }
+            }
+        }));
+        assert!(!disabled.workspace_diagnostics_enabled());
+    }
+
+    #[test]
+    fn unrelated_workspace_options_preserve_the_global_diagnostic_opt_out() {
+        let disabled = AllOptions::from_value(serde_json::json!({
+            "shuck": {
+                "server": {
+                    "workspaceDiagnostics": {
+                        "enabled": false
+                    }
+                }
+            },
+            "workspace": {
+                "file:///workspace": {
+                    "showSyntaxErrors": true
+                }
+            }
+        }));
+        assert!(!disabled.workspace_diagnostics_enabled());
+
+        let enabled_for_workspace = AllOptions::from_value(serde_json::json!({
+            "shuck": {
+                "server": {
+                    "workspaceDiagnostics": {
+                        "enabled": false
+                    }
+                }
+            },
+            "workspace": {
+                "file:///workspace": {
+                    "server": {
+                        "workspaceDiagnostics": {
+                            "enabled": true
+                        }
+                    }
+                }
+            }
+        }));
+        assert!(enabled_for_workspace.workspace_diagnostics_enabled());
     }
 }

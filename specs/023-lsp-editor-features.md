@@ -579,9 +579,10 @@ pub struct RenameOptions {
 Defaults:
 
 - workspace symbols enabled, `max_files = 5000`;
-- workspace diagnostics disabled, `max_files = 1000`, `max_entries = 10000`,
-  and `max_source_bytes = 32 MiB`; enabling them advertises and serves
-  `workspace/diagnostic` without starting a background scan;
+- workspace diagnostics enabled, `max_files = 1000`, `max_entries = 10000`,
+  and `max_source_bytes = 32 MiB`; they advertise and serve
+  `workspace/diagnostic` without starting a background scan and can be disabled
+  with `server.workspaceDiagnostics.enabled = false`;
 - runtime-name and keyword completions enabled;
 - cross-file function rename disabled by default and enabled with
   `server.rename.allowCrossFile = true`.
