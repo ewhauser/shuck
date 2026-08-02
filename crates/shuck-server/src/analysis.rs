@@ -150,7 +150,9 @@ impl DocumentAnalysis {
         let indexer = Indexer::new_with_options(
             source,
             &parse_result,
-            IndexerOptions::new().with_folding_ranges(true),
+            IndexerOptions::new()
+                .with_folding_ranges(true)
+                .with_selection_ranges(true),
         );
 
         Some(Self {

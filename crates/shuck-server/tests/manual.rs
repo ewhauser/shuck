@@ -133,6 +133,10 @@ fn replays_a_small_lsp_session() {
         initialize["capabilities"]["renameProvider"]["prepareProvider"],
         serde_json::json!(true)
     );
+    assert_eq!(
+        initialize["capabilities"]["selectionRangeProvider"],
+        serde_json::json!(true)
+    );
 
     client_connection
         .sender
@@ -405,6 +409,107 @@ fn folding_ranges_use_utf16_positions() {
 #[test]
 fn folding_ranges_use_utf32_positions() {
     folding_ranges_for_encoding("utf-32", 7);
+}
+
+fn selection_ranges_for_encoding(encoding: &str, echo_start: u64, name_start: u64) {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+
+    let workspace = tempfile::tempdir().expect("tempdir should be created");
+    let script_path = workspace.path().join("script.sh");
+    let script_uri = Url::from_file_path(&script_path).unwrap();
+    let source = ": '😀'; echo \"${name:-$(printf '%s' value)}\"\n";
+    std::fs::write(&script_path, source).unwrap();
+
+    let mut capabilities = serde_json::to_value(replay_capabilities()).unwrap();
+    capabilities["general"]["positionEncodings"] = serde_json::json!([encoding]);
+    capabilities["textDocument"]["selectionRange"] = serde_json::json!({});
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": capabilities,
+            "rootUri": Url::from_file_path(workspace.path()).unwrap(),
+        }),
+    );
+    let initialize = recv_response(&client_connection, 1);
+    assert_eq!(initialize["capabilities"]["positionEncoding"], encoding);
+    assert_eq!(initialize["capabilities"]["selectionRangeProvider"], true);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("initialized should send");
+    open_document(&client_connection, &script_uri, source);
+
+    send_request(
+        &client_connection,
+        2,
+        "textDocument/selectionRange",
+        serde_json::json!({
+            "textDocument": { "uri": script_uri },
+            "positions": [
+                { "line": 0, "character": name_start },
+                { "line": 0, "character": echo_start },
+            ],
+        }),
+    );
+    let response: Vec<lsp_types::SelectionRange> =
+        serde_json::from_value(recv_response(&client_connection, 2)).unwrap();
+    assert_eq!(response.len(), 2);
+
+    for (selection, expected_start, expected_end) in [
+        (&response[0], name_start, name_start + 4),
+        (&response[1], echo_start, echo_start + 4),
+    ] {
+        assert_eq!(
+            selection.range.start,
+            Position::new(0, expected_start as u32)
+        );
+        assert_eq!(selection.range.end, Position::new(0, expected_end as u32));
+
+        let mut current = selection;
+        while let Some(parent) = current.parent.as_deref() {
+            assert_ne!(current.range, parent.range);
+            assert!(parent.range.start <= current.range.start);
+            assert!(current.range.end <= parent.range.end);
+            current = parent;
+        }
+        assert_eq!(current.range.start, Position::new(0, 0));
+        assert_eq!(current.range.end, Position::new(1, 0));
+    }
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("exit notification should send");
+    server_thread
+        .join()
+        .expect("server thread should join")
+        .expect("server should exit cleanly");
+}
+
+#[test]
+fn selection_ranges_use_utf8_positions() {
+    selection_ranges_for_encoding("utf-8", 10, 18);
+}
+
+#[test]
+fn selection_ranges_use_utf16_positions() {
+    selection_ranges_for_encoding("utf-16", 8, 16);
+}
+
+#[test]
+fn selection_ranges_use_utf32_positions() {
+    selection_ranges_for_encoding("utf-32", 7, 15);
 }
 
 fn cross_file_rename_for_encoding(

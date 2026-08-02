@@ -19,6 +19,7 @@ mod hover;
 mod prepare_rename;
 mod references;
 mod rename;
+mod selection_range;
 mod shutdown;
 mod workspace_symbol;
 
@@ -47,5 +48,6 @@ pub(super) use hover::Hover;
 pub(super) use prepare_rename::PrepareRename;
 pub(super) use references::References;
 pub(super) use rename::Rename;
+pub(super) use selection_range::SelectionRanges;
 pub(super) use shutdown::ShutdownHandler;
 pub(super) use workspace_symbol::WorkspaceSymbols;
