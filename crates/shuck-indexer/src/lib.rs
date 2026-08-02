@@ -20,6 +20,7 @@
 //! or regions.
 mod close_delimiter_index;
 mod comment_index;
+mod folding_range_index;
 mod line_index;
 mod region_index;
 
@@ -27,6 +28,8 @@ mod region_index;
 pub use close_delimiter_index::{CloseDelimiterIndex, CloseDelimiterKind, IndexedCloseDelimiter};
 /// Comment lookup types derived from parser output.
 pub use comment_index::{CommentIndex, IndexedComment};
+/// Syntax-aware folding ranges derived from parser and layout facts.
+pub use folding_range_index::{FoldingRangeIndex, FoldingRangeKind, IndexedFoldingRange};
 /// Line-based offset lookup utilities.
 pub use line_index::{LineEndingStyle, LineIndex};
 /// Structural region indexes over parsed shell source.
@@ -45,6 +48,7 @@ use shuck_parser::parser::ParseResult;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct IndexerOptions {
     source_layout_indexes: bool,
+    folding_ranges: bool,
 }
 
 impl IndexerOptions {
@@ -70,6 +74,21 @@ impl IndexerOptions {
     pub fn source_layout_indexes(self) -> bool {
         self.source_layout_indexes
     }
+
+    /// Enable or disable syntax-aware folding range collection.
+    ///
+    /// Folding data is intended for editor integrations and is disabled by
+    /// default so normal lint and semantic-analysis paths do not retain
+    /// LSP-only structural ranges.
+    pub fn with_folding_ranges(mut self, enabled: bool) -> Self {
+        self.folding_ranges = enabled;
+        self
+    }
+
+    /// Return whether syntax-aware folding ranges are enabled.
+    pub fn folding_ranges(self) -> bool {
+        self.folding_ranges
+    }
 }
 
 /// Pre-computed positional and structural index over a parsed shell script.
@@ -89,6 +108,7 @@ pub struct Indexer {
     region_index: RegionIndex,
     close_delimiter_index: CloseDelimiterIndex,
     continuation_lines: Vec<TextSize>,
+    folding_range_index: FoldingRangeIndex,
 }
 
 impl Indexer {
@@ -130,10 +150,11 @@ impl Indexer {
         };
         let (line_index, raw_continuations) = LineIndex::build(source, raw_mode);
         let comment_index = CommentIndex::new(source, &line_index, file);
-        let region_index = RegionIndex::new_with_source_layout_indexes(
+        let region_index = RegionIndex::new_with_options(
             source,
             file,
             options.source_layout_indexes(),
+            options.folding_ranges(),
         );
         let close_delimiter_index = if options.source_layout_indexes() {
             CloseDelimiterIndex::new(source, file)
@@ -142,6 +163,17 @@ impl Indexer {
         };
         let continuation_lines =
             collect_continuation_lines(&raw_continuations, &comment_index, &region_index);
+        let folding_range_index = if options.folding_ranges() {
+            FoldingRangeIndex::new(
+                source,
+                &line_index,
+                &comment_index,
+                &region_index,
+                &continuation_lines,
+            )
+        } else {
+            FoldingRangeIndex::default()
+        };
 
         Self {
             line_index,
@@ -149,6 +181,7 @@ impl Indexer {
             region_index,
             close_delimiter_index,
             continuation_lines,
+            folding_range_index,
         }
     }
 
@@ -192,6 +225,11 @@ impl Indexer {
     /// are filtered out.
     pub fn continuation_line_starts(&self) -> &[TextSize] {
         &self.continuation_lines
+    }
+
+    /// Return stable syntax-aware folding ranges for this source file.
+    pub fn folding_range_index(&self) -> &FoldingRangeIndex {
+        &self.folding_range_index
     }
 
     /// Return whether `offset` is on a semantic continuation line.

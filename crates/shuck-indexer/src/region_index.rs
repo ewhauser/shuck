@@ -69,6 +69,7 @@ pub struct RegionIndex {
     regions: Vec<IndexedRegion>,
     expansion_brace_edges: Vec<TextSize>,
     dollar_brace_pairs: Vec<TextRange>,
+    structural_folding_ranges: Vec<TextRange>,
 }
 
 impl RegionIndex {
@@ -79,7 +80,7 @@ impl RegionIndex {
     /// driven by AST spans from `file`. `source` and `file` should describe the
     /// same parsed text.
     pub fn new(source: &str, file: &File) -> Self {
-        Self::new_with_source_layout_indexes(source, file, false)
+        Self::new_with_options(source, file, false, false)
     }
 
     /// Build a region index that also retains source-layout metadata.
@@ -89,15 +90,16 @@ impl RegionIndex {
     /// build an [`crate::Indexer`] with
     /// [`crate::IndexerOptions::with_source_layout_indexes`].
     pub fn with_source_layout_indexes(source: &str, file: &File) -> Self {
-        Self::new_with_source_layout_indexes(source, file, true)
+        Self::new_with_options(source, file, true, false)
     }
 
-    pub(crate) fn new_with_source_layout_indexes(
+    pub(crate) fn new_with_options(
         source: &str,
         file: &File,
         source_layout_indexes: bool,
+        folding_ranges: bool,
     ) -> Self {
-        let mut collector = RegionCollector::new(source, source_layout_indexes);
+        let mut collector = RegionCollector::new(source, source_layout_indexes, folding_ranges);
         collector.visit_file(file);
         collector.finish()
     }
@@ -237,11 +239,16 @@ impl RegionIndex {
             .copied()
             .filter(|pair| pair.start() < range.end())
     }
+
+    pub(crate) fn structural_folding_ranges(&self) -> &[TextRange] {
+        &self.structural_folding_ranges
+    }
 }
 
 struct RegionCollector<'a> {
     _source: &'a str,
     source_layout_indexes: bool,
+    collect_folding_ranges: bool,
     single_quoted: Vec<TextRange>,
     double_quoted: Vec<TextRange>,
     heredocs: Vec<TextRange>,
@@ -253,13 +260,15 @@ struct RegionCollector<'a> {
     indexed_heredocs: Vec<IndexedHeredoc>,
     expansion_brace_edges: Vec<TextSize>,
     dollar_brace_pairs: Vec<TextRange>,
+    structural_folding_ranges: Vec<TextRange>,
 }
 
 impl<'a> RegionCollector<'a> {
-    fn new(source: &'a str, source_layout_indexes: bool) -> Self {
+    fn new(source: &'a str, source_layout_indexes: bool, collect_folding_ranges: bool) -> Self {
         Self {
             _source: source,
             source_layout_indexes,
+            collect_folding_ranges,
             single_quoted: Vec::new(),
             double_quoted: Vec::new(),
             heredocs: Vec::new(),
@@ -271,6 +280,7 @@ impl<'a> RegionCollector<'a> {
             indexed_heredocs: Vec::new(),
             expansion_brace_edges: Vec::new(),
             dollar_brace_pairs: Vec::new(),
+            structural_folding_ranges: Vec::new(),
         }
     }
 
@@ -295,6 +305,8 @@ impl<'a> RegionCollector<'a> {
             .sort_unstable_by_key(|range| (range.start(), range.end()));
         self.dollar_brace_pairs
             .dedup_by_key(|range| (range.start(), range.end()));
+        sort_ranges(&mut self.structural_folding_ranges);
+        self.structural_folding_ranges.dedup();
 
         let mut regions = Vec::with_capacity(
             self.single_quoted.len()
@@ -365,6 +377,7 @@ impl<'a> RegionCollector<'a> {
             regions,
             expansion_brace_edges: self.expansion_brace_edges,
             dollar_brace_pairs: self.dollar_brace_pairs,
+            structural_folding_ranges: self.structural_folding_ranges,
         }
     }
 
@@ -379,13 +392,22 @@ impl<'a> RegionCollector<'a> {
     }
 
     fn visit_stmt(&mut self, stmt: &Stmt) {
+        self.visit_stmt_with_folding(stmt, true);
+    }
+
+    fn visit_stmt_with_folding(&mut self, stmt: &Stmt, record_folding_range: bool) {
         for redirect in &stmt.redirects {
             self.visit_redirect(redirect);
         }
-        self.visit_command(&stmt.command);
+        self.visit_command(&stmt.command, stmt.span.to_range(), record_folding_range);
     }
 
-    fn visit_command(&mut self, command: &Command) {
+    fn visit_command(
+        &mut self,
+        command: &Command,
+        statement_range: TextRange,
+        record_folding_range: bool,
+    ) {
         match command {
             Command::Simple(command) => {
                 self.visit_word(&command.name);
@@ -402,15 +424,45 @@ impl<'a> RegionCollector<'a> {
                 self.visit_stmt(&command.left);
                 self.visit_stmt(&command.right);
             }
-            Command::Compound(command) => self.visit_compound(command),
-            Command::Function(FunctionDef { header, body, .. }) => {
+            Command::Compound(command) => {
+                if self.collect_folding_ranges
+                    && record_folding_range
+                    && let Some(end) = compound_folding_end(command, self._source)
+                {
+                    push_bounded_range(
+                        &mut self.structural_folding_ranges,
+                        compound_folding_start(command, statement_range.start(), self._source),
+                        end,
+                    );
+                }
+                self.visit_compound(command);
+            }
+            Command::Function(function @ FunctionDef { header, body, .. }) => {
+                if self.collect_folding_ranges
+                    && let Some(end) = statement_folding_end(body, self._source)
+                {
+                    push_bounded_range(
+                        &mut self.structural_folding_ranges,
+                        function.span.to_range().start(),
+                        end,
+                    );
+                }
                 for entry in &header.entries {
                     self.visit_word(&entry.word);
                 }
-                self.visit_stmt(body);
+                self.visit_stmt_with_folding(body, false);
             }
             Command::AnonymousFunction(function) => {
-                self.visit_stmt(&function.body);
+                if self.collect_folding_ranges
+                    && let Some(end) = statement_folding_end(&function.body, self._source)
+                {
+                    push_bounded_range(
+                        &mut self.structural_folding_ranges,
+                        function.span.to_range().start(),
+                        end,
+                    );
+                }
+                self.visit_stmt_with_folding(&function.body, false);
                 for argument in &function.args {
                     self.visit_word(argument);
                 }
@@ -671,6 +723,13 @@ impl<'a> RegionCollector<'a> {
                 };
                 let range = heredoc.body.span.to_range();
                 push_range(&mut self.heredocs, range);
+                if self.collect_folding_ranges {
+                    push_bounded_range(
+                        &mut self.structural_folding_ranges,
+                        redirect.span.to_range().start(),
+                        range.end(),
+                    );
+                }
                 if self.source_layout_indexes {
                     self.indexed_heredocs.push(IndexedHeredoc {
                         body_range: range,
@@ -1102,6 +1161,101 @@ fn push_range(ranges: &mut Vec<TextRange>, range: TextRange) {
     if !range.is_empty() {
         ranges.push(range);
     }
+}
+
+fn push_bounded_range(ranges: &mut Vec<TextRange>, start: TextSize, end: TextSize) {
+    if start < end {
+        ranges.push(TextRange::new(start, end));
+    }
+}
+
+fn statement_folding_end(statement: &Stmt, source: &str) -> Option<TextSize> {
+    match &statement.command {
+        Command::Compound(command) => compound_folding_end(command, source),
+        Command::Function(function) => statement_folding_end(&function.body, source),
+        Command::AnonymousFunction(function) => statement_folding_end(&function.body, source),
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) | Command::Binary(_) => {
+            Some(statement.span.to_range().end())
+        }
+    }
+}
+
+fn compound_folding_start(command: &CompoundCommand, fallback: TextSize, source: &str) -> TextSize {
+    match command {
+        CompoundCommand::Subshell(sequence) => {
+            delimiter_before(source, sequence.span.to_range().start(), '(').unwrap_or(fallback)
+        }
+        CompoundCommand::BraceGroup(sequence) => {
+            delimiter_before(source, sequence.span.to_range().start(), '{').unwrap_or(fallback)
+        }
+        _ => fallback,
+    }
+}
+
+fn compound_folding_end(command: &CompoundCommand, source: &str) -> Option<TextSize> {
+    let close_start = |span: shuck_ast::Span| span.to_range().start();
+    match command {
+        CompoundCommand::If(command) => Some(match command.syntax {
+            shuck_ast::IfSyntax::ThenFi { fi_span, .. } => close_start(fi_span),
+            shuck_ast::IfSyntax::Brace {
+                right_brace_span, ..
+            } => close_start(right_brace_span),
+        }),
+        CompoundCommand::For(command) => Some(match command.syntax {
+            shuck_ast::ForSyntax::InDoDone { done_span, .. }
+            | shuck_ast::ForSyntax::ParenDoDone { done_span, .. } => close_start(done_span),
+            shuck_ast::ForSyntax::InBrace {
+                right_brace_span, ..
+            }
+            | shuck_ast::ForSyntax::ParenBrace {
+                right_brace_span, ..
+            } => close_start(right_brace_span),
+            shuck_ast::ForSyntax::InDirect { .. } | shuck_ast::ForSyntax::ParenDirect { .. } => {
+                command.span.to_range().end()
+            }
+        }),
+        CompoundCommand::Repeat(command) => Some(match command.syntax {
+            shuck_ast::RepeatSyntax::DoDone { done_span, .. } => close_start(done_span),
+            shuck_ast::RepeatSyntax::Brace {
+                right_brace_span, ..
+            } => close_start(right_brace_span),
+            shuck_ast::RepeatSyntax::Direct => command.span.to_range().end(),
+        }),
+        CompoundCommand::Foreach(command) => Some(match command.syntax {
+            shuck_ast::ForeachSyntax::ParenBrace {
+                right_brace_span, ..
+            } => close_start(right_brace_span),
+            shuck_ast::ForeachSyntax::InDoDone { done_span, .. } => close_start(done_span),
+        }),
+        CompoundCommand::ArithmeticFor(command) => command.done_span.map(close_start),
+        CompoundCommand::While(command) => command.done_span.map(close_start),
+        CompoundCommand::Until(command) => command.done_span.map(close_start),
+        CompoundCommand::Case(command) => Some(close_start(command.esac_span)),
+        CompoundCommand::Select(command) => Some(close_start(command.done_span)),
+        CompoundCommand::Subshell(sequence) => Some(
+            delimiter_before(source, sequence.span.to_range().end(), ')')
+                .unwrap_or_else(|| sequence.span.to_range().end()),
+        ),
+        CompoundCommand::BraceGroup(sequence) => Some(
+            delimiter_before(source, sequence.span.to_range().end(), '}')
+                .unwrap_or_else(|| sequence.span.to_range().end()),
+        ),
+        CompoundCommand::Always(command) => Some(command.always_body.span.to_range().end()),
+        CompoundCommand::Time(command) => command
+            .command
+            .as_deref()
+            .and_then(|statement| statement_folding_end(statement, source)),
+        CompoundCommand::Coproc(command) => statement_folding_end(&command.body, source),
+        CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => None,
+    }
+}
+
+fn delimiter_before(source: &str, offset: TextSize, delimiter: char) -> Option<TextSize> {
+    let prefix = source.get(..usize::from(offset).min(source.len()))?;
+    let trimmed = prefix.trim_end_matches(char::is_whitespace);
+    trimmed
+        .ends_with(delimiter)
+        .then(|| TextSize::new(trimmed.len().saturating_sub(delimiter.len_utf8()) as u32))
 }
 
 fn heredoc_closing_marker_range(heredoc: &Heredoc, source: &str) -> Option<TextRange> {

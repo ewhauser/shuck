@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use lsp_types::Url;
-use shuck_indexer::{Indexer, LineIndex};
+use shuck_indexer::{Indexer, IndexerOptions, LineIndex};
 use shuck_parser::{
     ShellProfile,
     parser::{ParseResult, Parser},
@@ -147,7 +147,11 @@ impl DocumentAnalysis {
         )?;
         let shell_profile = shell.shell_profile();
         let parse_result = Parser::with_profile(source, shell_profile.clone()).parse();
-        let indexer = Indexer::new(source, &parse_result);
+        let indexer = Indexer::new_with_options(
+            source,
+            &parse_result,
+            IndexerOptions::new().with_folding_ranges(true),
+        );
 
         Some(Self {
             document,

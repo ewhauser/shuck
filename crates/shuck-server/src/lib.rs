@@ -22,6 +22,7 @@ mod edit;
 mod editor;
 mod editor_features;
 mod fix;
+mod folding;
 mod format;
 #[cfg(feature = "fuzzing")]
 #[doc(hidden)]
