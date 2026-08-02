@@ -599,11 +599,22 @@ fn workspace_diagnostics_have_enabled_scope(context: &WorkspaceDiagnosticContext
 }
 
 fn path_in_workspace(context: &WorkspaceDiagnosticContext, path: &Path) -> bool {
-    workspace_settings_for_path(context, path).is_some()
+    if workspace_settings_for_path(context, path).is_some() {
+        return true;
+    }
+
+    let canonical_path = crate::workspace_functions::canonical_path(path);
+    workspace_settings_for_path(context, &canonical_path).is_some()
         || context
             .workspace_roots
             .iter()
-            .any(|root| path.starts_with(root))
+            .any(|root| path_starts_with_root(path, root))
+}
+
+fn path_starts_with_root(path: &Path, root: &Path) -> bool {
+    path.starts_with(root)
+        || crate::workspace_functions::canonical_path(path)
+            .starts_with(crate::workspace_functions::canonical_path(root))
 }
 
 fn path_owned_by_root(context: &WorkspaceDiagnosticContext, path: &Path, root: &Path) -> bool {
@@ -653,5 +664,16 @@ mod tests {
         std::fs::write(&path, vec![b'x'; 4096]).unwrap();
 
         assert!(read_source_bounded(&path, 16).unwrap().is_none());
+    }
+
+    #[test]
+    fn canonical_deleted_path_remains_under_workspace_root() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("deleted.sh");
+        std::fs::write(&path, "unused=1\n").unwrap();
+        let canonical_path = crate::workspace_functions::canonical_path(&path);
+        std::fs::remove_file(&path).unwrap();
+
+        assert!(path_starts_with_root(&canonical_path, directory.path()));
     }
 }
