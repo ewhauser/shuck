@@ -95,7 +95,9 @@ fn hover(
     let Some(index) = workspace_function_index(&workspace) else {
         return Ok(None);
     };
-    let Some(target) = index.resolve_call_site_exact(&path, call.name_span) else {
+    let Some(target) =
+        index.resolve_call_site_exact(&path, call.name_span, &workspace.cancellation)
+    else {
         return Ok(None);
     };
     if target.path == path {

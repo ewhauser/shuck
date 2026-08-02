@@ -198,8 +198,8 @@ pub(crate) fn render_sourced_function_hover(
         "### {}\n\nFunction\n\nDefined in {} at line {}, column {}.\n\nScope: top-level.",
         markdown_code(hover.name),
         markdown_code(&definition_file),
-        hover.definition_span.start.line,
-        hover.definition_span.start.column,
+        hover.definition_span.start.line(),
+        hover.definition_span.start.column(),
     );
     types::Hover {
         contents: types::HoverContents::Markup(types::MarkupContent {

@@ -1,7 +1,7 @@
 use std::thread;
 use std::time::Duration;
 
-use lsp_server::{Connection, Message, Notification, Request, RequestId};
+use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
 use lsp_types::{
     ClientCapabilities, CodeAction, CodeActionContext, CodeActionParams, DocumentDiagnosticParams,
     DocumentDiagnosticReport, DocumentDiagnosticReportResult, HoverParams, PartialResultParams,
@@ -21,6 +21,18 @@ fn send_request(connection: &Connection, id: i32, method: &str, params: serde_js
 }
 
 fn recv_response(connection: &Connection, id: i32) -> serde_json::Value {
+    let response = recv_lsp_response(connection, id);
+    assert!(
+        response.error.is_none(),
+        "unexpected LSP error: {:?}",
+        response.error
+    );
+    response
+        .result
+        .expect("successful response should carry a result")
+}
+
+fn recv_lsp_response(connection: &Connection, id: i32) -> Response {
     loop {
         let message = connection
             .receiver
@@ -28,14 +40,7 @@ fn recv_response(connection: &Connection, id: i32) -> serde_json::Value {
             .expect("server should respond");
         match message {
             Message::Response(response) if response.id == RequestId::from(id) => {
-                assert!(
-                    response.error.is_none(),
-                    "unexpected LSP error: {:?}",
-                    response.error
-                );
-                return response
-                    .result
-                    .expect("successful response should carry a result");
+                return response;
             }
             Message::Notification(_) => continue,
             Message::Request(request) => panic!(
@@ -286,6 +291,271 @@ fn open_document(connection: &Connection, uri: &Url, text: &str) {
             }),
         )))
         .expect("didOpen should send");
+}
+
+fn change_document(connection: &Connection, uri: &Url, version: i32, text: &str) {
+    connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "textDocument/didChange".to_owned(),
+            serde_json::json!({
+                "textDocument": { "uri": uri, "version": version },
+                "contentChanges": [{ "text": text }],
+            }),
+        )))
+        .expect("didChange should send");
+}
+
+fn cross_file_rename_for_encoding(
+    encoding: &str,
+    name_start: u64,
+    supports_document_changes: bool,
+) {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+
+    let workspace = tempfile::tempdir().expect("tempdir should be created");
+    let lib = workspace.path().join("lib");
+    std::fs::create_dir(&lib).unwrap();
+    std::fs::write(
+        workspace.path().join("shuck.toml"),
+        "[lint]\nsource-paths = [\"lib\"]\n",
+    )
+    .unwrap();
+    let target_path = lib.join("target.sh");
+    let cycle_path = lib.join("cycle.sh");
+    let main_path = workspace.path().join("main.sh");
+    let caller_path = workspace.path().join("caller.sh");
+    let shadow_path = workspace.path().join("shadow.sh");
+    let unrelated_path = workspace.path().join("unrelated.sh");
+    let target_source = "source cycle.sh\n: '😀'; foo() { :; }\n";
+    let main_source = "# shuck: source=target.sh\nsource \"$DIR/target.sh\"\n: '😀'; foo\n";
+    let caller_source = "source main.sh\nfoo\n";
+    let shadow_source = "source main.sh\nfoo\nfoo() { :; }\nfoo\n";
+    std::fs::write(&target_path, "stale_target() { :; }\n").unwrap();
+    std::fs::write(&cycle_path, "source target.sh\n").unwrap();
+    std::fs::write(&main_path, "stale_main\n").unwrap();
+    std::fs::write(&caller_path, caller_source).unwrap();
+    std::fs::write(&shadow_path, shadow_source).unwrap();
+    std::fs::write(&unrelated_path, "foo() { :; }\nfoo\n").unwrap();
+
+    let target_uri = Url::from_file_path(&target_path).unwrap();
+    let main_uri = Url::from_file_path(&main_path).unwrap();
+    let caller_uri = Url::from_file_path(std::fs::canonicalize(&caller_path).unwrap()).unwrap();
+    let shadow_uri = Url::from_file_path(std::fs::canonicalize(&shadow_path).unwrap()).unwrap();
+    let unrelated_uri =
+        Url::from_file_path(std::fs::canonicalize(&unrelated_path).unwrap()).unwrap();
+
+    let mut capabilities = serde_json::to_value(replay_capabilities()).unwrap();
+    capabilities["general"]["positionEncodings"] = serde_json::json!([encoding]);
+    capabilities["workspace"]["workspaceEdit"]["documentChanges"] =
+        serde_json::json!(supports_document_changes);
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": capabilities,
+            "rootUri": Url::from_file_path(workspace.path()).unwrap(),
+            "initializationOptions": {
+                "shuck": { "server": { "rename": { "allowCrossFile": true } } }
+            },
+        }),
+    );
+    let initialize = recv_response(&client_connection, 1);
+    assert_eq!(initialize["capabilities"]["positionEncoding"], encoding);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("initialized should send");
+    open_document(&client_connection, &target_uri, target_source);
+    open_document(&client_connection, &main_uri, main_source);
+
+    if !supports_document_changes {
+        send_request(
+            &client_connection,
+            2,
+            "textDocument/rename",
+            serde_json::json!({
+                "textDocument": { "uri": main_uri },
+                "position": { "line": 2, "character": name_start },
+                "newName": "unsafe_without_versions",
+            }),
+        );
+        let unsupported = recv_lsp_response(&client_connection, 2);
+        let unsupported_error = unsupported
+            .error
+            .expect("cross-file rename should require versioned document changes");
+        assert!(
+            unsupported_error
+                .message
+                .contains("requires client support")
+        );
+        send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+        let _ = recv_response(&client_connection, 99);
+        client_connection
+            .sender
+            .send(Message::Notification(Notification::new(
+                "exit".to_owned(),
+                serde_json::json!({}),
+            )))
+            .expect("exit notification should send");
+        server_thread
+            .join()
+            .expect("server thread should join")
+            .expect("server should exit cleanly");
+        return;
+    }
+
+    send_request(
+        &client_connection,
+        2,
+        "textDocument/prepareRename",
+        serde_json::json!({
+            "textDocument": { "uri": main_uri },
+            "position": { "line": 2, "character": name_start },
+        }),
+    );
+    let prepared = recv_response(&client_connection, 2);
+    assert_eq!(prepared["placeholder"], "foo");
+    assert_eq!(
+        prepared["range"],
+        serde_json::json!({
+            "start": { "line": 2, "character": name_start },
+            "end": { "line": 2, "character": name_start + 3 },
+        })
+    );
+
+    send_request(
+        &client_connection,
+        3,
+        "textDocument/rename",
+        serde_json::json!({
+            "textDocument": { "uri": main_uri },
+            "position": { "line": 2, "character": name_start },
+            "newName": "renamed",
+        }),
+    );
+    let rename = recv_response(&client_connection, 3);
+    let documents = rename["documentChanges"]
+        .as_array()
+        .expect("cross-file rename should use documentChanges");
+    assert_eq!(documents.len(), 4);
+    let document = |uri: &Url| {
+        documents
+            .iter()
+            .find(|document| document["textDocument"]["uri"] == uri.as_str())
+            .unwrap_or_else(|| panic!("missing rename edits for {uri}: {rename:#}"))
+    };
+    let target = document(&target_uri);
+    assert_eq!(target["textDocument"]["version"], 1);
+    assert_eq!(target["edits"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        target["edits"][0]["range"]["start"]["character"],
+        name_start
+    );
+    let main = document(&main_uri);
+    assert_eq!(main["textDocument"]["version"], 1);
+    assert_eq!(main["edits"].as_array().unwrap().len(), 1);
+    let caller = document(&caller_uri);
+    assert!(caller["textDocument"]["version"].is_null());
+    assert_eq!(caller["edits"].as_array().unwrap().len(), 1);
+    let shadow = document(&shadow_uri);
+    assert!(shadow["textDocument"]["version"].is_null());
+    assert_eq!(shadow["edits"].as_array().unwrap().len(), 1);
+    assert!(
+        documents
+            .iter()
+            .all(|document| { document["textDocument"]["uri"] != unrelated_uri.as_str() })
+    );
+
+    std::fs::write(&unrelated_path, "source main.sh\nfoo\n").unwrap();
+    send_request(
+        &client_connection,
+        4,
+        "textDocument/rename",
+        serde_json::json!({
+            "textDocument": { "uri": main_uri },
+            "position": { "line": 2, "character": name_start },
+            "newName": "freshly_connected",
+        }),
+    );
+    let refreshed = recv_response(&client_connection, 4);
+    let refreshed_documents = refreshed["documentChanges"]
+        .as_array()
+        .expect("fresh rename should use documentChanges");
+    let newly_connected = refreshed_documents
+        .iter()
+        .find(|document| document["textDocument"]["uri"] == unrelated_uri.as_str())
+        .expect("fresh mutation index should include the newly connected closed file");
+    assert_eq!(newly_connected["edits"].as_array().unwrap().len(), 1);
+
+    std::fs::write(&unrelated_path, "foo() { :; }\nfoo\n").unwrap();
+    change_document(
+        &client_connection,
+        &main_uri,
+        2,
+        "# shuck: source=target.sh\nsource \"$DIR/target.sh\"\n: '😀'; foo\nsource \"$dynamic\"\n",
+    );
+    send_request(
+        &client_connection,
+        5,
+        "textDocument/rename",
+        serde_json::json!({
+            "textDocument": { "uri": main_uri },
+            "position": { "line": 2, "character": name_start },
+            "newName": "ambiguous_rejected",
+        }),
+    );
+    let unresolved = recv_lsp_response(&client_connection, 5);
+    let unresolved_error = unresolved
+        .error
+        .expect("unresolved source should fail rename");
+    assert!(
+        unresolved_error.message.contains("unresolved or unindexed")
+            || unresolved_error
+                .message
+                .contains("ambiguous binding identity"),
+        "unexpected unresolved-source error: {}",
+        unresolved_error.message
+    );
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("exit notification should send");
+    server_thread
+        .join()
+        .expect("server thread should join")
+        .expect("server should exit cleanly");
+}
+
+#[test]
+fn cross_file_rename_uses_utf8_positions() {
+    cross_file_rename_for_encoding("utf-8", 10, true);
+}
+
+#[test]
+fn cross_file_rename_uses_utf16_positions() {
+    cross_file_rename_for_encoding("utf-16", 8, true);
+}
+
+#[test]
+fn cross_file_rename_uses_utf32_positions() {
+    cross_file_rename_for_encoding("utf-32", 7, true);
+}
+
+#[test]
+fn cross_file_rename_requires_versioned_document_changes() {
+    cross_file_rename_for_encoding("utf-16", 8, false);
 }
 
 #[test]

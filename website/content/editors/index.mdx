@@ -23,7 +23,7 @@ files.
 | Document highlights | `textDocument/documentHighlight` | Read and write occurrences within the active document. |
 | Document symbols | `textDocument/documentSymbol` | Functions, declarations, and assignments from the active document. |
 | Workspace symbols | `workspace/symbol` | Fuzzy search over open buffers and discovered shell files in workspace folders, subject to a configurable file limit. |
-| Rename | `textDocument/prepareRename`, `textDocument/rename` | Conservative, semantically resolved edits within the active document. Cross-file rename is not supported. |
+| Rename | `textDocument/prepareRename`, `textDocument/rename` | Variables remain document-local. Function rename can span the exact statically resolved source graph when `server.rename.allowCrossFile` is enabled and the client supports `documentChanges`; open buffers then use versioned edits. Incomplete, ambiguous, stale, overlapping, or out-of-workspace edits are rejected atomically. |
 | Formatting | `textDocument/formatting`, `textDocument/rangeFormatting` | Whole-document formatting or the smallest complete statement containing the selected range. Incomplete syntactic fragments are left unchanged. |
 | Call hierarchy | `textDocument/prepareCallHierarchy`, `callHierarchy/incomingCalls`, `callHierarchy/outgoingCalls` | Preparation, incoming calls, and outgoing calls work across the statically resolvable source graph. Preparing on a sourced function call returns the exact target definition, including when a file redefines the same function name. Literal sources and valid `# shuck: source=` hints participate; runtime-only dispatch and unresolved dynamic sources do not. |
 
@@ -31,8 +31,6 @@ Editor formatting uses the same parser-backed formatter as [`shuck format`](/doc
 
 ### Planned or deferred
 
-- Cross-file rename is intentionally disabled until Shuck can prove safe edits
-  for every affected open or closed file.
 - Language-server support for embedded shell regions, such as scripts inside
   GitHub Actions YAML, needs a separate position-remapping design.
 

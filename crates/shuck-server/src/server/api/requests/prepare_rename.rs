@@ -1,33 +1,42 @@
 use lsp_types::{self as types, request as req};
 
 use crate::editor_features;
-use crate::session::{Client, DocumentSnapshot};
+use crate::session::{Client, DocumentSnapshot, RequestCancellationToken, Session};
+use crate::workspace_functions::WorkspaceFunctionContext;
 
 pub(crate) struct PrepareRename;
+
+pub(crate) struct PrepareRenameSnapshot {
+    document: Option<DocumentSnapshot>,
+    workspace: WorkspaceFunctionContext,
+}
 
 impl super::RequestHandler for PrepareRename {
     type RequestType = req::PrepareRenameRequest;
 }
 
-impl super::BackgroundDocumentRequestHandler for PrepareRename {
-    fn document_url(
-        params: &types::TextDocumentPositionParams,
-    ) -> std::borrow::Cow<'_, types::Url> {
-        std::borrow::Cow::Borrowed(&params.text_document.uri)
-    }
+impl super::super::traits::BackgroundRequestHandler for PrepareRename {
+    type Snapshot = PrepareRenameSnapshot;
 
-    fn run_without_snapshot(
-        _client: &Client,
-        _params: types::TextDocumentPositionParams,
-    ) -> crate::server::Result<editor_features::PrepareRenameResponse> {
-        Ok(None)
+    fn snapshot(
+        session: &Session,
+        params: &types::TextDocumentPositionParams,
+        cancellation: RequestCancellationToken,
+    ) -> crate::server::Result<Self::Snapshot> {
+        Ok(PrepareRenameSnapshot {
+            document: session.take_snapshot(params.text_document.uri.clone()),
+            workspace: session.workspace_function_context(cancellation),
+        })
     }
 
     fn run_with_snapshot(
-        snapshot: DocumentSnapshot,
+        snapshot: Self::Snapshot,
         client: &Client,
         params: types::TextDocumentPositionParams,
     ) -> crate::server::Result<editor_features::PrepareRenameResponse> {
-        editor_features::prepare_rename(snapshot, client, params)
+        let Some(document) = snapshot.document else {
+            return Ok(None);
+        };
+        super::cross_file_rename::prepare(document, snapshot.workspace, client, params)
     }
 }
