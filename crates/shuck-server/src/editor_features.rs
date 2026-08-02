@@ -101,9 +101,9 @@ where
             let local_wins = completions.items.iter().any(|item| {
                 item.kind == EditorCompletionKind::Function
                     && item.name == sourced.name
-                    && item
-                        .definition_span
-                        .is_some_and(|span| span.start.offset() > sourced.import_span.start.offset())
+                    && item.definition_span.is_some_and(|span| {
+                        span.start.offset() > sourced.import_span.start.offset()
+                    })
             });
             if local_wins {
                 continue;
