@@ -78,7 +78,7 @@ pub(super) fn request(req: server::Request) -> Task {
             background_request_task::<request::FormatRange>(req, BackgroundSchedule::Fmt)
         }
         request::Hover::METHOD => {
-            background_request_task::<request::Hover>(req, BackgroundSchedule::Worker)
+            background_session_request_task::<request::Hover>(req, BackgroundSchedule::Worker)
         }
         request::PrepareRename::METHOD => {
             background_request_task::<request::PrepareRename>(req, BackgroundSchedule::Worker)
@@ -463,8 +463,9 @@ mod tests {
             .expect("hover params should serialize"),
         };
 
-        let task = background_request_task::<request::Hover>(request, BackgroundSchedule::Worker)
-            .expect("hover request should schedule");
+        let task =
+            background_session_request_task::<request::Hover>(request, BackgroundSchedule::Worker)
+                .expect("hover request should schedule");
         task.run_for_test(&mut session, &client);
 
         let Event::SendResponse(response) = event_rx

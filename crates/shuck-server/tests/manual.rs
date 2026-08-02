@@ -633,6 +633,147 @@ fn sourced_function_completion_uses_order_shadowing_and_open_buffers() {
 }
 
 #[test]
+fn cross_file_hover_uses_exact_workspace_binding_and_open_buffers() {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+
+    let workspace = tempfile::tempdir().expect("tempdir should be created");
+    std::fs::write(
+        workspace.path().join("shuck.toml"),
+        "[lint]\nsource-paths = [\"lib\"]\n",
+    )
+    .unwrap();
+    std::fs::create_dir(workspace.path().join("lib")).unwrap();
+    let configured_path = workspace.path().join("lib/configured.sh");
+    std::fs::write(&configured_path, "configured() { :; }\n").unwrap();
+
+    let imported_path = workspace.path().join("imported.sh");
+    std::fs::write(&imported_path, "stale() { :; }\n").unwrap();
+    let imported_source = ": '😀'; imported() {\n  :\n}\n";
+
+    let caller_path = workspace.path().join("caller.sh");
+    let caller_source = "# shuck: source=imported.sh\nsource \"$DIR/imported.sh\"\nprintf '😀'; imported\nimported() {\n  :\n}\nimported\nsource configured.sh\nconfigured\nsource \"$dynamic\"\nimported\n";
+    std::fs::write(&caller_path, caller_source).unwrap();
+
+    let imported_uri = Url::from_file_path(std::fs::canonicalize(&imported_path).unwrap()).unwrap();
+    let configured_uri =
+        Url::from_file_path(std::fs::canonicalize(&configured_path).unwrap()).unwrap();
+    let caller_uri = Url::from_file_path(&caller_path).unwrap();
+    let mut capabilities = serde_json::to_value(replay_capabilities()).unwrap();
+    capabilities["general"]["positionEncodings"] = serde_json::json!(["utf-8"]);
+
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": capabilities,
+            "rootUri": Url::from_file_path(workspace.path()).unwrap(),
+        }),
+    );
+    let initialize = recv_response(&client_connection, 1);
+    assert_eq!(initialize["capabilities"]["positionEncoding"], "utf-8");
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("initialized should send");
+    open_document(&client_connection, &imported_uri, imported_source);
+    open_document(&client_connection, &caller_uri, caller_source);
+
+    send_request(
+        &client_connection,
+        2,
+        "textDocument/hover",
+        serde_json::json!({
+            "textDocument": { "uri": caller_uri },
+            "position": { "line": 2, "character": 15 },
+        }),
+    );
+    let imported = recv_response(&client_connection, 2);
+    let imported_markdown = imported["contents"]["value"]
+        .as_str()
+        .unwrap_or_else(|| panic!("expected sourced function hover: {imported:#}"));
+    assert!(imported_markdown.contains("### `imported`"));
+    assert!(imported_markdown.contains("Function"));
+    let rendered_imported_path = imported_uri
+        .to_file_path()
+        .expect("imported URI should round-trip to its display path");
+    assert!(imported_markdown.contains(&rendered_imported_path.display().to_string()));
+    assert!(
+        imported_markdown.contains("line 1, column 8"),
+        "unexpected hover content: {imported_markdown}"
+    );
+    assert_eq!(
+        imported["range"],
+        serde_json::json!({
+            "start": { "line": 2, "character": 15 },
+            "end": { "line": 2, "character": 23 },
+        })
+    );
+
+    send_request(
+        &client_connection,
+        3,
+        "textDocument/hover",
+        serde_json::json!({
+            "textDocument": { "uri": caller_uri },
+            "position": { "line": 6, "character": 0 },
+        }),
+    );
+    let local = recv_response(&client_connection, 3);
+    let local_markdown = local["contents"]["value"].as_str().unwrap();
+    assert!(local_markdown.contains("Defined at line 4"));
+    assert!(!local_markdown.contains(&imported_path.display().to_string()));
+
+    send_request(
+        &client_connection,
+        4,
+        "textDocument/hover",
+        serde_json::json!({
+            "textDocument": { "uri": caller_uri },
+            "position": { "line": 8, "character": 0 },
+        }),
+    );
+    let configured = recv_response(&client_connection, 4);
+    let rendered_configured_path = configured_uri
+        .to_file_path()
+        .expect("configured URI should round-trip to its display path");
+    assert!(
+        configured["contents"]["value"]
+            .as_str()
+            .is_some_and(|value| value.contains(&rendered_configured_path.display().to_string()))
+    );
+
+    send_request(
+        &client_connection,
+        5,
+        "textDocument/hover",
+        serde_json::json!({
+            "textDocument": { "uri": caller_uri },
+            "position": { "line": 10, "character": 0 },
+        }),
+    );
+    assert!(recv_response(&client_connection, 5).is_null());
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("exit notification should send");
+    server_thread
+        .join()
+        .expect("server thread should join")
+        .expect("server should exit cleanly");
+}
+
+#[test]
 fn prepare_call_hierarchy_resolves_sourced_cross_file_call() {
     let (server_connection, client_connection) = Connection::memory();
     let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
