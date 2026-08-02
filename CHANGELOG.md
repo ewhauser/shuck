@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.1.0](https://github.com/ewhauser/shuck/compare/v0.0.46...v0.1.0) (2026-08-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **ast:** store source positions as u32 ([#1230](https://github.com/ewhauser/shuck/issues/1230))
+
+### Features
+
+* **server:** complete sourced functions ([#1232](https://github.com/ewhauser/shuck/issues/1232)) ([3a15223](https://github.com/ewhauser/shuck/commit/3a15223573d70f7f1cb7a0f195b20610012610e9))
+* **server:** find sourced function references ([#1234](https://github.com/ewhauser/shuck/issues/1234)) ([ad703a0](https://github.com/ewhauser/shuck/commit/ad703a07e87cefbc940e868469fb8a787a2a291d))
+* **server:** hover sourced functions ([#1233](https://github.com/ewhauser/shuck/issues/1233)) ([bd477f7](https://github.com/ewhauser/shuck/commit/bd477f752b7248dcb2c93893a7d21f2186063f86))
+* **server:** resolve sourced function definitions ([#1231](https://github.com/ewhauser/shuck/issues/1231)) ([22a547b](https://github.com/ewhauser/shuck/commit/22a547b63ae1a3a76a54aa9e545ed9775c7b25c4))
+
+
+### Bug Fixes
+
+* **server:** preserve call hierarchy definition identity ([#1221](https://github.com/ewhauser/shuck/issues/1221)) ([abed563](https://github.com/ewhauser/shuck/commit/abed563afe79a66d83112380c481747276d6e434))
+* **server:** use position accessors in sourced hover ([#1237](https://github.com/ewhauser/shuck/issues/1237)) ([1909a4b](https://github.com/ewhauser/shuck/commit/1909a4bd4fca0867301c697f15199ed24fca9ef7))
+
+
+### Performance
+
+* **ast:** box fat AST enum payloads ([#1229](https://github.com/ewhauser/shuck/issues/1229)) ([2725413](https://github.com/ewhauser/shuck/commit/27254137cb9a2bc639846d743b9c6e77f73d3364))
+* **ast:** inline the hot span-slice path ([#1224](https://github.com/ewhauser/shuck/issues/1224)) ([df4402e](https://github.com/ewhauser/shuck/commit/df4402ef47a61337821082ab30934d69c1b375c1))
+* **ast:** store source positions as u32 ([#1230](https://github.com/ewhauser/shuck/issues/1230)) ([541db1b](https://github.com/ewhauser/shuck/commit/541db1b083cfd0202a57a8ce7b4836d14c4502e1))
+* **linter:** collect fork-bomb self-pipes once ([#1225](https://github.com/ewhauser/shuck/issues/1225)) ([17c5f2e](https://github.com/ewhauser/shuck/commit/17c5f2e8ef5bd05ca7fc21e6445127e51037226d))
+* **linter:** index C063 file-wide scans instead of repeating them ([#1219](https://github.com/ewhauser/shuck/issues/1219)) ([be4599a](https://github.com/ewhauser/shuck/commit/be4599a6fd832a945d514efaabbb7bef218745a0))
+* **linter:** index statement spans for pipeline fact lookups ([#1226](https://github.com/ewhauser/shuck/issues/1226)) ([50df2f8](https://github.com/ewhauser/shuck/commit/50df2f8ef98ad89e9da8e15eb1225c55f33e33a5))
+* **semantic:** answer scope_at from a flat segment table ([#1222](https://github.com/ewhauser/shuck/issues/1222)) ([497dd8b](https://github.com/ewhauser/shuck/commit/497dd8b3fa36f120fa8f27750efacf792552ee1d))
+* **semantic:** slim the unused-assignment dataflow ([#1227](https://github.com/ewhauser/shuck/issues/1227)) ([82f68e6](https://github.com/ewhauser/shuck/commit/82f68e609c62973a52f9a476421e54804fe0285d))
+* stop rebuilding substring searchers in hot scans ([#1220](https://github.com/ewhauser/shuck/issues/1220)) ([93bafc4](https://github.com/ewhauser/shuck/commit/93bafc46b0039e254fbb3fa6bc7ef8f4108676fb))
+
+
+### Refactor
+
+* **server:** extract shared workspace function index ([#1228](https://github.com/ewhauser/shuck/issues/1228)) ([249bdda](https://github.com/ewhauser/shuck/commit/249bddaee492cfb5df051fa6d127dd5f063bddd4))
+
 ## [0.0.46](https://github.com/ewhauser/shuck/compare/v0.0.45...v0.0.46) (2026-08-01)
 
 
