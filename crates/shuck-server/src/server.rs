@@ -163,6 +163,7 @@ impl Server {
             document_highlight_provider: Some(OneOf::Left(true)),
             document_formatting_provider: Some(OneOf::Left(true)),
             document_range_formatting_provider: Some(OneOf::Left(true)),
+            folding_range_provider: Some(types::FoldingRangeProviderCapability::Simple(true)),
             document_symbol_provider: Some(OneOf::Left(true)),
             workspace_symbol_provider: Some(OneOf::Right(types::WorkspaceSymbolOptions {
                 work_done_progress_options: WorkDoneProgressOptions {

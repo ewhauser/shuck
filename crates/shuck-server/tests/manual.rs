@@ -124,6 +124,10 @@ fn replays_a_small_lsp_session() {
         initialize["capabilities"]["documentHighlightProvider"],
         serde_json::json!(true)
     );
+    assert_eq!(
+        initialize["capabilities"]["foldingRangeProvider"],
+        serde_json::json!(true)
+    );
     assert!(initialize["capabilities"]["completionProvider"].is_object());
     assert_eq!(
         initialize["capabilities"]["renameProvider"]["prepareProvider"],
@@ -304,6 +308,103 @@ fn change_document(connection: &Connection, uri: &Url, version: i32, text: &str)
             }),
         )))
         .expect("didChange should send");
+}
+
+fn folding_ranges_for_encoding(encoding: &str, function_start: u64) {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+
+    let workspace = tempfile::tempdir().expect("tempdir should be created");
+    let script_path = workspace.path().join("folding.sh");
+    let script_uri = Url::from_file_path(&script_path).unwrap();
+    let source = ": '😀'; foo() {\n  if true; then\n    echo nested\n  fi\n}\n";
+    let mut capabilities = serde_json::to_value(replay_capabilities()).unwrap();
+    capabilities["general"]["positionEncodings"] = serde_json::json!([encoding]);
+    capabilities["textDocument"]["foldingRange"] = serde_json::json!({
+        "dynamicRegistration": false,
+        "lineFoldingOnly": false,
+    });
+
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": capabilities,
+            "rootUri": Url::from_file_path(workspace.path()).unwrap(),
+        }),
+    );
+    let initialize = recv_response(&client_connection, 1);
+    assert_eq!(initialize["capabilities"]["positionEncoding"], encoding);
+    assert_eq!(
+        initialize["capabilities"]["foldingRangeProvider"],
+        serde_json::json!(true)
+    );
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("initialized should send");
+    open_document(&client_connection, &script_uri, source);
+
+    send_request(
+        &client_connection,
+        2,
+        "textDocument/foldingRange",
+        serde_json::json!({ "textDocument": { "uri": script_uri } }),
+    );
+    let ranges = recv_response(&client_connection, 2);
+    let ranges = ranges.as_array().expect("folding ranges should be a list");
+    assert_eq!(ranges.len(), 2, "unexpected ranges: {ranges:#?}");
+    assert_eq!(
+        ranges[0],
+        serde_json::json!({
+            "startLine": 0,
+            "startCharacter": function_start,
+            "endLine": 3,
+            "endCharacter": 4,
+        })
+    );
+    assert_eq!(
+        ranges[1],
+        serde_json::json!({
+            "startLine": 1,
+            "startCharacter": 2,
+            "endLine": 2,
+            "endCharacter": 15,
+        })
+    );
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("exit notification should send");
+    server_thread
+        .join()
+        .expect("server thread should join")
+        .expect("server should exit cleanly");
+}
+
+#[test]
+fn folding_ranges_use_utf8_positions() {
+    folding_ranges_for_encoding("utf-8", 10);
+}
+
+#[test]
+fn folding_ranges_use_utf16_positions() {
+    folding_ranges_for_encoding("utf-16", 8);
+}
+
+#[test]
+fn folding_ranges_use_utf32_positions() {
+    folding_ranges_for_encoding("utf-32", 7);
 }
 
 fn cross_file_rename_for_encoding(

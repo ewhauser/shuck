@@ -8,6 +8,8 @@ pub(crate) struct ResolvedClientCapabilities {
     pub(crate) workspace_refresh: bool,
     pub(crate) pull_diagnostics: bool,
     pub(crate) hierarchical_document_symbols: bool,
+    pub(crate) folding_range_limit: Option<u32>,
+    pub(crate) line_folding_only: bool,
 }
 
 impl ResolvedClientCapabilities {
@@ -49,6 +51,15 @@ impl ResolvedClientCapabilities {
             .and_then(|document_symbol| document_symbol.hierarchical_document_symbol_support)
             .unwrap_or_default();
 
+        let folding_ranges = client_capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text_document| text_document.folding_range.as_ref());
+        let folding_range_limit = folding_ranges.and_then(|folding| folding.range_limit);
+        let line_folding_only = folding_ranges
+            .and_then(|folding| folding.line_folding_only)
+            .unwrap_or_default();
+
         Self {
             code_action_deferred_edit_resolution: code_action_data_support
                 && code_action_edit_resolution,
@@ -57,6 +68,8 @@ impl ResolvedClientCapabilities {
             workspace_refresh: false,
             pull_diagnostics,
             hierarchical_document_symbols,
+            folding_range_limit,
+            line_folding_only,
         }
     }
 }

@@ -80,6 +80,9 @@ pub(super) fn request(req: server::Request) -> Task {
         request::FormatRange::METHOD => {
             background_request_task::<request::FormatRange>(req, BackgroundSchedule::Fmt)
         }
+        request::FoldingRanges::METHOD => background_session_request_task::<
+            request::FoldingRanges,
+        >(req, BackgroundSchedule::Worker),
         request::Hover::METHOD => {
             background_session_request_task::<request::Hover>(req, BackgroundSchedule::Worker)
         }
