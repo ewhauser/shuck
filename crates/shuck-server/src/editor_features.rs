@@ -103,7 +103,7 @@ where
                     && item.name == sourced.name
                     && item
                         .definition_span
-                        .is_some_and(|span| span.start.offset > sourced.import_span.start.offset)
+                        .is_some_and(|span| span.start.offset() > sourced.import_span.start.offset())
             });
             if local_wins {
                 continue;

@@ -716,7 +716,7 @@ fn editor_function_completion_retains_the_latest_visible_definition() {
         .find(|item| item.name.as_str() == "dup")
         .and_then(|item| item.definition_span)
         .expect("duplicate function completion should retain a definition");
-    assert!(definition.start.offset > source.find("source lib.sh").unwrap());
+    assert!(definition.start.offset() > source.find("source lib.sh").unwrap());
 }
 
 #[test]

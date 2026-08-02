@@ -2229,10 +2229,10 @@ impl SemanticModel {
     /// Returns whether a source operation is guaranteed to have executed in
     /// the completion point's enclosing execution scope.
     pub fn source_ref_visible_at_offset(&self, source_ref: &SourceRef, offset: usize) -> bool {
-        if source_ref.conditionally_executed || source_ref.span.start.offset >= offset {
+        if source_ref.conditionally_executed || source_ref.span.start.offset() >= offset {
             return false;
         }
-        let source_scope = self.scope_at(source_ref.span.start.offset);
+        let source_scope = self.scope_at(source_ref.span.start.offset());
         let cursor_scope = self.scope_at(offset);
         if let Some(transient_scope) = self.innermost_transient_scope_within_function(source_scope)
         {

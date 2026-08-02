@@ -412,7 +412,7 @@ impl WorkspaceCallIndex {
             from_path,
             facts.source_edges.iter().filter(|edge| {
                 edge.completion_visible
-                    && (edge.span == Span::new() || edge.span.start.offset < cutoff)
+                    && (edge.span == Span::new() || edge.span.start.offset() < cutoff)
             }),
         )
     }
@@ -498,7 +498,7 @@ impl WorkspaceCallIndex {
             .filter(|definition| definition.unconditional && definition.persistent_top_level)
             .map(|definition| {
                 (
-                    definition.def_span.start.offset,
+                    definition.def_span.start.offset(),
                     Event::Definition(definition),
                 )
             })
@@ -507,7 +507,7 @@ impl WorkspaceCallIndex {
                     .source_edges
                     .iter()
                     .filter(|edge| edge.completion_visible)
-                    .map(|edge| (edge.span.start.offset, Event::Source(edge))),
+                    .map(|edge| (edge.span.start.offset(), Event::Source(edge))),
             )
             .collect::<Vec<_>>();
         events.sort_by_key(|(offset, _)| *offset);
@@ -1057,7 +1057,7 @@ mod tests {
             .iter()
             .zip(paths)
             .map(|(source_ref, path)| {
-                let scope = model.scope_at(source_ref.span.start.offset);
+                let scope = model.scope_at(source_ref.span.start.offset());
                 CallFactSourceEdge {
                     path: PathBuf::from(path),
                     span: source_ref.span,
