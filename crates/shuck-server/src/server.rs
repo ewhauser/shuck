@@ -43,7 +43,24 @@ impl Server {
         let (id, init_params) = connection.initialize_start()?;
         let client_capabilities = init_params.capabilities;
         let position_encoding = Self::find_best_position_encoding(&client_capabilities);
-        let server_capabilities = Self::server_capabilities(position_encoding);
+        #[allow(deprecated)]
+        let InitializeParams {
+            initialization_options,
+            root_path,
+            root_uri,
+            workspace_folders,
+            ..
+        } = init_params;
+        let AllOptions { global, workspace } =
+            AllOptions::from_value(initialization_options.unwrap_or(serde_json::Value::Null));
+        let workspace_diagnostics_enabled = global.workspace_diagnostics_enabled()
+            || workspace.as_ref().is_some_and(|workspaces| {
+                workspaces
+                    .values()
+                    .any(|options| options.server.workspace_diagnostics.enabled)
+            });
+        let server_capabilities =
+            Self::server_capabilities(position_encoding, workspace_diagnostics_enabled);
         let connection = connection.initialize_finish(
             id,
             &server_capabilities,
@@ -53,20 +70,7 @@ impl Server {
 
         let (main_loop_sender, main_loop_receiver) = crossbeam::channel::bounded(32);
 
-        #[allow(deprecated)]
-        let InitializeParams {
-            initialization_options,
-            root_path,
-            root_uri,
-            workspace_folders,
-            ..
-        } = init_params;
-
         let client = Client::new(main_loop_sender.clone(), connection.sender.clone());
-        let AllOptions { global, workspace } = AllOptions::from_value(
-            initialization_options.unwrap_or(serde_json::Value::Null),
-            &client,
-        );
 
         crate::logging::init_logging(
             global.tracing.log_level.unwrap_or_default(),
@@ -123,7 +127,10 @@ impl Server {
             .unwrap_or_default()
     }
 
-    fn server_capabilities(position_encoding: PositionEncoding) -> types::ServerCapabilities {
+    fn server_capabilities(
+        position_encoding: PositionEncoding,
+        workspace_diagnostics_enabled: bool,
+    ) -> types::ServerCapabilities {
         types::ServerCapabilities {
             position_encoding: Some(position_encoding.into()),
             code_action_provider: Some(types::CodeActionProviderCapability::Options(
@@ -175,7 +182,7 @@ impl Server {
                 DiagnosticOptions {
                     identifier: Some(crate::DIAGNOSTIC_NAME.into()),
                     inter_file_dependencies: false,
-                    workspace_diagnostics: false,
+                    workspace_diagnostics: workspace_diagnostics_enabled,
                     work_done_progress_options: WorkDoneProgressOptions {
                         work_done_progress: Some(true),
                     },
@@ -326,7 +333,7 @@ mod tests {
 
     #[test]
     fn advertises_formatting_capabilities() {
-        let capabilities = Server::server_capabilities(PositionEncoding::UTF16);
+        let capabilities = Server::server_capabilities(PositionEncoding::UTF16, false);
         assert_eq!(
             capabilities.document_formatting_provider,
             Some(OneOf::Left(true))
@@ -339,7 +346,7 @@ mod tests {
 
     #[test]
     fn advertises_navigation_completion_and_rename_capabilities() {
-        let capabilities = Server::server_capabilities(PositionEncoding::UTF16);
+        let capabilities = Server::server_capabilities(PositionEncoding::UTF16, false);
         assert!(capabilities.completion_provider.is_some());
         assert_eq!(capabilities.definition_provider, Some(OneOf::Left(true)));
         assert!(capabilities.document_link_provider.is_some());
@@ -356,7 +363,7 @@ mod tests {
 
     #[test]
     fn advertises_document_symbol_capability() {
-        let capabilities = Server::server_capabilities(PositionEncoding::UTF16);
+        let capabilities = Server::server_capabilities(PositionEncoding::UTF16, false);
         assert_eq!(
             capabilities.document_symbol_provider,
             Some(OneOf::Left(true))
@@ -365,7 +372,7 @@ mod tests {
 
     #[test]
     fn advertises_workspace_symbol_capability_without_resolve() {
-        let capabilities = Server::server_capabilities(PositionEncoding::UTF16);
+        let capabilities = Server::server_capabilities(PositionEncoding::UTF16, false);
         let Some(OneOf::Right(options)) = capabilities.workspace_symbol_provider else {
             panic!("expected workspace symbol options");
         };
@@ -374,7 +381,7 @@ mod tests {
 
     #[test]
     fn advertises_only_non_formatting_execute_commands() {
-        let capabilities = Server::server_capabilities(PositionEncoding::UTF16);
+        let capabilities = Server::server_capabilities(PositionEncoding::UTF16, false);
         let commands = capabilities
             .execute_command_provider
             .expect("server should advertise execute commands")
@@ -384,6 +391,19 @@ mod tests {
         assert!(commands.contains(&"shuck.applyDirective".to_owned()));
         assert!(commands.contains(&"shuck.printDebugInformation".to_owned()));
         assert!(!commands.contains(&"shuck.applyFormat".to_owned()));
+    }
+
+    #[test]
+    fn advertises_workspace_diagnostics_only_when_enabled() {
+        for (enabled, expected) in [(false, false), (true, true)] {
+            let capabilities = Server::server_capabilities(PositionEncoding::UTF16, enabled);
+            let Some(types::DiagnosticServerCapabilities::Options(options)) =
+                capabilities.diagnostic_provider
+            else {
+                panic!("expected diagnostic options");
+            };
+            assert_eq!(options.workspace_diagnostics, expected);
+        }
     }
 
     #[test]

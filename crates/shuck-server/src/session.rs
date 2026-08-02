@@ -8,7 +8,7 @@ use lsp_types::{ClientCapabilities, FileEvent, Url};
 use crate::analysis::{DocumentAnalysis, DocumentAnalysisCache};
 use crate::edit::{DocumentKey, DocumentVersion};
 use crate::session::request_queue::RequestQueue;
-use crate::session::settings::{ClientSettings, GlobalClientSettings};
+use crate::session::settings::GlobalClientSettings;
 use crate::workspace::Workspaces;
 use crate::{PositionEncoding, TextDocument};
 
@@ -18,9 +18,10 @@ pub(crate) use self::index::WorkspaceSettingsSnapshot;
 pub(crate) use self::options::{AllOptions, WorkspaceOptionsMap};
 pub use self::options::{
     ClientOptions, CompletionFeatureOptions, GlobalOptions, RenameFeatureOptions,
-    WorkspaceSymbolFeatureOptions,
+    WorkspaceDiagnosticsFeatureOptions, WorkspaceSymbolFeatureOptions,
 };
 pub(crate) use self::request_queue::RequestCancellationToken;
+pub(crate) use self::settings::ClientSettings;
 pub(crate) use self::settings::ShuckSettings;
 pub use client::Client;
 
@@ -38,6 +39,7 @@ pub struct Session {
     global_settings: GlobalClientSettings,
     resolved_client_capabilities: Arc<ResolvedClientCapabilities>,
     workspace_symbols: Arc<crate::symbols::WorkspaceSymbolIndex>,
+    workspace_diagnostics: Arc<crate::workspace_diagnostics::WorkspaceDiagnosticCache>,
     analysis_cache: Arc<DocumentAnalysisCache>,
     workspace_function_index: Arc<crate::workspace_functions::WorkspaceFunctionIndexCache>,
     request_queue: RequestQueue,
@@ -50,6 +52,14 @@ pub struct DocumentSnapshot {
     resolved_client_capabilities: Arc<ResolvedClientCapabilities>,
     client_settings: Arc<ClientSettings>,
     document_ref: index::DocumentQuery,
+    position_encoding: PositionEncoding,
+    analysis_cache: Arc<DocumentAnalysisCache>,
+    analysis_settings_epoch: u64,
+}
+
+#[derive(Clone)]
+pub(crate) struct WorkspaceDocumentSnapshotFactory {
+    resolved_client_capabilities: Arc<ResolvedClientCapabilities>,
     position_encoding: PositionEncoding,
     analysis_cache: Arc<DocumentAnalysisCache>,
     analysis_settings_epoch: u64,
@@ -72,6 +82,9 @@ impl Session {
                 client_capabilities,
             )),
             workspace_symbols: Arc::new(crate::symbols::WorkspaceSymbolIndex::default()),
+            workspace_diagnostics: Arc::new(
+                crate::workspace_diagnostics::WorkspaceDiagnosticCache::default(),
+            ),
             analysis_cache: Arc::new(DocumentAnalysisCache::new()),
             workspace_function_index: Arc::new(
                 crate::workspace_functions::WorkspaceFunctionIndexCache::default(),
@@ -129,6 +142,8 @@ impl Session {
                 .update_text_document(key, content_changes, new_version, self.encoding());
         if result.is_ok() {
             self.analysis_cache.invalidate_uri(&key.clone().into_url());
+            self.workspace_diagnostics
+                .invalidate_uri(&key.clone().into_url());
             self.workspace_function_index.invalidate();
         }
         result
@@ -137,6 +152,7 @@ impl Session {
     /// Open or replace an in-memory text document.
     pub fn open_text_document(&mut self, url: Url, document: TextDocument) {
         self.analysis_cache.invalidate_uri(&url);
+        self.workspace_diagnostics.invalidate_uri(&url);
         self.workspace_function_index.invalidate();
         self.index.open_text_document(url, document);
     }
@@ -144,6 +160,8 @@ impl Session {
     pub(crate) fn close_document(&mut self, key: &DocumentKey) -> crate::Result<()> {
         self.index.close_document(key)?;
         self.analysis_cache.invalidate_uri(&key.clone().into_url());
+        self.workspace_diagnostics
+            .invalidate_uri(&key.clone().into_url());
         self.workspace_function_index.invalidate();
         self.workspace_symbols
             .invalidate_uri(&key.clone().into_url());
@@ -153,6 +171,7 @@ impl Session {
     pub(crate) fn reload_settings(&mut self, changes: &[FileEvent], client: &Client) {
         self.index.reload_settings(changes, client);
         self.analysis_cache.clear();
+        self.workspace_diagnostics.invalidate_all();
         self.workspace_function_index.invalidate();
         self.workspace_symbols.invalidate_file_events(changes);
     }
@@ -161,6 +180,7 @@ impl Session {
         self.index
             .open_workspace_folder(url, &self.global_settings, client)?;
         self.analysis_cache.clear();
+        self.workspace_diagnostics.invalidate_all();
         self.workspace_function_index.invalidate();
         self.workspace_symbols.invalidate_all();
         Ok(())
@@ -169,6 +189,7 @@ impl Session {
     pub(crate) fn close_workspace_folder(&mut self, url: &Url) -> crate::Result<()> {
         self.index.close_workspace_folder(url)?;
         self.analysis_cache.clear();
+        self.workspace_diagnostics.invalidate_all();
         self.workspace_function_index.invalidate();
         self.workspace_symbols.invalidate_all();
         Ok(())
@@ -192,6 +213,7 @@ impl Session {
 
     pub(crate) fn update_client_options(&mut self, options: ClientOptions) {
         self.analysis_cache.clear();
+        self.workspace_diagnostics.invalidate_all();
         self.workspace_function_index.invalidate();
         self.workspace_symbols.invalidate_all();
         self.global_settings.update_options(options);
@@ -204,6 +226,7 @@ impl Session {
         workspace_options: Option<WorkspaceOptionsMap>,
     ) {
         self.analysis_cache.clear();
+        self.workspace_diagnostics.invalidate_all();
         self.workspace_function_index.invalidate();
         self.workspace_symbols.invalidate_all();
         self.global_settings.update_options(options);
@@ -220,6 +243,60 @@ impl Session {
 
     pub(crate) fn workspace_roots(&self) -> &[std::path::PathBuf] {
         self.index.workspace_roots()
+    }
+
+    pub(crate) fn workspace_document_snapshot_factory(&self) -> WorkspaceDocumentSnapshotFactory {
+        WorkspaceDocumentSnapshotFactory {
+            resolved_client_capabilities: self.resolved_client_capabilities.clone(),
+            position_encoding: self.position_encoding,
+            analysis_cache: self.analysis_cache.clone(),
+            analysis_settings_epoch: self.analysis_cache.current_settings_epoch(),
+        }
+    }
+
+    pub(crate) fn workspace_diagnostic_context(
+        &self,
+        cancellation: RequestCancellationToken,
+    ) -> crate::workspace_diagnostics::WorkspaceDiagnosticContext {
+        let workspace_settings = self.index.workspace_settings_snapshot();
+        let workspace_roots = self.index.workspace_roots().to_vec();
+        let mut settings_workspace_roots = workspace_roots.clone();
+        for workspace in &workspace_settings {
+            let Some(canonical_root) = &workspace.canonical_root else {
+                continue;
+            };
+            if !settings_workspace_roots.contains(canonical_root) {
+                settings_workspace_roots.push(canonical_root.clone());
+            }
+        }
+        let open_documents = self
+            .index
+            .open_documents_snapshot()
+            .into_iter()
+            .filter_map(|document| {
+                let path = document.uri.to_file_path().ok()?;
+                let snapshot = self.take_snapshot(document.uri.clone())?;
+                Some(
+                    crate::workspace_diagnostics::WorkspaceDiagnosticOpenDocument {
+                        uri: document.uri,
+                        path,
+                        snapshot,
+                    },
+                )
+            })
+            .collect();
+        crate::workspace_diagnostics::WorkspaceDiagnosticContext {
+            options: self.global_settings.options().server.workspace_diagnostics,
+            global_options: self.global_settings.options().clone(),
+            workspace_settings,
+            workspace_roots,
+            settings_workspace_roots,
+            open_documents,
+            snapshot_factory: self.workspace_document_snapshot_factory(),
+            cache: self.workspace_diagnostics.clone(),
+            cache_generation: self.workspace_diagnostics.generation(),
+            cancellation,
+        }
     }
 
     pub(crate) fn workspace_symbol_context(&self) -> crate::symbols::WorkspaceSymbolContext {
@@ -314,6 +391,29 @@ impl DocumentSnapshot {
 
     pub(crate) fn analysis_settings_epoch(&self) -> u64 {
         self.analysis_settings_epoch
+    }
+}
+
+impl WorkspaceDocumentSnapshotFactory {
+    pub(crate) fn snapshot(
+        &self,
+        uri: Url,
+        document: Arc<TextDocument>,
+        settings: Arc<ShuckSettings>,
+        client_settings: Arc<ClientSettings>,
+    ) -> DocumentSnapshot {
+        DocumentSnapshot {
+            resolved_client_capabilities: self.resolved_client_capabilities.clone(),
+            client_settings,
+            document_ref: DocumentQuery::Text {
+                file_url: uri,
+                document,
+                settings,
+            },
+            position_encoding: self.position_encoding,
+            analysis_cache: self.analysis_cache.clone(),
+            analysis_settings_epoch: self.analysis_settings_epoch,
+        }
     }
 }
 

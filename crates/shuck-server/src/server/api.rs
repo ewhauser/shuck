@@ -110,6 +110,12 @@ pub(super) fn request(req: server::Request) -> Task {
                 BackgroundSchedule::Worker,
             )
         }
+        request::WorkspaceDiagnostic::METHOD => {
+            background_session_request_task::<request::WorkspaceDiagnostic>(
+                req,
+                BackgroundSchedule::Worker,
+            )
+        }
         lsp_types::request::Shutdown::METHOD => sync_request_task::<request::ShutdownHandler>(req),
         method => {
             let result: Result<()> = Err(Error::new(
@@ -441,7 +447,7 @@ mod tests {
         let workspace_url = Url::from_file_path(std::env::current_dir().unwrap())
             .expect("current directory should convert to a file URL");
         let workspaces = Workspaces::new(vec![Workspace::default(workspace_url)]);
-        let AllOptions { global, .. } = AllOptions::from_value(serde_json::Value::Null, client);
+        let AllOptions { global, .. } = AllOptions::from_value(serde_json::Value::Null);
         let global = global.into_settings(client.clone());
 
         Session::new(

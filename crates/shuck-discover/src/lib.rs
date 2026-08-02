@@ -3,7 +3,8 @@ use std::ffi::OsStr;
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, anyhow};
 use globset::{Glob, GlobSet, GlobSetBuilder};
@@ -41,6 +42,23 @@ pub struct DiscoveredFile {
     pub kind: FileKind,
 }
 
+/// Files found by a discovery pass plus whether the configured scope was fully visited.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct DiscoveryResult {
+    /// Discovered files in stable path order.
+    pub files: Vec<DiscoveredFile>,
+    /// Whether discovery finished without hitting a work limit or cancellation.
+    pub complete: bool,
+    /// Number of filesystem entries examined during this pass.
+    pub visited_entries: usize,
+}
+
+#[derive(Default)]
+struct DiscoveryState {
+    files: BTreeMap<PathBuf, DiscoveredFile>,
+    visited_entries: usize,
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 pub enum FileKind {
     Shell,
@@ -56,6 +74,32 @@ pub struct DiscoveryOptions {
     pub parallel: bool,
     pub cache_root: Option<PathBuf>,
     pub use_config_roots: bool,
+    /// Stop discovery after retaining this many files.
+    pub max_files: Option<usize>,
+    /// Stop discovery after visiting this many filesystem entries.
+    pub max_entries: Option<usize>,
+    /// Optional shared cancellation signal checked during directory walks.
+    pub cancellation: Option<DiscoveryCancellationToken>,
+    /// Whether embedded host documents may be returned.
+    pub include_embedded: bool,
+    /// Exact directory subtrees to prune from recursive discovery.
+    pub excluded_subtrees: Vec<PathBuf>,
+}
+
+/// A clonable cancellation signal for bounded file discovery.
+#[derive(Clone, Debug, Default)]
+pub struct DiscoveryCancellationToken(Arc<AtomicBool>);
+
+impl DiscoveryCancellationToken {
+    /// Mark the associated discovery operation as cancelled.
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    /// Return whether cancellation was requested.
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
 }
 
 impl Default for DiscoveryOptions {
@@ -68,6 +112,11 @@ impl Default for DiscoveryOptions {
             parallel: false,
             cache_root: None,
             use_config_roots: true,
+            max_files: None,
+            max_entries: None,
+            cancellation: None,
+            include_embedded: true,
+            excluded_subtrees: Vec::new(),
         }
     }
 }
@@ -77,6 +126,15 @@ pub fn discover_files(
     cwd: &Path,
     options: &DiscoveryOptions,
 ) -> Result<Vec<DiscoveredFile>> {
+    Ok(discover_files_with_status(inputs, cwd, options)?.files)
+}
+
+/// Discover files and report whether configured work bounds truncated the walk.
+pub fn discover_files_with_status(
+    inputs: &[PathBuf],
+    cwd: &Path,
+    options: &DiscoveryOptions,
+) -> Result<DiscoveryResult> {
     let exclude_matcher =
         ExcludeMatcher::new(&options.exclude_patterns, &options.extend_exclude_patterns)?;
     let mut explicit_ignore_cache = ExplicitIgnoreCache::new(cwd);
@@ -96,11 +154,21 @@ pub fn discover_files(
             .collect()
     };
 
-    let mut files = BTreeMap::new();
+    let mut state = DiscoveryState::default();
     for input in resolved_inputs {
+        if discovery_stopped(options, state.files.len(), state.visited_entries) {
+            break;
+        }
         let input = normalize_path(&input);
 
         if should_ignore_path(&input, options.cache_root.as_deref()) {
+            continue;
+        }
+        if options
+            .excluded_subtrees
+            .iter()
+            .any(|excluded| input.starts_with(excluded))
+        {
             continue;
         }
 
@@ -120,11 +188,16 @@ pub fn discover_files(
             &exclude_matcher,
             &mut explicit_ignore_cache,
             options,
-            &mut files,
+            &mut state,
         )?;
     }
 
-    Ok(files.into_values().collect())
+    let complete = !discovery_stopped(options, state.files.len(), state.visited_entries);
+    Ok(DiscoveryResult {
+        files: state.files.into_values().collect(),
+        complete,
+        visited_entries: state.visited_entries,
+    })
 }
 
 fn collect_input(
@@ -134,18 +207,22 @@ fn collect_input(
     exclude_matcher: &ExcludeMatcher,
     explicit_ignore_cache: &mut ExplicitIgnoreCache,
     options: &DiscoveryOptions,
-    files: &mut BTreeMap<PathBuf, DiscoveredFile>,
+    state: &mut DiscoveryState,
 ) -> Result<()> {
     let metadata = fs::metadata(input).with_context(|| format!("stat {}", input.display()))?;
     if metadata.is_dir() {
         if options.force_exclude && exclude_matcher.matches(input, cwd) {
             return Ok(());
         }
-        collect_directory(input, cwd, project_root, exclude_matcher, options, files)?;
+        collect_directory(input, cwd, project_root, exclude_matcher, options, state)?;
     } else if metadata.is_file() {
+        state.visited_entries += 1;
         let Some(kind) = explicit_file_kind(input)? else {
             return Ok(());
         };
+        if kind == FileKind::Embedded && !options.include_embedded {
+            return Ok(());
+        }
         if options.force_exclude {
             if exclude_matcher.matches(input, cwd) {
                 return Ok(());
@@ -166,7 +243,7 @@ fn collect_input(
             project_root,
             options.use_config_roots,
             kind,
-            files,
+            &mut state.files,
         )?;
     }
 
@@ -179,16 +256,20 @@ fn collect_directory(
     project_root: &ProjectRoot,
     exclude_matcher: &ExcludeMatcher,
     options: &DiscoveryOptions,
-    files: &mut BTreeMap<PathBuf, DiscoveredFile>,
+    state: &mut DiscoveryState,
 ) -> Result<()> {
     let mut builder = WalkBuilder::new(input);
     configure_walk_builder(
         &mut builder,
         options.respect_gitignore,
         options.cache_root.clone(),
+        options.excluded_subtrees.clone(),
     );
-
-    if options.parallel {
+    if options.parallel
+        && options.max_files.is_none()
+        && options.max_entries.is_none()
+        && options.cancellation.is_none()
+    {
         return collect_directory_parallel(
             input,
             cwd,
@@ -196,12 +277,16 @@ fn collect_directory(
             exclude_matcher,
             options.use_config_roots,
             &mut builder,
-            files,
+            &mut state.files,
         );
     }
 
     for entry in builder.build() {
+        if discovery_stopped(options, state.files.len(), state.visited_entries) {
+            break;
+        }
         let entry = entry.with_context(|| format!("walk {}", input.display()))?;
+        state.visited_entries += 1;
         let Some(file_type) = entry.file_type() else {
             continue;
         };
@@ -218,6 +303,9 @@ fn collect_directory(
         let Some(kind) = discovered_file_kind(path)? else {
             continue;
         };
+        if kind == FileKind::Embedded && !options.include_embedded {
+            continue;
+        }
 
         add_file(
             path,
@@ -226,11 +314,28 @@ fn collect_directory(
             project_root,
             options.use_config_roots,
             kind,
-            files,
+            &mut state.files,
         )?;
     }
 
     Ok(())
+}
+
+fn discovery_stopped(
+    options: &DiscoveryOptions,
+    file_count: usize,
+    visited_entries: usize,
+) -> bool {
+    options
+        .cancellation
+        .as_ref()
+        .is_some_and(DiscoveryCancellationToken::is_cancelled)
+        || options
+            .max_files
+            .is_some_and(|max_files| file_count >= max_files)
+        || options
+            .max_entries
+            .is_some_and(|max_entries| visited_entries >= max_entries)
 }
 
 fn collect_directory_parallel(
@@ -286,6 +391,7 @@ fn configure_walk_builder(
     builder: &mut WalkBuilder,
     respect_gitignore: bool,
     cache_root: Option<PathBuf>,
+    excluded_subtrees: Vec<PathBuf>,
 ) {
     builder.hidden(false);
     builder.parents(respect_gitignore);
@@ -294,17 +400,26 @@ fn configure_walk_builder(
     builder.git_global(respect_gitignore);
     builder.git_exclude(respect_gitignore);
     builder.require_git(false);
-    builder.filter_entry(move |entry| !is_ignored_directory(entry, cache_root.as_deref()));
+    builder.filter_entry(move |entry| {
+        !is_ignored_directory(entry, cache_root.as_deref(), &excluded_subtrees)
+    });
 }
 
-fn is_ignored_directory(entry: &DirEntry, cache_root: Option<&Path>) -> bool {
+fn is_ignored_directory(
+    entry: &DirEntry,
+    cache_root: Option<&Path>,
+    excluded_subtrees: &[PathBuf],
+) -> bool {
     entry
         .file_type()
         .is_some_and(|file_type| file_type.is_dir())
         && (DEFAULT_IGNORED_DIR_NAMES
             .iter()
             .any(|name| entry.file_name() == OsStr::new(name))
-            || path_matches_cache_root(entry.path(), cache_root))
+            || path_matches_cache_root(entry.path(), cache_root)
+            || excluded_subtrees
+                .iter()
+                .any(|excluded| entry.path().starts_with(excluded)))
 }
 
 #[derive(Debug)]
@@ -952,5 +1067,122 @@ mod tests {
             PathBuf::from(".github/workflows/ci.yml")
         );
         assert_eq!(files[0].kind, FileKind::Embedded);
+    }
+
+    #[test]
+    fn bounded_discovery_stops_after_the_file_limit() {
+        let tempdir = tempdir().unwrap();
+        for index in 0..20 {
+            fs::write(
+                tempdir.path().join(format!("script-{index:02}.sh")),
+                "echo ok\n",
+            )
+            .unwrap();
+        }
+
+        let files = discover_files(
+            &[tempdir.path().to_path_buf()],
+            tempdir.path(),
+            &DiscoveryOptions {
+                max_files: Some(3),
+                ..DiscoveryOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(files.len(), 3);
+    }
+
+    #[test]
+    fn bounded_discovery_stops_after_the_entry_work_limit() {
+        let tempdir = tempdir().unwrap();
+        for index in 0..20 {
+            fs::write(
+                tempdir.path().join(format!("a-note-{index:02}.txt")),
+                "not shell\n",
+            )
+            .unwrap();
+        }
+        fs::write(tempdir.path().join("z-script.sh"), "echo late\n").unwrap();
+
+        let result = discover_files_with_status(
+            &[tempdir.path().to_path_buf()],
+            tempdir.path(),
+            &DiscoveryOptions {
+                max_files: Some(10),
+                max_entries: Some(5),
+                ..DiscoveryOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert!(!result.complete);
+        assert!(result.visited_entries <= 5);
+    }
+
+    #[test]
+    fn bounded_discovery_honors_preexisting_cancellation() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("script.sh"), "echo ok\n").unwrap();
+        let cancellation = DiscoveryCancellationToken::default();
+        cancellation.cancel();
+
+        let files = discover_files(
+            &[tempdir.path().to_path_buf()],
+            tempdir.path(),
+            &DiscoveryOptions {
+                cancellation: Some(cancellation),
+                ..DiscoveryOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn discovery_can_omit_embedded_hosts_before_the_limit() {
+        let tempdir = tempdir().unwrap();
+        let workflows = tempdir.path().join(".github/workflows");
+        fs::create_dir_all(&workflows).unwrap();
+        fs::write(workflows.join("ci.yml"), "on: push\njobs: {}\n").unwrap();
+        fs::write(tempdir.path().join("script.sh"), "echo ok\n").unwrap();
+
+        let files = discover_files(
+            &[tempdir.path().to_path_buf()],
+            tempdir.path(),
+            &DiscoveryOptions {
+                max_files: Some(1),
+                include_embedded: false,
+                ..DiscoveryOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].kind, FileKind::Shell);
+    }
+
+    #[test]
+    fn bounded_discovery_prunes_nested_workspace_subtrees() {
+        let tempdir = tempdir().unwrap();
+        let nested = tempdir.path().join("a-nested");
+        fs::create_dir(&nested).unwrap();
+        fs::write(nested.join("nested.sh"), "echo nested\n").unwrap();
+        fs::write(tempdir.path().join("z-parent.sh"), "echo parent\n").unwrap();
+
+        let files = discover_files(
+            &[tempdir.path().to_path_buf()],
+            tempdir.path(),
+            &DiscoveryOptions {
+                max_files: Some(1),
+                excluded_subtrees: vec![nested],
+                ..DiscoveryOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].display_path, PathBuf::from("z-parent.sh"));
     }
 }
