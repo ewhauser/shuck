@@ -19,11 +19,11 @@ files.
 | Completion | `textDocument/completion`, `completionItem/resolve` | Variables, declaration names, runtime names, builtins, shell keywords, and functions visible in the active document or through unconditional static `source`/`.` edges. Literal paths, valid source hints, configured source paths, and unsaved open buffers participate; dynamic or unresolved sources do not. Command-specific option completion is not supported. |
 | Hover | `textDocument/hover` | Semantic symbol information plus help for suppression codes in `# shuck:` and `# shellcheck` directives. Function calls can resolve through the same exact static source graph as go-to-definition, including source hints, configured source paths, and open buffers. Dynamic or ambiguous sources are not guessed, and Shuck does not fetch command manuals. |
 | Go to definition | `textDocument/definition` | Variables resolve within the active document. Function calls also resolve through literal sources, valid `# shuck: source=` hints, and configured source paths, with open buffers and shell source order taking precedence. Dynamic sources are not guessed. |
-| Find references | `textDocument/references` | The proven symbol set within the active document. Cross-file references are not currently indexed. |
+| Find references | `textDocument/references` | Variables remain document-local. Function references follow exact binding identity across the statically resolved source graph, including source hints, configured source paths, cycles, and open buffers. Dynamic or ambiguous calls are omitted, and `includeDeclaration` is honored. |
 | Document highlights | `textDocument/documentHighlight` | Read and write occurrences within the active document. |
 | Document symbols | `textDocument/documentSymbol` | Functions, declarations, and assignments from the active document. |
 | Workspace symbols | `workspace/symbol` | Fuzzy search over open buffers and discovered shell files in workspace folders, subject to a configurable file limit. |
-| Rename | `textDocument/prepareRename`, `textDocument/rename` | Conservative, semantically resolved edits within the active document. Cross-file rename is not supported. |
+| Rename | `textDocument/prepareRename`, `textDocument/rename` | Variables remain document-local. Function rename can span the exact statically resolved source graph when `server.rename.allowCrossFile` is enabled and the client supports `documentChanges`; open buffers then use versioned edits. Incomplete, ambiguous, stale, overlapping, or out-of-workspace edits are rejected atomically. |
 | Formatting | `textDocument/formatting`, `textDocument/rangeFormatting` | Whole-document formatting or the smallest complete statement containing the selected range. Incomplete syntactic fragments are left unchanged. |
 | Call hierarchy | `textDocument/prepareCallHierarchy`, `callHierarchy/incomingCalls`, `callHierarchy/outgoingCalls` | Preparation, incoming calls, and outgoing calls work across the statically resolvable source graph. Preparing on a sourced function call returns the exact target definition, including when a file redefines the same function name. Literal sources and valid `# shuck: source=` hints participate; runtime-only dispatch and unresolved dynamic sources do not. |
 
@@ -31,9 +31,6 @@ Editor formatting uses the same parser-backed formatter as [`shuck format`](/doc
 
 ### Planned or deferred
 
-- Cross-file rename is intentionally disabled until Shuck can prove safe edits
-  for every affected open or closed file.
-- Cross-file references still need exact binding-aware workspace results; go-to-definition already uses the shared source graph for functions.
 - Language-server support for embedded shell regions, such as scripts inside
   GitHub Actions YAML, needs a separate position-remapping design.
 

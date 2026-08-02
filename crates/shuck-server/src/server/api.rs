@@ -81,13 +81,19 @@ pub(super) fn request(req: server::Request) -> Task {
             background_session_request_task::<request::Hover>(req, BackgroundSchedule::Worker)
         }
         request::PrepareRename::METHOD => {
-            background_request_task::<request::PrepareRename>(req, BackgroundSchedule::Worker)
+            background_session_request_task::<request::PrepareRename>(
+                req,
+                BackgroundSchedule::Worker,
+            )
         }
         request::References::METHOD => {
-            background_request_task::<request::References>(req, BackgroundSchedule::Worker)
+            background_session_request_task::<request::References>(
+                req,
+                BackgroundSchedule::Worker,
+            )
         }
         request::Rename::METHOD => {
-            background_request_task::<request::Rename>(req, BackgroundSchedule::Worker)
+            background_session_request_task::<request::Rename>(req, BackgroundSchedule::Worker)
         }
         request::WorkspaceSymbols::METHOD => {
             background_session_request_task::<request::WorkspaceSymbols>(

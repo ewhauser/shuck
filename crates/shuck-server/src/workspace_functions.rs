@@ -20,8 +20,8 @@ use shuck_config::{
 use shuck_indexer::LineIndex;
 use shuck_linter::ShellDialect;
 use shuck_semantic::{
-    CallFactSourceEdge, CallNodeKind, CrossFileCall, FileCallFacts, VisibleSourcedFunction,
-    WorkspaceCallIndex, source_ref_candidate_paths,
+    CallFactSourceEdge, CallNodeKind, CrossFileCall, ExactFunctionRename, ExactFunctionRenameError,
+    FileCallFacts, VisibleSourcedFunction, WorkspaceCallIndex, source_ref_candidate_paths,
 };
 
 use crate::PositionEncoding;
@@ -101,15 +101,34 @@ pub(crate) fn workspace_function_index(
     Some(built)
 }
 
+/// Builds a new index for a mutation request instead of trusting a cached
+/// discovery snapshot.
+///
+/// Cross-file edits need to observe closed files that changed without a file
+/// watcher notification, including files whose previous contents were not
+/// connected to the selected function. Epoch checks on both sides of the build
+/// reject concurrent session invalidation.
+pub(crate) fn fresh_workspace_function_index(
+    context: &WorkspaceFunctionContext,
+) -> Option<Arc<WorkspaceFunctionIndex>> {
+    if context.cancellation.is_cancelled() || context.cache.current_epoch() != context.epoch {
+        return None;
+    }
+    let built = Arc::new(WorkspaceFunctionIndex::build(context)?);
+    if context.cancellation.is_cancelled() || context.cache.current_epoch() != context.epoch {
+        return None;
+    }
+    context.cache.store(context.epoch, built.clone());
+    Some(built)
+}
+
 /// Source snapshot retained for one indexed file.
 pub(crate) struct IndexedWorkspaceFile {
     uri: types::Url,
     open_uri: Option<types::Url>,
     source: String,
     line_index: LineIndex,
-    #[allow(dead_code)] // Used by the upcoming cross-file rename safety check.
     version: Option<DocumentVersion>,
-    #[allow(dead_code)] // Used by the upcoming cross-file rename safety check.
     content_hash: [u8; 32],
 }
 
@@ -133,13 +152,11 @@ impl IndexedWorkspaceFile {
     }
 
     /// Open-document version captured by the request, or `None` for disk input.
-    #[allow(dead_code)]
     pub(crate) fn version(&self) -> Option<DocumentVersion> {
         self.version
     }
 
     /// SHA-256 of the exact content used to build semantic facts and ranges.
-    #[allow(dead_code)]
     pub(crate) fn content_hash(&self) -> [u8; 32] {
         self.content_hash
     }
@@ -150,7 +167,6 @@ pub(crate) struct WorkspaceFunctionIndex {
     graph: WorkspaceCallIndex,
     files: BTreeMap<PathBuf, IndexedWorkspaceFile>,
     encoding: PositionEncoding,
-    #[allow(dead_code)] // Mutation features must reject partial workspace indexes.
     complete: bool,
 }
 
@@ -336,8 +352,56 @@ impl WorkspaceFunctionIndex {
         &self,
         from_path: &Path,
         name_span: Span,
+        cancellation: &RequestCancellationToken,
     ) -> Option<CrossFileCall> {
-        self.graph.resolve_call_site_exact(from_path, name_span)
+        self.graph
+            .resolve_call_site_exact_cancellable(from_path, name_span, || {
+                cancellation.is_cancelled()
+            })
+    }
+
+    pub(crate) fn exact_function_reference_locations(
+        &self,
+        target_path: &Path,
+        target_node: &CallNodeKind,
+        cancellation: &RequestCancellationToken,
+    ) -> Option<Vec<types::Location>> {
+        if !self.complete || cancellation.is_cancelled() {
+            return None;
+        }
+        let references = self
+            .graph
+            .exact_function_references(target_path, target_node, || cancellation.is_cancelled())?;
+        let mut locations = Vec::with_capacity(references.len());
+        for reference in references {
+            if cancellation.is_cancelled() {
+                return None;
+            }
+            let file = self.file(&reference.path)?;
+            locations.push(types::Location {
+                uri: file.editor_uri().clone(),
+                range: crate::edit::to_lsp_range(
+                    reference.span.to_range(),
+                    file.source(),
+                    file.line_index(),
+                    self.encoding,
+                ),
+            });
+        }
+        Some(locations)
+    }
+
+    pub(crate) fn exact_function_rename(
+        &self,
+        target_path: &Path,
+        target_node: &CallNodeKind,
+        cancellation: &RequestCancellationToken,
+    ) -> Option<Result<ExactFunctionRename, ExactFunctionRenameError>> {
+        if cancellation.is_cancelled() {
+            return None;
+        }
+        self.graph
+            .exact_function_rename(target_path, target_node, || cancellation.is_cancelled())
     }
 
     pub(crate) fn visible_sourced_functions(
@@ -379,6 +443,10 @@ impl WorkspaceFunctionIndex {
         ))
     }
 
+    pub(crate) fn encoding(&self) -> PositionEncoding {
+        self.encoding
+    }
+
     pub(crate) fn ranges_in(&self, path: &Path, spans: &[Span]) -> Vec<types::Range> {
         spans
             .iter()
@@ -388,14 +456,12 @@ impl WorkspaceFunctionIndex {
 
     /// Whether discovery and source-edge expansion completed within the file
     /// budget and without unreadable inputs.
-    #[allow(dead_code)]
     pub(crate) fn is_complete(&self) -> bool {
         self.complete
     }
 
     /// Returns whether a closed file still matches the content used to build
     /// this index. Open documents are versioned by the LSP session instead.
-    #[allow(dead_code)]
     pub(crate) fn closed_file_is_current(&self, path: &Path) -> bool {
         let Some(file) = self.file(path) else {
             return false;
@@ -406,6 +472,24 @@ impl WorkspaceFunctionIndex {
         std::fs::read(path)
             .map(|contents| content_hash(&contents) == file.content_hash())
             .unwrap_or(false)
+    }
+
+    /// Verifies every closed snapshot retained by this index, including files
+    /// which were disconnected from the selected binding when the index was
+    /// built. The outer `None` denotes cancellation.
+    pub(crate) fn validate_closed_files(
+        &self,
+        cancellation: &RequestCancellationToken,
+    ) -> Option<Result<(), PathBuf>> {
+        for (path, file) in &self.files {
+            if cancellation.is_cancelled() {
+                return None;
+            }
+            if file.version().is_none() && !self.closed_file_is_current(path) {
+                return Some(Err(path.clone()));
+            }
+        }
+        Some(Ok(()))
     }
 
     #[cfg(test)]
@@ -965,8 +1049,16 @@ mod tests {
         };
         let built = WorkspaceFunctionIndex::build(&context).unwrap();
         assert!(built.closed_file_is_current(&file));
+        assert_eq!(
+            built.validate_closed_files(&context.cancellation),
+            Some(Ok(()))
+        );
         std::fs::write(&file, "two() { :; }\n").unwrap();
         assert!(!built.closed_file_is_current(&file));
+        assert_eq!(
+            built.validate_closed_files(&context.cancellation),
+            Some(Err(file))
+        );
     }
 
     #[test]

@@ -2,14 +2,16 @@
 
 ## Status
 
-Implemented (document-local v1 plus sourced function completion, definition, and hover).
+Implemented (document-local v1 plus sourced function completion, definition,
+hover, references, and opt-in cross-file rename).
 
 Delivered: completion, semantic hover, go-to-definition, references, document
-highlights, document and workspace symbols, conservative same-file rename, and
-document/range formatting. Function completion, definition, and hover also
-follow exact, statically resolved source edges. Cross-file rename remains
-deferred until closed-file edit safety is proven. Cross-file call hierarchy is
-specified separately in spec 025; other cross-file navigation remains deferred.
+highlights, document and workspace symbols, conservative rename, and
+document/range formatting. Function completion follows the statically
+resolvable source graph, while definition, hover, references, and opt-in
+cross-file function rename require exact source bindings. Cross-file call
+hierarchy is specified separately in spec 025; other cross-file navigation
+remains deferred.
 
 ## Summary
 
@@ -100,7 +102,7 @@ land:
 | Completion | `textDocument/completion`, `completionItem/resolve` | Variables, declaration names, runtime names, shell keywords, and functions visible locally or through unconditional static source edges |
 | Hover | `textDocument/hover` | Rule-code and semantic-symbol hovers, including exact function bindings through the statically resolved source graph |
 | Definition | `textDocument/definition` | Variables in the active analysis plus exact function definitions through the statically resolved source graph |
-| References | `textDocument/references` | References and definitions in the same proven symbol set |
+| References | `textDocument/references` | Exact function references through the statically resolved workspace graph; other symbols use the active analysis |
 | Document highlight | `textDocument/documentHighlight` | Read/write highlights for the symbol under the cursor |
 | Document symbols | `textDocument/documentSymbol` | Hierarchical symbols for functions plus top-level declarations and assignments |
 | Workspace symbols | `workspace/symbol` | Fuzzy search over indexed shell files in workspace folders |
@@ -315,6 +317,15 @@ References honor `ReferenceContext::include_declaration`:
 - `include_declaration = false`: include only read-like references and call
   sites.
 
+For function bindings, the shared workspace index lazily builds a reverse map
+from exact definition identity to proven call tokens. Source order,
+redefinitions, cycles, valid source hints, configured source paths, and unsaved
+open buffers use the same fail-closed resolver as go-to-definition. Dynamic or
+ambiguous calls are omitted rather than name-matched. The reverse map is cached
+only after a complete, uncancelled build and is invalidated with the containing
+workspace index. A partial workspace index returns no cross-file reference set
+instead of presenting incomplete results as exhaustive.
+
 Document highlights are file-local and classify spans as:
 
 | Span source | Highlight kind |
@@ -482,16 +493,17 @@ is true:
 
 ### Workspace Edits
 
-Rename and future cross-file quick fixes use `WorkspaceEdit` with
-`documentChanges` when the client supports them. Otherwise they fall back to
-the `changes` map. Edits are sorted by URI and descending start position within
-each document before conversion so overlapping edits can be detected and
-reported as an internal error during development.
+Document-local rename uses `WorkspaceEdit.documentChanges` when the client
+supports it and otherwise falls back to the `changes` map. Cross-file function
+rename requires `documentChanges` so every open-document edit carries the
+captured document version. Edits are sorted by URI and descending start
+position within each document before conversion so overlapping edits can be
+detected and rejected before any edit is returned.
 
 Closed-file edits are allowed only when the file was indexed from disk and the
 content hash still matches at edit construction time. If the file changed on
-disk since indexing, rename fails with `CrossFileUnindexed` and asks the user
-to retry after re-indexing.
+disk since indexing, rename fails with an `InvalidRequest` response and asks
+the user to retry after re-indexing.
 
 ### Request Scheduling
 
@@ -551,8 +563,8 @@ Defaults:
 
 - workspace symbols enabled, `max_files = 5000`;
 - runtime-name and keyword completions enabled;
-- cross-file rename disabled until source-closure-backed workspace edits have
-  enough black-box coverage.
+- cross-file function rename disabled by default and enabled with
+  `server.rename.allowCrossFile = true`.
 
 ### Implementation Stages
 
@@ -566,8 +578,8 @@ Defaults:
    same symbol target resolution.
 5. **Completion.** Add context classification and semantic completions.
 6. **Rename.** Add conservative rename sets, `prepareRename`, and same-file
-   `rename`; cross-file rename can be enabled after closed-file edit safety
-   is proven.
+   `rename`, then opt-in cross-file function rename once closed-file edit
+   safety and exact workspace references are available.
 
 Each stage must advertise only the capabilities implemented in that stage.
 
@@ -675,6 +687,8 @@ Manual editor black-box scenarios should cover:
   contents when a file is edited;
 - prepare-rename rejects positional parameters, special parameters, dynamic
   names, namerefs, imported bindings, and ambiguous references;
-- same-file rename edits only the proven symbol set;
+- rename edits only the proven symbol set; opt-in cross-file function rename
+  rejects partial indexes, ambiguous calls, stale files, out-of-workspace
+  dependencies, and overlapping edits;
 - formatting and range formatting return stable, minimal edits and do not
   publish diagnostics directly.

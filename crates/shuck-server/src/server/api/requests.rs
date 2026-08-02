@@ -5,6 +5,7 @@ mod code_action;
 mod code_action_resolve;
 mod completion;
 mod completion_resolve;
+mod cross_file_rename;
 mod definition;
 mod diagnostic;
 mod document_highlight;
