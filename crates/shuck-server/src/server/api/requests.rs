@@ -21,6 +21,7 @@ mod references;
 mod rename;
 mod selection_range;
 mod shutdown;
+mod workspace_diagnostic;
 mod workspace_symbol;
 
 use super::{
@@ -50,4 +51,5 @@ pub(super) use references::References;
 pub(super) use rename::Rename;
 pub(super) use selection_range::SelectionRanges;
 pub(super) use shutdown::ShutdownHandler;
+pub(super) use workspace_diagnostic::WorkspaceDiagnostic;
 pub(super) use workspace_symbol::WorkspaceSymbols;

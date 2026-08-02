@@ -1,7 +1,5 @@
 use std::cell::{Cell, OnceCell, RefCell};
 use std::fmt::Formatter;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 use lsp_server::RequestId;
@@ -96,15 +94,19 @@ impl PendingRequest {
 }
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct RequestCancellationToken(Arc<AtomicBool>);
+pub(crate) struct RequestCancellationToken(shuck_discover::DiscoveryCancellationToken);
 
 impl RequestCancellationToken {
     pub(crate) fn is_cancelled(&self) -> bool {
-        self.0.load(std::sync::atomic::Ordering::Relaxed)
+        self.0.is_cancelled()
     }
 
     pub(crate) fn cancel(&self) {
-        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.0.cancel();
+    }
+
+    pub(crate) fn discovery_token(&self) -> shuck_discover::DiscoveryCancellationToken {
+        self.0.clone()
     }
 }
 

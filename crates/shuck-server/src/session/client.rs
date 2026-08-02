@@ -105,6 +105,19 @@ impl Client {
             .map_err(|error| anyhow!("Failed to send notification {}: {error}", N::METHOD))
     }
 
+    pub(crate) fn send_notification_value(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> crate::Result<()> {
+        self.client_sender
+            .send(Message::Notification(Notification::new(
+                method.to_owned(),
+                params,
+            )))
+            .map_err(|error| anyhow!("Failed to send notification {method}: {error}"))
+    }
+
     pub(crate) fn respond<R>(
         &self,
         id: &RequestId,

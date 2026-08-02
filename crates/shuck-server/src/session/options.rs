@@ -23,6 +23,10 @@ impl GlobalOptions {
     pub fn into_settings(self, client: Client) -> GlobalClientSettings {
         GlobalClientSettings::new(self.client, client)
     }
+
+    pub(crate) fn workspace_diagnostics_enabled(&self) -> bool {
+        self.client.server.workspace_diagnostics.enabled
+    }
 }
 
 /// Per-client or per-workspace Shuck options supplied through LSP settings.
@@ -70,10 +74,13 @@ pub struct ServerOptions {
     pub rename: RenameFeatureOptions,
     /// Cross-file call hierarchy configuration.
     pub call_hierarchy: CallHierarchyFeatureOptions,
+    /// Workspace-wide diagnostic pull configuration.
+    pub workspace_diagnostics: WorkspaceDiagnosticsFeatureOptions,
     workspace_symbols_overrides: WorkspaceSymbolFeatureOptionsOverrides,
     completion_overrides: CompletionFeatureOptionsOverrides,
     rename_overrides: RenameFeatureOptionsOverrides,
     call_hierarchy_overrides: CallHierarchyFeatureOptionsOverrides,
+    workspace_diagnostics_overrides: WorkspaceDiagnosticsFeatureOptionsOverrides,
 }
 
 impl ServerOptions {
@@ -125,6 +132,19 @@ impl ServerOptions {
             base
         }
     }
+
+    pub(crate) fn workspace_diagnostics_layered_over(
+        &self,
+        base: WorkspaceDiagnosticsFeatureOptions,
+    ) -> WorkspaceDiagnosticsFeatureOptions {
+        if self.workspace_diagnostics_overrides.has_overrides() {
+            self.workspace_diagnostics_overrides.apply_to(base)
+        } else if self.workspace_diagnostics != WorkspaceDiagnosticsFeatureOptions::default() {
+            self.workspace_diagnostics
+        } else {
+            base
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for ServerOptions {
@@ -143,6 +163,8 @@ impl<'de> Deserialize<'de> for ServerOptions {
             rename: RenameFeatureOptionsOverrides,
             #[serde(default)]
             call_hierarchy: CallHierarchyFeatureOptionsOverrides,
+            #[serde(default)]
+            workspace_diagnostics: WorkspaceDiagnosticsFeatureOptionsOverrides,
         }
 
         let raw = RawServerOptions::deserialize(deserializer)?;
@@ -155,10 +177,14 @@ impl<'de> Deserialize<'de> for ServerOptions {
             call_hierarchy: raw
                 .call_hierarchy
                 .apply_to(CallHierarchyFeatureOptions::default()),
+            workspace_diagnostics: raw
+                .workspace_diagnostics
+                .apply_to(WorkspaceDiagnosticsFeatureOptions::default()),
             workspace_symbols_overrides: raw.workspace_symbols,
             completion_overrides: raw.completion,
             rename_overrides: raw.rename,
             call_hierarchy_overrides: raw.call_hierarchy,
+            workspace_diagnostics_overrides: raw.workspace_diagnostics,
         })
     }
 }
@@ -323,6 +349,81 @@ fn default_call_hierarchy_max_files() -> usize {
     10_000
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceDiagnosticsFeatureOptionsOverrides {
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    max_files: Option<usize>,
+    #[serde(default)]
+    max_entries: Option<usize>,
+    #[serde(default)]
+    max_source_bytes: Option<usize>,
+}
+
+impl WorkspaceDiagnosticsFeatureOptionsOverrides {
+    fn has_overrides(self) -> bool {
+        self.enabled.is_some()
+            || self.max_files.is_some()
+            || self.max_entries.is_some()
+            || self.max_source_bytes.is_some()
+    }
+
+    fn apply_to(
+        self,
+        base: WorkspaceDiagnosticsFeatureOptions,
+    ) -> WorkspaceDiagnosticsFeatureOptions {
+        WorkspaceDiagnosticsFeatureOptions {
+            enabled: self.enabled.unwrap_or(base.enabled),
+            max_files: self.max_files.unwrap_or(base.max_files),
+            max_entries: self.max_entries.unwrap_or(base.max_entries),
+            max_source_bytes: self.max_source_bytes.unwrap_or(base.max_source_bytes),
+        }
+    }
+}
+
+/// Configuration for bounded `workspace/diagnostic` requests.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceDiagnosticsFeatureOptions {
+    /// Whether workspace diagnostic requests are advertised and served.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Maximum number of workspace files returned by one request.
+    #[serde(default = "default_workspace_diagnostics_max_files")]
+    pub max_files: usize,
+    /// Maximum number of filesystem entries visited by one request.
+    #[serde(default = "default_workspace_diagnostics_max_entries")]
+    pub max_entries: usize,
+    /// Maximum source bytes read and analyzed by one request.
+    #[serde(default = "default_workspace_diagnostics_max_source_bytes")]
+    pub max_source_bytes: usize,
+}
+
+impl Default for WorkspaceDiagnosticsFeatureOptions {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_files: default_workspace_diagnostics_max_files(),
+            max_entries: default_workspace_diagnostics_max_entries(),
+            max_source_bytes: default_workspace_diagnostics_max_source_bytes(),
+        }
+    }
+}
+
+fn default_workspace_diagnostics_max_files() -> usize {
+    1_000
+}
+
+fn default_workspace_diagnostics_max_entries() -> usize {
+    10_000
+}
+
+fn default_workspace_diagnostics_max_source_bytes() -> usize {
+    32 * 1024 * 1024
+}
+
 fn default_workspace_symbols_max_files() -> usize {
     5000
 }
@@ -358,7 +459,7 @@ struct InitializationOptions {
 }
 
 impl AllOptions {
-    pub(crate) fn from_value(value: serde_json::Value, _client: &Client) -> Self {
+    pub(crate) fn from_value(value: serde_json::Value) -> Self {
         if value
             .as_object()
             .is_some_and(|object| object.contains_key("shuck"))

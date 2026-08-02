@@ -46,6 +46,7 @@ pub(super) fn run_add_ignore_with_cwd(
             parallel: false,
             cache_root: Some(cache_root.to_path_buf()),
             use_config_roots: config_arguments.use_config_roots(),
+            ..DiscoveryOptions::default()
         },
         cache_root,
         true,

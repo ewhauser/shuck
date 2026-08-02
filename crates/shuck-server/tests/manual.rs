@@ -52,6 +52,40 @@ fn recv_lsp_response(connection: &Connection, id: i32) -> Response {
     }
 }
 
+fn recv_response_with_notifications(
+    connection: &Connection,
+    id: i32,
+) -> (serde_json::Value, Vec<Notification>) {
+    let mut notifications = Vec::new();
+    loop {
+        let message = connection
+            .receiver
+            .recv_timeout(Duration::from_secs(5))
+            .expect("server should respond");
+        match message {
+            Message::Response(response) if response.id == RequestId::from(id) => {
+                assert!(
+                    response.error.is_none(),
+                    "unexpected LSP error: {:?}",
+                    response.error
+                );
+                return (
+                    response.result.expect("response should carry a result"),
+                    notifications,
+                );
+            }
+            Message::Notification(notification) => notifications.push(notification),
+            Message::Request(request) => {
+                panic!(
+                    "unexpected server request during replay: {}",
+                    request.method
+                )
+            }
+            Message::Response(_) => continue,
+        }
+    }
+}
+
 fn replay_capabilities() -> ClientCapabilities {
     serde_json::from_value(serde_json::json!({
         "general": {
@@ -2077,4 +2111,349 @@ fn call_hierarchy_round_trips_same_named_definition_identity() {
         .join()
         .expect("server thread should join")
         .expect("server should exit cleanly");
+}
+
+#[test]
+fn workspace_diagnostics_are_incremental_and_shadow_open_buffers() {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+
+    let outer = tempfile::tempdir().expect("tempdir should be created");
+    let first_root = outer.path().join("first");
+    let second_root = outer.path().join("second");
+    let outside_root = outer.path().join("outside");
+    std::fs::create_dir_all(first_root.join(".git")).unwrap();
+    std::fs::create_dir_all(&second_root).unwrap();
+    std::fs::create_dir_all(&outside_root).unwrap();
+    let malformed_path = first_root.join("malformed.sh");
+    let changed_path = first_root.join("changed.sh");
+    let shadowed_path = second_root.join("shadowed.sh");
+    std::fs::write(&malformed_path, "if true; then\n").unwrap();
+    std::fs::write(&changed_path, "unused=1\n").unwrap();
+    std::fs::write(&shadowed_path, "disk_only=1\n").unwrap();
+    std::fs::write(first_root.join(".git/ignored.sh"), "ignored=1\n").unwrap();
+    std::fs::write(outside_root.join("outside.sh"), "outside=1\n").unwrap();
+    std::fs::write(first_root.join("notes.txt"), "not shell\n").unwrap();
+
+    let first_uri = Url::from_file_path(&first_root).unwrap();
+    let second_uri = Url::from_file_path(&second_root).unwrap();
+    let malformed_uri =
+        Url::from_file_path(std::fs::canonicalize(&malformed_path).unwrap()).unwrap();
+    let changed_uri = Url::from_file_path(std::fs::canonicalize(&changed_path).unwrap()).unwrap();
+    let shadowed_uri = Url::from_file_path(&shadowed_path).unwrap();
+
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": replay_capabilities(),
+            "workspaceFolders": [
+                { "uri": first_uri, "name": "first" },
+                { "uri": second_uri, "name": "second" },
+            ],
+            "initializationOptions": {
+                "shuck": {
+                    "server": {
+                        "workspaceDiagnostics": {
+                            "enabled": true,
+                            "maxFiles": 10,
+                            "maxSourceBytes": 1048576,
+                        }
+                    }
+                }
+            },
+        }),
+    );
+    let initialize = recv_response(&client_connection, 1);
+    assert_eq!(
+        initialize["capabilities"]["diagnosticProvider"]["workspaceDiagnostics"],
+        true
+    );
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .unwrap();
+    open_document(&client_connection, &shadowed_uri, "printf '%s\\n' clean\n");
+
+    send_request(
+        &client_connection,
+        2,
+        "workspace/diagnostic",
+        serde_json::json!({
+            "identifier": "shuck",
+            "previousResultIds": [],
+            "workDoneToken": "work",
+            "partialResultToken": "partial",
+        }),
+    );
+    let (first_result, notifications) = recv_response_with_notifications(&client_connection, 2);
+    assert!(first_result["items"].as_array().unwrap().is_empty());
+    let work_kinds = notifications
+        .iter()
+        .filter(|notification| {
+            notification.method == "$/progress" && notification.params["token"] == "work"
+        })
+        .filter_map(|notification| notification.params["value"]["kind"].as_str())
+        .collect::<Vec<_>>();
+    assert!(work_kinds.contains(&"begin"));
+    assert!(work_kinds.contains(&"end"));
+    let first_items = notifications
+        .iter()
+        .filter(|notification| {
+            notification.method == "$/progress" && notification.params["token"] == "partial"
+        })
+        .flat_map(|notification| {
+            notification.params["value"]["items"]
+                .as_array()
+                .into_iter()
+                .flatten()
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(first_items.len(), 3);
+    let item_for = |uri: &Url| {
+        first_items
+            .iter()
+            .find(|item| item["uri"] == uri.as_str())
+            .unwrap_or_else(|| panic!("missing diagnostic report for {uri}"))
+    };
+    assert_eq!(item_for(&shadowed_uri)["version"], 1);
+    assert!(
+        item_for(&shadowed_uri)["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        !item_for(&changed_uri)["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        item_for(&malformed_uri)["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+
+    let previous = first_items
+        .iter()
+        .map(|item| {
+            serde_json::json!({
+                "uri": item["uri"],
+                "value": item["resultId"],
+            })
+        })
+        .collect::<Vec<_>>();
+    send_request(
+        &client_connection,
+        3,
+        "workspace/diagnostic",
+        serde_json::json!({
+            "identifier": "shuck",
+            "previousResultIds": previous.clone(),
+        }),
+    );
+    let unchanged = recv_response(&client_connection, 3);
+    assert!(
+        unchanged["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["kind"] == "unchanged")
+    );
+
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "workspace/didChangeConfiguration".to_owned(),
+            serde_json::json!({
+                "settings": {
+                    "shuck": {
+                        "showSyntaxErrors": true,
+                        "server": {
+                            "workspaceDiagnostics": {
+                                "enabled": true,
+                                "maxFiles": 10,
+                                "maxSourceBytes": 1048576,
+                            }
+                        }
+                    }
+                }
+            }),
+        )))
+        .unwrap();
+    send_request(
+        &client_connection,
+        4,
+        "workspace/diagnostic",
+        serde_json::json!({
+            "identifier": "shuck",
+            "previousResultIds": previous.clone(),
+        }),
+    );
+    let configured = recv_response(&client_connection, 4);
+    let malformed = configured["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["uri"] == malformed_uri.as_str())
+        .unwrap();
+    assert_eq!(malformed["kind"], "full");
+    assert!(!malformed["items"].as_array().unwrap().is_empty());
+
+    std::fs::remove_file(&changed_path).unwrap();
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "workspace/didChangeWatchedFiles".to_owned(),
+            serde_json::json!({
+                "changes": [{ "uri": changed_uri, "type": 3 }]
+            }),
+        )))
+        .unwrap();
+    send_request(
+        &client_connection,
+        5,
+        "workspace/diagnostic",
+        serde_json::json!({
+            "identifier": "shuck",
+            "previousResultIds": previous,
+        }),
+    );
+    let deleted = recv_response(&client_connection, 5);
+    let deleted_item = deleted["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["uri"] == changed_uri.as_str())
+        .unwrap();
+    assert_eq!(deleted_item["kind"], "full");
+    assert!(deleted_item["items"].as_array().unwrap().is_empty());
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .unwrap();
+    server_thread.join().unwrap().unwrap();
+}
+
+#[test]
+fn workspace_diagnostics_enforce_the_synthetic_workspace_limit() {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+    let workspace = tempfile::tempdir().expect("tempdir should be created");
+    for index in 0..100 {
+        std::fs::write(
+            workspace.path().join(format!("script-{index:03}.sh")),
+            format!("unused_{index}=1\n"),
+        )
+        .unwrap();
+    }
+
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": replay_capabilities(),
+            "rootUri": Url::from_file_path(workspace.path()).unwrap(),
+            "initializationOptions": {
+                "shuck": {
+                    "server": {
+                        "workspaceDiagnostics": {
+                            "enabled": true,
+                            "maxFiles": 3,
+                            "maxEntries": 1000,
+                            "maxSourceBytes": 1048576,
+                        }
+                    }
+                }
+            },
+        }),
+    );
+    let _ = recv_response(&client_connection, 1);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .unwrap();
+    send_request(
+        &client_connection,
+        2,
+        "workspace/diagnostic",
+        serde_json::json!({
+            "identifier": "shuck",
+            "previousResultIds": [{
+                "uri": Url::from_file_path(
+                    std::fs::canonicalize(workspace.path().join("script-099.sh")).unwrap()
+                ).unwrap(),
+                "value": "stale-result",
+            }],
+        }),
+    );
+    let result = recv_response(&client_connection, 2);
+    assert_eq!(result["items"].as_array().unwrap().len(), 3);
+    assert!(
+        result["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| { !item["uri"].as_str().unwrap().ends_with("script-099.sh") })
+    );
+
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "workspace/didChangeConfiguration".to_owned(),
+            serde_json::json!({
+                "settings": {
+                    "shuck": {
+                        "server": {
+                            "workspaceDiagnostics": {
+                                "enabled": true,
+                                "maxFiles": 100,
+                                "maxEntries": 1000,
+                                "maxSourceBytes": 12,
+                            }
+                        }
+                    }
+                }
+            }),
+        )))
+        .unwrap();
+    send_request(
+        &client_connection,
+        3,
+        "workspace/diagnostic",
+        serde_json::json!({
+            "identifier": "shuck",
+            "previousResultIds": [],
+        }),
+    );
+    let byte_bounded = recv_response(&client_connection, 3);
+    assert_eq!(byte_bounded["items"].as_array().unwrap().len(), 1);
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .unwrap();
+    server_thread.join().unwrap().unwrap();
 }

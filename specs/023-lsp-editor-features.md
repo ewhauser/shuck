@@ -528,6 +528,7 @@ Feature handlers use the existing scheduler:
 | Rename | Worker |
 | Folding ranges | Worker |
 | Selection range | Worker |
+| Workspace diagnostic | Worker |
 | Formatting | Fmt |
 | Range formatting | Fmt |
 
@@ -544,6 +545,7 @@ Add server-specific options under `initializationOptions` and
 #[serde(rename_all = "camelCase")]
 pub struct ServerFeatureOptions {
     pub workspace_symbols: WorkspaceSymbolOptions,
+    pub workspace_diagnostics: WorkspaceDiagnosticsOptions,
     pub completion: CompletionOptions,
     pub rename: RenameOptions,
 }
@@ -552,6 +554,14 @@ pub struct ServerFeatureOptions {
 pub struct WorkspaceSymbolOptions {
     pub enabled: bool,
     pub max_files: usize,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceDiagnosticsOptions {
+    pub enabled: bool,
+    pub max_files: usize,
+    pub max_entries: usize,
+    pub max_source_bytes: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -569,6 +579,9 @@ pub struct RenameOptions {
 Defaults:
 
 - workspace symbols enabled, `max_files = 5000`;
+- workspace diagnostics disabled, `max_files = 1000`, `max_entries = 10000`,
+  and `max_source_bytes = 32 MiB`; enabling them advertises and serves
+  `workspace/diagnostic` without starting a background scan;
 - runtime-name and keyword completions enabled;
 - cross-file function rename disabled by default and enabled with
   `server.rename.allowCrossFile = true`.
