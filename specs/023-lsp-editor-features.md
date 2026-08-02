@@ -2,16 +2,17 @@
 
 ## Status
 
-Implemented (document-local v1 plus sourced function completion, definition,
-hover, references, and opt-in cross-file rename).
+Implemented (document-local v1 plus statically resolved source-aware
+completion, definition, hover, references, document links, and opt-in
+cross-file rename).
 
 Delivered: completion, semantic hover, go-to-definition, references, document
-highlights, document and workspace symbols, conservative rename, and
-document/range formatting. Function completion follows the statically
-resolvable source graph, while definition, hover, references, and opt-in
-cross-file function rename require exact source bindings. Cross-file call
-hierarchy is specified separately in spec 025; other cross-file navigation
-remains deferred.
+links, document highlights, document and workspace symbols, conservative
+rename, and document/range formatting. Function completion follows the
+statically resolvable source graph, and resolvable source paths are exposed as
+document links. Definition, hover, references, and opt-in cross-file function
+rename require exact source bindings. Cross-file call hierarchy is specified
+separately in spec 025.
 
 ## Summary
 
@@ -102,6 +103,7 @@ land:
 | Completion | `textDocument/completion`, `completionItem/resolve` | Variables, declaration names, runtime names, shell keywords, and functions visible locally or through unconditional static source edges |
 | Hover | `textDocument/hover` | Rule-code and semantic-symbol hovers, including exact function bindings through the statically resolved source graph |
 | Definition | `textDocument/definition` | Variables in the active analysis plus exact function definitions through the statically resolved source graph |
+| Document links | `textDocument/documentLink` | Literal source operands and valid source hints that resolve to one target within the workspace |
 | References | `textDocument/references` | Exact function references through the statically resolved workspace graph; other symbols use the active analysis |
 | Document highlight | `textDocument/documentHighlight` | Read/write highlights for the symbol under the cursor |
 | Document symbols | `textDocument/documentSymbol` | Hierarchical symbols for functions plus top-level declarations and assignments |

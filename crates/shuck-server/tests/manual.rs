@@ -558,6 +558,170 @@ fn cross_file_rename_requires_versioned_document_changes() {
     cross_file_rename_for_encoding("utf-16", 8, false);
 }
 
+fn document_links_follow_sources_for_encoding(
+    encoding: &str,
+    relative_start: u64,
+    changed_start: u64,
+) {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+
+    let outer = tempfile::tempdir().expect("tempdir should be created");
+    let workspace = outer.path().join("workspace");
+    let scripts = workspace.join("scripts");
+    let lib = workspace.join("lib");
+    std::fs::create_dir_all(&scripts).unwrap();
+    std::fs::create_dir(&lib).unwrap();
+    std::fs::write(
+        workspace.join("shuck.toml"),
+        "[lint]\nsource-paths = [\"lib\"]\n",
+    )
+    .unwrap();
+    std::fs::write(scripts.join("relative.sh"), ":\n").unwrap();
+    std::fs::write(lib.join("configured.sh"), ":\n").unwrap();
+    std::fs::write(scripts.join("cycle_a.sh"), "source cycle_b.sh\n").unwrap();
+    std::fs::write(scripts.join("cycle_b.sh"), "source cycle_a.sh\n").unwrap();
+    std::fs::write(outer.path().join("outside.sh"), ":\n").unwrap();
+
+    let main_path = scripts.join("main.sh");
+    let main_source = "# shuck: source=hinted.sh\nsource \"$DIR/hinted.sh\"\n: '😀'; . relative.sh\nsource configured.sh\nsource cycle_a.sh\nsource \"$dynamic\"\nsource missing.sh\nsource ../../outside.sh\n";
+    std::fs::write(&main_path, "stale\n").unwrap();
+    let main_uri = Url::from_file_path(&main_path).unwrap();
+    let hinted_uri = Url::from_file_path(scripts.join("hinted.sh")).unwrap();
+    let cycle_a_uri = Url::from_file_path(scripts.join("cycle_a.sh")).unwrap();
+    let cycle_b_uri =
+        Url::from_file_path(std::fs::canonicalize(scripts.join("cycle_b.sh")).unwrap()).unwrap();
+    let relative_uri =
+        Url::from_file_path(std::fs::canonicalize(scripts.join("relative.sh")).unwrap()).unwrap();
+    let configured_uri =
+        Url::from_file_path(std::fs::canonicalize(lib.join("configured.sh")).unwrap()).unwrap();
+
+    let mut capabilities = serde_json::to_value(replay_capabilities()).unwrap();
+    capabilities["general"]["positionEncodings"] = serde_json::json!([encoding]);
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": capabilities,
+            "rootUri": Url::from_file_path(&workspace).unwrap(),
+        }),
+    );
+    let initialize = recv_response(&client_connection, 1);
+    assert_eq!(initialize["capabilities"]["positionEncoding"], encoding);
+    assert_eq!(
+        initialize["capabilities"]["documentLinkProvider"]["resolveProvider"],
+        false
+    );
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("initialized should send");
+    open_document(&client_connection, &hinted_uri, "unsaved() { :; }\n");
+    open_document(&client_connection, &cycle_a_uri, "source cycle_b.sh\n");
+    open_document(&client_connection, &main_uri, main_source);
+
+    send_request(
+        &client_connection,
+        2,
+        "textDocument/documentLink",
+        serde_json::json!({ "textDocument": { "uri": main_uri } }),
+    );
+    let links = recv_response(&client_connection, 2);
+    let links = links.as_array().expect("document links should be a list");
+    assert_eq!(
+        links.len(),
+        4,
+        "dynamic, missing, and outside paths must be omitted"
+    );
+    assert_eq!(links[0]["target"], hinted_uri.as_str());
+    assert_eq!(
+        links[0]["range"],
+        serde_json::json!({
+            "start": { "line": 0, "character": 16 },
+            "end": { "line": 0, "character": 25 },
+        })
+    );
+    assert_eq!(links[1]["target"], relative_uri.as_str());
+    assert_eq!(
+        links[1]["range"],
+        serde_json::json!({
+            "start": { "line": 2, "character": relative_start },
+            "end": { "line": 2, "character": relative_start + 11 },
+        })
+    );
+    assert_eq!(links[2]["target"], configured_uri.as_str());
+    assert_eq!(links[3]["target"], cycle_a_uri.as_str());
+
+    send_request(
+        &client_connection,
+        3,
+        "textDocument/documentLink",
+        serde_json::json!({ "textDocument": { "uri": cycle_a_uri } }),
+    );
+    let cycle_links = recv_response(&client_connection, 3);
+    assert_eq!(cycle_links.as_array().unwrap().len(), 1);
+    assert_eq!(cycle_links[0]["target"], cycle_b_uri.as_str());
+
+    let buffered_uri = Url::from_file_path(scripts.join("buffered.sh")).unwrap();
+    open_document(&client_connection, &buffered_uri, "buffered() { :; }\n");
+    change_document(
+        &client_connection,
+        &main_uri,
+        2,
+        ": '😀'; source buffered.sh\nsource missing_after_change.sh\n",
+    );
+    send_request(
+        &client_connection,
+        4,
+        "textDocument/documentLink",
+        serde_json::json!({ "textDocument": { "uri": main_uri } }),
+    );
+    let changed = recv_response(&client_connection, 4);
+    let changed = changed.as_array().unwrap();
+    assert_eq!(changed.len(), 1);
+    assert_eq!(changed[0]["target"], buffered_uri.as_str());
+    assert_eq!(
+        changed[0]["range"],
+        serde_json::json!({
+            "start": { "line": 0, "character": changed_start },
+            "end": { "line": 0, "character": changed_start + 11 },
+        })
+    );
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("exit notification should send");
+    server_thread
+        .join()
+        .expect("server thread should join")
+        .expect("server should exit cleanly");
+}
+
+#[test]
+fn document_links_follow_sources_with_utf8_positions() {
+    document_links_follow_sources_for_encoding("utf-8", 12, 17);
+}
+
+#[test]
+fn document_links_follow_sources_with_utf16_positions() {
+    document_links_follow_sources_for_encoding("utf-16", 10, 15);
+}
+
+#[test]
+fn document_links_follow_sources_with_utf32_positions() {
+    document_links_follow_sources_for_encoding("utf-32", 9, 14);
+}
+
 #[test]
 fn cross_file_definition_uses_exact_workspace_binding_and_open_buffers() {
     let (server_connection, client_connection) = Connection::memory();

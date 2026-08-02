@@ -152,6 +152,12 @@ impl Server {
                 ..types::CompletionOptions::default()
             }),
             definition_provider: Some(OneOf::Left(true)),
+            document_link_provider: Some(types::DocumentLinkOptions {
+                resolve_provider: Some(false),
+                work_done_progress_options: WorkDoneProgressOptions {
+                    work_done_progress: Some(true),
+                },
+            }),
             call_hierarchy_provider: Some(types::CallHierarchyServerCapability::Simple(true)),
             references_provider: Some(OneOf::Left(true)),
             document_highlight_provider: Some(OneOf::Left(true)),
@@ -334,6 +340,7 @@ mod tests {
         let capabilities = Server::server_capabilities(PositionEncoding::UTF16);
         assert!(capabilities.completion_provider.is_some());
         assert_eq!(capabilities.definition_provider, Some(OneOf::Left(true)));
+        assert!(capabilities.document_link_provider.is_some());
         assert_eq!(capabilities.references_provider, Some(OneOf::Left(true)));
         assert_eq!(
             capabilities.document_highlight_provider,

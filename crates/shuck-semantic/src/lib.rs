@@ -300,7 +300,7 @@ impl CaseCliDispatch {
 }
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{Command, ConditionalExpr, File, Name, Span, Stmt};
+use shuck_ast::{Command, ConditionalExpr, File, Name, Span, Stmt, TextRange};
 use shuck_indexer::Indexer;
 use smallvec::{Array, SmallVec};
 use std::path::{Path, PathBuf};
@@ -379,6 +379,8 @@ pub(crate) struct SourceDirectiveOverride {
     pub(crate) kind: SourceRefKind,
     /// Origin and lint policy of the directive.
     pub(crate) directive: SourceDirectiveInfo,
+    /// Byte range of the value after `source=` in the directive comment.
+    pub(crate) path_range: TextRange,
     pub(crate) own_line: bool,
 }
 
